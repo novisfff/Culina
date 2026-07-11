@@ -77,6 +77,197 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(operation["unit"], "瓶")
             self.assertEqual(operation["lowStockThreshold"], None)
 
+        def test_presence_dispose_draft_fails_early_with_presence_state_required(self) -> None:
+            from app.services.ingredient_inventory_state import PresenceStateRequiredError
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-oil-dispose",
+                    family_id=self.family.id,
+                    name="食用油",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+                # Historical placeholder row must not make dispose drafts succeed.
+                db.add(
+                    InventoryItem(
+                        id="inventory-oil-placeholder",
+                        family_id=self.family.id,
+                        ingredient_id=ingredient.id,
+                        quantity=Decimal("1"),
+                        consumed_quantity=Decimal("0"),
+                        unit="瓶",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        expiry_date=None,
+                        storage_location="常温",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+                with self.assertRaises(PresenceStateRequiredError) as raised:
+                    normalize_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        payload={
+                            "operations": [
+                                {
+                                    "action": "dispose",
+                                    "ingredientId": ingredient.id,
+                                    "inventoryItemId": "inventory-oil-placeholder",
+                                    "reason": "用完了",
+                                }
+                            ]
+                        },
+                    )
+                self.assertEqual(raised.exception.code, "presence_state_required")
+
+        def test_agent_context_and_meal_plan_counts_exclude_presence_placeholders(self) -> None:
+            from app.ai.kitchen.context import load_agent_context
+            from app.ai.tools.catalog.meal_plan import _today_recommendation_context
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+            from app.services.recipe_recommendations import recipe_expiring_inventory_bonus
+
+            with self.SessionLocal() as db:
+                salt = Ingredient(
+                    id="ingredient-salt-context",
+                    family_id=self.family.id,
+                    name="盐",
+                    category="调料",
+                    default_unit="g",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(salt)
+                db.flush()
+                today = today_for_family(self.family.id)
+                db.add(
+                    InventoryItem(
+                        id="inventory-salt-placeholder",
+                        family_id=self.family.id,
+                        ingredient_id=salt.id,
+                        quantity=Decimal("1"),
+                        consumed_quantity=Decimal("0"),
+                        unit="g",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=2),
+                        storage_location="常温",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.add(
+                    IngredientInventoryState(
+                        id="state-salt-context",
+                        family_id=self.family.id,
+                        ingredient_id=salt.id,
+                        availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+                        inventory_status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=2),
+                        storage_location="常温",
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+
+                context = load_agent_context(
+                    db,
+                    family_id=self.family.id,
+                    mode=None,
+                    subject={},
+                    include_inventory=True,
+                    include_meal_logs=False,
+                )
+                self.assertTrue(all(item.id != "inventory-salt-placeholder" for item in context.inventory_items))
+                self.assertTrue(any(state.ingredient_id == salt.id for state in context.presence_states))
+
+                summary = _today_recommendation_context(
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-meal-context",
+                        run_id="run-meal-context",
+                    )
+                )
+                # tomato fixture (1) + usable salt state (1); placeholder must not double-count.
+                self.assertEqual(summary["inventoryCount"], 2)
+                # tomato fixture expiring + salt state expiring; placeholder ignored.
+                self.assertEqual(summary["expiringCount"], 2)
+
+                recipe = Recipe(
+                    id="recipe-salt-bonus",
+                    family_id=self.family.id,
+                    title="盐焗测试",
+                    servings=2,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=[],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-ingredient-salt-bonus",
+                        recipe_id=recipe.id,
+                        ingredient_id=salt.id,
+                        ingredient_name="盐",
+                        quantity=Decimal("1"),
+                        unit="g",
+                        note="",
+                        sort_order=0,
+                    )
+                )
+                db.flush()
+                recipe = db.scalar(
+                    select(Recipe)
+                    .where(Recipe.id == recipe.id)
+                    .options(selectinload(Recipe.ingredient_items))
+                )
+                assert recipe is not None
+                placeholder = db.get(InventoryItem, "inventory-salt-placeholder")
+                assert placeholder is not None
+                # Even if a caller passes residual placeholders, bonus must ignore them.
+                self.assertEqual(recipe_expiring_inventory_bonus(recipe, [placeholder], today), 0)
+                state = db.get(IngredientInventoryState, "state-salt-context")
+                assert state is not None
+                self.assertGreater(
+                    recipe_expiring_inventory_bonus(
+                        recipe,
+                        [],
+                        today,
+                        presence_states_by_ingredient={salt.id: state},
+                    ),
+                    0,
+                )
+
         def test_presence_inventory_batch_helpers_reject_not_track_quantity(self) -> None:
             from app.services.ingredient_inventory_state import PresenceStateRequiredError, upsert_inventory_state
             from app.core.enums import InventoryAvailabilityLevel, InventoryConfirmationSource

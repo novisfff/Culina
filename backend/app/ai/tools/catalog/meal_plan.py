@@ -11,9 +11,11 @@ from app.ai.tools.catalog.common import entity_media_map, first_entity_media, re
 from app.ai.tools.draft_validation import normalize_meal_plan_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import MEAL_PLAN_DRAFT_SCHEMA, READ_BY_ID_INPUT, draft_input_schema, draft_output_schema
+from app.core.enums import IngredientQuantityTrackingMode
 from app.core.utils import create_id
-from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, Recipe
+from app.models.domain import Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, Recipe
 from app.services.clock import today_for_family
+from app.services.ingredient_inventory_state import state_is_physically_present, state_is_usable
 from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_food_plan_item
 
@@ -231,20 +233,43 @@ def _remaining_expression():
 
 def _today_recommendation_context(context: ToolContext) -> dict[str, int]:
     today = today_for_family(context.family_id)
-    available_count = context.db.scalar(
-        select(func.count(InventoryItem.id)).where(
+    remaining = _remaining_expression()
+    # Precise batches only — historical presence placeholders must not inflate counts.
+    tracked_available_count = context.db.scalar(
+        select(func.count(InventoryItem.id))
+        .join(Ingredient, Ingredient.id == InventoryItem.ingredient_id)
+        .where(
             InventoryItem.family_id == context.family_id,
-            _remaining_expression() > 0,
+            Ingredient.family_id == context.family_id,
+            Ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            remaining > 0,
         )
     )
-    expiring_count = context.db.scalar(
-        select(func.count(InventoryItem.id)).where(
+    tracked_expiring_count = context.db.scalar(
+        select(func.count(InventoryItem.id))
+        .join(Ingredient, Ingredient.id == InventoryItem.ingredient_id)
+        .where(
             InventoryItem.family_id == context.family_id,
-            _remaining_expression() > 0,
+            Ingredient.family_id == context.family_id,
+            Ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            remaining > 0,
             InventoryItem.expiry_date.is_not(None),
             InventoryItem.expiry_date >= today,
             InventoryItem.expiry_date <= today + timedelta(days=7),
         )
+    )
+    presence_states = list(
+        context.db.scalars(
+            select(IngredientInventoryState).where(IngredientInventoryState.family_id == context.family_id)
+        )
+    )
+    presence_available_count = sum(1 for state in presence_states if state_is_usable(state, business_date=today))
+    presence_expiring_count = sum(
+        1
+        for state in presence_states
+        if state_is_physically_present(state)
+        and state.expiry_date is not None
+        and today <= state.expiry_date <= today + timedelta(days=7)
     )
     recent_ids = list(
         context.db.scalars(
@@ -256,8 +281,8 @@ def _today_recommendation_context(context: ToolContext) -> dict[str, int]:
     )
     recipe_count = context.db.scalar(select(func.count(Recipe.id)).where(Recipe.family_id == context.family_id))
     return {
-        "inventoryCount": int(available_count or 0),
-        "expiringCount": int(expiring_count or 0),
+        "inventoryCount": int(tracked_available_count or 0) + presence_available_count,
+        "expiringCount": int(tracked_expiring_count or 0) + presence_expiring_count,
         "recentMealCount": len(recent_ids),
         "recipeCount": int(recipe_count or 0),
     }

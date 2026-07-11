@@ -5,9 +5,10 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import Difficulty
-from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, Recipe, RecipeFavorite
-from app.services.inventory_usage import recipe_availability_summary, remaining_quantity
+from app.core.enums import Difficulty, IngredientQuantityTrackingMode
+from app.models.domain import Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, Recipe, RecipeFavorite
+from app.services.ingredient_inventory_state import state_is_physically_present
+from app.services.inventory_usage import recipe_availability_summary, remaining_quantity, tracks_quantity
 
 
 def recipe_search_text(recipe: Recipe) -> str:
@@ -109,17 +110,40 @@ def recipe_recommendation_usage_maps(
     return counts, last_used_at
 
 
-def recipe_expiring_inventory_bonus(recipe: Recipe, inventory_items: list[InventoryItem], today: date) -> int:
+def _expiry_bonus_for_date(expiry_date: date | None, today: date) -> int:
+    if expiry_date is None:
+        return 0
+    days_until_expiry = (expiry_date - today).days
+    if 0 <= days_until_expiry <= 3:
+        return 35 - days_until_expiry * 8
+    return 0
+
+
+def recipe_expiring_inventory_bonus(
+    recipe: Recipe,
+    inventory_items: list[InventoryItem],
+    today: date,
+    *,
+    presence_states_by_ingredient: dict[str, IngredientInventoryState] | None = None,
+) -> int:
     ingredient_ids = {item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id}
     if not ingredient_ids:
         return 0
     bonus = 0
     for item in inventory_items:
+        # Callers should only pass track_quantity batches; skip residual presence placeholders.
+        ingredient = getattr(item, "ingredient", None)
+        if ingredient is not None and not tracks_quantity(ingredient):
+            continue
         if item.ingredient_id not in ingredient_ids or item.expiry_date is None or remaining_quantity(item) <= 0:
             continue
-        days_until_expiry = (item.expiry_date - today).days
-        if 0 <= days_until_expiry <= 3:
-            bonus = max(bonus, 35 - days_until_expiry * 8)
+        bonus = max(bonus, _expiry_bonus_for_date(item.expiry_date, today))
+    if presence_states_by_ingredient:
+        for ingredient_id in ingredient_ids:
+            state = presence_states_by_ingredient.get(ingredient_id)
+            if state is None or not state_is_physically_present(state):
+                continue
+            bonus = max(bonus, _expiry_bonus_for_date(state.expiry_date, today))
     return bonus
 
 
@@ -141,7 +165,22 @@ def build_recipe_discovery(
     limit: int,
 ) -> dict[str, list[Recipe]]:
     foods = list(db.scalars(select(Food).where(Food.family_id == family_id)))
-    inventory_items = list(db.scalars(select(InventoryItem).where(InventoryItem.family_id == family_id)))
+    inventory_items = list(
+        db.scalars(
+            select(InventoryItem)
+            .join(Ingredient, Ingredient.id == InventoryItem.ingredient_id)
+            .where(
+                InventoryItem.family_id == family_id,
+                Ingredient.family_id == family_id,
+                Ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            )
+            .options(selectinload(InventoryItem.ingredient))
+        )
+    )
+    presence_states = list(
+        db.scalars(select(IngredientInventoryState).where(IngredientInventoryState.family_id == family_id))
+    )
+    presence_states_by_ingredient = {state.ingredient_id: state for state in presence_states}
     meal_logs = list(
         db.scalars(
             select(MealLog)
@@ -198,7 +237,12 @@ def build_recipe_discovery(
             + min(usage_counts.get(recipe.id, 0) * 15, 60)
             + (20 if recipe.prep_minutes <= 20 else 10 if recipe.prep_minutes <= 35 else 0)
             + (10 if recipe.difficulty == Difficulty.EASY else 4 if recipe.difficulty == Difficulty.MEDIUM else 0)
-            + recipe_expiring_inventory_bonus(recipe, inventory_items, today)
+            + recipe_expiring_inventory_bonus(
+                recipe,
+                inventory_items,
+                today,
+                presence_states_by_ingredient=presence_states_by_ingredient,
+            )
             + recipe_rating_bonus(recipe)
             - recent_penalty
             - (60 if recipe.id in planned_recipe_ids else 0)

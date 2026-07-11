@@ -25,7 +25,9 @@ from app.services.ingredient_units import (
     convert_quantity_to_default_unit,
     normalize_unit_label,
 )
+from app.services.ingredient_inventory_state import PresenceStateRequiredError
 from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
+
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
 
@@ -973,6 +975,8 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             if quantity is None and tracks_quantity(ingredient):
                 raise ValueError("消耗数量不能为空")
             if not tracks_quantity(ingredient):
+                # Presence consume is not a precise InventoryItem operation.
+                # Leave draft empty of batch options; product presence updates use State.
                 record["quantity"] = float(quantity) if quantity is not None else None
                 record["unit"] = unit
                 record["remainingQuantity"] = None
@@ -1056,38 +1060,12 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
                 )
                 remaining_to_reserve -= reservation
         else:
+            if not tracks_quantity(ingredient):
+                raise PresenceStateRequiredError(
+                    f"{ingredient.name} 不记录数量，请通过库存状态接口标记缺货，不能按库存批次销毁"
+                )
             if inventory_item is None:
                 raise ValueError("销毁操作必须指定库存批次")
-            if not tracks_quantity(ingredient):
-                if quantity is not None:
-                    raise ValueError("不记录数量的食材只能整批移除或重新补充")
-                if not record["reason"]:
-                    raise ValueError("销毁库存必须填写原因")
-                record["quantity"] = None
-                record["unit"] = inventory_item.unit
-                record["remainingQuantity"] = None
-                record["batchOptions"] = [
-                    {
-                        "id": inventory_item.id,
-                        "label": " · ".join(
-                            value
-                            for value in [
-                                f"到期 {inventory_item.expiry_date.isoformat()}"
-                                if inventory_item.expiry_date
-                                else "未记录到期日",
-                                inventory_item.storage_location,
-                            ]
-                            if value
-                        ),
-                        "remainingQuantity": 0,
-                        "unit": inventory_item.unit,
-                        "expiryDate": inventory_item.expiry_date.isoformat()
-                        if inventory_item.expiry_date
-                        else None,
-                    }
-                ]
-                normalized.append(record)
-                continue
             available = max(
                 inventory_remaining_in_default(inventory_item, ingredient)
                 - reserved_by_inventory_item.get(inventory_item.id, Decimal("0")),
