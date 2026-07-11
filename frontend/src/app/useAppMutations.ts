@@ -6,6 +6,7 @@ import {
   invalidateAfterFoodSceneChanged,
   invalidateAfterIngredientChanged,
   invalidateAfterInventoryChanged,
+  invalidateAfterInventoryOperation,
   invalidateAfterMealLogChanged,
   invalidateAfterQuickMealAdded,
   invalidateAfterRecipeChanged,
@@ -65,6 +66,79 @@ export function useAppMutations() {
     }) => api.correctInventoryExpiryDate(inventoryItemId, payload),
     onSuccess: async () => {
       await invalidateAfterInventoryChanged(queryClient);
+    },
+  });
+  const upsertInventoryStateMutation = useMutation({
+    mutationFn: ({
+      ingredientId,
+      payload,
+    }: {
+      ingredientId: string;
+      payload: Parameters<typeof api.upsertInventoryState>[1];
+    }) => api.upsertInventoryState(ingredientId, payload),
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const snoozeStateExpiryAlertMutation = useMutation({
+    mutationFn: ({
+      ingredientId,
+      payload,
+    }: {
+      ingredientId: string;
+      payload: Parameters<typeof api.snoozeStateExpiryAlert>[1];
+    }) => api.snoozeStateExpiryAlert(ingredientId, payload),
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const correctStateExpiryDateMutation = useMutation({
+    mutationFn: ({
+      ingredientId,
+      payload,
+    }: {
+      ingredientId: string;
+      payload: Parameters<typeof api.correctStateExpiryDate>[1];
+    }) => api.correctStateExpiryDate(ingredientId, payload),
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const setInventoryStateAbsentMutation = useMutation({
+    mutationFn: ({
+      ingredientId,
+      payload,
+    }: {
+      ingredientId: string;
+      payload: Parameters<typeof api.setInventoryStateAbsent>[1];
+    }) => api.setInventoryStateAbsent(ingredientId, payload),
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const submitShoppingIntakeMutation = useMutation({
+    mutationFn: api.submitShoppingIntake,
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const submitInventoryReconciliationMutation = useMutation({
+    mutationFn: api.submitInventoryReconciliation,
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
+  const revertInventoryOperationMutation = useMutation({
+    mutationFn: api.revertInventoryOperation,
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
     },
   });
   const createShoppingMutation = useMutation({
@@ -208,6 +282,13 @@ export function useAppMutations() {
     disposeExpiredInventoryMutation,
     snoozeInventoryExpiryAlertsMutation,
     correctInventoryExpiryDateMutation,
+    upsertInventoryStateMutation,
+    snoozeStateExpiryAlertMutation,
+    correctStateExpiryDateMutation,
+    setInventoryStateAbsentMutation,
+    submitShoppingIntakeMutation,
+    submitInventoryReconciliationMutation,
+    revertInventoryOperationMutation,
     createShoppingMutation,
     updateShoppingMutation,
     deleteShoppingMutation,

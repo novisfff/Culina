@@ -3,6 +3,7 @@ import { authApi } from './authApi';
 import { familyApi } from './familyApi';
 import { foodsApi } from './foodsApi';
 import { ingredientsApi } from './ingredientsApi';
+import { inventoryOperationsApi } from './inventoryOperationsApi';
 import { inventoryStatesApi } from './inventoryStatesApi';
 import { mediaApi } from './mediaApi';
 import { recipesApi } from './recipesApi';
@@ -15,6 +16,7 @@ export const api = {
   ...familyApi,
   ...ingredientsApi,
   ...inventoryStatesApi,
+  ...inventoryOperationsApi,
   ...recipesApi,
   ...foodsApi,
   ...aiApi,

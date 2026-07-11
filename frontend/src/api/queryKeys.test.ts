@@ -12,6 +12,14 @@ describe('queryKeys', () => {
     ]);
     expect(queryKeys.inventoryOverviewRoot).toEqual(['inventory', 'overview']);
     expect(queryKeys.inventoryStates).toEqual(['inventory', 'states']);
+    expect(queryKeys.inventoryReconciliation('suggested')).toEqual(['inventory', 'reconciliation', 'suggested', '']);
+    expect(queryKeys.inventoryReconciliation('refrigerated', '冷藏')).toEqual([
+      'inventory',
+      'reconciliation',
+      'refrigerated',
+      '冷藏',
+    ]);
+    expect(queryKeys.inventoryOperations).toEqual(['inventory', 'operations']);
     expect(queryKeys.inventoryOverview('food', ' 酸奶 ')).toEqual(['inventory', 'overview', 'food', '酸奶']);
     expect(queryKeys.activityLogList({ actor_id: 'user-1', limit: 50, offset: 0 })).toEqual([
       'activity-logs',

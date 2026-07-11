@@ -5,6 +5,7 @@ import {
   invalidateAfterAiImageJobChanged,
   invalidateAfterFoodChanged,
   invalidateAfterInventoryChanged,
+  invalidateAfterInventoryOperation,
   invalidateAfterRecipeCooked,
   invalidateAfterQuickMealAdded,
   invalidateAfterSearchIndexJobChanged,
@@ -161,6 +162,27 @@ describe('cacheInvalidation', () => {
       ['ai-image-jobs'],
       ['family'],
       ['auth', 'me'],
+      ['activity-logs'],
+    ]);
+  });
+
+  it('invalidates inventory maintenance consumers after an inventory operation', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterInventoryOperation(queryClient);
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      ['inventory'],
+      ['inventory', 'states'],
+      ['inventory', 'overview'],
+      ['inventory', 'operations'],
+      ['ingredients'],
+      ['foods'],
+      ['shopping-list'],
+      ['food-plan'],
+      ['food-recommendations'],
+      ['recipe-discovery'],
+      ['search'],
       ['activity-logs'],
     ]);
   });

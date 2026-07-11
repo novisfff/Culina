@@ -52,6 +52,24 @@ export async function invalidateAfterInventoryChanged(queryClient: QueryClient) 
   ]);
 }
 
+
+export async function invalidateAfterInventoryOperation(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
+    queryKeys.inventory,
+    queryKeys.inventoryStates,
+    queryKeys.inventoryOverviewRoot,
+    queryKeys.inventoryOperations,
+    queryKeys.ingredients,
+    queryKeys.foods,
+    queryKeys.shoppingList,
+    queryKeys.foodPlanRoot,
+    queryKeys.foodRecommendations,
+    queryKeys.recipeDiscovery,
+    queryKeys.searchRoot,
+    queryKeys.activityLogs,
+  ]);
+}
+
 export async function invalidateAfterShoppingChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [queryKeys.shoppingList, queryKeys.activityLogs]);
 }
