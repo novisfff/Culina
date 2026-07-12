@@ -4,12 +4,17 @@ import {
   invalidateAfterAiApprovalSettled,
   invalidateAfterAiImageJobChanged,
   invalidateAfterFoodChanged,
+  invalidateAfterFoodPlanChanged,
   invalidateAfterInventoryChanged,
   invalidateAfterInventoryOperation,
+  invalidateAfterMealLogChanged,
+  invalidateAfterMemberChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterQuickMealAdded,
   invalidateAfterSearchIndexJobChanged,
+  invalidateAfterShoppingChanged,
 } from './cacheInvalidation';
+import { queryKeys } from './queryKeys';
 
 function fakeQueryClient() {
   return {
@@ -55,6 +60,7 @@ describe('cacheInvalidation', () => {
       ['meal-logs'],
       ['food-plan'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
   });
 
@@ -79,6 +85,7 @@ describe('cacheInvalidation', () => {
       ['inventory', 'overview'],
       ['food-recommendations'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
   });
 
@@ -109,6 +116,7 @@ describe('cacheInvalidation', () => {
       ['inventory', 'overview'],
       ['food-recommendations'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
 
     resolveFourth?.();
@@ -127,6 +135,7 @@ describe('cacheInvalidation', () => {
       ['inventory', 'overview'],
       ['food-recommendations'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
   });
 
@@ -150,6 +159,7 @@ describe('cacheInvalidation', () => {
       ['foods'],
       ['food-recommendations'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
   });
 
@@ -184,6 +194,53 @@ describe('cacheInvalidation', () => {
       ['recipe-discovery'],
       ['search'],
       ['activity-logs'],
+      ['activity-highlights'],
     ]);
+  });
+
+  it.each([
+    invalidateAfterInventoryOperation,
+    invalidateAfterFoodPlanChanged,
+    invalidateAfterRecipeCooked,
+    invalidateAfterMealLogChanged,
+    invalidateAfterQuickMealAdded,
+  ])('invalidates the activity-highlight prefix for eligible outcomes', async (invalidate) => {
+    const queryClient = fakeQueryClient();
+    await invalidate(queryClient);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.activityHighlights,
+    });
+  });
+
+  it('invalidates the activity-highlight prefix after inventory changes including disposal', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterInventoryChanged(queryClient);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.activityHighlights,
+    });
+  });
+
+  it('invalidates the activity-highlight prefix after member changes', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterMemberChanged(queryClient);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.activityHighlights,
+    });
+  });
+
+  it('invalidates the activity-highlight prefix after AI approval settles', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterAiApprovalSettled(queryClient, 'conversation-1');
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.activityHighlights,
+    });
+  });
+
+  it('does not add highlight invalidation to ordinary shopping-list changes', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterShoppingChanged(queryClient);
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: queryKeys.activityHighlights,
+    });
   });
 });
