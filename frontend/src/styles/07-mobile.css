@@ -6249,12 +6249,10 @@
   }
 
   .mobile-dashboard-action-copy strong {
-    overflow: hidden;
     color: #2d211b;
     font-weight: 950;
-    line-height: 1.15;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.22;
+    overflow-wrap: anywhere;
   }
 
   .mobile-dashboard-action-copy small {
@@ -6269,7 +6267,7 @@
   }
 
   .mobile-dashboard-action-primary {
-    min-width: 88px;
+    min-width: 92px;
     min-height: 44px;
     padding: 0 12px;
     border: 0;
@@ -8002,6 +8000,59 @@
 }
 
 @media (max-width: 767px) {
+  /* Inventory actions own the scroll region. The generic sheet body must not
+     become a second scroller, otherwise the fixed action area can be pushed
+     below the visual viewport on short phones. */
+  .workspace-overlay-root .inventory-action-modal.workspace-modal {
+    max-height: calc(100dvh - 12px) !important;
+  }
+
+  .workspace-overlay-root .inventory-action-modal > .workspace-overlay-head {
+    padding: 32px 16px 12px;
+  }
+
+  .workspace-overlay-root .inventory-action-modal > .workspace-overlay-body {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 0 16px 10px;
+    overflow: hidden !important;
+  }
+
+  .workspace-overlay-root .inventory-action-modal .inventory-action-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 1px 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspace-overlay-root .workspace-modal.inventory-action-modal > .workspace-overlay-footer {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 10px 16px max(12px, env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--line-soft);
+    background: var(--surface-2);
+  }
+
+  .workspace-overlay-root .inventory-action-modal .workspace-overlay-footer-info {
+    min-width: 0;
+  }
+
+  .workspace-overlay-root .inventory-action-modal .inventory-action-footer-summary {
+    gap: 0;
+  }
+
+  .workspace-overlay-root .inventory-action-modal .inventory-action-footer-summary strong {
+    font-size: 0.88rem;
+    white-space: nowrap;
+  }
+
+  .workspace-overlay-root .inventory-action-modal .inventory-action-footer-quantity {
+    display: none;
+  }
+
   .workspace-overlay-root .workspace-modal > .workspace-overlay-footer,
   .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer {
     padding: 10px 20px max(12px, env(safe-area-inset-bottom, 0px));

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1101,6 +1101,64 @@ async function runHomeActionCenterSmoke(browser, baseUrl) {
   await context.close();
 }
 
+async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+
+  const primary = viewport.width <= 767
+    ? page.locator('.mobile-dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]')
+    : page.locator('.dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]');
+  await primary.click();
+  await expectVisible(page.locator('.inventory-action-modal'), `${label} 库存处理弹窗`);
+  await page.waitForTimeout(320);
+
+  const geometry = await page.evaluate(() => {
+    const modal = document.querySelector('.inventory-action-modal');
+    const body = modal?.querySelector('.workspace-overlay-body');
+    const scroll = modal?.querySelector('.inventory-action-scroll');
+    const footer = modal?.querySelector('.workspace-overlay-footer');
+    const primaryButton = footer?.querySelector('button:not([disabled])');
+    if (!modal || !body || !scroll || !footer || !primaryButton) {
+      return { ok: false, reason: 'missing-element' };
+    }
+    const modalRect = modal.getBoundingClientRect();
+    const bodyStyle = getComputedStyle(body);
+    const scrollStyle = getComputedStyle(scroll);
+    const footerRect = footer.getBoundingClientRect();
+    const primaryRect = primaryButton.getBoundingClientRect();
+    return {
+      ok:
+        modalRect.bottom <= window.innerHeight + 1 &&
+        footerRect.bottom <= window.innerHeight + 1 &&
+        primaryRect.bottom <= window.innerHeight + 1 &&
+        primaryRect.top >= footerRect.top - 1 &&
+        bodyStyle.overflowY === 'hidden' &&
+        ['auto', 'scroll'].includes(scrollStyle.overflowY),
+      modalBottom: Math.round(modalRect.bottom),
+      footerBottom: Math.round(footerRect.bottom),
+      primaryTop: Math.round(primaryRect.top),
+      primaryBottom: Math.round(primaryRect.bottom),
+      viewportHeight: window.innerHeight,
+      bodyOverflowY: bodyStyle.overflowY,
+      scrollOverflowY: scrollStyle.overflowY,
+    };
+  });
+  if (!geometry.ok) {
+    throw new Error(`${label} 库存处理弹窗底部操作区不可用：${JSON.stringify(geometry)}`);
+  }
+
+  const screenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  if (screenshotDir) {
+    mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({ path: resolve(screenshotDir, `inventory-action-${viewport.width}x${viewport.height}.png`) });
+  }
+
+  await page.getByLabel('关闭').last().click();
+  await page.locator('.inventory-action-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  assertClean();
+  await context.close();
+}
+
 async function main() {
   assertDistExists();
   const preview = await startPreview();
@@ -1109,6 +1167,12 @@ async function main() {
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runHomeActionCenterSmoke(browser, preview.url);
+    await runInventoryActionViewportSmoke(browser, preview.url, { width: 1440, height: 960 }, '1440x960 桌面端');
+    await runInventoryActionViewportSmoke(browser, preview.url, { width: 1024, height: 744 }, '1024x744 iPad 横屏');
+    await runInventoryActionViewportSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812 手机端', {
+      isMobile: true,
+      hasTouch: true,
+    });
     await runResponsiveSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812');
     await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
     await runResponsiveSmoke(browser, preview.url, { width: 430, height: 932 }, '430x932');

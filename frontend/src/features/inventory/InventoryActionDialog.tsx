@@ -346,8 +346,10 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     <div className="inventory-action-footer-summary">
       <span>已选择</span>
       <strong>
-        {selectedValidCount} 个批次
-        {selectedQuantityLabels.length > 0 ? ` · ${selectedQuantityLabels.join('、')}` : ''}
+        <span>{selectedValidCount} 个批次</span>
+        {selectedQuantityLabels.length > 0 ? (
+          <span className="inventory-action-footer-quantity"> · {selectedQuantityLabels.join('、')}</span>
+        ) : null}
       </strong>
       {mode.kind === 'dispose_confirm' ? (
         <p>
