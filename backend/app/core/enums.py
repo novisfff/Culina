@@ -113,6 +113,14 @@ class ActivityAction(str, Enum):
     REVERT = "revert"
 
 
+class ActivityHighlightKind(str, Enum):
+    SHOPPING = "shopping"
+    INVENTORY = "inventory"
+    MEAL_PLAN = "meal_plan"
+    MEAL = "meal"
+    FAMILY = "family"
+
+
 class MediaSource(str, Enum):
     UPLOAD = "upload"
     AI = "ai"
