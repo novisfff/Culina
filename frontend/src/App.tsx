@@ -209,6 +209,7 @@ function App() {
     foodsQuery,
     mealLogsQuery,
     activityLogsQuery,
+    activityHighlightsQuery,
     aiConversationsQuery,
     isBootLoading: isWorkspaceBootLoading,
     members,
@@ -256,6 +257,8 @@ function App() {
   const {
     dashboardRecommendationPage,
     setDashboardRecommendationPage,
+    desktopRecommendationCursor,
+    mobileRecommendationCursor,
     selectedDashboardPlanDate,
     setSelectedDashboardPlanDate,
     homePlanDetailItemId,
@@ -685,6 +688,9 @@ function App() {
     homeMealDetailParticipants,
     homeRestockIngredient,
     homeRestockIngredientImageUrl,
+    homeHighlightsViewModel,
+    homeRequiredActions,
+    hasMoreHomeActions,
   } = useAppHomeViewModel({
     user,
     membershipRole: membership?.role,
@@ -701,7 +707,15 @@ function App() {
     foodRecommendations,
     mealLogs,
     activityLogs,
+    activityHighlights: {
+      data: activityHighlightsQuery.data,
+      isLoading: activityHighlightsQuery.isLoading,
+      isError: activityHighlightsQuery.isError,
+      isFetching: activityHighlightsQuery.isFetching,
+    },
     dashboardRecommendationPage,
+    desktopRecommendationCursor,
+    mobileRecommendationCursor,
     selectedDashboardPlanDate,
     foodPlanWeekRange,
     homePlanDetailItemId,
@@ -714,9 +728,17 @@ function App() {
     resolveDashboardAssetUrl,
   });
 
+  function retryHomeHighlights() {
+    void activityHighlightsQuery.refetch();
+  }
+
   void homeInventoryActionCount;
   void availableInventoryCount;
   void completedIngredientId;
+  void homeHighlightsViewModel;
+  void homeRequiredActions;
+  void hasMoreHomeActions;
+  void retryHomeHighlights;
 
   const selectedActionGroup =
     homeEligibleInventoryActionGroups.find((group) => group.id === selectedActionGroupId) ?? null;

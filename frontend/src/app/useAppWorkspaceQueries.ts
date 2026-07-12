@@ -44,6 +44,7 @@ export function useAppWorkspaceQueries(args: {
   const needsFoodRecommendations = matchesTabWindow(args.activeTab, ['home', 'foods']);
   const needsMealLogs = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
   const needsActivityLogs = matchesTabWindow(args.activeTab, ['home', 'family']);
+  const needsActivityHighlights = args.activeTab === 'home';
   const needsAiConversations = args.activeTab === 'ai';
 
   const familyQuery = useQuery({
@@ -132,6 +133,11 @@ export function useAppWorkspaceQueries(args: {
     queryFn: () => api.getActivityLogs(),
     enabled: args.isAuthenticated && needsActivityLogs,
   });
+  const activityHighlightsQuery = useQuery({
+    queryKey: queryKeys.activityHighlightList(5),
+    queryFn: () => api.getActivityHighlights(5),
+    enabled: args.isAuthenticated && needsActivityHighlights,
+  });
   const aiConversationsQuery = useQuery({
     queryKey: queryKeys.aiConversations,
     queryFn: api.getAiConversations,
@@ -173,6 +179,7 @@ export function useAppWorkspaceQueries(args: {
     foodRecommendationsQuery,
     mealLogsQuery,
     activityLogsQuery,
+    activityHighlightsQuery,
     aiConversationsQuery,
     isBootLoading,
     members: membersQuery.data ?? [],

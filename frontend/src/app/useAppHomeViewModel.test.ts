@@ -38,38 +38,50 @@ const inventoryItem: InventoryItem = {
   row_version: 1,
 };
 
+type HomeArgs = Parameters<typeof useAppHomeViewModel>[0];
+
+function buildHomeArgs(overrides: Partial<HomeArgs> = {}): HomeArgs {
+  return {
+    user: null,
+    membershipRole: 'Owner',
+    family: null,
+    members: [],
+    memberEditMemberId: '',
+    ingredients: [tomato],
+    inventoryItems: [inventoryItem],
+    shoppingItems: [],
+    recipes: [],
+    foods: [],
+    foodPlanItems: [],
+    foodRecommendations: null,
+    mealLogs: [],
+    activityLogs: [],
+    activityHighlights: {
+      data: undefined,
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    },
+    dashboardRecommendationPage: 0,
+    selectedDashboardPlanDate: '2026-07-12',
+    foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
+    homePlanDetailItemId: null,
+    homePlanAddFoodId: null,
+    homePlanAddFoodSearch: '',
+    homeRestockShoppingItemId: null,
+    homeMealDetailId: null,
+    homeRestockForm: null,
+    resolveDashboardAssetUrl: (url) => url,
+    ...overrides,
+  };
+}
+
 describe('useAppHomeViewModel', () => {
   it('injects Asia/Shanghai businessDateKey even when device local calendar differs', () => {
     // 2026-07-11 23:30 America/New_York == 2026-07-12 11:30 Asia/Shanghai
     const now = new Date('2026-07-12T03:30:00.000Z');
 
-    const model = useAppHomeViewModel({
-      user: null,
-      membershipRole: 'Owner',
-      family: null,
-      members: [],
-      memberEditMemberId: '',
-      ingredients: [tomato],
-      inventoryItems: [inventoryItem],
-      shoppingItems: [],
-      recipes: [],
-      foods: [],
-      foodPlanItems: [],
-      foodRecommendations: null,
-      mealLogs: [],
-      activityLogs: [],
-      dashboardRecommendationPage: 0,
-      selectedDashboardPlanDate: '2026-07-12',
-      foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
-      homePlanDetailItemId: null,
-      homePlanAddFoodId: null,
-      homePlanAddFoodSearch: '',
-      homeRestockShoppingItemId: null,
-      homeMealDetailId: null,
-      homeRestockForm: null,
-      resolveDashboardAssetUrl: (url) => url,
-      now,
-    });
+    const model = useAppHomeViewModel(buildHomeArgs({ now }));
 
     expect(model.businessDateKey).toBe('2026-07-12');
     expect(model.today).toBe('2026-07-12');
@@ -83,5 +95,50 @@ describe('useAppHomeViewModel', () => {
     expect(model.homeInventoryActionCount).toBe(1);
     expect(model.availableInventoryCount).toBe(1);
     expect(model.dashboardStats.find((stat) => stat.label === '需处理食材')?.value).toBe('1');
+  });
+
+  it('uses the server week count and never converts no-cache errors to zero', () => {
+    const success = useAppHomeViewModel(buildHomeArgs({
+      activityHighlights: {
+        data: { items: [], week_highlight_count: 0 },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+      },
+    }));
+    const failure = useAppHomeViewModel(buildHomeArgs({
+      activityHighlights: {
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isFetching: false,
+      },
+    }));
+    expect(success.sidebarActivityLabel).toBe('本周协作 0 次');
+    expect(failure.sidebarActivityLabel).toBe('本周协作 --');
+  });
+
+  it('keeps stale week count when refresh fails after cache is present', () => {
+    const model = useAppHomeViewModel(buildHomeArgs({
+      activityHighlights: {
+        data: {
+          items: [{
+            id: 'highlight-1',
+            kind: 'shopping',
+            summary: '买了番茄',
+            actor_id: 'user-1',
+            actor_name: '小明',
+            created_at: '2026-07-12T00:00:00.000Z',
+          }],
+          week_highlight_count: 7,
+        },
+        isLoading: false,
+        isError: true,
+        isFetching: false,
+      },
+    }));
+
+    expect(model.sidebarActivityLabel).toBe('本周协作 7 次');
+    expect(model.homeHighlightsViewModel.hasRefreshError).toBe(true);
   });
 });

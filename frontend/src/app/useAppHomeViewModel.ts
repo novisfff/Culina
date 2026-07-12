@@ -1,4 +1,5 @@
 import type {
+  ActivityHighlightsResponse,
   ActivityLog,
   FamilyDetail,
   Food,
@@ -23,8 +24,17 @@ import { businessDateKey } from '../lib/date';
 import type { FamilyStatCard } from '../features/family/FamilySettings';
 import {
   buildHomeDashboardViewModel,
+  buildHomeHighlightsViewModel,
+  buildHomeRequiredActions,
   type HomeRestockFormState,
 } from '../features/home/homeDashboardModel';
+
+type HomeActivityHighlightsInput = {
+  data?: ActivityHighlightsResponse;
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+};
 
 type UseAppHomeViewModelArgs = {
   user: UserSummary | null;
@@ -42,7 +52,10 @@ type UseAppHomeViewModelArgs = {
   foodRecommendations: FoodRecommendations | null;
   mealLogs: MealLog[];
   activityLogs: ActivityLog[];
+  activityHighlights: HomeActivityHighlightsInput;
   dashboardRecommendationPage: number;
+  desktopRecommendationCursor?: number;
+  mobileRecommendationCursor?: number;
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
   homePlanDetailItemId: string | null;
@@ -149,7 +162,8 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const sidebarLocation = args.family?.location || '未设置位置';
   const sidebarMotto = args.family?.motto || '把食物、食材、记录和协作放在一个安静的大屏工作区里。';
   const sidebarMemberLabel = `${args.members.length} 位成员`;
-  const sidebarActivityLabel = weekActivityCount > 0 ? `本周协作 ${weekActivityCount} 次` : '协作中';
+  const homeHighlightsViewModel = buildHomeHighlightsViewModel(args.activityHighlights);
+  const sidebarActivityLabel = homeHighlightsViewModel.weekCountLabel;
   const sidebarUserMeta = currentUser?.username ? `${sidebarRoleLabel} · ${currentUser.username}` : sidebarRoleLabel;
   const sidebarUserNote = args.family?.location
     ? `${args.family.location} · ${sidebarFamilyName}`
@@ -166,8 +180,17 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     mealLogs: args.mealLogs,
     today,
     dashboardRecommendationPage: args.dashboardRecommendationPage,
+    desktopRecommendationCursor: args.desktopRecommendationCursor,
+    mobileRecommendationCursor: args.mobileRecommendationCursor,
     selectedDashboardPlanDate: args.selectedDashboardPlanDate,
     foodPlanWeekRange: args.foodPlanWeekRange,
+  });
+  const {
+    actions: homeRequiredActions,
+    hasMoreHomeActions,
+  } = buildHomeRequiredActions({
+    inventoryGroups: dashboardViewModel.homeEligibleInventoryActionGroups,
+    pendingShoppingCount: dashboardViewModel.pendingShoppingCount,
   });
   const homeRestockShoppingItem = args.homeRestockShoppingItemId
     ? args.shoppingItems.find((item) => item.id === args.homeRestockShoppingItemId) ?? null
@@ -222,6 +245,9 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     sidebarUserNote,
     today,
     ...dashboardViewModel,
+    homeHighlightsViewModel,
+    homeRequiredActions,
+    hasMoreHomeActions,
     homeRestockShoppingItem,
     homeMealDetail,
     homeMealDetailParticipants,
