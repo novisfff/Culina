@@ -1,3 +1,5 @@
+.claude/
+.superpowers/
 .ace-tool/
 .playwright-cli/
 node_modules/
