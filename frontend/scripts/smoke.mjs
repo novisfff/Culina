@@ -596,6 +596,100 @@ const emptyDiscoverySection = {
   recipes: [],
 };
 
+function makeHighlight(id, kind, summary, createdAt) {
+  return {
+    id,
+    kind,
+    summary,
+    actor_id: user.id,
+    actor_name: user.display_name,
+    created_at: createdAt,
+  };
+}
+
+const activityHighlightsFixture = {
+  items: [
+    makeHighlight('highlight-5', 'shopping', '完成 5 项采购入库', '2026-07-12T08:42:00Z'),
+    makeHighlight('highlight-4', 'inventory', '完成库存盘点并修正 3 项', '2026-07-12T08:10:00Z'),
+    makeHighlight('highlight-3', 'meal_plan', '安排了周日晚餐', '2026-07-11T11:30:00Z'),
+    makeHighlight('highlight-2', 'meal', '完成番茄炒蛋并记录用餐', '2026-07-11T10:00:00Z'),
+    makeHighlight('highlight-1', 'family', '邀请爸爸加入家庭', '2026-07-10T09:00:00Z'),
+  ],
+  week_highlight_count: 9,
+};
+
+const activityLogs = activityHighlightsFixture.items.map((item, index) => ({
+  id: `activity-log-${index + 1}`,
+  family_id: family.id,
+  actor_id: item.actor_id,
+  actor_name: item.actor_name,
+  action: item.kind,
+  entity_type: item.kind,
+  entity_id: item.id,
+  summary: item.summary,
+  created_at: item.created_at,
+}));
+
+function makeRecommendationFood(index) {
+  if (index === 0) return food;
+  return {
+    ...food,
+    id: `food-rec-${index + 1}`,
+    name: `推荐菜 ${index + 1}`,
+    recipe_id: null,
+    notes: `smoke recommendation ${index + 1}`,
+  };
+}
+
+const recommendationFoods = [0, 1, 2, 3, 4].map(makeRecommendationFood);
+const recommendationItems = recommendationFoods.map((item, index) => ({
+  food: item,
+  score: 0.9 - index * 0.05,
+  reasons: [`适合今天安排 · ${index + 1}`],
+  primary_action: item.recipe_id ? 'cook_recipe' : 'quick_add_meal',
+}));
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function createRouteController() {
+  return {
+    highlightDelay: deferred(),
+    activityLogDelay: deferred(),
+    routeMode: {
+      highlights: 'success',
+      activityLogs: 'success',
+    },
+  };
+}
+
+async function fulfillActivityRoute(route, url, routeController) {
+  if (url.pathname === '/api/activity-highlights') {
+    if (routeController.routeMode.highlights === 'delay') await routeController.highlightDelay.promise;
+    if (routeController.routeMode.highlights === 'error') {
+      await fulfillJson(route, { detail: 'fixture highlight failure' }, 500);
+      return true;
+    }
+    await fulfillJson(route, activityHighlightsFixture);
+    return true;
+  }
+  if (url.pathname === '/api/activity-logs') {
+    if (routeController.routeMode.activityLogs === 'delay') await routeController.activityLogDelay.promise;
+    if (routeController.routeMode.activityLogs === 'error') {
+      await fulfillJson(route, { detail: 'fixture activity-log failure' }, 500);
+      return true;
+    }
+    await fulfillJson(route, activityLogs);
+    return true;
+  }
+  return false;
+}
+
 const fixtures = {
   '/api/auth/me': authResponse,
   '/api/family': family,
@@ -622,21 +716,13 @@ const fixtures = {
   '/api/recipe-plan': [],
   '/api/food-plan': [],
   '/api/food-scenes': [],
-  '/api/foods': [food],
+  '/api/foods': recommendationFoods,
   '/api/foods/recommendations': {
     target_meal_type: 'dinner',
     target_date: today,
-    items: [
-      {
-        food,
-        score: 0.9,
-        reasons: ['适合今天安排'],
-        primary_action: 'quick_add_meal',
-      },
-    ],
+    items: recommendationItems,
   },
   '/api/meal-logs': [],
-  '/api/activity-logs': [],
   '/api/ai/conversations': [],
   '/api/ai/status': {
     enabled: true,
@@ -764,7 +850,10 @@ async function stopPreviewProcess(child) {
   await waitForPreviewExit(child, 2_500);
 }
 
-async function installApiMocks(context, unexpectedRequests) {
+async function installApiMocks(context, unexpectedRequests, options = {}) {
+  const requestedApiPaths = options.requestedApiPaths ?? null;
+  const routeController = options.routeController ?? createRouteController();
+
   await context.route('https://fonts.googleapis.com/**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -779,6 +868,10 @@ async function installApiMocks(context, unexpectedRequests) {
   await context.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+
+    if (url.pathname.startsWith('/api/') && requestedApiPaths) {
+      requestedApiPaths.push(url.pathname);
+    }
 
     if (request.method() === 'OPTIONS') {
       await route.fulfill({
@@ -809,6 +902,10 @@ async function installApiMocks(context, unexpectedRequests) {
       return;
     }
 
+    if (await fulfillActivityRoute(route, url, routeController)) {
+      return;
+    }
+
     const fixture = fixtures[url.pathname];
     if (fixture !== undefined) {
       await fulfillJson(route, fixture);
@@ -818,6 +915,8 @@ async function installApiMocks(context, unexpectedRequests) {
     unexpectedRequests.push(`${request.method()} ${url.pathname}${url.search}`);
     await fulfillJson(route, { detail: `Unhandled smoke API: ${url.pathname}` }, 404);
   });
+
+  return { routeController, requestedApiPaths };
 }
 
 function corsHeaders() {
@@ -837,13 +936,15 @@ async function fulfillJson(route, body, status = 200) {
   });
 }
 
-async function createPage(browser, viewport, authenticated = true, contextOptions = {}) {
+async function createPage(browser, viewport, authenticated = true, contextOptions = {}, mockOptions = {}) {
   const context = await browser.newContext({ viewport, ...contextOptions });
   const unexpectedRequests = [];
   const pageErrors = [];
   const consoleErrors = [];
+  const requestedApiPaths = mockOptions.requestedApiPaths ?? [];
+  const routeController = mockOptions.routeController ?? createRouteController();
 
-  await installApiMocks(context, unexpectedRequests);
+  await installApiMocks(context, unexpectedRequests, { requestedApiPaths, routeController });
   if (authenticated) {
     await context.addInitScript(() => {
       localStorage.setItem('culina-access-token', 'smoke-token');
@@ -862,6 +963,8 @@ async function createPage(browser, viewport, authenticated = true, contextOption
   return {
     context,
     page,
+    routeController,
+    requestedApiPaths,
     assertClean: () => {
       if (unexpectedRequests.length > 0) {
         throw new Error(`未 mock 的 API 请求：\n${unexpectedRequests.join('\n')}`);
@@ -875,6 +978,115 @@ async function createPage(browser, viewport, authenticated = true, contextOption
       }
     },
   };
+}
+
+function isPhoneViewportSize(viewport) {
+  return viewport.width <= 767;
+}
+
+function homeSurfaceLocator(page, viewport) {
+  return isPhoneViewportSize(viewport)
+    ? page.locator('.mobile-dashboard-page')
+    : page.locator('.dashboard-page');
+}
+
+async function assertHomeThreeQuestions(page, viewport, label) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const surface = homeSurfaceLocator(page, viewport);
+  await expectVisible(surface.getByRole('heading', { name: '今天吃什么' }), `${label} 首页问题 1`);
+  await expectVisible(surface.getByRole('heading', { name: '今天必须处理什么' }), `${label} 首页问题 2`);
+  await expectVisible(surface.getByRole('heading', { name: '家里发生了什么' }), `${label} 首页问题 3`);
+
+  const recommendationCount = await surface.getByTestId('home-recommendation-card').count();
+  const expectedRecommendationCount = isPhoneViewport ? 1 : 3;
+  if (recommendationCount !== expectedRecommendationCount) {
+    throw new Error(
+      `${label} 首页推荐数量错误：expected=${expectedRecommendationCount} actual=${recommendationCount}`
+    );
+  }
+
+  const highlightCount = await surface.getByTestId('home-highlight-row').count();
+  const expectedHighlightCount = isPhoneViewport ? 3 : 5;
+  if (highlightCount !== expectedHighlightCount) {
+    throw new Error(
+      `${label} 首页高亮数量错误：expected=${expectedHighlightCount} actual=${highlightCount}`
+    );
+  }
+
+  const calendarDayCount = await surface.getByRole('button', { name: /选择 / }).count();
+  if (calendarDayCount !== 7) {
+    throw new Error(`${label} 紧凑日历不是 7 天：actual=${calendarDayCount}`);
+  }
+
+  if (isPhoneViewport) {
+    await expectVisible(page.getByRole('navigation', { name: '手机主导航' }), `${label} 手机底部导航`);
+  }
+}
+
+async function assertHomeLayoutMeasurements(page, viewport, label) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const layout = await page.evaluate((phone) => {
+    const root = document.documentElement;
+    const surface = document.querySelector(phone ? '.mobile-dashboard-page' : '.dashboard-page');
+    const calendar = surface?.querySelector('[data-testid="mobile-home-calendar-scroll"]') ?? null;
+    const meta = surface?.querySelector('.mobile-dashboard-meta-row') ?? null;
+    const lower = surface?.querySelector('[data-testid="home-lower-grid"]') ?? null;
+    const question2 = surface?.querySelector('[data-testid="mobile-home-question"][data-question="2"]') ?? null;
+    const question3 = surface?.querySelector('[data-testid="mobile-home-question"][data-question="3"]') ?? null;
+    const actionRows = Array.from(surface?.querySelectorAll('.home-action-row') ?? []);
+    const highlightRows = Array.from(surface?.querySelectorAll('[data-testid="home-highlight-row"]') ?? []);
+    const uniqueXs = (nodes) =>
+      [...new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().left)))];
+    return {
+      rootFits: root.scrollWidth <= root.clientWidth + 1,
+      calendarScrolls: calendar ? calendar.scrollWidth > calendar.clientWidth : null,
+      metaScrollable: meta ? getComputedStyle(meta).overflowX === 'auto' : null,
+      lowerColumns: lower ? getComputedStyle(lower).gridTemplateColumns : '',
+      questionStack:
+        question2 && question3
+          ? {
+              q2Bottom: Math.round(question2.getBoundingClientRect().bottom),
+              q3Top: Math.round(question3.getBoundingClientRect().top),
+              overlap:
+                question2.getBoundingClientRect().bottom > question3.getBoundingClientRect().top + 1 &&
+                question3.getBoundingClientRect().bottom > question2.getBoundingClientRect().top + 1,
+            }
+          : null,
+      actionXs: uniqueXs(actionRows),
+      highlightXs: uniqueXs(highlightRows),
+    };
+  }, isPhoneViewport);
+
+  if (!layout.rootFits) {
+    throw new Error(`${label} 首页根页面产生横向溢出`);
+  }
+
+  if (isPhoneViewport) {
+    if (layout.calendarScrolls !== true) {
+      throw new Error(`${label} 手机紧凑日历没有形成受控横滑`);
+    }
+    if (layout.metaScrollable !== true) {
+      throw new Error(`${label} 手机 Hero meta chips 没有保持受控横滑`);
+    }
+    if (!layout.questionStack) {
+      throw new Error(`${label} 手机问题 2/3 节点缺失`);
+    }
+    if (layout.questionStack.overlap || layout.questionStack.q3Top < layout.questionStack.q2Bottom) {
+      throw new Error(
+        `${label} 手机问题 2/3 重叠或顺序错误：q2Bottom=${layout.questionStack.q2Bottom} q3Top=${layout.questionStack.q3Top}`
+      );
+    }
+  } else {
+    if (layout.lowerColumns.trim().split(/\s+/).length !== 2) {
+      throw new Error(`${label} 桌面问题 2/3 不是两列：${layout.lowerColumns}`);
+    }
+    if (layout.actionXs.length > 1) {
+      throw new Error(`${label} 桌面动作行不是单列：x=${layout.actionXs.join(',')}`);
+    }
+    if (layout.highlightXs.length > 1) {
+      throw new Error(`${label} 桌面高亮行不是单列：x=${layout.highlightXs.join(',')}`);
+    }
+  }
 }
 
 async function expectVisible(locator, label) {
@@ -1167,11 +1379,27 @@ async function runLoginSmoke(browser, baseUrl) {
 }
 
 async function runDesktopSmoke(browser, baseUrl) {
-  const { context, page, assertClean } = await createPage(browser, { width: 1440, height: 960 });
+  const requestedApiPaths = [];
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1440, height: 960 },
+    true,
+    {},
+    { requestedApiPaths }
+  );
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await expectVisibleText(page, '家庭厨房工作台', '桌面首页工作台标识');
   await expectVisible(page.getByRole('heading', { name: '首页' }), '桌面首页标题');
+  await assertHomeThreeQuestions(page, { width: 1440, height: 960 }, '1440x960');
+  await assertHomeLayoutMeasurements(page, { width: 1440, height: 960 }, '1440x960');
   await expectNoHorizontalOverflow(page, '桌面首页');
+
+  if (requestedApiPaths.includes('/api/activity-logs')) {
+    throw new Error('首页错误请求了完整 /api/activity-logs');
+  }
+  if (!requestedApiPaths.includes('/api/activity-highlights')) {
+    throw new Error('首页未请求 /api/activity-highlights');
+  }
 
   await page.getByRole('button', { name: '食物' }).first().click();
   await expectVisibleText(page, '食物库', '食物工作台');
@@ -1186,11 +1414,23 @@ async function runDesktopSmoke(browser, baseUrl) {
   await context.close();
 }
 
-async function runResponsiveSmoke(browser, baseUrl, viewport, label) {
-  const { context, page, assertClean } = await createPage(browser, viewport);
+async function runResponsiveSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const requestedApiPaths = [];
+  const { context, page, assertClean } = await createPage(
+    browser,
+    viewport,
+    true,
+    contextOptions,
+    { requestedApiPaths }
+  );
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await expectVisibleText(page, '家庭厨房工作台', `${label} 工作台标识`);
+  await assertHomeThreeQuestions(page, viewport, label);
+  await assertHomeLayoutMeasurements(page, viewport, label);
   await expectNoHorizontalOverflow(page, label);
+  if (requestedApiPaths.includes('/api/activity-logs')) {
+    throw new Error(`${label} 首页错误请求了完整 /api/activity-logs`);
+  }
   await page.getByRole('button', { name: '食材' }).first().click();
   await expectVisibleText(page, '食材', `${label} 食材入口`);
   await expectNoHorizontalOverflow(page, `${label} 食材页`);
@@ -1256,6 +1496,8 @@ async function runTabletLandscapeSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1112, height: 834 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await expectVisible(page.getByRole('heading', { name: '首页' }), '1112x834 首页标题');
+  await assertHomeThreeQuestions(page, { width: 1112, height: 834 }, '1112x834');
+  await assertHomeLayoutMeasurements(page, { width: 1112, height: 834 }, '1112x834');
   await expectNoHorizontalOverflow(page, '1112x834 首页');
   await expectHeaderActionBesideCopy(page, '.dashboard-page .page-header', '1112x834 首页头部');
   const legacyDetailButtonCount = await page.locator('.dashboard-food-card .dashboard-icon-button[aria-label="查看详情"]').count();
@@ -1295,28 +1537,31 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1180, height: 820 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await expectVisible(page.getByRole('heading', { name: '首页' }), '1180x820 首页标题');
-  await expectVisible(page.locator('.dashboard-lower-grid'), '1180x820 首页摘要区');
+  await expectVisible(page.getByTestId('home-lower-grid'), '1180x820 首页摘要区');
+  await assertHomeThreeQuestions(page, { width: 1180, height: 820 }, '1180x820');
+  await assertHomeLayoutMeasurements(page, { width: 1180, height: 820 }, '1180x820');
   await expectNoHorizontalOverflow(page, '1180x820 首页');
-  await expectVisibleText(page, '今天要处理', '1180x820 今天要处理');
+  await expectVisibleText(page, '今天必须处理什么', '1180x820 今天必须处理什么');
   const homeCompactLayout = await page.evaluate(() => {
+    const surface = document.querySelector('.dashboard-page');
     const styles = (selector) => {
-      const element = document.querySelector(selector);
+      const element = surface?.querySelector(selector) ?? document.querySelector(selector);
       return element ? getComputedStyle(element) : null;
     };
-    const columnCount = (selector) => styles(selector)?.gridTemplateColumns.split(' ').length ?? 0;
+    const columnCount = (selector) => styles(selector)?.gridTemplateColumns.split(/\s+/).filter(Boolean).length ?? 0;
     const columnWidths = (selector) =>
-      styles(selector)?.gridTemplateColumns.split(' ').map((value) => Number.parseFloat(value)).filter(Number.isFinite) ?? [];
-    const actionItems = Array.from(document.querySelectorAll('.dashboard-action-item'));
+      styles(selector)?.gridTemplateColumns.split(/\s+/).map((value) => Number.parseFloat(value)).filter(Number.isFinite) ?? [];
+    const actionItems = Array.from(surface?.querySelectorAll('.home-action-row') ?? []);
+    const highlightItems = Array.from(surface?.querySelectorAll('[data-testid="home-highlight-row"]') ?? []);
     return {
-      lowerColumns: columnCount('.dashboard-lower-grid'),
-      lowerColumnWidths: columnWidths('.dashboard-lower-grid'),
-      actionColumns: columnCount('.dashboard-action-list'),
-      activityColumns: columnCount('.dashboard-activity-list'),
+      lowerColumns: columnCount('[data-testid="home-lower-grid"]'),
+      lowerColumnWidths: columnWidths('[data-testid="home-lower-grid"]'),
+      actionColumns: columnCount('.home-action-list'),
+      activityColumns: columnCount('.home-highlight-list'),
       actionItemOverflow: actionItems.map((item) => item.scrollWidth - item.clientWidth),
       actionGroupCount: actionItems.length,
       tomatoGroupCount: actionItems.filter((item) => (item.textContent ?? '').includes('番茄')).length,
-      weekOrder: styles('.dashboard-week-panel')?.order ?? 'missing',
-      actionOrder: styles('.dashboard-action-panel')?.order ?? 'missing',
+      highlightCount: highlightItems.length,
     };
   });
   if (
@@ -1324,15 +1569,13 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     homeCompactLayout.actionColumns !== 1 ||
     homeCompactLayout.activityColumns !== 1 ||
     homeCompactLayout.lowerColumnWidths.length !== 2 ||
-    Math.abs(homeCompactLayout.lowerColumnWidths[0] - homeCompactLayout.lowerColumnWidths[1]) > 2 ||
     homeCompactLayout.actionItemOverflow.some((overflow) => overflow > 1) ||
-    homeCompactLayout.weekOrder !== '1' ||
-    homeCompactLayout.actionOrder !== '2' ||
     homeCompactLayout.actionGroupCount < 1 ||
-    homeCompactLayout.tomatoGroupCount !== 1
+    homeCompactLayout.tomatoGroupCount !== 1 ||
+    homeCompactLayout.highlightCount !== 5
   ) {
     throw new Error(
-      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列/${homeCompactLayout.lowerColumnWidths.join(',')}，动作 ${homeCompactLayout.actionColumns} 列，动作溢出 ${homeCompactLayout.actionItemOverflow.join(',')}，番茄组 ${homeCompactLayout.tomatoGroupCount}，记录 ${homeCompactLayout.activityColumns} 列`
+      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列/${homeCompactLayout.lowerColumnWidths.join(',')}，动作 ${homeCompactLayout.actionColumns} 列，动作溢出 ${homeCompactLayout.actionItemOverflow.join(',')}，番茄组 ${homeCompactLayout.tomatoGroupCount}，高亮 ${homeCompactLayout.highlightCount}`
     );
   }
 
@@ -1517,9 +1760,10 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
 async function runHomeActionCenterSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1440, height: 960 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-  await expectVisibleText(page, '今天要处理', '桌面今天要处理');
+  await expectVisibleText(page, '今天必须处理什么', '桌面今天必须处理什么');
   const actionSummary = await page.evaluate(() => {
-    const items = Array.from(document.querySelectorAll('.dashboard-action-item'));
+    const surface = document.querySelector('.dashboard-page');
+    const items = Array.from(surface?.querySelectorAll('.home-action-row') ?? []);
     return {
       count: items.length,
       tomatoCount: items.filter((item) => (item.textContent ?? '').includes('番茄')).length,
@@ -1532,11 +1776,14 @@ async function runHomeActionCenterSmoke(browser, baseUrl) {
   }
   if (actionSummary.count < 2 || actionSummary.tomatoCount !== 1) {
     throw new Error(
-      `桌面今天要处理分组异常：count=${actionSummary.count} tomato=${actionSummary.tomatoCount}`
+      `桌面今天必须处理分组异常：count=${actionSummary.count} tomato=${actionSummary.tomatoCount}`
     );
   }
 
-  const primary = page.locator('.dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]');
+  const primary = page
+    .locator('.dashboard-page .home-action-row')
+    .filter({ hasText: '番茄' })
+    .locator('[data-testid="home-action-primary"]');
   await primary.click();
   await expectVisible(page.locator('.inventory-action-modal'), '库存处理弹窗');
   await expectVisibleText(page, '已过期批次', '库存处理弹窗批次分区');
@@ -1550,9 +1797,11 @@ async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label
   const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
-  const primary = viewport.width <= 767
-    ? page.locator('.mobile-dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]')
-    : page.locator('.dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]');
+  const surfaceSelector = isPhoneViewportSize(viewport) ? '.mobile-dashboard-page' : '.dashboard-page';
+  const primary = page
+    .locator(`${surfaceSelector} .home-action-row`)
+    .filter({ hasText: '番茄' })
+    .locator('[data-testid="home-action-primary"]');
   await primary.click();
   await expectVisible(page.locator('.inventory-action-modal'), `${label} 库存处理弹窗`);
   await page.waitForTimeout(320);
@@ -1604,6 +1853,164 @@ async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label
   await context.close();
 }
 
+async function runHomeHighlightLoadingSmoke(browser, baseUrl) {
+  const routeController = createRouteController();
+  routeController.routeMode.highlights = 'delay';
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1440, height: 960 },
+    true,
+    {},
+    { routeController }
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  const desktop = page.locator('.dashboard-page');
+  await expectVisible(desktop.getByLabel('家庭动态加载中'), '高亮骨架');
+  await expectVisible(desktop.getByRole('heading', { name: '今天吃什么' }), '延迟高亮时问题 1 仍可见');
+  await expectVisible(desktop.getByRole('heading', { name: '今天必须处理什么' }), '延迟高亮时问题 2 仍可见');
+  await expectVisible(desktop.getByRole('button', { name: /选择 / }).first(), '延迟高亮时日历仍可见');
+  routeController.highlightDelay.resolve();
+  await expectVisible(desktop.getByTestId('home-highlight-row').first(), '延迟后高亮行');
+  assertClean();
+  await context.close();
+}
+
+async function runHomeHighlightErrorSmoke(browser, baseUrl) {
+  const routeController = createRouteController();
+  routeController.routeMode.highlights = 'error';
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1440, height: 960 },
+    true,
+    {},
+    { routeController }
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  const desktop = page.locator('.dashboard-page');
+  await expectVisibleText(page, '家庭动态暂时加载失败', '高亮初始失败文案');
+  await expectVisible(desktop.getByRole('button', { name: '重试家庭动态' }), '高亮重试按钮');
+  await expectVisible(desktop.getByRole('heading', { name: '今天吃什么' }), '失败时问题 1 仍可见');
+  assertClean();
+  await context.close();
+}
+
+async function runHomeHighlightStaleCacheSmoke(browser, baseUrl) {
+  const routeController = createRouteController();
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1440, height: 960 },
+    true,
+    {},
+    { routeController }
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  const desktop = page.locator('.dashboard-page');
+  await expectVisible(desktop.getByTestId('home-highlight-row').first(), '缓存前高亮行');
+  const initialCount = await desktop.getByTestId('home-highlight-row').count();
+  if (initialCount !== 5) {
+    throw new Error(`缓存场景高亮数量错误：actual=${initialCount}`);
+  }
+
+  routeController.routeMode.highlights = 'error';
+  const failedRefetch = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/activity-highlights') && response.status() === 500,
+    { timeout: 10_000 }
+  );
+  // Leave Home (disables the query) then return so React Query refetches stale cache.
+  await page.getByRole('button', { name: '食物' }).first().click();
+  await expectVisibleText(page, '食物库', 'stale 场景离开首页');
+  await page.getByRole('button', { name: '首页' }).first().click();
+  await failedRefetch;
+  await expectVisible(desktop.getByTestId('home-highlight-row').first(), 'stale 场景返回首页');
+  await expectVisible(desktop.getByRole('button', { name: '刷新失败，重试' }), '高亮 stale 刷新失败');
+  const retainedCount = await desktop.getByTestId('home-highlight-row').count();
+  if (retainedCount !== 5) {
+    throw new Error(`stale 缓存未保留高亮行：actual=${retainedCount}`);
+  }
+  assertClean();
+  await context.close();
+}
+
+async function runHomeFamilyActivityNavigationSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const routeController = createRouteController();
+  routeController.routeMode.activityLogs = 'delay';
+  const { context, page, assertClean } = await createPage(
+    browser,
+    viewport,
+    true,
+    contextOptions,
+    { routeController }
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await assertHomeThreeQuestions(page, viewport, label);
+  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '查看完整记录' }).click();
+
+  if (isPhoneViewport) {
+    await expectVisible(page.getByLabel('手机家庭活动页'), `${label} 手机家庭活动页`);
+    await expectVisible(
+      page.locator('.family-activity-viewer-skeleton, .family-activity-mobile-page [aria-label="家庭活动加载中"]').first(),
+      `${label} 活动加载中`
+    );
+  } else {
+    await expectVisible(page.locator('.family-activity-viewer-modal'), `${label} 家庭活动弹窗`);
+    await expectVisible(
+      page.locator('.family-activity-viewer-modal .family-activity-viewer-skeleton'),
+      `${label} 活动加载中`
+    );
+  }
+
+  const emptyVisible = await page
+    .locator('.family-activity-viewer-modal text=暂无家庭活动, .family-activity-mobile-page text=暂无家庭活动')
+    .isVisible()
+    .catch(() => false);
+  if (emptyVisible) {
+    throw new Error(`${label} 活动延迟时出现了瞬时空状态`);
+  }
+
+  routeController.activityLogDelay.resolve();
+  if (isPhoneViewport) {
+    await expectVisibleText(page, '完成 5 项采购入库', `${label} 活动记录内容`);
+  } else {
+    await expectVisible(
+      page.locator('.family-activity-viewer-modal').getByText('完成 5 项采购入库'),
+      `${label} 活动记录内容`
+    );
+  }
+  assertClean();
+  await context.close();
+}
+
+async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '查看完整周菜单' }).click();
+
+  if (isPhoneViewport) {
+    await expectVisible(page.getByLabel('手机周菜单'), `${label} 手机周菜单`);
+  } else {
+    await expectVisible(page.getByTestId('food-plan-week-section'), `${label} 桌面周菜单`);
+    const focused = await page.evaluate(() => {
+      const week = document.querySelector('[data-testid="food-plan-week-section"]');
+      if (!week) return false;
+      const rect = week.getBoundingClientRect();
+      return rect.top < window.innerHeight && rect.bottom > 0;
+    });
+    if (!focused) {
+      throw new Error(`${label} 桌面周菜单未进入视口`);
+    }
+  }
+
+  const detailOpen = await page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal').count();
+  if (detailOpen !== 0) {
+    throw new Error(`${label} 打开完整周菜单时不应打开计划详情`);
+  }
+  assertClean();
+  await context.close();
+}
+
 async function main() {
   assertDistExists();
   const preview = await startPreview();
@@ -1630,6 +2037,35 @@ async function main() {
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runHomeActionCenterSmoke(browser, preview.url);
+    await runHomeHighlightLoadingSmoke(browser, preview.url);
+    await runHomeHighlightErrorSmoke(browser, preview.url);
+    await runHomeHighlightStaleCacheSmoke(browser, preview.url);
+    await runHomeFamilyActivityNavigationSmoke(
+      browser,
+      preview.url,
+      { width: 1440, height: 960 },
+      '桌面家庭活动导航'
+    );
+    await runHomeFamilyActivityNavigationSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '手机家庭活动导航',
+      { isMobile: true, hasTouch: true }
+    );
+    await runHomeFullWeekNavigationSmoke(
+      browser,
+      preview.url,
+      { width: 1440, height: 960 },
+      '桌面完整周菜单'
+    );
+    await runHomeFullWeekNavigationSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '手机完整周菜单',
+      { isMobile: true, hasTouch: true }
+    );
     await runInventoryActionViewportSmoke(browser, preview.url, { width: 1440, height: 960 }, '1440x960 桌面端');
     await runInventoryActionViewportSmoke(browser, preview.url, { width: 1024, height: 744 }, '1024x744 iPad 横屏');
     await runInventoryActionViewportSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812 手机端', {
@@ -1664,9 +2100,45 @@ async function main() {
       '桌面快速盘点',
       { mobile: false }
     );
-    await runResponsiveSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812');
-    await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
-    await runResponsiveSmoke(browser, preview.url, { width: 430, height: 932 }, '430x932');
+    await runResponsiveSmoke(browser, preview.url, { width: 1440, height: 960 }, '1440x960');
+    await runResponsiveSmoke(browser, preview.url, { width: 1280, height: 820 }, '1280x820');
+    await runResponsiveSmoke(browser, preview.url, { width: 1180, height: 820 }, '1180x820');
+    await runResponsiveSmoke(browser, preview.url, { width: 1112, height: 834 }, '1112x834');
+    await runResponsiveSmoke(
+      browser,
+      preview.url,
+      { width: 1024, height: 744 },
+      '1024 landscape touch',
+      { isMobile: true, hasTouch: true }
+    );
+    await runResponsiveSmoke(
+      browser,
+      preview.url,
+      { width: 430, height: 932 },
+      '430x932',
+      { isMobile: true, hasTouch: true }
+    );
+    await runResponsiveSmoke(
+      browser,
+      preview.url,
+      { width: 390, height: 844 },
+      '390x844',
+      { isMobile: true, hasTouch: true }
+    );
+    await runResponsiveSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '375x812',
+      { isMobile: true, hasTouch: true }
+    );
+    await runResponsiveSmoke(
+      browser,
+      preview.url,
+      { width: 350, height: 780 },
+      '350x780',
+      { isMobile: true, hasTouch: true }
+    );
     await runOrientationLockSmoke(
       browser,
       preview.url,
@@ -1686,7 +2158,7 @@ async function main() {
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), 375/390/430 mobile widths, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, desktop workspace tabs, home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

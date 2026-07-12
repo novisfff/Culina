@@ -2228,8 +2228,6 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 1100px) {
-  .home-dashboard-lower-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
+/* Keep problem 2/3 as two columns on all desktop/tablet surfaces.
+   Phone uses the independent mobile stack, so a single-column collapse
+   at ~1100px would only degrade landscape tablet acceptance. */
