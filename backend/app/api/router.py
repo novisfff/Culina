@@ -1,5 +1,8 @@
 from fastapi import APIRouter
 
+from fastapi import APIRouter
+
+from app.api.activity_highlights import router as activity_highlights_router
 from app.api.activity_logs import router as activity_logs_router
 from app.api.ai import router as ai_router
 from app.api.ai_audio import router as ai_audio_router
@@ -34,6 +37,7 @@ api_router.include_router(recipe_meta_router)
 api_router.include_router(foods_router)
 api_router.include_router(meal_logs_router)
 api_router.include_router(activity_logs_router)
+api_router.include_router(activity_highlights_router)
 api_router.include_router(media_router)
 api_router.include_router(search_router)
 api_router.include_router(ai_router)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -38,3 +38,16 @@ def today_for_family(
     timezone_name: str = DEFAULT_FAMILY_TIMEZONE,
 ) -> date:
     return now_for_family(family_id, at=at, timezone_name=timezone_name).date()
+
+
+def activity_week_window_utc(
+    family_id: str | None = None,
+    *,
+    at: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    family_now = now_for_family(family_id, at=at)
+    monday = family_now.date() - timedelta(days=family_now.weekday())
+    family_week_start = datetime.combine(monday, time.min, tzinfo=family_now.tzinfo)
+    week_start_utc = family_week_start.astimezone(UTC).replace(tzinfo=None)
+    now_utc_naive = family_now.astimezone(UTC).replace(tzinfo=None)
+    return week_start_utc, now_utc_naive
