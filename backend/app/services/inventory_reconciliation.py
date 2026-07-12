@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     FoodType,
     IngredientQuantityTrackingMode,
     InventoryAvailabilityLevel,
@@ -47,7 +48,7 @@ from app.schemas.inventory_operations import (
     PresenceIngredientReconciliationGroupOut,
 )
 from app.schemas.inventory_states import IngredientInventoryStateOut
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.food_stock import apply_food_inventory_confirm, apply_food_inventory_set_stock
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_inventory_state import (
@@ -1264,6 +1265,10 @@ def apply_inventory_reconciliation(
         entity_type="InventoryOperation",
         entity_id=operation.id,
         summary=f"完成了一次库存盘点：{description}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.INVENTORY,
+            summary=f"完成库存盘点并确认 {confirmed_count} 项、修正 {adjusted_count} 项",
+        ),
     )
     db.flush()
 

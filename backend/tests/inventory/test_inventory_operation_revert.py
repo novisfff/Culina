@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.deps import get_current_auth
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
@@ -227,6 +228,19 @@ def _as_utc(dt: datetime) -> datetime:
     return dt
 
 
+def _highlight_rows(db: Session, *, family_id: str) -> list[ActivityLog]:
+    return list(
+        db.scalars(
+            select(ActivityLog)
+            .where(
+                ActivityLog.family_id == family_id,
+                ActivityLog.highlight_kind.is_not(None),
+            )
+            .order_by(ActivityLog.created_at, ActivityLog.id)
+        )
+    )
+
+
 def _create_exact_batch_operation(
     db: Session,
     *,
@@ -364,6 +378,10 @@ def test_member_reverts_own_operation_within_window(revert_ctx: RevertCtx) -> No
         )
         assert activity is not None
         assert "撤销了刚才的采购入库" in activity.summary
+        highlights = _highlight_rows(db, family_id=revert_ctx.family_id)
+        assert len(highlights) == 1
+        assert highlights[0].highlight_kind is ActivityHighlightKind.SHOPPING
+        assert highlights[0].highlight_summary == "撤销一次采购入库"
 
 
 def test_owner_reverts_another_member_operation(revert_ctx: RevertCtx) -> None:
@@ -659,6 +677,10 @@ def test_repeated_revert_is_idempotent(revert_ctx: RevertCtx) -> None:
         )
         db.commit()
         assert first.status == InventoryOperationStatus.REVERTED
+        highlights_after_first = _highlight_rows(db, family_id=revert_ctx.family_id)
+        assert len(highlights_after_first) == 1
+        assert highlights_after_first[0].highlight_kind is ActivityHighlightKind.SHOPPING
+        assert highlights_after_first[0].highlight_summary == "撤销一次采购入库"
 
     with revert_ctx.SessionLocal() as db:
         activities_before = list(
@@ -678,6 +700,8 @@ def test_repeated_revert_is_idempotent(revert_ctx: RevertCtx) -> None:
             db.scalars(select(ActivityLog).where(ActivityLog.action == ActivityAction.REVERT))
         )
         assert len(activities_after) == len(activities_before)
+        highlights_after_second = _highlight_rows(db, family_id=revert_ctx.family_id)
+        assert len(highlights_after_second) == 1
 
 
 def test_state_create_deleted_and_state_update_restores(revert_ctx: RevertCtx) -> None:
@@ -748,6 +772,10 @@ def test_state_create_deleted_and_state_update_restores(revert_ctx: RevertCtx) -
         db.commit()
         assert result.status == InventoryOperationStatus.REVERTED
         assert db.get(IngredientInventoryState, "state-salt-created") is None
+        create_highlights = _highlight_rows(db, family_id=revert_ctx.family_id)
+        assert len(create_highlights) == 1
+        assert create_highlights[0].highlight_kind is ActivityHighlightKind.SHOPPING
+        assert create_highlights[0].highlight_summary == "撤销一次采购入库"
 
     # Update path
     with revert_ctx.SessionLocal() as db:
@@ -824,6 +852,12 @@ def test_state_create_deleted_and_state_update_restores(revert_ctx: RevertCtx) -
         assert state.availability_level == InventoryAvailabilityLevel.LOW
         assert state.notes == "旧"
         assert state.row_version > after_state_version
+        highlights = _highlight_rows(db, family_id=revert_ctx.family_id)
+        assert len(highlights) == 2
+        assert highlights[0].highlight_kind is ActivityHighlightKind.SHOPPING
+        assert highlights[0].highlight_summary == "撤销一次采购入库"
+        assert highlights[1].highlight_kind is ActivityHighlightKind.INVENTORY
+        assert highlights[1].highlight_summary == "撤销一次库存盘点"
 
 
 def test_food_and_shopping_restore_together_and_versions_increase(revert_ctx: RevertCtx) -> None:
@@ -951,6 +985,7 @@ def test_forced_commit_failure_leaves_operation_applied(revert_ctx: RevertCtx) -
             )
             is None
         )
+        assert _highlight_rows(db, family_id=revert_ctx.family_id) == []
 
 
 def test_api_list_detail_and_revert_matrix(revert_ctx: RevertCtx) -> None:

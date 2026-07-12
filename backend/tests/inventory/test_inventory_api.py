@@ -16,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.deps import get_current_auth
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
     InventoryAvailabilityLevel,
@@ -578,6 +579,19 @@ def _add_family_ingredient(
         db.commit()
 
 
+def _highlight_rows(db: Session, *, family_id: str) -> list[ActivityLog]:
+    return list(
+        db.scalars(
+            select(ActivityLog)
+            .where(
+                ActivityLog.family_id == family_id,
+                ActivityLog.highlight_kind.is_not(None),
+            )
+            .order_by(ActivityLog.created_at, ActivityLog.id)
+        )
+    )
+
+
 def _versioned_item(item_id: str, expected_row_version: int = 1) -> dict:
     return {"inventory_item_id": item_id, "expected_row_version": expected_row_version}
 
@@ -665,6 +679,7 @@ def test_snooze_two_expired_batches_writes_common_review_and_snooze(
         assert "番茄" in logs[0].summary
         assert "2" in logs[0].summary
         assert f"{snoozed_until.month}月{snoozed_until.day}日" in logs[0].summary
+        assert _highlight_rows(db, family_id=inventory_api_context.family_id) == []
 
 
 def test_snooze_upcoming_batch_writes_alert_date_without_review_attribution(
@@ -701,6 +716,8 @@ def test_snooze_upcoming_batch_writes_alert_date_without_review_attribution(
     assert item.expiry_reviewed_by is None
     assert item.expiry_date == today + timedelta(days=3)
     assert item.row_version == 2
+    with inventory_api_context.SessionLocal() as db:
+        assert _highlight_rows(db, family_id=inventory_api_context.family_id) == []
 
 
 def test_mixed_expired_and_upcoming_snooze_is_rejected_atomically(
@@ -974,6 +991,7 @@ def test_correct_expiry_date_clears_review_and_snooze_metadata(
         )
         assert log is not None
         assert "到期日" in log.summary or "过期" in log.summary or "日期" in log.summary
+        assert _highlight_rows(db, family_id=inventory_api_context.family_id) == []
 
 
 def test_versioned_dispose_expired_succeeds_for_selected_expired_rows(
@@ -1041,6 +1059,10 @@ def test_versioned_dispose_expired_succeeds_for_selected_expired_rows(
             )
         )
         assert len(logs) == 1
+        highlights = _highlight_rows(db, family_id=inventory_api_context.family_id)
+        assert len(highlights) == 1
+        assert highlights[0].highlight_kind is ActivityHighlightKind.INVENTORY
+        assert highlights[0].highlight_summary == "集中处理 2 个过期批次"
 
 
 def test_stale_review_correction_and_disposal_return_409_without_partial_writes(

@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.deps import get_current_auth
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
@@ -334,6 +335,19 @@ def recon_api_context() -> Iterator[ReconApiContext]:
         app.dependency_overrides.clear()
         client.close()
         engine.dispose()
+
+
+def _highlight_rows(db: Session, *, family_id: str) -> list[ActivityLog]:
+    return list(
+        db.scalars(
+            select(ActivityLog)
+            .where(
+                ActivityLog.family_id == family_id,
+                ActivityLog.highlight_kind.is_not(None),
+            )
+            .order_by(ActivityLog.created_at, ActivityLog.id)
+        )
+    )
 
 
 def _versions(ctx: ReconApiContext) -> dict[str, int]:
@@ -1231,6 +1245,7 @@ def test_stale_child_version_409(recon_api_context: ReconApiContext) -> None:
     assert response.json()["detail"]["code"] == "stale_version"
     with recon_api_context.SessionLocal() as db:
         assert db.scalar(select(InventoryOperation)) is None
+        assert _highlight_rows(db, family_id=recon_api_context.family_id) == []
 
 
 def test_out_of_scope_parent_version_409(recon_api_context: ReconApiContext) -> None:
@@ -1413,6 +1428,34 @@ def test_idempotent_replay(recon_api_context: ReconApiContext) -> None:
         assert len(list(db.scalars(select(InventoryOperation)))) == 1
 
 
+def test_reconciliation_writes_one_highlight_and_replay_does_not_duplicate(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-highlight-1",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "confirm",
+            }
+        ],
+    }
+    first = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    replay = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    with recon_api_context.SessionLocal() as db:
+        assert len(list(db.scalars(select(InventoryOperation)))) == 1
+        highlights = _highlight_rows(db, family_id=recon_api_context.family_id)
+        assert len(highlights) == 1
+        assert highlights[0].highlight_kind is ActivityHighlightKind.INVENTORY
+        assert highlights[0].highlight_summary == "完成库存盘点并确认 1 项、修正 0 项"
+
+
 def test_idempotent_reconciliation_replay_computes_can_revert_for_requesting_member(
     recon_api_context: ReconApiContext,
 ) -> None:
@@ -1506,6 +1549,7 @@ def test_forced_commit_failure_rolls_back(recon_api_context: ReconApiContext) ->
         assert fresh is not None and remaining_quantity(fresh) == Decimal("6")
         assert db.scalar(select(InventoryOperation)) is None
         assert db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "InventoryOperation")) is None
+        assert _highlight_rows(db, family_id=recon_api_context.family_id) == []
 
 
 def test_duplicate_group_rejected(recon_api_context: ReconApiContext) -> None:
