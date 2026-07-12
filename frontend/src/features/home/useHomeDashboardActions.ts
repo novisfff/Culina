@@ -1,35 +1,34 @@
 import type { FormEvent } from 'react';
 import type {
   CorrectInventoryExpiryDateRequest,
+  CorrectStateExpiryDateRequest,
   CreateFoodPlanItemPayload,
   DisposeExpiredInventoryRequest,
   Food,
   FoodPlanItem,
-  Ingredient,
-  InventoryItem,
   MealLog,
   QuickAddMealLogPayload,
-  ShoppingListItem,
+  SetInventoryStateAbsentRequest,
   SnoozeExpiryAlertsRequest,
+  SnoozeStateExpiryAlertRequest,
   UpdateFoodPlanItemPayload,
   VersionedInventoryItemRef,
 } from '../../api/types';
 import { isApiError } from '../../api/request';
 import type { NoticeState } from '../../hooks/useNotice';
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
-import { parsePositiveNumber, type HomeRestockFormState } from './homeDashboardModel';
 import type { HomeActionCompletionSummary, HomePlanAddFormState } from './useHomeDashboardState';
 
-type CreateInventoryPayload = {
-  ingredient_id: string;
-  quantity: number;
-  unit: string;
-  status: InventoryItem['status'];
-  purchase_date: string;
-  expiry_date?: string;
-  storage_location: string;
-  notes: string;
-};
+/**
+ * Home long-unconfirmed inventory actions should open reconciliation with scope=suggested.
+ * This pure helper keeps the navigation target stable for callers/tests.
+ */
+export function homeLongUnconfirmedReconciliationTarget(): {
+  scope: 'suggested';
+} {
+  return { scope: 'suggested' };
+}
+
 
 export type HomeMealEnrichmentOpenRequest = {
   mealLogId?: string;
@@ -50,10 +49,10 @@ export type InventoryActionOutcome =
   | 'snooze_upcoming'
   | 'correct_date';
 
-function successMessageFor(outcome: InventoryActionOutcome): string {
+function successMessageFor(outcome: InventoryActionOutcome, presenceOnly = false): string {
   switch (outcome) {
     case 'dispose':
-      return '过期批次已销毁';
+      return presenceOnly ? '已标记为没有' : '过期批次已销毁';
     case 'retain_expired':
       return '已暂时保留，到提醒日会再出现';
     case 'snooze_upcoming':
@@ -68,13 +67,14 @@ function buildSuccessSummary(
   ingredientId: string,
   refreshedGroups: InventoryActionGroup[],
   outcome: InventoryActionOutcome,
+  presenceOnly = false,
 ): HomeActionCompletionSummary {
   const lowStock = refreshedGroups.find(
     (group) => group.kind === 'low_stock' && group.ingredientId === ingredientId,
   );
   return {
     title: `已处理${ingredientName}`,
-    message: successMessageFor(outcome),
+    message: successMessageFor(outcome, presenceOnly),
     ...(lowStock
       ? {
           secondaryActionLabel: `${ingredientName}库存已不足，加入采购`,
@@ -87,20 +87,27 @@ function buildSuccessSummary(
 export function useHomeDashboardActions(input: {
   showNotice: (notice: NoticeState) => void;
   selectedActionGroup: InventoryActionGroup | null;
-  homeRestockShoppingItem: ShoppingListItem | null;
-  homeRestockForm: HomeRestockFormState | null;
-  homeRestockIngredient: Ingredient | null;
   homePlanDetailItem: FoodPlanItem | null;
   homePlanDetailForm: { planDate: string; mealType: FoodPlanItem['meal_type']; note: string };
   homePlanAddFood: Food | null;
   homePlanAddForm: HomePlanAddFormState;
-  createInventory: (payload: CreateInventoryPayload) => Promise<unknown>;
-  updateShoppingDone: (itemId: string, done: boolean) => Promise<unknown>;
   disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<unknown>;
   snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
   correctInventoryExpiryDate: (
     inventoryItemId: string,
     payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
+  snoozeStateExpiryAlert: (
+    ingredientId: string,
+    payload: SnoozeStateExpiryAlertRequest,
+  ) => Promise<unknown>;
+  correctStateExpiryDate: (
+    ingredientId: string,
+    payload: CorrectStateExpiryDateRequest,
+  ) => Promise<unknown>;
+  setInventoryStateAbsent: (
+    ingredientId: string,
+    payload: SetInventoryStateAbsentRequest,
   ) => Promise<unknown>;
   refreshInventoryActions: () => Promise<InventoryActionGroup[]>;
   completeActionGroup: (args: {
@@ -116,7 +123,6 @@ export function useHomeDashboardActions(input: {
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) => Promise<unknown>;
   quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
-  closeHomeRestock: () => void;
   closeHomePlanDetail: () => void;
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
@@ -221,6 +227,7 @@ export function useHomeDashboardActions(input: {
     mutate: () => Promise<unknown>;
     failureTitle: string;
     outcome: InventoryActionOutcome;
+    presenceOnly?: boolean;
   }) {
     input.setActionDialogBusy(true);
     input.setActionDialogError(null);
@@ -256,6 +263,7 @@ export function useHomeDashboardActions(input: {
           args.ingredientId,
           refreshed,
           args.outcome,
+          Boolean(args.presenceOnly),
         ),
         refreshedGroups: refreshed,
       });
@@ -284,20 +292,34 @@ export function useHomeDashboardActions(input: {
       return;
     }
     if (items.length === 0) {
-      input.setActionDialogError('请先选择要销毁的过期批次。');
+      const presenceOnly = group.targetKind === 'ingredient_inventory_state';
+      input.setActionDialogError(presenceOnly ? '请先确认这份食材是否还在。' : '请先选择要销毁的过期批次。');
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
-      failureTitle: '销毁过期批次失败',
+      failureTitle: presenceOnly ? '标记为没有失败' : '销毁过期批次失败',
       outcome: 'dispose',
-      mutate: () =>
-        input.disposeExpiredInventory({
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const target = group.batches[0]?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.setInventoryStateAbsent(group.ingredientId, {
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+          });
+        }
+        return input.disposeExpiredInventory({
           ingredient_id: group.ingredientId,
           items,
-        }),
+        });
+      },
     });
   }
 
@@ -322,18 +344,33 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: args.action === 'retain_expired' ? '暂时保留失败' : '稍后提醒失败',
       outcome: args.action,
-      mutate: () =>
-        input.snoozeInventoryExpiryAlerts({
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const target = group.batches[0]?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.snoozeStateExpiryAlert(group.ingredientId, {
+            action: args.action,
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+            snoozed_until: args.snoozedUntil,
+          });
+        }
+        return input.snoozeInventoryExpiryAlerts({
           action: args.action,
           ingredient_id: group.ingredientId,
           items: args.items,
           snoozed_until: args.snoozedUntil,
-        }),
+        });
+      },
     });
   }
 
@@ -352,77 +389,32 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: '更正到期日失败',
       outcome: 'correct_date',
-      mutate: () =>
-        input.correctInventoryExpiryDate(args.inventoryItemId, {
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const batch = group.batches.find((item) => item.inventoryItemId === args.inventoryItemId) ?? group.batches[0];
+          const target = batch?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.correctStateExpiryDate(group.ingredientId, {
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+            expiry_date: args.expiryDate,
+          });
+        }
+        return input.correctInventoryExpiryDate(args.inventoryItemId, {
           expiry_date: args.expiryDate,
           expected_row_version: args.expectedRowVersion,
-        }),
-    });
-  }
-
-  async function submitHomeRestock(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!input.homeRestockShoppingItem || !input.homeRestockForm) {
-      input.showNotice({ tone: 'warning', title: '还不能登记库存', message: '先选择要登记的采购项。' });
-      return;
-    }
-    if (!input.homeRestockForm.ingredientId) {
-      input.showNotice({ tone: 'warning', title: '缺少食材档案', message: '请先匹配一份食材档案，再登记库存。' });
-      return;
-    }
-    const quantity = parsePositiveNumber(input.homeRestockForm.quantity);
-    if (quantity === null) {
-      input.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
-      return;
-    }
-    if (!input.homeRestockForm.purchaseDate) {
-      input.showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
-      return;
-    }
-    if (!input.homeRestockForm.storageLocation.trim()) {
-      input.showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里。' });
-      return;
-    }
-    if (input.homeRestockForm.expiryInputMode === 'days' && parsePositiveNumber(input.homeRestockForm.expiryDays) === null) {
-      input.showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期。' });
-      return;
-    }
-    if (input.homeRestockForm.expiryInputMode === 'manual_date' && !input.homeRestockForm.expiryDate) {
-      input.showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期。' });
-      return;
-    }
-
-    try {
-      await input.createInventory({
-        ingredient_id: input.homeRestockForm.ingredientId,
-        quantity,
-        unit: input.homeRestockForm.unit.trim() || input.homeRestockIngredient?.default_unit || '个',
-        status: input.homeRestockForm.status,
-        purchase_date: input.homeRestockForm.purchaseDate,
-        expiry_date: input.homeRestockForm.expiryDate || undefined,
-        storage_location: input.homeRestockForm.storageLocation.trim(),
-        notes: input.homeRestockForm.notes.trim(),
-      });
-      try {
-        await input.updateShoppingDone(input.homeRestockShoppingItem.id, true);
-      } catch (reason) {
-        input.showNotice({
-          tone: 'warning',
-          title: '库存已登记',
-          message: reason instanceof Error
-            ? `待买项仍未标记完成：${reason.message}`
-            : '待买项仍未标记为已买，请稍后再试。',
         });
-      }
-      input.closeHomeRestock();
-    } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '录入库存失败', message: messageOf(reason, '录入库存失败') });
-    }
+      },
+    });
   }
 
   async function submitHomePlanDetail(event: FormEvent<HTMLFormElement>) {
@@ -476,7 +468,6 @@ export function useHomeDashboardActions(input: {
     disposeSelectedInventoryBatches,
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,
-    submitHomeRestock,
     submitHomePlanDetail,
     deleteHomePlanDetail,
     submitHomePlanAdd,

@@ -47,6 +47,7 @@ import {
 } from './homeDashboardModel';
 import { HomeMobileDashboard } from './HomeMobileDashboard';
 import { FamilyActivityModal } from '../family/FamilyActivityViewer';
+import { homeLongUnconfirmedReconciliationTarget } from './useHomeDashboardActions';
 
 function getHomeActionPrimaryLabel(group: InventoryActionGroup) {
   if (group.kind === 'low_stock') {
@@ -135,6 +136,8 @@ export type HomeDashboardProps = {
   onOpenActionGroup: (group: InventoryActionGroup) => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
   onOpenIngredientPriority: () => void;
+  /** Optional: open inventory reconciliation, typically with scope=suggested for long-unconfirmed. */
+  onOpenReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
   onFoodPlanPreviousWeek: () => void;
   onFoodPlanCurrentWeek: () => void;
   onFoodPlanNextWeek: () => void;
@@ -205,6 +208,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onOpenActionGroup,
     onOpenIngredientShopping,
     onOpenIngredientPriority,
+    onOpenReconciliation,
     onFoodPlanPreviousWeek,
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
@@ -572,9 +576,21 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     <section className="card dashboard-panel dashboard-action-panel">
                       <div className="dashboard-panel-head">
                         <h2>今天要处理</h2>
-                        <button className="tertiary-button button-compact" type="button" onClick={onOpenIngredientPriority}>
-                          查看全部
-                        </button>
+                        <div className="dashboard-panel-head-actions">
+                          {onOpenReconciliation ? (
+                            <button
+                              className="ghost-button button-compact"
+                              type="button"
+                              data-testid="home-open-reconciliation-suggested"
+                              onClick={() => onOpenReconciliation(homeLongUnconfirmedReconciliationTarget())}
+                            >
+                              建议再确认
+                            </button>
+                          ) : null}
+                          <button className="tertiary-button button-compact" type="button" onClick={onOpenIngredientPriority}>
+                            查看全部
+                          </button>
+                        </div>
                       </div>
                       <div className="dashboard-action-list">
                         {visibleActionGroups.length > 0 ? (

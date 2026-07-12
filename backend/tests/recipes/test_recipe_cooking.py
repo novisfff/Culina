@@ -337,19 +337,15 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                             created_by=self.user.id,
                             updated_by=self.user.id,
                         ),
-                        InventoryItem(
-                            id="inventory-salt-presence",
+                        IngredientInventoryState(
+                            id="inventory-state-salt-presence",
                             family_id=self.family.id,
                             ingredient_id=self.salt.id,
-                            quantity=Decimal("1"),
-                            consumed_quantity=Decimal("1"),
-                            disposed_quantity=Decimal("0"),
-                            unit="g",
-                            status=InventoryStatus.FRESH,
+                            availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+                            inventory_status=InventoryStatus.FRESH,
                             purchase_date=today,
                             storage_location="常温",
                             notes="",
-                            low_stock_threshold=Decimal("0"),
                             created_by=self.user.id,
                             updated_by=self.user.id,
                         ),
@@ -380,11 +376,12 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(salt_consumed["quantity_tracking_mode"], "not_track_quantity")
             self.assertEqual(salt_consumed["affected_item_ids"], [])
             with self.SessionLocal() as db:
-                salt_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-salt-presence"))
+                salt_state = db.scalar(
+                    select(IngredientInventoryState).where(IngredientInventoryState.id == "inventory-state-salt-presence")
+                )
                 tomato_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-tomato-for-salt"))
-                assert salt_item is not None and tomato_item is not None
-                self.assertEqual(salt_item.consumed_quantity, Decimal("1.00"))
-                self.assertEqual(salt_item.disposed_quantity, Decimal("0.00"))
+                assert salt_state is not None and tomato_item is not None
+                self.assertEqual(salt_state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
                 self.assertEqual(tomato_item.consumed_quantity, Decimal("2.00"))
 
         def test_not_tracked_ingredient_without_presence_is_presence_shortage(self) -> None:
@@ -409,6 +406,47 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             payload = response.json()
             self.assertEqual(payload["preview_items"], [])
             self.assertEqual(payload["shortages"][0]["ingredient_name"], "盐")
+            self.assertEqual(payload["shortages"][0]["shortage_type"], "presence")
+
+        def test_not_tracked_ingredient_expired_state_is_presence_shortage(self) -> None:
+            recipe = self.create_recipe(
+                auto_create_food=False,
+                ingredient_items=[
+                    {
+                        "ingredient_id": self.salt.id,
+                        "ingredient_name": "盐",
+                        "quantity": 5,
+                        "unit": "g",
+                        "note": "调味",
+                    }
+                ],
+            )
+            today = date.today()
+            with self.SessionLocal() as db:
+                db.add(
+                    IngredientInventoryState(
+                        id="inventory-state-salt-expired",
+                        family_id=self.family.id,
+                        ingredient_id=self.salt.id,
+                        availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+                        inventory_status=InventoryStatus.FRESH,
+                        purchase_date=today - timedelta(days=30),
+                        expiry_date=today - timedelta(days=1),
+                        storage_location="常温",
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+
+            response = self.client.post(
+                f"/api/recipes/{recipe['id']}/cook-preview",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["preview_items"], [])
             self.assertEqual(payload["shortages"][0]["shortage_type"], "presence")
 
         def test_cook_recipe_increments_inventory_row_version(self) -> None:
@@ -478,6 +516,11 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(egg.consumed_quantity, Decimal("3.00"))
                 self.assertEqual(tomato.row_version, 2)
                 self.assertEqual(egg.row_version, 2)
+                tomato_ingredient = db.get(Ingredient, self.tomato.id)
+                egg_ingredient = db.get(Ingredient, self.egg.id)
+                assert tomato_ingredient is not None and egg_ingredient is not None
+                self.assertEqual(tomato_ingredient.row_version, 2)
+                self.assertEqual(egg_ingredient.row_version, 2)
 
         def test_expired_snoozed_inventory_excluded_from_recipe_readiness_and_cook(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)

@@ -103,10 +103,12 @@ type IngredientMobileViewProps = {
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
   openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string; shoppingItem?: ShoppingListItem }) => void;
-  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
+  onDeleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<unknown>;
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -204,7 +206,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
   }
 
   function deleteShoppingCard(card: ShoppingCardViewModel) {
-    void props.onDeleteShoppingItem(card.shoppingItem.id)
+    void props.onDeleteShoppingItem(card.shoppingItem.id, card.shoppingItem.row_version)
       .then(closeShoppingCard)
       .catch(() => undefined);
   }
@@ -291,7 +293,21 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </button>
         </div>
         <div className="mobile-ingredient-actions">
-          <button className="mobile-ingredient-primary" type="button" onClick={() => props.openInventoryOverlay()}>
+          {props.openReconciliation ? (
+            <button
+              className="mobile-ingredient-primary"
+              type="button"
+              onClick={() => props.openReconciliation?.({ scope: 'suggested' })}
+            >
+              {props.renderIcon('stocked')}
+              快速盘点
+            </button>
+          ) : null}
+          <button
+            className={props.openReconciliation ? 'mobile-ingredient-secondary' : 'mobile-ingredient-primary'}
+            type="button"
+            onClick={() => props.openInventoryOverlay()}
+          >
             {props.renderIcon('plus')}
             快速入库
           </button>
@@ -586,6 +602,16 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           <div className="mobile-ingredient-meta-row">
                             <span>{status.label}</span>
                             <span>{props.buildInventorySummaryLine(summary)}</span>
+                            <span
+                              className={`inventory-maintenance-chip is-confirmation is-${summary.confirmationTone}`}
+                              title={
+                                summary.lastConfirmedAt
+                                  ? `上次确认 ${summary.lastConfirmedAt.slice(0, 10)}`
+                                  : '还没有人工确认过库存'
+                              }
+                            >
+                              {summary.confirmationLabel}
+                            </span>
                           </div>
                           <div className="mobile-ingredient-library-actions">
                             {canDestroyExpired ? (
@@ -677,10 +703,17 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       <section id="mobile-ingredient-shopping" className="mobile-ingredient-panel">
         <div className="mobile-ingredient-section-head">
           <h2>采购待办 <span>{props.pendingShoppingCount} 项</span></h2>
-          <button type="button" onClick={() => props.openShoppingOverlay()}>
-            新增
-            {props.renderIcon('plus')}
-          </button>
+          <div className="mobile-ingredient-section-actions">
+            {props.openShoppingIntake ? (
+              <button type="button" onClick={() => props.openShoppingIntake?.()}>
+                登记本次购买
+              </button>
+            ) : null}
+            <button type="button" onClick={() => props.openShoppingOverlay()}>
+              新增
+              {props.renderIcon('plus')}
+            </button>
+          </div>
         </div>
         {props.mobileShoppingCards.length > 0 ? (
           <div className="mobile-ingredient-shopping-list">

@@ -2601,7 +2601,8 @@ export function ApprovalPanel({
               <div className="ai-confirmation-grid">
                 <label className="ai-resource-field">
                   <span>份数</span>
-                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(structuredDraft.servings, 1)} disabled={readonly} onChange={(event) => updateDraft({ servings: draftNumberFromInput(event.target.value) })} />
+                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(structuredDraft.servings, 1)} disabled />
+                  <small>份数会改变库存扣减预览，如需调整请重新生成草稿</small>
                 </label>
                 <label className="ai-resource-field ai-resource-field-date">
                   <span>日期</span>

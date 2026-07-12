@@ -63,9 +63,20 @@ function batchLabel(batchOptions: AiInventoryBatchOption[], inventoryItemId: str
   return batchOptions.find((option) => option.id === inventoryItemId)?.label ?? '当前所选批次';
 }
 
+function isPresenceRestock(item: InventoryOperationDraftItemViewModel) {
+  return item.action === 'restock' && item.quantityTrackingMode === 'not_track_quantity';
+}
+
+function presenceAvailabilityLabel(item: InventoryOperationDraftItemViewModel) {
+  if (item.availabilityLevel === 'low') return '少量';
+  if (item.availabilityLevel === 'sufficient') return '充足';
+  return '已有';
+}
+
 function operationDescription(action: string, item: InventoryOperationDraftItemViewModel, batchOptions: AiInventoryBatchOption[], inventoryItemId: string) {
   if (action === 'restock') {
     return [
+      ...(isPresenceRestock(item) ? ['只记录有无'] : []),
       item.storageLocation || '未设置存放位置',
       item.expiryDate ? `到期 ${item.expiryDate}` : '未设置到期日',
     ].join(' · ');
@@ -127,6 +138,7 @@ export function AiInventoryOperationEditor({
         <div className="ai-inventory-resolved-list">
           {operations.map((item, index) => {
             const action = item.action || 'consume';
+            const presenceRestock = isPresenceRestock(item);
             const ingredientId = item.ingredientId;
             const inventoryItemId = item.inventoryItemId ?? '';
             const batchOptions = item.batchOptions;
@@ -136,7 +148,9 @@ export function AiInventoryOperationEditor({
                   <strong>{item.ingredientName || '食材'}</strong>
                   <span>{operationDescription(action, item, batchOptions, inventoryItemId)}</span>
                 </div>
-                <em>{ACTION_LABELS[action] ?? '处理'} · {formatInventoryQuantity(item.quantity, item.unit)}</em>
+                <em>
+                  {ACTION_LABELS[action] ?? '处理'} · {presenceRestock ? '只记录有无' : formatInventoryQuantity(item.quantity, item.unit)}
+                </em>
               </article>
             );
           })}
@@ -166,14 +180,16 @@ export function AiInventoryOperationEditor({
       </section>
       <div className="ai-inventory-section-heading">
         <strong>主要处理项</strong>
-        <span>核对食材、动作、数量和单位</span>
+        <span>核对食材、动作和库存信息</span>
       </div>
       {operations.map((item, index) => {
         const action = item.action || 'consume';
+        const presenceRestock = isPresenceRestock(item);
         const ingredientId = item.ingredientId;
         const inventoryItemId = item.inventoryItemId ?? '';
         const detailKey = `${action}-${inventoryItemId || ingredientId}-${index}`;
         const batchOptions = item.batchOptions;
+        const canUseAutomaticBatch = item.expectedInventoryItemRowVersion == null;
         const image = item.image;
         const conversionNote = item.conversionNote ?? '';
         const sourceQuantity = item.sourceQuantity;
@@ -215,36 +231,45 @@ export function AiInventoryOperationEditor({
                   </small>
                 )}
                 {action === 'consume' && !inventoryItemId && <small>默认按临期优先扣减</small>}
+                {presenceRestock && <small>只记录有无 · 不要求填写精确数量</small>}
               </div>
 
               <div className="ai-inventory-operation-inputs">
-                <div className="ai-resource-inputs-flex">
-                  <span className="sr-only">
-                    {action === 'restock' ? '入库数量' : action === 'dispose' ? '销毁数量' : '消耗数量'}
-                  </span>
-                  <input
-                    className="text-input compact-input quantity-input"
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    value={draftNumberInputValue(item.quantity, 0.01)}
-                    disabled={readonly}
-                    onChange={(event) => onUpdateItem(index, {
-                      quantity: draftNumberFromInput(event.target.value),
-                    })}
-                  />
-                  <ApprovalComboboxField
-                    label="单位"
-                    value={item.unit}
-                    disabled={readonly}
-                    placeholder="单位"
-                    options={unitOptionsForItem(item)}
-                    icon="type"
-                    className="ai-inventory-unit-field"
-                    onChange={(value) => onUpdateItem(index, { unit: value })}
-                  />
-                </div>
-                {conversionSummary && (
+                {presenceRestock ? (
+                  <div className="ai-inventory-batch-summary compact-batch">
+                    <span>数量记录</span>
+                    <strong>只记录有无</strong>
+                    <small>确认后会把库存状态更新为{presenceAvailabilityLabel(item)}</small>
+                  </div>
+                ) : (
+                  <div className="ai-resource-inputs-flex">
+                    <span className="sr-only">
+                      {action === 'restock' ? '入库数量' : action === 'dispose' ? '销毁数量' : '消耗数量'}
+                    </span>
+                    <input
+                      className="text-input compact-input quantity-input"
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={draftNumberInputValue(item.quantity, 0.01)}
+                      disabled={readonly}
+                      onChange={(event) => onUpdateItem(index, {
+                        quantity: draftNumberFromInput(event.target.value),
+                      })}
+                    />
+                    <ApprovalComboboxField
+                      label="单位"
+                      value={item.unit}
+                      disabled={readonly}
+                      placeholder="单位"
+                      options={unitOptionsForItem(item)}
+                      icon="type"
+                      className="ai-inventory-unit-field"
+                      onChange={(value) => onUpdateItem(index, { unit: value })}
+                    />
+                  </div>
+                )}
+                {!presenceRestock && conversionSummary && (
                   <small className="ai-inventory-conversion-note">
                     {conversionSummary}
                   </small>
@@ -319,7 +344,9 @@ export function AiInventoryOperationEditor({
                         value={inventoryItemId}
                         disabled={readonly}
                         options={[
-                          { value: '', label: '自动按临期优先' },
+                          ...(canUseAutomaticBatch
+                            ? [{ value: '', label: '自动按临期优先' }]
+                            : []),
                           ...batchOptions.map((option) => ({
                             value: option.id,
                             label: `${option.label} · 剩余 ${option.remainingQuantity}${option.unit}`,
@@ -336,7 +363,11 @@ export function AiInventoryOperationEditor({
                   <div className="ai-inventory-progressive-section">
                     <div className="ai-inventory-section-heading compact">
                       <strong>批次与位置</strong>
-                      <span>可补充采购日期、到期日期、存放位置和库存状态</span>
+                      <span>
+                        {presenceRestock
+                          ? '可补充采购日期、到期日期、存放位置和当前状态；不会创建精确数量批次'
+                          : '可补充采购日期、到期日期、存放位置和库存状态'}
+                      </span>
                     </div>
                     <button
                       className="tertiary-button ai-inventory-detail-toggle"

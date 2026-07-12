@@ -2,6 +2,10 @@ import type { Food, FoodType, Ingredient, InventoryItem, MealLog, MealType, Reci
 import { todayKey } from '../../lib/date';
 import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
+import {
+  buildFoodConfirmation,
+  type InventoryConfirmationTone,
+} from '../ingredients/workspaceModel';
 import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { FOOD_GOVERNANCE_ISSUE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
 
@@ -104,6 +108,19 @@ export function getFoodStatus(food: Food, usage: ReturnType<typeof getMealUsage>
     return { label: '新食物', detail: '待记录', tone: 'quiet' };
   }
   return { label: '已记录', detail: `${usage.count} 次`, tone: 'neutral' };
+}
+
+/** Three-state inventory confirmation freshness for Food aggregate stock. */
+export function getFoodInventoryConfirmation(
+  food: Food,
+  referenceDate: string,
+): {
+  confirmationStatus: 'never_confirmed' | 'current' | 'stale';
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
+} {
+  return buildFoodConfirmation({ food, referenceDate });
 }
 
 export function getMealUsage(food: Food, mealLogs: MealLog[]) {

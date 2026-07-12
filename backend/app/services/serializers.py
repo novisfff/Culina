@@ -18,6 +18,7 @@ from app.models.domain import (
     Food,
     FoodPlanItem,
     Ingredient,
+    IngredientInventoryState,
     InventoryDeductionSuggestion,
     InventoryItem,
     MealLog,
@@ -157,6 +158,7 @@ def serialize_ingredient(ingredient: Ingredient, media_map: dict[tuple[str, str]
         "default_low_stock_threshold": _to_optional_float(ingredient.default_low_stock_threshold),
         "notes": ingredient.notes,
         "image": serialize_media(media[0]) if media else None,
+        "row_version": int(ingredient.row_version),
         "created_at": _utc_datetime(ingredient.created_at),
         "updated_at": _utc_datetime(ingredient.updated_at),
         "created_by": ingredient.created_by,
@@ -198,16 +200,48 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "expiry_alert_snoozed_until": item.expiry_alert_snoozed_until,
         "expiry_reviewed_at": _utc_datetime(item.expiry_reviewed_at),
         "expiry_reviewed_by": item.expiry_reviewed_by,
+        "last_confirmed_at": _utc_datetime(item.last_confirmed_at),
+        "last_confirmed_by": item.last_confirmed_by,
+        "last_confirmation_source": item.last_confirmation_source,
+    }
+
+
+def serialize_ingredient_inventory_state(state: IngredientInventoryState) -> dict:
+    return {
+        "id": state.id,
+        "family_id": state.family_id,
+        "ingredient_id": state.ingredient_id,
+        "availability_level": state.availability_level,
+        "inventory_status": state.inventory_status,
+        "purchase_date": state.purchase_date,
+        "expiry_date": state.expiry_date,
+        "storage_location": state.storage_location,
+        "notes": state.notes,
+        "expiry_alert_snoozed_until": state.expiry_alert_snoozed_until,
+        "expiry_reviewed_at": _utc_datetime(state.expiry_reviewed_at),
+        "expiry_reviewed_by": state.expiry_reviewed_by,
+        "last_confirmed_at": _utc_datetime(state.last_confirmed_at),
+        "last_confirmed_by": state.last_confirmed_by,
+        "last_confirmation_source": state.last_confirmation_source,
+        "row_version": state.row_version,
+        "created_at": _utc_datetime(state.created_at),
+        "updated_at": _utc_datetime(state.updated_at),
     }
 
 
 def serialize_shopping_item(item: ShoppingListItem) -> dict:
+    if item.food_id:
+        target_type = "food"
+    elif item.ingredient_id:
+        target_type = "ingredient"
+    else:
+        target_type = "free_text"
     return {
         "id": item.id,
         "family_id": item.family_id,
         "ingredient_id": item.ingredient_id,
         "food_id": item.food_id,
-        "target_type": "food" if item.food_id else "ingredient",
+        "target_type": target_type,
         "title": item.title,
         "quantity": _to_float(item.quantity),
         "unit": item.unit,
@@ -219,6 +253,7 @@ def serialize_shopping_item(item: ShoppingListItem) -> dict:
         "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
+        "row_version": item.row_version,
     }
 
 
@@ -369,6 +404,10 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "updated_at": _utc_datetime(food.updated_at),
         "created_by": food.created_by,
         "updated_by": food.updated_by,
+        "row_version": food.row_version,
+        "inventory_last_confirmed_at": _utc_datetime(food.inventory_last_confirmed_at),
+        "inventory_last_confirmed_by": food.inventory_last_confirmed_by,
+        "inventory_confirmation_source": food.inventory_confirmation_source,
     }
 
 

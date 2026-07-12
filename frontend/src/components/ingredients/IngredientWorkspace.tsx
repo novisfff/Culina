@@ -13,7 +13,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -23,6 +23,7 @@ import type {
   Food,
   Ingredient,
   IngredientExpiryMode,
+  IngredientInventoryState,
   IngredientUnitConversion,
   InventoryItem,
   InventoryOverviewItem,
@@ -30,6 +31,7 @@ import type {
   MealType,
   Recipe,
   ShoppingListItem,
+  UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -108,8 +110,14 @@ type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
   foods: Food[];
   inventoryItems: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
+  /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
+  openOperationHistory?: (operationId?: string) => void;
+  operationBanner?: ReactNode;
   notificationCenter?: ReactNode;
   navigationRequest?:
     | { target: 'catalog'; requestId: number }
@@ -133,6 +141,7 @@ type IngredientWorkspaceProps = {
   updateIngredient: (
     ingredientId: string,
     payload: {
+      expected_row_version: number;
       name: string;
       category: string;
       default_unit: string;
@@ -146,6 +155,10 @@ type IngredientWorkspaceProps = {
       media_ids: string[];
     }
   ) => Promise<Ingredient>;
+  transitionIngredientTrackingMode?: (
+    ingredientId: string,
+    payload: import('../../api/types').IngredientTrackingModeTransitionRequest
+  ) => Promise<Ingredient>;
   createInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -157,6 +170,10 @@ type IngredientWorkspaceProps = {
     notes: string;
     low_stock_threshold?: number;
   }) => Promise<InventoryItem>;
+  upsertInventoryState: (
+    ingredientId: string,
+    payload: UpsertIngredientInventoryStateRequest,
+  ) => Promise<IngredientInventoryState>;
   consumeInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -181,6 +198,7 @@ type IngredientWorkspaceProps = {
   updateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -192,7 +210,7 @@ type IngredientWorkspaceProps = {
       done?: boolean;
     };
   }) => Promise<ShoppingListItem>;
-  deleteShoppingItem: (itemId: string) => Promise<void>;
+  deleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<void>;
   isCreatingIngredient?: boolean;
   isUpdatingIngredient?: boolean;
   isCreatingInventory?: boolean;
@@ -212,7 +230,6 @@ type FoodStockMealDialogState = {
 
 type FoodStockAdjustDialogState = {
   item: InventoryOverviewItem;
-  shoppingItemId?: string;
   quantity: string;
   unit: string;
   expiryDate: string;
@@ -1093,7 +1110,7 @@ type InventoryIngredientCardProps = {
 function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
-  const presentation = buildInventoryCardPresentation(summary);
+  const presentation = buildInventoryCardPresentation(summary, businessDateKey());
   const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
@@ -1148,6 +1165,16 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
           <div className="ingredient-visual-body inventory-ingredient-card-body">
             <div className="ingredient-visual-title-row inventory-ingredient-card-title-row">
               <h3>{summary.ingredient.name}</h3>
+              <span
+                className={`inventory-maintenance-chip is-confirmation is-${presentation.confirmationTone}`}
+                title={
+                  presentation.lastConfirmedAt
+                    ? `上次确认 ${formatDate(presentation.lastConfirmedAt.slice(0, 10))}`
+                    : '还没有人工确认过库存'
+                }
+              >
+                {presentation.confirmationLabel}
+              </span>
             </div>
             <p className="ingredient-visual-meta" title={metaLine}>
               {metaLine}
@@ -1600,10 +1627,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [ingredientForm, setIngredientForm] = useState<IngredientCreateFormState>(
     () => persistedWorkspaceState.ingredientForm ?? defaultIngredientForm()
   );
-  const ingredientOptions =
-    transientIngredient && !props.ingredients.some((item) => item.id === transientIngredient.id)
-      ? [transientIngredient, ...props.ingredients]
-      : props.ingredients;
+  const ingredientOptions = (() => {
+    if (!transientIngredient) {
+      return props.ingredients;
+    }
+    const others = props.ingredients.filter((item) => item.id !== transientIngredient.id);
+    // Prefer the local transitioned/saved snapshot so dual-write recovery can update mode/version
+    // before query invalidation lands.
+    return [transientIngredient, ...others];
+  })();
   const readyFoodOptions = useMemo(
     () => {
       const sourceFoods =
@@ -1817,6 +1849,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   } = useIngredientWorkspaceData({
     ingredients: searchAwareIngredients,
     inventoryItems: searchAwareInventoryItems,
+    inventoryStates: props.inventoryStates ?? [],
     recipes: props.recipes,
     foods: readyFoodOptions,
     shoppingItems: props.shoppingItems,
@@ -1865,6 +1898,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredientForm,
     setIngredientForm,
     ingredientOptions,
+    inventoryItems: props.inventoryItems,
+    inventoryStates: props.inventoryStates,
     setTransientIngredient,
     setSelectedIngredientId,
     setWorkspaceView,
@@ -1875,6 +1910,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isUpdatingIngredient: props.isUpdatingIngredient,
     createIngredient: props.createIngredient,
     updateIngredient: props.updateIngredient,
+    transitionIngredientTrackingMode: props.transitionIngredientTrackingMode,
+    onTrackingTransitionSettled: async () => {
+      // Invalidate only after the dual-write path finishes (success or recovered transition),
+      // so inventory/state refresh does not land under an open transition dialog.
+      await invalidateAfterInventoryOperation(queryClient);
+    },
     showNotice,
     resolveErrorMessage,
   });
@@ -1891,7 +1932,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,
@@ -1918,7 +1959,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setActivePanel('catalog');
       editorState.openCreateView();
     },
-    onOpenFoodStockFromShopping: (item) => handleOpenFoodStockFromInventory(item.food_id || item.title, item),
+    onOpenShoppingIntake: (item) => {
+      if (props.openShoppingIntake) {
+        props.openShoppingIntake({ selectedItemId: item.id });
+        return;
+      }
+    },
   });
 
   // Consume shopping/priority navigation once by requestId; do not keep shopping form state in home.
@@ -2004,10 +2050,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
     await invalidateAfterInventoryChanged(queryClient);
     await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
       queryClient.fetchQuery({
         queryKey: queryKeys.inventory,
         queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventoryStates,
+        queryFn: () => api.listInventoryStates(),
       }),
       queryClient.fetchQuery({
         queryKey: queryKeys.ingredients,
@@ -2022,13 +2072,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       inventoryItems: freshInventory,
       ingredients: freshIngredients,
       shoppingItems: freshShopping,
+      inventoryStates: freshStates,
       referenceDate: inventoryActionReferenceDate,
     });
     const freshSummaries = buildIngredientSummaries({
       ingredients: freshIngredients,
       inventoryItems: freshInventory,
+      inventoryStates: freshStates,
       recipes: props.recipes,
-      today: inventoryActionReferenceDate,
+      referenceDate: inventoryActionReferenceDate,
       shoppingItems: freshShopping,
     });
     // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
@@ -2059,7 +2111,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     selectedInventoryIngredient,
@@ -2069,6 +2121,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setInventoryActionError,
     setInventoryActionConflict,
     createInventory: props.createInventory,
+    upsertInventoryState: props.upsertInventoryState,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
     snoozeInventoryExpiryAlerts:
@@ -2092,14 +2145,42 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         </ActionButton>
       )}
       {activePanel === 'inventory' && (
-        <ActionButton tone="primary" type="button" onClick={() => openInventoryOverlay()}>
-          快速入库
-        </ActionButton>
+        <>
+          <ActionButton
+            tone="primary"
+            type="button"
+            onClick={() => props.openReconciliation?.({ scope: 'suggested' })}
+          >
+            快速盘点
+          </ActionButton>
+          <ActionButton tone="secondary" type="button" onClick={() => openInventoryOverlay()}>
+            快速入库
+          </ActionButton>
+          {props.openOperationHistory ? (
+            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
+              操作历史
+            </ActionButton>
+          ) : null}
+        </>
       )}
       {activePanel === 'shopping' && (
-        <ActionButton tone="primary" type="button" onClick={() => openShoppingOverlay()}>
-          新增采购
-        </ActionButton>
+        <>
+          <ActionButton
+            tone="primary"
+            type="button"
+            onClick={() => props.openShoppingIntake?.()}
+          >
+            登记本次购买
+          </ActionButton>
+          <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
+            新增采购
+          </ActionButton>
+          {props.openOperationHistory ? (
+            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
+              操作历史
+            </ActionButton>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -2183,7 +2264,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     disposeSelectedInventoryBatches,
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,
-    pendingShoppingToComplete,
     isCreatingInventory: props.isCreatingInventory,
     isConsumingInventory: props.isConsumingInventory,
     isCreatingShopping: props.isCreatingShopping,
@@ -2193,12 +2273,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     return unifiedInventoryItems.find((item) => item.source_id === sourceId);
   }
 
-  function handleOpenFoodStockFromInventory(foodId: string, shoppingItem?: ShoppingListItem) {
+  function handleOpenFoodStockFromInventory(foodId: string) {
     const item = findUnifiedInventoryItemBySourceId(foodId);
     if (item) {
       setFoodStockAdjustDialog({
         item,
-        shoppingItemId: shoppingItem?.id,
         quantity: '1',
         unit: item.unit || '份',
         expiryDate: item.expiry_date ?? '',
@@ -2331,12 +2410,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           servings: 1,
           note: '',
           deduct_food_stock: true,
+          expected_food_row_version: foodStockMealDialog.item.row_version,
           stock_quantity: resolvedQuantity.quantity,
           stock_unit: foodStockMealDialog.item.unit || '份',
         });
         invalidateAfterQuickMealAdded(queryClient);
       } else {
         await api.consumeFoodStock(foodStockMealDialog.item.source_id, {
+          expected_row_version: foodStockMealDialog.item.row_version,
           quantity: resolvedQuantity.quantity,
           unit: foodStockMealDialog.item.unit || '份',
           note: '从库存页减扣成品库存',
@@ -2372,6 +2453,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       return;
     }
     const payload = {
+      expected_row_version: foodStockAdjustDialog.item.row_version,
       quantity: parsedQuantity.quantity,
       unit: foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份',
       expiry_date: foodStockAdjustDialog.expiryDate || null,
@@ -2382,16 +2464,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     try {
       await api.restockFoodStock(foodStockAdjustDialog.item.source_id, payload);
       invalidateAfterFoodChanged(queryClient);
-      if (foodStockAdjustDialog.shoppingItemId) {
-        await props.updateShoppingItem({
-          itemId: foodStockAdjustDialog.shoppingItemId,
-          payload: { done: true },
-        });
-      }
       setFoodStockAdjustDialog(null);
       showNotice({
         tone: 'success',
-        title: foodStockAdjustDialog.shoppingItemId ? '已补库存并完成采购' : '已补库存',
+        title: '已补库存',
         message: `${foodStockAdjustDialog.item.title} 已补入 ${parsedQuantity.quantity}${payload.unit}。`,
       });
     } catch (error) {
@@ -2461,7 +2537,16 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         openShoppingOverlay={openShoppingOverlay}
         openDestroyExpiredOverlay={openDestroyExpiredOverlay}
         openCreateView={openCreateView}
-        openInventoryFromShopping={openInventoryFromShopping}
+        openInventoryFromShopping={(item) => {
+          if (props.openShoppingIntake) {
+            props.openShoppingIntake({ selectedItemId: item.id });
+            return;
+          }
+          openInventoryFromShopping(item);
+        }}
+        openShoppingIntake={props.openShoppingIntake}
+        openReconciliation={props.openReconciliation}
+        operationBanner={props.operationBanner}
         openFoodStockMeal={handleRecordFoodStockMeal}
         openFoodStockEditor={handleOpenFoodStockFromInventory}
         openFoodShopping={handleAddFoodShopping}
@@ -2661,6 +2746,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               createChecklistItems={createChecklistItems}
               createCanSubmit={createCanSubmit}
               ingredientImageState={ingredientImageComposer.state}
+              trackingTransitionDraft={editorState.trackingTransitionDraft}
+              trackingTransitionBusy={editorState.trackingTransitionBusy}
+              trackingTransitionError={editorState.trackingTransitionError}
+              onCancelTrackingTransition={editorState.cancelTrackingTransition}
+              onUpdatePresenceResolution={editorState.updatePresenceResolution}
+              onUpdateExactResolution={editorState.updateExactResolution}
+              onConfirmTrackingTransition={() => void editorState.confirmTrackingTransition()}
               onUploadImage={(files) => void ingredientImageComposer.upload(files)}
               onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
               onResetImage={ingredientImageComposer.reset}
@@ -2969,7 +3061,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               <section className="ingredients-food-stock-restock-section">
                 <div className="ingredients-food-stock-restock-section-head">
                   <strong>购买来源</strong>
-                  <span>{foodStockAdjustDialog.shoppingItemId ? '补入成功后会完成这条采购' : '方便下次复购和回看'}</span>
+                  <span>方便下次复购和回看</span>
                 </div>
                 <label className="ingredients-food-stock-field">
                   <span>购买来源</span>

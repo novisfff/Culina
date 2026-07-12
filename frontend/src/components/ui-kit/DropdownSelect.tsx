@@ -18,6 +18,8 @@ export type DropdownSelectProps<T extends string> = {
   disabled?: boolean;
   className?: string;
   triggerClassName?: string;
+  /** Optional focus target key attached to the trigger button. */
+  triggerFieldKey?: string;
   menuClassName?: string;
   leadingIcon?: ReactNode;
 };
@@ -33,6 +35,7 @@ export function DropdownSelect<T extends string>({
   disabled = false,
   className,
   triggerClassName,
+  triggerFieldKey,
   menuClassName,
   leadingIcon,
 }: DropdownSelectProps<T>) {
@@ -82,6 +85,7 @@ export function DropdownSelect<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}
+        data-field-key={triggerFieldKey}
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
       >

@@ -45,6 +45,43 @@ class InventoryStatus(str, Enum):
     EXPIRING = "expiring"
 
 
+class InventoryAvailabilityLevel(str, Enum):
+    PRESENT_UNKNOWN = "present_unknown"
+    LOW = "low"
+    SUFFICIENT = "sufficient"
+    ABSENT = "absent"
+
+
+class InventoryConfirmationSource(str, Enum):
+    MANUAL_ENTRY = "manual_entry"
+    RECONCILIATION = "reconciliation"
+    SHOPPING_INTAKE = "shopping_intake"
+
+
+class InventoryOperationType(str, Enum):
+    RECONCILIATION = "reconciliation"
+    SHOPPING_INTAKE = "shopping_intake"
+
+
+class InventoryOperationStatus(str, Enum):
+    APPLIED = "applied"
+    REVERTED = "reverted"
+
+
+class InventoryOperationEntityType(str, Enum):
+    INGREDIENT = "ingredient"
+    INVENTORY_ITEM = "inventory_item"
+    NON_TRACKED_INGREDIENT_STATE = "non_tracked_ingredient_state"
+    FOOD = "food"
+    SHOPPING_LIST_ITEM = "shopping_list_item"
+
+
+class InventoryOperationChangeType(str, Enum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
 class IngredientExpiryMode(str, Enum):
     DAYS = "days"
     MANUAL_DATE = "manual_date"
@@ -73,6 +110,7 @@ class ActivityAction(str, Enum):
     UPDATE = "update"
     INVITE = "invite"
     SWITCH = "switch"
+    REVERT = "revert"
 
 
 class MediaSource(str, Enum):

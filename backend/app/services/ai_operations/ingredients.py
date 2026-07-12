@@ -12,9 +12,10 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.models.domain import Ingredient
-from app.schemas.ingredients import CreateIngredientRequest, UpdateIngredientRequest
+from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_ingredient_image_request, enqueue_ai_entity_image_generation
+from app.services.ingredient_inventory_state import TRACKING_TRANSITION_REQUIRED_MESSAGE
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
@@ -55,7 +56,9 @@ def execute_ingredient_profile_draft(
     if ingredient is None:
         raise AIConflictError("食材不存在或已被删除")
     assert_updated_at_matches(actual=ingredient.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食材 {ingredient.name}")
-    ingredient_in = UpdateIngredientRequest.model_validate(payload.get("payload") or {})
+    ingredient_in = IngredientPayloadRequest.model_validate(payload.get("payload") or {})
+    if ingredient_in.quantity_tracking_mode != ingredient.quantity_tracking_mode:
+        raise ValueError(TRACKING_TRANSITION_REQUIRED_MESSAGE)
     try:
         unit_conversions = validate_unit_conversions(
             ingredient_in.default_unit,
@@ -69,7 +72,6 @@ def execute_ingredient_profile_draft(
     ingredient.category = ingredient_in.category
     ingredient.default_unit = ingredient_in.default_unit
     ingredient.unit_conversions = unit_conversions
-    ingredient.quantity_tracking_mode = ingredient_in.quantity_tracking_mode
     ingredient.default_storage = ingredient_in.default_storage
     ingredient.default_expiry_mode = ingredient_in.default_expiry_mode
     ingredient.default_expiry_days = ingredient_in.default_expiry_days

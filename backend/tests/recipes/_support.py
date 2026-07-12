@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType, MembershipStatus, UserRole
+from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryAvailabilityLevel, InventoryStatus, MealType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Membership, RecipeCookLog, RecipeFavorite, User
+from app.models.domain import Base, Family, Food, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Membership, RecipeCookLog, RecipeFavorite, User
 
 
 class RecipeApiTestCase(unittest.TestCase):

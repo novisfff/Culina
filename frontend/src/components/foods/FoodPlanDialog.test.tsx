@@ -58,6 +58,7 @@ function buildFood(): Food {
     storage_location: '',
     favorite: false,
     recipe_id: 'recipe-1',
+    row_version: 1,
     created_at: '2026-07-07T00:00:00Z',
     updated_at: '2026-07-07T00:00:00Z',
   };

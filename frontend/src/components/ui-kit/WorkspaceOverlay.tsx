@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -19,6 +20,10 @@ type WorkspaceOverlayShellProps = {
   className?: string;
   onClose: () => void;
   children: ReactNode;
+  /** Optional stable id for the title; used as aria-labelledby target. */
+  titleId?: string;
+  /** When true, close button and mobile drag-to-dismiss are disabled. */
+  busy?: boolean;
 };
 
 function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
@@ -29,6 +34,9 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
   const dragRef = useRef({ pointerId: -1, startY: 0, startTime: 0, distance: 0 });
   const closeTimerRef = useRef<number | null>(null);
   const removeDragListenersRef = useRef<(() => void) | null>(null);
+  const generatedTitleId = useId();
+  const titleId = props.titleId ?? generatedTitleId;
+  const busy = Boolean(props.busy);
 
   useEffect(() => () => {
     if (closeTimerRef.current !== null) {
@@ -76,7 +84,7 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
       || (dragRef.current.distance >= 36 && velocity >= 0.65);
     dragRef.current.pointerId = -1;
 
-    if (!shouldClose) {
+    if (!shouldClose || busy) {
       resetDragPosition();
       return;
     }
@@ -87,9 +95,16 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
   }
 
   function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (busy) {
+      return;
+    }
     const panel = panelRef.current;
     const root = panel?.closest('.workspace-overlay-root');
     if (!panel || !root || !window.matchMedia('(max-width: 767px)').matches) {
+      return;
+    }
+    // Frame may mark the panel busy even when shell prop is not threaded.
+    if (panel.getAttribute('data-workspace-overlay-busy') === 'true') {
       return;
     }
     removeDragListenersRef.current?.();
@@ -115,9 +130,18 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
     };
   }
 
+  function handleCloseClick() {
+    if (busy) return;
+    props.onClose();
+  }
+
   return (
     <section
       ref={panelRef}
+      data-workspace-overlay-panel="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
       className={props.className ? `${shellClassName} workspace-overlay-panel ${sheetClassName} ${props.className}` : `${shellClassName} workspace-overlay-panel ${sheetClassName}`}
       onClick={(event) => event.stopPropagation()}
     >
@@ -131,7 +155,7 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
       <div className="workspace-overlay-head">
         <div className="workspace-overlay-titleblock">
           {props.eyebrow && <p className="eyebrow">{props.eyebrow}</p>}
-          <h3>{props.title}</h3>
+          <h3 id={titleId}>{props.title}</h3>
           {props.description && <p className="subtle">{props.description}</p>}
         </div>
         <ActionButton
@@ -140,7 +164,8 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
           type="button"
           className="workspace-overlay-close"
           aria-label={props.closeAriaLabel ?? (typeof props.closeLabel === 'string' ? props.closeLabel : '关闭弹窗')}
-          onClick={props.onClose}
+          disabled={busy}
+          onClick={handleCloseClick}
         >
           <span className="workspace-overlay-close-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">

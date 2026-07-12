@@ -5,6 +5,7 @@ import type {
   FoodPlanItem,
   FoodRecommendations,
   Ingredient,
+  IngredientInventoryState,
   InventoryItem,
   MealLog,
   Member,
@@ -33,6 +34,7 @@ type UseAppHomeViewModelArgs = {
   memberEditMemberId: string;
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   shoppingItems: ShoppingListItem[];
   recipes: Recipe[];
   foods: Food[];
@@ -80,12 +82,14 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const businessDate = businessDateKey(args.now ?? new Date(), 'Asia/Shanghai');
   const inventoryActionGroups = args.inventoryActionGroups ?? buildInventoryActionGroups({
     inventoryItems: args.inventoryItems,
+    inventoryStates: args.inventoryStates ?? [],
     ingredients: args.ingredients,
     shoppingItems: args.shoppingItems,
     referenceDate: businessDate,
   });
   const availableIngredientCount = countUniqueAvailableIngredients({
     inventoryItems: args.inventoryItems,
+    inventoryStates: args.inventoryStates ?? [],
     referenceDate: businessDate,
   });
   const pendingShoppingCount = args.shoppingItems.filter((item) => !item.done).length;

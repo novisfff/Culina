@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.ai_operations.composite import (
+    COMPOSITE_DOMAIN_DRAFT_TYPES,
+    composite_operation_requires_deferred_normalization,
     execute_composite_operation_plan,
     normalize_composite_operation_draft,
     validate_composite_operation_shape,
@@ -17,13 +19,54 @@ from app.services.ai_operations.draft_specs.common import _spec
 
 
 def _normalize_composite_operation(context: DraftNormalizeContext) -> dict[str, Any]:
-    return normalize_composite_operation_draft(context.payload)
+    normalized = normalize_composite_operation_draft(context.payload)
+    if context.phase == "approval":
+        return normalized
+
+    from app.services.ai_operations.registry import draft_operation_registry
+
+    normalized_steps: list[dict[str, Any]] = []
+    for step in normalized["steps"]:
+        operation = step["operation"]
+        if not composite_operation_requires_deferred_normalization(
+            operation,
+            domain=str(step["domain"]),
+        ):
+            operation = draft_operation_registry.normalize(
+                DraftNormalizeContext(
+                    db=context.db,
+                    draft_type=COMPOSITE_DOMAIN_DRAFT_TYPES[str(step["domain"])],
+                    family_id=context.family_id,
+                    user_id=context.user_id,
+                    conversation_id=context.conversation_id,
+                    payload=operation,
+                    phase="proposal",
+                )
+            )
+        normalized_steps.append({**step, "operation": operation})
+    return normalize_composite_operation_draft({**normalized, "steps": normalized_steps})
 
 
 def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    def execute_step(step_draft_type: str, step_payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    def execute_step(
+        step_draft_type: str,
+        step_payload: dict[str, Any],
+        normalize_before_execute: bool,
+    ) -> tuple[dict[str, Any], list[str]]:
         from app.services.ai_operations.registry import draft_operation_registry
 
+        if normalize_before_execute:
+            step_payload = draft_operation_registry.normalize(
+                DraftNormalizeContext(
+                    db=context.db,
+                    draft_type=step_draft_type,
+                    family_id=context.family_id,
+                    user_id=context.user_id,
+                    conversation_id=context.conversation_id,
+                    payload=step_payload,
+                    phase="proposal",
+                )
+            )
         return draft_operation_registry.execute(
             DraftExecuteContext(
                 db=context.db,
@@ -32,6 +75,7 @@ def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str
                 draft_type=step_draft_type,
                 payload=step_payload,
                 assert_updated_at_matches=context.assert_updated_at_matches,
+                conversation_id=context.conversation_id,
             )
         )
 

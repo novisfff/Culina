@@ -15,6 +15,8 @@ type UseAppHomeHandlersArgs = {
   setHomeRestockForm: Dispatch<SetStateAction<HomeRestockFormState | null>>;
   setHomeMealDetailId: Dispatch<SetStateAction<string | null>>;
   ingredients: Parameters<typeof buildHomeRestockForm>[1];
+  /** Shared atomic shopping intake. Preferred over the legacy restock form. */
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
 };
 
 export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
@@ -58,6 +60,11 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
   }
 
   function openHomeRestock(item: ShoppingListItem) {
+    if (args.openShoppingIntake) {
+      args.openShoppingIntake({ selectedItemId: item.id });
+      return;
+    }
+    // Legacy fallback retained only when intake is not composed (tests).
     args.setHomeRestockShoppingItemId(item.id);
     args.setHomeRestockForm(buildHomeRestockForm(item, args.ingredients));
   }

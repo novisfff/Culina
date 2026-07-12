@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import IngredientQuantityTrackingMode
-from app.models.domain import Ingredient, InventoryItem, Recipe
+from app.models.domain import Ingredient, IngredientInventoryState, InventoryItem, Recipe
 from app.services.ingredient_units import UnitConversionError, convert_quantity_from_default_unit, convert_quantity_to_default_unit
 
 
@@ -67,6 +67,7 @@ def remaining_quantity(item: InventoryItem) -> Decimal:
 
 
 def is_presence_available(item: InventoryItem, *, today: date) -> bool:
+    """Legacy placeholder helper; presence truth now lives on IngredientInventoryState."""
     if item.expiry_date is not None and item.expiry_date < today:
         return False
     return item.quantity - getattr(item, "disposed_quantity", Decimal("0")) > 0
@@ -88,6 +89,26 @@ def convert_default_to_item_unit(quantity: Decimal, item: InventoryItem, ingredi
     return convert_quantity_from_default_unit(quantity, ingredient.default_unit, ingredient.unit_conversions, item.unit)
 
 
+def load_presence_states_for_ingredients(
+    db: Session,
+    *,
+    family_id: str,
+    ingredient_ids: Iterable[str],
+) -> dict[str, IngredientInventoryState]:
+    ids = list(dict.fromkeys(item for item in ingredient_ids if item))
+    if not ids:
+        return {}
+    states = list(
+        db.scalars(
+            select(IngredientInventoryState).where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.ingredient_id.in_(ids),
+            )
+        )
+    )
+    return {state.ingredient_id: state for state in states}
+
+
 def load_available_inventory_by_ingredient(
     db: Session,
     *,
@@ -95,30 +116,40 @@ def load_available_inventory_by_ingredient(
     ingredient_ids: Iterable[str],
     today: date,
 ) -> dict[str, list[InventoryItem]]:
+    """Return usable precise InventoryItem batches only.
+
+    Presence ingredients no longer contribute placeholder InventoryItem rows here.
+    Callers that need presence readiness must use load_presence_states_for_ingredients
+    + state_is_usable.
+    """
     ids = list(dict.fromkeys(item for item in ingredient_ids if item))
     if not ids:
+        return {}
+
+    ingredients = {
+        ingredient.id: ingredient
+        for ingredient in db.scalars(
+            select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ids))
+        )
+    }
+    tracked_ids = [ingredient_id for ingredient_id, ingredient in ingredients.items() if tracks_quantity(ingredient)]
+    if not tracked_ids:
         return {}
 
     items = list(
         db.scalars(
             select(InventoryItem)
-            .where(InventoryItem.family_id == family_id, InventoryItem.ingredient_id.in_(ids))
+            .where(InventoryItem.family_id == family_id, InventoryItem.ingredient_id.in_(tracked_ids))
             .options(selectinload(InventoryItem.ingredient))
         )
     )
     items_by_ingredient: dict[str, list[InventoryItem]] = {}
     for item in items:
-        if item.ingredient is not None and not tracks_quantity(item.ingredient):
-            if not is_presence_available(item, today=today):
-                continue
-        else:
-            if item.expiry_date is not None and item.expiry_date < today:
-                continue
-            if remaining_quantity(item) <= 0:
-                continue
-        if item.ingredient_id not in items_by_ingredient:
-            items_by_ingredient[item.ingredient_id] = []
-        items_by_ingredient[item.ingredient_id].append(item)
+        if item.expiry_date is not None and item.expiry_date < today:
+            continue
+        if remaining_quantity(item) <= 0:
+            continue
+        items_by_ingredient.setdefault(item.ingredient_id, []).append(item)
 
     for available_items in items_by_ingredient.values():
         available_items.sort(key=lambda item: (*expiry_sort_key(item.expiry_date), item.purchase_date, item.created_at))
@@ -152,7 +183,10 @@ def build_cook_inventory_plan(
     today: date,
     inventory_by_ingredient: dict[str, list[InventoryItem]] | None = None,
     allow_partial_deduction: bool = False,
+    presence_states_by_ingredient: dict[str, IngredientInventoryState] | None = None,
 ) -> tuple[list[CookInventoryPlanItem], list[dict]]:
+    from app.services.ingredient_inventory_state import state_is_usable
+
     scale = Decimal(str(servings)) / Decimal(str(recipe.servings or 1))
     consumption_plan: list[CookInventoryPlanItem] = []
     shortages: list[dict] = []
@@ -164,6 +198,17 @@ def build_cook_inventory_plan(
             select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids))
         )
     } if ingredient_ids else {}
+    if presence_states_by_ingredient is None:
+        presence_ids = [
+            ingredient_id
+            for ingredient_id, ingredient in ingredients_by_id.items()
+            if not tracks_quantity(ingredient)
+        ]
+        presence_states_by_ingredient = load_presence_states_for_ingredients(
+            db,
+            family_id=family_id,
+            ingredient_ids=presence_ids,
+        )
 
     for ingredient_item in recipe.ingredient_items:
         requested_quantity = Decimal(str(ingredient_item.quantity)) * scale
@@ -205,7 +250,8 @@ def build_cook_inventory_plan(
             continue
 
         if not tracks_quantity(ingredient):
-            if not available_items:
+            state = presence_states_by_ingredient.get(ingredient.id)
+            if state is None or not state_is_usable(state, business_date=today):
                 shortages.append(
                     InventoryShortage(
                         ingredient_id=ingredient_item.ingredient_id,

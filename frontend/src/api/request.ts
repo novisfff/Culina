@@ -48,6 +48,12 @@ function resolveApiErrorDetail(payload: unknown, fallback: string) {
     if (typeof detail === 'string' && detail.trim()) {
       return detail;
     }
+    if (detail && typeof detail === 'object' && !Array.isArray(detail) && 'message' in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) {
+        return message;
+      }
+    }
     if (Array.isArray(detail) && detail.length > 0) {
       return detail
         .map((item) => {

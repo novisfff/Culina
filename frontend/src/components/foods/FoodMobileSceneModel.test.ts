@@ -60,6 +60,7 @@ const food: Food = {
   storage_location: '',
   favorite: false,
   recipe_id: null,
+  row_version: 1,
   created_at: '2026-06-01T10:00:00Z',
   updated_at: '2026-06-01T10:00:00Z',
 };

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readJsonStorage, readStringStorage, removeStorage, writeJsonStorage, writeStringStorage } from './storage';
+import { readJsonStorage, readStringStorage, reconciliationDraftKey, removeStorage, writeJsonStorage, writeStringStorage } from './storage';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -48,5 +48,11 @@ describe('storage helpers', () => {
 
     removeStorage('culina-string');
     expect(readStringStorage('culina-string', '默认')).toBe('默认');
+  });
+
+  it('builds reconciliation draft keys by family and user', () => {
+    expect(reconciliationDraftKey('family-1', 'user-2')).toBe(
+      'culina:inventory-reconciliation-draft:family-1:user-2',
+    );
   });
 });

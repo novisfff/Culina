@@ -19,7 +19,6 @@ import {
   IngredientRestockStorageSection,
   resolvePurchaseDatePatch,
 } from './IngredientRestockSections';
-import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
   resolveExpiryDateFromDays,
   type InventoryDrawerFormState,
@@ -31,7 +30,6 @@ type IngredientInventoryOverlayProps = {
   setInventoryForm: (next: InventoryDrawerFormState) => void;
   inventoryAdvancedOpen: boolean;
   setInventoryAdvancedOpen: (next: boolean) => void;
-  pendingShoppingToComplete: PendingShoppingCompletion | null;
   quickRestockIngredients: Ingredient[];
   ingredients: Ingredient[];
   selectedInventoryIngredient: Ingredient | null;
@@ -88,12 +86,6 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     >
       <form id={inventoryFormId} className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
         <div className="ingredients-restock-scroll">
-          {props.pendingShoppingToComplete && (
-            <div className="ingredients-restock-source-note">
-              <Badge>来自待买项</Badge>
-              <span>{props.pendingShoppingToComplete.title}</span>
-            </div>
-          )}
           {!props.inventoryForm.ingredientLocked &&
             !props.selectedInventoryIngredient &&
             props.quickRestockIngredients.length > 0 && (

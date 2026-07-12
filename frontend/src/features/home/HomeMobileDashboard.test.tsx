@@ -25,9 +25,11 @@ function batch(
   overrides: Partial<ExpiryInventoryActionGroup['batches'][number]> &
     Pick<ExpiryInventoryActionGroup['batches'][number], 'inventoryItemId' | 'daysLeft' | 'expiryDate'>,
 ): ExpiryInventoryActionGroup['batches'][number] {
+  const inventoryItemId = overrides.inventoryItemId;
+  const rowVersion = overrides.rowVersion ?? 1;
   return {
-    inventoryItemId: overrides.inventoryItemId,
-    rowVersion: overrides.rowVersion ?? 1,
+    inventoryItemId,
+    rowVersion,
     remainingQuantity: overrides.remainingQuantity ?? 1,
     unit: overrides.unit ?? '个',
     storageLocation: overrides.storageLocation ?? '冷藏',
@@ -37,6 +39,11 @@ function batch(
     expiryAlertSnoozedUntil: overrides.expiryAlertSnoozedUntil ?? null,
     expiryReviewedAt: overrides.expiryReviewedAt ?? null,
     expiryReviewedBy: overrides.expiryReviewedBy ?? null,
+    target: overrides.target ?? {
+      targetKind: 'inventory_item',
+      inventoryItemId,
+      expectedRowVersion: rowVersion,
+    },
   };
 }
 
@@ -62,6 +69,7 @@ const tomato: ExpiryInventoryActionGroup = {
   title: '番茄需要处理',
   detail: '1 批已过期，1 批 3 天内到期',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const milk: ExpiryInventoryActionGroup = {
@@ -83,6 +91,7 @@ const milk: ExpiryInventoryActionGroup = {
   title: '牛奶今天到期',
   detail: '2 盒 · 冷藏',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const eggs: LowStockInventoryActionGroup = {

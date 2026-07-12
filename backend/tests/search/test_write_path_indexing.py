@@ -60,7 +60,13 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
 
         update_response = self.client.patch(
             f"/api/ingredients/{ingredient['id']}",
-            json={**ingredient, "name": "紫皮洋葱头", "notes": "适合快手炒菜", "media_ids": []},
+            json={
+                **ingredient,
+                "name": "紫皮洋葱头",
+                "notes": "适合快手炒菜",
+                "media_ids": [],
+                "expected_row_version": ingredient["row_version"],
+            },
         )
         self.assertEqual(update_response.status_code, 200, update_response.text)
         self._process_index_job("ingredient", ingredient["id"])
@@ -149,7 +155,12 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
 
         update_response = self.client.patch(
             f"/api/foods/{food['id']}",
-            json={**food, "name": "冷冻牛肉饭 Pro", "media_ids": []},
+            json={
+                **food,
+                "expected_row_version": food["row_version"],
+                "name": "冷冻牛肉饭 Pro",
+                "media_ids": [],
+            },
         )
         self.assertEqual(update_response.status_code, 200, update_response.text)
         self._process_index_job("food", food["id"])

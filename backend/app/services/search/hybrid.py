@@ -6,11 +6,18 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
-from app.core.enums import FoodType
+from app.core.enums import FoodType, InventoryAvailabilityLevel
 from app.models.domain import Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
-from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary, remaining_quantity, tracks_quantity
+from app.services.ingredient_inventory_state import state_is_usable
+from app.services.inventory_usage import (
+    load_available_inventory_by_ingredient,
+    load_presence_states_for_ingredients,
+    recipe_availability_summary,
+    remaining_quantity,
+    tracks_quantity,
+)
 from app.services.recipe_recommendations import recipe_recommendation_usage_maps
 from app.services.search.embeddings import EmbeddingClient, EmbeddingUnavailableError, build_embedding_client
 from app.services.search.keyword_store import KeywordSearchHit, search_exact_name_documents, search_keyword_documents
@@ -640,13 +647,33 @@ def _load_ingredient_business_signals(
         ingredient_ids=[ingredient.id for ingredient in ingredients],
         today=today,
     )
+    presence_states = load_presence_states_for_ingredients(
+        db,
+        family_id=family_id,
+        ingredient_ids=[ingredient.id for ingredient in ingredients if not tracks_quantity(ingredient)],
+    )
     signals: dict[tuple[str, str], SearchBusinessSignals] = {}
     for ingredient in ingredients:
-        available_items = inventory_by_ingredient.get(ingredient.id, [])
+        if tracks_quantity(ingredient):
+            available_items = inventory_by_ingredient.get(ingredient.id, [])
+            signals[("ingredient", ingredient.id)] = SearchBusinessSignals(
+                inventory_available=bool(available_items),
+                days_until_expiry=_nearest_expiry_days(available_items, today=today),
+                low_stock=_has_low_stock_item(ingredient, available_items),
+            )
+            continue
+        state = presence_states.get(ingredient.id)
+        usable = state is not None and state_is_usable(state, business_date=today)
+        days_until_expiry = None
+        if state is not None and state.expiry_date is not None:
+            days_until_expiry = (state.expiry_date - today).days
         signals[("ingredient", ingredient.id)] = SearchBusinessSignals(
-            inventory_available=bool(available_items),
-            days_until_expiry=_nearest_expiry_days(available_items, today=today),
-            low_stock=_has_low_stock_item(ingredient, available_items),
+            inventory_available=usable,
+            days_until_expiry=days_until_expiry,
+            low_stock=(
+                state is not None
+                and state.availability_level is InventoryAvailabilityLevel.LOW
+            ),
         )
     return signals
 

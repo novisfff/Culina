@@ -17,6 +17,12 @@ from app.core.enums import (
     ImageGenerationMode,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
+    InventoryAvailabilityLevel,
+    InventoryConfirmationSource,
+    InventoryOperationChangeType,
+    InventoryOperationEntityType,
+    InventoryOperationStatus,
+    InventoryOperationType,
     InventoryStatus,
     MealType,
     MediaSource,
@@ -51,6 +57,8 @@ class Family(AuditMixin, Base):
     memberships: Mapped[list["Membership"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ingredients: Mapped[list["Ingredient"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ingredient_inventory_states: Mapped[list["IngredientInventoryState"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    inventory_operations: Mapped[list["InventoryOperation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipes: Mapped[list["Recipe"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     food_scenes: Mapped[list["FoodScene"]] = relationship(back_populates="family", cascade="all, delete-orphan")
@@ -190,10 +198,18 @@ class Ingredient(AuditMixin, Base):
     default_expiry_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_low_stock_threshold: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     family: Mapped["Family"] = relationship(back_populates="ingredients")
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="ingredient", cascade="all, delete-orphan")
+    inventory_state: Mapped["IngredientInventoryState | None"] = relationship(
+        back_populates="ingredient",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="ingredient")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class InventoryItem(AuditMixin, Base):
@@ -222,11 +238,136 @@ class InventoryItem(AuditMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_confirmed_by: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_confirmation_source: Mapped[InventoryConfirmationSource | None] = mapped_column(
+        SqlEnum(InventoryConfirmationSource, native_enum=False),
+        nullable=True,
+    )
 
     family: Mapped["Family"] = relationship(back_populates="inventory_items")
     ingredient: Mapped["Ingredient"] = relationship(back_populates="inventory_items")
 
     __mapper_args__ = {"version_id_col": row_version}
+
+
+class IngredientInventoryState(AuditMixin, Base):
+    __tablename__ = "ingredient_inventory_states"
+    __table_args__ = (
+        UniqueConstraint("family_id", "ingredient_id", name="uq_ingredient_inventory_states_family_ingredient"),
+        Index("ix_ingredient_inventory_states_family_availability", "family_id", "availability_level"),
+        Index(
+            "ix_ingredient_inventory_states_family_storage_availability",
+            "family_id",
+            "storage_location",
+            "availability_level",
+        ),
+        Index("ix_ingredient_inventory_states_family_expiry", "family_id", "expiry_date"),
+        Index("ix_ingredient_inventory_states_family_confirmed", "family_id", "last_confirmed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("inventory-state"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    ingredient_id: Mapped[str] = mapped_column(ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False)
+    availability_level: Mapped[InventoryAvailabilityLevel] = mapped_column(
+        SqlEnum(InventoryAvailabilityLevel, native_enum=False),
+        nullable=False,
+    )
+    inventory_status: Mapped[InventoryStatus] = mapped_column(
+        SqlEnum(InventoryStatus, native_enum=False),
+        default=InventoryStatus.FRESH,
+        nullable=False,
+    )
+    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    storage_location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    expiry_alert_snoozed_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expiry_reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_confirmed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_confirmation_source: Mapped[InventoryConfirmationSource | None] = mapped_column(
+        SqlEnum(InventoryConfirmationSource, native_enum=False),
+        nullable=True,
+    )
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="ingredient_inventory_states")
+    ingredient: Mapped["Ingredient"] = relationship(back_populates="inventory_state")
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+
+class InventoryOperation(Base):
+    __tablename__ = "inventory_operations"
+    __table_args__ = (
+        UniqueConstraint("family_id", "client_request_id", name="uq_inventory_operations_family_request"),
+        Index("ix_inventory_operations_family_applied", "family_id", "applied_at"),
+        Index("ix_inventory_operations_family_status_revertible", "family_id", "status", "revertible_until"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("inventory-operation"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    operation_type: Mapped[InventoryOperationType] = mapped_column(
+        SqlEnum(InventoryOperationType, native_enum=False),
+        nullable=False,
+    )
+    status: Mapped[InventoryOperationStatus] = mapped_column(
+        SqlEnum(InventoryOperationStatus, native_enum=False),
+        nullable=False,
+    )
+    client_request_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revertible_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="inventory_operations")
+    lines: Mapped[list["InventoryOperationLine"]] = relationship(
+        back_populates="operation",
+        cascade="all, delete-orphan",
+        order_by="InventoryOperationLine.sequence",
+    )
+
+
+class InventoryOperationLine(Base):
+    __tablename__ = "inventory_operation_lines"
+    __table_args__ = (
+        UniqueConstraint("operation_id", "sequence", name="uq_inventory_operation_lines_sequence"),
+        UniqueConstraint("operation_id", "entity_type", "entity_id", name="uq_inventory_operation_lines_entity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("inventory-operation-line"))
+    operation_id: Mapped[str] = mapped_column(ForeignKey("inventory_operations.id", ondelete="CASCADE"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_type: Mapped[InventoryOperationEntityType] = mapped_column(
+        SqlEnum(InventoryOperationEntityType, native_enum=False),
+        nullable=False,
+    )
+    entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    change_type: Mapped[InventoryOperationChangeType] = mapped_column(
+        SqlEnum(InventoryOperationChangeType, native_enum=False),
+        nullable=False,
+    )
+    before_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    after_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    before_row_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    after_row_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    change_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    snapshot_schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    operation: Mapped["InventoryOperation"] = relationship(back_populates="lines")
 
 
 class ShoppingListItem(AuditMixin, Base):
@@ -247,10 +388,13 @@ class ShoppingListItem(AuditMixin, Base):
     display_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reason: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     family: Mapped["Family"] = relationship(back_populates="shopping_items")
     ingredient: Mapped["Ingredient | None"] = relationship(back_populates="shopping_items")
     food: Mapped["Food | None"] = relationship(back_populates="shopping_items")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class Recipe(AuditMixin, Base):
@@ -410,12 +554,25 @@ class Food(AuditMixin, Base):
     storage_location: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recipe_id: Mapped[str | None] = mapped_column(ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    inventory_last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inventory_last_confirmed_by: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    inventory_confirmation_source: Mapped[InventoryConfirmationSource | None] = mapped_column(
+        SqlEnum(InventoryConfirmationSource, native_enum=False),
+        nullable=True,
+    )
 
     family: Mapped["Family"] = relationship(back_populates="foods")
     recipe: Mapped["Recipe | None"] = relationship(back_populates="foods")
     meal_entries: Mapped[list["MealLogFood"]] = relationship(back_populates="food", cascade="all, delete-orphan")
     plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="food", cascade="all, delete-orphan")
     shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="food")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class MealLog(AuditMixin, Base):

@@ -262,6 +262,7 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
 }
 
 type InventoryPanelProps = {
+  operationBanner?: ReactNode;
   summariesCount: number;
   inventorySearch: string;
   isInventorySearchFetching?: boolean;
@@ -618,6 +619,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
 
   return (
     <div className="ingredients-panel-stack ingredients-inventory-stack">
+      {props.operationBanner}
       <div className="ingredients-panel-toolbar ingredients-inventory-toolbar">
         <div className="ingredients-inventory-toolbar-main">
           <label className="ingredients-search-field ingredients-inventory-search-field">
@@ -812,6 +814,7 @@ type ShoppingOverviewItem = {
 };
 
 type ShoppingPanelProps = {
+  operationBanner?: ReactNode;
   shoppingOverview: ShoppingOverviewItem[];
   shoppingFocus: ShoppingCardFocus;
   shoppingSearch: string;
@@ -830,7 +833,7 @@ type ShoppingPanelProps = {
   onOpenInventoryFromShopping: (item: ShoppingListItem) => void;
   onOpenDetailView: (summary: IngredientSummaryViewModel) => void;
   onToggleCompletedShopping: () => void;
-  onRestoreShopping: (itemId: string) => void;
+  onRestoreShopping: (item: ShoppingListItem) => void;
   IngredientWorkspaceIcon: IngredientWorkspaceIconComponent;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
@@ -839,6 +842,7 @@ type ShoppingPanelProps = {
 export function IngredientShoppingPanel(props: ShoppingPanelProps) {
   return (
     <div className="ingredients-panel-stack ingredients-shopping-stack">
+      {props.operationBanner}
 
       <section className="ingredients-shopping-filter-shell" aria-label="采购筛选">
         <div className="ingredients-shopping-toolbar-tools">
@@ -991,7 +995,7 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
                   <props.ShoppingHistoryRow
                     key={card.shoppingItem.id}
                     card={card}
-                    onRestore={() => props.onRestoreShopping(card.shoppingItem.id)}
+                    onRestore={() => props.onRestoreShopping(card.shoppingItem)}
                     onDetail={
                       card.linkedSummary
                         ? () => {

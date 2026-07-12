@@ -5,8 +5,27 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from app.core.enums import Difficulty, FoodType, IngredientExpiryMode, InventoryStatus, MealType
-from app.models.domain import Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeIngredient, SearchDocument
+from app.core.enums import (
+    Difficulty,
+    FoodType,
+    IngredientExpiryMode,
+    IngredientQuantityTrackingMode,
+    InventoryAvailabilityLevel,
+    InventoryStatus,
+    MealType,
+)
+from app.models.domain import (
+    Family,
+    Food,
+    Ingredient,
+    IngredientInventoryState,
+    InventoryItem,
+    MealLog,
+    MealLogFood,
+    Recipe,
+    RecipeIngredient,
+    SearchDocument,
+)
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search import hybrid as hybrid_module
 from app.services.search.hybrid import MAX_RERANK_DOCUMENT_CHARS, _rerank_document_texts, hybrid_search
@@ -1379,3 +1398,61 @@ def test_hybrid_search_adds_ingredient_inventory_signals() -> None:
     assert response.items[0].entity_id == "ingredient-tomato"
     assert response.items[0].business_score > 0.5
     assert "临期优先" in response.items[0].match_reason
+
+
+def test_hybrid_search_marks_presence_low_state_as_low_stock() -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        ingredient = Ingredient(
+            id="ingredient-oyster-sauce",
+            family_id=family.id,
+            name="蚝油",
+            category="调味",
+            default_unit="瓶",
+            unit_conversions=[],
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+        )
+        state = IngredientInventoryState(
+            id="inventory-state-oyster-sauce",
+            family_id=family.id,
+            ingredient_id=ingredient.id,
+            availability_level=InventoryAvailabilityLevel.LOW,
+            inventory_status=InventoryStatus.OPENED,
+            storage_location="常温",
+            notes="快用完了",
+        )
+        db.add_all([family, ingredient, state])
+        db.flush()
+        upsert_search_document(
+            db,
+            SearchDocumentPayload(
+                family_id=family.id,
+                entity_type="ingredient",
+                entity_id=ingredient.id,
+                title_text=ingredient.name,
+                keyword_text="蚝油 调味 补货",
+                detail_text="",
+                semantic_text="食材：蚝油",
+                metadata_json={},
+                content_hash="hash-presence-ingredient",
+            ),
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            query="补货",
+            scopes=["ingredient"],
+            limit=10,
+            offset=0,
+            embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore([]),
+        )
+
+    assert [item.entity_id for item in response.items] == ["ingredient-oyster-sauce"]
+    assert "低库存" in response.items[0].match_reason

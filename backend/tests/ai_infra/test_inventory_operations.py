@@ -77,7 +77,244 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(operation["unit"], "瓶")
             self.assertEqual(operation["lowStockThreshold"], None)
 
-        def test_presence_inventory_operations_skip_quantity_deduction_and_dispose_whole_batch(self) -> None:
+        def test_presence_dispose_draft_fails_early_with_presence_state_required(self) -> None:
+            from app.services.ingredient_inventory_state import PresenceStateRequiredError
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-oil-dispose",
+                    family_id=self.family.id,
+                    name="食用油",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+                # Historical placeholder row must not make dispose drafts succeed.
+                db.add(
+                    InventoryItem(
+                        id="inventory-oil-placeholder",
+                        family_id=self.family.id,
+                        ingredient_id=ingredient.id,
+                        quantity=Decimal("1"),
+                        consumed_quantity=Decimal("0"),
+                        unit="瓶",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        expiry_date=None,
+                        storage_location="常温",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+                with self.assertRaises(PresenceStateRequiredError) as raised:
+                    normalize_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        payload={
+                            "operations": [
+                                {
+                                    "action": "dispose",
+                                    "ingredientId": ingredient.id,
+                                    "inventoryItemId": "inventory-oil-placeholder",
+                                    "reason": "用完了",
+                                }
+                            ]
+                        },
+                    )
+                self.assertEqual(raised.exception.code, "presence_state_required")
+
+        def test_presence_consume_draft_fails_early_with_state_update_guidance(self) -> None:
+            from app.services.ingredient_inventory_state import PresenceStateRequiredError
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-oil-consume",
+                    family_id=self.family.id,
+                    name="食用油",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+
+                with self.assertRaises(PresenceStateRequiredError) as raised:
+                    normalize_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        payload={
+                            "operations": [
+                                {
+                                    "action": "consume",
+                                    "ingredientId": ingredient.id,
+                                    "quantity": 1,
+                                    "unit": "瓶",
+                                }
+                            ]
+                        },
+                    )
+
+            self.assertEqual(raised.exception.code, "presence_state_required")
+            self.assertIn("少量", str(raised.exception))
+            self.assertIn("没有了", str(raised.exception))
+
+        def test_agent_context_and_meal_plan_counts_exclude_presence_placeholders(self) -> None:
+            from app.ai.kitchen.context import load_agent_context
+            from app.ai.tools.catalog.meal_plan import _today_recommendation_context
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+            from app.services.recipe_recommendations import recipe_expiring_inventory_bonus
+
+            with self.SessionLocal() as db:
+                salt = Ingredient(
+                    id="ingredient-salt-context",
+                    family_id=self.family.id,
+                    name="盐",
+                    category="调料",
+                    default_unit="g",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(salt)
+                db.flush()
+                today = today_for_family(self.family.id)
+                db.add(
+                    InventoryItem(
+                        id="inventory-salt-placeholder",
+                        family_id=self.family.id,
+                        ingredient_id=salt.id,
+                        quantity=Decimal("1"),
+                        consumed_quantity=Decimal("0"),
+                        unit="g",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=2),
+                        storage_location="常温",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.add(
+                    IngredientInventoryState(
+                        id="state-salt-context",
+                        family_id=self.family.id,
+                        ingredient_id=salt.id,
+                        availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+                        inventory_status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=2),
+                        storage_location="常温",
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+
+                context = load_agent_context(
+                    db,
+                    family_id=self.family.id,
+                    mode=None,
+                    subject={},
+                    include_inventory=True,
+                    include_meal_logs=False,
+                )
+                self.assertTrue(all(item.id != "inventory-salt-placeholder" for item in context.inventory_items))
+                self.assertTrue(any(state.ingredient_id == salt.id for state in context.presence_states))
+
+                summary = _today_recommendation_context(
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-meal-context",
+                        run_id="run-meal-context",
+                    )
+                )
+                # tomato fixture (1) + usable salt state (1); placeholder must not double-count.
+                self.assertEqual(summary["inventoryCount"], 2)
+                # tomato fixture expiring + salt state expiring; placeholder ignored.
+                self.assertEqual(summary["expiringCount"], 2)
+
+                recipe = Recipe(
+                    id="recipe-salt-bonus",
+                    family_id=self.family.id,
+                    title="盐焗测试",
+                    servings=2,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=[],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-ingredient-salt-bonus",
+                        recipe_id=recipe.id,
+                        ingredient_id=salt.id,
+                        ingredient_name="盐",
+                        quantity=Decimal("1"),
+                        unit="g",
+                        note="",
+                        sort_order=0,
+                    )
+                )
+                db.flush()
+                recipe = db.scalar(
+                    select(Recipe)
+                    .where(Recipe.id == recipe.id)
+                    .options(selectinload(Recipe.ingredient_items))
+                )
+                assert recipe is not None
+                placeholder = db.get(InventoryItem, "inventory-salt-placeholder")
+                assert placeholder is not None
+                # Even if a caller passes residual placeholders, bonus must ignore them.
+                self.assertEqual(recipe_expiring_inventory_bonus(recipe, [placeholder], today), 0)
+                state = db.get(IngredientInventoryState, "state-salt-context")
+                assert state is not None
+                self.assertGreater(
+                    recipe_expiring_inventory_bonus(
+                        recipe,
+                        [],
+                        today,
+                        presence_states_by_ingredient={salt.id: state},
+                    ),
+                    0,
+                )
+
+        def test_presence_inventory_batch_helpers_reject_not_track_quantity(self) -> None:
+            from app.services.ingredient_inventory_state import PresenceStateRequiredError, upsert_inventory_state
+            from app.core.enums import InventoryAvailabilityLevel, InventoryConfirmationSource
+            from app.models.domain import IngredientInventoryState
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
             with self.SessionLocal() as db:
                 ingredient = Ingredient(
                     id="ingredient-soy-sauce",
@@ -96,55 +333,76 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 db.add(ingredient)
                 db.flush()
 
-                item = create_inventory_batch(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    ingredient=ingredient,
-                    quantity=None,
-                    unit=None,
-                    status=InventoryStatus.FRESH,
-                    purchase_date=date.today(),
-                    expiry_date=None,
-                    storage_location="常温",
-                )
-                self.assertEqual(item.quantity, Decimal("1"))
-                self.assertEqual(item.consumed_quantity, Decimal("0"))
-
-                consume_result = consume_ingredient_inventory(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    ingredient=ingredient,
-                    quantity=None,
-                    unit=None,
-                    today=date.today(),
-                )
-                self.assertEqual(consume_result["affected_item_ids"], [])
-                self.assertEqual(item.consumed_quantity, Decimal("0"))
-
-                with self.assertRaisesRegex(ValueError, "只能整批移除"):
-                    dispose_inventory_quantity(
+                with self.assertRaises(PresenceStateRequiredError):
+                    create_inventory_batch(
                         db,
                         family_id=self.family.id,
                         user_id=self.user.id,
-                        item=item,
-                        quantity=Decimal("0.5"),
-                        unit="瓶",
-                        reason="测试",
+                        ingredient=ingredient,
+                        quantity=None,
+                        unit=None,
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        expiry_date=None,
+                        storage_location="常温",
                     )
 
-                dispose_result = dispose_inventory_quantity(
+                with self.assertRaises(PresenceStateRequiredError):
+                    consume_ingredient_inventory(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        ingredient=ingredient,
+                        quantity=None,
+                        unit=None,
+                        today=date.today(),
+                    )
+
+                state = upsert_inventory_state(
                     db,
                     family_id=self.family.id,
                     user_id=self.user.id,
-                    item=item,
-                    quantity=None,
-                    unit=None,
-                    reason="用完",
+                    ingredient=ingredient,
+                    expected_ingredient_row_version=ingredient.row_version,
+                    state_id=None,
+                    expected_state_row_version=None,
+                    availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+                    inventory_status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="常温",
+                    notes="",
+                    confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
                 )
-                self.assertEqual(dispose_result["remaining_quantity"], 0.0)
-                self.assertEqual(item.disposed_quantity, Decimal("1"))
+                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
+
+                payload = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "restock",
+                                "ingredientId": ingredient.id,
+                                "status": "opened",
+                                "storageLocation": "常温",
+                                "availabilityLevel": "low",
+                            }
+                        ]
+                    },
+                )
+                result, entity_ids = execute_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload=payload,
+                )
+                self.assertEqual(entity_ids, [state.id])
+                self.assertEqual(result["operations"][0]["state_id"], state.id)
+                refreshed = db.get(IngredientInventoryState, state.id)
+                assert refreshed is not None
+                self.assertEqual(refreshed.availability_level, InventoryAvailabilityLevel.LOW)
+                self.assertEqual(refreshed.inventory_status, InventoryStatus.OPENED)
 
         def test_ingredient_tools_expose_supported_units_for_inventory_flow(self) -> None:
             with self.SessionLocal() as db:
@@ -976,6 +1234,129 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(summary["items"][0]["sourceType"], "ingredient")
                 self.assertEqual(summary["items"][0]["inventoryItemId"], "inventory-tomato")
 
+        def test_inventory_summary_counts_low_stock_beyond_card_item_limit(self) -> None:
+            with self.SessionLocal() as db:
+                today = today_for_family(self.family.id)
+                for index in range(7):
+                    ingredient = Ingredient(
+                        id=f"ingredient-low-count-{index}",
+                        family_id=self.family.id,
+                        name=f"低库存食材{index}",
+                        category="测试",
+                        default_unit="份",
+                        unit_conversions=[],
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                    db.add_all(
+                        [
+                            ingredient,
+                            InventoryItem(
+                                id=f"inventory-low-count-{index}",
+                                family_id=self.family.id,
+                                ingredient_id=ingredient.id,
+                                quantity=Decimal("1"),
+                                consumed_quantity=Decimal("0"),
+                                disposed_quantity=Decimal("0"),
+                                unit="份",
+                                entered_quantity=Decimal("1"),
+                                entered_unit="份",
+                                status=InventoryStatus.FRESH,
+                                purchase_date=today,
+                                expiry_date=None,
+                                storage_location="常温",
+                                notes="",
+                                low_stock_threshold=Decimal("2"),
+                                created_by=self.user.id,
+                                updated_by=self.user.id,
+                            ),
+                        ]
+                    )
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-low-stock-count",
+                        run_id="run-low-stock-count",
+                    ),
+                )
+
+                summary = executor.call("inventory.read_summary", {"days": 7})
+
+            self.assertEqual(summary["lowStockCount"], 7)
+            self.assertEqual(summary["card"]["data"]["lowStockCount"], 7)
+            self.assertLessEqual(len(summary["items"]), 6)
+
+        def test_presence_low_state_appears_in_low_stock_query_and_summary(self) -> None:
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-presence-low",
+                    family_id=self.family.id,
+                    name="生抽",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                state = IngredientInventoryState(
+                    id="state-presence-low",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    availability_level=InventoryAvailabilityLevel.LOW,
+                    inventory_status=InventoryStatus.OPENED,
+                    purchase_date=today_for_family(self.family.id),
+                    expiry_date=None,
+                    storage_location="常温",
+                    notes="快用完了",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, state])
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-presence-low",
+                        run_id="run-presence-low",
+                    ),
+                )
+
+                low_stock = executor.call("inventory.read_low_stock_items", {"limit": 20})
+                summary = executor.call("inventory.read_summary", {"days": 7})
+
+            low_item = next(
+                item for item in low_stock["items"]
+                if item["id"] == "ingredient-state:state-presence-low"
+            )
+            self.assertEqual(low_item["quantity"], "偏低")
+            self.assertEqual(low_item["displayStatus"], "low_stock")
+            self.assertEqual(low_item["suggestedAction"], "restock")
+            self.assertEqual(summary["lowStockCount"], 1)
+            self.assertEqual(summary["card"]["data"]["lowStockCount"], 1)
+            self.assertTrue(
+                any(
+                    item["id"] == "ingredient-state:state-presence-low"
+                    for item in summary["items"]
+                )
+            )
+
         def test_inventory_operation_draft_normalizes_real_entities_and_rejects_cross_family_items(self) -> None:
             with self.SessionLocal() as db:
                 draft = normalize_inventory_operation_draft(
@@ -1048,6 +1429,342 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                             ]
                         },
                     )
+
+        def test_inventory_operation_draft_captures_concurrency_boundaries(self) -> None:
+            with self.SessionLocal() as db:
+                consume_draft = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
+                dispose_draft = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "dispose",
+                                "ingredientId": "ingredient-tomato",
+                                "inventoryItemId": "inventory-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                                "reason": "包装破损",
+                            }
+                        ]
+                    },
+                )
+
+            consume = consume_draft["operations"][0]
+            self.assertEqual(consume["quantityTrackingMode"], "track_quantity")
+            self.assertEqual(consume["expectedIngredientRowVersion"], 1)
+            self.assertIsNone(consume["stateId"])
+            self.assertIsNone(consume["expectedStateRowVersion"])
+            self.assertIsNone(consume["expectedInventoryItemRowVersion"])
+            self.assertEqual(consume["batchOptions"][0]["id"], "inventory-tomato")
+            self.assertEqual(consume["batchOptions"][0]["rowVersion"], 1)
+
+            dispose = dispose_draft["operations"][0]
+            self.assertEqual(dispose["expectedIngredientRowVersion"], 1)
+            self.assertEqual(dispose["expectedInventoryItemRowVersion"], 1)
+            self.assertEqual(dispose["batchOptions"][0]["rowVersion"], 1)
+
+        def test_inventory_approval_protects_versions_and_only_allows_listed_consume_batch(self) -> None:
+            with self.SessionLocal() as db:
+                original = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
+
+            selected = json.loads(json.dumps(original))
+            selected["operations"][0]["inventoryItemId"] = "inventory-tomato"
+            draft_operation_registry.validate_approval_value("inventory_operation", original, selected)
+
+            with self.SessionLocal() as db:
+                explicitly_scoped = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "inventoryItemId": "inventory-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
+            cleared_scope = json.loads(json.dumps(explicitly_scoped))
+            cleared_scope["operations"][0]["inventoryItemId"] = None
+            with self.assertRaisesRegex(ValueError, "批次"):
+                draft_operation_registry.validate_approval_value(
+                    "inventory_operation",
+                    explicitly_scoped,
+                    cleared_scope,
+                )
+
+            outside_scope = json.loads(json.dumps(original))
+            outside_scope["operations"][0]["inventoryItemId"] = "inventory-outside-preview"
+            with self.assertRaisesRegex(ValueError, "批次"):
+                draft_operation_registry.validate_approval_value(
+                    "inventory_operation",
+                    original,
+                    outside_scope,
+                )
+
+            tampered_version = json.loads(json.dumps(original))
+            tampered_version["operations"][0]["expectedIngredientRowVersion"] += 1
+            with self.assertRaisesRegex(ValueError, "并发校验"):
+                draft_operation_registry.validate_approval_value(
+                    "inventory_operation",
+                    original,
+                    tampered_version,
+                )
+
+            tampered_batch_version = json.loads(json.dumps(original))
+            tampered_batch_version["operations"][0]["batchOptions"][0]["rowVersion"] += 1
+            with self.assertRaisesRegex(ValueError, "并发校验"):
+                draft_operation_registry.validate_approval_value(
+                    "inventory_operation",
+                    original,
+                    tampered_batch_version,
+                )
+
+        def test_presence_inventory_approval_rejects_state_changed_after_draft(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-presence-approval",
+                    family_id=self.family.id,
+                    name="香醋",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                state = IngredientInventoryState(
+                    id="state-presence-approval",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    availability_level=InventoryAvailabilityLevel.LOW,
+                    inventory_status=InventoryStatus.FRESH,
+                    storage_location="常温",
+                    notes="还剩一点",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, state])
+                db.commit()
+                draft = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "restock",
+                                "ingredientId": ingredient.id,
+                                "storageLocation": "常温",
+                            }
+                        ]
+                    },
+                )
+                operation = draft["operations"][0]
+                self.assertEqual(operation["stateId"], state.id)
+                self.assertEqual(operation["expectedStateRowVersion"], 1)
+
+            with self.SessionLocal() as db:
+                state = db.get(IngredientInventoryState, "state-presence-approval")
+                assert state is not None
+                state.notes = "家人刚刚确认只剩最后一点"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                with self.assertRaises(AIConflictError):
+                    execute_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=draft,
+                    )
+                db.rollback()
+
+            with self.SessionLocal() as db:
+                state = db.get(IngredientInventoryState, "state-presence-approval")
+                assert state is not None
+                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.LOW)
+                self.assertEqual(state.notes, "家人刚刚确认只剩最后一点")
+
+        def test_dispose_inventory_approval_rejects_batch_changed_after_draft(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
+            with self.SessionLocal() as db:
+                draft = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "dispose",
+                                "ingredientId": "ingredient-tomato",
+                                "inventoryItemId": "inventory-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                                "reason": "包装破损",
+                            }
+                        ]
+                    },
+                )
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "家人刚更新了这一批次"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                with self.assertRaises(AIConflictError):
+                    execute_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=draft,
+                    )
+                db.rollback()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.disposed_quantity, Decimal("0"))
+                self.assertEqual(item.notes, "家人刚更新了这一批次")
+
+        def test_aggregate_consume_approval_rejects_inventory_scope_changed_after_draft(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
+            with self.SessionLocal() as db:
+                draft = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
+
+            with self.SessionLocal() as db:
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                create_inventory_batch(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    ingredient=ingredient,
+                    quantity=Decimal("1"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=today_for_family(self.family.id),
+                    expiry_date=None,
+                    storage_location="冷藏",
+                )
+                db.commit()
+
+            with self.SessionLocal() as db:
+                with self.assertRaises(AIConflictError):
+                    execute_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=draft,
+                    )
+                db.rollback()
+
+            with self.SessionLocal() as db:
+                original = db.get(InventoryItem, "inventory-tomato")
+                assert original is not None
+                self.assertEqual(original.consumed_quantity, Decimal("0"))
+
+        def test_inventory_approval_phase_normalization_preserves_proposal_versions(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
+            with self.SessionLocal() as db:
+                proposal = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "审批前由家人更新"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                submitted = normalize_ai_draft_payload(
+                    db,
+                    draft_type="inventory_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-inventory-approval-phase",
+                    payload=proposal,
+                    phase="approval",
+                )
+                self.assertEqual(submitted["operations"][0]["batchOptions"][0]["rowVersion"], 1)
+                with self.assertRaises(AIConflictError):
+                    execute_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=submitted,
+                    )
+                db.rollback()
 
         def test_inventory_approval_cannot_change_operation_type(self) -> None:
             original = {
@@ -1200,6 +1917,134 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(card_item["quantity"], "0")
                 self.assertEqual(card_item["lastOperation"]["action"], "dispose")
 
+        def test_presence_restock_approval_refreshes_state_backed_inventory_card(self) -> None:
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-card-presence-low",
+                    family_id=self.family.id,
+                    name="蚝油",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                state = IngredientInventoryState(
+                    id="state-card-presence-low",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    availability_level=InventoryAvailabilityLevel.LOW,
+                    inventory_status=InventoryStatus.OPENED,
+                    purchase_date=today_for_family(self.family.id),
+                    expiry_date=None,
+                    storage_location="常温",
+                    notes="快用完了",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, state])
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-presence-card",
+                        run_id="run-presence-card",
+                    ),
+                )
+                low_stock = executor.call("inventory.read_low_stock_items", {"limit": 20})
+                card = low_stock["card"]
+                card_item = next(
+                    item for item in card["data"]["items"]
+                    if item["id"] == "ingredient-state:state-card-presence-low"
+                )
+                self.assertEqual(card_item["quantity"], "偏低")
+
+                conversation = AIConversation(
+                    id="conversation-presence-card",
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
+                    mode=AiMode.INVENTORY_QA,
+                    prompt="低库存",
+                    response="低库存提醒",
+                    context={},
+                    title="低库存",
+                    summary="",
+                    status="active",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-presence-card",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="低库存提醒",
+                    content_type="parts",
+                    parts=[
+                        {
+                            "id": "part-presence-card",
+                            "type": "result_card",
+                            "card": card,
+                        }
+                    ],
+                    status="completed",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, message])
+                db.commit()
+                card_id = card["id"]
+
+            response = self.client.post(
+                "/api/ai/messages/message-presence-card/inventory-operation-draft",
+                json={
+                    "part_id": "part-presence-card",
+                    "card_id": card_id,
+                    "item_id": "ingredient-state:state-card-presence-low",
+                    "action": "restock",
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            approval = next(
+                part for part in response.json()["parts"]
+                if part["type"] == "approval_request"
+            )["approval"]
+
+            decision = self.client.post(
+                f"/api/ai/conversations/conversation-presence-card/approvals/{approval['id']}/decision",
+                json={
+                    "decision": "approved",
+                    "draft_version": approval["draft_version"],
+                    "values": approval["initial_values"],
+                },
+            )
+            self.assertEqual(decision.status_code, 200, decision.text)
+            self.assertEqual(decision.json()["operation"]["status"], "succeeded")
+
+            with self.SessionLocal() as db:
+                state = db.get(IngredientInventoryState, "state-card-presence-low")
+                self.assertIsNotNone(state)
+                assert state is not None
+                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
+                stored_message = db.get(AIMessage, "message-presence-card")
+                self.assertIsNotNone(stored_message)
+                assert stored_message is not None
+                refreshed = stored_message.parts[0]["card"]["data"]["items"][0]
+                self.assertEqual(refreshed["id"], "ingredient-state:state-card-presence-low")
+                self.assertEqual(refreshed["quantity"], "已有")
+                self.assertEqual(refreshed["displayStatus"], "available")
+                self.assertEqual(refreshed["lastOperation"]["action"], "restock")
+
         def test_depleted_ingredient_card_quick_action_creates_restock_draft_without_batch(self) -> None:
             with self.SessionLocal() as db:
                 depleted = Ingredient(
@@ -1330,20 +2175,27 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert item is not None
                 self.assertEqual(item.disposed_quantity, Decimal("1.00"))
                 self.assertEqual(item.row_version, 2)
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                self.assertEqual(ingredient.row_version, 2)
 
             with self.SessionLocal() as db:
                 from app.services.ai_operations.inventory import execute_inventory_operation_draft
 
-                payload = {
-                    "operations": [
-                        {
-                            "action": "consume",
-                            "ingredientId": "ingredient-tomato",
-                            "quantity": 1,
-                            "unit": "个",
-                        }
-                    ]
-                }
+                payload = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                            }
+                        ]
+                    },
+                )
                 result, entity_ids = execute_inventory_operation_draft(
                     db,
                     family_id=self.family.id,
@@ -1359,6 +2211,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert item is not None
                 self.assertEqual(item.consumed_quantity, Decimal("1.00"))
                 self.assertEqual(item.row_version, 3)
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                self.assertEqual(ingredient.row_version, 3)
 
         def test_expired_snoozed_batch_remains_expired_in_ai_inventory_reads(self) -> None:
             with self.SessionLocal() as db:
@@ -1477,24 +2332,29 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         "UPDATE statement on table 'inventory_items' expected to update 1 row(s); 0 were matched."
                     )
 
+                payload = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "dispose",
+                                "ingredientId": "ingredient-tomato",
+                                "inventoryItemId": "inventory-tomato",
+                                "quantity": 1,
+                                "unit": "个",
+                                "reason": "冲突测试",
+                            }
+                        ]
+                    },
+                )
                 with patch.object(type(db), "flush", flush_raising_stale):
                     with self.assertRaises(AIConflictError) as raised:
                         execute_inventory_operation_draft(
                             db,
                             family_id=self.family.id,
                             user_id=self.user.id,
-                            payload={
-                                "operations": [
-                                    {
-                                        "action": "dispose",
-                                        "ingredientId": "ingredient-tomato",
-                                        "inventoryItemId": "inventory-tomato",
-                                        "quantity": 1,
-                                        "unit": "个",
-                                        "reason": "冲突测试",
-                                    }
-                                ]
-                            },
+                            payload=payload,
                         )
                 self.assertEqual(str(raised.exception), STALE_INVENTORY_DETAIL)
 
@@ -1504,10 +2364,330 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(item.disposed_quantity, Decimal("0"))
                 self.assertEqual(item.row_version, 1)
 
+        def test_recipe_cook_draft_captures_inventory_boundaries_and_rejects_stale_batch(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.ai.tools.draft_validation import normalize_recipe_cook_draft
+            from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
+
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-cook-versioned-preview",
+                    family_id=self.family.id,
+                    title="番茄快炒版本测试",
+                    servings=1,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-versioned-preview-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=1,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.commit()
+                draft = normalize_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "recipeId": recipe.id,
+                        "servings": 1,
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "createMealLog": False,
+                    },
+                )
+
+            boundary = draft["inventoryBoundaries"][0]
+            self.assertEqual(boundary["ingredientId"], "ingredient-tomato")
+            self.assertEqual(boundary["quantityTrackingMode"], "track_quantity")
+            self.assertEqual(boundary["expectedIngredientRowVersion"], 1)
+            self.assertEqual(boundary["batches"], [{"inventoryItemId": "inventory-tomato", "expectedRowVersion": 1}])
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "家人刚更新了番茄批次"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                with self.assertRaises(AIConflictError):
+                    execute_recipe_cook_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=draft,
+                    )
+                db.rollback()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+                self.assertIsNone(
+                    db.scalar(select(RecipeCookLog).where(RecipeCookLog.recipe_id == "recipe-cook-versioned-preview"))
+                )
+
+        def test_recipe_cook_draft_captures_and_checks_presence_state_boundary(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.ai.tools.draft_validation import normalize_recipe_cook_draft
+            from app.core.enums import InventoryAvailabilityLevel
+            from app.models.domain import IngredientInventoryState
+            from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-recipe-presence",
+                    family_id=self.family.id,
+                    name="香醋",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                state = IngredientInventoryState(
+                    id="state-recipe-presence",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+                    inventory_status=InventoryStatus.FRESH,
+                    storage_location="常温",
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                recipe = Recipe(
+                    id="recipe-cook-presence-boundary",
+                    family_id=self.family.id,
+                    title="凉拌香醋菜",
+                    servings=1,
+                    prep_minutes=5,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["凉菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, state, recipe])
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-presence-boundary-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id=ingredient.id,
+                        ingredient_name=ingredient.name,
+                        quantity=1,
+                        unit="瓶",
+                        note="少量",
+                        sort_order=0,
+                    )
+                )
+                db.commit()
+                draft = normalize_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "recipeId": recipe.id,
+                        "servings": 1,
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "createMealLog": False,
+                    },
+                )
+
+            boundary = draft["inventoryBoundaries"][0]
+            self.assertEqual(boundary["quantityTrackingMode"], "not_track_quantity")
+            self.assertEqual(boundary["stateId"], "state-recipe-presence")
+            self.assertEqual(boundary["expectedStateRowVersion"], 1)
+            self.assertEqual(boundary["batches"], [])
+
+            with self.SessionLocal() as db:
+                state = db.get(IngredientInventoryState, "state-recipe-presence")
+                assert state is not None
+                state.notes = "家人刚确认过"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                with self.assertRaises(AIConflictError):
+                    execute_recipe_cook_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=draft,
+                    )
+                db.rollback()
+
+        def test_recipe_cook_approval_protects_target_servings_plan_and_inventory_preview(self) -> None:
+            from app.ai.tools.draft_validation import normalize_recipe_cook_draft
+
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-cook-protected-approval",
+                    family_id=self.family.id,
+                    title="番茄快炒审批测试",
+                    servings=1,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-protected-approval-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=1,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.commit()
+                original = normalize_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "recipeId": recipe.id,
+                        "servings": 1,
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "createMealLog": False,
+                    },
+                )
+
+            editable = json.loads(json.dumps(original))
+            editable["date"] = (date.today() + timedelta(days=1)).isoformat()
+            editable["mealType"] = "lunch"
+            editable["createMealLog"] = True
+            editable["notes"] = "少油"
+            draft_operation_registry.validate_approval_value("recipe_cook", original, editable)
+
+            for key, value in (
+                ("recipeId", "recipe-other"),
+                ("baseUpdatedAt", "2020-01-01T00:00:00Z"),
+                ("servings", 2),
+                ("planItemId", "plan-other"),
+            ):
+                tampered = json.loads(json.dumps(original))
+                tampered[key] = value
+                with self.assertRaisesRegex(ValueError, "不能在确认阶段修改"):
+                    draft_operation_registry.validate_approval_value("recipe_cook", original, tampered)
+
+            tampered_boundary = json.loads(json.dumps(original))
+            tampered_boundary["inventoryBoundaries"][0]["expectedIngredientRowVersion"] += 1
+            with self.assertRaisesRegex(ValueError, "不能在确认阶段修改"):
+                draft_operation_registry.validate_approval_value("recipe_cook", original, tampered_boundary)
+
+            tampered_preview = json.loads(json.dumps(original))
+            tampered_preview["previewItems"][0]["batches"][0]["quantity"] = 0.1
+            with self.assertRaisesRegex(ValueError, "不能在确认阶段修改"):
+                draft_operation_registry.validate_approval_value("recipe_cook", original, tampered_preview)
+
+        def test_recipe_cook_approval_phase_normalization_preserves_proposal_versions(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.ai.tools.draft_validation import normalize_recipe_cook_draft
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
+
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-cook-approval-phase",
+                    family_id=self.family.id,
+                    title="番茄快炒审批阶段测试",
+                    servings=1,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-approval-phase-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=1,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.commit()
+                proposal = normalize_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "recipeId": recipe.id,
+                        "servings": 1,
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "createMealLog": False,
+                    },
+                )
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "审批前由家人更新"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                submitted = normalize_ai_draft_payload(
+                    db,
+                    draft_type="recipe_cook",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-recipe-cook-approval-phase",
+                    payload=proposal,
+                    phase="approval",
+                )
+                self.assertEqual(
+                    submitted["inventoryBoundaries"][0]["batches"][0]["expectedRowVersion"],
+                    1,
+                )
+                with self.assertRaises(AIConflictError):
+                    execute_recipe_cook_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=submitted,
+                    )
+                db.rollback()
+
         def test_ai_recipe_cook_stale_data_error_maps_to_ai_conflict(self) -> None:
             from unittest.mock import patch
 
             from app.ai.errors import AIConflictError
+            from app.ai.tools.draft_validation import normalize_recipe_cook_draft
             from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
             from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
             from sqlalchemy.orm.exc import StaleDataError
@@ -1542,7 +2722,16 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     ]
                 )
                 db.commit()
-                base_updated_at = recipe.updated_at.isoformat()
+                payload = normalize_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "recipeId": recipe.id,
+                        "servings": 2,
+                        "createMealLog": False,
+                    },
+                )
 
             with self.SessionLocal() as db:
                 def flush_raising_stale(*args, **kwargs):
@@ -1553,16 +2742,11 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 with patch.object(type(db), "flush", flush_raising_stale):
                     with self.assertRaises(AIConflictError) as raised:
                         execute_recipe_cook_draft(
-                            db,
-                            family_id=self.family.id,
-                            user_id=self.user.id,
-                            payload={
-                                "recipeId": "recipe-ai-stale-cook",
-                                "baseUpdatedAt": base_updated_at,
-                                "servings": 2,
-                                "createMealLog": False,
-                            },
-                        )
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=payload,
+                    )
                 self.assertEqual(str(raised.exception), STALE_INVENTORY_DETAIL)
 
             with self.SessionLocal() as db:
@@ -1570,4 +2754,3 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert item is not None
                 self.assertEqual(item.consumed_quantity, Decimal("0"))
                 self.assertEqual(item.row_version, 1)
-

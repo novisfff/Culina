@@ -31,6 +31,7 @@ class DraftExecuteContext:
     user_id: str
     payload: dict[str, Any]
     assert_updated_at_matches: AssertUpdatedAt
+    conversation_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

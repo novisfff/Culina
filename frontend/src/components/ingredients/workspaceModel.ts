@@ -1,9 +1,18 @@
-import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import type {
+  Food,
+  Ingredient,
+  IngredientInventoryState,
+  InventoryConfirmationStatus,
+  InventoryItem,
+  Recipe,
+  ShoppingListItem,
+} from '../../api/types';
 import {
   buildInventoryActionGroups,
   type ExpiryInventoryActionGroup,
   type InventoryActionGroup,
 } from '../../features/inventory/inventoryActionModel';
+import { hoursBetweenInstants } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -39,6 +48,8 @@ export type IngredientSummaryViewModel = {
   ingredient: Ingredient;
   inventoryItems: InventoryItem[];
   availableInventoryItems: InventoryItem[];
+  /** Presence-only current fact; null for exact-tracked ingredients or absent/default. */
+  inventoryState: IngredientInventoryState | null;
   alerts: IngredientAlertViewModel[];
   quantitySummaries: QuantitySummaryViewModel[];
   hasMultipleUnits: boolean;
@@ -47,6 +58,11 @@ export type IngredientSummaryViewModel = {
   recipeReferences: Array<{ id: string; title: string }>;
   latestPurchaseDate: string | null;
   latestUpdatedAt: string;
+  /** First-version confirmation freshness: never_confirmed | current | stale. */
+  confirmationStatus: InventoryConfirmationStatus;
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
 };
 
 export type StorageGroupViewModel = {
@@ -67,6 +83,7 @@ export type InventoryCardStatusViewModel = {
 };
 
 export type InventoryCardExpiryTone = 'neutral' | 'warning' | 'danger';
+export type InventoryConfirmationTone = 'neutral' | 'current' | 'stale';
 
 export type InventoryCardPresentationViewModel = {
   headline: string;
@@ -76,6 +93,10 @@ export type InventoryCardPresentationViewModel = {
   expiryLabel: string | null;
   expiryDateLabel: string | null;
   expiryTone: InventoryCardExpiryTone | null;
+  confirmationStatus: InventoryConfirmationStatus;
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
 };
 
 export type DisposableExpiredInventoryItemViewModel = {
@@ -196,6 +217,155 @@ const STORAGE_ORDER = ['冷藏', '冷冻', '常温'];
 const ALL_CATEGORY_FILTER = 'all';
 const SEASONING_CATEGORY_LABELS = new Set(['调料', '调味料', '酱料']);
 
+/** Fixed re-confirm intervals from the approved design. */
+export const FOOD_STALE_AFTER_DAYS = 7;
+export const REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS = 14;
+export const FROZEN_INGREDIENT_STALE_AFTER_DAYS = 30;
+export const ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS = 30;
+export const PRESENCE_INGREDIENT_STALE_AFTER_DAYS = 30;
+
+export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, string> = {
+  never_confirmed: '从未确认',
+  current: '刚确认过',
+  stale: '建议再确认',
+};
+
+export const CONFIRMATION_STATUS_TONES: Record<InventoryConfirmationStatus, InventoryConfirmationTone> = {
+  never_confirmed: 'neutral',
+  current: 'current',
+  stale: 'stale',
+};
+
+export function confirmationStatusLabel(status: InventoryConfirmationStatus): string {
+  return CONFIRMATION_STATUS_LABELS[status];
+}
+
+export function confirmationStatusTone(status: InventoryConfirmationStatus): InventoryConfirmationTone {
+  return CONFIRMATION_STATUS_TONES[status];
+}
+
+export function staleAfterDaysForStorageLocation(storageLocation: string | null | undefined): number {
+  const label = (storageLocation || '').trim();
+  if (label === '冷藏') return REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS;
+  if (label === '冷冻') return FROZEN_INGREDIENT_STALE_AFTER_DAYS;
+  if (label === '常温') return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
+  return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
+}
+
+/**
+ * Pure confirmation freshness from last_confirmed_at only.
+ * Never derives status from updated_at / row_version / changed_since_confirmation.
+ * `referenceDate` is an explicit business date key (YYYY-MM-DD) or ISO instant.
+ */
+export function confirmationStatusFromLastConfirmedAt(
+  lastConfirmedAt: string | null | undefined,
+  args: { referenceDate: string; staleAfterDays: number },
+): InventoryConfirmationStatus {
+  if (!lastConfirmedAt) {
+    return 'never_confirmed';
+  }
+  const referenceInstant = args.referenceDate.includes('T')
+    ? args.referenceDate
+    : `${args.referenceDate.slice(0, 10)}T12:00:00.000Z`;
+  const ageHours = hoursBetweenInstants(referenceInstant, lastConfirmedAt);
+  if (!Number.isFinite(ageHours)) {
+    return 'never_confirmed';
+  }
+  const staleAfterHours = args.staleAfterDays * 24;
+  return ageHours > staleAfterHours ? 'stale' : 'current';
+}
+
+export function aggregateConfirmationStatus(
+  statuses: InventoryConfirmationStatus[],
+): InventoryConfirmationStatus {
+  if (statuses.length === 0) return 'never_confirmed';
+  if (statuses.some((status) => status === 'never_confirmed')) return 'never_confirmed';
+  if (statuses.some((status) => status === 'stale')) return 'stale';
+  return 'current';
+}
+
+export function earliestConfirmationAt(values: Array<string | null | undefined>): string | null {
+  const present = values.filter((value): value is string => Boolean(value));
+  if (present.length === 0) return null;
+  return present.slice().sort((left, right) => left.localeCompare(right))[0] ?? null;
+}
+
+export function buildExactIngredientConfirmation(args: {
+  batches: Array<Pick<InventoryItem, 'last_confirmed_at' | 'storage_location' | 'remaining_quantity' | 'quantity' | 'consumed_quantity' | 'disposed_quantity'>>;
+  referenceDate: string;
+  fallbackStorage?: string | null;
+}): {
+  confirmationStatus: InventoryConfirmationStatus;
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
+} {
+  const remaining = args.batches.filter((batch) => getInventoryRemainingQuantity(batch as InventoryItem) > 0);
+  if (remaining.length === 0) {
+    return {
+      confirmationStatus: 'never_confirmed',
+      confirmationLabel: CONFIRMATION_STATUS_LABELS.never_confirmed,
+      confirmationTone: CONFIRMATION_STATUS_TONES.never_confirmed,
+      lastConfirmedAt: null,
+    };
+  }
+  const statuses = remaining.map((batch) =>
+    confirmationStatusFromLastConfirmedAt(batch.last_confirmed_at, {
+      referenceDate: args.referenceDate,
+      staleAfterDays: staleAfterDaysForStorageLocation(batch.storage_location || args.fallbackStorage),
+    }),
+  );
+  const confirmationStatus = aggregateConfirmationStatus(statuses);
+  return {
+    confirmationStatus,
+    confirmationLabel: confirmationStatusLabel(confirmationStatus),
+    confirmationTone: confirmationStatusTone(confirmationStatus),
+    lastConfirmedAt: earliestConfirmationAt(remaining.map((batch) => batch.last_confirmed_at)),
+  };
+}
+
+export function buildPresenceIngredientConfirmation(args: {
+  state: IngredientInventoryState | null | undefined;
+  referenceDate: string;
+}): {
+  confirmationStatus: InventoryConfirmationStatus;
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
+} {
+  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.state?.last_confirmed_at, {
+    referenceDate: args.referenceDate,
+    staleAfterDays: PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
+  });
+  return {
+    confirmationStatus,
+    confirmationLabel: confirmationStatusLabel(confirmationStatus),
+    confirmationTone: confirmationStatusTone(confirmationStatus),
+    lastConfirmedAt: args.state?.last_confirmed_at ?? null,
+  };
+}
+
+export function buildFoodConfirmation(args: {
+  food: Pick<Food, 'inventory_last_confirmed_at' | 'storage_location'>;
+  referenceDate: string;
+}): {
+  confirmationStatus: InventoryConfirmationStatus;
+  confirmationLabel: string;
+  confirmationTone: InventoryConfirmationTone;
+  lastConfirmedAt: string | null;
+} {
+  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.food.inventory_last_confirmed_at, {
+    referenceDate: args.referenceDate,
+    staleAfterDays: FOOD_STALE_AFTER_DAYS,
+  });
+  return {
+    confirmationStatus,
+    confirmationLabel: confirmationStatusLabel(confirmationStatus),
+    confirmationTone: confirmationStatusTone(confirmationStatus),
+    lastConfirmedAt: args.food.inventory_last_confirmed_at ?? null,
+  };
+}
+
 export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
   { label: '蔬菜', defaultUnit: '个', defaultStorage: '冷藏', icon: 'vegetable' },
   { label: '水果', defaultUnit: '个', defaultStorage: '常温', icon: 'fruit' },
@@ -268,9 +438,20 @@ function formatQuantityValue(value: number) {
   return String(Number(value.toFixed(2)));
 }
 
+function presenceAvailabilityLabel(level: IngredientInventoryState['availability_level'] | null | undefined) {
+  if (level === 'sufficient' || level === 'present_unknown') return '已有';
+  if (level === 'low') return '少量';
+  if (level === 'absent') return '没有';
+  return '未配置';
+}
+
+function isPresentAvailability(level: IngredientInventoryState['availability_level'] | null | undefined) {
+  return level === 'sufficient' || level === 'present_unknown' || level === 'low';
+}
+
 function buildSummaryQuantityLabel(summary: IngredientSummaryViewModel) {
   if (!tracksIngredientQuantity(summary.ingredient)) {
-    return summary.availableInventoryItems.length > 0 ? '已有' : summary.inventoryItems.length > 0 ? '需补充' : '未配置';
+    return presenceAvailabilityLabel(summary.inventoryState?.availability_level);
   }
   if (summary.quantitySummaries.length > 0) {
     return summary.quantitySummaries
@@ -313,9 +494,6 @@ function isRemainingInventory(item: InventoryItem) {
   return getInventoryRemainingQuantity(item) > 0;
 }
 
-function isPresenceInventory(item: InventoryItem) {
-  return item.quantity - (item.disposed_quantity ?? 0) > 0;
-}
 
 function isAvailableInventory(item: InventoryItem, todayTime: number) {
   return (
@@ -327,13 +505,15 @@ function isAvailableInventory(item: InventoryItem, todayTime: number) {
 export function buildIngredientAlerts(
   inventoryItems: InventoryItem[],
   ingredients: Ingredient[],
-  today = todayKey(),
-  shoppingItems: ShoppingListItem[] = []
+  today: string,
+  shoppingItems: ShoppingListItem[] = [],
+  inventoryStates: IngredientInventoryState[] = [],
 ) {
   const groups = buildInventoryActionGroups({
     inventoryItems,
     ingredients,
     shoppingItems,
+    inventoryStates,
     referenceDate: today,
   });
   return inventoryActionGroupsToAlerts(groups, ingredients);
@@ -383,12 +563,14 @@ export function buildIngredientPriorityActionGroups(args: {
   inventoryItems: InventoryItem[];
   ingredients: Ingredient[];
   shoppingItems?: ShoppingListItem[];
+  inventoryStates?: IngredientInventoryState[];
   referenceDate: string;
 }) {
   return buildInventoryActionGroups({
     inventoryItems: args.inventoryItems,
     ingredients: args.ingredients,
     shoppingItems: args.shoppingItems ?? [],
+    inventoryStates: args.inventoryStates ?? [],
     referenceDate: args.referenceDate,
   });
 }
@@ -490,36 +672,50 @@ export function buildIngredientSummaries(args: {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
-  today?: string;
+  /** Explicit business-date reference; required for presence/expiry projections. */
+  referenceDate: string;
   shoppingItems?: ShoppingListItem[];
+  inventoryStates?: IngredientInventoryState[];
+  /** @deprecated Use referenceDate. Kept for transitional call sites. */
+  today?: string;
 }) {
-  const { ingredients, inventoryItems, recipes, today = todayKey(), shoppingItems = [] } = args;
-  const todayTime = new Date(today).getTime();
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
+  const referenceDate = args.referenceDate ?? args.today;
+  if (!referenceDate) {
+    throw new Error('buildIngredientSummaries requires an explicit referenceDate');
+  }
+  const { ingredients, inventoryItems, recipes, shoppingItems = [], inventoryStates = [] } = args;
+  const todayTime = new Date(referenceDate).getTime();
+  const stateByIngredientId = new Map(inventoryStates.map((state) => [state.ingredient_id, state]));
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, referenceDate, shoppingItems, inventoryStates);
 
   return ingredients
     .map<IngredientSummaryViewModel>((ingredient) => {
-      const ingredientInventory = inventoryItems
-        .filter((item) => item.ingredient_id === ingredient.id)
-        .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
       const tracksQuantity = tracksIngredientQuantity(ingredient);
+      const state = tracksQuantity ? null : stateByIngredientId.get(ingredient.id) ?? null;
+      // Exact ingredients remain batch-derived. Presence ignores legacy placeholder InventoryItems.
+      const ingredientInventory = tracksQuantity
+        ? inventoryItems
+            .filter((item) => item.ingredient_id === ingredient.id)
+            .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+        : [];
       const availableInventory = tracksQuantity
         ? ingredientInventory.filter((item) => isAvailableInventory(item, todayTime))
-        : ingredientInventory.filter((item) => isPresenceInventory(item) && (!item.expiry_date || new Date(item.expiry_date).getTime() >= todayTime));
-      const remainingInventory = tracksQuantity
-        ? ingredientInventory.filter(isRemainingInventory)
-        : ingredientInventory.filter(isPresenceInventory);
-      const totalAvailableInDefault = getIngredientAvailableQuantityInDefault(ingredient, availableInventory);
-      const quantitySummaries =
-        !tracksQuantity && availableInventory.length > 0
+        : [];
+      const remainingInventory = tracksQuantity ? ingredientInventory.filter(isRemainingInventory) : [];
+      const totalAvailableInDefault = tracksQuantity
+        ? getIngredientAvailableQuantityInDefault(ingredient, availableInventory)
+        : 0;
+      const quantitySummaries = !tracksQuantity
+        ? isPresentAvailability(state?.availability_level)
           ? [
               {
                 unit: '',
-                total: availableInventory.length,
-                label: '已有',
+                total: state?.availability_level === 'low' ? 0.5 : 1,
+                label: presenceAvailabilityLabel(state?.availability_level),
               },
             ]
-          : totalAvailableInDefault > 0
+          : []
+        : totalAvailableInDefault > 0
           ? [
               {
                 unit: ingredient.default_unit,
@@ -528,39 +724,57 @@ export function buildIngredientSummaries(args: {
               },
             ]
           : [];
-      const storageLocations = uniqueLabels(
-        remainingInventory.map((item) => item.storage_location).concat(ingredient.default_storage)
-      ).sort(sortByStorage);
+      const presenceStorage = state?.storage_location?.trim() || ingredient.default_storage || '常温';
+      const storageLocations = tracksQuantity
+        ? uniqueLabels(remainingInventory.map((item) => item.storage_location).concat(ingredient.default_storage)).sort(
+            sortByStorage,
+          )
+        : uniqueLabels([presenceStorage, ingredient.default_storage]).sort(sortByStorage);
       const recipeReferences = recipes
-        .filter((recipe) =>
-          recipe.ingredient_items.some((item) => item.ingredient_id === ingredient.id)
-        )
+        .filter((recipe) => recipe.ingredient_items.some((item) => item.ingredient_id === ingredient.id))
         .map((recipe) => ({ id: recipe.id, title: recipe.title }));
       const ingredientAlerts = alerts.filter((item) => item.ingredientId === ingredient.id);
-      const latestUpdatedAt = maxTimestamp(
-        ingredient.updated_at,
-        ...ingredientInventory.map((item) => item.updated_at)
-      );
+      const latestUpdatedAt = tracksQuantity
+        ? maxTimestamp(ingredient.updated_at, ...ingredientInventory.map((item) => item.updated_at))
+        : maxTimestamp(ingredient.updated_at, state?.updated_at);
+      const latestPurchaseDate = tracksQuantity
+        ? ingredientInventory.map((item) => item.purchase_date).sort((left, right) => right.localeCompare(left))[0] ??
+          null
+        : state?.purchase_date ?? null;
+      const primaryStorage = tracksQuantity
+        ? pickPrimaryStorage(ingredient, availableInventory.length > 0 ? availableInventory : remainingInventory)
+        : presenceStorage;
+      const confirmation = tracksQuantity
+        ? buildExactIngredientConfirmation({
+            batches: remainingInventory,
+            referenceDate,
+            fallbackStorage: primaryStorage,
+          })
+        : buildPresenceIngredientConfirmation({
+            state,
+            referenceDate,
+          });
 
       return {
         ingredient,
         inventoryItems: remainingInventory,
         availableInventoryItems: availableInventory,
+        inventoryState: state,
         alerts: ingredientAlerts.sort(
           (left, right) =>
-            Number(right.tone === 'danger') - Number(left.tone === 'danger') ||
-            left.title.localeCompare(right.title)
+            Number(right.tone === 'danger') - Number(left.tone === 'danger') || left.title.localeCompare(right.title),
         ),
         quantitySummaries,
         hasMultipleUnits: getIngredientUnitConversions(ingredient).length > 0,
-        primaryStorage: pickPrimaryStorage(ingredient, availableInventory.length > 0 ? availableInventory : remainingInventory),
+        primaryStorage,
         storageLocations,
         recipeReferences,
-        latestPurchaseDate:
-          ingredientInventory
-            .map((item) => item.purchase_date)
-            .sort((left, right) => right.localeCompare(left))[0] ?? null,
+        latestPurchaseDate,
         latestUpdatedAt,
+        confirmationStatus: confirmation.confirmationStatus,
+        confirmationLabel: confirmation.confirmationLabel,
+        confirmationTone: confirmation.confirmationTone,
+        lastConfirmedAt: confirmation.lastConfirmedAt,
       };
     })
     .sort((left, right) => {
@@ -606,18 +820,24 @@ export function buildInventoryCardStatus(summary: IngredientSummaryViewModel): I
       label: '已空或未登记',
       tone: 'empty',
       detail:
-        summary.inventoryItems.length > 0
-          ? '当前可用库存已空，先处理到期批次或补一批新的。'
-          : '还没有登记库存，适合先补一批常用量。',
+        !tracksIngredientQuantity(summary.ingredient)
+          ? summary.inventoryState?.availability_level === 'absent'
+            ? '家庭状态为没有，需要补充。'
+            : '还没有登记库存状态，适合先补一批常用量。'
+          : summary.inventoryItems.length > 0
+            ? '当前可用库存已空，先处理到期批次或补一批新的。'
+            : '还没有登记库存，适合先补一批常用量。',
       priority: hasWarningAlert ? 2 : 1,
     };
   }
 
-  if (hasWarningAlert) {
+  if (hasWarningAlert || summary.inventoryState?.availability_level === 'low') {
     return {
       label: '库存偏低',
       tone: 'warning',
-      detail: summary.alerts[0]?.detail ?? '当前库存偏低，建议尽快补货。',
+      detail:
+        summary.alerts[0]?.detail ??
+        (summary.inventoryState?.availability_level === 'low' ? '家庭状态为少量，建议尽快补货。' : '当前库存偏低，建议尽快补货。'),
       priority: 2,
     };
   }
@@ -644,11 +864,12 @@ function buildInventoryCardSummaryLine(summary: IngredientSummaryViewModel) {
 }
 
 function buildInventoryCardExpiry(summary: IngredientSummaryViewModel, referenceDate: string) {
-  const earliestExpiryDate =
-    summary.inventoryItems
-      .map((item) => item.expiry_date)
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => left.localeCompare(right))[0] ?? null;
+  const earliestExpiryDate = !tracksIngredientQuantity(summary.ingredient)
+    ? summary.inventoryState?.expiry_date ?? null
+    : summary.inventoryItems
+        .map((item) => item.expiry_date)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0] ?? null;
 
   if (!earliestExpiryDate) {
     return {
@@ -690,7 +911,7 @@ function buildInventoryCardExpiry(summary: IngredientSummaryViewModel, reference
 
 export function buildDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
-  referenceDate = todayKey()
+  referenceDate: string,
 ): DisposableExpiredInventoryItemViewModel[] {
   // Calendar-key compare keeps dispose eligibility aligned with Shanghai businessDateKey.
   const referenceKey = referenceDate.slice(0, 10);
@@ -736,7 +957,7 @@ export function buildDisposableExpiredInventoryItems(
 
 export function countDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
-  referenceDate = todayKey()
+  referenceDate: string,
 ) {
   const referenceKey = referenceDate.slice(0, 10);
 
@@ -753,7 +974,7 @@ export function countDisposableExpiredInventoryItems(
 
 export function buildInventoryCardPresentation(
   summary: IngredientSummaryViewModel,
-  referenceDate = todayKey()
+  referenceDate: string,
 ): InventoryCardPresentationViewModel {
   const status = buildInventoryCardStatus(summary);
   const expiry = buildInventoryCardExpiry(summary, referenceDate);
@@ -781,6 +1002,12 @@ export function buildInventoryCardPresentation(
       : summary.alerts.length > 0
         ? `当前有 ${summary.alerts.length} 条提醒，建议优先处理。`
         : status.detail;
+  const confirmation = {
+    confirmationStatus: summary.confirmationStatus,
+    confirmationLabel: summary.confirmationLabel,
+    confirmationTone: summary.confirmationTone,
+    lastConfirmedAt: summary.lastConfirmedAt,
+  };
 
   if (summary.quantitySummaries.length > 0) {
     const secondaryParts = latestRestockLabel ? [`最近补货 ${latestRestockLabel}`] : [];
@@ -791,6 +1018,21 @@ export function buildInventoryCardPresentation(
       secondary: secondaryParts.join(' · '),
       footerNote,
       ...resolvedExpiry,
+      ...confirmation,
+    };
+  }
+
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    // State absent/default: no current presence fact.
+    return {
+      headline: summary.inventoryState?.availability_level === 'absent' ? '没有' : '未登记',
+      secondary:
+        summary.inventoryState?.availability_level === 'absent'
+          ? '家庭状态为没有'
+          : '还没有登记库存状态，适合先补一批',
+      footerNote,
+      ...resolvedExpiry,
+      ...confirmation,
     };
   }
 
@@ -800,6 +1042,7 @@ export function buildInventoryCardPresentation(
       secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前已空` : '当前已空',
       footerNote,
       ...resolvedExpiry,
+      ...confirmation,
     };
   }
 
@@ -808,6 +1051,7 @@ export function buildInventoryCardPresentation(
     secondary: '还没有库存记录，适合先登记首批',
     footerNote,
     ...resolvedExpiry,
+    ...confirmation,
   };
 }
 
@@ -884,11 +1128,18 @@ export function sortInventorySummariesByExpiry(
 export function buildInventoryBatchGroups(args: {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
-  today?: string;
+  referenceDate: string;
   shoppingItems?: ShoppingListItem[];
+  inventoryStates?: IngredientInventoryState[];
+  /** @deprecated Use referenceDate. */
+  today?: string;
 }) {
-  const { ingredients, inventoryItems, today = todayKey(), shoppingItems = [] } = args;
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
+  const referenceDate = args.referenceDate ?? args.today;
+  if (!referenceDate) {
+    throw new Error('buildInventoryBatchGroups requires an explicit referenceDate');
+  }
+  const { ingredients, inventoryItems, shoppingItems = [], inventoryStates = [] } = args;
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, referenceDate, shoppingItems, inventoryStates);
   const grouped = new Map<string, InventoryBatchItemViewModel[]>();
 
   for (const item of inventoryItems) {
@@ -1272,12 +1523,14 @@ export function buildSeasoningSummaries(summaries: IngredientSummaryViewModel[])
   return summaries
     .filter((summary) => isSeasoningIngredient(summary.ingredient))
     .map((summary) => {
-      const hasAvailable = summary.availableInventoryItems.length > 0 || summary.quantitySummaries.length > 0;
+      const hasAvailable = summary.quantitySummaries.length > 0;
       const status: SeasoningStatus = hasAvailable
         ? 'stocked'
-        : summary.inventoryItems.length > 0
+        : summary.inventoryState?.availability_level === 'absent'
           ? 'needsRestock'
-          : 'unconfigured';
+          : summary.inventoryItems.length > 0
+            ? 'needsRestock'
+            : 'unconfigured';
       const statusLabel: SeasoningSummaryViewModel['statusLabel'] =
         status === 'stocked' ? '已有' : status === 'needsRestock' ? '需补充' : '未配置';
       const detail =

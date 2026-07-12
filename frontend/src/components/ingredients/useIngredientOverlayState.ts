@@ -6,8 +6,6 @@ import type {
   InventoryActionGroup,
 } from '../../features/inventory/inventoryActionModel';
 import { calendarDaysBetweenDateKeys } from '../../lib/date';
-import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
-import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
   buildConsumeUnitOptions,
   buildInventoryForm,
@@ -37,7 +35,7 @@ type UseIngredientOverlayStateArgs = {
   inventoryActionGroups: InventoryActionGroup[];
   referenceDate: string;
   onRequireCreate: () => void;
-  onOpenFoodStockFromShopping?: (item: ShoppingListItem) => void;
+  onOpenShoppingIntake?: (item: ShoppingListItem) => void;
 };
 
 function formatQuantityValue(value: number) {
@@ -67,8 +65,14 @@ function buildDisposeOnlyExpiryGroup(
       expiryAlertSnoozedUntil: item.expiryAlertSnoozedUntil,
       expiryReviewedAt: item.expiryReviewedAt,
       expiryReviewedBy: item.expiryReviewedBy,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: item.id,
+        expectedRowVersion: item.rowVersion,
+      },
     };
   });
+
 
   const quantityLabels = (() => {
     const totals = new Map<string, number>();
@@ -111,6 +115,7 @@ function buildDisposeOnlyExpiryGroup(
     title: `${summary.ingredient.name}需要处理`,
     detail: `${batches.length} 批已过期`,
     primaryAction: 'manage_expiry',
+    targetKind: 'inventory_item',
   };
 }
 
@@ -185,7 +190,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
   const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
-  const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
+  const [editingShoppingItemRowVersion, setEditingShoppingItemRowVersion] = useState<number | null>(null);
   const [inventoryActionIngredientId, setInventoryActionIngredientId] = useState<string | null>(null);
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
@@ -245,13 +250,12 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function openInventoryOverlay(ingredientId?: string, quantity = '1') {
     if (args.ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
       clearInventoryActionSelection();
       args.onRequireCreate();
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setInventoryForm(
       buildInventoryForm(args.ingredientOptions, ingredientId, {
@@ -285,68 +289,42 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     if (!summary || summary.availableInventoryItems.length === 0) {
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setConsumeForm(buildConsumeFormForIngredient(ingredientId));
     setOverlayMode('consume');
   }
 
   function openInventoryFromShopping(item: ShoppingListItem) {
-    if (item.target_type === 'food' || item.food_id) {
-      args.onOpenFoodStockFromShopping?.(item);
+    // Shopping-origin restock always opens the shared atomic intake workflow.
+    if (args.onOpenShoppingIntake) {
+      args.onOpenShoppingIntake(item);
       return;
     }
+    // Fallback: keep form closed and require create when no intake composition is wired.
     if (args.ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
       clearInventoryActionSelection();
       args.onRequireCreate();
-      return;
     }
-    const normalizedTitle = item.title.trim();
-    const matchedIngredient =
-      (item.ingredient_id ? args.ingredientOptions.find((ingredient) => ingredient.id === item.ingredient_id) ?? null : null) ??
-      args.ingredientOptions.find((ingredient) => ingredient.name === normalizedTitle) ?? null;
-    const tracksQuantity = matchedIngredient?.quantity_tracking_mode !== 'not_track_quantity';
-
-    setPendingShoppingToComplete({
-      itemId: item.id,
-      title: normalizedTitle || item.title,
-    });
-    setInventoryForm(
-      buildInventoryForm(args.ingredientOptions, matchedIngredient?.id, {
-        ingredientQuery: matchedIngredient?.name ?? normalizedTitle,
-        ingredientLocked: Boolean(matchedIngredient),
-        quantity: tracksQuantity ? formatNumericString(item.quantity) : '',
-        unit:
-          resolvePreferredIngredientUnit(matchedIngredient, item.unit) ||
-          matchedIngredient?.default_unit ||
-          item.unit.trim() ||
-          '个',
-      })
-    );
-    setInventoryAdvancedOpen(false);
-    setOverlayMode('inventory');
   }
 
   function openShoppingOverlay(options?: { ingredient?: Ingredient; food?: Food; reason?: string; shoppingItem?: ShoppingListItem }) {
-    setPendingShoppingToComplete(null);
     clearInventoryActionSelection();
     if (options?.shoppingItem) {
-      const matchedIngredient =
-        (options.shoppingItem.ingredient_id
-          ? args.ingredientOptions.find((ingredient) => ingredient.id === options.shoppingItem?.ingredient_id) ?? null
-          : null) ??
-        args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim()) ??
-        null;
-      const matchedFood =
-        options.shoppingItem.food_id
-          ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
-          : null;
+      // Only resolve bound targets by stable IDs. Free-text rows must not auto-bind by title.
+      const matchedIngredient = options.shoppingItem.ingredient_id
+        ? args.ingredientOptions.find((ingredient) => ingredient.id === options.shoppingItem?.ingredient_id) ?? null
+        : null;
+      const matchedFood = options.shoppingItem.food_id
+        ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
+        : null;
       setEditingShoppingItemId(options.shoppingItem.id);
+      setEditingShoppingItemRowVersion(options.shoppingItem.row_version);
       setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient, matchedFood));
     } else {
       setEditingShoppingItemId(null);
+      setEditingShoppingItemRowVersion(null);
       setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason, options?.food));
     }
     setOverlayMode('shopping');
@@ -366,8 +344,8 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     if (!group) {
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     setInventoryActionIngredientId(ingredientId);
     setInventoryActionBusy(false);
     setInventoryActionError(null);
@@ -380,8 +358,8 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function closeOverlay() {
     setOverlayMode(null);
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setInventoryAdvancedOpen(false);
     setConsumeForm(defaultConsumeForm());
@@ -410,7 +388,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,

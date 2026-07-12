@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.enums import IngredientQuantityTrackingMode
+
+ShoppingTargetType = Literal["ingredient", "food", "free_text"]
 
 
 class ShoppingListItemOut(BaseModel):
@@ -12,7 +15,7 @@ class ShoppingListItemOut(BaseModel):
     family_id: str
     ingredient_id: str | None = None
     food_id: str | None = None
-    target_type: str = "ingredient"
+    target_type: ShoppingTargetType = "ingredient"
     title: str
     quantity: float
     unit: str
@@ -24,6 +27,7 @@ class ShoppingListItemOut(BaseModel):
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+    row_version: int = 1
 
 
 class CreateShoppingListItemRequest(BaseModel):
@@ -49,10 +53,16 @@ class CreateShoppingListItemRequest(BaseModel):
             self.unit = self.unit or "份"
             self.display_label = self.display_label or "需要补充"
             return self
-        if self.quantity is None or self.quantity <= 0:
+        # Free-text rows may omit quantity/unit and fall back to 1/份.
+        # Bound rows continue to resolve defaults from the selected target in the API layer.
+        if self.quantity is None and not (self.ingredient_id or self.food_id):
+            self.quantity = 1
+        if self.quantity is not None and self.quantity <= 0:
+            raise ValueError("采购数量必须大于 0")
+        if self.quantity is None and not (self.ingredient_id or self.food_id):
             raise ValueError("采购数量必须大于 0")
         if not self.unit and not (self.ingredient_id or self.food_id):
-            raise ValueError("采购单位不能为空")
+            self.unit = "份"
         self.display_label = self.display_label or None
         return self
 
@@ -67,6 +77,7 @@ class UpdateShoppingListItemRequest(BaseModel):
     display_label: str | None = None
     reason: str | None = None
     done: bool | None = None
+    expected_row_version: int = Field(ge=1)
 
     @model_validator(mode="after")
     def normalize_update_fields(self) -> "UpdateShoppingListItemRequest":

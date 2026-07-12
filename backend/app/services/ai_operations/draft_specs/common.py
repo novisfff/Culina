@@ -140,10 +140,11 @@ def _validate_operation_list_value(original: Any, submitted: Any) -> None:
     if not isinstance(original.get("operations"), list) or not isinstance(submitted.get("operations"), list):
         return
 
-    def operation_key(operation: Any) -> tuple[str, str, str]:
+    def operation_key(operation: Any) -> tuple[str, str, str, str]:
         if not isinstance(operation, dict):
-            return ("", "", "")
+            return ("", "", "", "")
         return (
+            str(operation.get("operationId") or ""),
             str(operation.get("action") or ""),
             str(operation.get("targetId") or ""),
             str(operation.get("baseUpdatedAt") or ""),
@@ -151,18 +152,20 @@ def _validate_operation_list_value(original: Any, submitted: Any) -> None:
 
     allowed = Counter(operation_key(operation) for operation in original["operations"])
     requested = Counter(operation_key(operation) for operation in submitted["operations"])
-    if any(not action for action, _, _ in requested):
+    if any(not operation_id or not action for operation_id, action, _, _ in requested):
         raise ValueError("操作草稿项格式不正确")
     if any(count > allowed.get(key, 0) for key, count in requested.items()):
-        raise ValueError("确认阶段不能修改操作类型、目标或版本基线")
+        raise ValueError("确认阶段不能修改操作标识、类型、目标或版本基线")
 
 
 def _validate_single_target_operation_value(original: Any, submitted: Any) -> None:
     if not isinstance(original, dict) or not isinstance(submitted, dict):
         raise ValueError("操作草稿格式不正确")
-    for key in ("action", "targetId", "baseUpdatedAt"):
+    for key in ("draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt"):
         if str(original.get(key) or "") != str(submitted.get(key) or ""):
             raise ValueError("确认阶段不能修改操作类型、目标或版本基线")
+    if original.get("before") != submitted.get("before"):
+        raise ValueError("确认阶段不能修改操作类型、目标或版本基线")
 
 
 def _validate_ingredient_profile_value(original: Any, submitted: Any) -> None:

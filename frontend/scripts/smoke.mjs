@@ -62,6 +62,8 @@ const ingredient = {
   default_low_stock_threshold: 4,
   notes: 'smoke fixture',
   image: null,
+  quantity_tracking_mode: 'track_quantity',
+  row_version: 3,
   created_at: now,
   updated_at: now,
   created_by: user.id,
@@ -81,6 +83,8 @@ const tomatoIngredient = {
   default_low_stock_threshold: null,
   notes: 'smoke fixture tomato',
   image: null,
+  quantity_tracking_mode: 'track_quantity',
+  row_version: 2,
   created_at: now,
   updated_at: now,
   created_by: user.id,
@@ -100,6 +104,30 @@ const milkIngredient = {
   default_low_stock_threshold: 2,
   notes: 'smoke fixture milk',
   image: null,
+  quantity_tracking_mode: 'track_quantity',
+  row_version: 1,
+  created_at: now,
+  updated_at: now,
+  created_by: user.id,
+  updated_by: user.id,
+};
+
+
+const saltIngredient = {
+  id: 'ingredient-salt',
+  family_id: family.id,
+  name: '盐',
+  category: '调味',
+  default_unit: '袋',
+  unit_conversions: [],
+  quantity_tracking_mode: 'not_track_quantity',
+  default_storage: '常温',
+  default_expiry_mode: 'none',
+  default_expiry_days: null,
+  default_low_stock_threshold: null,
+  notes: 'smoke fixture presence salt',
+  image: null,
+  row_version: 2,
   created_at: now,
   updated_at: now,
   created_by: user.id,
@@ -129,16 +157,59 @@ function inventoryFixture(overrides) {
   };
 }
 
-const inventoryItem = inventoryFixture({
-  id: 'inventory-egg',
+// Exact adapter: two refrigerated batches for 鸡蛋 (fresh + expired) and one out-of-scope room batch.
+const eggColdFresh = inventoryFixture({
+  id: 'inventory-egg-cold-fresh',
   ingredient_id: ingredient.id,
   ingredient_name: ingredient.name,
   quantity: 6,
   remaining_quantity: 6,
   unit: '个',
-  expiry_date: '2026-06-15',
+  expiry_date: '2026-08-15',
   low_stock_threshold: 4,
+  row_version: 1,
+  last_confirmed_at: null,
+  last_confirmed_by: null,
+  last_confirmation_source: null,
+  quantity_tracking_mode: 'track_quantity',
 });
+
+const eggColdExpired = inventoryFixture({
+  id: 'inventory-egg-cold-expired',
+  ingredient_id: ingredient.id,
+  ingredient_name: ingredient.name,
+  quantity: 3,
+  remaining_quantity: 3,
+  unit: '个',
+  purchase_date: '2026-04-01',
+  expiry_date: '2026-05-10',
+  notes: '过期批次',
+  row_version: 2,
+  last_confirmed_at: '2026-05-01T08:00:00.000Z',
+  last_confirmed_by: user.id,
+  last_confirmation_source: 'manual_entry',
+  quantity_tracking_mode: 'track_quantity',
+});
+
+const eggRoomOutOfScope = inventoryFixture({
+  id: 'inventory-egg-room',
+  ingredient_id: ingredient.id,
+  ingredient_name: ingredient.name,
+  quantity: 4,
+  remaining_quantity: 4,
+  unit: '个',
+  purchase_date: '2026-05-25',
+  expiry_date: '2026-08-01',
+  storage_location: '常温',
+  notes: 'out-of-scope for refrigerated recon',
+  row_version: 1,
+  last_confirmed_at: '2026-05-28T08:00:00.000Z',
+  last_confirmed_by: user.id,
+  last_confirmation_source: 'reconciliation',
+  quantity_tracking_mode: 'track_quantity',
+});
+
+const inventoryItem = eggColdFresh;
 
 const tomatoExpiredA = inventoryFixture({
   id: 'inventory-tomato-a',
@@ -149,6 +220,9 @@ const tomatoExpiredA = inventoryFixture({
   unit: '个',
   expiry_date: '2026-05-28',
   row_version: 2,
+  last_confirmed_at: '2026-05-01T08:00:00.000Z',
+  last_confirmation_source: 'manual_entry',
+  quantity_tracking_mode: 'track_quantity',
 });
 
 const tomatoExpiredB = inventoryFixture({
@@ -160,6 +234,8 @@ const tomatoExpiredB = inventoryFixture({
   unit: '个',
   expiry_date: '2026-05-30',
   row_version: 1,
+  last_confirmed_at: null,
+  quantity_tracking_mode: 'track_quantity',
 });
 
 const milkToday = inventoryFixture({
@@ -171,9 +247,65 @@ const milkToday = inventoryFixture({
   unit: '盒',
   expiry_date: today,
   row_version: 1,
+  last_confirmed_at: '2026-05-28T08:00:00.000Z',
+  last_confirmed_by: user.id,
+  last_confirmation_source: 'shopping_intake',
+  quantity_tracking_mode: 'track_quantity',
 });
 
-const inventoryItems = [inventoryItem, tomatoExpiredA, tomatoExpiredB, milkToday];
+const inventoryItems = [
+  eggColdFresh,
+  eggColdExpired,
+  eggRoomOutOfScope,
+  tomatoExpiredA,
+  tomatoExpiredB,
+  milkToday,
+];
+
+const saltState = {
+  id: 'state-salt',
+  family_id: family.id,
+  ingredient_id: saltIngredient.id,
+  availability_level: 'sufficient',
+  inventory_status: 'fresh',
+  purchase_date: '2026-04-01',
+  expiry_date: null,
+  storage_location: '常温',
+  notes: 'presence adapter fixture',
+  expiry_alert_snoozed_until: null,
+  expiry_reviewed_at: null,
+  expiry_reviewed_by: null,
+  last_confirmed_at: '2026-05-01T08:00:00.000Z',
+  last_confirmed_by: user.id,
+  last_confirmation_source: 'manual_entry',
+  row_version: 1,
+  created_at: now,
+  updated_at: now,
+};
+
+const inventoryStates = [saltState];
+
+const pendingEggShopping = {
+  id: 'shopping-egg-pending',
+  family_id: family.id,
+  ingredient_id: ingredient.id,
+  food_id: null,
+  target_type: 'ingredient',
+  title: '鸡蛋',
+  quantity: 10,
+  unit: '个',
+  quantity_mode: 'track_quantity',
+  display_label: '鸡蛋',
+  reason: '补货',
+  done: false,
+  created_at: now,
+  updated_at: now,
+  created_by: user.id,
+  updated_by: user.id,
+  row_version: 1,
+};
+
+const shoppingItems = [pendingEggShopping];
 
 const recipe = {
   id: 'recipe-egg',
@@ -232,11 +364,16 @@ const food = {
   price: null,
   rating: 4,
   repurchase: true,
-  expiry_date: null,
-  stock_quantity: null,
+  expiry_date: '2026-06-02',
+  stock_quantity: 2,
   stock_unit: '份',
+  storage_location: '冷藏',
   favorite: true,
   recipe_id: recipe.id,
+  row_version: 1,
+  inventory_last_confirmed_at: '2026-05-28T08:00:00.000Z',
+  inventory_last_confirmed_by: user.id,
+  inventory_confirmation_source: 'reconciliation',
   created_at: now,
   updated_at: now,
   created_by: user.id,
@@ -324,6 +461,129 @@ const inventoryOverview = {
   ],
 };
 
+
+function makeReconciliationBatch(item, confirmationStatus) {
+  return {
+    inventory_item_id: item.id,
+    row_version: item.row_version,
+    remaining_quantity: item.remaining_quantity,
+    unit: item.unit,
+    status: item.status,
+    purchase_date: item.purchase_date,
+    expiry_date: item.expiry_date,
+    storage_location: item.storage_location,
+    notes: item.notes,
+    confirmation_status: confirmationStatus,
+    last_confirmed_at: item.last_confirmed_at ?? null,
+  };
+}
+
+const reconExactEggGroup = {
+  kind: 'exact_ingredient',
+  ingredient_id: ingredient.id,
+  ingredient_name: ingredient.name,
+  ingredient_row_version: 3,
+  confirmation_status: 'never_confirmed',
+  last_confirmed_at: null,
+  batches: [
+    makeReconciliationBatch(eggColdFresh, 'never_confirmed'),
+    makeReconciliationBatch(eggColdExpired, 'stale'),
+    makeReconciliationBatch(eggRoomOutOfScope, 'current'),
+  ],
+  pending_shopping_item_id: pendingEggShopping.id,
+};
+
+const reconPresenceSaltGroup = {
+  kind: 'presence_ingredient',
+  ingredient_id: saltIngredient.id,
+  ingredient_name: saltIngredient.name,
+  ingredient_row_version: saltIngredient.row_version,
+  state: saltState,
+  confirmation_status: 'stale',
+  pending_shopping_item_id: null,
+};
+
+const reconFoodGroup = {
+  kind: 'food',
+  food_id: food.id,
+  food_name: food.name,
+  row_version: food.row_version,
+  stock_quantity: food.stock_quantity,
+  stock_unit: food.stock_unit,
+  expiry_date: food.expiry_date,
+  storage_location: food.storage_location,
+  confirmation_status: 'current',
+  last_confirmed_at: food.inventory_last_confirmed_at,
+};
+
+function buildReconciliationResponse(scope) {
+  let groups = [reconExactEggGroup, reconPresenceSaltGroup, reconFoodGroup];
+  if (scope === 'refrigerated') {
+    groups = [
+      {
+        ...reconExactEggGroup,
+        batches: reconExactEggGroup.batches.filter((batch) => batch.storage_location === '冷藏'),
+      },
+      reconFoodGroup,
+    ];
+  } else if (scope === 'room_temperature') {
+    groups = [
+      {
+        ...reconExactEggGroup,
+        batches: reconExactEggGroup.batches.filter((batch) => batch.storage_location === '常温'),
+      },
+      reconPresenceSaltGroup,
+    ];
+  } else if (scope === 'frozen') {
+    groups = [];
+  }
+
+  return {
+    business_date: today,
+    business_timezone: 'Asia/Shanghai',
+    generated_at: now,
+    summary: {
+      total_groups: groups.length,
+      never_confirmed: groups.filter((group) => group.confirmation_status === 'never_confirmed').length,
+      stale: groups.filter((group) => group.confirmation_status === 'stale').length,
+      expired_physical_batches: groups.reduce((count, group) => {
+        if (group.kind !== 'exact_ingredient') return count;
+        return (
+          count +
+          group.batches.filter(
+            (batch) => batch.remaining_quantity > 0 && batch.expiry_date && batch.expiry_date < today
+          ).length
+        );
+      }, 0),
+    },
+    groups,
+  };
+}
+
+const reconciliationResult = {
+  operation_id: 'op-recon-smoke-1',
+  operation_type: 'reconciliation',
+  status: 'applied',
+  applied_at: '2026-06-01T08:05:00.000Z',
+  revertible_until: '2026-06-01T08:20:00.000Z',
+  can_revert: true,
+  summary: {
+    title: '本次盘点已完成',
+    description: '确认 1 项 · 调整 1 项 · 标记少量 1 项',
+    confirmed_count: 1,
+    adjusted_count: 1,
+    completed_count: 3,
+    partial_count: 0,
+  },
+};
+
+const inventoryOperations = [
+  {
+    ...reconciliationResult,
+    actor_display_name: 'Smoke User',
+  },
+];
+
 const authResponse = {
   access_token: 'smoke-token',
   user,
@@ -340,10 +600,12 @@ const fixtures = {
   '/api/auth/me': authResponse,
   '/api/family': family,
   '/api/members': [member],
-  '/api/ingredients': [ingredient, tomatoIngredient, milkIngredient],
+  '/api/ingredients': [ingredient, tomatoIngredient, milkIngredient, saltIngredient],
   '/api/inventory': inventoryItems,
+  '/api/inventory/states': inventoryStates,
   '/api/inventory/overview': inventoryOverview,
-  '/api/shopping-list': [],
+  '/api/inventory/operations': inventoryOperations,
+  '/api/shopping-list': shoppingItems,
   '/api/recipes': [recipe],
   '/api/recipes/discovery': {
     recommended: { recipe_ids: [recipe.id], recipes: [recipe] },
@@ -531,6 +793,22 @@ async function installApiMocks(context, unexpectedRequests) {
       return;
     }
 
+    if (request.method() === 'GET' && url.pathname === '/api/inventory/reconciliation') {
+      const scope = url.searchParams.get('scope') || 'suggested';
+      await fulfillJson(route, buildReconciliationResponse(scope));
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/inventory/reconciliations') {
+      await fulfillJson(route, reconciliationResult);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/inventory/states') {
+      await fulfillJson(route, inventoryStates);
+      return;
+    }
+
     const fixture = fixtures[url.pathname];
     if (fixture !== undefined) {
       await fulfillJson(route, fixture);
@@ -708,6 +986,173 @@ async function expectButtonsOnOneLine(page, selector, label) {
     throw new Error(
       `${label} 操作按钮换行：${result.reason ?? `${result.count} 个按钮 top=${result.tops.join(',')} labels=${result.labels.join('/')}`}`
     );
+  }
+}
+
+
+async function expectMobileActionBarSafeArea(page, label) {
+  const result = await page.evaluate(() => {
+    const bar = document.querySelector(
+      '.inventory-maintenance-mobile-actions, .ui-mobile-action-bar.inventory-maintenance-mobile-actions, .ui-mobile-action-bar'
+    );
+    if (!bar) {
+      return { ok: false, reason: 'missing-mobile-action-bar' };
+    }
+    const style = getComputedStyle(bar);
+    const display = style.display;
+    const paddingBottom = style.paddingBottom;
+    return {
+      ok: display !== 'none',
+      display,
+      paddingBottom,
+      className: bar.className,
+    };
+  });
+
+  if (!result.ok) {
+    throw new Error(
+      `${label} 底部操作栏未显示：display=${result.display ?? 'missing'} reason=${result.reason ?? 'unknown'} paddingBottom=${result.paddingBottom ?? ''}`
+    );
+  }
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function openReconciliationDialog(page, label, { mobile }) {
+  await expectVisibleText(page, '家庭厨房工作台', `${label} 工作台标识`);
+  await page.getByRole('button', { name: '食材' }).first().click({ noWaitAfter: true });
+  await sleep(800);
+  if (!mobile) {
+    const inventoryTab = page.getByRole('button', { name: '库存' }).first();
+    if (await inventoryTab.count()) {
+      await inventoryTab.click({ noWaitAfter: true });
+      await sleep(400);
+    }
+  }
+  const reconEntry = page.getByRole('button', { name: '快速盘点' }).first();
+  await reconEntry.waitFor({ state: 'visible', timeout: 10_000 });
+  try {
+    await reconEntry.click({ noWaitAfter: true, timeout: 5_000 });
+  } catch {
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((el) =>
+        (el.textContent || '').includes('快速盘点')
+      );
+      if (!btn) throw new Error('missing recon button');
+      btn.click();
+    });
+  }
+  for (let i = 0; i < 50; i += 1) {
+    const ready = await page.evaluate(() => {
+      const modal = document.querySelector('.inventory-reconciliation-modal');
+      if (!modal) return false;
+      if ((modal.textContent || '').includes('正在准备盘点清单')) return false;
+      return (
+        Boolean(modal.querySelector('[data-group-key="exact_ingredient:ingredient-egg"]')) &&
+        Boolean(modal.querySelector('[data-group-key="presence_ingredient:ingredient-salt"]')) &&
+        Boolean(modal.querySelector('[data-group-key="food:food-egg"]'))
+      );
+    });
+    if (ready) return;
+    if (i === 10) {
+      await page.evaluate(() => {
+        Array.from(document.querySelectorAll('button'))
+          .find((el) => (el.textContent || '').includes('快速盘点'))
+          ?.click();
+      });
+    }
+    await sleep(200);
+  }
+  throw new Error(`${label} 快速盘点 adapters 未就绪`);
+}
+
+/**
+ * Phase 2 recon smoke gate.
+ * Asserts three adapters (exact/presence/food), expired physical batch badge,
+ * scope chips, modal overflow, and mobile action bar.
+ * Uses noWaitAfter open clicks to avoid Playwright SPA navigation-wait hangs.
+ */
+async function runInventoryReconciliationSmoke(browser, baseUrl, viewport, label, options = {}) {
+  const mobile = Boolean(options.mobile);
+  const contextOptions = mobile ? { isMobile: true, hasTouch: true } : {};
+  const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+    await openReconciliationDialog(page, label, { mobile });
+
+    const snapshot = await page.evaluate(() => {
+      const modal = document.querySelector('.inventory-reconciliation-modal');
+      if (!modal) return { ok: false, reason: 'missing-modal' };
+      const keys = Array.from(modal.querySelectorAll('[data-group-key]')).map((el) =>
+        el.getAttribute('data-group-key')
+      );
+      const scopeLabels = Array.from(
+        modal.querySelectorAll('[aria-label="盘点范围"] [role="radio"]')
+      ).map((el) => (el.textContent || '').trim());
+      const bar =
+        document.querySelector('.inventory-maintenance-mobile-actions') ||
+        document.querySelector('.ui-mobile-action-bar');
+      const egg = modal.querySelector('[data-group-key="exact_ingredient:ingredient-egg"]');
+      return {
+        ok: true,
+        overflow: Math.max(0, modal.scrollWidth - modal.clientWidth),
+        keys,
+        hasExpiredBadge: Boolean(egg && (egg.textContent || '').includes('含过期批次')),
+        hasExactActions: Boolean(
+          modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:confirm_all"]') &&
+            modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:adjust_batches"]')
+        ),
+        hasPresenceLow: Array.from(
+          modal.querySelectorAll('[aria-label="盐 有无状态"] [role="radio"]')
+        ).some((el) => (el.textContent || '').includes('少量')),
+        hasFoodConfirm: Boolean(modal.querySelector('[data-field-key="food:food-egg:confirm"]')),
+        scopeLabels,
+        mobileBarVisible: Boolean(bar && getComputedStyle(bar).display !== 'none'),
+      };
+    });
+
+    if (!snapshot.ok) throw new Error(`${label} 快速盘点快照失败：${snapshot.reason}`);
+    if (snapshot.overflow > 8) {
+      throw new Error(`${label} 快速盘点弹窗横向溢出：${snapshot.overflow}px`);
+    }
+    for (const key of [
+      'exact_ingredient:ingredient-egg',
+      'presence_ingredient:ingredient-salt',
+      'food:food-egg',
+    ]) {
+      if (!snapshot.keys.includes(key)) {
+        throw new Error(`${label} 缺少 adapter ${key}; got ${snapshot.keys.join(',')}`);
+      }
+    }
+    if (!snapshot.hasExpiredBadge) throw new Error(`${label} 过期批次标记未出现`);
+    if (!snapshot.hasExactActions || !snapshot.hasPresenceLow || !snapshot.hasFoodConfirm) {
+      throw new Error(`${label} 盘点动作控件不完整`);
+    }
+    for (const scope of ['建议确认', '冷藏', '冷冻', '常温', '全部']) {
+      if (!snapshot.scopeLabels.some((entry) => entry.includes(scope))) {
+        throw new Error(`${label} 缺少盘点范围芯片：${scope}`);
+      }
+    }
+    if (mobile && !snapshot.mobileBarVisible) {
+      throw new Error(`${label} 底部操作栏未显示`);
+    }
+
+    await page.evaluate(() => {
+      document.querySelector('[aria-label="关闭快速盘点"]')?.click();
+    });
+    await sleep(400);
+    assertClean();
+  } finally {
+    try {
+      await Promise.race([
+        context.close(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch {
+      // ignore close races
+    }
   }
 }
 
@@ -1164,6 +1609,24 @@ async function main() {
   const preview = await startPreview();
   const browser = await chromium.launch();
   try {
+    if (process.env.SMOKE_RECON_ONLY === '1') {
+      await runInventoryReconciliationSmoke(
+        browser,
+        preview.url,
+        { width: 375, height: 812 },
+        '375x812 快速盘点',
+        { mobile: true }
+      );
+      await runInventoryReconciliationSmoke(
+        browser,
+        preview.url,
+        { width: 1440, height: 960 },
+        '桌面快速盘点',
+        { mobile: false }
+      );
+      console.log('Smoke recon-only passed');
+      return;
+    }
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runHomeActionCenterSmoke(browser, preview.url);
@@ -1173,6 +1636,34 @@ async function main() {
       isMobile: true,
       hasTouch: true,
     });
+    await runInventoryReconciliationSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '375x812 快速盘点',
+      { mobile: true }
+    );
+    await runInventoryReconciliationSmoke(
+      browser,
+      preview.url,
+      { width: 390, height: 844 },
+      '390x844 快速盘点',
+      { mobile: true }
+    );
+    await runInventoryReconciliationSmoke(
+      browser,
+      preview.url,
+      { width: 430, height: 932 },
+      '430x932 快速盘点',
+      { mobile: true }
+    );
+    await runInventoryReconciliationSmoke(
+      browser,
+      preview.url,
+      { width: 1440, height: 960 },
+      '桌面快速盘点',
+      { mobile: false }
+    );
     await runResponsiveSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812');
     await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
     await runResponsiveSmoke(browser, preview.url, { width: 430, height: 932 }, '430x932');
@@ -1195,7 +1686,7 @@ async function main() {
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, home action center dialog, 375/390/430 mobile widths, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, desktop workspace tabs, home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), 375/390/430 mobile widths, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

@@ -32,7 +32,11 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
   const shoppingFormId = 'ingredient-shopping-overlay-form';
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const selectedTarget = props.selectedShoppingFood ?? props.selectedShoppingIngredient;
-  const tracksQuantity = props.selectedShoppingFood ? true : tracksIngredientQuantity(props.selectedShoppingIngredient);
+  const tracksQuantity = props.selectedShoppingFood
+    ? true
+    : props.selectedShoppingIngredient
+      ? tracksIngredientQuantity(props.selectedShoppingIngredient)
+      : true;
   const ingredientSearch = useIngredientResourceSearch(props.shoppingForm.title, {
     enabled: !props.selectedShoppingIngredient,
     fallbackIngredients: props.ingredients,
@@ -78,10 +82,13 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
     });
   };
 
+  const isFreeText = props.shoppingForm.targetType === 'free_text' || !selectedTarget;
+  const canSubmit = Boolean(selectedTarget) || (isFreeText && props.shoppingForm.title.trim().length > 0);
+
   return (
     <WorkspaceModal
       title="新增采购项"
-      description="从已有食材或成品速食档案里选择采购对象，再记录数量和原因。"
+      description="可从已有食材或成品速食档案选择，也可直接记一条其他采购。"
       closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
@@ -92,7 +99,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
           primaryLabel="加入采购清单"
           primaryType="submit"
           primaryForm={shoppingFormId}
-          primaryDisabled={!selectedTarget}
+          primaryDisabled={!canSubmit}
           isSubmitting={Boolean(props.isCreatingShopping)}
           secondaryLabel="取消"
           onSecondary={props.closeOverlay}
@@ -115,7 +122,24 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                     <h4>{selectedTarget.name}</h4>
                     <p>{(props.selectedShoppingFood ? props.selectedShoppingFoodMeta : props.selectedShoppingIngredientMeta).join(' · ')}</p>
                   </div>
-                  <Badge>{props.selectedShoppingFood ? '成品速食' : '档案食材'}</Badge>
+                  <div className="ingredients-restock-identity-actions">
+                    <Badge>{props.selectedShoppingFood ? '成品速食' : '档案食材'}</Badge>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() =>
+                        props.setShoppingForm({
+                          ...props.shoppingForm,
+                          targetType: 'free_text',
+                          ingredientId: '',
+                          foodId: '',
+                          unit: props.shoppingForm.unit || '份',
+                        })
+                      }
+                    >
+                      改为其他采购
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -123,8 +147,8 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             <div className="shopping-quick-name-field">
               <span>名称</span>
               <SearchableResourceSelect
-                ariaLabel="选择采购食材"
-                placeholder="输入名称或直接选食材"
+                ariaLabel="选择采购食材或输入其他采购"
+                placeholder="输入名称，或选食材/成品；也可记其他采购"
                 value=""
                 query={props.shoppingForm.title}
                 presentation="popover"
@@ -145,22 +169,30 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                     description: `${food.category || '成品速食'} · ${food.storage_location || '常温'} · 默认 ${food.stock_unit || '份'}`,
                     image: <MediaWithPlaceholder src={resolveMediaUrl(food.images?.[0], 'thumb')} alt="" />,
                   }))
+                ).concat(
+                  props.shoppingForm.title.trim()
+                    ? [
+                        {
+                          id: 'free_text:other',
+                          label: `其他采购：${props.shoppingForm.title.trim()}`,
+                          description: '不关联档案，只记一条自由文本采购项',
+                          image: <MediaWithPlaceholder src={undefined} alt="" />,
+                        },
+                      ]
+                    : []
                 )}
-                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配档案，请先创建食材或食物资料。'}
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配档案，可继续输入并选择“其他采购”。'}
                 onSearchCompositionStart={ingredientSearch.onCompositionStart}
                 onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextTitle) => {
-                  const matchedIngredient = ingredientSearch.findIngredientByName(nextTitle);
+                  // Typing never auto-binds by title; binding is always an explicit selection.
                   props.setShoppingForm({
                     ...props.shoppingForm,
-                    targetType: matchedIngredient ? 'ingredient' : '',
-                    ingredientId: matchedIngredient?.id ?? '',
+                    targetType: 'free_text',
+                    ingredientId: '',
                     foodId: '',
                     title: nextTitle,
-                    unit: matchedIngredient
-                      ? resolvePreferredIngredientUnit(matchedIngredient, props.shoppingForm.unit) ||
-                        matchedIngredient.default_unit
-                      : props.shoppingForm.unit,
+                    unit: props.shoppingForm.unit || '份',
                   });
                 }}
                 onLoadMore={() => {
@@ -168,8 +200,8 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                     void ingredientSearch.fetchNextPage();
                   }
                 }}
-                onChange={(ingredientId) => {
-                  const [kind, rawId = ''] = ingredientId.split(':');
+                onChange={(optionId) => {
+                  const [kind, rawId = ''] = optionId.split(':');
                   if (kind === 'ingredient') {
                     const ingredient = ingredientSearch.findIngredientById(rawId);
                     if (ingredient) selectIngredient(ingredient);
@@ -178,11 +210,23 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   if (kind === 'food') {
                     const food = props.foods.find((item) => item.id === rawId);
                     if (food) selectFood(food);
+                    return;
+                  }
+                  if (kind === 'free_text') {
+                    props.setShoppingForm({
+                      ...props.shoppingForm,
+                      targetType: 'free_text',
+                      ingredientId: '',
+                      foodId: '',
+                      unit: props.shoppingForm.unit || '份',
+                    });
                   }
                 }}
               />
-              {props.shoppingForm.title.trim() && !selectedTarget && (
-                <p className="subtle">采购清单只能选择已有档案。成品和速食请先在食物里建好资料。</p>
+              {props.shoppingForm.title.trim() && (
+                <p className="subtle">
+                  当前为<strong>其他采购</strong>：不会按名称自动关联档案。需要绑定食材或成品时，请从列表里明确选择。
+                </p>
               )}
             </div>
           )}
@@ -215,7 +259,11 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   <strong>{props.shoppingForm.unit || props.selectedShoppingFood?.stock_unit || props.selectedShoppingIngredient?.default_unit || '个'}</strong>
                 </div>
                 <p className="subtle">
-                  {props.selectedShoppingFood ? '成品买回后会进入补库存流程。' : props.selectedShoppingIngredient ? '默认先用主单位，常用副单位可以在上方切换。' : '默认值不对时再改。'}
+                  {props.selectedShoppingFood
+                    ? '成品买回后会进入补库存流程。'
+                    : props.selectedShoppingIngredient
+                      ? '默认先用主单位，常用副单位可以在上方切换。'
+                      : '其他采购默认 1 份，可按需要改数量和单位。'}
                 </p>
               </section>
             </div>

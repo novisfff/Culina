@@ -6,10 +6,12 @@ import type {
   DisposeExpiredInventoryResponse,
   Food,
   Ingredient,
+  IngredientInventoryState,
   InventoryItem,
   ShoppingListItem,
   SnoozeExpiryAlertsRequest,
   SnoozeExpiryAlertsResponse,
+  UpsertIngredientInventoryStateRequest,
   VersionedInventoryItemRef,
 } from '../../api/types';
 import { isApiError } from '../../api/request';
@@ -26,7 +28,8 @@ import {
   type InventoryDrawerFormState,
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
-import type { InventoryActionConflictState, PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import type { InventoryActionConflictState } from './IngredientWorkspaceOverlayTypes';
+import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
@@ -40,7 +43,7 @@ type UseIngredientActionStateArgs = {
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: Dispatch<SetStateAction<ShoppingDialogFormState>>;
   editingShoppingItemId: string | null;
-  pendingShoppingToComplete: PendingShoppingCompletion | null;
+  editingShoppingItemRowVersion: number | null;
   inventoryActionIngredientId: string | null;
   inventoryActionGroup: ExpiryInventoryActionGroup | null;
   selectedInventoryIngredient: Ingredient | null;
@@ -60,6 +63,11 @@ type UseIngredientActionStateArgs = {
     notes: string;
     low_stock_threshold?: number;
   }) => Promise<InventoryItem>;
+  /** Presence-only ordinary restock (State PUT). Not used for track_quantity. */
+  upsertInventoryState: (
+    ingredientId: string,
+    payload: UpsertIngredientInventoryStateRequest,
+  ) => Promise<IngredientInventoryState>;
   consumeInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -85,6 +93,7 @@ type UseIngredientActionStateArgs = {
   updateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -108,6 +117,97 @@ function messageOf(reason: unknown, fallback: string) {
 }
 
 export function useIngredientActionState(args: UseIngredientActionStateArgs) {
+  async function submitShopping(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = args.shoppingForm.title.trim();
+    if (!title) {
+      return;
+    }
+    // Explicit binding only — never auto-bind free text by title substring/name match.
+    const selectedShoppingIngredient =
+      args.shoppingForm.targetType === 'ingredient' && args.shoppingForm.ingredientId
+        ? args.ingredientOptions.find((item) => item.id === args.shoppingForm.ingredientId) ?? null
+        : null;
+    const selectedShoppingFood =
+      args.shoppingForm.targetType === 'food' && args.shoppingForm.foodId
+        ? args.foodOptions.find((item) => item.id === args.shoppingForm.foodId) ?? null
+        : null;
+    const isFreeText =
+      args.shoppingForm.targetType === 'free_text' || (!selectedShoppingIngredient && !selectedShoppingFood);
+    if (args.shoppingForm.targetType === 'ingredient' && !selectedShoppingIngredient) {
+      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '请从食材档案中选择采购对象，或改用其他采购。' });
+      return;
+    }
+    if (args.shoppingForm.targetType === 'food' && !selectedShoppingFood) {
+      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '请从成品速食档案中选择采购对象，或改用其他采购。' });
+      return;
+    }
+    const tracksQuantity = isFreeText
+      ? true
+      : selectedShoppingFood
+        ? true
+        : tracksIngredientQuantity(selectedShoppingIngredient);
+    const parsedFoodQuantity = selectedShoppingFood
+      ? parseFoodStockQuantity(args.shoppingForm.quantity, '待买数量')
+      : null;
+    const quantity = tracksQuantity
+      ? parsedFoodQuantity
+        ? parsedFoodQuantity.quantity
+        : parsePositiveNumber(args.shoppingForm.quantity)
+      : 1;
+    if (tracksQuantity && quantity === null) {
+      args.showNotice({
+        tone: 'warning',
+        title: '待买数量无效',
+        message: parsedFoodQuantity?.error ?? '请确认待买数量，至少要大于 0。',
+      });
+      return;
+    }
+    const shoppingQuantity = quantity ?? 1;
+    try {
+      const payload = {
+        title: selectedShoppingFood?.name ?? selectedShoppingIngredient?.name ?? title,
+        quantity: tracksQuantity ? shoppingQuantity : null,
+        unit: tracksQuantity
+          ? args.shoppingForm.unit.trim() ||
+            selectedShoppingFood?.stock_unit ||
+            selectedShoppingIngredient?.default_unit ||
+            '份'
+          : null,
+        ingredient_id: selectedShoppingIngredient?.id ?? null,
+        food_id: selectedShoppingFood?.id ?? null,
+        quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
+        display_label: tracksQuantity ? null : '需要补充',
+        reason:
+          args.shoppingForm.reason.trim() ||
+          (selectedShoppingFood ? '补充成品库存' : !tracksQuantity ? '需要补充' : ''),
+      } satisfies Parameters<typeof args.createShoppingItem>[0];
+      if (args.editingShoppingItemId) {
+        if (args.editingShoppingItemRowVersion === null) {
+          args.showNotice({ tone: 'warning', title: '采购项已变化', message: '请刷新购物清单后再编辑。' });
+          return;
+        }
+        await args.updateShoppingItem({
+          itemId: args.editingShoppingItemId,
+          payload: {
+            ...payload,
+            expected_row_version: args.editingShoppingItemRowVersion,
+          },
+        });
+      } else {
+        await args.createShoppingItem(payload);
+      }
+      args.setShoppingForm(buildShoppingForm());
+      args.closeOverlay();
+    } catch (reason) {
+      args.showNotice({
+        tone: 'danger',
+        title: args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败',
+        message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败'),
+      });
+    }
+  }
+
   async function submitInventory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!args.inventoryForm.ingredientId) {
@@ -137,34 +237,35 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       return;
     }
     try {
-      await args.createInventory({
-        ingredient_id: args.inventoryForm.ingredientId,
-        quantity,
-        unit: tracksQuantity
-          ? args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个'
-          : args.selectedInventoryIngredient?.default_unit || args.inventoryForm.unit.trim() || '份',
-        status: args.inventoryForm.status,
-        purchase_date: args.inventoryForm.purchaseDate,
-        expiry_date: args.inventoryForm.expiryDate || undefined,
-        storage_location: args.inventoryForm.storageLocation.trim(),
-        notes: args.inventoryForm.notes.trim(),
-      });
-      if (args.pendingShoppingToComplete) {
-        try {
-          await args.updateShoppingItem({
-            itemId: args.pendingShoppingToComplete.itemId,
-            payload: { done: true },
-          });
-        } catch (reason) {
-          args.showNotice({
-            tone: 'warning',
-            title: '库存已登记',
-            message:
-              reason instanceof Error
-                ? `待买项仍未标记完成：${reason.message}`
-                : '待买项仍未标记为已买，请稍后再试。',
-          });
-        }
+      // Ordinary manual restock only. Shopping-origin writes must use shared shopping intake.
+      // Presence ingredients use State PUT; exact ingredients keep InventoryItem POST.
+      if (!tracksQuantity) {
+        const existingState =
+          args.summaries.find((item) => item.ingredient.id === args.inventoryForm.ingredientId)?.inventoryState ?? null;
+        await args.upsertInventoryState(args.inventoryForm.ingredientId, {
+          expected_ingredient_row_version: args.selectedInventoryIngredient?.row_version ?? 1,
+          state_id: existingState?.id ?? null,
+          expected_state_row_version: existingState?.row_version ?? null,
+          // Manual restock confirms household still has the item; match shopping-intake default.
+          availability_level: 'sufficient',
+          inventory_status: args.inventoryForm.status,
+          purchase_date: args.inventoryForm.purchaseDate,
+          expiry_date: args.inventoryForm.expiryDate || null,
+          storage_location: args.inventoryForm.storageLocation.trim(),
+          notes: args.inventoryForm.notes.trim(),
+        });
+      } else {
+        await args.createInventory({
+          ingredient_id: args.inventoryForm.ingredientId,
+          quantity,
+          unit:
+            args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个',
+          status: args.inventoryForm.status,
+          purchase_date: args.inventoryForm.purchaseDate,
+          expiry_date: args.inventoryForm.expiryDate || undefined,
+          storage_location: args.inventoryForm.storageLocation.trim(),
+          notes: args.inventoryForm.notes.trim(),
+        });
       }
       args.setSelectedIngredientId(args.inventoryForm.ingredientId);
       args.setInventoryForm(buildInventoryForm(args.ingredientOptions, args.inventoryForm.ingredientId));
@@ -172,64 +273,6 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.closeOverlay();
     } catch (reason) {
       args.showNotice({ tone: 'danger', title: '录入库存失败', message: args.resolveErrorMessage(reason, '录入库存失败') });
-    }
-  }
-
-  async function submitShopping(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!args.shoppingForm.title.trim()) {
-      return;
-    }
-    const selectedShoppingIngredient =
-      args.shoppingForm.targetType === 'ingredient'
-        ? args.ingredientOptions.find((item) => item.id === args.shoppingForm.ingredientId) ??
-          args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim()) ??
-          null
-        : null;
-    const selectedShoppingFood =
-      args.shoppingForm.targetType === 'food'
-        ? args.foodOptions.find((item) => item.id === args.shoppingForm.foodId) ?? null
-        : null;
-    if (!selectedShoppingIngredient && !selectedShoppingFood) {
-      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '采购清单只能从已有食材或成品速食档案创建。' });
-      return;
-    }
-    const tracksQuantity = selectedShoppingFood ? true : tracksIngredientQuantity(selectedShoppingIngredient);
-    const quantity = tracksQuantity ? parsePositiveNumber(args.shoppingForm.quantity) : 1;
-    if (tracksQuantity && quantity === null) {
-      args.showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
-      return;
-    }
-    const shoppingQuantity = quantity ?? 1;
-    try {
-      const payload = {
-        title: selectedShoppingFood?.name ?? selectedShoppingIngredient?.name ?? args.shoppingForm.title.trim(),
-        quantity: tracksQuantity ? shoppingQuantity : null,
-        unit: tracksQuantity
-          ? args.shoppingForm.unit.trim() || selectedShoppingFood?.stock_unit || selectedShoppingIngredient?.default_unit || '份'
-          : null,
-        ingredient_id: selectedShoppingIngredient?.id ?? null,
-        food_id: selectedShoppingFood?.id ?? null,
-        quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
-        display_label: tracksQuantity ? null : '需要补充',
-        reason: args.shoppingForm.reason.trim() || (selectedShoppingFood ? '补充成品库存' : !tracksQuantity ? '需要补充' : ''),
-      } satisfies Parameters<typeof args.createShoppingItem>[0];
-      if (args.editingShoppingItemId) {
-        await args.updateShoppingItem({
-          itemId: args.editingShoppingItemId,
-          payload,
-        });
-      } else {
-        await args.createShoppingItem(payload);
-      }
-      args.setShoppingForm(buildShoppingForm());
-      args.closeOverlay();
-    } catch (reason) {
-      args.showNotice({
-        tone: 'danger',
-        title: args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败',
-        message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败'),
-      });
     }
   }
 

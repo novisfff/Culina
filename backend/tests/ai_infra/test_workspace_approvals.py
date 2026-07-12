@@ -5,6 +5,26 @@ from app.ai.workflows.runner_support.run_summary import record_approval_outcome_
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
+        def test_operation_list_approval_cannot_change_operation_id(self) -> None:
+            original = {
+                "draftType": "meal_plan",
+                "schemaVersion": "meal_plan_operation.v1",
+                "operations": [
+                    {
+                        "operationId": "operation-original",
+                        "action": "set_status",
+                        "targetId": "plan-1",
+                        "baseUpdatedAt": "2026-07-12T00:00:00+00:00",
+                        "payload": {"status": "cooked"},
+                    }
+                ],
+            }
+            submitted = json.loads(json.dumps(original))
+            submitted["operations"][0]["operationId"] = "operation-tampered"
+
+            with self.assertRaisesRegex(ValueError, "操作标识"):
+                draft_operation_registry.validate_approval_value("meal_plan", original, submitted)
+
         def test_progressive_draft_persists_typed_continuation_metadata(self) -> None:
             continuation = {
                 "workflowId": "workflow-recipe-1",
@@ -2593,6 +2613,147 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(ingredient.default_expiry_days, 10)
                 self.assertEqual(ingredient.default_low_stock_threshold, 2)
                 self.assertEqual(ingredient.unit_conversions[0]["unit"], "杯")
+
+        def test_ingredient_profile_update_preserves_presence_tracking_mode_when_omitted(self) -> None:
+            from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-presence-profile-update",
+                    family_id=self.family.id,
+                    name="香菜",
+                    category="蔬菜",
+                    default_unit="把",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="旧备注",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+
+                normalized = normalize_ingredient_profile_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "draftType": "ingredient_profile",
+                        "schemaVersion": "ingredient_profile_operation.v1",
+                        "action": "update",
+                        "targetId": ingredient.id,
+                        "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                        "payload": {
+                            "name": "香菜",
+                            "category": "蔬菜",
+                            "default_unit": "把",
+                            "unit_conversions": [],
+                            "default_storage": "冷藏",
+                            "default_expiry_mode": "none",
+                            "notes": "新版备注",
+                        },
+                    },
+                )
+
+                self.assertEqual(
+                    normalized["payload"]["quantity_tracking_mode"],
+                    IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value,
+                )
+
+        def test_ingredient_profile_draft_rejects_explicit_tracking_mode_change(self) -> None:
+            from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-presence-profile-transition-draft",
+                    family_id=self.family.id,
+                    name="葱花",
+                    category="蔬菜",
+                    default_unit="把",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+
+                with self.assertRaisesRegex(ValueError, "专用的跟踪模式切换接口"):
+                    normalize_ingredient_profile_draft(
+                        db,
+                        family_id=self.family.id,
+                        payload={
+                            "draftType": "ingredient_profile",
+                            "schemaVersion": "ingredient_profile_operation.v1",
+                            "action": "update",
+                            "targetId": ingredient.id,
+                            "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                            "payload": {
+                                "name": "葱花",
+                                "category": "蔬菜",
+                                "default_unit": "把",
+                                "quantity_tracking_mode": "track_quantity",
+                                "unit_conversions": [],
+                                "default_storage": "冷藏",
+                                "default_expiry_mode": "none",
+                                "notes": "",
+                            },
+                        },
+                    )
+
+        def test_ingredient_profile_executor_rejects_legacy_tracking_mode_change_draft(self) -> None:
+            from app.services.ai_operations.ingredients import execute_ingredient_profile_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-presence-profile-transition-executor",
+                    family_id=self.family.id,
+                    name="蒜末",
+                    category="蔬菜",
+                    default_unit="份",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+
+                with self.assertRaisesRegex(ValueError, "专用的跟踪模式切换接口"):
+                    execute_ingredient_profile_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload={
+                            "action": "update",
+                            "targetId": ingredient.id,
+                            "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                            "payload": {
+                                "name": "蒜末",
+                                "category": "蔬菜",
+                                "default_unit": "份",
+                                "quantity_tracking_mode": "track_quantity",
+                                "unit_conversions": [],
+                                "default_storage": "冷藏",
+                                "default_expiry_mode": "none",
+                                "notes": "",
+                                "media_ids": [],
+                            },
+                        },
+                        assert_updated_at_matches=lambda actual, expected, label: None,
+                    )
+
+                self.assertEqual(
+                    ingredient.quantity_tracking_mode,
+                    IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                )
 
         def test_workspace_runner_builds_business_entity_artifacts_for_approved_decision(self) -> None:
             with self.SessionLocal() as db:

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.enums import FoodType, MealType
+from app.core.enums import FoodType, InventoryConfirmationSource, MealType
 from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import CookRecipeShortageOut
 
@@ -38,6 +38,10 @@ class FoodOut(BaseModel):
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+    row_version: int = 1
+    inventory_last_confirmed_at: datetime | None = None
+    inventory_last_confirmed_by: str | None = None
+    inventory_confirmation_source: InventoryConfirmationSource | None = None
 
 
 class FoodStockChangeRequest(BaseModel):
@@ -48,6 +52,7 @@ class FoodStockChangeRequest(BaseModel):
     storage_location: str | None = Field(default=None, max_length=120)
     note: str = Field(default="", max_length=255)
     reason: str = Field(default="", max_length=255)
+    expected_row_version: int = Field(ge=1)
 
 
 class FoodStockChangeOut(FoodOut):
@@ -113,8 +118,10 @@ class CreateFoodRequest(BaseModel):
 
 
 class UpdateFoodRequest(CreateFoodRequest):
-    pass
+    # Optional for AI draft payloads (they use baseUpdatedAt); HTTP routes require it.
+    expected_row_version: int | None = Field(default=None, ge=1)
 
 
 class UpdateFoodFavoriteRequest(BaseModel):
     favorite: bool
+    expected_row_version: int = Field(ge=1)

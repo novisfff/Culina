@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import ActivityAction, IngredientQuantityTrackingMode, InventoryStatus
+from app.core.enums import ActivityAction, InventoryStatus
 from app.core.utils import create_id
 from app.models.domain import Ingredient, InventoryItem
 from app.services.activity import log_activity
@@ -16,18 +16,28 @@ from app.services.ingredient_units import (
     convert_quantity_to_default_unit,
     normalize_unit_label,
 )
+from app.services.inventory_operation_locking import lock_inventory_targets
+from app.services.ingredient_inventory_state import PresenceStateRequiredError
 from app.services.inventory_usage import (
     build_ingredient_consumption_plan,
     inventory_remaining_in_default,
     remaining_quantity,
     tracks_quantity,
 )
+from app.services.inventory_versions import bump_ingredient_collection, require_expected_version
 
 
-def require_ingredient(db: Session, *, family_id: str, ingredient_id: str) -> Ingredient:
-    ingredient = db.scalar(
-        select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == ingredient_id)
-    )
+def require_ingredient(
+    db: Session,
+    *,
+    family_id: str,
+    ingredient_id: str,
+    for_update: bool = False,
+) -> Ingredient:
+    statement = select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == ingredient_id)
+    if for_update:
+        statement = statement.with_for_update()
+    ingredient = db.scalar(statement)
     if ingredient is None:
         raise ValueError("食材不存在或不属于当前家庭")
     return ingredient
@@ -53,29 +63,20 @@ def require_inventory_item(
     return item
 
 
-def lock_inventory_items_by_ids(
+def _lock_parent_ingredient(
     db: Session,
     *,
     family_id: str,
-    item_ids: list[str] | set[str] | tuple[str, ...],
-) -> dict[str, InventoryItem]:
-    """Lock family-owned inventory rows in stable ID order for mutation."""
-    ordered_ids = sorted({item_id for item_id in item_ids if item_id})
-    if not ordered_ids:
-        return {}
-    locked_items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(
-                InventoryItem.family_id == family_id,
-                InventoryItem.id.in_(ordered_ids),
-            )
-            .options(selectinload(InventoryItem.ingredient))
-            .order_by(InventoryItem.id.asc())
-            .with_for_update()
-        )
-    )
-    return {item.id: item for item in locked_items}
+    ingredient: Ingredient,
+) -> Ingredient:
+    locked = lock_inventory_targets(
+        db,
+        family_id=family_id,
+        ingredient_ids=[ingredient.id],
+    ).ingredients.get(ingredient.id)
+    if locked is None:
+        raise ValueError("食材不存在或不属于当前家庭")
+    return locked
 
 
 def create_inventory_batch(
@@ -92,45 +93,42 @@ def create_inventory_batch(
     storage_location: str,
     notes: str = "",
     low_stock_threshold: Decimal | None = None,
+    record_activity: bool = True,
+    already_locked: bool = False,
 ) -> InventoryItem:
+    if not already_locked:
+        ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
     if not tracks_quantity(ingredient):
-        normalized_unit = normalize_unit_label(unit or ingredient.default_unit)
-        normalized_quantity = Decimal("1")
-        entered_quantity = quantity
-        threshold = Decimal("0")
-    else:
-        if quantity is None:
-            raise ValueError("库存数量不能为空")
-        normalized_unit = normalize_unit_label(unit or "")
-        if not normalized_unit:
-            raise ValueError("单位不能为空")
+        raise PresenceStateRequiredError()
+    if quantity is None:
+        raise ValueError("库存数量不能为空")
+    normalized_unit = normalize_unit_label(unit or "")
+    if not normalized_unit:
+        raise ValueError("单位不能为空")
+    try:
+        normalized_quantity = convert_quantity_to_default_unit(
+            quantity,
+            ingredient.default_unit,
+            ingredient.unit_conversions,
+            normalized_unit,
+        )
+    except UnitConversionError as exc:
+        raise ValueError(str(exc)) from exc
+
+    threshold = low_stock_threshold
+    if ingredient.default_low_stock_threshold is not None:
+        threshold = ingredient.default_low_stock_threshold
+    elif threshold:
         try:
-            normalized_quantity = convert_quantity_to_default_unit(
-                quantity,
+            threshold = convert_quantity_to_default_unit(
+                threshold,
                 ingredient.default_unit,
                 ingredient.unit_conversions,
                 normalized_unit,
             )
         except UnitConversionError as exc:
             raise ValueError(str(exc)) from exc
-
-        threshold = low_stock_threshold
-        if ingredient.default_low_stock_threshold is not None:
-            threshold = ingredient.default_low_stock_threshold
-        elif threshold:
-            try:
-                threshold = convert_quantity_to_default_unit(
-                    threshold,
-                    ingredient.default_unit,
-                    ingredient.unit_conversions,
-                    normalized_unit,
-                )
-            except UnitConversionError as exc:
-                raise ValueError(str(exc)) from exc
-        entered_quantity = quantity
-
-    if not normalized_unit:
-        raise ValueError("单位不能为空")
+    entered_quantity = quantity
 
     item = InventoryItem(
         id=create_id("inventory"),
@@ -153,20 +151,18 @@ def create_inventory_batch(
     )
     item.ingredient = ingredient
     db.add(item)
+    bump_ingredient_collection(ingredient, user_id=user_id)
     db.flush()
-    log_activity(
-        db,
-        family_id=family_id,
-        actor_id=user_id,
-        action=ActivityAction.CREATE,
-        entity_type="InventoryItem",
-        entity_id=item.id,
-        summary=(
-            f"确认已有 {ingredient.name}"
-            if not tracks_quantity(ingredient)
-            else f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}"
-        ),
-    )
+    if record_activity:
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=user_id,
+            action=ActivityAction.CREATE,
+            entity_type="InventoryItem",
+            entity_id=item.id,
+            summary=f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}",
+        )
     return item
 
 
@@ -181,28 +177,9 @@ def consume_ingredient_inventory(
     today: date,
     inventory_item_id: str | None = None,
 ) -> dict:
+    ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
     if not tracks_quantity(ingredient):
-        normalized_unit = normalize_unit_label(unit or ingredient.default_unit)
-        if not normalized_unit:
-            raise ValueError("单位不能为空")
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.UPDATE,
-            entity_type="Ingredient",
-            entity_id=ingredient.id,
-            summary=f"记录使用 {ingredient.name}（不扣减数量）",
-        )
-        return {
-            "operation": "consume",
-            "ingredient_id": ingredient.id,
-            "ingredient_name": ingredient.name,
-            "unit": normalized_unit,
-            "quantity": float(quantity or Decimal("0")),
-            "affected_item_ids": [],
-            "affected_items": [],
-        }
+        raise PresenceStateRequiredError()
 
     if quantity is None:
         raise ValueError("消费数量不能为空")
@@ -216,6 +193,7 @@ def consume_ingredient_inventory(
                 InventoryItem.family_id == family_id,
                 InventoryItem.ingredient_id == ingredient.id,
             )
+            .order_by(InventoryItem.id.asc())
             .with_for_update()
         )
     )
@@ -249,6 +227,8 @@ def consume_ingredient_inventory(
         deduction.item.consumed_quantity += deduction.quantity
         deduction.item.updated_by = user_id
         affected_ids.append(deduction.item.id)
+    if affected_ids:
+        bump_ingredient_collection(ingredient, user_id=user_id)
     log_activity(
         db,
         family_id=family_id,
@@ -286,40 +266,61 @@ def dispose_inventory_quantity(
     unit: str | None,
     reason: str,
     record_activity: bool = True,
+    expected_row_version: int | None = None,
+    already_locked: bool = False,
+    bump_parent: bool = True,
 ) -> dict:
+    """Dispose quantity from a batch with parent-first locking.
+
+    Callers must not hold an InventoryItem row lock before this entrypoint unless
+    they already locked Ingredient first (set already_locked=True).
+    """
     reason = reason.strip()
     if not reason:
         raise ValueError("请填写销毁原因")
-    ingredient = item.ingredient or require_ingredient(
-        db,
-        family_id=family_id,
-        ingredient_id=item.ingredient_id,
-    )
-    if not tracks_quantity(ingredient):
-        if quantity is not None:
-            raise ValueError("不记录数量的食材只能整批移除或重新补充")
-        item.disposed_quantity = item.quantity
-        item.updated_by = user_id
-        if record_activity:
-            log_activity(
+
+    if already_locked:
+        ingredient = item.ingredient
+        if ingredient is None or ingredient.id != item.ingredient_id:
+            ingredient = require_ingredient(
                 db,
                 family_id=family_id,
-                actor_id=user_id,
-                action=ActivityAction.UPDATE,
-                entity_type="InventoryItem",
-                entity_id=item.id,
-                summary=f"移除库存 {ingredient.name}：{reason}",
+                ingredient_id=item.ingredient_id,
             )
-        return {
-            "operation": "dispose",
-            "ingredient_id": ingredient.id,
-            "ingredient_name": ingredient.name,
-            "inventory_item_id": item.id,
-            "unit": item.unit,
-            "quantity": 0.0,
-            "reason": reason,
-            "remaining_quantity": 0.0,
-        }
+            item.ingredient = ingredient
+    else:
+        # Discover ingredient_id without locking child first, then lock parent→child.
+        provisional = item
+        if provisional.ingredient_id is None:
+            provisional = require_inventory_item(
+                db,
+                family_id=family_id,
+                inventory_item_id=item.id,
+                for_update=False,
+            )
+        locked = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            ingredient_ids=[provisional.ingredient_id],
+            inventory_item_ids=[item.id],
+        )
+        ingredient = locked.ingredients.get(provisional.ingredient_id)
+        locked_item = locked.inventory_items.get(item.id)
+        if ingredient is None or locked_item is None:
+            raise ValueError("库存批次不存在或不属于当前家庭")
+        item = locked_item
+        item.ingredient = ingredient
+
+    if expected_row_version is not None:
+        require_expected_version(
+            item,
+            expected_row_version,
+            entity_type="inventory_item",
+            entity_id=item.id,
+        )
+
+    if not tracks_quantity(ingredient):
+        raise PresenceStateRequiredError()
     available_in_default = inventory_remaining_in_default(item, ingredient)
     if available_in_default <= 0:
         raise ValueError("库存批次已无剩余数量")
@@ -361,6 +362,8 @@ def dispose_inventory_quantity(
     )
     item.disposed_quantity += disposed_in_item_unit
     item.updated_by = user_id
+    if bump_parent:
+        bump_ingredient_collection(ingredient, user_id=user_id)
     remaining = remaining_quantity(item)
     if record_activity:
         log_activity(

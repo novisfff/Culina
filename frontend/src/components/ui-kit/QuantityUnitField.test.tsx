@@ -86,4 +86,19 @@ describe('QuantityUnitField', () => {
     expect(view.textContent).toContain('这个食材只记录是否需要补充');
     expect(view.querySelector<HTMLInputElement>('input[aria-label="数量"]')?.disabled).toBe(true);
   });
+
+  it('supports a domain-specific quantity step hint', () => {
+    const view = renderField(
+      <QuantityUnitField
+        quantity="1"
+        unit="份"
+        quantityStep="0.1"
+        unitOptions={[{ value: '份', label: '份' }]}
+        onQuantityChange={vi.fn()}
+        onUnitChange={vi.fn()}
+      />,
+    );
+
+    expect(view.querySelector<HTMLInputElement>('input[aria-label="数量"]')?.step).toBe('0.1');
+  });
 });

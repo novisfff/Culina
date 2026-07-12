@@ -6,6 +6,8 @@ import {
   calendarDaysBetweenDateKeys,
   daysBetweenDateKeys,
   getWeekRange,
+  hoursBetweenInstants,
+  isWithinHours,
   parseDateKey,
   todayKey,
   toDateKey,
@@ -60,5 +62,11 @@ describe('date helpers', () => {
     const instant = new Date('2026-07-12T03:30:00.000Z');
     expect(businessDateKey(instant, 'Asia/Shanghai')).toBe('2026-07-12');
     expect(businessDateKey(instant, 'America/New_York')).toBe('2026-07-11');
+  });
+
+  it('measures elapsed hours between ISO instants without todayKey', () => {
+    expect(hoursBetweenInstants('2026-07-12T08:00:00.000Z', '2026-07-11T08:00:00.000Z')).toBe(24);
+    expect(isWithinHours('2026-07-11T08:00:00.000Z', '2026-07-12T08:00:00.000Z', 24)).toBe(true);
+    expect(isWithinHours('2026-07-11T08:00:00.000Z', '2026-07-12T08:00:00.001Z', 24)).toBe(false);
   });
 });

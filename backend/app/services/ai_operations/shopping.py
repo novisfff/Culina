@@ -14,6 +14,7 @@ from app.core.utils import create_id
 from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.services.activity import log_activity
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.serializers import serialize_shopping_item
 
 
@@ -143,12 +144,13 @@ def _apply_shopping_item_operations(
             results.append({"operationId": operation.get("operationId"), "action": "create", "item": serialize_shopping_item(item)})
             entity_ids.append(item.id)
             continue
-        item = db.scalar(
-            select(ShoppingListItem)
-            .where(ShoppingListItem.family_id == family_id, ShoppingListItem.id == str(operation["targetId"]))
-            .with_for_update()
-        )
-        if item is None:
+        try:
+            item = lock_inventory_targets(
+                db,
+                family_id=family_id,
+                shopping_item_ids=[str(operation["targetId"])],
+            ).shopping_items[str(operation["targetId"])]
+        except (InventoryTargetNotFoundError, KeyError):
             raise AIConflictError("购物项不存在或已被删除")
         assert_updated_at_matches(
             actual=item.updated_at,

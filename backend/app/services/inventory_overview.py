@@ -7,10 +7,11 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import FoodType, IngredientQuantityTrackingMode
-from app.models.domain import Food, Ingredient, InventoryItem
+from app.core.enums import FoodType, IngredientQuantityTrackingMode, InventoryAvailabilityLevel
+from app.models.domain import Food, Ingredient, IngredientInventoryState, InventoryItem
 from app.services.food_stock_quantity import format_food_stock_quantity
 from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.services.ingredient_inventory_state import state_is_physically_present
 from app.services.inventory_usage import remaining_quantity, tracks_quantity
 from app.services.serializers import serialize_media
 
@@ -60,6 +61,27 @@ def _matches_query(row: dict[str, Any], query: str) -> bool:
     return query in row["search_text"]
 
 
+def _quantity_label_for_presence(level: InventoryAvailabilityLevel) -> str:
+    if level is InventoryAvailabilityLevel.LOW:
+        return "偏低"
+    if level is InventoryAvailabilityLevel.SUFFICIENT:
+        return "充足"
+    if level is InventoryAvailabilityLevel.ABSENT:
+        return "没有"
+    return "已有"
+
+
+def _tone_for_presence(
+    level: InventoryAvailabilityLevel,
+    expiry_date: date | None,
+    today: date,
+) -> str:
+    tone = _tone_for_stock(Decimal("1"), expiry_date, today)
+    if tone == "stable" and level is InventoryAvailabilityLevel.LOW:
+        return "warning"
+    return tone
+
+
 def _ingredient_rows(
     db: Session,
     *,
@@ -75,42 +97,57 @@ def _ingredient_rows(
             .order_by(InventoryItem.updated_at.desc(), InventoryItem.id)
         )
     )
-    ingredient_ids = [item.ingredient_id for item in items]
+    states = list(
+        db.scalars(
+            select(IngredientInventoryState)
+            .where(IngredientInventoryState.family_id == family_id)
+            .order_by(IngredientInventoryState.updated_at.desc(), IngredientInventoryState.ingredient_id.asc())
+        )
+    )
+    state_ingredient_ids = [state.ingredient_id for state in states]
+    ingredients_by_id = {
+        ingredient.id: ingredient
+        for ingredient in db.scalars(
+            select(Ingredient).where(
+                Ingredient.family_id == family_id,
+                Ingredient.id.in_(list({*state_ingredient_ids, *[item.ingredient_id for item in items]})),
+            )
+        )
+    } if (states or items) else {}
     media_map = build_media_map(
         get_media_assets_for_entities(
             db,
             family_id=family_id,
             entity_type="ingredient",
-            entity_ids=ingredient_ids,
+            entity_ids=list(ingredients_by_id),
         )
     )
     rows: list[dict[str, Any]] = []
+
     for item in items:
-        ingredient = item.ingredient
-        if ingredient is None:
+        ingredient = item.ingredient or ingredients_by_id.get(item.ingredient_id)
+        if ingredient is None or ingredient.family_id != family_id:
             continue
-        if ingredient.family_id != family_id:
+        if not tracks_quantity(ingredient):
+            # Historical presence placeholders must not appear in overview.
             continue
-        tracks = tracks_quantity(ingredient)
         remaining = remaining_quantity(item)
-        has_presence = item.quantity - getattr(item, "disposed_quantity", Decimal("0")) > 0
-        if tracks and remaining <= 0:
-            continue
-        if not tracks and not has_presence:
+        if remaining <= 0:
             continue
         days = _days_until(item.expiry_date, today)
-        tone = _tone_for_stock(remaining if tracks else Decimal("1"), item.expiry_date, today)
+        tone = _tone_for_stock(remaining, item.expiry_date, today)
         row = {
             "id": f"ingredient:{item.id}",
             "source_type": "ingredient",
             "source_id": ingredient.id,
+            "row_version": item.row_version,
             "inventory_item_id": item.id,
             "title": ingredient.name,
             "category": ingredient.category,
             "image": _serialize_first_media(media_map, "ingredient", ingredient.id),
-            "quantity": float(remaining) if tracks else None,
+            "quantity": float(remaining),
             "unit": item.unit,
-            "quantity_label": _format_quantity(remaining, item.unit, "已有") if tracks else "已有",
+            "quantity_label": _format_quantity(remaining, item.unit, "已有"),
             "quantity_tracking_mode": (
                 ingredient.quantity_tracking_mode.value
                 if hasattr(ingredient.quantity_tracking_mode, "value")
@@ -123,7 +160,7 @@ def _ingredient_rows(
             "storage_location": item.storage_location or ingredient.default_storage or "常温",
             "purchase_source": None,
             "updated_at": item.updated_at.isoformat(),
-            "primary_action": "dispose" if tone == "danger" else "consume" if tracks else "restock",
+            "primary_action": "dispose" if tone == "danger" else "consume",
             "search_text": " ".join(
                 [
                     ingredient.name,
@@ -131,6 +168,56 @@ def _ingredient_rows(
                     ingredient.notes,
                     item.storage_location,
                     item.notes,
+                ]
+            ),
+        }
+        if _matches_query(row, query):
+            rows.append(row)
+
+    for state in states:
+        ingredient = ingredients_by_id.get(state.ingredient_id)
+        if ingredient is None or ingredient.family_id != family_id:
+            continue
+        if tracks_quantity(ingredient):
+            continue
+        if not state_is_physically_present(state):
+            continue
+        days = _days_until(state.expiry_date, today)
+        tone = _tone_for_presence(state.availability_level, state.expiry_date, today)
+        status = state.inventory_status.value if hasattr(state.inventory_status, "value") else state.inventory_status
+        storage = state.storage_location or ingredient.default_storage or "常温"
+        row = {
+            "id": f"ingredient-state:{state.id}",
+            "source_type": "ingredient",
+            "source_id": ingredient.id,
+            "row_version": state.row_version,
+            "inventory_item_id": None,
+            "title": ingredient.name,
+            "category": ingredient.category,
+            "image": _serialize_first_media(media_map, "ingredient", ingredient.id),
+            "quantity": None,
+            "unit": ingredient.default_unit,
+            "quantity_label": _quantity_label_for_presence(state.availability_level),
+            "quantity_tracking_mode": (
+                ingredient.quantity_tracking_mode.value
+                if hasattr(ingredient.quantity_tracking_mode, "value")
+                else ingredient.quantity_tracking_mode
+            ),
+            "status": status,
+            "tone": tone,
+            "expiry_date": state.expiry_date,
+            "days_until_expiry": days,
+            "storage_location": storage,
+            "purchase_source": None,
+            "updated_at": state.updated_at.isoformat(),
+            "primary_action": "dispose" if tone == "danger" else "restock",
+            "search_text": " ".join(
+                [
+                    ingredient.name,
+                    ingredient.category,
+                    ingredient.notes,
+                    storage or "",
+                    state.notes or "",
                 ]
             ),
         }
@@ -175,6 +262,7 @@ def _food_rows(
             "id": f"food:{food.id}",
             "source_type": "food",
             "source_id": food.id,
+            "row_version": food.row_version,
             "inventory_item_id": None,
             "title": food.name,
             "category": food.category,

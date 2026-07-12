@@ -11,6 +11,11 @@ from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Ingredient, InventoryItem
+from app.services.ingredient_inventory_state import (
+    PresenceStateRequiredError,
+    presence_state_required_detail,
+)
+from app.services.inventory_usage import tracks_quantity
 from app.schemas.inventory import (
     ConsumeInventoryRequest,
     ConsumeInventoryResponse,
@@ -28,11 +33,12 @@ from app.schemas.inventory_overview import InventoryOverviewOut, InventoryOvervi
 from app.services.clock import today_for_family
 from app.services.inventory_expiry_actions import (
     InventoryStaleVersionError,
-    STALE_INVENTORY_DETAIL,
     correct_inventory_expiry_date,
     dispose_expired_inventory_items,
     snooze_expiry_alerts,
 )
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail
+
 from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_operations import (
     consume_ingredient_inventory,
@@ -44,6 +50,27 @@ from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
+
+
+def _inventory_conflict_http(exc: InventoryConflictError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=conflict_detail(exc),
+    )
+
+
+def _presence_state_required_http(exc: PresenceStateRequiredError | None = None) -> HTTPException:
+    message = exc.message if isinstance(exc, PresenceStateRequiredError) else None
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=presence_state_required_detail(message or "不记录数量的食材请使用库存状态接口"),
+    )
+
+
+def _reject_presence_inventory_item(item: InventoryItem) -> None:
+    ingredient = item.ingredient
+    if ingredient is not None and not tracks_quantity(ingredient):
+        raise _presence_state_required_http()
 
 
 def _commit_inventory_session(db: Session) -> None:
@@ -117,6 +144,11 @@ def list_inventory(
         rank_by_ingredient_id = {ingredient_id: index for index, ingredient_id in enumerate(ingredient_ids)}
         items.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
         items.sort(key=lambda item: rank_by_ingredient_id.get(item.ingredient_id, len(rank_by_ingredient_id)))
+        items = [
+            item
+            for item in items
+            if item.ingredient is None or tracks_quantity(item.ingredient)
+        ]
         return [serialize_inventory_item(item) for item in items]
 
     items = list(
@@ -127,6 +159,11 @@ def list_inventory(
             .order_by(InventoryItem.updated_at.desc())
         )
     )
+    items = [
+        item
+        for item in items
+        if item.ingredient is None or tracks_quantity(item.ingredient)
+    ]
     return [serialize_inventory_item(item) for item in items]
 
 
@@ -142,6 +179,8 @@ def create_inventory_item(
     )
     if ingredient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+    if not tracks_quantity(ingredient):
+        raise _presence_state_required_http()
     try:
         item = create_inventory_batch(
             db,
@@ -157,6 +196,8 @@ def create_inventory_item(
             notes=payload.notes,
             low_stock_threshold=Decimal(str(payload.low_stock_threshold)),
         )
+    except PresenceStateRequiredError as exc:
+        raise _presence_state_required_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -177,6 +218,8 @@ def consume_inventory(
     )
     if ingredient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+    if not tracks_quantity(ingredient):
+        raise _presence_state_required_http()
 
     try:
         result = consume_ingredient_inventory(
@@ -188,6 +231,8 @@ def consume_inventory(
             unit=payload.unit,
             today=today_for_family(membership.family_id),
         )
+    except PresenceStateRequiredError as exc:
+        raise _presence_state_required_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -207,12 +252,17 @@ def dispose_inventory(
 ) -> dict:
     user, membership = auth
     try:
+        # Unlocked provisional load only to discover the parent ingredient id;
+        # dispose_inventory_quantity locks Ingredient then InventoryItem.
         item = require_inventory_item(
             db,
             family_id=membership.family_id,
             inventory_item_id=payload.inventory_item_id,
-            for_update=True,
+            for_update=False,
         )
+        if item.ingredient is None:
+            db.refresh(item, attribute_names=["ingredient"])
+        _reject_presence_inventory_item(item)
         result = dispose_inventory_quantity(
             db,
             family_id=membership.family_id,
@@ -221,7 +271,12 @@ def dispose_inventory(
             quantity=Decimal(str(payload.quantity)) if payload.quantity is not None else None,
             unit=payload.unit,
             reason=payload.reason,
+            expected_row_version=payload.expected_row_version,
         )
+    except InventoryConflictError as exc:
+        raise _inventory_conflict_http(exc) from exc
+    except PresenceStateRequiredError as exc:
+        raise _presence_state_required_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -241,6 +296,13 @@ def snooze_inventory_expiry_alerts(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
+    ingredient = db.scalar(
+        select(Ingredient).where(Ingredient.family_id == membership.family_id, Ingredient.id == payload.ingredient_id)
+    )
+    if ingredient is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="食材不存在或不属于当前家庭")
+    if not tracks_quantity(ingredient):
+        raise _presence_state_required_http()
     try:
         result = snooze_expiry_alerts(
             db,
@@ -254,7 +316,7 @@ def snooze_inventory_expiry_alerts(
             today=today_for_family(membership.family_id),
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -269,6 +331,15 @@ def correct_inventory_item_expiry_date(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
+    provisional = require_inventory_item(
+        db,
+        family_id=membership.family_id,
+        inventory_item_id=inventory_item_id,
+        for_update=False,
+    )
+    if provisional.ingredient is None:
+        db.refresh(provisional, attribute_names=["ingredient"])
+    _reject_presence_inventory_item(provisional)
     try:
         item = correct_inventory_expiry_date(
             db,
@@ -280,7 +351,7 @@ def correct_inventory_item_expiry_date(
             expected_row_version=payload.expected_row_version,
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -296,6 +367,13 @@ def dispose_expired_inventory(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
+    ingredient = db.scalar(
+        select(Ingredient).where(Ingredient.family_id == membership.family_id, Ingredient.id == payload.ingredient_id)
+    )
+    if ingredient is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="食材不存在或不属于当前家庭")
+    if not tracks_quantity(ingredient):
+        raise _presence_state_required_http()
     try:
         result = dispose_expired_inventory_items(
             db,
@@ -307,7 +385,7 @@ def dispose_expired_inventory(
             today=today_for_family(membership.family_id),
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)

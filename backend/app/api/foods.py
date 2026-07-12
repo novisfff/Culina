@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
@@ -26,6 +27,8 @@ from app.schemas.foods import (
 from app.services.activity import log_activity
 from app.services.clock import now_for_family
 from app.services.food_stock import apply_food_stock_consume, apply_food_stock_dispose, apply_food_stock_restock
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail, require_expected_version
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
@@ -56,6 +59,33 @@ POSITIVE_REASON_LABELS = {
     "quick_recipe": "20 分钟内",
     "fresh_gap": "最近没吃过",
 }
+
+
+def _commit_food_session(db: Session) -> None:
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STALE_INVENTORY_DETAIL,
+        ) from exc
+
+
+def _food_conflict_http(exc: InventoryConflictError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail(exc))
+
+
+def _require_expected_food_version(food: Food, expected_row_version: int) -> None:
+    try:
+        require_expected_version(
+            food,
+            expected_row_version,
+            entity_type="food",
+            entity_id=food.id,
+        )
+    except InventoryConflictError as exc:
+        raise _food_conflict_http(exc) from exc
 
 
 def _merge_tags(*groups: list[str] | tuple[str, ...] | None) -> list[str]:
@@ -505,9 +535,20 @@ def update_food(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == membership.family_id))
-    if food is None:
+    try:
+        food = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    if payload.expected_row_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="expected_row_version is required",
+        )
+    _require_expected_food_version(food, payload.expected_row_version)
     if food.type == FoodType.SELF_MADE.value or food.recipe_id is not None:
         if payload.type != FoodType.SELF_MADE or payload.recipe_id != food.recipe_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SYNCED_SELF_MADE_MESSAGE)
@@ -539,7 +580,7 @@ def update_food(
         summary=f"更新食物 {food.name}",
     )
     enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
-    commit_session(db)
+    _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
@@ -552,9 +593,15 @@ def update_food_favorite(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == membership.family_id))
-    if food is None:
+    try:
+        food = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    _require_expected_food_version(food, payload.expected_row_version)
     food.favorite = payload.favorite
     food.updated_by = user.id
     log_activity(
@@ -567,16 +614,20 @@ def update_food_favorite(
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
     enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
-    commit_session(db)
+    _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
 
 def _require_food_for_stock(db: Session, *, family_id: str, food_id: str) -> Food:
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id).with_for_update())
-    if food is None:
+    try:
+        return lock_inventory_targets(
+            db,
+            family_id=family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
-    return food
 
 
 @router.post("/api/foods/{food_id}/stock/restock", response_model=FoodStockChangeOut)
@@ -588,6 +639,7 @@ def restock_food_stock(
 ) -> dict:
     user, membership = auth
     food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    _require_expected_food_version(food, payload.expected_row_version)
     try:
         apply_food_stock_restock(
             db,
@@ -603,7 +655,7 @@ def restock_food_stock(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
@@ -617,6 +669,7 @@ def consume_food_stock(
 ) -> dict:
     user, membership = auth
     food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    _require_expected_food_version(food, payload.expected_row_version)
     try:
         apply_food_stock_consume(
             db,
@@ -629,7 +682,7 @@ def consume_food_stock(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
@@ -643,6 +696,7 @@ def dispose_food_stock(
 ) -> dict:
     user, membership = auth
     food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    _require_expected_food_version(food, payload.expected_row_version)
     try:
         apply_food_stock_dispose(
             db,
@@ -655,6 +709,6 @@ def dispose_food_stock(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

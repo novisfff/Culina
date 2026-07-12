@@ -126,6 +126,158 @@ describe('inventory operation approval', () => {
     expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
   });
 
+  it('allows presence-only restock without inventing an exact quantity', async () => {
+    const onDecision = vi.fn().mockResolvedValue(undefined);
+    const approval: AiApprovalRequest = {
+      id: 'approval-presence-restock',
+      conversation_id: 'conversation-1',
+      message_id: 'message-1',
+      run_id: 'run-1',
+      draft_id: 'draft-presence-restock',
+      draft_version: 1,
+      draft_schema_version: 'inventory_operation.v1',
+      approval_type: 'inventory.operation',
+      status: 'pending',
+      title: '确认补货',
+      instruction: '确认后会正式修改家庭库存。',
+      approve_label: '确认补货',
+      reject_label: '暂不处理',
+      require_reject_comment: false,
+      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'inventory_operation',
+          schemaVersion: 'inventory_operation.v1',
+          operations: [{
+            action: 'restock',
+            ingredientId: 'ingredient-vinegar',
+            ingredientName: '香醋',
+            quantityTrackingMode: 'not_track_quantity',
+            expectedIngredientRowVersion: 3,
+            stateId: 'state-vinegar',
+            expectedStateRowVersion: 2,
+            expectedInventoryItemRowVersion: null,
+            availabilityLevel: 'present_unknown',
+            inventoryItemId: null,
+            quantity: null,
+            unit: '瓶',
+            purchaseDate: '2026-06-14',
+            expiryDate: null,
+            storageLocation: '常温',
+            status: 'fresh',
+            notes: '',
+            reason: '',
+            batchOptions: [],
+          }],
+        },
+      },
+      submitted_values: {},
+      created_at: '2026-06-14T10:00:00Z',
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ApprovalPanel approval={approval} onDecision={onDecision} />);
+    });
+
+    expect(container.textContent).toContain('只记录有无');
+    expect(container.textContent).toContain('确认后会把库存状态更新为已有');
+    expect(container.querySelector('.quantity-input')).toBeNull();
+
+    const approve = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '确认补货');
+    await act(async () => approve?.click());
+
+    expect(onDecision).toHaveBeenCalledTimes(1);
+    const submitted = onDecision.mock.calls[0][2] as { draft: { operations: Array<Record<string, unknown>> } };
+    expect(submitted.draft.operations[0]).toMatchObject({
+      quantityTrackingMode: 'not_track_quantity',
+      expectedIngredientRowVersion: 3,
+      stateId: 'state-vinegar',
+      expectedStateRowVersion: 2,
+      expectedInventoryItemRowVersion: null,
+      availabilityLevel: 'present_unknown',
+      quantity: null,
+    });
+  });
+
+  it('preserves hidden concurrency boundaries when editing an exact quantity', async () => {
+    const onDecision = vi.fn().mockResolvedValue(undefined);
+    const approval: AiApprovalRequest = {
+      id: 'approval-versioned-consume',
+      conversation_id: 'conversation-1',
+      message_id: 'message-1',
+      run_id: 'run-1',
+      draft_id: 'draft-versioned-consume',
+      draft_version: 1,
+      draft_schema_version: 'inventory_operation.v1',
+      approval_type: 'inventory.operation',
+      status: 'pending',
+      title: '确认消耗',
+      instruction: '确认后会正式修改家庭库存。',
+      approve_label: '确认消耗',
+      reject_label: '暂不处理',
+      require_reject_comment: false,
+      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'inventory_operation',
+          schemaVersion: 'inventory_operation.v1',
+          operations: [{
+            action: 'consume',
+            ingredientId: 'ingredient-tomato',
+            ingredientName: '番茄',
+            quantityTrackingMode: 'track_quantity',
+            expectedIngredientRowVersion: 7,
+            stateId: null,
+            expectedStateRowVersion: null,
+            expectedInventoryItemRowVersion: null,
+            inventoryItemId: null,
+            quantity: 1,
+            unit: '个',
+            notes: '',
+            reason: '',
+            batchOptions: [{
+              id: 'inventory-tomato',
+              label: '到期 2026-06-16 · 冷藏',
+              remainingQuantity: 3,
+              unit: '个',
+              rowVersion: 4,
+            }],
+          }],
+        },
+      },
+      submitted_values: {},
+      created_at: '2026-06-14T10:00:00Z',
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ApprovalPanel approval={approval} onDecision={onDecision} />);
+    });
+
+    const quantity = container.querySelector<HTMLInputElement>('.quantity-input');
+    expect(quantity).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(quantity, '2');
+      quantity?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const approve = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '确认消耗');
+    await act(async () => approve?.click());
+
+    const submitted = onDecision.mock.calls[0][2] as { draft: { operations: Array<Record<string, unknown>> } };
+    expect(submitted.draft.operations[0]).toMatchObject({
+      quantity: 2,
+      quantityTrackingMode: 'track_quantity',
+      expectedIngredientRowVersion: 7,
+      expectedInventoryItemRowVersion: null,
+      batchOptions: [expect.objectContaining({ id: 'inventory-tomato', rowVersion: 4 })],
+    });
+  });
+
   it('uses expiring-first consumption and reveals readable batch choices on demand', async () => {
     const approval: AiApprovalRequest = {
       id: 'approval-consume',
@@ -183,6 +335,71 @@ describe('inventory operation approval', () => {
     const batchTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>('.ai-single-select-trigger')).find((button) => button.textContent === '自动按临期优先');
     await act(async () => batchTrigger?.click());
     expect(container.querySelector('.ai-resource-menu')?.textContent).toContain('到期 2026-06-16 · 冷藏 · 剩余 2个');
+  });
+
+  it('does not offer automatic scope expansion when the draft fixed one consume batch', async () => {
+    const approval: AiApprovalRequest = {
+      id: 'approval-explicit-consume',
+      conversation_id: 'conversation-1',
+      message_id: 'message-1',
+      run_id: 'run-1',
+      draft_id: 'draft-explicit-consume',
+      draft_version: 1,
+      draft_schema_version: 'inventory_operation.v1',
+      approval_type: 'inventory.operation',
+      status: 'pending',
+      title: '确认消耗',
+      instruction: '确认后会正式修改家庭库存。',
+      approve_label: '确认消耗',
+      reject_label: '暂不处理',
+      require_reject_comment: false,
+      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'inventory_operation',
+          schemaVersion: 'inventory_operation.v1',
+          operations: [{
+            action: 'consume',
+            ingredientId: 'ingredient-tomato',
+            ingredientName: '番茄',
+            expectedIngredientRowVersion: 7,
+            inventoryItemId: 'inventory-tomato',
+            expectedInventoryItemRowVersion: 4,
+            quantity: 1,
+            unit: '个',
+            notes: '',
+            reason: '',
+            batchOptions: [{
+              id: 'inventory-tomato',
+              label: '到期 2026-06-16 · 冷藏',
+              remainingQuantity: 2,
+              unit: '个',
+              expiryDate: '2026-06-16',
+              rowVersion: 4,
+            }],
+          }],
+        },
+      },
+      submitted_values: {},
+      created_at: '2026-06-14T10:00:00Z',
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
+    });
+
+    const toggle = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === '指定库存批次',
+    );
+    await act(async () => toggle?.click());
+    const batchTrigger = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.ai-single-select-trigger'),
+    ).find((button) => button.textContent?.includes('到期 2026-06-16'));
+    await act(async () => batchTrigger?.click());
+
+    expect(container.querySelector('.ai-resource-menu')?.textContent).not.toContain('自动按临期优先');
   });
 
   it('summarizes inventory impact and uses comboboxes for unit and storage location', async () => {

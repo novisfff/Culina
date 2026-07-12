@@ -4,10 +4,20 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.inventory_reconciliation import (
+    RECONCILIATION_SUBMIT_PATH,
+    reconciliation_request_validation_detail,
+)
 from app.api.router import api_router
+from app.api.shopping_intake import (
+    SHOPPING_INTAKE_SUBMIT_PATH,
+    shopping_intake_request_validation_detail,
+)
 from app.ai.images.jobs import ImageGenerationWorker
 from app.core.config import LOCAL_ENVIRONMENTS, Settings, get_settings
 from app.core.logging import configure_logging
@@ -85,6 +95,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    if request.method == "POST" and request.url.path == RECONCILIATION_SUBMIT_PATH:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": reconciliation_request_validation_detail(exc.errors())},
+        )
+    if request.method == "POST" and request.url.path == SHOPPING_INTAKE_SUBMIT_PATH:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": shopping_intake_request_validation_detail(exc.errors())},
+        )
+    return await request_validation_exception_handler(request, exc)
 
 app.add_middleware(UnhandledApiExceptionMiddleware)
 app.add_middleware(

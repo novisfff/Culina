@@ -188,6 +188,7 @@ def apply_ai_approval_decision(
                 draft_type=draft.draft_type,
                 payload=submitted_payload,
                 assert_updated_at_matches=assert_updated_at_matches,
+                conversation_id=conversation_id,
             )
         operation.status = "succeeded"
         operation.business_entity_ids = entity_ids

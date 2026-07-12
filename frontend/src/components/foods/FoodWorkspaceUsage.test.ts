@@ -17,5 +17,8 @@ describe('FoodWorkspace navigation usage', () => {
     expect(workspaceSource).toContain('resolveFoodNavigationRequestAction');
     expect(workspaceSource).toContain('handledNavigationRequestIdRef');
     expect(workspaceSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
+    expect(stateSource).toContain('expected_row_version: editingFood.row_version');
+    expect(workspaceSource).toMatch(/updateFoodFavorite\(food\.id, !food\.favorite, food\.row_version\)/);
+    expect(workspaceSource).toContain('expected_food_row_version: food.row_version');
   });
 });

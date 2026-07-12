@@ -7,13 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import AiMode, FoodType
-from app.models.domain import Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe
+from app.models.domain import Family, Food, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe
+from app.services.inventory_usage import tracks_quantity
 
 
 @dataclass(slots=True)
 class AgentContext:
     family: Family | None = None
     inventory_items: list[InventoryItem] = field(default_factory=list)
+    presence_states: list[IngredientInventoryState] = field(default_factory=list)
     meal_logs: list[MealLog] = field(default_factory=list)
     food: Food | None = None
     ingredients: list[Ingredient] = field(default_factory=list)
@@ -23,6 +25,7 @@ class AgentContext:
         return {
             "familyId": self.family.id if self.family else None,
             "inventoryItemCount": len(self.inventory_items),
+            "presenceStateCount": len(self.presence_states),
             "mealLogCount": len(self.meal_logs),
             "foodId": self.food.id if self.food else None,
             "ingredientIds": [item.id for item in self.ingredients],
@@ -51,17 +54,32 @@ def load_agent_context(
     ingredient_ids = list(_subject_value(subject, "ingredientIds", "ingredient_ids", []) or [])
 
     family = db.scalar(select(Family).where(Family.id == family_id))
-    inventory_items = (
-        list(
+    inventory_items: list[InventoryItem] = []
+    presence_states: list[IngredientInventoryState] = []
+    if include_inventory:
+        raw_items = list(
             db.scalars(
                 select(InventoryItem)
                 .where(InventoryItem.family_id == family_id)
                 .options(selectinload(InventoryItem.ingredient))
             )
         )
-        if include_inventory
-        else []
-    )
+        # Historical not_track_quantity placeholders are not current inventory truth.
+        inventory_items = [
+            item
+            for item in raw_items
+            if item.ingredient is None or tracks_quantity(item.ingredient)
+        ]
+        presence_states = list(
+            db.scalars(
+                select(IngredientInventoryState)
+                .where(IngredientInventoryState.family_id == family_id)
+                .order_by(
+                    IngredientInventoryState.updated_at.desc(),
+                    IngredientInventoryState.ingredient_id.asc(),
+                )
+            )
+        )
     meal_logs = (
         list(
             db.scalars(
@@ -108,6 +126,7 @@ def load_agent_context(
     return AgentContext(
         family=family,
         inventory_items=inventory_items,
+        presence_states=presence_states,
         meal_logs=meal_logs,
         food=food,
         ingredients=ingredients,

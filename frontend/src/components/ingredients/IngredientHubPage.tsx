@@ -132,6 +132,9 @@ type IngredientHubPageProps = {
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
+  operationBanner?: ReactNode;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -208,6 +211,7 @@ type IngredientHubPageProps = {
   onUpdateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -218,7 +222,7 @@ type IngredientHubPageProps = {
       done?: boolean;
     };
   }) => Promise<unknown>;
-  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
+  onDeleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<unknown>;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
   mobileDetailPopover?: ReactNode;
@@ -283,6 +287,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
       />
     ) : props.activePanel === 'inventory' ? (
       <IngredientInventoryPanel
+              operationBanner={props.operationBanner}
         summariesCount={props.summariesCount}
         inventorySearch={props.inventorySearch}
         isInventorySearchFetching={props.isInventorySearchFetching}
@@ -321,6 +326,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
       />
     ) : (
       <IngredientShoppingPanel
+              operationBanner={props.operationBanner}
         shoppingOverview={props.shoppingOverview}
         shoppingFocus={props.shoppingFocus}
         shoppingSearch={props.shoppingSearch}
@@ -339,10 +345,10 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         onOpenInventoryFromShopping={props.openInventoryFromShopping}
         onOpenDetailView={(summary) => props.openDetailView(summary.ingredient.id)}
         onToggleCompletedShopping={() => props.setShowCompletedShopping((current) => !current)}
-        onRestoreShopping={(itemId) =>
+        onRestoreShopping={(item) =>
           void props.onUpdateShoppingItem({
-            itemId,
-            payload: { done: false },
+            itemId: item.id,
+            payload: { done: false, expected_row_version: item.row_version },
           })
         }
         IngredientWorkspaceIcon={({ name }) => props.renderIcon(name as IngredientWorkspaceIconName)}
@@ -394,6 +400,8 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
               openCreateView={props.openCreateView}
               openInventoryFromShopping={props.openInventoryFromShopping}
+              openShoppingIntake={props.openShoppingIntake}
+              openReconciliation={props.openReconciliation}
               openFoodStockMeal={props.openFoodStockMeal}
               openFoodStockEditor={props.openFoodStockEditor}
               openFoodShopping={props.openFoodShopping}

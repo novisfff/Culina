@@ -100,6 +100,7 @@ export interface Ingredient {
   default_low_stock_threshold?: number | null;
   notes: string;
   image?: MediaAsset | null;
+  row_version?: number;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -133,6 +134,314 @@ export interface InventoryItem {
   expiry_alert_snoozed_until?: string | null;
   expiry_reviewed_at?: string | null;
   expiry_reviewed_by?: string | null;
+  last_confirmed_at?: string | null;
+  last_confirmed_by?: string | null;
+  last_confirmation_source?: InventoryConfirmationSource | null;
+}
+
+
+export type InventoryAvailabilityLevel = 'present_unknown' | 'low' | 'sufficient' | 'absent';
+export type InventoryConfirmationSource = 'manual_entry' | 'reconciliation' | 'shopping_intake';
+export type InventoryConfirmationStatus = 'never_confirmed' | 'current' | 'stale';
+
+export interface IngredientInventoryState {
+  id: string;
+  family_id: string;
+  ingredient_id: string;
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date: string | null;
+  expiry_date: string | null;
+  storage_location: string | null;
+  notes: string;
+  expiry_alert_snoozed_until: string | null;
+  expiry_reviewed_at: string | null;
+  expiry_reviewed_by: string | null;
+  last_confirmed_at: string | null;
+  last_confirmed_by: string | null;
+  last_confirmation_source: InventoryConfirmationSource | null;
+  row_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type UpsertIngredientInventoryStateRequest = {
+  expected_ingredient_row_version: number;
+  state_id?: string | null;
+  expected_state_row_version?: number | null;
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+};
+
+export type SnoozeStateExpiryAlertRequest = {
+  action: 'retain_expired' | 'snooze_upcoming';
+  state_id: string;
+  expected_row_version: number;
+  snoozed_until: string;
+};
+
+export type CorrectStateExpiryDateRequest = {
+  state_id: string;
+  expected_row_version: number;
+  expiry_date: string;
+};
+
+export type SetInventoryStateAbsentRequest = {
+  state_id: string;
+  expected_row_version: number;
+};
+
+export type ShoppingIntakeItemRequest =
+  | {
+      shopping_item_id: string;
+      expected_shopping_item_row_version: number;
+      action: 'stock_and_fulfill';
+      target_kind: 'exact_ingredient';
+      target_id: string;
+      expected_ingredient_row_version: number;
+      actual_quantity: number;
+      unit: string;
+      inventory_status: InventoryStatus;
+      expiry_date: string | null;
+      storage_location: string;
+      notes: string;
+    }
+  | {
+      shopping_item_id: string;
+      expected_shopping_item_row_version: number;
+      action: 'stock_and_fulfill';
+      target_kind: 'presence_ingredient';
+      target_id: string;
+      expected_ingredient_row_version: number;
+      state_id: string | null;
+      expected_state_row_version: number | null;
+      resulting_availability_level: Exclude<InventoryAvailabilityLevel, 'absent'>;
+      inventory_status: InventoryStatus;
+      expiry_date: string | null;
+      storage_location: string;
+      notes: string;
+    }
+  | {
+      shopping_item_id: string;
+      expected_shopping_item_row_version: number;
+      action: 'stock_and_fulfill';
+      target_kind: 'food';
+      target_id: string;
+      expected_food_row_version: number;
+      actual_quantity: number;
+      unit: string;
+      expiry_date: string | null;
+      storage_location: string;
+    }
+  | {
+      shopping_item_id: string;
+      expected_shopping_item_row_version: number;
+      action: 'complete_without_inventory';
+      target_kind: 'none';
+      target_id: null;
+    };
+
+export interface ShoppingIntakeRequest {
+  client_request_id: string;
+  purchase_date: string;
+  items: ShoppingIntakeItemRequest[];
+}
+
+export interface ShoppingIntakeItemResult {
+  shopping_item_id: string;
+  result: 'completed' | 'partial' | 'stocked' | 'completed_without_inventory';
+  remaining_planned_quantity: number | null;
+  inventory_item_id: string | null;
+  state_id: string | null;
+  food_id: string | null;
+}
+
+export interface InventoryOperationDisplaySummary {
+  title: string;
+  description: string;
+  confirmed_count: number;
+  adjusted_count: number;
+  completed_count: number;
+  partial_count: number;
+}
+
+export interface InventoryOperationResult {
+  operation_id: string;
+  operation_type: 'reconciliation' | 'shopping_intake';
+  status: 'applied' | 'reverted';
+  applied_at: string;
+  revertible_until: string;
+  can_revert: boolean;
+  summary: InventoryOperationDisplaySummary;
+}
+
+export interface InventoryOperationSummary extends InventoryOperationResult {
+  actor_display_name: string;
+}
+
+export type InventoryOperationEntityType =
+  | 'ingredient'
+  | 'inventory_item'
+  | 'non_tracked_ingredient_state'
+  | 'food'
+  | 'shopping_list_item';
+
+export type InventoryOperationChangeType = 'create' | 'update' | 'delete';
+
+export interface InventoryOperationLineDisplay {
+  sequence: number;
+  entity_type: InventoryOperationEntityType;
+  change_type: InventoryOperationChangeType;
+  title: string;
+  description: string;
+}
+
+export interface InventoryOperationDetail extends InventoryOperationSummary {
+  lines: InventoryOperationLineDisplay[];
+}
+
+export interface ShoppingIntakeResult extends InventoryOperationResult {
+  items: ShoppingIntakeItemResult[];
+}
+
+export interface ReconciliationSummary {
+  total_groups: number;
+  never_confirmed: number;
+  stale: number;
+  expired_physical_batches: number;
+}
+
+export interface ReconciliationBatch {
+  inventory_item_id: string;
+  row_version: number;
+  remaining_quantity: number;
+  unit: string;
+  status: InventoryStatus;
+  purchase_date: string;
+  expiry_date: string | null;
+  storage_location: string;
+  notes: string;
+  confirmation_status: InventoryConfirmationStatus;
+  last_confirmed_at: string | null;
+}
+
+export interface ExactIngredientReconciliationGroup {
+  kind: 'exact_ingredient';
+  ingredient_id: string;
+  ingredient_name: string;
+  ingredient_row_version: number;
+  confirmation_status: InventoryConfirmationStatus;
+  last_confirmed_at: string | null;
+  batches: ReconciliationBatch[];
+  pending_shopping_item_id: string | null;
+}
+
+export interface PresenceIngredientReconciliationGroup {
+  kind: 'presence_ingredient';
+  ingredient_id: string;
+  ingredient_name: string;
+  ingredient_row_version: number;
+  state: IngredientInventoryState;
+  confirmation_status: InventoryConfirmationStatus;
+  pending_shopping_item_id: string | null;
+}
+
+export interface FoodReconciliationGroup {
+  kind: 'food';
+  food_id: string;
+  food_name: string;
+  row_version: number;
+  stock_quantity: number;
+  stock_unit: string;
+  expiry_date: string | null;
+  storage_location: string | null;
+  confirmation_status: InventoryConfirmationStatus;
+  last_confirmed_at: string | null;
+}
+
+export type InventoryReconciliationGroup =
+  | ExactIngredientReconciliationGroup
+  | PresenceIngredientReconciliationGroup
+  | FoodReconciliationGroup;
+
+export interface InventoryReconciliationResponse {
+  business_date: string;
+  business_timezone: 'Asia/Shanghai';
+  generated_at: string;
+  summary: ReconciliationSummary;
+  groups: InventoryReconciliationGroup[];
+}
+
+export interface VersionedObservedBatchRequest {
+  inventory_item_id: string;
+  expected_row_version: number;
+}
+
+export interface InventoryBatchUpdateRequest {
+  inventory_item_id: string;
+  expected_row_version: number;
+  actual_remaining_quantity: number;
+  inventory_status: InventoryStatus;
+  purchase_date: string;
+  expiry_date: string | null;
+  storage_location: string;
+  notes: string;
+}
+
+export interface InventoryBatchCreateRequest {
+  client_line_id: string;
+  actual_remaining_quantity: number;
+  unit: string;
+  inventory_status: InventoryStatus;
+  purchase_date: string;
+  expiry_date: string | null;
+  storage_location: string;
+  notes: string;
+}
+
+export type InventoryReconciliationGroupRequest =
+  | {
+      kind: 'exact_ingredient';
+      ingredient_id: string;
+      expected_ingredient_row_version: number;
+      action: 'confirm_all' | 'set_absent' | 'adjust_batches';
+      observed_batches: VersionedObservedBatchRequest[];
+      updates: InventoryBatchUpdateRequest[];
+      creates: InventoryBatchCreateRequest[];
+    }
+  | {
+      kind: 'presence_ingredient';
+      ingredient_id: string;
+      state_id: string | null;
+      expected_ingredient_row_version: number;
+      expected_state_row_version: number | null;
+      availability_level: InventoryAvailabilityLevel;
+      inventory_status: InventoryStatus;
+      purchase_date: string | null;
+      expiry_date: string | null;
+      storage_location: string | null;
+      notes: string;
+    }
+  | {
+      kind: 'food';
+      food_id: string;
+      expected_row_version: number;
+      action: 'confirm' | 'set_stock';
+      stock_quantity: number | null;
+      stock_unit: string | null;
+      expiry_date: string | null;
+      storage_location: string | null;
+    };
+
+export interface InventoryReconciliationRequest {
+  client_request_id: string;
+  scope: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all';
+  storage_location: string | null;
+  groups: InventoryReconciliationGroupRequest[];
 }
 
 export type InventoryOverviewScope = 'all' | 'ingredient' | 'food';
@@ -144,6 +453,7 @@ export interface InventoryOverviewItem {
   id: string;
   source_type: InventoryOverviewSourceType;
   source_id: string;
+  row_version: number;
   inventory_item_id?: string | null;
   title: string;
   category: string;
@@ -178,6 +488,7 @@ export interface InventoryOverview {
 }
 
 export interface FoodStockChangePayload {
+  expected_row_version: number;
   quantity: number;
   unit?: string | null;
   expiry_date?: string | null;
@@ -192,7 +503,7 @@ export interface ShoppingListItem {
   family_id: string;
   ingredient_id?: string | null;
   food_id?: string | null;
-  target_type?: 'ingredient' | 'food';
+  target_type?: 'ingredient' | 'food' | 'free_text';
   title: string;
   quantity: number;
   unit: string;
@@ -204,6 +515,7 @@ export interface ShoppingListItem {
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
+  row_version: number;
 }
 
 export interface RecipeIngredient {
@@ -533,6 +845,10 @@ export interface Food {
   storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
+  row_version: number;
+  inventory_last_confirmed_at?: string | null;
+  inventory_last_confirmed_by?: string | null;
+  inventory_confirmation_source?: InventoryConfirmationSource | null;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -562,6 +878,10 @@ export interface FoodPayload {
   recipe_id?: string | null;
   media_ids: string[];
   pending_image_job_id?: string | null;
+}
+
+export interface UpdateFoodPayload extends FoodPayload {
+  expected_row_version: number;
 }
 
 export type FoodRecommendationPrimaryAction = 'cook_recipe' | 'quick_add_meal' | 'review_food';
@@ -631,6 +951,7 @@ export interface QuickAddMealLogPayload {
   note: string;
   food_plan_item_id?: string;
   deduct_food_stock?: boolean;
+  expected_food_row_version?: number;
   stock_quantity?: number | null;
   stock_unit?: string | null;
 }
@@ -837,14 +1158,21 @@ export interface AiInventoryBatchOption {
   remainingQuantity: number;
   unit: string;
   expiryDate?: string | null;
+  rowVersion?: number;
 }
 
 export interface AiInventoryOperationDraftItem {
   action: AiInventoryOperationAction;
   ingredientId: string;
   ingredientName: string;
+  quantityTrackingMode?: 'track_quantity' | 'not_track_quantity';
+  expectedIngredientRowVersion?: number;
+  stateId?: string | null;
+  expectedStateRowVersion?: number | null;
   inventoryItemId?: string | null;
-  quantity: number;
+  expectedInventoryItemRowVersion?: number | null;
+  availabilityLevel?: 'present_unknown' | 'low' | 'sufficient' | null;
+  quantity: number | null;
   unit: string;
   purchaseDate?: string | null;
   expiryDate?: string | null;
@@ -1394,6 +1722,36 @@ export interface DisposeInventoryResponse {
 export type VersionedInventoryItemRef = {
   inventory_item_id: string;
   expected_row_version: number;
+};
+
+export type PresenceTransitionResolution = {
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+  mark_inventory_confirmed?: boolean;
+};
+
+export type ExactTransitionResolution = {
+  confirm_absent: boolean;
+  quantity?: number | null;
+  unit?: string | null;
+  inventory_status?: InventoryStatus | null;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+};
+
+export type IngredientTrackingModeTransitionRequest = {
+  expected_ingredient_row_version: number;
+  target_mode: IngredientQuantityTrackingMode;
+  expected_state_row_version?: number | null;
+  observed_batches?: VersionedInventoryItemRef[];
+  presence_resolution?: PresenceTransitionResolution | null;
+  exact_resolution?: ExactTransitionResolution | null;
 };
 
 export type DisposeExpiredInventoryRequest = {

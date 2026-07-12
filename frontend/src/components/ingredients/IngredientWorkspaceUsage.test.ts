@@ -102,6 +102,9 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('api.quickAddMealLog');
     expect(workspaceSource).toContain('api.restockFoodStock');
     expect(workspaceSource).toContain('api.consumeFoodStock');
+    expect(workspaceSource).toContain('expected_row_version: foodStockMealDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_food_row_version: foodStockMealDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_row_version: foodStockAdjustDialog.item.row_version');
     expect(workspaceSource).not.toContain('api.disposeFoodStock');
     expect(workspaceSource).toContain('不记录');
     expect(workspaceSource).toContain('step="0.1"');
@@ -114,6 +117,18 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('记餐入口还在食物页');
     expect(appSource).not.toContain('onOpenFoodEditor={(foodId)');
     expect(appSource).not.toContain('onOpenFoodQuickMeal={(foodId)');
+  });
+
+  it('carries shopping row versions through edit and restore actions', () => {
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+    const hubSource = readFileSync(resolve(__dirname, 'IngredientHubPage.tsx'), 'utf8');
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
+
+    expect(overlayStateSource).toContain('editingShoppingItemRowVersion');
+    expect(actionSource).toContain('expected_row_version: args.editingShoppingItemRowVersion');
+    expect(panelsSource).toContain('onRestoreShopping: (item: ShoppingListItem) => void');
+    expect(hubSource).toContain('expected_row_version: item.row_version');
   });
 
   it('makes the food restock dialog a fuller quick-entry flow without storage editing', () => {
@@ -185,5 +200,72 @@ describe('IngredientWorkspace navigation consumption', () => {
     expect(workspaceSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
     expect(overlaysSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
     expect(overlaysSource).toContain('InventoryActionDialog');
+  });
+});
+
+describe('IngredientWorkspace free-text shopping contract', () => {
+  it('starts blank shopping forms as free_text and never auto-binds by title', () => {
+    const formsSource = readFileSync(resolve(__dirname, 'ingredientWorkspaceForms.ts'), 'utf8');
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+
+    expect(formsSource).toContain("export type ShoppingTargetType = 'ingredient' | 'food' | 'free_text'");
+    expect(formsSource).toContain("targetType: food ? 'food' : ingredient ? 'ingredient' : 'free_text'");
+    expect(formsSource).toContain('resolveShoppingTargetType');
+    expect(formsSource).toContain("return item.ingredient_id ? 'ingredient' : 'free_text'");
+    expect(formsSource).not.toContain("const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient'");
+
+    expect(actionSource).toContain('// Explicit binding only');
+    expect(actionSource).not.toContain("args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim())");
+    expect(actionSource).not.toContain("title: '先选择采购对象', message: '采购清单只能从已有食材或成品速食档案创建。'");
+    expect(actionSource).toContain("ingredient_id: selectedShoppingIngredient?.id ?? null");
+    expect(actionSource).toContain("food_id: selectedShoppingFood?.id ?? null");
+
+    expect(overlayStateSource).toContain('// Only resolve bound targets by stable IDs');
+    expect(overlayStateSource).not.toContain(
+      "args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim())",
+    );
+  });
+});
+
+describe('IngredientWorkspace atomic shopping intake cutover', () => {
+  it('routes shopping-origin restock to openShoppingIntake and drops double mutation state', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+    const overlaysSource = readFileSync(resolve(__dirname, 'IngredientWorkspaceOverlays.tsx'), 'utf8');
+    const homeActionsSource = readFileSync(resolve(__dirname, '../../features/home/useHomeDashboardActions.ts'), 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(workspaceSource).not.toContain('pendingShoppingToComplete');
+    expect(actionSource).not.toContain('pendingShoppingToComplete');
+    expect(overlayStateSource).not.toContain('pendingShoppingToComplete');
+    expect(overlaysSource).not.toContain('pendingShoppingToComplete');
+    expect(homeActionsSource).not.toContain('库存已登记');
+    expect(homeActionsSource).not.toContain('待买项仍未标记');
+    expect(homeActionsSource).not.toMatch(/createInventory[\s\S]*updateShoppingDone/);
+    expect(actionSource).not.toMatch(/await args\.createInventory[\s\S]*await args\.updateShoppingItem/);
+    expect(actionSource).not.toContain('pendingShoppingToComplete');
+    expect(workspaceSource).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(workspaceSource).toContain('openShoppingIntake');
+    expect(appSource).toContain('InventoryMaintenanceDialogs');
+    expect(appSource).toContain('openShoppingIntake');
+    expect(appSource).toContain('useShoppingIntakeState');
+  });
+});
+
+describe('IngredientWorkspace ordinary presence restock', () => {
+  it('branches presence manual submit to upsertInventoryState instead of createInventory', () => {
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(actionSource).toContain('upsertInventoryState');
+    expect(actionSource).toContain("availability_level: 'sufficient'");
+    expect(actionSource).toMatch(/if \(!tracksQuantity\)[\s\S]*upsertInventoryState/);
+    expect(actionSource).toMatch(/else \{[\s\S]*createInventory/);
+    expect(workspaceSource).toContain('upsertInventoryState: props.upsertInventoryState');
+    expect(appSource).toContain('upsertInventoryStateMutation');
+    expect(appSource).toContain('upsertInventoryState={(ingredientId, payload)');
   });
 });

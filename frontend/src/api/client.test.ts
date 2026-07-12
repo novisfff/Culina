@@ -35,6 +35,32 @@ describe('api client errors', () => {
     });
   });
 
+  it('uses the message from a structured detail object and preserves the payload', async () => {
+    const payload = {
+      detail: {
+        code: 'stale_version',
+        message: '库存批次已被其他成员更新，请刷新后重试',
+        conflicts: [{ entity_type: 'inventory_item', entity_id: 'inventory-1' }],
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(payload), {
+        status: 409,
+        statusText: 'Conflict',
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    );
+
+    await expect(api.me()).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 409,
+      path: '/api/auth/me',
+      detail: '库存批次已被其他成员更新，请刷新后重试',
+      payload,
+    });
+  });
+
   it('clears access token on unauthorized responses', async () => {
     setAccessToken('expired-token');
     vi.stubGlobal(

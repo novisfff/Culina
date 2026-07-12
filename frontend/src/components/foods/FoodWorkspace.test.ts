@@ -82,6 +82,7 @@ const baseFood: Food = {
   storage_location: '冷冻',
   favorite: true,
   recipe_id: null,
+  row_version: 1,
   created_at: '2026-05-01T10:00:00Z',
   updated_at: '2026-05-01T10:00:00Z',
 };
@@ -637,5 +638,15 @@ describe('food workspace helpers', () => {
     expect(relation.relationFacts).toContainEqual({ label: '餐食记录', value: '1 次' });
     expect(relation.relationFacts).toContainEqual({ label: '复购评分', value: '4.5 分 · 愿意复购' });
     expect(relation.detail).toContain('楼下咖喱');
+  });
+});
+
+describe('FoodWorkspace shopping-origin restock cutover', () => {
+  it('does not chain restockFoodStock with updateShoppingItem', () => {
+    const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    const ingredientWorkspace = readFileSync('src/components/ingredients/IngredientWorkspace.tsx', 'utf8');
+    expect(source).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(ingredientWorkspace).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(ingredientWorkspace).toContain('openShoppingIntake');
   });
 });

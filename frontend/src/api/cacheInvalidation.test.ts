@@ -5,6 +5,7 @@ import {
   invalidateAfterAiImageJobChanged,
   invalidateAfterFoodChanged,
   invalidateAfterInventoryChanged,
+  invalidateAfterInventoryOperation,
   invalidateAfterRecipeCooked,
   invalidateAfterQuickMealAdded,
   invalidateAfterSearchIndexJobChanged,
@@ -45,6 +46,7 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
+      ['inventory', 'states'],
       ['inventory', 'overview'],
       ['recipe-discovery'],
       ['food-recommendations'],
@@ -89,7 +91,7 @@ describe('cacheInvalidation', () => {
     let callIndex = 0;
     queryClient.invalidateQueries.mockImplementation(async () => {
       callIndex += 1;
-      if (callIndex === 4) {
+      if (callIndex === 5) {
         await fourth;
       }
     });
@@ -103,6 +105,7 @@ describe('cacheInvalidation', () => {
     expect(settled).toBe(false);
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
+      ['inventory', 'states'],
       ['inventory', 'overview'],
       ['food-recommendations'],
       ['activity-logs'],
@@ -120,6 +123,7 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
+      ['inventory', 'states'],
       ['inventory', 'overview'],
       ['food-recommendations'],
       ['activity-logs'],
@@ -137,6 +141,7 @@ describe('cacheInvalidation', () => {
       ['ai-conversations'],
       ['ai-quality-metrics'],
       ['inventory'],
+      ['inventory', 'states'],
       ['inventory', 'overview'],
       ['recipes'],
       ['shopping-list'],
@@ -157,6 +162,27 @@ describe('cacheInvalidation', () => {
       ['ai-image-jobs'],
       ['family'],
       ['auth', 'me'],
+      ['activity-logs'],
+    ]);
+  });
+
+  it('invalidates inventory maintenance consumers after an inventory operation', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterInventoryOperation(queryClient);
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      ['inventory'],
+      ['inventory', 'states'],
+      ['inventory', 'overview'],
+      ['inventory', 'operations'],
+      ['ingredients'],
+      ['foods'],
+      ['shopping-list'],
+      ['food-plan'],
+      ['food-recommendations'],
+      ['recipe-discovery'],
+      ['search'],
       ['activity-logs'],
     ]);
   });

@@ -192,6 +192,59 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
     assert payload["items"][1]["quantity_label"] == "2个"
 
 
+def test_inventory_overview_marks_presence_low_as_warning(
+    inventory_overview_api_context: InventoryOverviewApiContext,
+) -> None:
+    from app.core.enums import (
+        IngredientQuantityTrackingMode,
+        InventoryAvailabilityLevel,
+        InventoryStatus,
+    )
+    from app.models.domain import Ingredient, IngredientInventoryState
+
+    with inventory_overview_api_context.SessionLocal() as db:
+        today = today_for_family(inventory_overview_api_context.family_id)
+        salt = Ingredient(
+            id="ingredient-overview-low-salt",
+            family_id=inventory_overview_api_context.family_id,
+            name="海盐",
+            category="调味",
+            default_unit="袋",
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            default_storage="常温",
+            default_expiry_mode="none",
+            notes="",
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        salt_state = IngredientInventoryState(
+            id="state-overview-low-salt",
+            family_id=inventory_overview_api_context.family_id,
+            ingredient_id=salt.id,
+            availability_level=InventoryAvailabilityLevel.LOW,
+            inventory_status=InventoryStatus.FRESH,
+            purchase_date=today,
+            expiry_date=today + timedelta(days=30),
+            storage_location="常温",
+            notes="",
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        db.add_all([salt, salt_state])
+        db.commit()
+
+    response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=ingredient")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["alert_count"] == 1
+    assert payload["items"][0]["source_id"] == salt.id
+    assert payload["items"][0]["quantity_label"] == "偏低"
+    assert payload["items"][0]["tone"] == "warning"
+    assert payload["items"][0]["primary_action"] == "restock"
+
+
 def test_inventory_overview_filters_scope_and_query(
     inventory_overview_api_context: InventoryOverviewApiContext,
 ) -> None:

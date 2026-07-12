@@ -79,3 +79,19 @@ export function daysBetweenDateKeys(laterDateKey: string, earlierDateKey: string
   const millisecondsPerDay = 24 * 60 * 60 * 1000;
   return Math.floor((parseDateKey(laterDateKey).getTime() - parseDateKey(earlierDateKey).getTime()) / millisecondsPerDay);
 }
+
+/** Elapsed hours between two ISO instants. Pure — does not call todayKey(). */
+export function hoursBetweenInstants(laterIso: string, earlierIso: string): number {
+  const later = Date.parse(laterIso);
+  const earlier = Date.parse(earlierIso);
+  if (!Number.isFinite(later) || !Number.isFinite(earlier)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return (later - earlier) / (60 * 60 * 1000);
+}
+
+/** True when laterIso is within `hours` of earlierIso (inclusive of boundary). */
+export function isWithinHours(earlierIso: string, laterIso: string, hours: number): boolean {
+  return hoursBetweenInstants(laterIso, earlierIso) <= hours;
+}
+

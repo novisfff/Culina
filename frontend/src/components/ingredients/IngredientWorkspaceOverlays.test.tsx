@@ -7,6 +7,8 @@ import { ApiError } from '../../api/request';
 import type {
   CorrectInventoryExpiryDateRequest,
   DisposeExpiredInventoryRequest,
+  Food,
+  ShoppingListItem,
   SnoozeExpiryAlertsRequest,
   VersionedInventoryItemRef,
 } from '../../api/types';
@@ -44,6 +46,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-expired-1',
+        expectedRowVersion: 7,
+      },
     },
     {
       inventoryItemId: 'inventory-upcoming-1',
@@ -57,6 +64,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-upcoming-1',
+        expectedRowVersion: 3,
+      },
     },
   ],
   expiredBatchCount: 1,
@@ -71,6 +83,7 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
   title: '番茄需要处理',
   detail: '1 批已过期，1 批 3 天内到期',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const versionedItems: VersionedInventoryItemRef[] = [
@@ -145,7 +158,6 @@ function baseOverlayProps(overrides: Partial<OverlayLayerProps> = {}): OverlayLa
     disposeSelectedInventoryBatches: vi.fn(async () => undefined),
     snoozeSelectedInventoryAlerts: vi.fn(async () => undefined),
     correctSelectedInventoryExpiryDate: vi.fn(async () => undefined),
-    pendingShoppingToComplete: null,
     ...overrides,
   };
 }
@@ -274,8 +286,8 @@ describe('useIngredientActionState inventory action mutations', () => {
       shoppingForm: emptyShoppingForm,
       setShoppingForm: vi.fn(),
       editingShoppingItemId: null,
-      pendingShoppingToComplete: null,
-      inventoryActionIngredientId:
+      editingShoppingItemRowVersion: null,
+        inventoryActionIngredientId:
         overrides.inventoryActionIngredientId === undefined
           ? 'ingredient-tomato'
           : overrides.inventoryActionIngredientId,
@@ -288,6 +300,9 @@ describe('useIngredientActionState inventory action mutations', () => {
       setInventoryActionError,
       setInventoryActionConflict,
       createInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      upsertInventoryState: vi.fn(async () => {
         throw new Error('unused');
       }),
       consumeInventory: vi.fn(async () => {
@@ -423,6 +438,380 @@ describe('useIngredientActionState inventory action mutations', () => {
       tone: 'success',
       title: '这批库存已由家人处理',
       message: expect.stringContaining('番茄') as string,
+    });
+  });
+});
+
+describe('useIngredientActionState ordinary presence restock', () => {
+  function makeSubmitEvent() {
+    return {
+      preventDefault: vi.fn(),
+    } as unknown as React.FormEvent<HTMLFormElement>;
+  }
+
+  it('routes presence manual submit through upsertInventoryState and never createInventory', async () => {
+    const createInventory = vi.fn(async () => {
+      throw new Error('createInventory must not be called for presence restock');
+    });
+    const upsertInventoryState = vi.fn(async () => ({
+      id: 'state-salt',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      availability_level: 'sufficient' as const,
+      inventory_status: 'fresh' as const,
+      purchase_date: '2026-07-11',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 2,
+      created_at: '2026-07-11T00:00:00Z',
+      updated_at: '2026-07-11T00:00:00Z',
+    }));
+    const closeOverlay = vi.fn();
+    const setSelectedIngredientId = vi.fn();
+    const setInventoryForm = vi.fn();
+    const setInventoryAdvancedOpen = vi.fn();
+    const presenceIngredient = {
+      id: 'ingredient-salt',
+      family_id: 'family-1',
+      name: '盐',
+      category: '调料',
+      default_unit: '份',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity' as const,
+      default_storage: '常温',
+      default_expiry_mode: 'none' as const,
+      notes: '',
+      row_version: 4,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+    };
+    const existingState = {
+      id: 'state-salt',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      availability_level: 'low' as const,
+      inventory_status: 'opened' as const,
+      purchase_date: '2026-06-01',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '旧备注',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 1,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    };
+    const inventoryForm: InventoryDrawerFormState = {
+      ingredientId: 'ingredient-salt',
+      ingredientQuery: '盐',
+      ingredientLocked: true,
+      quantity: '1',
+      unit: '份',
+      status: 'fresh',
+      statusDirty: false,
+      purchaseDate: '2026-07-11',
+      purchaseDatePreset: 'today',
+      expiryInputMode: 'none',
+      expiryDays: '',
+      expiryDate: '',
+      storageLocation: '常温',
+      notes: '新备注',
+    };
+
+    const actions = useIngredientActionState({
+      ingredientOptions: [presenceIngredient],
+      foodOptions: [],
+      summaries: [
+        {
+          ingredient: presenceIngredient,
+          inventoryItems: [],
+          availableInventoryItems: [],
+          inventoryState: existingState,
+          alerts: [],
+          quantitySummaries: [],
+          hasMultipleUnits: false,
+          primaryStorage: '常温',
+          storageLocations: ['常温'],
+          recipeReferences: [],
+          latestPurchaseDate: null,
+          latestUpdatedAt: '2026-07-01T00:00:00Z',
+          confirmationStatus: 'never_confirmed',
+          confirmationLabel: '从未确认',
+          confirmationTone: 'neutral',
+          lastConfirmedAt: null,
+        },
+      ],
+      inventoryForm,
+      setInventoryForm,
+      setInventoryAdvancedOpen,
+      consumeForm: emptyConsumeForm,
+      shoppingForm: emptyShoppingForm,
+      setShoppingForm: vi.fn(),
+      editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
+      inventoryActionIngredientId: null,
+      inventoryActionGroup: null,
+      selectedInventoryIngredient: presenceIngredient,
+      setSelectedIngredientId,
+      closeOverlay,
+      setInventoryActionBusy: vi.fn(),
+      setInventoryActionError: vi.fn(),
+      setInventoryActionConflict: vi.fn(),
+      createInventory,
+      upsertInventoryState,
+      consumeInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      disposeExpiredInventory: vi.fn(async () => undefined),
+      snoozeInventoryExpiryAlerts: vi.fn(async () => undefined),
+      correctInventoryExpiryDate: vi.fn(async () => undefined),
+      refreshInventoryActionGroup: vi.fn(async () => null),
+      createShoppingItem: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      updateShoppingItem: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      showNotice: vi.fn(),
+      resolveErrorMessage: (reason, fallback) =>
+        reason instanceof Error && reason.message.trim() ? reason.message : fallback,
+    });
+
+    await actions.submitInventory(makeSubmitEvent());
+
+    expect(createInventory).not.toHaveBeenCalled();
+    expect(upsertInventoryState).toHaveBeenCalledWith('ingredient-salt', {
+      expected_ingredient_row_version: 4,
+      state_id: 'state-salt',
+      expected_state_row_version: 1,
+      availability_level: 'sufficient',
+      inventory_status: 'fresh',
+      purchase_date: '2026-07-11',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '新备注',
+    });
+    expect(closeOverlay).toHaveBeenCalledTimes(1);
+    expect(setSelectedIngredientId).toHaveBeenCalledWith('ingredient-salt');
+  });
+
+  it('keeps exact restock on createInventory', async () => {
+    const createInventory = vi.fn(async () => ({
+      id: 'inv-1',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-egg',
+      ingredient_name: '鸡蛋',
+      quantity: 6,
+      unit: '个',
+      status: 'fresh' as const,
+      purchase_date: '2026-07-11',
+      storage_location: '冷藏',
+      notes: '',
+      low_stock_threshold: 0,
+      created_at: '2026-07-11T00:00:00Z',
+      updated_at: '2026-07-11T00:00:00Z',
+      row_version: 1,
+    }));
+    const upsertInventoryState = vi.fn(async () => {
+      throw new Error('upsertInventoryState must not be called for exact restock');
+    });
+    const exactIngredient = {
+      id: 'ingredient-egg',
+      family_id: 'family-1',
+      name: '鸡蛋',
+      category: '蛋类',
+      default_unit: '个',
+      unit_conversions: [],
+      quantity_tracking_mode: 'track_quantity' as const,
+      default_storage: '冷藏',
+      default_expiry_mode: 'days' as const,
+      default_expiry_days: 14,
+      notes: '',
+      row_version: 2,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+    };
+    const inventoryForm: InventoryDrawerFormState = {
+      ingredientId: 'ingredient-egg',
+      ingredientQuery: '鸡蛋',
+      ingredientLocked: true,
+      quantity: '6',
+      unit: '个',
+      status: 'fresh',
+      statusDirty: false,
+      purchaseDate: '2026-07-11',
+      purchaseDatePreset: 'today',
+      expiryInputMode: 'none',
+      expiryDays: '',
+      expiryDate: '',
+      storageLocation: '冷藏',
+      notes: '',
+    };
+
+    const actions = useIngredientActionState({
+      ingredientOptions: [exactIngredient],
+      foodOptions: [],
+      summaries: [],
+      inventoryForm,
+      setInventoryForm: vi.fn(),
+      setInventoryAdvancedOpen: vi.fn(),
+      consumeForm: emptyConsumeForm,
+      shoppingForm: emptyShoppingForm,
+      setShoppingForm: vi.fn(),
+      editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
+      inventoryActionIngredientId: null,
+      inventoryActionGroup: null,
+      selectedInventoryIngredient: exactIngredient,
+      setSelectedIngredientId: vi.fn(),
+      closeOverlay: vi.fn(),
+      setInventoryActionBusy: vi.fn(),
+      setInventoryActionError: vi.fn(),
+      setInventoryActionConflict: vi.fn(),
+      createInventory,
+      upsertInventoryState,
+      consumeInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      disposeExpiredInventory: vi.fn(async () => undefined),
+      snoozeInventoryExpiryAlerts: vi.fn(async () => undefined),
+      correctInventoryExpiryDate: vi.fn(async () => undefined),
+      refreshInventoryActionGroup: vi.fn(async () => null),
+      createShoppingItem: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      updateShoppingItem: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      showNotice: vi.fn(),
+      resolveErrorMessage: (reason, fallback) =>
+        reason instanceof Error && reason.message.trim() ? reason.message : fallback,
+    });
+
+    await actions.submitInventory(makeSubmitEvent());
+
+    expect(upsertInventoryState).not.toHaveBeenCalled();
+    expect(createInventory).toHaveBeenCalledWith({
+      ingredient_id: 'ingredient-egg',
+      quantity: 6,
+      unit: '个',
+      status: 'fresh',
+      purchase_date: '2026-07-11',
+      expiry_date: undefined,
+      storage_location: '冷藏',
+      notes: '',
+    });
+  });
+});
+
+describe('useIngredientActionState Food shopping quantities', () => {
+  function makeSubmitEvent() {
+    return {
+      preventDefault: vi.fn(),
+    } as unknown as React.FormEvent<HTMLFormElement>;
+  }
+
+  function makeFood(): Food {
+    return {
+      id: 'food-beef',
+      family_id: 'family-1',
+      name: '卤牛肉',
+      type: 'readyMade',
+      category: '熟食',
+      flavor_tags: [],
+      suitable_meal_types: [],
+      source_name: '',
+      purchase_source: '',
+      scene: '',
+      images: [],
+      notes: '',
+      routine_note: '',
+      price: null,
+      rating: null,
+      repurchase: false,
+      expiry_date: null,
+      stock_quantity: 2,
+      stock_unit: '份',
+      storage_location: '冷藏',
+      favorite: false,
+      row_version: 4,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+    };
+  }
+
+  it('does not submit a Food shopping plan with more than one decimal place', async () => {
+    const food = makeFood();
+    const createShoppingItem = vi.fn(async () => ({ id: 'unused' } as ShoppingListItem));
+    const updateShoppingItem = vi.fn(async () => ({ id: 'unused' } as ShoppingListItem));
+    const showNotice = vi.fn();
+    const actions = useIngredientActionState({
+      ingredientOptions: [],
+      foodOptions: [food],
+      summaries: [],
+      inventoryForm: emptyInventoryForm,
+      setInventoryForm: vi.fn(),
+      setInventoryAdvancedOpen: vi.fn(),
+      consumeForm: emptyConsumeForm,
+      shoppingForm: {
+        targetType: 'food',
+        ingredientId: '',
+        foodId: food.id,
+        title: food.name,
+        quantity: '1.25',
+        unit: '份',
+        reason: '补充成品库存',
+      },
+      setShoppingForm: vi.fn(),
+      editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
+      inventoryActionIngredientId: null,
+      inventoryActionGroup: null,
+      selectedInventoryIngredient: null,
+      setSelectedIngredientId: vi.fn(),
+      closeOverlay: vi.fn(),
+      setInventoryActionBusy: vi.fn(),
+      setInventoryActionError: vi.fn(),
+      setInventoryActionConflict: vi.fn(),
+      createInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      upsertInventoryState: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      consumeInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      disposeExpiredInventory: vi.fn(async () => undefined),
+      snoozeInventoryExpiryAlerts: vi.fn(async () => undefined),
+      correctInventoryExpiryDate: vi.fn(async () => undefined),
+      refreshInventoryActionGroup: vi.fn(async () => null),
+      createShoppingItem,
+      updateShoppingItem,
+      showNotice,
+      resolveErrorMessage: (reason, fallback) =>
+        reason instanceof Error && reason.message.trim() ? reason.message : fallback,
+    });
+
+    await actions.submitShopping(makeSubmitEvent());
+
+    expect(createShoppingItem).not.toHaveBeenCalled();
+    expect(updateShoppingItem).not.toHaveBeenCalled();
+    expect(showNotice).toHaveBeenCalledWith({
+      tone: 'warning',
+      title: '待买数量无效',
+      message: '待买数量最多保留 1 位小数。',
     });
   });
 });

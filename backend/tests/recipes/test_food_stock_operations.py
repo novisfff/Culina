@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.models.domain import ActivityLog, Food, MealLogFood
-from app.api.meal_logs import _select_food_for_quick_add
+from app.api.meal_logs import _select_food_for_quick_add, _select_plan_item_for_quick_add
 
 from ._support import RecipeApiTestCase
 
@@ -45,7 +45,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         restock = self.client.post(
             "/api/foods/food-stock-yogurt/stock/restock",
-            json={"quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "storage_location": "冷冻", "note": "周末补货"},
+            json={"expected_row_version": 1, "quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "storage_location": "冷冻", "note": "周末补货"},
         )
         self.assertEqual(restock.status_code, 200, restock.text)
         self.assertEqual(restock.json()["stock_quantity"], 5)
@@ -56,7 +56,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         consume = self.client.post(
             "/api/foods/food-stock-yogurt/stock/consume",
-            json={"quantity": 1, "unit": "盒", "note": "早餐吃掉"},
+            json={"expected_row_version": 2, "quantity": 1, "unit": "盒", "note": "早餐吃掉"},
         )
         self.assertEqual(consume.status_code, 200, consume.text)
         self.assertEqual(consume.json()["stock_quantity"], 4)
@@ -64,11 +64,17 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         dispose = self.client.post(
             "/api/foods/food-stock-yogurt/stock/dispose",
-            json={"quantity": 2, "unit": "盒", "reason": "包装破损"},
+            json={"expected_row_version": 3, "quantity": 2, "unit": "盒", "reason": "包装破损"},
         )
         self.assertEqual(dispose.status_code, 200, dispose.text)
         self.assertEqual(dispose.json()["stock_quantity"], 2)
         self.assertEqual(dispose.json()["storage_location"], "冷冻")
+
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-stock-yogurt")
+            assert food is not None
+            # create starts at 1; restock/consume/dispose each advance once
+            self.assertEqual(food.row_version, 4)
 
         with self.SessionLocal() as db:
             logs = list(
@@ -99,14 +105,14 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         takeout_response = self.client.post(
             "/api/foods/food-stock-takeout/stock/consume",
-            json={"quantity": 1, "unit": "份"},
+            json={"expected_row_version": 1, "quantity": 1, "unit": "份"},
         )
         self.assertEqual(takeout_response.status_code, 400)
         self.assertEqual(takeout_response.json()["detail"], "只有成品、速食和包装食品支持食物库存操作")
 
         overconsume = self.client.post(
             "/api/foods/food-stock-low/stock/consume",
-            json={"quantity": 2, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 2, "unit": "盒"},
         )
         self.assertEqual(overconsume.status_code, 400)
         self.assertEqual(overconsume.json()["detail"], "当前最多只能处理 1盒")
@@ -118,7 +124,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         restock = self.client.post(
             "/api/foods/food-stock-decimal/stock/restock",
-            json={"quantity": 1.25, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 1.25, "unit": "盒"},
         )
         self.assertEqual(restock.status_code, 400)
         self.assertEqual(restock.json()["detail"], "库存数量最多保留 1 位小数")
@@ -132,6 +138,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
                 "servings": 1,
                 "note": "",
                 "deduct_food_stock": True,
+                "expected_food_row_version": 1,
                 "stock_quantity": 1.25,
             },
         )
@@ -145,7 +152,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         response = self.client.post(
             "/api/foods/food-stock-hidden-decimal/stock/consume",
-            json={"quantity": 141, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 141, "unit": "盒"},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -166,6 +173,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
                 "servings": 1,
                 "note": "",
                 "deduct_food_stock": True,
+                "expected_food_row_version": 1,
                 "stock_quantity": 1,
             },
         )
@@ -175,6 +183,38 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             refreshed = db.get(Food, "food-stock-quick")
             assert refreshed is not None
             self.assertEqual(refreshed.stock_quantity, Decimal("1.00"))
+
+    def test_quick_add_stock_deduction_rejects_stale_food_version_atomically(self) -> None:
+        food = self._ready_food(id="food-stock-quick-stale", stock_quantity=Decimal("2"))
+        with self.SessionLocal() as db:
+            db.add(food)
+            db.commit()
+            food.stock_quantity = Decimal("3")
+            db.commit()
+            self.assertEqual(food.row_version, 2)
+
+        response = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": food.id,
+                "date": "2026-07-07",
+                "meal_type": "breakfast",
+                "servings": 1,
+                "note": "",
+                "deduct_food_stock": True,
+                "expected_food_row_version": 1,
+                "stock_quantity": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "stale_version")
+        with self.SessionLocal() as db:
+            refreshed = db.get(Food, food.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.stock_quantity, Decimal("3.00"))
+            meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
+            self.assertEqual(meal_entries, [])
 
     def test_quick_add_plan_replay_does_not_double_deduct_stock(self) -> None:
         food = self._ready_food(id="food-stock-replay", stock_quantity=Decimal("3"))
@@ -197,6 +237,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             "note": "完成计划",
             "food_plan_item_id": plan["id"],
             "deduct_food_stock": True,
+            "expected_food_row_version": 1,
             "stock_quantity": 1,
         }
 
@@ -235,3 +276,69 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             deduct_food_stock=False,
         )
         self.assertIsNone(unlocked_statement._for_update_arg)
+
+    def test_quick_add_plan_item_query_always_uses_row_lock(self) -> None:
+        statement = _select_plan_item_for_quick_add(
+            plan_item_id="plan-lock",
+            food_id="food-stock-lock",
+            family_id="family-test",
+            user_id="user-test",
+        )
+
+        self.assertIsNotNone(statement._for_update_arg)
+
+
+    def test_food_stock_intake_uses_earliest_expiry_while_restock_overwrites(self) -> None:
+        from app.services.food_stock import apply_food_stock_intake, apply_food_stock_restock, merge_food_intake_expiry
+
+        self.assertEqual(
+            merge_food_intake_expiry(
+                current_quantity=Decimal("2"),
+                current_expiry=date(2026, 7, 10),
+                incoming_expiry=date(2026, 7, 20),
+            ),
+            date(2026, 7, 10),
+        )
+
+        with self.SessionLocal() as db:
+            food = self._ready_food(
+                id="food-stock-intake",
+                stock_quantity=Decimal("2"),
+                stock_unit="盒",
+                expiry_date=date(2026, 7, 10),
+                storage_location="冷藏",
+            )
+            db.add(food)
+            db.commit()
+
+            apply_food_stock_intake(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food=food,
+                quantity=Decimal("1"),
+                unit="盒",
+                expiry_date=date(2026, 7, 20),
+                storage_location="冷冻",
+            )
+            db.commit()
+            db.refresh(food)
+            self.assertEqual(food.stock_quantity, Decimal("3.00"))
+            self.assertEqual(food.expiry_date, date(2026, 7, 10))
+            self.assertEqual(food.storage_location, "冷冻")
+
+            apply_food_stock_restock(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food=food,
+                quantity=Decimal("1"),
+                unit="盒",
+                expiry_date=date(2026, 8, 1),
+                purchase_source=None,
+                storage_location="冷藏",
+            )
+            db.commit()
+            db.refresh(food)
+            self.assertEqual(food.expiry_date, date(2026, 8, 1))
+            self.assertEqual(food.storage_location, "冷藏")

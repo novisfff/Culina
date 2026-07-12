@@ -6,6 +6,7 @@ import type {
   DisposeInventoryResponse,
   DisposeExpiredInventoryResponse,
   Ingredient,
+  IngredientTrackingModeTransitionRequest,
   InventoryOverview,
   InventoryOverviewScope,
   InventoryItem,
@@ -15,6 +16,7 @@ import type {
 } from './types';
 
 export type UpdateShoppingItemPayload = {
+  expected_row_version: number;
   title?: string;
   quantity?: number | null;
   unit?: string | null;
@@ -56,6 +58,7 @@ export const ingredientsApi = {
   updateIngredient: (
     ingredientId: string,
     payload: {
+      expected_row_version: number;
       name: string;
       category: string;
       default_unit: string;
@@ -71,6 +74,11 @@ export const ingredientsApi = {
     }
   ) =>
     request<Ingredient>(`/api/ingredients/${ingredientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  transitionIngredientTrackingMode: (ingredientId: string, payload: IngredientTrackingModeTransitionRequest) =>
+    request<Ingredient>(`/api/ingredients/${ingredientId}/tracking-mode`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
@@ -122,7 +130,13 @@ export const ingredientsApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  disposeInventory: (payload: { inventory_item_id: string; quantity?: number; unit?: string; reason: string }) =>
+  disposeInventory: (payload: {
+    inventory_item_id: string;
+    expected_row_version: number;
+    quantity?: number;
+    unit?: string;
+    reason: string;
+  }) =>
     request<DisposeInventoryResponse>('/api/inventory/dispose', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -147,8 +161,8 @@ export const ingredientsApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  deleteShoppingItem: (itemId: string) =>
-    request<void>(`/api/shopping-list/${itemId}`, {
+  deleteShoppingItem: (itemId: string, expectedRowVersion: number) =>
+    request<void>(`/api/shopping-list/${itemId}?expected_row_version=${expectedRowVersion}`, {
       method: 'DELETE',
     }),
 };
