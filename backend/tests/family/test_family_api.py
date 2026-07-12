@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, MediaSource, MembershipStatus, UserRole
+from app.core.enums import ActivityAction, ActivityHighlightKind, MediaSource, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import ActivityLog, Base, Family, MediaAsset, Membership, User, UserCredential
@@ -201,6 +201,8 @@ def test_update_family_sets_audit_fields_and_activity_log(family_api_context: Fa
         )
         assert log is not None
         assert log.summary == "更新家庭信息 新的家庭"
+        assert log.highlight_kind is None
+        assert log.highlight_summary is None
 
 
 def test_owner_can_update_food_context(family_api_context: FamilyApiContext) -> None:
@@ -379,6 +381,19 @@ def test_create_member_sets_family_scope_audit_fields_credentials_and_activity_l
         )
         assert log is not None
         assert log.summary == "邀请 新成员 成为成员"
+        assert log.highlight_kind is ActivityHighlightKind.FAMILY
+        assert log.highlight_summary == "邀请 新成员 加入家庭"
+
+        highlights = list(
+            db.scalars(
+                select(ActivityLog).where(
+                    ActivityLog.family_id == family_api_context.family_id,
+                    ActivityLog.highlight_kind.is_not(None),
+                )
+            )
+        )
+        assert len(highlights) == 1
+        assert highlights[0].highlight_kind is ActivityHighlightKind.FAMILY
 
 
 def test_update_member_rejects_other_family_member_without_side_effects(
@@ -430,6 +445,45 @@ def test_update_member_sets_audit_fields_and_activity_log(family_api_context: Fa
         )
         assert log is not None
         assert log.summary == "更新成员信息 新的成员"
+        assert log.highlight_kind is None
+        assert log.highlight_summary is None
+
+        highlights = list(
+            db.scalars(
+                select(ActivityLog).where(
+                    ActivityLog.family_id == family_api_context.family_id,
+                    ActivityLog.highlight_kind.is_not(None),
+                )
+            )
+        )
+        assert highlights == []
+
+
+def test_invite_commit_failure_rolls_back_highlight(family_api_context: FamilyApiContext) -> None:
+    with fail_next_commit("invite commit failed"):
+        with pytest.raises(RuntimeError, match="invite commit failed"):
+            family_api_context.client.post(
+                "/api/members",
+                json={
+                    "username": "rollback-member",
+                    "display_name": "回滚成员",
+                    "password": "Member123",
+                    "role": "Member",
+                    "email": "rollback@example.com",
+                },
+            )
+
+    with family_api_context.SessionLocal() as db:
+        assert db.scalar(select(User).where(User.username == "rollback-member")) is None
+        assert (
+            db.scalar(
+                select(ActivityLog).where(
+                    ActivityLog.family_id == family_api_context.family_id,
+                    ActivityLog.highlight_kind.is_not(None),
+                )
+            )
+            is None
+        )
 
 
 def test_family_routes_require_authentication(family_api_context: FamilyApiContext) -> None:

@@ -1,10 +1,29 @@
 from ._support import *
 
-from app.core.enums import InventoryConfirmationSource
+from app.core.enums import ActivityHighlightKind, InventoryConfirmationSource
 from app.core.utils import utcnow
+from app.models.domain import ActivityLog, FoodPlanItem
+from tests._transaction_failure import fail_next_commit
 
 
 class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
+        def assert_highlight_kinds(
+            self,
+            expected: list[ActivityHighlightKind],
+        ) -> None:
+            with self.SessionLocal() as db:
+                rows = list(
+                    db.scalars(
+                        select(ActivityLog)
+                        .where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind.is_not(None),
+                        )
+                        .order_by(ActivityLog.created_at, ActivityLog.id)
+                    )
+                )
+            self.assertEqual([row.highlight_kind for row in rows], expected)
+
         def test_food_list_returns_inventory_confirmation_fields(self) -> None:
             create_response = self.client.post(
                 "/api/foods",
@@ -199,10 +218,25 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(plan["food_id"], food["id"])
             self.assertEqual(plan["food_name"], "周五常点披萨")
             self.assertIsNone(plan["recipe_id"])
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL_PLAN])
 
-            update_response = self.client.patch(f"/api/food-plan/{plan['id']}", json={"meal_type": "lunch"})
+            note_only = self.client.patch(
+                f"/api/food-plan/{plan['id']}",
+                json={"note": "带水果"},
+            )
+            self.assertEqual(note_only.status_code, 200, note_only.text)
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL_PLAN])
+
+            update_response = self.client.patch(
+                f"/api/food-plan/{plan['id']}",
+                json={"meal_type": "lunch"},
+            )
             self.assertEqual(update_response.status_code, 200, update_response.text)
             self.assertEqual(update_response.json()["meal_type"], "lunch")
+            self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL_PLAN,
+            ])
 
             quick_add = self.client.post(
                 "/api/meal-logs/quick-add",
@@ -220,6 +254,174 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(plan_items[0]["status"], "cooked")
             self.assertEqual(plan_items[0]["meal_log_id"], quick_add.json()["id"])
             self.assertIsNotNone(plan_items[0]["completed_at"])
+            self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL,
+            ])
+
+        def test_food_plan_delete_and_status_only_highlight_matrix(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "周日早餐粥",
+                    "type": "instant",
+                    "category": "主食",
+                    "flavor_tags": [],
+                    "suitable_meal_types": ["breakfast"],
+                    "source_name": "家里",
+                    "purchase_source": "",
+                    "scene": "早餐",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_quantity": None,
+                    "stock_unit": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food = food_response.json()
+
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food["id"], "plan_date": "2026-05-17", "meal_type": "breakfast", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan = plan_response.json()
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL_PLAN])
+
+            status_only = self.client.patch(
+                f"/api/food-plan/{plan['id']}",
+                json={"status": "cooked"},
+            )
+            self.assertEqual(status_only.status_code, 200, status_only.text)
+            self.assertEqual(status_only.json()["status"], "cooked")
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL_PLAN])
+
+            delete_response = self.client.delete(f"/api/food-plan/{plan['id']}")
+            self.assertEqual(delete_response.status_code, 204, delete_response.text)
+            self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL_PLAN,
+            ])
+
+        def test_meal_log_create_and_update_highlight_matrix(self) -> None:
+            create_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-16",
+                    "meal_type": "dinner",
+                    "food_entries": [],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "家庭聚餐",
+                    "mood": "开心",
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(create_response.status_code, 201, create_response.text)
+            meal = create_response.json()
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
+
+            update_response = self.client.patch(
+                f"/api/meal-logs/{meal['id']}",
+                json={"notes": "补充备注", "mood": "满足"},
+            )
+            self.assertEqual(update_response.status_code, 200, update_response.text)
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
+
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "快手面",
+                    "type": "instant",
+                    "category": "速食",
+                    "flavor_tags": [],
+                    "suitable_meal_types": ["lunch"],
+                    "source_name": "便利店",
+                    "purchase_source": "便利店",
+                    "scene": "午餐",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_quantity": None,
+                    "stock_unit": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food = food_response.json()
+            quick_add = self.client.post(
+                "/api/meal-logs/quick-add",
+                json={
+                    "food_id": food["id"],
+                    "date": "2026-05-16",
+                    "meal_type": "lunch",
+                    "servings": 1,
+                    "note": "快捷午餐",
+                },
+            )
+            self.assertEqual(quick_add.status_code, 201, quick_add.text)
+            self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL,
+                ActivityHighlightKind.MEAL,
+            ])
+
+        def test_food_plan_create_commit_failure_rolls_back_highlight(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "回滚测试食物",
+                    "type": "instant",
+                    "category": "测试",
+                    "flavor_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                    "source_name": "",
+                    "purchase_source": "",
+                    "scene": "",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_quantity": None,
+                    "stock_unit": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food = food_response.json()
+
+            with fail_next_commit("food plan commit failed"):
+                with self.assertRaisesRegex(RuntimeError, "food plan commit failed"):
+                    self.client.post(
+                        "/api/food-plan",
+                        json={
+                            "food_id": food["id"],
+                            "plan_date": "2026-05-18",
+                            "meal_type": "dinner",
+                            "note": "应回滚",
+                        },
+                    )
+
+            with self.SessionLocal() as db:
+                self.assertIsNone(
+                    db.scalar(
+                        select(FoodPlanItem).where(
+                            FoodPlanItem.family_id == self.family.id,
+                            FoodPlanItem.food_id == food["id"],
+                        )
+                    )
+                )
+                self.assertEqual(
+                    list(
+                        db.scalars(
+                            select(ActivityLog).where(
+                                ActivityLog.family_id == self.family.id,
+                                ActivityLog.highlight_kind.is_not(None),
+                            )
+                        )
+                    ),
+                    [],
+                )
 
         def test_meal_logs_can_load_current_ready_made_food_types(self) -> None:
             with self.SessionLocal() as db:

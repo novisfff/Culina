@@ -1,7 +1,27 @@
 from ._support import *
 
+from app.core.enums import ActivityHighlightKind
+from app.models.domain import ActivityLog
+
 
 class RecipeRecipeCookingTestCase(RecipeApiTestCase):
+        def assert_highlight_kinds(
+            self,
+            expected: list[ActivityHighlightKind],
+        ) -> None:
+            with self.SessionLocal() as db:
+                rows = list(
+                    db.scalars(
+                        select(ActivityLog)
+                        .where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind.is_not(None),
+                        )
+                        .order_by(ActivityLog.created_at, ActivityLog.id)
+                    )
+                )
+            self.assertEqual([row.highlight_kind for row in rows], expected)
+
         def test_cook_recipe_deducts_inventory_and_creates_meal_log(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
             recipe_id = recipe["id"]
@@ -79,6 +99,25 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 egg_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-egg"))
                 self.assertEqual(tomato_item.consumed_quantity, Decimal("2.00"))
                 self.assertEqual(egg_item.consumed_quantity, Decimal("3.00"))
+
+                # Plan create is meal_plan; cook with inventory + plan completion + meal log is exactly one meal.
+                rows = list(
+                    db.scalars(
+                        select(ActivityLog)
+                        .where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind.is_not(None),
+                        )
+                        .order_by(ActivityLog.created_at, ActivityLog.id)
+                    )
+                )
+                self.assertEqual(
+                    [row.highlight_kind for row in rows],
+                    [ActivityHighlightKind.MEAL_PLAN, ActivityHighlightKind.MEAL],
+                )
+                meal_rows = [row for row in rows if row.highlight_kind is ActivityHighlightKind.MEAL]
+                self.assertEqual(len(meal_rows), 1)
+                self.assertEqual(meal_rows[0].highlight_summary, "完成 番茄炒蛋 并记录用餐")
 
         def test_cook_preview_returns_batches_without_deducting_inventory(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
