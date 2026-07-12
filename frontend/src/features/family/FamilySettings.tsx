@@ -204,6 +204,7 @@ export function FamilySettings(props: FamilySettingsProps) {
         familyOwnerMember={props.familyOwnerMember}
         activityLogs={previewLogs}
         activityPhase={activityPhase}
+        hasRefreshError={activityPhase === 'ready' && props.activityQuery.isError}
         onActivityRetry={() => props.activityQuery.refetch()}
         notificationCenter={props.notificationCenter}
         resolveAssetUrl={props.resolveAssetUrl}

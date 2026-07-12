@@ -19,6 +19,7 @@ export function FamilyMobileView(props: {
   familyOwnerMember?: Member;
   activityLogs: ActivityLog[];
   activityPhase?: 'loading' | 'empty' | 'ready' | 'error';
+  hasRefreshError?: boolean;
   onActivityRetry?: () => void;
   notificationCenter?: ReactNode;
   resolveAssetUrl: (url?: string) => string | undefined;
@@ -219,6 +220,15 @@ export function FamilyMobileView(props: {
                 </div>
               </article>
             ))}
+            {props.activityPhase === 'ready' && props.hasRefreshError && props.onActivityRetry && (
+              <button
+                className="mobile-family-activity-refresh-warning"
+                type="button"
+                onClick={props.onActivityRetry}
+              >
+                刷新失败，重试
+              </button>
+            )}
           </div>
         ) : (
           <div className="mobile-family-empty">

@@ -3801,6 +3801,18 @@
     background-size: 200% 100%;
   }
 
+  .mobile-family-activity-refresh-warning {
+    justify-self: start;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(147, 96, 63, 0.12);
+    border-radius: 999px;
+    color: #6A5B51;
+    background: #F6F0EA;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
   .food-desktop-view {
     display: none;
   }

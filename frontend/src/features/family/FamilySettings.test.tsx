@@ -272,4 +272,34 @@ describe('FamilySettings activity overlay control', () => {
     });
     expect(onOverlayChange).toHaveBeenLastCalledWith(null);
   });
+
+  it('shows stale refresh retry on phone overview when cached rows fail to refresh', () => {
+    const refetch = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      activityPhase: 'ready',
+      activityQuery: emptyActivityQuery({
+        data: [{
+          id: 'activity-1',
+          family_id: 'family-1',
+          actor_id: 'user-1',
+          actor_name: '林然',
+          action: 'update',
+          entity_type: 'Family',
+          entity_id: 'family-1',
+          summary: '更新家庭信息',
+          created_at: '2026-07-12T10:00:00.000Z',
+        }],
+        isError: true,
+        refetch,
+      }),
+    });
+
+    expect(view.querySelector('.mobile-family-page')).not.toBeNull();
+    expect(view.textContent).toContain('更新家庭信息');
+    const retry = buttonByText(view, '刷新失败，重试');
+    act(() => retry.click());
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
 });
