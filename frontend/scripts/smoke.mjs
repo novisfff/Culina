@@ -1961,11 +1961,11 @@ async function runHomeFamilyActivityNavigationSmoke(browser, baseUrl, viewport, 
     );
   }
 
-  const emptyVisible = await page
-    .locator('.family-activity-viewer-modal text=暂无家庭活动, .family-activity-mobile-page text=暂无家庭活动')
-    .isVisible()
-    .catch(() => false);
-  if (emptyVisible) {
+  const emptyCount = await page
+    .locator('.family-activity-viewer-modal, .family-activity-mobile-page')
+    .getByText('暂无家庭活动')
+    .count();
+  if (emptyCount !== 0) {
     throw new Error(`${label} 活动延迟时出现了瞬时空状态`);
   }
 
