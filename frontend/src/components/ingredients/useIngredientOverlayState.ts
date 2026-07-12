@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Food, Ingredient, ShoppingListItem } from '../../api/types';
+import type {
+  ExpiryInventoryActionGroup,
+  InventoryActionBatch,
+  InventoryActionGroup,
+} from '../../features/inventory/inventoryActionModel';
+import { calendarDaysBetweenDateKeys } from '../../lib/date';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
@@ -15,16 +21,161 @@ import {
   type InventoryDrawerFormState,
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
-import { countDisposableExpiredInventoryItems, type IngredientOverlayMode, type IngredientSummaryViewModel } from './workspaceModel';
+import {
+  buildDisposableExpiredInventoryItems,
+  type IngredientOverlayMode,
+  type IngredientSummaryViewModel,
+} from './workspaceModel';
 import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
+
+export type InventoryActionConflictState = 'none' | 'review_again';
 
 type UseIngredientOverlayStateArgs = {
   ingredientOptions: Ingredient[];
   foodOptions: Food[];
   summaries: IngredientSummaryViewModel[];
+  inventoryActionGroups: InventoryActionGroup[];
+  referenceDate: string;
   onRequireCreate: () => void;
   onOpenFoodStockFromShopping?: (item: ShoppingListItem) => void;
 };
+
+function formatQuantityValue(value: number) {
+  return String(Number(value.toFixed(2))).replace(/\.0+$/, '');
+}
+
+function buildDisposeOnlyExpiryGroup(
+  summary: IngredientSummaryViewModel,
+  referenceDate: string,
+): ExpiryInventoryActionGroup | null {
+  const disposable = buildDisposableExpiredInventoryItems(summary, referenceDate);
+  if (disposable.length === 0) {
+    return null;
+  }
+
+  const batches: InventoryActionBatch[] = disposable.map((item) => {
+    const expiryDate = item.expiryDate.slice(0, 10);
+    return {
+      inventoryItemId: item.id,
+      rowVersion: item.rowVersion,
+      remainingQuantity: item.remainingQuantity,
+      unit: item.unit,
+      storageLocation: item.storageLocation,
+      purchaseDate: item.purchaseDate,
+      expiryDate,
+      daysLeft: calendarDaysBetweenDateKeys(expiryDate, referenceDate),
+      expiryAlertSnoozedUntil: item.expiryAlertSnoozedUntil,
+      expiryReviewedAt: item.expiryReviewedAt,
+      expiryReviewedBy: item.expiryReviewedBy,
+    };
+  });
+
+  const quantityLabels = (() => {
+    const totals = new Map<string, number>();
+    const order: string[] = [];
+    for (const batch of batches) {
+      if (!totals.has(batch.unit)) {
+        order.push(batch.unit);
+      }
+      totals.set(batch.unit, (totals.get(batch.unit) ?? 0) + batch.remainingQuantity);
+    }
+    return order.map((unit) => `${formatQuantityValue(totals.get(unit) ?? 0)} ${unit}`);
+  })();
+
+  const storageLocations = [...new Set(batches.map((batch) => batch.storageLocation).filter(Boolean))];
+  const earliest = [...batches].sort(
+    (left, right) => left.expiryDate.localeCompare(right.expiryDate) || left.daysLeft - right.daysLeft,
+  )[0];
+
+  return {
+    kind: 'expiry',
+    id: `expiry:${summary.ingredient.id}`,
+    ingredientId: summary.ingredient.id,
+    ingredientName: summary.ingredient.name,
+    severity: 'expired',
+    batches: [...batches].sort(
+      (left, right) =>
+        left.daysLeft - right.daysLeft ||
+        left.expiryDate.localeCompare(right.expiryDate) ||
+        left.inventoryItemId.localeCompare(right.inventoryItemId),
+    ),
+    expiredBatchCount: batches.length,
+    todayBatchCount: 0,
+    soonBatchCount: 0,
+    laterBatchCount: 0,
+    totalBatchCount: batches.length,
+    quantityLabels,
+    storageLocations,
+    earliestExpiryDate: earliest?.expiryDate ?? null,
+    earliestDaysLeft: earliest?.daysLeft ?? null,
+    title: `${summary.ingredient.name}需要处理`,
+    detail: `${batches.length} 批已过期`,
+    primaryAction: 'manage_expiry',
+  };
+}
+
+
+export function resolveExpiryInventoryActionGroup(args: {
+  ingredientId: string;
+  inventoryActionGroups: InventoryActionGroup[];
+  summaries: IngredientSummaryViewModel[];
+  referenceDate: string;
+}): ExpiryInventoryActionGroup | null {
+  const shared = args.inventoryActionGroups.find(
+    (item): item is ExpiryInventoryActionGroup => item.kind === 'expiry' && item.ingredientId === args.ingredientId,
+  );
+  const summary = args.summaries.find((item) => item.ingredient.id === args.ingredientId) ?? null;
+  const disposeOnly = summary ? buildDisposeOnlyExpiryGroup(summary, args.referenceDate) : null;
+
+  if (shared && disposeOnly) {
+    const byId = new Map(shared.batches.map((batch) => [batch.inventoryItemId, batch]));
+    for (const batch of disposeOnly.batches) {
+      if (!byId.has(batch.inventoryItemId)) {
+        byId.set(batch.inventoryItemId, batch);
+      }
+    }
+    const batches = [...byId.values()].sort(
+      (left, right) =>
+        left.daysLeft - right.daysLeft ||
+        left.expiryDate.localeCompare(right.expiryDate) ||
+        left.inventoryItemId.localeCompare(right.inventoryItemId),
+    );
+    if (batches.length === shared.batches.length) {
+      return shared;
+    }
+    const expiredBatchCount = batches.filter((batch) => batch.daysLeft < 0).length;
+    const todayBatchCount = batches.filter((batch) => batch.daysLeft === 0).length;
+    const soonBatchCount = batches.filter((batch) => batch.daysLeft >= 1 && batch.daysLeft <= 3).length;
+    const laterBatchCount = batches.filter((batch) => batch.daysLeft >= 4 && batch.daysLeft <= 7).length;
+    const severity =
+      expiredBatchCount > 0
+        ? 'expired'
+        : todayBatchCount > 0
+          ? 'expires_today'
+          : soonBatchCount > 0
+            ? 'expires_soon'
+            : 'expires_later';
+    const earliest = batches[0] ?? null;
+    return {
+      ...shared,
+      severity,
+      batches,
+      expiredBatchCount,
+      todayBatchCount,
+      soonBatchCount,
+      laterBatchCount,
+      totalBatchCount: batches.length,
+      earliestExpiryDate: earliest?.expiryDate ?? shared.earliestExpiryDate,
+      earliestDaysLeft: earliest?.daysLeft ?? shared.earliestDaysLeft,
+      detail:
+        expiredBatchCount > 0 && todayBatchCount + soonBatchCount + laterBatchCount === 0
+          ? `${expiredBatchCount} 批已过期`
+          : shared.detail,
+    };
+  }
+
+  return shared ?? disposeOnly;
+}
 
 export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   const [overlayMode, setOverlayMode] = useState<IngredientOverlayMode>(null);
@@ -35,7 +186,10 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
   const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
   const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
-  const [destroyExpiredIngredientId, setDestroyExpiredIngredientId] = useState<string | null>(null);
+  const [inventoryActionIngredientId, setInventoryActionIngredientId] = useState<string | null>(null);
+  const [inventoryActionBusy, setInventoryActionBusy] = useState(false);
+  const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
+  const [inventoryActionConflict, setInventoryActionConflict] = useState<InventoryActionConflictState>('none');
   const [inventoryAdvancedOpen, setInventoryAdvancedOpen] = useState(false);
 
   useEffect(() => {
@@ -46,15 +200,18 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   useEffect(() => {
     if (
-      destroyExpiredIngredientId &&
-      !args.summaries.some((item) => item.ingredient.id === destroyExpiredIngredientId)
+      inventoryActionIngredientId &&
+      !args.summaries.some((item) => item.ingredient.id === inventoryActionIngredientId)
     ) {
-      setDestroyExpiredIngredientId(null);
-      if (overlayMode === 'destroyExpired') {
+      setInventoryActionIngredientId(null);
+      setInventoryActionBusy(false);
+      setInventoryActionError(null);
+      setInventoryActionConflict('none');
+      if (overlayMode === 'inventoryAction') {
         setOverlayMode(null);
       }
     }
-  }, [destroyExpiredIngredientId, overlayMode, args.summaries]);
+  }, [inventoryActionIngredientId, overlayMode, args.summaries]);
 
   useEffect(() => {
     if (inventoryForm.expiryInputMode === 'days') {
@@ -79,16 +236,23 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     }
   }, [inventoryForm.status, inventoryForm.statusDirty, inventoryForm.storageLocation]);
 
+  function clearInventoryActionSelection() {
+    setInventoryActionIngredientId(null);
+    setInventoryActionBusy(false);
+    setInventoryActionError(null);
+    setInventoryActionConflict('none');
+  }
+
   function openInventoryOverlay(ingredientId?: string, quantity = '1') {
     if (args.ingredientOptions.length === 0) {
       setPendingShoppingToComplete(null);
-      setDestroyExpiredIngredientId(null);
+      clearInventoryActionSelection();
       args.onRequireCreate();
       return;
     }
     setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
-    setDestroyExpiredIngredientId(null);
+    clearInventoryActionSelection();
     setInventoryForm(
       buildInventoryForm(args.ingredientOptions, ingredientId, {
         quantity,
@@ -123,7 +287,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     }
     setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
-    setDestroyExpiredIngredientId(null);
+    clearInventoryActionSelection();
     setConsumeForm(buildConsumeFormForIngredient(ingredientId));
     setOverlayMode('consume');
   }
@@ -135,7 +299,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     }
     if (args.ingredientOptions.length === 0) {
       setPendingShoppingToComplete(null);
-      setDestroyExpiredIngredientId(null);
+      clearInventoryActionSelection();
       args.onRequireCreate();
       return;
     }
@@ -167,7 +331,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function openShoppingOverlay(options?: { ingredient?: Ingredient; food?: Food; reason?: string; shoppingItem?: ShoppingListItem }) {
     setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(null);
+    clearInventoryActionSelection();
     if (options?.shoppingItem) {
       const matchedIngredient =
         (options.shoppingItem.ingredient_id
@@ -188,25 +352,53 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setOverlayMode('shopping');
   }
 
-  function openDestroyExpiredOverlay(ingredientId: string) {
-    const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    if (!summary || countDisposableExpiredInventoryItems(summary) === 0) {
+  function resolveInventoryActionGroup(ingredientId: string): ExpiryInventoryActionGroup | null {
+    return resolveExpiryInventoryActionGroup({
+      ingredientId,
+      inventoryActionGroups: args.inventoryActionGroups,
+      summaries: args.summaries,
+      referenceDate: args.referenceDate,
+    });
+  }
+
+  function openInventoryActionOverlay(ingredientId: string) {
+    const group = resolveInventoryActionGroup(ingredientId);
+    if (!group) {
       return;
     }
     setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
-    setDestroyExpiredIngredientId(ingredientId);
-    setOverlayMode('destroyExpired');
+    setInventoryActionIngredientId(ingredientId);
+    setInventoryActionBusy(false);
+    setInventoryActionError(null);
+    setInventoryActionConflict('none');
+    setOverlayMode('inventoryAction');
   }
+
+  // Keep the legacy entry name used across hub/mobile/panels while the dialog is shared.
+  const openDestroyExpiredOverlay = openInventoryActionOverlay;
 
   function closeOverlay() {
     setOverlayMode(null);
     setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
-    setDestroyExpiredIngredientId(null);
+    clearInventoryActionSelection();
     setInventoryAdvancedOpen(false);
     setConsumeForm(defaultConsumeForm());
   }
+
+  const inventoryActionGroup = useMemo(() => {
+    if (!inventoryActionIngredientId || overlayMode !== 'inventoryAction') {
+      return null;
+    }
+    return resolveInventoryActionGroup(inventoryActionIngredientId);
+  }, [
+    inventoryActionIngredientId,
+    overlayMode,
+    args.inventoryActionGroups,
+    args.summaries,
+    args.referenceDate,
+  ]);
 
   return {
     overlayMode,
@@ -219,13 +411,21 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setShoppingForm,
     editingShoppingItemId,
     pendingShoppingToComplete,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
+    inventoryActionBusy,
+    setInventoryActionBusy,
+    inventoryActionError,
+    setInventoryActionError,
+    inventoryActionConflict,
+    setInventoryActionConflict,
     inventoryAdvancedOpen,
     setInventoryAdvancedOpen,
     openInventoryOverlay,
     openConsumeOverlay,
     openInventoryFromShopping,
     openShoppingOverlay,
+    openInventoryActionOverlay,
     openDestroyExpiredOverlay,
     closeOverlay,
   };

@@ -3,11 +3,11 @@ import type { Food, FoodPlanItem } from '../api/types';
 import type { GlobalSearchSelection } from '../features/search/GlobalSearchOverlay';
 import type { TabKey } from './AppShell';
 
-export type IngredientNavigationRequest = {
-  view: 'catalog' | 'detail';
-  ingredientId?: string;
-  requestId: number;
-};
+export type IngredientNavigationRequest =
+  | { target: 'catalog'; requestId: number }
+  | { target: 'detail'; ingredientId: string; requestId: number }
+  | { target: 'shopping'; ingredientId: string; requestId: number }
+  | { target: 'priority'; requestId: number };
 
 export type FoodNavigationRequest = {
   foodId: string;
@@ -73,7 +73,7 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
     if (selection.entityType === 'ingredient') {
       ingredientNavigationRequestIdRef.current += 1;
       setIngredientNavigationRequest({
-        view: 'detail',
+        target: 'detail',
         ingredientId: selection.entityId,
         requestId: ingredientNavigationRequestIdRef.current,
       });

@@ -13,10 +13,13 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
+  CorrectInventoryExpiryDateRequest,
+  DisposeExpiredInventoryRequest,
   DisposeExpiredInventoryResponse,
+  SnoozeExpiryAlertsRequest,
   Food,
   Ingredient,
   IngredientExpiryMode,
@@ -31,7 +34,7 @@ import type {
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { formatDate, todayKey } from '../../lib/ui';
-import { addDateKeyDays } from '../../lib/date';
+import { addDateKeyDays, businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
@@ -45,10 +48,14 @@ import {
 } from '../ui-kit';
 import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
+  buildIngredientSummaries,
+  buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
   countDisposableExpiredInventoryItems,
+  filterIngredientSummariesByCatalogStatus,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
   type InventoryStorageOverviewViewModel,
@@ -76,7 +83,10 @@ import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
 import { useIngredientActionState } from './useIngredientActionState';
-import { useIngredientOverlayState } from './useIngredientOverlayState';
+import {
+  resolveExpiryInventoryActionGroup,
+  useIngredientOverlayState,
+} from './useIngredientOverlayState';
 import {
   readPersistedIngredientWorkspaceState,
   STORAGE_SHELF_IDEAL_WIDTH,
@@ -101,11 +111,12 @@ type IngredientWorkspaceProps = {
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
   notificationCenter?: ReactNode;
-  navigationRequest?: {
-    view: 'catalog' | 'detail';
-    ingredientId?: string;
-    requestId: number;
-  } | null;
+  navigationRequest?:
+    | { target: 'catalog'; requestId: number }
+    | { target: 'detail'; ingredientId: string; requestId: number }
+    | { target: 'shopping'; ingredientId: string; requestId: number }
+    | { target: 'priority'; requestId: number }
+    | null;
   createIngredient: (payload: {
     name: string;
     category: string;
@@ -151,10 +162,12 @@ type IngredientWorkspaceProps = {
     quantity?: number | null;
     unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
-  disposeExpiredInventory: (payload: {
-    ingredient_id: string;
-    inventory_item_ids: string[];
-  }) => Promise<DisposeExpiredInventoryResponse>;
+  disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<DisposeExpiredInventoryResponse | unknown>;
+  snoozeInventoryExpiryAlerts?: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
+  correctInventoryExpiryDate?: (
+    inventoryItemId: string,
+    payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
   createShoppingItem: (payload: {
     title: string;
     quantity?: number | null;
@@ -516,6 +529,7 @@ const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon:
 ];
 const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string }> = [
   { value: 'all', label: '全部' },
+  { value: 'actionNeeded', label: '需处理' },
   { value: 'expired', label: '已过期' },
   { value: 'expiring', label: '临期' },
   { value: 'lowStock', label: '库存不足' },
@@ -737,8 +751,8 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   stockLine: string;
   hint: string;
 } {
-  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.title.includes('已经过期'));
-  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && !item.title.includes('已经过期'));
+  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
+  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
   const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
   const availableLabel = summary.quantitySummaries[0]?.label ?? `0 ${summary.ingredient.default_unit || '个'}`;
   const batchLabel = `${summary.inventoryItems.length} 批次`;
@@ -756,7 +770,7 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   if (expiringAlert) {
     return {
       label: '临期',
-      tone: 'warning',
+      tone: expiringAlert.tone === 'danger' ? 'danger' : 'warning',
       stockLine,
       hint: '建议优先安排使用',
     };
@@ -786,32 +800,6 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
     stockLine,
     hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可按需消费或补货',
   };
-}
-
-function matchesCatalogStatusFilter(summary: IngredientSummaryViewModel, filter: CatalogStatusFilter) {
-  if (filter === 'all') {
-    return true;
-  }
-  const hasExpiredAlert = summary.alerts.some((item) => item.kind === 'expiry' && item.title.includes('已经过期'));
-  const hasExpiringAlert = summary.alerts.some((item) => item.kind === 'expiry' && !item.title.includes('已经过期'));
-  const hasLowStockAlert = summary.alerts.some((item) => item.kind === 'lowStock');
-  if (filter === 'expired') {
-    return hasExpiredAlert;
-  }
-  if (filter === 'expiring') {
-    return hasExpiringAlert;
-  }
-  if (filter === 'lowStock') {
-    return hasLowStockAlert;
-  }
-  return summary.quantitySummaries.length > 0 && summary.alerts.length === 0;
-}
-
-function filterIngredientSummariesByCatalogStatus(
-  summaries: IngredientSummaryViewModel[],
-  filter: CatalogStatusFilter
-) {
-  return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
 }
 
 function buildCatalogExpandedNote(summary: IngredientSummaryViewModel) {
@@ -1106,7 +1094,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
   const presentation = buildInventoryCardPresentation(summary);
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
@@ -1307,7 +1295,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const status = buildCatalogCardStatus(summary);
   const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const metaLine = [
     summary.ingredient.category || '未分类',
     summary.primaryStorage || summary.ingredient.default_storage || '常温',
@@ -1806,6 +1794,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     inventoryGroups,
     selectedIngredient,
     allAlerts,
+    inventoryActionGroups,
+    priorityActionCount,
     pendingShopping,
     completedShoppingCards,
     pendingShoppingCards,
@@ -1816,6 +1806,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     activeShoppingOverview,
     stockedIngredientCount,
     workspaceMetrics,
+    mobilePriorityRows,
     mobilePrioritySummaries,
     mobileStorageCards,
     mobileCatalogSummaries,
@@ -1888,6 +1879,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     resolveErrorMessage,
   });
 
+  const inventoryActionReferenceDate = businessDateKey();
+
   const {
     overlayMode,
     setOverlayMode,
@@ -1899,7 +1892,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingForm,
     editingShoppingItemId,
     pendingShoppingToComplete,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
+    inventoryActionBusy,
+    setInventoryActionBusy,
+    inventoryActionError,
+    setInventoryActionError,
+    inventoryActionConflict,
+    setInventoryActionConflict,
     inventoryAdvancedOpen,
     setInventoryAdvancedOpen,
     openInventoryOverlay,
@@ -1912,12 +1912,62 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredientOptions,
     foodOptions: readyFoodOptions,
     summaries,
+    inventoryActionGroups,
+    referenceDate: inventoryActionReferenceDate,
     onRequireCreate: () => {
       setActivePanel('catalog');
       editorState.openCreateView();
     },
     onOpenFoodStockFromShopping: (item) => handleOpenFoodStockFromInventory(item.food_id || item.title, item),
   });
+
+  // Consume shopping/priority navigation once by requestId; do not keep shopping form state in home.
+  const handledSideEffectNavigationRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    const request = props.navigationRequest;
+    if (!request || handledSideEffectNavigationRequestIdRef.current === request.requestId) {
+      return;
+    }
+
+    if (request.target === 'shopping') {
+      const ingredient = props.ingredients.find((item) => item.id === request.ingredientId);
+      if (!ingredient) {
+        // Wait until the real ingredient is available; shopping always requires ingredientId.
+        return;
+      }
+      handledSideEffectNavigationRequestIdRef.current = request.requestId;
+      openShoppingOverlay({ ingredient, reason: '库存不足' });
+      return;
+    }
+
+    if (request.target === 'priority') {
+      handledSideEffectNavigationRequestIdRef.current = request.requestId;
+      // Desktop: focus the complete priority list under the shared 需处理 catalog filter.
+      // Mobile: scroll/focus the existing 今天先处理 section.
+      const focusPrioritySurface = () => {
+        const mobileSection = document.getElementById('mobile-ingredient-priority');
+        if (mobileSection) {
+          mobileSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          if (typeof mobileSection.focus === 'function') {
+            mobileSection.focus({ preventScroll: true });
+          }
+          return;
+        }
+        const desktopList =
+          document.getElementById('ingredient-priority-list') ??
+          document.querySelector('.ingredients-catalog-grid, .ingredient-grid-catalog');
+        if (desktopList instanceof HTMLElement) {
+          desktopList.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          if (typeof desktopList.focus === 'function') {
+            desktopList.focus({ preventScroll: true });
+          }
+        }
+      };
+      window.requestAnimationFrame(() => {
+        window.setTimeout(focusPrioritySurface, 0);
+      });
+    }
+  }, [props.navigationRequest?.requestId, props.ingredients]);
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 
@@ -1951,7 +2001,54 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     storageShelfMaxDisplayColumns: STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   });
 
-  const { submitInventory, submitShopping, submitConsume, submitDestroyExpired } = useIngredientActionState({
+  async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
+    await invalidateAfterInventoryChanged(queryClient);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
+    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventory,
+        queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.ingredients,
+        queryFn: () => api.getIngredients(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.shoppingList,
+        queryFn: () => api.getShoppingList(),
+      }),
+    ]);
+    const groups = buildIngredientPriorityActionGroups({
+      inventoryItems: freshInventory,
+      ingredients: freshIngredients,
+      shoppingItems: freshShopping,
+      referenceDate: inventoryActionReferenceDate,
+    });
+    const freshSummaries = buildIngredientSummaries({
+      ingredients: freshIngredients,
+      inventoryItems: freshInventory,
+      recipes: props.recipes,
+      today: inventoryActionReferenceDate,
+      shoppingItems: freshShopping,
+    });
+    // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
+    // mis-close dialogs that were opened from inventory detail disposal.
+    return resolveExpiryInventoryActionGroup({
+      ingredientId,
+      inventoryActionGroups: groups,
+      summaries: freshSummaries,
+      referenceDate: inventoryActionReferenceDate,
+    });
+  }
+
+  const {
+    submitInventory,
+    submitShopping,
+    submitConsume,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
+  } = useIngredientActionState({
     ingredientOptions,
     foodOptions: readyFoodOptions,
     summaries,
@@ -1963,13 +2060,24 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingForm,
     editingShoppingItemId,
     pendingShoppingToComplete,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
     selectedInventoryIngredient,
     setSelectedIngredientId,
     closeOverlay,
+    setInventoryActionBusy,
+    setInventoryActionError,
+    setInventoryActionConflict,
     createInventory: props.createInventory,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
+    snoozeInventoryExpiryAlerts:
+      props.snoozeInventoryExpiryAlerts ??
+      (async (payload) => api.snoozeInventoryExpiryAlerts(payload)),
+    correctInventoryExpiryDate:
+      props.correctInventoryExpiryDate ??
+      (async (inventoryItemId, payload) => api.correctInventoryExpiryDate(inventoryItemId, payload)),
+    refreshInventoryActionGroup,
     createShoppingItem: props.createShoppingItem,
     updateShoppingItem: props.updateShoppingItem,
     showNotice,
@@ -2059,7 +2167,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setConsumeForm,
     shoppingForm,
     setShoppingForm,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
+    inventoryActionReferenceDate,
+    inventoryActionBusy: inventoryActionBusy || Boolean(props.isDisposingExpiredInventory),
+    inventoryActionError,
+    inventoryActionConflict,
     ingredients: ingredientOptions,
     foods: readyFoodOptions,
     ingredientSummaries: summaries,
@@ -2067,11 +2180,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     submitInventory,
     submitConsume,
     submitShopping,
-    submitDestroyExpired,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
     pendingShoppingToComplete,
     isCreatingInventory: props.isCreatingInventory,
     isConsumingInventory: props.isConsumingInventory,
-    isDisposingExpiredInventory: props.isDisposingExpiredInventory,
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
@@ -2319,7 +2433,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         }))}
         activePanel={activePanel}
         openWorkspacePanel={openWorkspacePanel}
-        allAlertsCount={allAlerts.length}
+        allAlertsCount={priorityActionCount}
         stockedIngredientCount={stockedIngredientCount}
         pendingShoppingCount={pendingShopping.length}
         summariesCount={summaries.length}
@@ -2331,6 +2445,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         setMobileInventoryEntryFilter={setMobileInventoryEntryFilter}
         mobileStorageFocus={mobileStorageFocus}
         setMobileStorageFocus={setMobileStorageFocus}
+        mobilePriorityRows={mobilePriorityRows}
         mobilePrioritySummaries={mobilePrioritySummaries}
         mobileFoodStockItems={mobileFoodStockItems}
         mobileStorageCards={mobileStorageCards}
@@ -2354,7 +2469,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         buildCatalogStatus={buildCatalogCardStatus}
         buildInventorySummaryLine={buildInventorySummaryLine}
         buildShoppingReason={resolveShoppingReason}
-        countDisposableExpiredItems={countDisposableExpiredInventoryItems}
+        countDisposableExpiredItems={(summary) => countDisposableExpiredInventoryItems(summary, businessDateKey())}
         renderStorageIllustration={InventoryStorageIllustration}
         renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
         isUpdatingShopping={props.isUpdatingShopping}

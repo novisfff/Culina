@@ -410,3 +410,233 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(payload["preview_items"], [])
             self.assertEqual(payload["shortages"][0]["ingredient_name"], "盐")
             self.assertEqual(payload["shortages"][0]["shortage_type"], "presence")
+
+        def test_cook_recipe_increments_inventory_row_version(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            recipe_id = recipe["id"]
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-version",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("2"),
+                            consumed_quantity=Decimal("0"),
+                            disposed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-egg-version",
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal("3"),
+                            consumed_quantity=Decimal("0"),
+                            disposed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+                tomato = db.get(InventoryItem, "inventory-tomato-version")
+                egg = db.get(InventoryItem, "inventory-egg-version")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.row_version, 1)
+                self.assertEqual(egg.row_version, 1)
+
+            cook_response = self.client.post(
+                f"/api/recipes/{recipe_id}/cook",
+                json={
+                    "servings": 2,
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "create_meal_log": False,
+                },
+            )
+            self.assertEqual(cook_response.status_code, 200, cook_response.text)
+            self.assertEqual(cook_response.json()["shortages"], [])
+
+            with self.SessionLocal() as db:
+                tomato = db.get(InventoryItem, "inventory-tomato-version")
+                egg = db.get(InventoryItem, "inventory-egg-version")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("2.00"))
+                self.assertEqual(egg.consumed_quantity, Decimal("3.00"))
+                self.assertEqual(tomato.row_version, 2)
+                self.assertEqual(egg.row_version, 2)
+
+        def test_expired_snoozed_inventory_excluded_from_recipe_readiness_and_cook(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            recipe_id = recipe["id"]
+            today = date.today()
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-expired-snoozed",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("5"),
+                            consumed_quantity=Decimal("0"),
+                            disposed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today - timedelta(days=5),
+                            expiry_date=today - timedelta(days=1),
+                            expiry_alert_snoozed_until=today + timedelta(days=3),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-egg-fresh-for-snooze",
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal("3"),
+                            consumed_quantity=Decimal("0"),
+                            disposed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            expiry_date=today + timedelta(days=5),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+            availability = self.client.get(f"/api/recipes/{recipe_id}/availability")
+            self.assertEqual(availability.status_code, 200, availability.text)
+            availability_payload = availability.json()
+            self.assertNotEqual(availability_payload["availability"], "ready")
+            self.assertTrue(
+                any(item["ingredient_name"] == "番茄" for item in availability_payload["shortages"])
+            )
+
+            preview = self.client.post(
+                f"/api/recipes/{recipe_id}/cook-preview",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(preview.status_code, 200, preview.text)
+            preview_payload = preview.json()
+            self.assertTrue(any(item["ingredient_name"] == "番茄" for item in preview_payload["shortages"]))
+            tomato_batches = [
+                batch
+                for item in preview_payload.get("preview_items") or []
+                if item["ingredient_id"] == self.tomato.id
+                for batch in item.get("batches") or []
+            ]
+            self.assertEqual(tomato_batches, [])
+
+            cook = self.client.post(
+                f"/api/recipes/{recipe_id}/cook",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(cook.status_code, 200, cook.text)
+            cook_payload = cook.json()
+            self.assertEqual(cook_payload["consumed_items"], [])
+            self.assertTrue(any(item["ingredient_name"] == "番茄" for item in cook_payload["shortages"]))
+
+            with self.SessionLocal() as db:
+                tomato = db.get(InventoryItem, "inventory-tomato-expired-snoozed")
+                egg = db.get(InventoryItem, "inventory-egg-fresh-for-snooze")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("0"))
+                self.assertEqual(egg.consumed_quantity, Decimal("0"))
+                self.assertEqual(tomato.row_version, 1)
+                self.assertEqual(egg.row_version, 1)
+                self.assertEqual(tomato.expiry_alert_snoozed_until, today + timedelta(days=3))
+
+        def test_cook_recipe_stale_data_error_maps_to_409(self) -> None:
+            from unittest.mock import patch
+
+            from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
+            from sqlalchemy.orm import Session
+            from sqlalchemy.orm.exc import StaleDataError
+
+            recipe = self.create_recipe(auto_create_food=False)
+            recipe_id = recipe["id"]
+            with self.SessionLocal() as db:
+                db.add(
+                    InventoryItem(
+                        id="inventory-tomato-stale-cook",
+                        family_id=self.family.id,
+                        ingredient_id=self.tomato.id,
+                        quantity=Decimal("2"),
+                        consumed_quantity=Decimal("0"),
+                        disposed_quantity=Decimal("0"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        storage_location="冷藏",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                # Recipe needs egg too; provide egg inventory.
+                db.add(
+                    InventoryItem(
+                        id="inventory-egg-stale-cook",
+                        family_id=self.family.id,
+                        ingredient_id=self.egg.id,
+                        quantity=Decimal("3"),
+                        consumed_quantity=Decimal("0"),
+                        disposed_quantity=Decimal("0"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        storage_location="冷藏",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+
+            original_commit = Session.commit
+
+            def commit_raising_stale(self, *args, **kwargs):
+                raise StaleDataError(
+                    "UPDATE statement on table 'inventory_items' expected to update 1 row(s); 0 were matched."
+                )
+
+            with patch.object(Session, "commit", commit_raising_stale):
+                response = self.client.post(
+                    f"/api/recipes/{recipe_id}/cook",
+                    json={"servings": 2, "create_meal_log": False},
+                )
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(response.json()["detail"], STALE_INVENTORY_DETAIL)
+
+            with self.SessionLocal() as db:
+                tomato = db.get(InventoryItem, "inventory-tomato-stale-cook")
+                egg = db.get(InventoryItem, "inventory-egg-stale-cook")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("0"))
+                self.assertEqual(egg.consumed_quantity, Decimal("0"))
+                self.assertEqual(tomato.row_version, 1)
+                self.assertEqual(egg.row_version, 1)
+

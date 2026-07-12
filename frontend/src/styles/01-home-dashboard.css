@@ -572,6 +572,132 @@
   background: #e8f5e4;
 }
 
+
+.dashboard-action-panel {
+  gap: 10px;
+  padding: 16px 16px 14px;
+}
+
+.dashboard-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-action-item {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  overflow: hidden;
+}
+
+.dashboard-action-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dashboard-action-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(74, 54, 40, 0.06);
+}
+
+.dashboard-action-item.action-expired {
+  background: linear-gradient(90deg, rgba(253, 235, 232, 0.55), rgba(255, 255, 255, 0.9));
+  border-color: rgba(217, 75, 61, 0.14);
+}
+
+.dashboard-action-item.action-expired::before {
+  background: color-mix(in srgb, var(--danger) 72%, transparent);
+}
+
+.dashboard-action-item.action-soon {
+  background: linear-gradient(90deg, rgba(253, 244, 219, 0.58), rgba(255, 255, 255, 0.9));
+  border-color: rgba(230, 154, 46, 0.14);
+}
+
+.dashboard-action-item.action-soon::before {
+  background: color-mix(in srgb, var(--warning) 72%, transparent);
+}
+
+.dashboard-action-item.action-low-stock {
+  background: linear-gradient(90deg, rgba(255, 248, 220, 0.7), rgba(255, 255, 255, 0.92));
+  border-color: rgba(196, 149, 36, 0.15);
+}
+
+.dashboard-action-item.action-low-stock::before {
+  background: color-mix(in srgb, var(--warning) 68%, transparent);
+}
+
+.dashboard-action-item.action-later {
+  background: linear-gradient(90deg, rgba(235, 245, 233, 0.55), rgba(255, 255, 255, 0.9));
+  border-color: rgba(79, 154, 88, 0.12);
+}
+
+.dashboard-action-item.action-later::before {
+  background: color-mix(in srgb, var(--success, #4f9a58) 68%, transparent);
+}
+
+.dashboard-action-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.dashboard-action-info strong {
+  font-size: 0.94rem;
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-action-info p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-action-item .solid-button {
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.dashboard-action-item .solid-button:hover {
+  background: var(--accent-strong);
+}
+
 .dashboard-todo-actions .solid-button,
 .dashboard-todo-actions .ghost-button {
   min-height: var(--tap-large);
@@ -785,20 +911,10 @@
   padding: 16px 18px;
 }
 
-.dashboard-expiry-panel,
-.dashboard-todo-panel,
+.dashboard-action-panel,
 .dashboard-activity-panel {
   gap: 8px;
   padding: 14px 16px;
-}
-
-.dashboard-todo-panel {
-  gap: 7px;
-  padding: 12px 14px;
-}
-
-.dashboard-todo-panel .dashboard-panel-head {
-  min-height: 28px;
 }
 
 .dashboard-week-panel {
@@ -1626,7 +1742,7 @@
     grid-column: 1 / -1;
   }
 
-  .dashboard-expiry-panel {
+  .dashboard-action-panel {
     order: 2;
     grid-column: 1;
     align-self: start;
@@ -1637,38 +1753,30 @@
     order: 2;
     grid-column: 2;
     align-self: start;
-    grid-template-rows: auto 1fr;
-  }
-
-  .dashboard-todo-panel {
-    order: 3;
-    grid-column: 1;
-    align-self: stretch;
     grid-template-rows: auto 1fr;
   }
 
   .dashboard-shopping-panel {
     order: 3;
-    grid-column: 2;
+    grid-column: 1 / -1;
     align-self: stretch;
     grid-template-rows: auto 1fr;
   }
 
-  .dashboard-expiry-panel,
+  .dashboard-action-panel,
   .dashboard-activity-panel {
     height: 320px;
     min-height: 0;
   }
 
-  .dashboard-expiry-panel,
-  .dashboard-todo-panel,
+  .dashboard-action-panel,
   .dashboard-activity-panel,
   .dashboard-shopping-panel {
     gap: 10px;
     padding: 14px 16px;
   }
 
-  .dashboard-expiry-list {
+  .dashboard-action-list {
     grid-template-columns: 1fr;
     min-height: 0;
     max-height: none;
@@ -1676,43 +1784,10 @@
     overflow-x: hidden;
   }
 
-  .dashboard-expiry-item {
-    grid-template-columns: 48px minmax(0, 1fr) auto auto;
-    gap: 8px;
+  .dashboard-action-item {
     min-height: 52px;
-    padding-right: 8px;
-  }
-
-  .dashboard-ingredient-thumb {
-    width: 48px;
-  }
-
-  .dashboard-expiry-badge {
-    padding: 3px 6px;
-    border-radius: 7px;
-    font-size: 0.68rem;
-    line-height: 1.15;
-  }
-
-  .dashboard-expiry-item .solid-button {
-    min-height: 28px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 8px;
-    font-size: 0.76rem;
-  }
-
-  .dashboard-todo-list {
-    grid-template-columns: 1fr;
-    max-height: 132px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding-right: 4px;
-    scrollbar-width: thin;
-  }
-
-  .dashboard-todo-item {
-    min-height: 44px;
+    gap: 10px;
+    padding: 10px 12px;
   }
 
   .dashboard-activity-list {

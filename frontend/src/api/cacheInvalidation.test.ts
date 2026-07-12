@@ -12,7 +12,7 @@ import {
 
 function fakeQueryClient() {
   return {
-    invalidateQueries: vi.fn(),
+    invalidateQueries: vi.fn(async () => undefined),
   } as unknown as QueryClient & { invalidateQueries: ReturnType<typeof vi.fn> };
 }
 
@@ -21,10 +21,10 @@ function invalidatedKeys(queryClient: ReturnType<typeof fakeQueryClient>) {
 }
 
 describe('cacheInvalidation', () => {
-  it('invalidates search root and affected domain when a search index job changes', () => {
+  it('invalidates search root and affected domain when a search index job changes', async () => {
     const queryClient = fakeQueryClient();
 
-    invalidateAfterSearchIndexJobChanged(queryClient, { entity_type: 'recipe', entity_id: 'recipe-1' });
+    await invalidateAfterSearchIndexJobChanged(queryClient, { entity_type: 'recipe', entity_id: 'recipe-1' });
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['search-index-jobs'],
@@ -38,10 +38,10 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates meal, inventory and plan data after cooking a recipe', () => {
+  it('invalidates meal, inventory and plan data after cooking a recipe', async () => {
     const queryClient = fakeQueryClient();
 
-    invalidateAfterRecipeCooked(queryClient);
+    await invalidateAfterRecipeCooked(queryClient);
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
@@ -56,9 +56,9 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates the inventory overview root for food and quick meal changes', () => {
+  it('invalidates the inventory overview root for food and quick meal changes', async () => {
     const foodQueryClient = fakeQueryClient();
-    invalidateAfterFoodChanged(foodQueryClient);
+    await invalidateAfterFoodChanged(foodQueryClient);
 
     expect(invalidatedKeys(foodQueryClient)).toEqual([
       ['foods'],
@@ -68,7 +68,7 @@ describe('cacheInvalidation', () => {
     ]);
 
     const mealQueryClient = fakeQueryClient();
-    invalidateAfterQuickMealAdded(mealQueryClient);
+    await invalidateAfterQuickMealAdded(mealQueryClient);
 
     expect(invalidatedKeys(mealQueryClient)).toEqual([
       ['meal-logs'],
@@ -80,10 +80,43 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates the inventory overview root after inventory changes', () => {
+  it('waits for every inventory invalidation key before completing', async () => {
+    const queryClient = fakeQueryClient();
+    let resolveFourth: (() => void) | undefined;
+    const fourth = new Promise<void>((resolve) => {
+      resolveFourth = resolve;
+    });
+    let callIndex = 0;
+    queryClient.invalidateQueries.mockImplementation(async () => {
+      callIndex += 1;
+      if (callIndex === 4) {
+        await fourth;
+      }
+    });
+
+    let settled = false;
+    const pending = invalidateAfterInventoryChanged(queryClient).then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(invalidatedKeys(queryClient)).toEqual([
+      ['inventory'],
+      ['inventory', 'overview'],
+      ['food-recommendations'],
+      ['activity-logs'],
+    ]);
+
+    resolveFourth?.();
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  it('invalidates the inventory overview root after inventory changes', async () => {
     const queryClient = fakeQueryClient();
 
-    invalidateAfterInventoryChanged(queryClient);
+    await invalidateAfterInventoryChanged(queryClient);
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
@@ -93,10 +126,10 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates active conversation contracts after an AI approval settles', () => {
+  it('invalidates active conversation contracts after an AI approval settles', async () => {
     const queryClient = fakeQueryClient();
 
-    invalidateAfterAiApprovalSettled(queryClient, 'conversation-1');
+    await invalidateAfterAiApprovalSettled(queryClient, 'conversation-1');
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['ai-messages', 'conversation-1'],
@@ -115,10 +148,10 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates target-specific data after an AI image job changes', () => {
+  it('invalidates target-specific data after an AI image job changes', async () => {
     const queryClient = fakeQueryClient();
 
-    invalidateAfterAiImageJobChanged(queryClient, { target_entity_type: 'family', target_entity_id: 'family-1' });
+    await invalidateAfterAiImageJobChanged(queryClient, { target_entity_type: 'family', target_entity_id: 'family-1' });
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['ai-image-jobs'],

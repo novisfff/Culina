@@ -214,9 +214,19 @@ class InventoryItem(AuditMixin, Base):
     storage_location: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     low_stock_threshold: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    expiry_alert_snoozed_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expiry_reviewed_by: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     family: Mapped["Family"] = relationship(back_populates="inventory_items")
     ingredient: Mapped["Ingredient"] = relationship(back_populates="inventory_items")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class ShoppingListItem(AuditMixin, Base):

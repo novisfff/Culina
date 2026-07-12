@@ -22,6 +22,30 @@ function failedImageJob(overrides: Partial<AppNotificationJob> = {}): AppNotific
     description: '生成失败，可以直接重试',
     can_retry: true,
     can_dismiss: true,
+    created_at: '2026-07-11T10:00:00.000Z',
+    completed_at: '2026-07-11T10:05:00.000Z',
+    ...overrides,
+  };
+}
+
+function job(
+  status: AppNotificationJob['status'],
+  overrides: Partial<AppNotificationJob> = {},
+): AppNotificationJob {
+  const baseId = overrides.notification_id ?? `image:job-${status}`;
+  const isActive = status === 'queued' || status === 'running';
+  return {
+    notification_id: baseId,
+    task_id: overrides.task_id ?? baseId.split(':')[1] ?? baseId,
+    kind: overrides.kind ?? 'image',
+    status,
+    title: overrides.title ?? `${status} job`,
+    status_label: overrides.status_label ?? status,
+    description: overrides.description ?? status,
+    can_retry: status === 'failed',
+    can_dismiss: status === 'failed' || status === 'succeeded',
+    created_at: overrides.created_at ?? '2026-07-11T10:00:00.000Z',
+    completed_at: overrides.completed_at ?? (isActive ? null : '2026-07-11T10:05:00.000Z'),
     ...overrides,
   };
 }
@@ -223,6 +247,126 @@ describe('AppNotificationCenter', () => {
     expect(document.body.querySelector('.mobile-notification-popover')).not.toBeNull();
   });
 });
+
+  it('does not show a badge when only successful jobs exist', () => {
+    const view = renderNotificationCenter({
+      jobs: [
+        job('succeeded', {
+          notification_id: 'image:success-1',
+          title: '成功图片生成',
+          created_at: '2026-07-11T12:00:00.000Z',
+          completed_at: '2026-07-11T12:01:00.000Z',
+        }),
+      ],
+    });
+
+    expect(view.querySelector('.app-notification-count')).toBeNull();
+    expect(view.querySelector('.app-notification-trigger')?.getAttribute('aria-label')).toBe('查看后台任务');
+  });
+
+  it('badges only active and failed jobs and labels the surface as background tasks', () => {
+    const view = renderNotificationCenter({
+      jobs: [
+        job('succeeded', { notification_id: 'image:success-1', title: '成功 1' }),
+        job('succeeded', { notification_id: 'image:success-2', title: '成功 2' }),
+        job('running', { notification_id: 'image:running-1', title: '进行中 1', completed_at: null }),
+        job('queued', { notification_id: 'search-index:queued-1', kind: 'search_index', title: '排队索引', completed_at: null }),
+        job('failed', { notification_id: 'image:failed-1', title: '失败 1' }),
+      ],
+    });
+
+    const badge = view.querySelector('.app-notification-count');
+    expect(badge?.textContent).toBe('3');
+    expect(view.querySelector('.app-notification-trigger')?.getAttribute('aria-label')).toBe('查看后台任务，1 个失败，2 个进行中');
+
+    click(view.querySelector('.app-notification-trigger'));
+    const popover = view.querySelector('.app-notification-popover');
+    expect(popover?.getAttribute('aria-label')).toBe('后台任务');
+    expect(popover?.textContent).toContain('后台任务');
+  });
+
+  it('keeps all active and failed rows while capping successful history at five newest', () => {
+    const succeeded = Array.from({ length: 7 }, (_, index) =>
+      job('succeeded', {
+        notification_id: `image:success-${index + 1}`,
+        title: `成功 ${index + 1}`,
+        created_at: `2026-07-11T1${index}:00:00.000Z`,
+        completed_at: `2026-07-11T1${index}:05:00.000Z`,
+      }),
+    );
+    const jobs = [
+      job('failed', {
+        notification_id: 'image:failed-old',
+        title: '失败旧',
+        completed_at: '2026-07-11T08:00:00.000Z',
+      }),
+      job('failed', {
+        notification_id: 'search-index:failed-new',
+        kind: 'search_index',
+        title: '失败新',
+        completed_at: '2026-07-11T09:00:00.000Z',
+      }),
+      job('running', {
+        notification_id: 'image:running-1',
+        title: '运行中',
+        created_at: '2026-07-11T09:30:00.000Z',
+        completed_at: null,
+      }),
+      job('queued', {
+        notification_id: 'search-index:queued-1',
+        kind: 'search_index',
+        title: '排队中',
+        created_at: '2026-07-11T09:40:00.000Z',
+        completed_at: null,
+      }),
+      ...succeeded,
+    ];
+    const view = renderNotificationCenter({ jobs });
+    click(view.querySelector('.app-notification-trigger'));
+
+    const rows = Array.from(view.querySelectorAll('.app-notification-row'));
+    expect(rows).toHaveLength(9);
+    const titles = rows.map((row) => row.querySelector('strong')?.textContent ?? '');
+    expect(titles.slice(0, 2)).toEqual(['失败新', '失败旧']);
+    expect(titles.slice(2, 4)).toEqual(['排队中', '运行中']);
+    expect(titles.slice(4)).toEqual(['成功 7', '成功 6', '成功 5', '成功 4', '成功 3']);
+    expect(titles).not.toContain('成功 1');
+    expect(titles).not.toContain('成功 2');
+  });
+
+  it('sorts image and search jobs together by completed_at or created_at rather than source order', () => {
+    const view = renderNotificationCenter({
+      jobs: [
+        job('succeeded', {
+          notification_id: 'image:success-old',
+          kind: 'image',
+          title: '旧成功图片',
+          completed_at: '2026-07-11T10:00:00.000Z',
+        }),
+        job('succeeded', {
+          notification_id: 'search-index:success-new',
+          kind: 'search_index',
+          title: '新成功索引',
+          completed_at: '2026-07-11T11:00:00.000Z',
+        }),
+        job('failed', {
+          notification_id: 'search-index:failed-old',
+          kind: 'search_index',
+          title: '旧失败索引',
+          completed_at: '2026-07-11T09:00:00.000Z',
+        }),
+        job('failed', {
+          notification_id: 'image:failed-new',
+          kind: 'image',
+          title: '新失败图片',
+          completed_at: '2026-07-11T12:00:00.000Z',
+        }),
+      ],
+    });
+    click(view.querySelector('.app-notification-trigger'));
+    const titles = Array.from(view.querySelectorAll('.app-notification-row strong')).map((node) => node.textContent);
+    expect(titles).toEqual(['新失败图片', '旧失败索引', '新成功索引', '旧成功图片']);
+  });
 
 describe('AppShell mobile keyboard layout', () => {
   it('renders orientation guidance for tablet/desktop portrait and mobile landscape', () => {

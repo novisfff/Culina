@@ -165,6 +165,8 @@ def _render_search_index_job_response(job) -> dict:
         "entity_id": job.entity_id,
         "target_name": job.target_name,
         "vector_status": job.vector_status,
+        "created_at": job.created_at,
+        "completed_at": job.completed_at,
     }
 
 

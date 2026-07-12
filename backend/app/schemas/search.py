@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -37,3 +38,5 @@ class SearchIndexJobResponse(BaseModel):
     entity_id: str
     target_name: str
     vector_status: SearchIndexVectorStatus = "pending"
+    created_at: datetime
+    completed_at: datetime | None = None

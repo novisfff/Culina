@@ -12,8 +12,13 @@ import type {
   ShoppingListItem,
   UserSummary,
 } from '../api/types';
-import { buildDisposableExpiredInventoryItems, buildIngredientSummaries } from '../components/ingredients/workspaceModel';
-import { buildInventoryAlerts, getFoodCover, todayKey } from '../lib/ui';
+import {
+  buildInventoryActionGroups,
+  countUniqueAvailableIngredients,
+  type InventoryActionGroup,
+} from '../features/inventory/inventoryActionModel';
+import { getFoodCover } from '../lib/ui';
+import { businessDateKey } from '../lib/date';
 import type { FamilyStatCard } from '../features/family/FamilySettings';
 import {
   buildHomeDashboardViewModel,
@@ -36,19 +41,18 @@ type UseAppHomeViewModelArgs = {
   mealLogs: MealLog[];
   activityLogs: ActivityLog[];
   dashboardRecommendationPage: number;
-  visibleDashboardTodoCount: number;
-  visibleExpiryCount: number;
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
   homePlanDetailItemId: string | null;
   homePlanAddFoodId: string | null;
   homePlanAddFoodSearch: string;
   homeRestockShoppingItemId: string | null;
-  homeExpiryReviewItemId: string | null;
   homeMealDetailId: string | null;
   homeRestockForm: HomeRestockFormState | null;
-  homeExpiredDisposalIngredientId: string | null;
+  /** Optional prebuilt groups so App can share one projection with home state. */
+  inventoryActionGroups?: InventoryActionGroup[];
   resolveDashboardAssetUrl: (url?: string) => string | undefined;
+  now?: Date;
 };
 
 export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
@@ -73,7 +77,17 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
 
   const currentUser = args.user;
   const isOwner = args.membershipRole === 'Owner';
-  const inventoryAlerts = buildInventoryAlerts(args.inventoryItems, args.ingredients);
+  const businessDate = businessDateKey(args.now ?? new Date(), 'Asia/Shanghai');
+  const inventoryActionGroups = args.inventoryActionGroups ?? buildInventoryActionGroups({
+    inventoryItems: args.inventoryItems,
+    ingredients: args.ingredients,
+    shoppingItems: args.shoppingItems,
+    referenceDate: businessDate,
+  });
+  const availableIngredientCount = countUniqueAvailableIngredients({
+    inventoryItems: args.inventoryItems,
+    referenceDate: businessDate,
+  });
   const pendingShoppingCount = args.shoppingItems.filter((item) => !item.done).length;
   const aiRecommendationCount = (args.family?.ai_recommendations ?? []).length;
   const recentMeals = [...args.mealLogs].slice(0, 6);
@@ -136,11 +150,11 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const sidebarUserNote = args.family?.location
     ? `${args.family.location} · ${sidebarFamilyName}`
     : sidebarFamilyName;
-  const today = todayKey();
-  const ingredientById = new Map(args.ingredients.map((ingredient) => [ingredient.id, ingredient]));
+  const today = businessDate;
   const dashboardViewModel = buildHomeDashboardViewModel({
     inventoryItems: args.inventoryItems,
-    inventoryAlertCount: inventoryAlerts.length,
+    inventoryActionGroups,
+    availableIngredientCount,
     shoppingItems: args.shoppingItems,
     foodPlanItems: args.foodPlanItems,
     foodRecommendations: args.foodRecommendations,
@@ -148,19 +162,11 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     mealLogs: args.mealLogs,
     today,
     dashboardRecommendationPage: args.dashboardRecommendationPage,
-    visibleDashboardTodoCount: args.visibleDashboardTodoCount,
-    visibleExpiryCount: args.visibleExpiryCount,
     selectedDashboardPlanDate: args.selectedDashboardPlanDate,
     foodPlanWeekRange: args.foodPlanWeekRange,
   });
   const homeRestockShoppingItem = args.homeRestockShoppingItemId
     ? args.shoppingItems.find((item) => item.id === args.homeRestockShoppingItemId) ?? null
-    : null;
-  const homeExpiryReviewItem = args.homeExpiryReviewItemId
-    ? dashboardViewModel.expiringInventoryItems.find((item) => item.id === args.homeExpiryReviewItemId) ?? null
-    : null;
-  const homeExpiryReviewIngredient = homeExpiryReviewItem
-    ? ingredientById.get(homeExpiryReviewItem.ingredient_id) ?? null
     : null;
   const homeMealDetail = args.homeMealDetailId
     ? args.mealLogs.find((item) => item.id === args.homeMealDetailId) ?? null
@@ -175,21 +181,13 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const homeRestockIngredientImageUrl =
     homeRestockIngredient?.image?.url ? args.resolveDashboardAssetUrl(homeRestockIngredient.image.url) : undefined;
 
-  const homeExpiredDisposalIngredient = args.homeExpiredDisposalIngredientId
-    ? args.ingredients.find((item) => item.id === args.homeExpiredDisposalIngredientId) ?? null
-    : null;
-  const ingredientSummaries = homeExpiredDisposalIngredient
-    ? buildIngredientSummaries({
-        ingredients: [homeExpiredDisposalIngredient],
-        inventoryItems: args.inventoryItems.filter((item) => item.ingredient_id === homeExpiredDisposalIngredient.id),
-        recipes: args.recipes,
-      })
-    : [];
-  const homeExpiredDisposalSummary =
-    ingredientSummaries[0] ?? null;
-  const homeExpiredDisposalItems = homeExpiredDisposalSummary
-    ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary)
-    : [];
+  // Temporary compatibility for pre-Task-7B home UI props; badge/count use grouped actions.
+  const inventoryAlerts = dashboardViewModel.homeEligibleInventoryActionGroups.map((group) => ({
+    id: group.id,
+    title: group.title,
+    detail: group.detail,
+    tone: group.kind === 'low_stock' ? ('warning' as const) : ('danger' as const),
+  }));
 
   return {
     homePlanDetailItem,
@@ -198,7 +196,9 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     homePlanAddFoodOptions,
     currentUser,
     isOwner,
+    inventoryActionGroups,
     inventoryAlerts,
+    businessDateKey: businessDate,
     aiRecommendationCount,
     recentMeals,
     currentUserRecentLogs,
@@ -219,13 +219,9 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     today,
     ...dashboardViewModel,
     homeRestockShoppingItem,
-    homeExpiryReviewItem,
-    homeExpiryReviewIngredient,
     homeMealDetail,
     homeMealDetailParticipants,
     homeRestockIngredient,
     homeRestockIngredientImageUrl,
-    homeExpiredDisposalSummary,
-    homeExpiredDisposalItems,
   };
 }

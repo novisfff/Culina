@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.ai.errors import AIConflictError
 from app.core.enums import ActivityAction, MealType
@@ -14,6 +15,8 @@ from app.models.domain import FoodPlanItem, MealLog, MealLogFood, Recipe, Recipe
 from app.schemas.recipes import CookRecipeRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.common import assert_updated_at_matches
+from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
+from app.services.inventory_operations import lock_inventory_items_by_ids
 from app.services.inventory_usage import build_cook_inventory_plan
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.serializers import serialize_recipe_cook_log
@@ -62,25 +65,42 @@ def execute_recipe_cook_draft(
     if shortages:
         raise AIConflictError("当前库存不足，不能直接完成做菜，请刷新预览或先补采购")
 
+    planned_item_ids = [
+        deduction.item.id
+        for plan in consumption_plan
+        for deduction in plan.deductions
+    ]
+    locked_items = lock_inventory_items_by_ids(
+        db,
+        family_id=family_id,
+        item_ids=planned_item_ids,
+    )
+
     consumed_items: list[dict[str, Any]] = []
-    for plan in consumption_plan:
-        affected_item_ids: list[str] = []
-        for deduction in plan.deductions:
-            item = deduction.item
-            item.consumed_quantity = item.consumed_quantity + deduction.quantity
-            item.updated_by = user_id
-            affected_item_ids.append(item.id)
-        consumed_items.append(
-            {
-                "ingredient_id": plan.ingredient.id,
-                "ingredient_name": plan.ingredient_item.ingredient_name,
-                "requested_quantity": float(plan.requested_quantity),
-                "unit": plan.ingredient_item.unit,
-                "quantity_tracking_mode": plan.quantity_tracking_mode,
-                "deduction_note": plan.deduction_note,
-                "affected_item_ids": affected_item_ids,
-            }
-        )
+    try:
+        for plan in consumption_plan:
+            affected_item_ids: list[str] = []
+            for deduction in plan.deductions:
+                item = locked_items.get(deduction.item.id)
+                if item is None:
+                    raise AIConflictError(STALE_INVENTORY_DETAIL)
+                item.consumed_quantity = item.consumed_quantity + deduction.quantity
+                item.updated_by = user_id
+                affected_item_ids.append(item.id)
+            consumed_items.append(
+                {
+                    "ingredient_id": plan.ingredient.id,
+                    "ingredient_name": plan.ingredient_item.ingredient_name,
+                    "requested_quantity": float(plan.requested_quantity),
+                    "unit": plan.ingredient_item.unit,
+                    "quantity_tracking_mode": plan.quantity_tracking_mode,
+                    "deduction_note": plan.deduction_note,
+                    "affected_item_ids": affected_item_ids,
+                }
+            )
+        db.flush()
+    except StaleDataError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
 
     meal_log_id: str | None = None
     if request.create_meal_log:

@@ -1,4 +1,9 @@
 import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import {
+  buildInventoryActionGroups,
+  type ExpiryInventoryActionGroup,
+  type InventoryActionGroup,
+} from '../../features/inventory/inventoryActionModel';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -8,7 +13,7 @@ import {
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 export type IngredientWorkspaceView = 'hub' | 'catalog' | 'detail' | 'create';
-export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'destroyExpired' | null;
+export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'inventoryAction' | null;
 export type IngredientWorkspacePanel = 'catalog' | 'inventory' | 'shopping';
 
 export type IngredientAlertViewModel = {
@@ -19,6 +24,8 @@ export type IngredientAlertViewModel = {
   detail: string;
   tone: 'warning' | 'danger';
   kind: 'lowStock' | 'expiry';
+  /** Present for expiry alerts; sourced from shared inventory action severity. */
+  severity?: ExpiryInventoryActionGroup['severity'];
   storageLocation: string;
 };
 
@@ -84,6 +91,10 @@ export type DisposableExpiredInventoryItemViewModel = {
   notes: string;
   status: InventoryItem['status'];
   createdAt: string;
+  rowVersion: number;
+  expiryAlertSnoozedUntil: string | null;
+  expiryReviewedAt: string | null;
+  expiryReviewedBy: string | null;
 };
 
 export type InventoryStorageOverviewTone = 'stable' | 'warning' | 'danger' | 'muted';
@@ -316,68 +327,130 @@ function isAvailableInventory(item: InventoryItem, todayTime: number) {
 export function buildIngredientAlerts(
   inventoryItems: InventoryItem[],
   ingredients: Ingredient[],
-  today = todayKey()
+  today = todayKey(),
+  shoppingItems: ShoppingListItem[] = []
 ) {
+  const groups = buildInventoryActionGroups({
+    inventoryItems,
+    ingredients,
+    shoppingItems,
+    referenceDate: today,
+  });
+  return inventoryActionGroupsToAlerts(groups, ingredients);
+}
+
+export function inventoryActionGroupsToAlerts(
+  groups: InventoryActionGroup[],
+  ingredients: Ingredient[]
+): IngredientAlertViewModel[] {
+  const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const alerts: IngredientAlertViewModel[] = [];
-  const todayTime = new Date(today).getTime();
 
-  for (const ingredient of ingredients) {
-    if (!tracksIngredientQuantity(ingredient)) {
-      continue;
-    }
-    if (ingredient.default_low_stock_threshold === null || ingredient.default_low_stock_threshold === undefined) {
-      continue;
-    }
-    const availableQuantity = getIngredientAvailableQuantityInDefault(
-      ingredient,
-      inventoryItems.filter((item) => item.ingredient_id === ingredient.id && isRemainingInventory(item)),
-      { excludeExpiredAt: today }
-    );
-
-    if (availableQuantity <= ingredient.default_low_stock_threshold) {
+  for (const group of groups) {
+    const ingredient = ingredientById.get(group.ingredientId);
+    if (group.kind === 'low_stock') {
       alerts.push({
-        id: `${ingredient.id}-low`,
-        ingredientId: ingredient.id,
-        ingredientName: ingredient.name,
-        title: `${ingredient.name} 快不够用了`,
-        detail: `当前可用 ${formatQuantityValue(availableQuantity)}${ingredient.default_unit}，已经低于默认提醒值 ${ingredient.default_low_stock_threshold}${ingredient.default_unit}。`,
+        id: group.id,
+        ingredientId: group.ingredientId,
+        ingredientName: group.ingredientName,
+        title: group.title,
+        detail: group.detail,
         tone: 'warning',
         kind: 'lowStock',
-        storageLocation: ingredient.default_storage,
+        storageLocation: ingredient?.default_storage || '',
       });
+      continue;
     }
-  }
 
-  for (const item of inventoryItems) {
-    if (!isRemainingInventory(item)) {
-      continue;
-    }
-    const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
-    if (!ingredient) {
-      continue;
-    }
-    if (item.expiry_date) {
-      const diffDays = Math.round(
-        (new Date(item.expiry_date).getTime() - todayTime) / (1000 * 60 * 60 * 24)
-      );
-      if (diffDays <= 2) {
-        alerts.push({
-          id: `${item.id}-expiry`,
-          ingredientId: ingredient.id,
-          ingredientName: ingredient.name,
-          title: `${ingredient.name} ${diffDays < 0 ? '已经过期' : '快到期了'}`,
-          detail: `${item.storage_location || ingredient.default_storage} 这批食材${diffDays < 0 ? '已经超过' : '将在'} ${formatDate(item.expiry_date)} ${
-            diffDays < 0 ? '到期' : '到期'
-          }，建议优先安排。`,
-          tone: 'danger',
-          kind: 'expiry',
-          storageLocation: item.storage_location,
-        });
-      }
-    }
+    // One alert per shared group so priority/action counts stay ingredient-level.
+    alerts.push({
+      id: group.id,
+      ingredientId: group.ingredientId,
+      ingredientName: group.ingredientName,
+      title: group.title,
+      detail: group.detail,
+      tone: group.severity === 'expires_later' ? 'warning' : 'danger',
+      kind: 'expiry',
+      severity: group.severity,
+      storageLocation: group.storageLocations[0] || ingredient?.default_storage || '',
+    });
   }
 
   return alerts;
+}
+
+export function buildIngredientPriorityActionGroups(args: {
+  inventoryItems: InventoryItem[];
+  ingredients: Ingredient[];
+  shoppingItems?: ShoppingListItem[];
+  referenceDate: string;
+}) {
+  return buildInventoryActionGroups({
+    inventoryItems: args.inventoryItems,
+    ingredients: args.ingredients,
+    shoppingItems: args.shoppingItems ?? [],
+    referenceDate: args.referenceDate,
+  });
+}
+
+export type PrioritySurfaceShoppingBinding = {
+  ingredientId: string;
+  ingredientName: string;
+  reason: string;
+};
+
+export type PrioritySurfaceRow = {
+  group: InventoryActionGroup;
+  shoppingBinding: PrioritySurfaceShoppingBinding | null;
+};
+
+export function buildPrioritySurfaceRows(groups: InventoryActionGroup[]): PrioritySurfaceRow[] {
+  return groups.map((group) => ({
+    group,
+    shoppingBinding:
+      group.kind === 'low_stock'
+        ? {
+            ingredientId: group.ingredientId,
+            ingredientName: group.ingredientName,
+            reason: '库存不足',
+          }
+        : null,
+  }));
+}
+
+export function buildPriorityGroupStatus(group: InventoryActionGroup): InventoryCardStatusViewModel {
+  if (group.kind === 'low_stock') {
+    return {
+      label: '库存偏低',
+      tone: 'warning',
+      detail: group.detail,
+      priority: 2,
+    };
+  }
+  if (group.severity === 'expires_later') {
+    return {
+      label: '临期或过期',
+      tone: 'warning',
+      detail: group.detail,
+      priority: 2,
+    };
+  }
+  return {
+    label: '临期或过期',
+    tone: 'danger',
+    detail: group.detail,
+    priority: 3,
+  };
+}
+
+export function getPriorityGroupPrimaryLabel(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return '加入采购';
+  }
+  if (group.severity === 'expired') {
+    return '处理';
+  }
+  return '查看处理';
 }
 
 export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
@@ -418,10 +491,11 @@ export function buildIngredientSummaries(args: {
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
   today?: string;
+  shoppingItems?: ShoppingListItem[];
 }) {
-  const { ingredients, inventoryItems, recipes, today = todayKey() } = args;
+  const { ingredients, inventoryItems, recipes, today = todayKey(), shoppingItems = [] } = args;
   const todayTime = new Date(today).getTime();
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today);
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
 
   return ingredients
     .map<IngredientSummaryViewModel>((ingredient) => {
@@ -618,14 +692,15 @@ export function buildDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
   referenceDate = todayKey()
 ): DisposableExpiredInventoryItemViewModel[] {
-  const referenceTime = new Date(referenceDate).getTime();
+  // Calendar-key compare keeps dispose eligibility aligned with Shanghai businessDateKey.
+  const referenceKey = referenceDate.slice(0, 10);
 
   return summary.inventoryItems
     .filter((item) => {
       if (!item.expiry_date) {
         return false;
       }
-      if (new Date(item.expiry_date).getTime() >= referenceTime) {
+      if (item.expiry_date.slice(0, 10) >= referenceKey) {
         return false;
       }
       return getInventoryRemainingQuantity(item) > 0;
@@ -651,6 +726,10 @@ export function buildDisposableExpiredInventoryItems(
         notes: item.notes,
         status: item.status,
         createdAt: item.created_at,
+        rowVersion: item.row_version,
+        expiryAlertSnoozedUntil: item.expiry_alert_snoozed_until ?? null,
+        expiryReviewedAt: item.expiry_reviewed_at ?? null,
+        expiryReviewedBy: item.expiry_reviewed_by ?? null,
       };
     });
 }
@@ -659,13 +738,13 @@ export function countDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
   referenceDate = todayKey()
 ) {
-  const referenceTime = new Date(referenceDate).getTime();
+  const referenceKey = referenceDate.slice(0, 10);
 
   return summary.inventoryItems.reduce((count, item) => {
     if (!item.expiry_date) {
       return count;
     }
-    if (new Date(item.expiry_date).getTime() >= referenceTime) {
+    if (item.expiry_date.slice(0, 10) >= referenceKey) {
       return count;
     }
     return getInventoryRemainingQuantity(item) > 0 ? count + 1 : count;
@@ -678,6 +757,22 @@ export function buildInventoryCardPresentation(
 ): InventoryCardPresentationViewModel {
   const status = buildInventoryCardStatus(summary);
   const expiry = buildInventoryCardExpiry(summary, referenceDate);
+  // Decorative date badge may keep its own day-window colors, but must never look calm
+  // when the shared action projection includes this ingredient.
+  const actionableTone: InventoryCardExpiryTone | null =
+    summary.alerts.length === 0
+      ? null
+      : summary.alerts.some((item) => item.tone === 'danger')
+        ? 'danger'
+        : 'warning';
+  const resolvedExpiryTone: InventoryCardExpiryTone | null =
+    expiry.hasExpiryInfo && actionableTone && expiry.expiryTone === 'neutral'
+      ? actionableTone
+      : expiry.expiryTone;
+  const resolvedExpiry = {
+    ...expiry,
+    expiryTone: resolvedExpiryTone,
+  };
   const latestRestockLabel = summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : null;
   const hasExpiredInventory = summary.alerts.some((item) => item.kind === 'expiry' && item.tone === 'danger');
   const footerNote =
@@ -689,13 +784,13 @@ export function buildInventoryCardPresentation(
 
   if (summary.quantitySummaries.length > 0) {
     const secondaryParts = latestRestockLabel ? [`最近补货 ${latestRestockLabel}`] : [];
-    secondaryParts.push(expiry.hasExpiryInfo ? `最早 ${expiry.expiryDateLabel} 到期` : '未设保质期');
+    secondaryParts.push(resolvedExpiry.hasExpiryInfo ? `最早 ${resolvedExpiry.expiryDateLabel} 到期` : '未设保质期');
 
     return {
       headline: buildInventoryCardSummaryLine(summary),
       secondary: secondaryParts.join(' · '),
       footerNote,
-      ...expiry,
+      ...resolvedExpiry,
     };
   }
 
@@ -704,7 +799,7 @@ export function buildInventoryCardPresentation(
       headline: '当前已空',
       secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前已空` : '当前已空',
       footerNote,
-      ...expiry,
+      ...resolvedExpiry,
     };
   }
 
@@ -712,7 +807,7 @@ export function buildInventoryCardPresentation(
     headline: '未登记',
     secondary: '还没有库存记录，适合先登记首批',
     footerNote,
-    ...expiry,
+    ...resolvedExpiry,
   };
 }
 
@@ -790,9 +885,10 @@ export function buildInventoryBatchGroups(args: {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   today?: string;
+  shoppingItems?: ShoppingListItem[];
 }) {
-  const { ingredients, inventoryItems, today = todayKey() } = args;
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today);
+  const { ingredients, inventoryItems, today = todayKey(), shoppingItems = [] } = args;
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
   const grouped = new Map<string, InventoryBatchItemViewModel[]>();
 
   for (const item of inventoryItems) {
@@ -815,7 +911,7 @@ export function buildInventoryBatchGroups(args: {
       expiryDate: item.expiry_date,
       storageLocation: key,
       notes: item.notes,
-      alerts: alerts.filter((alert) => alert.id.startsWith(item.id)),
+      alerts: alerts.filter((alert) => alert.ingredientId === item.ingredient_id && alert.kind === 'expiry'),
     };
     grouped.set(key, [...(grouped.get(key) ?? []), batch]);
   }
@@ -936,6 +1032,44 @@ export function filterIngredientSummariesForInventory(
       summary.alerts.some((alert) => alert.title.includes(normalized) || alert.detail.includes(normalized))
     );
   });
+}
+
+export function hasExpiredCatalogAlert(summary: IngredientSummaryViewModel) {
+  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity === 'expired');
+}
+
+export function hasExpiringCatalogAlert(summary: IngredientSummaryViewModel) {
+  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity !== 'expired');
+}
+
+export function matchesCatalogStatusFilter(
+  summary: IngredientSummaryViewModel,
+  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+) {
+  if (filter === 'all') {
+    return true;
+  }
+  if (filter === 'actionNeeded') {
+    // Shared 需处理 projection: any ingredient present in InventoryActionGroup alerts.
+    return summary.alerts.length > 0;
+  }
+  if (filter === 'expired') {
+    return hasExpiredCatalogAlert(summary);
+  }
+  if (filter === 'expiring') {
+    return hasExpiringCatalogAlert(summary);
+  }
+  if (filter === 'lowStock') {
+    return summary.alerts.some((item) => item.kind === 'lowStock');
+  }
+  return summary.quantitySummaries.length > 0 && summary.alerts.length === 0;
+}
+
+export function filterIngredientSummariesByCatalogStatus(
+  summaries: IngredientSummaryViewModel[],
+  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+) {
+  return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
 }
 
 export function buildShoppingCards(

@@ -9,7 +9,7 @@ import {
 import type { IngredientWorkspacePanel, IngredientWorkspaceView, ShoppingCardFocus } from './workspaceModel';
 import type { InventoryEntryFilter } from './inventoryOverviewModel';
 
-export type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
+export type CatalogStatusFilter = 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable';
 export type MobileIngredientFilter = 'all' | 'ingredient' | 'food' | 'seasoning' | 'alerted' | 'expiring';
 export type InventoryQuickFilter = 'all' | 'ingredient' | 'food' | 'seasoning' | 'alerted' | 'expiring';
 export type InventorySourceFilter = 'all' | 'ingredient' | 'food';
@@ -34,11 +34,13 @@ export type PersistedIngredientWorkspaceState = {
   ingredientForm?: IngredientCreateFormState;
 };
 
-type NavigationRequest = {
-  view: 'catalog' | 'detail';
-  ingredientId?: string;
-  requestId: number;
-} | null | undefined;
+type NavigationRequest =
+  | { target: 'catalog'; requestId: number }
+  | { target: 'detail'; ingredientId: string; requestId: number }
+  | { target: 'shopping'; ingredientId: string; requestId: number }
+  | { target: 'priority'; requestId: number }
+  | null
+  | undefined;
 
 type UseIngredientWorkspaceStateArgs = {
   persistedWorkspaceState: PersistedIngredientWorkspaceState;
@@ -128,28 +130,51 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
   const [catalogCardWidth, setCatalogCardWidth] = useState(STORAGE_SHELF_IDEAL_WIDTH);
   const catalogMeasureRef = useRef<HTMLDivElement | null>(null);
 
+  const handledNavigationRequestIdRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (!args.navigationRequest) {
+    const request = args.navigationRequest;
+    if (!request || handledNavigationRequestIdRef.current === request.requestId) {
+      return;
+    }
+    handledNavigationRequestIdRef.current = request.requestId;
+
+    setCatalogSearch('');
+    setCatalogCategoryFilter('all');
+
+    if (request.target === 'priority') {
+      // Desktop: activate shared 需处理 hub/catalog filter and land on the complete priority surface.
+      // Mobile scrolls/focuses 今天先处理 from IngredientWorkspace once this request is consumed.
+      setActivePanel('catalog');
+      setCatalogStatusFilter('actionNeeded');
+      setExpandedCatalogIngredientId(null);
+      setWorkspaceView('hub');
+      return;
+    }
+
+    if (request.target === 'shopping') {
+      // Keep hub ready; IngredientWorkspace opens the shopping overlay with the real ingredient ID.
+      setActivePanel('catalog');
+      setCatalogStatusFilter('all');
+      setSelectedIngredientId(request.ingredientId);
+      setExpandedCatalogIngredientId(null);
+      setWorkspaceView('hub');
       return;
     }
 
     setActivePanel('catalog');
-    setCatalogSearch('');
-    setCatalogCategoryFilter('all');
     setCatalogStatusFilter('all');
 
-    if (args.navigationRequest.ingredientId) {
-      setSelectedIngredientId(args.navigationRequest.ingredientId);
-      setExpandedCatalogIngredientId(
-        args.navigationRequest.view === 'catalog' ? args.navigationRequest.ingredientId : null
-      );
-    } else {
+    if (request.target === 'detail') {
+      setSelectedIngredientId(request.ingredientId);
       setExpandedCatalogIngredientId(null);
+      setWorkspaceView('detail');
+      return;
     }
 
-    setWorkspaceView(
-      args.navigationRequest.view === 'detail' && args.navigationRequest.ingredientId ? 'detail' : 'hub'
-    );
+    // catalog
+    setExpandedCatalogIngredientId(null);
+    setWorkspaceView('hub');
   }, [args.navigationRequest?.requestId]);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type FormEvent, type KeyboardEvent, type ReactNode, type SetStateAction, type UIEvent } from 'react';
+import { useMemo, useState, type Dispatch, type FormEvent, type KeyboardEvent, type ReactNode, type SetStateAction } from 'react';
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Member, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon } from '../../app/shellIcons';
@@ -8,7 +8,6 @@ import {
   EmptyState,
   PageHeader,
   StateBlock,
-  StatusBadge,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
@@ -33,21 +32,57 @@ import {
   buildFoodRelationViewModel,
 } from '../../components/foods/FoodWorkspaceHelpers';
 import { addDateKeyDays } from '../../lib/date';
-import { FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import type {
+  InventoryActionGroup,
+} from '../inventory/inventoryActionModel';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
   formatDashboardPlanRange,
-  getDashboardExpiryBadge,
-  type DashboardExpiryTodoInventoryItem,
   type DashboardPlanDay,
   type DashboardPlanSummaryItem,
   type DashboardRecommendation,
   type DashboardStat,
-  type DashboardTodoItem,
 } from './homeDashboardModel';
 import { HomeMobileDashboard } from './HomeMobileDashboard';
 import { FamilyActivityModal } from '../family/FamilyActivityViewer';
+
+function getHomeActionPrimaryLabel(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return '加入采购';
+  }
+  if (group.severity === 'expired') {
+    return '集中处理';
+  }
+  return '查看处理';
+}
+
+function getHomeActionTone(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return 'low-stock';
+  }
+  if (group.severity === 'expired') {
+    return 'expired';
+  }
+  if (group.severity === 'expires_today' || group.severity === 'expires_soon') {
+    return 'soon';
+  }
+  return 'later';
+}
+
+function getHomeActionEmptyCopy(hasLaterInventoryActionGroups: boolean) {
+  if (hasLaterInventoryActionGroups) {
+    return {
+      title: '今天没有急着处理的食材',
+      description: '4～7 天内的提醒仍可以在食材页查看。',
+    };
+  }
+  return {
+    title: '当前库存状态平稳',
+    description: '没有过期、临期或待补货的食材需要处理。',
+  };
+}
 
 export type HomeDashboardProps = {
   sidebarFamilyName: string;
@@ -62,10 +97,9 @@ export type HomeDashboardProps = {
   dashboardRecommendationPageCount: number;
   dashboardRecommendations: DashboardRecommendation[];
   foodRecommendations?: FoodRecommendations | null;
-  dashboardCompletedCount: number;
-  dashboardTodoItems: DashboardTodoItem[];
-  visibleDashboardTodoItems: DashboardTodoItem[];
-  hasMoreDashboardTodoItems: boolean;
+  homeInventoryActionGroups: InventoryActionGroup[];
+  hasLaterInventoryActionGroups: boolean;
+  hasFullListInventoryActionGroups: boolean;
   activeFoodPlanItems: FoodPlanItem[];
   foodPlanItems: FoodPlanItem[];
   dashboardWeekMealCapacity: number;
@@ -74,8 +108,6 @@ export type HomeDashboardProps = {
   selectedDashboardPlanDateLabel: string;
   pendingShoppingCount: number;
   pendingShoppingPreview: ShoppingListItem[];
-  visibleExpiringInventoryItems: DashboardExpiryTodoInventoryItem[];
-  hasMoreExpiringInventoryItems: boolean;
   dashboardPlanSummary: DashboardPlanSummaryItem[];
   foodPlanWeekRange: { start: string; end: string };
   foods: Food[];
@@ -100,12 +132,9 @@ export type HomeDashboardProps = {
   onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
   onHomePlanDetailOpen: (item: FoodPlanItem) => void;
   onHomeRestockOpen: (item: ShoppingListItem) => void;
-  onIngredientsCatalogOpen: () => void;
-  onIngredientExpiredDisposalOpen: (ingredientId: string) => void;
-  onIngredientDetailOpen: (ingredientId: string) => void;
-  onDashboardTodoClick: (item: DashboardTodoItem) => void;
-  onExpiryListScroll: (event: UIEvent<HTMLDivElement>) => void;
-  onDashboardTodoListScroll: (event: UIEvent<HTMLDivElement>) => void;
+  onOpenActionGroup: (group: InventoryActionGroup) => void;
+  onOpenIngredientShopping: (ingredientId: string) => void;
+  onOpenIngredientPriority: () => void;
   onFoodPlanPreviousWeek: () => void;
   onFoodPlanCurrentWeek: () => void;
   onFoodPlanNextWeek: () => void;
@@ -138,10 +167,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
     dashboardRecommendationPageCount,
     dashboardRecommendations,
     foodRecommendations,
-    dashboardCompletedCount,
-    dashboardTodoItems,
-    visibleDashboardTodoItems,
-    hasMoreDashboardTodoItems,
+    homeInventoryActionGroups,
+    hasLaterInventoryActionGroups,
+    hasFullListInventoryActionGroups,
     activeFoodPlanItems,
     foodPlanItems,
     dashboardWeekMealCapacity,
@@ -150,8 +178,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     selectedDashboardPlanDateLabel,
     pendingShoppingCount,
     pendingShoppingPreview,
-    visibleExpiringInventoryItems,
-    hasMoreExpiringInventoryItems,
     dashboardPlanSummary,
     foodPlanWeekRange,
     foods,
@@ -176,16 +202,16 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onHomePlanAddEmptyDialogOpen: openHomePlanAddEmptyDialog,
     onHomePlanDetailOpen: openHomePlanDetail,
     onHomeRestockOpen: openHomeRestock,
-    onIngredientsCatalogOpen: openIngredientsCatalog,
-    onIngredientExpiredDisposalOpen: openIngredientExpiredDisposal,
-    onIngredientDetailOpen: openIngredientDetail,
-    onDashboardTodoClick: handleDashboardTodoClick,
-    onExpiryListScroll: handleExpiryListScroll,
-    onDashboardTodoListScroll: handleDashboardTodoListScroll,
+    onOpenActionGroup,
+    onOpenIngredientShopping,
+    onOpenIngredientPriority,
     onFoodPlanPreviousWeek,
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
   } = props;
+  const visibleActionGroups = homeInventoryActionGroups.slice(0, 3);
+  const emptyActionCopy = getHomeActionEmptyCopy(hasLaterInventoryActionGroups);
+  void hasFullListInventoryActionGroups;
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
   const [isActivityViewerOpen, setIsActivityViewerOpen] = useState(false);
@@ -264,8 +290,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
             dashboardRecommendations={dashboardRecommendations}
             foodRecommendations={foodRecommendations}
-            dashboardCompletedCount={dashboardCompletedCount}
-            dashboardTodoItems={dashboardTodoItems}
+            homeInventoryActionGroups={visibleActionGroups}
+            hasLaterInventoryActionGroups={hasLaterInventoryActionGroups}
+            hasFullListInventoryActionGroups={hasFullListInventoryActionGroups}
             activeFoodPlanItems={activeFoodPlanItems}
             dashboardWeekMealCapacity={dashboardWeekMealCapacity}
             dashboardPlanDays={dashboardPlanDays}
@@ -290,7 +317,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
             onHomePlanDetailOpen={openHomePlanDetail}
             onHomeRestockOpen={openHomeRestock}
-            onDashboardTodoClick={handleDashboardTodoClick}
+            onOpenActionGroup={onOpenActionGroup}
+            onOpenIngredientShopping={onOpenIngredientShopping}
+            onOpenIngredientPriority={onOpenIngredientPriority}
             onOpenDetail={openDetail}
             onShowMorePlans={(date, mealType, items) => {
               setMorePlansPopover({ date, mealType, items });
@@ -540,103 +569,48 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
                 <div className="dashboard-lower-grid">
                   <div className="dashboard-lower-left">
-                    <section className="card dashboard-panel dashboard-expiry-panel">
+                    <section className="card dashboard-panel dashboard-action-panel">
                       <div className="dashboard-panel-head">
-                        <h2>临期优先处理</h2>
-                        <button className="tertiary-button button-compact" type="button" onClick={openIngredientsCatalog}>
+                        <h2>今天要处理</h2>
+                        <button className="tertiary-button button-compact" type="button" onClick={onOpenIngredientPriority}>
                           查看全部
                         </button>
                       </div>
-                      <div className="dashboard-expiry-list" onScroll={handleExpiryListScroll}>
-                        {visibleExpiringInventoryItems.length > 0 ? (
-                          visibleExpiringInventoryItems.map((item) => {
-                            const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
-                            const expiryBadge = getDashboardExpiryBadge(item.daysLeft);
-                            const expiryClass = item.daysLeft < 0 ? 'expired' : item.daysLeft === 0 ? 'today' : item.daysLeft <= 3 ? 'soon' : 'later';
+                      <div className="dashboard-action-list">
+                        {visibleActionGroups.length > 0 ? (
+                          visibleActionGroups.map((group) => {
+                            const tone = getHomeActionTone(group);
+                            const primaryLabel = getHomeActionPrimaryLabel(group);
                             return (
-                              <article key={item.id} className={`dashboard-expiry-item expiry-${expiryClass}`}>
-                                <div className="dashboard-ingredient-thumb">
-                                  <MediaWithPlaceholder
-                                    src={resolveAssetUrl(ingredient?.image?.url)}
-                                    alt={item.ingredient_name}
-                                  />
+                              <article
+                                key={group.id}
+                                data-testid="home-action-group"
+                                className={`dashboard-action-item action-${tone}`}
+                              >
+                                <div className="dashboard-action-info">
+                                  <strong>{group.title}</strong>
+                                  <p>{group.detail}</p>
                                 </div>
-                                <div className="dashboard-expiry-info">
-                                  <strong>{item.ingredient_name}</strong>
-                                  <p>{item.storage_location || INVENTORY_STATUS_LABELS[item.status]}</p>
-                                </div>
-                                <StatusBadge
-                                  tone={item.daysLeft < 0 ? 'danger' : item.daysLeft <= 3 ? 'warning' : 'success'}
-                                  className={expiryBadge.className}
-                                >
-                                  {expiryBadge.label}
-                                </StatusBadge>
                                 <button
                                   className="solid-button button-compact"
                                   type="button"
-                                  onClick={() =>
-                                    item.daysLeft < 0
-                                      ? openIngredientExpiredDisposal(item.ingredient_id)
-                                      : openIngredientDetail(item.ingredient_id)
-                                  }
+                                  data-testid="home-action-primary"
+                                  onClick={() => {
+                                    if (group.kind === 'low_stock') {
+                                      onOpenIngredientShopping(group.ingredientId);
+                                      return;
+                                    }
+                                    onOpenActionGroup(group);
+                                  }}
+                                  aria-label={`${primaryLabel}${group.ingredientName}`}
                                 >
-                                  去处理
+                                  {primaryLabel}
                                 </button>
                               </article>
                             );
                           })
                         ) : (
-                          <StateBlock status="empty" title="没有临期食材" description="库存状态很稳，可以放心安排菜单。" />
-                        )}
-                        {hasMoreExpiringInventoryItems && (
-                          <div className="dashboard-expiry-loading">继续下滑加载更多</div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="card dashboard-panel dashboard-todo-panel">
-                      <div className="dashboard-panel-head">
-                        <h2>今日待办</h2>
-                        <Badge>{dashboardCompletedCount} / {dashboardTodoItems.length || 0}</Badge>
-                      </div>
-                      <div className="dashboard-todo-list" onScroll={handleDashboardTodoListScroll}>
-                        {dashboardTodoItems.length > 0 ? (
-                          <>
-                            {visibleDashboardTodoItems.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                className={item.done ? 'dashboard-todo-item done' : `dashboard-todo-item todo-${item.type} status-${item.status === '紧急' ? 'emergency' : 'normal'}`}
-                                onClick={() => handleDashboardTodoClick(item)}
-                                aria-label={`${item.title}，${item.status}，点击处理`}
-                              >
-                                <span className="dashboard-todo-check">
-                                  <DashboardIcon name={item.icon} />
-                                </span>
-                                <span className="dashboard-todo-copy">
-                                  <strong>{item.title}</strong>
-                                  <span>{item.description}</span>
-                                </span>
-                                <span className="dashboard-todo-meta">
-                                  <StatusBadge
-                                    tone={item.done ? 'success' : item.status === '紧急' ? 'danger' : 'warning'}
-                                    className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}
-                                  >
-                                    {item.status}
-                                  </StatusBadge>
-                                  <small>{item.dateLabel}</small>
-                                </span>
-                                <span className="dashboard-todo-arrow" aria-hidden="true">
-                                  <DashboardIcon name="chevron" />
-                                </span>
-                              </button>
-                            ))}
-                            {hasMoreDashboardTodoItems && (
-                              <div className="dashboard-todo-loading">继续下滑加载更多</div>
-                            )}
-                          </>
-                        ) : (
-                          <StateBlock status="empty" title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
+                          <StateBlock status="empty" title={emptyActionCopy.title} description={emptyActionCopy.description} />
                         )}
                       </div>
                     </section>

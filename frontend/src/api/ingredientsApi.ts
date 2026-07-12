@@ -1,6 +1,7 @@
 import { request } from './request';
 import type {
   ConsumeInventoryResponse,
+  CorrectInventoryExpiryDateRequest,
   DisposeExpiredInventoryRequest,
   DisposeInventoryResponse,
   DisposeExpiredInventoryResponse,
@@ -9,6 +10,8 @@ import type {
   InventoryOverviewScope,
   InventoryItem,
   ShoppingListItem,
+  SnoozeExpiryAlertsRequest,
+  SnoozeExpiryAlertsResponse,
 } from './types';
 
 export type UpdateShoppingItemPayload = {
@@ -107,6 +110,16 @@ export const ingredientsApi = {
   disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) =>
     request<DisposeExpiredInventoryResponse>('/api/inventory/dispose-expired', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest) =>
+    request<SnoozeExpiryAlertsResponse>('/api/inventory/snooze-expiry-alerts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  correctInventoryExpiryDate: (inventoryItemId: string, payload: CorrectInventoryExpiryDateRequest) =>
+    request<InventoryItem>(`/api/inventory/${inventoryItemId}/expiry-date`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     }),
   disposeInventory: (payload: { inventory_item_id: string; quantity?: number; unit?: string; reason: string }) =>

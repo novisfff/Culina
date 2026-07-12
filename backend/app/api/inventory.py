@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
@@ -13,15 +14,25 @@ from app.models.domain import Ingredient, InventoryItem
 from app.schemas.inventory import (
     ConsumeInventoryRequest,
     ConsumeInventoryResponse,
+    CorrectInventoryExpiryDateRequest,
     CreateInventoryItemRequest,
     DisposeInventoryRequest,
     DisposeInventoryResponse,
     DisposeExpiredInventoryRequest,
     DisposeExpiredInventoryResponse,
     InventoryItemOut,
+    SnoozeExpiryAlertsRequest,
+    SnoozeExpiryAlertsResponse,
 )
 from app.schemas.inventory_overview import InventoryOverviewOut, InventoryOverviewScope
 from app.services.clock import today_for_family
+from app.services.inventory_expiry_actions import (
+    InventoryStaleVersionError,
+    STALE_INVENTORY_DETAIL,
+    correct_inventory_expiry_date,
+    dispose_expired_inventory_items,
+    snooze_expiry_alerts,
+)
 from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_operations import (
     consume_ingredient_inventory,
@@ -29,11 +40,31 @@ from app.services.inventory_operations import (
     dispose_inventory_quantity,
     require_inventory_item,
 )
-from app.services.inventory_usage import remaining_quantity
 from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
+
+
+def _commit_inventory_session(db: Session) -> None:
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STALE_INVENTORY_DETAIL,
+        ) from exc
+
+
+def _actor_display_name(user) -> str:
+    display_name = getattr(user, "display_name", None)
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip()
+    username = getattr(user, "username", None)
+    if isinstance(username, str) and username.strip():
+        return username.strip()
+    return "家庭成员"
 
 
 @router.get("/api/inventory/overview", response_model=InventoryOverviewOut)
@@ -128,7 +159,7 @@ def create_inventory_item(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_inventory_session(db)
     db.refresh(item)
     db.refresh(item, attribute_names=["ingredient"])
     return serialize_inventory_item(item)
@@ -159,7 +190,7 @@ def consume_inventory(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_inventory_session(db)
     return {
         "ingredient_id": ingredient.id,
         "unit": result["unit"],
@@ -193,7 +224,7 @@ def dispose_inventory(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    commit_session(db)
+    _commit_inventory_session(db)
     return {
         "ingredient_id": result["ingredient_id"],
         "inventory_item_id": result["inventory_item_id"],
@@ -203,6 +234,61 @@ def dispose_inventory(
     }
 
 
+@router.post("/api/inventory/snooze-expiry-alerts", response_model=SnoozeExpiryAlertsResponse)
+def snooze_inventory_expiry_alerts(
+    payload: SnoozeExpiryAlertsRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = snooze_expiry_alerts(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            actor_display_name=_actor_display_name(user),
+            ingredient_id=payload.ingredient_id,
+            action=payload.action,
+            item_refs=payload.items,
+            snoozed_until=payload.snoozed_until,
+            today=today_for_family(membership.family_id),
+        )
+    except InventoryStaleVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _commit_inventory_session(db)
+    return result
+
+
+@router.patch("/api/inventory/{inventory_item_id}/expiry-date", response_model=InventoryItemOut)
+def correct_inventory_item_expiry_date(
+    inventory_item_id: str,
+    payload: CorrectInventoryExpiryDateRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        item = correct_inventory_expiry_date(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            actor_display_name=_actor_display_name(user),
+            inventory_item_id=inventory_item_id,
+            expiry_date=payload.expiry_date,
+            expected_row_version=payload.expected_row_version,
+        )
+    except InventoryStaleVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _commit_inventory_session(db)
+    db.refresh(item)
+    db.refresh(item, attribute_names=["ingredient"])
+    return serialize_inventory_item(item)
+
+
 @router.post("/api/inventory/dispose-expired", response_model=DisposeExpiredInventoryResponse)
 def dispose_expired_inventory(
     payload: DisposeExpiredInventoryRequest,
@@ -210,54 +296,19 @@ def dispose_expired_inventory(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    ingredient = db.scalar(
-        select(Ingredient).where(Ingredient.family_id == membership.family_id, Ingredient.id == payload.ingredient_id)
-    )
-    if ingredient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
-
-    requested_item_ids = list(dict.fromkeys(payload.inventory_item_ids))
-    if not requested_item_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory items are required")
-
-    items = list(
-        db.scalars(
-            select(InventoryItem).where(
-                InventoryItem.family_id == membership.family_id,
-                InventoryItem.id.in_(requested_item_ids),
-            ).options(selectinload(InventoryItem.ingredient))
-        )
-    )
-    items_by_id = {item.id: item for item in items}
-    if len(items_by_id) != len(requested_item_ids):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Some inventory items are invalid")
-
-    today = today_for_family(membership.family_id)
-    disposed_item_ids: list[str] = []
-
-    for item_id in requested_item_ids:
-        item = items_by_id[item_id]
-        if item.ingredient_id != ingredient.id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory item does not belong to ingredient")
-        if item.expiry_date is None or item.expiry_date >= today:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only expired inventory can be disposed")
-        if remaining_quantity(item) <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory item has no remaining quantity")
-
-        dispose_inventory_quantity(
+    try:
+        result = dispose_expired_inventory_items(
             db,
             family_id=membership.family_id,
             user_id=user.id,
-            item=item,
-            quantity=None,
-            unit=item.unit,
-            reason="过期销毁",
+            actor_display_name=_actor_display_name(user),
+            ingredient_id=payload.ingredient_id,
+            item_refs=payload.items,
+            today=today_for_family(membership.family_id),
         )
-        disposed_item_ids.append(item.id)
-    commit_session(db)
-
-    return {
-        "ingredient_id": ingredient.id,
-        "disposed_item_ids": disposed_item_ids,
-        "disposed_count": len(disposed_item_ids),
-    }
+    except InventoryStaleVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _commit_inventory_session(db)
+    return result

@@ -16,7 +16,6 @@ import {
   FoodPlanFoodPicker,
   FoodPlanSelectedHero,
 } from '../../components/foods/FoodPlanDialogParts';
-import { DestroyExpiredInventoryDialog } from '../../components/ingredients/IngredientDestroyExpiredOverlay';
 import {
   IngredientRestockAdvancedSection,
   IngredientRestockExpirySection,
@@ -25,15 +24,20 @@ import {
   IngredientRestockStorageSection,
   resolvePurchaseDatePatch,
 } from '../../components/ingredients/IngredientRestockSections';
-import type {
-  DisposableExpiredInventoryItemViewModel,
-  IngredientSummaryViewModel,
-} from '../../components/ingredients/workspaceModel';
 import {
   parsePositiveNumber,
   resolveClampedDaysValue,
   type InventoryPurchasePreset,
 } from '../../components/ingredients/ingredientWorkspaceForms';
+import {
+  InventoryActionDialog,
+} from '../inventory/InventoryActionDialog';
+import type {
+  ExpiryInventoryActionGroup,
+  InventoryActionGroup,
+} from '../inventory/inventoryActionModel';
+import type { VersionedInventoryItemRef } from '../../api/types';
+import type { HomeActionCompletionSummary } from './useHomeDashboardState';
 import { Avatar, Badge, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
@@ -44,17 +48,15 @@ import {
   FOOD_TYPE_LABELS,
   formatDate,
   formatDateTime,
-  formatRelativeDays,
   getFoodCover,
-  INVENTORY_STATUS_LABELS,
   MEAL_TYPE_LABELS,
   todayKey,
 } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
+  matchIngredientByExactName,
   resolveExpiryDateFromDays,
   resolveInventoryStatusForStorage,
-  type DashboardExpiryTodoInventoryItem,
   type DashboardPlanDay,
   type HomeRestockFormState,
 } from './homeDashboardModel';
@@ -100,10 +102,6 @@ type Props = {
   submitHomePlanAdd: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   closeHomePlanAddDialog: () => void;
   isCreatingFoodPlanItem: boolean;
-  homeExpiryReviewItem: DashboardExpiryTodoInventoryItem | null;
-  homeExpiryReviewIngredient: Ingredient | null;
-  closeHomeExpiryReview: () => void;
-  openIngredientDetail: (ingredientId: string) => void;
   homeMealDetail: MealLog | null;
   homeMealDetailParticipants: Member[];
   closeHomeMealDetail: () => void;
@@ -115,19 +113,40 @@ type Props = {
   closeHomeRestock: () => void;
   submitHomeRestock: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   isCreatingInventory: boolean;
-  homeExpiredDisposalSummary: IngredientSummaryViewModel | null;
-  homeExpiredDisposalItems: DisposableExpiredInventoryItemViewModel[];
-  setHomeExpiredDisposalIngredientId: (value: string | null) => void;
-  submitHomeExpiredDisposal: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  isDisposingExpiredInventory: boolean;
+  selectedActionGroup: InventoryActionGroup | null;
+  businessDateKey: string;
+  actionDialogBusy: boolean;
+  actionDialogError: string | null;
+  actionDialogConflict: 'none' | 'review_again';
+  closeActionGroup: () => void;
+  disposeSelectedInventoryBatches: (items: VersionedInventoryItemRef[]) => Promise<void>;
+  snoozeSelectedInventoryAlerts: (args: {
+    action: 'retain_expired' | 'snooze_upcoming';
+    items: VersionedInventoryItemRef[];
+    snoozedUntil: string;
+  }) => Promise<void>;
+  correctSelectedInventoryExpiryDate: (args: {
+    inventoryItemId: string;
+    expectedRowVersion: number;
+    expiryDate: string;
+  }) => Promise<void>;
+  completionSummary: HomeActionCompletionSummary | null;
+  nextGroupId: string | null;
+  nextGroupLabel: string | null;
+  openNextActionGroup: () => void;
+  dismissCompletionSummary: () => void;
+  onCompletionSecondaryAction: (ingredientId: string) => void;
   resolveAssetUrl: (url?: string) => string | undefined;
 };
 
 export function HomeDashboardDialogs(props: Props) {
   const today = todayKey();
   const homePlanDetailItem = props.homePlanDetailItem;
-  const homeExpiryReviewItem = props.homeExpiryReviewItem;
   const homeRestockShoppingItem = props.homeRestockShoppingItem;
+  const selectedExpiryGroup =
+    props.selectedActionGroup && props.selectedActionGroup.kind === 'expiry'
+      ? (props.selectedActionGroup as ExpiryInventoryActionGroup)
+      : null;
   const homeRestockForm = props.homeRestockForm;
   const homePlanAddFormId = 'home-plan-add-overlay-form';
   const homeRestockFormId = 'home-restock-overlay-form';
@@ -195,8 +214,7 @@ export function HomeDashboardDialogs(props: Props) {
     const normalizedQuery = query.trim();
     const match = normalizedQuery
       ? homeRestockIngredientSearch.findIngredientByName(normalizedQuery)
-        ?? props.ingredients.find((item) => item.name.includes(normalizedQuery) || normalizedQuery.includes(item.name))
-        ?? null
+        ?? matchIngredientByExactName(normalizedQuery, props.ingredients)
       : null;
     props.updateHomeRestockForm({
       ...homeRestockForm,
@@ -378,75 +396,6 @@ export function HomeDashboardDialogs(props: Props) {
         overlayRootClassName="home-dashboard-overlay-root"
         formId="home-meal-enrichment-overlay-form"
       />
-
-      {homeExpiryReviewItem && (
-        <WorkspaceOverlayFrame rootClassName="home-dashboard-overlay-root" onClose={props.closeHomeExpiryReview}>
-          <WorkspaceModal
-            title="处理临期食材"
-            description="先核对这批库存的信息；需要调整数量、位置或继续处理时进入食材详情。"
-            className="dashboard-todo-modal"
-            onClose={props.closeHomeExpiryReview}
-            footerActions={
-              <FormActions
-                className="dashboard-todo-actions"
-                primaryLabel="查看食材详情"
-                secondaryLabel="关闭"
-                onPrimary={() => {
-                  const ingredientId = homeExpiryReviewItem.ingredient_id;
-                  props.closeHomeExpiryReview();
-                  props.openIngredientDetail(ingredientId);
-                }}
-                onSecondary={props.closeHomeExpiryReview}
-              />
-            }
-          >
-            <div className="dashboard-todo-dialog">
-              <section className="dashboard-todo-dialog-hero">
-                <div className="dashboard-todo-dialog-media">
-                  <MediaWithPlaceholder
-                    src={props.resolveAssetUrl(props.homeExpiryReviewIngredient?.image?.url)}
-                    alt={props.homeExpiryReviewIngredient?.name ?? homeExpiryReviewItem.ingredient_name}
-                  />
-                </div>
-                <div className="dashboard-todo-dialog-copy">
-                  <Badge className={homeExpiryReviewItem.daysLeft <= 1 ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
-                    {homeExpiryReviewItem.daysLeft <= 0 ? '今天到期' : formatRelativeDays(homeExpiryReviewItem.expiry_date ?? today)}
-                  </Badge>
-                  <h3>{homeExpiryReviewItem.ingredient_name}</h3>
-                  <p>
-                    {props.homeExpiryReviewIngredient?.category || '未分类'} · {homeExpiryReviewItem.storage_location || '未记录位置'}
-                  </p>
-                </div>
-              </section>
-
-              <div className="dashboard-todo-dialog-grid">
-                <article>
-                  <span>剩余数量</span>
-                  <strong>
-                    {homeExpiryReviewItem.remaining_quantity ?? homeExpiryReviewItem.quantity}
-                    {homeExpiryReviewItem.unit}
-                  </strong>
-                </article>
-                <article>
-                  <span>库存状态</span>
-                  <strong>{INVENTORY_STATUS_LABELS[homeExpiryReviewItem.status]}</strong>
-                </article>
-                <article>
-                  <span>购买日期</span>
-                  <strong>{formatDate(homeExpiryReviewItem.purchase_date)}</strong>
-                </article>
-                <article>
-                  <span>到期日期</span>
-                  <strong>{homeExpiryReviewItem.expiry_date ? formatDate(homeExpiryReviewItem.expiry_date) : '未记录'}</strong>
-                </article>
-              </div>
-
-              {homeExpiryReviewItem.notes && <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>}
-
-            </div>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
 
       {props.homeMealDetail && (
         <WorkspaceOverlayFrame rootClassName="home-dashboard-overlay-root" onClose={props.closeHomeMealDetail}>
@@ -726,41 +675,73 @@ export function HomeDashboardDialogs(props: Props) {
         </WorkspaceOverlayFrame>
       )}
 
-      {props.homeExpiredDisposalSummary && (
-        <DestroyExpiredInventoryDialog
-          closeOverlay={() => props.setHomeExpiredDisposalIngredientId(null)}
-          summary={props.homeExpiredDisposalSummary}
-          previewUrl={props.resolveAssetUrl(props.homeExpiredDisposalSummary.ingredient.image?.url)}
-          meta={[
-            props.homeExpiredDisposalSummary.ingredient.category || '未分类',
-            props.homeExpiredDisposalSummary.primaryStorage,
-          ]}
-          items={props.homeExpiredDisposalItems}
-          headline={props.homeExpiredDisposalSummary.quantitySummaries[0]?.label ?? '当前已空'}
-          submit={props.submitHomeExpiredDisposal}
-          isSubmitting={props.isDisposingExpiredInventory}
-          formId="home-expired-disposal-overlay-form"
+      {selectedExpiryGroup && (
+        <InventoryActionDialog
+          open
+          group={selectedExpiryGroup}
+          referenceDate={props.businessDateKey}
+          busy={props.actionDialogBusy}
+          errorMessage={props.actionDialogError}
+          conflictState={props.actionDialogConflict}
           overlayRootClassName="home-dashboard-overlay-root"
-          description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
-          footerSummaryIntro="确认后将处理"
-          footerSummaryDetail="系统会把这些批次的剩余量清零，并在刷新后同步库存状态。"
-          summaryMetrics={
-            <>
-              <article className="destroy-expired-summary-metric is-primary">
-                <span>本次处理范围</span>
-                <strong>{props.homeExpiredDisposalItems.length} 条过期批次</strong>
-                <p>仅包含已经过期且当前仍有剩余量的批次。</p>
-              </article>
-              <article className="destroy-expired-summary-metric">
-                <span>处理结果</span>
-                <strong>清零剩余量</strong>
-                <p>批次记录、备注和活动日志都会继续保留。</p>
-              </article>
-            </>
-          }
-          listTitle="将要销毁的批次"
-          listDescription="只列出已经过期且当前仍有剩余量的批次；今天到期和未来到期不会出现在这里。"
+          onClose={props.closeActionGroup}
+          onDispose={props.disposeSelectedInventoryBatches}
+          onSnooze={props.snoozeSelectedInventoryAlerts}
+          onCorrectExpiry={props.correctSelectedInventoryExpiryDate}
         />
+      )}
+
+      {props.completionSummary && (
+        <WorkspaceOverlayFrame
+          rootClassName="home-dashboard-overlay-root"
+          onClose={props.dismissCompletionSummary}
+        >
+          <WorkspaceModal
+            title={props.completionSummary.title}
+            description={props.completionSummary.message}
+            className="dashboard-todo-modal home-action-completion-modal"
+            onClose={props.dismissCompletionSummary}
+            footerActions={
+              <FormActions
+                className="dashboard-todo-actions"
+                primaryLabel={props.nextGroupLabel ? `处理下一项：${props.nextGroupLabel}` : '知道了'}
+                onPrimary={() => {
+                  if (props.nextGroupId) {
+                    props.openNextActionGroup();
+                    return;
+                  }
+                  props.dismissCompletionSummary();
+                }}
+                secondaryLabel={
+                  props.completionSummary.secondaryActionLabel
+                  ?? (props.nextGroupId ? '关闭' : undefined)
+                }
+                onSecondary={
+                  props.completionSummary.secondaryActionIngredientId
+                    ? () => {
+                        const ingredientId = props.completionSummary?.secondaryActionIngredientId;
+                        props.dismissCompletionSummary();
+                        if (ingredientId) {
+                          props.onCompletionSecondaryAction(ingredientId);
+                        }
+                      }
+                    : props.nextGroupId
+                      ? props.dismissCompletionSummary
+                      : undefined
+                }
+              />
+            }
+          >
+            <div className="dashboard-todo-dialog">
+              <p className="subtle">{props.completionSummary.message}</p>
+              {props.nextGroupLabel ? (
+                <p>下一项：{props.nextGroupLabel}</p>
+              ) : (
+                <p className="subtle">今天没有其他需要继续处理的食材。</p>
+              )}
+            </div>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
       )}
     </>
   );

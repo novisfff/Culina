@@ -55,9 +55,12 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(mobileSource).toContain('{!isPending ? (');
     expect(mobileSource).toContain('const shouldShowFoodShoppingAction = isPending;');
     expect(mobileSource).toContain('{shouldShowFoodShoppingAction ? (');
-    expect(mobileSource).toContain('const priorityItemCount = props.mobilePrioritySummaries.length;');
+    expect(mobileSource).toContain('const priorityRows = props.mobilePriorityRows;');
+    expect(mobileSource).toContain('const priorityItemCount = priorityRows.length;');
     expect(mobileSource).toContain('const hasPriorityItems = priorityItemCount > 0;');
     expect(mobileSource).toContain('<h2>今天先处理 <span>{priorityItemCount} 项</span></h2>');
+    expect(mobileSource).toContain('data-action-group-id={group.id}');
+    expect(mobileSource).toContain('buildPriorityGroupStatus(group)');
     expect(mobileSource).toContain('当前没有需要优先处理的食材');
     expect(mobileSource).not.toContain('mobile-food-stock-strip');
     expect(mobileSource).not.toContain('aria-label="成品速食库存"');
@@ -66,4 +69,13 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(workspaceSource).toContain("() => unifiedInventoryItems.filter((item) => item.source_type === 'food')");
     expect(workspaceSource).not.toContain("() => filteredUnifiedInventoryItems.filter((item) => item.source_type === 'food')");
   });
+
+  it('opens inventory action dialog for any expiry priority group, not only expired batches', () => {
+    const mobileSource = readFileSync(sourcePath, 'utf8');
+    // Primary action for non-low-stock priority rows always opens the shared action dialog.
+    expect(mobileSource).toContain('props.openDestroyExpiredOverlay(group.ingredientId)');
+    // Must not gate priority primary action on expiredBatchCount > 0.
+    expect(mobileSource).not.toContain('group.expiredBatchCount > 0');
+  });
+
 });

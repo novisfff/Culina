@@ -1302,3 +1302,272 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             operation = approval["initial_values"]["draft"]["operations"][0]
             self.assertEqual(operation["ingredientId"], "ingredient-depleted-onion")
             self.assertIsNone(operation["inventoryItemId"])
+
+        def test_ai_inventory_write_increments_row_version(self) -> None:
+            with self.SessionLocal() as db:
+                item = db.scalar(
+                    select(InventoryItem)
+                    .where(InventoryItem.id == "inventory-tomato")
+                    .options(selectinload(InventoryItem.ingredient))
+                )
+                assert item is not None
+                self.assertEqual(item.row_version, 1)
+                result = dispose_inventory_quantity(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    item=item,
+                    quantity=Decimal("1"),
+                    unit="个",
+                    reason="AI 测试销毁",
+                )
+                self.assertEqual(result["remaining_quantity"], 2.0)
+                db.flush()
+                db.commit()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.disposed_quantity, Decimal("1.00"))
+                self.assertEqual(item.row_version, 2)
+
+            with self.SessionLocal() as db:
+                from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
+                payload = {
+                    "operations": [
+                        {
+                            "action": "consume",
+                            "ingredientId": "ingredient-tomato",
+                            "quantity": 1,
+                            "unit": "个",
+                        }
+                    ]
+                }
+                result, entity_ids = execute_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload=payload,
+                )
+                self.assertEqual(entity_ids, ["inventory-tomato"])
+                self.assertEqual(result["operations"][0]["quantity"], 1.0)
+                db.commit()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.consumed_quantity, Decimal("1.00"))
+                self.assertEqual(item.row_version, 3)
+
+        def test_expired_snoozed_batch_remains_expired_in_ai_inventory_reads(self) -> None:
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                today = today_for_family(self.family.id)
+                item.expiry_date = today - timedelta(days=2)
+                item.expiry_alert_snoozed_until = today + timedelta(days=5)
+                db.commit()
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-expired-snoozed",
+                        run_id="run-expired-snoozed",
+                    ),
+                )
+                expired = executor.call("inventory.read_expired_items", {"limit": 20})
+                available = executor.call("inventory.read_available_items", {"limit": 20})
+                expiring = executor.call("inventory.read_expiring_items", {"days": 7})
+
+                expired_ids = {
+                    record.get("inventoryItemId") or record.get("id")
+                    for record in expired["items"]
+                }
+                expiring_ids = {
+                    record.get("inventoryItemId") or record.get("id")
+                    for record in expiring["items"]
+                }
+                self.assertIn("inventory-tomato", expired_ids)
+                # Snooze does not move expired stock into the expiring window.
+                self.assertNotIn("inventory-tomato", expiring_ids)
+                tomato_record = next(
+                    record
+                    for record in expired["items"]
+                    if (record.get("inventoryItemId") or record.get("id")) == "inventory-tomato"
+                )
+                self.assertEqual(tomato_record["displayStatus"], "expired")
+                self.assertLess(tomato_record["daysUntilExpiry"], 0)
+
+                # If the same row also appears in a broader remaining-stock listing,
+                # AI still classifies it as expired; snooze never rewrites display status.
+                available_tomato = [
+                    record
+                    for record in available["items"]
+                    if (record.get("inventoryItemId") or record.get("id")) == "inventory-tomato"
+                ]
+                for record in available_tomato:
+                    self.assertEqual(record["displayStatus"], "expired")
+                    self.assertLess(record["daysUntilExpiry"], 0)
+
+        def test_expired_snoozed_quantity_excluded_from_ai_low_stock_available_total(self) -> None:
+            with self.SessionLocal() as db:
+                today = today_for_family(self.family.id)
+                tomato = db.get(InventoryItem, "inventory-tomato")
+                assert tomato is not None
+                tomato.quantity = Decimal("10")
+                tomato.consumed_quantity = Decimal("0")
+                tomato.disposed_quantity = Decimal("0")
+                tomato.expiry_date = today - timedelta(days=1)
+                tomato.expiry_alert_snoozed_until = today + timedelta(days=4)
+                tomato.low_stock_threshold = Decimal("0")
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                ingredient.default_low_stock_threshold = Decimal("2")
+                create_inventory_batch(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    ingredient=ingredient,
+                    quantity=Decimal("1"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=today,
+                    expiry_date=today + timedelta(days=5),
+                    storage_location="冷藏",
+                    low_stock_threshold=Decimal("0"),
+                )
+                db.commit()
+
+                from app.services.inventory_usage import (
+                    inventory_remaining_in_default,
+                    load_available_inventory_by_ingredient,
+                )
+
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                available = load_available_inventory_by_ingredient(
+                    db,
+                    family_id=self.family.id,
+                    ingredient_ids=[ingredient.id],
+                    today=today,
+                ).get(ingredient.id, [])
+                available_total = sum(
+                    (inventory_remaining_in_default(item, ingredient) for item in available),
+                    Decimal("0"),
+                )
+                # Expired snoozed 10 is excluded; only fresh 1 remains available.
+                self.assertEqual(available_total, Decimal("1"))
+                self.assertTrue(all(item.id != "inventory-tomato" for item in available))
+
+        def test_ai_inventory_stale_data_error_maps_to_ai_conflict(self) -> None:
+            from unittest.mock import patch
+
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+            from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
+            from sqlalchemy.orm.exc import StaleDataError
+
+            with self.SessionLocal() as db:
+                def flush_raising_stale(*args, **kwargs):
+                    raise StaleDataError(
+                        "UPDATE statement on table 'inventory_items' expected to update 1 row(s); 0 were matched."
+                    )
+
+                with patch.object(type(db), "flush", flush_raising_stale):
+                    with self.assertRaises(AIConflictError) as raised:
+                        execute_inventory_operation_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload={
+                                "operations": [
+                                    {
+                                        "action": "dispose",
+                                        "ingredientId": "ingredient-tomato",
+                                        "inventoryItemId": "inventory-tomato",
+                                        "quantity": 1,
+                                        "unit": "个",
+                                        "reason": "冲突测试",
+                                    }
+                                ]
+                            },
+                        )
+                self.assertEqual(str(raised.exception), STALE_INVENTORY_DETAIL)
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.disposed_quantity, Decimal("0"))
+                self.assertEqual(item.row_version, 1)
+
+        def test_ai_recipe_cook_stale_data_error_maps_to_ai_conflict(self) -> None:
+            from unittest.mock import patch
+
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
+            from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
+            from sqlalchemy.orm.exc import StaleDataError
+
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-ai-stale-cook",
+                    family_id=self.family.id,
+                    title="番茄炒蛋",
+                    servings=2,
+                    prep_minutes=10,
+                    difficulty="easy",
+                    tips="",
+                    scene_tags=[],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add_all(
+                    [
+                        RecipeIngredient(
+                            id="recipe-ingredient-ai-stale-tomato",
+                            recipe_id=recipe.id,
+                            ingredient_id="ingredient-tomato",
+                            ingredient_name="番茄",
+                            quantity=Decimal("1"),
+                            unit="个",
+                            note="",
+                            sort_order=0,
+                        ),
+                    ]
+                )
+                db.commit()
+                base_updated_at = recipe.updated_at.isoformat()
+
+            with self.SessionLocal() as db:
+                def flush_raising_stale(*args, **kwargs):
+                    raise StaleDataError(
+                        "UPDATE statement on table 'inventory_items' expected to update 1 row(s); 0 were matched."
+                    )
+
+                with patch.object(type(db), "flush", flush_raising_stale):
+                    with self.assertRaises(AIConflictError) as raised:
+                        execute_recipe_cook_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload={
+                                "recipeId": "recipe-ai-stale-cook",
+                                "baseUpdatedAt": base_updated_at,
+                                "servings": 2,
+                                "createMealLog": False,
+                            },
+                        )
+                self.assertEqual(str(raised.exception), STALE_INVENTORY_DETAIL)
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+                self.assertEqual(item.row_version, 1)
+

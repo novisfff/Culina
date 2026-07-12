@@ -36,7 +36,7 @@ type UseIngredientEditorStateArgs = {
   setWorkspaceView: Dispatch<SetStateAction<IngredientWorkspaceView>>;
   setInventoryForm: Dispatch<SetStateAction<InventoryDrawerFormState>>;
   setInventoryAdvancedOpen: Dispatch<SetStateAction<boolean>>;
-  setOverlayMode: Dispatch<SetStateAction<'inventory' | 'shopping' | 'consume' | 'destroyExpired' | null>>;
+  setOverlayMode: Dispatch<SetStateAction<'inventory' | 'shopping' | 'consume' | 'inventoryAction' | null>>;
   isCreatingIngredient?: boolean;
   isUpdatingIngredient?: boolean;
   createIngredient: (payload: {

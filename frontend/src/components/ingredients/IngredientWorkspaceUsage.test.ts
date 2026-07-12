@@ -157,3 +157,33 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain("openShoppingOverlay({ food, reason: '补充成品库存' })");
   });
 });
+
+describe('IngredientWorkspace navigation consumption', () => {
+  it('consumes shopping and priority navigation once by requestId', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const stateSource = readFileSync(resolve(__dirname, 'useIngredientWorkspaceState.ts'), 'utf8');
+    const mobileSource = readFileSync(resolve(__dirname, 'IngredientMobileView.tsx'), 'utf8');
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
+
+    expect(stateSource).toContain('handledNavigationRequestIdRef');
+    expect(stateSource).toContain("setCatalogStatusFilter('actionNeeded')");
+    expect(stateSource).not.toContain("setCatalogStatusFilter('expired')");
+    expect(workspaceSource).toContain('handledSideEffectNavigationRequestIdRef');
+    expect(workspaceSource).toContain("openShoppingOverlay({ ingredient, reason: '库存不足' })");
+    expect(workspaceSource).toContain("request.target === 'priority'");
+    expect(workspaceSource).toContain("document.getElementById('mobile-ingredient-priority')");
+    expect(mobileSource).toContain('id="mobile-ingredient-priority"');
+    expect(panelsSource).toContain('id="ingredient-priority-list"');
+    expect(workspaceSource).toContain("label: '需处理'");
+    expect(workspaceSource).toContain("value: 'actionNeeded'");
+  });
+
+  it('does not keep the legacy destroy-expired overlay component wired', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const overlaysSource = readFileSync(resolve(__dirname, 'IngredientWorkspaceOverlays.tsx'), 'utf8');
+
+    expect(workspaceSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
+    expect(overlaysSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
+    expect(overlaysSource).toContain('InventoryActionDialog');
+  });
+});

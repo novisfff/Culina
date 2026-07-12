@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client';
+import { invalidateAfterInventoryChanged } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
@@ -14,12 +16,16 @@ import type {
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
 import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
+import { businessDateKey } from './lib/date';
+import {
+  buildInventoryActionGroups,
+  selectHomeEligibleInventoryActionGroups,
+} from './features/inventory/inventoryActionModel';
 import {
   EmptyState,
 } from './components/ui-kit';
 import {
   FOOD_TYPE_LABELS,
-  buildInventoryAlerts,
   getFoodCover,
   todayKey,
 } from './lib/ui';
@@ -122,46 +128,8 @@ function App() {
   const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
   const [pendingRecipeCookReturnTarget, setPendingRecipeCookReturnTarget] = useState<TabKey | null>(null);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
-  const {
-    dashboardRecommendationPage,
-    setDashboardRecommendationPage,
-    selectedDashboardPlanDate,
-    setSelectedDashboardPlanDate,
-    homePlanDetailItemId,
-    isHomePlanAddDialogOpen,
-    homePlanAddFoodId,
-    setHomePlanAddFoodId,
-    homePlanAddFoodSearch,
-    setHomePlanAddFoodSearch,
-    homePlanAddForm,
-    setHomePlanAddForm,
-    homePlanDetailForm,
-    setHomePlanDetailForm,
-    isHomePlanDetailEditing,
-    setIsHomePlanDetailEditing,
-    visibleExpiryCount,
-    setVisibleExpiryCount,
-    visibleDashboardTodoCount,
-    setVisibleDashboardTodoCount,
-    homeExpiredDisposalIngredientId,
-    setHomeExpiredDisposalIngredientId,
-    homeExpiryReviewItemId,
-    setHomeExpiryReviewItemId,
-    homeRestockShoppingItemId,
-    setHomeRestockShoppingItemId,
-    homeRestockForm,
-    setHomeRestockForm,
-    homeMealDetailId,
-    setHomeMealDetailId,
-    openHomePlanDetail,
-    closeHomePlanDetail,
-    resetHomePlanDetailForm,
-    openHomePlanAddDialog,
-    openHomePlanAddEmptyDialog,
-    selectHomePlanAddFood,
-    closeHomePlanAddDialog,
-  } = useHomeDashboardState({ foodPlanWeekRange });
   const { notice, showNotice, clearNotice } = useNotice();
+  const queryClient = useQueryClient();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
   useEffect(() => {
@@ -212,6 +180,75 @@ function App() {
     isAuthenticated,
     foodPlanWeekRange,
   });
+
+  // One business date for home action projection; same key is injected again by useAppHomeViewModel.
+  const homeBusinessDateKey = businessDateKey(new Date(), 'Asia/Shanghai');
+  const homePreparedActionGroups = useMemo(
+    () =>
+      buildInventoryActionGroups({
+        inventoryItems,
+        ingredients,
+        shoppingItems,
+        referenceDate: homeBusinessDateKey,
+      }),
+    [homeBusinessDateKey, ingredients, inventoryItems, shoppingItems],
+  );
+  const homeEligibleInventoryActionGroupsForState = useMemo(
+    () => selectHomeEligibleInventoryActionGroups(homePreparedActionGroups),
+    [homePreparedActionGroups],
+  );
+
+  const {
+    dashboardRecommendationPage,
+    setDashboardRecommendationPage,
+    selectedDashboardPlanDate,
+    setSelectedDashboardPlanDate,
+    homePlanDetailItemId,
+    isHomePlanAddDialogOpen,
+    homePlanAddFoodId,
+    setHomePlanAddFoodId,
+    homePlanAddFoodSearch,
+    setHomePlanAddFoodSearch,
+    homePlanAddForm,
+    setHomePlanAddForm,
+    homePlanDetailForm,
+    setHomePlanDetailForm,
+    isHomePlanDetailEditing,
+    setIsHomePlanDetailEditing,
+    selectedActionGroupId,
+    completionSummary,
+    completedIngredientId,
+    nextGroupId,
+    actionDialogBusy,
+    actionDialogError,
+    actionDialogConflict,
+    setActionDialogBusy,
+    setActionDialogError,
+    setActionDialogConflict,
+    openActionGroup,
+    closeActionGroup,
+    completeActionGroup,
+    openNextActionGroup,
+    dismissCompletionSummary,
+    homeRestockShoppingItemId,
+    setHomeRestockShoppingItemId,
+    homeRestockForm,
+    setHomeRestockForm,
+    homeMealDetailId,
+    setHomeMealDetailId,
+    openHomePlanDetail,
+    closeHomePlanDetail,
+    resetHomePlanDetailForm,
+    openHomePlanAddDialog,
+    openHomePlanAddEmptyDialog,
+    selectHomePlanAddFood,
+    closeHomePlanAddDialog,
+  } = useHomeDashboardState({
+    foodPlanWeekRange,
+    homeEligibleInventoryActionGroups: homeEligibleInventoryActionGroupsForState,
+    businessDateKey: homeBusinessDateKey,
+  });
+
   const {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
@@ -258,6 +295,8 @@ function App() {
     createInventoryMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,
+    snoozeInventoryExpiryAlertsMutation,
+    correctInventoryExpiryDateMutation,
     createShoppingMutation,
     updateShoppingMutation,
     deleteShoppingMutation,
@@ -314,10 +353,6 @@ function App() {
     isOwner: membership?.role === 'Owner',
     showNotice,
   });
-  useEffect(() => {
-    setVisibleExpiryCount(10);
-  }, [inventoryItems.length]);
-
   if (!isAuthenticated) {
     return <LoginScreen />;
   }
@@ -360,8 +395,12 @@ function App() {
     sidebarUserMeta,
     sidebarUserNote,
     today,
-    expiringInventoryItems,
-    visibleExpiringInventoryItems,
+    homeEligibleInventoryActionGroups,
+    homeInventoryActionGroups,
+    homeInventoryActionCount,
+    hasLaterInventoryActionGroups,
+    hasFullListInventoryActionGroups,
+    availableInventoryCount,
     activeFoodPlanItems,
     pendingShoppingPreview,
     todaysMeals,
@@ -369,24 +408,16 @@ function App() {
     dashboardRecommendationItems,
     dashboardRecommendationPageCount,
     dashboardRecommendations,
-    dashboardTodoItems,
-    visibleDashboardTodoItems,
-    hasMoreDashboardTodoItems,
-    dashboardCompletedCount,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,
     selectedDashboardPlanDay,
     selectedDashboardPlanDateLabel,
     homeRestockShoppingItem,
-    homeExpiryReviewItem,
-    homeExpiryReviewIngredient,
     homeMealDetail,
     homeMealDetailParticipants,
     homeRestockIngredient,
     homeRestockIngredientImageUrl,
-    homeExpiredDisposalSummary,
-    homeExpiredDisposalItems,
   } = useAppHomeViewModel({
     user,
     membershipRole: membership?.role,
@@ -403,20 +434,33 @@ function App() {
     mealLogs,
     activityLogs,
     dashboardRecommendationPage,
-    visibleDashboardTodoCount,
-    visibleExpiryCount,
     selectedDashboardPlanDate,
     foodPlanWeekRange,
     homePlanDetailItemId,
     homePlanAddFoodId,
     homePlanAddFoodSearch,
     homeRestockShoppingItemId,
-    homeExpiryReviewItemId,
     homeMealDetailId,
     homeRestockForm,
-    homeExpiredDisposalIngredientId,
+    inventoryActionGroups: homePreparedActionGroups,
     resolveDashboardAssetUrl,
   });
+
+  void homeInventoryActionCount;
+  void availableInventoryCount;
+  void completedIngredientId;
+
+  const selectedActionGroup =
+    homeEligibleInventoryActionGroups.find((group) => group.id === selectedActionGroupId) ?? null;
+  const nextActionGroup =
+    nextGroupId
+      ? homeEligibleInventoryActionGroups.find((group) => group.id === nextGroupId) ?? null
+      : null;
+  const nextGroupLabel = nextActionGroup?.ingredientName ?? null;
+
+  function handleOpenActionGroup(group: (typeof homeInventoryActionGroups)[number]) {
+    openActionGroup(group.id);
+  }
 
   function resolveDashboardAssetUrl(url?: string) {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
@@ -425,35 +469,65 @@ function App() {
   const {
     openIngredientsCatalog,
     openIngredientDetail,
-    openIngredientExpiredDisposal,
-    openHomeExpiryReview,
-    closeHomeExpiryReview,
+    openIngredientShopping,
+    openIngredientPriority,
     openHomeRestock,
     closeHomeRestock,
     closeHomeMealDetail,
-    handleDashboardTodoClick,
     updateHomeRestockForm,
-    handleExpiryListScroll,
-    handleDashboardTodoListScroll,
   } = useAppHomeHandlers({
     ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest,
     setActiveTab,
-    setHomeExpiredDisposalIngredientId,
-    setHomeExpiryReviewItemId,
     setHomeRestockShoppingItemId,
     setHomeRestockForm,
     setHomeMealDetailId,
-    setVisibleExpiryCount,
-    setVisibleDashboardTodoCount,
     ingredients,
-    expiringInventoryCount: expiringInventoryItems.length,
-    dashboardTodoCount: dashboardTodoItems.length,
   });
+  void openIngredientsCatalog;
+  void openIngredientDetail;
+
+  function handleOpenNextActionGroup() {
+    const group = openNextActionGroup();
+    if (group?.kind === 'low_stock') {
+      openIngredientShopping(group.ingredientId);
+    }
+  }
+
+  async function refreshInventoryActions() {
+    // Await canonical inventory (and shopping) refetch so completion/conflict branches
+    // never compute next-item or surviving groups from stale React Query data.
+    await invalidateAfterInventoryChanged(queryClient);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
+    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventory,
+        queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.ingredients,
+        queryFn: () => api.getIngredients(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.shoppingList,
+        queryFn: () => api.getShoppingList(),
+      }),
+    ]);
+    return selectHomeEligibleInventoryActionGroups(
+      buildInventoryActionGroups({
+        inventoryItems: freshInventory,
+        ingredients: freshIngredients,
+        shoppingItems: freshShopping,
+        referenceDate: homeBusinessDateKey,
+      }),
+    );
+  }
 
   const {
     startHomePlanDetailCook,
-    submitHomeExpiredDisposal,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
     submitHomeRestock,
     submitHomePlanDetail,
     supplementHomePlanDetailRecord,
@@ -461,8 +535,7 @@ function App() {
     submitHomePlanAdd,
   } = useHomeDashboardActions({
     showNotice,
-    homeExpiredDisposalSummary,
-    homeExpiredDisposalItems,
+    selectedActionGroup,
     homeRestockShoppingItem,
     homeRestockForm,
     homeRestockIngredient,
@@ -473,12 +546,20 @@ function App() {
     createInventory: (payload) => createInventoryMutation.mutateAsync(payload),
     updateShoppingDone: (itemId, done) => updateShoppingMutation.mutateAsync({ itemId, payload: { done } }),
     disposeExpiredInventory: (payload) => disposeExpiredInventoryMutation.mutateAsync(payload),
+    snoozeInventoryExpiryAlerts: (payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload),
+    correctInventoryExpiryDate: (inventoryItemId, payload) =>
+      correctInventoryExpiryDateMutation.mutateAsync({ inventoryItemId, payload }),
+    refreshInventoryActions,
+    completeActionGroup,
+    closeActionGroup,
+    setActionDialogBusy,
+    setActionDialogError,
+    setActionDialogConflict,
     updateFoodPlanItem: (itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
     deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
     createFoodPlanItem: (payload) => createFoodPlanItemMutation.mutateAsync(payload),
     quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
     closeHomeRestock,
-    closeHomeExpiredDisposal: () => setHomeExpiredDisposalIngredientId(null),
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
@@ -596,10 +677,9 @@ function App() {
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
             dashboardRecommendations={dashboardRecommendations}
             foodRecommendations={foodRecommendations}
-            dashboardCompletedCount={dashboardCompletedCount}
-            dashboardTodoItems={dashboardTodoItems}
-            visibleDashboardTodoItems={visibleDashboardTodoItems}
-            hasMoreDashboardTodoItems={hasMoreDashboardTodoItems}
+            homeInventoryActionGroups={homeInventoryActionGroups}
+            hasLaterInventoryActionGroups={hasLaterInventoryActionGroups}
+            hasFullListInventoryActionGroups={hasFullListInventoryActionGroups}
             activeFoodPlanItems={activeFoodPlanItems}
             foodPlanItems={foodPlanItems}
             dashboardWeekMealCapacity={dashboardWeekMealCapacity}
@@ -608,8 +688,6 @@ function App() {
             selectedDashboardPlanDateLabel={selectedDashboardPlanDateLabel}
             pendingShoppingCount={pendingShoppingCount}
             pendingShoppingPreview={pendingShoppingPreview}
-            visibleExpiringInventoryItems={visibleExpiringInventoryItems}
-            hasMoreExpiringInventoryItems={visibleExpiryCount < expiringInventoryItems.length}
             dashboardPlanSummary={dashboardPlanSummary}
             foodPlanWeekRange={foodPlanWeekRange}
             foods={foods}
@@ -634,12 +712,9 @@ function App() {
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
             onHomePlanDetailOpen={openHomePlanDetail}
             onHomeRestockOpen={openHomeRestock}
-            onIngredientsCatalogOpen={openIngredientsCatalog}
-            onIngredientExpiredDisposalOpen={openIngredientExpiredDisposal}
-            onIngredientDetailOpen={openIngredientDetail}
-            onDashboardTodoClick={handleDashboardTodoClick}
-            onExpiryListScroll={handleExpiryListScroll}
-            onDashboardTodoListScroll={handleDashboardTodoListScroll}
+            onOpenActionGroup={handleOpenActionGroup}
+            onOpenIngredientShopping={openIngredientShopping}
+            onOpenIngredientPriority={openIngredientPriority}
             onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
             onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
@@ -791,6 +866,10 @@ function App() {
               createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
               consumeInventory={(payload) => consumeInventoryMutation.mutateAsync(payload)}
               disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
+              snoozeInventoryExpiryAlerts={(payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload)}
+              correctInventoryExpiryDate={(inventoryItemId, payload) =>
+                correctInventoryExpiryDateMutation.mutateAsync({ inventoryItemId, payload })
+              }
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
               deleteShoppingItem={(itemId) => deleteShoppingMutation.mutateAsync(itemId)}
@@ -925,10 +1004,6 @@ function App() {
             submitHomePlanAdd={submitHomePlanAdd}
             closeHomePlanAddDialog={closeHomePlanAddDialog}
             isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
-            homeExpiryReviewItem={homeExpiryReviewItem}
-            homeExpiryReviewIngredient={homeExpiryReviewIngredient}
-            closeHomeExpiryReview={closeHomeExpiryReview}
-            openIngredientDetail={openIngredientDetail}
             homeMealDetail={homeMealDetail}
             homeMealDetailParticipants={homeMealDetailParticipants}
             closeHomeMealDetail={closeHomeMealDetail}
@@ -940,11 +1015,21 @@ function App() {
             closeHomeRestock={closeHomeRestock}
             submitHomeRestock={submitHomeRestock}
             isCreatingInventory={createInventoryMutation.isPending}
-            homeExpiredDisposalSummary={homeExpiredDisposalSummary}
-            homeExpiredDisposalItems={homeExpiredDisposalItems}
-            setHomeExpiredDisposalIngredientId={setHomeExpiredDisposalIngredientId}
-            submitHomeExpiredDisposal={submitHomeExpiredDisposal}
-            isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
+            selectedActionGroup={selectedActionGroup}
+            businessDateKey={today}
+            actionDialogBusy={actionDialogBusy}
+            actionDialogError={actionDialogError}
+            actionDialogConflict={actionDialogConflict}
+            closeActionGroup={closeActionGroup}
+            disposeSelectedInventoryBatches={disposeSelectedInventoryBatches}
+            snoozeSelectedInventoryAlerts={snoozeSelectedInventoryAlerts}
+            correctSelectedInventoryExpiryDate={correctSelectedInventoryExpiryDate}
+            completionSummary={completionSummary}
+            nextGroupId={nextGroupId}
+            nextGroupLabel={nextGroupLabel}
+            openNextActionGroup={handleOpenNextActionGroup}
+            dismissCompletionSummary={dismissCompletionSummary}
+            onCompletionSecondaryAction={openIngredientShopping}
             resolveAssetUrl={resolveDashboardAssetUrl}
           />
         </Suspense>
