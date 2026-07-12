@@ -9,6 +9,7 @@ import {
   familyActivityEntityLabel,
   groupFamilyActivitiesByDate,
   hasFamilyActivityFilters,
+  resolveFamilyActivityViewerPhase,
 } from './FamilyActivityViewerModel';
 
 function activity(overrides: Partial<ActivityLog>): ActivityLog {
@@ -111,5 +112,36 @@ describe('FamilyActivityViewerModel', () => {
     expect(hasFamilyActivityFilters(DEFAULT_FAMILY_ACTIVITY_FILTERS)).toBe(false);
     expect(hasFamilyActivityFilters({ ...DEFAULT_FAMILY_ACTIVITY_FILTERS, actorId: 'user-1' })).toBe(true);
     expect(familyActivityEmptyDescription(true)).toContain('筛选条件');
+  });
+
+  it('resolves viewer phase without faking empty before cache exists', () => {
+    expect(resolveFamilyActivityViewerPhase({
+      queryData: undefined,
+      seedData: undefined,
+      logs: [],
+      isQueryError: false,
+      isPreviewError: false,
+    })).toBe('loading');
+    expect(resolveFamilyActivityViewerPhase({
+      queryData: undefined,
+      seedData: undefined,
+      logs: [],
+      isQueryError: true,
+      isPreviewError: false,
+    })).toBe('error');
+    expect(resolveFamilyActivityViewerPhase({
+      queryData: [],
+      seedData: undefined,
+      logs: [],
+      isQueryError: false,
+      isPreviewError: false,
+    })).toBe('empty');
+    expect(resolveFamilyActivityViewerPhase({
+      queryData: [activity({})],
+      seedData: undefined,
+      logs: [activity({})],
+      isQueryError: true,
+      isPreviewError: false,
+    })).toBe('ready');
   });
 });

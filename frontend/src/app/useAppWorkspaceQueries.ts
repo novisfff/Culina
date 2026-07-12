@@ -43,8 +43,8 @@ export function useAppWorkspaceQueries(args: {
   const needsFoods = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
   const needsFoodRecommendations = matchesTabWindow(args.activeTab, ['home', 'foods']);
   const needsMealLogs = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
-  const needsActivityLogs = matchesTabWindow(args.activeTab, ['home', 'family']);
   const needsActivityHighlights = args.activeTab === 'home';
+  const needsActivityLogs = args.activeTab === 'family';
   const needsAiConversations = args.activeTab === 'ai';
 
   const familyQuery = useQuery({
@@ -158,7 +158,6 @@ export function useAppWorkspaceQueries(args: {
     (needsFoods && foodsQuery.isLoading) ||
     (needsFoodRecommendations && foodRecommendationsQuery.isLoading) ||
     (needsMealLogs && mealLogsQuery.isLoading) ||
-    (needsActivityLogs && activityLogsQuery.isLoading) ||
     (needsAiConversations && aiConversationsQuery.isLoading);
 
   return {
@@ -197,7 +196,6 @@ export function useAppWorkspaceQueries(args: {
     foods: foodsQuery.data ?? ([] as Food[]),
     foodRecommendations: foodRecommendationsQuery.data ?? (null as FoodRecommendations | null),
     mealLogs: mealLogsQuery.data ?? ([] as MealLog[]),
-    activityLogs: activityLogsQuery.data ?? [],
     aiConversations: aiConversationsQuery.data ?? [],
     family: familyQuery.data,
   };

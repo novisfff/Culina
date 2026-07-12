@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { ActivityLog, Member } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
-import { DropdownSelect, EmptyState, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
+import { DropdownSelect, EmptyState, FormActions, StateBlock, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   DEFAULT_FAMILY_ACTIVITY_FILTERS,
@@ -19,12 +19,14 @@ import {
   familyActivityEntityLabel,
   groupFamilyActivitiesByDate,
   hasFamilyActivityFilters,
+  resolveFamilyActivityViewerPhase,
   type FamilyActivityFilters,
+  type FamilyActivityQueryState,
 } from './FamilyActivityViewerModel';
 
 type FamilyActivityViewerProps = {
   members: Member[];
-  previewLogs: ActivityLog[];
+  previewQuery: FamilyActivityQueryState;
 };
 
 function activityIconName(log: ActivityLog) {
@@ -123,17 +125,53 @@ function FamilyActivityFiltersPanel(props: {
   );
 }
 
+function FamilyActivitySkeleton() {
+  return (
+    <div className="family-activity-viewer-skeleton" aria-label="家庭活动加载中">
+      {[0, 1, 2, 3].map((index) => (
+        <span key={index} aria-hidden="true" />
+      ))}
+    </div>
+  );
+}
+
 function FamilyActivityTimeline(props: {
   logs: ActivityLog[];
   isFetching: boolean;
   hasFilters: boolean;
+  phase: 'loading' | 'empty' | 'ready' | 'error';
+  hasRefreshError: boolean;
+  onRetry: () => void;
 }) {
   const groups = useMemo(() => groupFamilyActivitiesByDate(props.logs), [props.logs]);
 
-  if (props.logs.length === 0) {
+  if (props.phase === 'loading') {
+    return <FamilyActivitySkeleton />;
+  }
+
+  if (props.phase === 'error') {
+    return (
+      <div className="family-activity-viewer-empty">
+        <StateBlock
+          status="error"
+          title="家庭活动暂时加载失败"
+          description="网络或服务暂时不可用，稍后重试即可。"
+          actionLabel="重试活动记录"
+          onAction={props.onRetry}
+        />
+      </div>
+    );
+  }
+
+  if (props.phase === 'empty' || props.logs.length === 0) {
     return (
       <div className="family-activity-viewer-empty">
         <EmptyState title={props.hasFilters ? '没有匹配记录' : '暂无家庭活动'} description={familyActivityEmptyDescription(props.hasFilters)} />
+        {props.hasRefreshError && (
+          <button className="family-activity-viewer-refresh-warning" type="button" onClick={props.onRetry}>
+            刷新失败，重试
+          </button>
+        )}
       </div>
     );
   }
@@ -161,11 +199,16 @@ function FamilyActivityTimeline(props: {
           </div>
         </section>
       ))}
+      {props.hasRefreshError ? (
+        <button className="family-activity-viewer-refresh-warning" type="button" onClick={props.onRetry}>
+          刷新失败，重试
+        </button>
+      ) : null}
     </div>
   );
 }
 
-function useFamilyActivityViewerData(previewLogs: ActivityLog[]) {
+function useFamilyActivityViewerData(previewQuery: FamilyActivityQueryState) {
   const [filters, setFilters] = useState<FamilyActivityFilters>(DEFAULT_FAMILY_ACTIVITY_FILTERS);
   const [limit, setLimit] = useState(FAMILY_ACTIVITY_PAGE_SIZE);
   const query = useMemo(() => buildFamilyActivityQuery(filters, limit), [filters, limit]);
@@ -175,7 +218,22 @@ function useFamilyActivityViewerData(previewLogs: ActivityLog[]) {
     queryFn: () => api.getActivityLogs(query),
     placeholderData: keepPreviousData,
   });
-  const logs = activityQuery.data ?? previewLogs;
+  const queryData = activityQuery.data;
+  const seedData = previewQuery.data?.slice(0, limit);
+  const logs = queryData ?? seedData ?? [];
+  const hasCachedData = queryData !== undefined || seedData !== undefined;
+  const phase = resolveFamilyActivityViewerPhase({
+    queryData,
+    seedData,
+    logs,
+    isQueryError: activityQuery.isError,
+    isPreviewError: previewQuery.isError,
+  });
+  const hasRefreshError = hasCachedData && (
+    activityQuery.isError
+    || (queryData === undefined && previewQuery.isError)
+    || (Boolean(seedData?.length) && previewQuery.isError && activityQuery.isError)
+  );
 
   useEffect(() => {
     setLimit(FAMILY_ACTIVITY_PAGE_SIZE);
@@ -189,13 +247,20 @@ function useFamilyActivityViewerData(previewLogs: ActivityLog[]) {
     setLimit,
     hasFilters,
     logs,
+    phase,
     isFetching: activityQuery.isFetching,
+    hasRefreshError,
+    refetch: () => {
+      void activityQuery.refetch();
+      previewQuery.refetch();
+    },
+    optionLogs: previewQuery.data ?? queryData ?? [],
   };
 }
 
 export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose: () => void }) {
-  const viewer = useFamilyActivityViewerData(props.previewLogs);
-  const canLoadMore = viewer.logs.length >= viewer.limit;
+  const viewer = useFamilyActivityViewerData(props.previewQuery);
+  const canLoadMore = viewer.phase === 'ready' && viewer.logs.length >= viewer.limit;
 
   return (
     <WorkspaceOverlayFrame rootClassName="family-settings-overlay-root" onClose={props.onClose}>
@@ -219,27 +284,40 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
       >
         <FamilyActivityFiltersPanel
           filters={viewer.filters}
-          logsForOptions={props.previewLogs}
+          logsForOptions={viewer.optionLogs}
           members={props.members}
           onChange={viewer.setFilters}
           onReset={viewer.resetFilters}
         />
-        <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
+        <FamilyActivityTimeline
+          logs={viewer.logs}
+          isFetching={viewer.isFetching}
+          hasFilters={viewer.hasFilters}
+          phase={viewer.phase}
+          hasRefreshError={viewer.hasRefreshError}
+          onRetry={viewer.refetch}
+        />
       </WorkspaceModal>
     </WorkspaceOverlayFrame>
   );
 }
 
 export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { onBack: () => void }) {
-  const viewer = useFamilyActivityViewerData(props.previewLogs);
-  const canLoadMore = viewer.logs.length >= viewer.limit;
+  const viewer = useFamilyActivityViewerData(props.previewQuery);
+  const canLoadMore = viewer.phase === 'ready' && viewer.logs.length >= viewer.limit;
   const pageRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    try {
+      window.scrollTo(0, 0);
+    } catch {
+      // jsdom does not implement window.scrollTo.
+    }
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-    pageRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    if (typeof pageRef.current?.scrollTo === 'function') {
+      pageRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
   }, []);
 
   return (
@@ -255,12 +333,19 @@ export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { on
       </header>
       <FamilyActivityFiltersPanel
         filters={viewer.filters}
-        logsForOptions={props.previewLogs}
+        logsForOptions={viewer.optionLogs}
         members={props.members}
         onChange={viewer.setFilters}
         onReset={viewer.resetFilters}
       />
-      <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
+      <FamilyActivityTimeline
+        logs={viewer.logs}
+        isFetching={viewer.isFetching}
+        hasFilters={viewer.hasFilters}
+        phase={viewer.phase}
+        hasRefreshError={viewer.hasRefreshError}
+        onRetry={viewer.refetch}
+      />
       {canLoadMore && (
         <FormActions
           className="family-activity-viewer-actions"

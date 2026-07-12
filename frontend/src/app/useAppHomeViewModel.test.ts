@@ -55,7 +55,6 @@ function buildHomeArgs(overrides: Partial<HomeArgs> = {}): HomeArgs {
     foodPlanItems: [],
     foodRecommendations: null,
     mealLogs: [],
-    activityLogs: [],
     activityHighlights: {
       data: undefined,
       isLoading: false,

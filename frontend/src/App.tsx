@@ -7,6 +7,7 @@ import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
+import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
@@ -34,7 +35,6 @@ import {
   todayKey,
 } from './lib/ui';
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
-import type { FamilyStatCard } from './features/family/FamilySettings';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
@@ -227,7 +227,6 @@ function App() {
     foods,
     foodRecommendations,
     mealLogs,
-    activityLogs,
     aiConversations,
     family,
   } = useAppWorkspaceQueries({
@@ -650,12 +649,7 @@ function App() {
     pendingShoppingCount,
     aiRecommendationCount,
     recentMeals,
-    currentUserRecentLogs,
-    familyOwnerMember,
     editingMember,
-    weekActivityCount,
-    familyHeroImageUrl,
-    familyStatCards,
     headerName,
     sidebarRoleLabel,
     sidebarFamilyName,
@@ -707,7 +701,6 @@ function App() {
     foodPlanItems,
     foodRecommendations,
     mealLogs,
-    activityLogs,
     activityHighlights: {
       data: activityHighlightsQuery.data,
       isLoading: activityHighlightsQuery.isLoading,
@@ -728,13 +721,41 @@ function App() {
     resolveDashboardAssetUrl,
   });
 
+  const familyActivityQuery = {
+    data: activityLogsQuery.data,
+    isLoading: activityLogsQuery.isLoading,
+    isError: activityLogsQuery.isError,
+    isFetching: activityLogsQuery.isFetching,
+    refetch: () => {
+      void activityLogsQuery.refetch();
+    },
+  };
+
+  const {
+    currentUserRecentLogs,
+    familyOwnerMember,
+    familyHeroImageUrl,
+    familyStatCards,
+    activityPhase: familyActivityPhase,
+  } = useAppFamilyViewModel({
+    activityQuery: familyActivityQuery,
+    user,
+    membership,
+    family,
+    members,
+    shoppingItems,
+    mealLogs,
+    foods,
+    recipes,
+  });
+
   function retryHomeHighlights() {
     void activityHighlightsQuery.refetch();
   }
 
   function openFamilyActivity() {
-    // Task 12 will route this into FamilyOverlayMode='activity'. For now open Family tab.
-    handleTabChange('family');
+    setFamilyOverlayMode('activity');
+    setActiveTab('family');
   }
 
   function openFullWeek(planDate: string) {
@@ -1264,7 +1285,8 @@ function App() {
               familyStatCards={familyStatCards}
               currentUserRecentLogs={currentUserRecentLogs}
               familyOwnerMember={familyOwnerMember}
-              activityLogs={activityLogs}
+              activityQuery={familyActivityQuery}
+              activityPhase={familyActivityPhase}
               isPhoneViewport={isPhoneViewport}
               notificationCenter={mobileNotificationCenter}
               overlayMode={familyOverlayMode}

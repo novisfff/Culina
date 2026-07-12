@@ -3777,6 +3777,30 @@
     line-height: 1.4;
   }
 
+  .mobile-family-empty button {
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid rgba(122, 85, 62, 0.12);
+    border-radius: 999px;
+    background: #fff;
+    color: #6d5b4e;
+    font-size: 0.84rem;
+    font-weight: 700;
+  }
+
+  .mobile-family-activity-skeleton {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-family-activity-skeleton > span {
+    display: block;
+    min-height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(90deg, rgba(246, 240, 234, 0.9), rgba(255, 255, 255, 0.95), rgba(246, 240, 234, 0.9));
+    background-size: 200% 100%;
+  }
+
   .food-desktop-view {
     display: none;
   }

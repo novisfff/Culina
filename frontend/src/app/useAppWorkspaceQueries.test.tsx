@@ -5,7 +5,7 @@ import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
-import type { ActivityHighlightsResponse } from '../api/types';
+import type { ActivityHighlightsResponse, ActivityLog } from '../api/types';
 import type { TabKey } from './AppShell';
 import { useAppWorkspaceQueries } from './useAppWorkspaceQueries';
 
@@ -53,10 +53,21 @@ function renderWorkspaceQueries(activeTab: TabKey) {
       if (!latest) throw new Error('workspace query harness not ready');
       return latest;
     },
+    unmount() {
+      act(() => root?.unmount());
+      root = null;
+      container?.remove();
+      container = null;
+      latest = null;
+    },
   };
 }
 
 async function flushQueries() {
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
   await act(async () => {
     await Promise.resolve();
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -128,5 +139,45 @@ describe('useAppWorkspaceQueries', () => {
     renderWorkspaceQueries('family');
     await flushQueries();
     expect(highlights).not.toHaveBeenCalled();
+  });
+
+  it('requests highlights but never full activity logs on home', async () => {
+    const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
+      items: [],
+      week_highlight_count: 0,
+    });
+    const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
+    renderWorkspaceQueries('home');
+    await flushQueries();
+    expect(highlights).toHaveBeenCalledWith(5);
+    expect(logs).not.toHaveBeenCalled();
+  });
+
+  it('requests full activity logs without a preview limit on family', async () => {
+    const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
+      items: [],
+      week_highlight_count: 0,
+    });
+    const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
+    renderWorkspaceQueries('family');
+    await flushQueries();
+    expect(logs).toHaveBeenCalledWith();
+    expect(highlights).not.toHaveBeenCalled();
+  });
+
+  it('keeps both activity queries out of boot loading', async () => {
+    vi.spyOn(api, 'getActivityHighlights').mockImplementation(
+      () => new Promise<ActivityHighlightsResponse>(() => undefined)
+    );
+    const home = renderWorkspaceQueries('home');
+    await flushQueries();
+    expect(home.current().isBootLoading).toBe(false);
+    home.unmount();
+    vi.spyOn(api, 'getActivityLogs').mockImplementation(
+      () => new Promise<ActivityLog[]>(() => undefined)
+    );
+    const family = renderWorkspaceQueries('family');
+    await flushQueries();
+    expect(family.current().isBootLoading).toBe(false);
   });
 });
