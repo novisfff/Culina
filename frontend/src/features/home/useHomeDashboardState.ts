@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Food, FoodPlanItem, MealType } from '../../api/types';
 import type { FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import { todayKey } from '../../lib/ui';
-import type { HomeRestockFormState } from './homeDashboardModel';
+import { advanceRecommendationCursor, type HomeRestockFormState } from './homeDashboardModel';
 
 export type HomePlanAddFormState = {
   planDate: string;
@@ -73,9 +73,18 @@ export function useHomeDashboardState(input: {
   homeEligibleInventoryActionGroups?: InventoryActionGroup[];
   /** Shanghai business date key for home plan/date defaults. Falls back to device today only if omitted. */
   businessDateKey?: string;
+  /** Source length used by independent desktop/mobile recommendation cursors. */
+  recommendationCount?: number;
+  /** Ordered recommendation ID signature; when it changes both cursors reset to 0. */
+  recommendationIdSignature?: string;
 }) {
   const businessDateKey = input.businessDateKey ?? todayKey();
+  const recommendationCount = input.recommendationCount ?? 0;
+  // Compatibility adapter for pre-cursor Home UI; Task 10/11 remove after migration.
   const [dashboardRecommendationPage, setDashboardRecommendationPage] = useState(0);
+  const [desktopRecommendationCursor, setDesktopRecommendationCursor] = useState(0);
+  const [mobileRecommendationCursor, setMobileRecommendationCursor] = useState(0);
+  const previousRecommendationIdSignatureRef = useRef(input.recommendationIdSignature);
   const [selectedDashboardPlanDate, setSelectedDashboardPlanDate] = useState(businessDateKey);
   const [homePlanDetailItemId, setHomePlanDetailItemId] = useState<string | null>(null);
   const [isHomePlanAddDialogOpen, setIsHomePlanAddDialogOpen] = useState(false);
@@ -110,6 +119,16 @@ export function useHomeDashboardState(input: {
     }
     setSelectedDashboardPlanDate(input.foodPlanWeekRange.start);
   }, [businessDateKey, input.foodPlanWeekRange.end, input.foodPlanWeekRange.start]);
+
+  useEffect(() => {
+    if (previousRecommendationIdSignatureRef.current === input.recommendationIdSignature) {
+      return;
+    }
+    previousRecommendationIdSignatureRef.current = input.recommendationIdSignature;
+    setDesktopRecommendationCursor(0);
+    setMobileRecommendationCursor(0);
+    setDashboardRecommendationPage(0);
+  }, [input.recommendationIdSignature]);
 
   useEffect(() => {
     if (!completedIngredientId || groupsKeyAtCompletion === null) {
@@ -243,9 +262,25 @@ export function useHomeDashboardState(input: {
     setHomePlanAddForm(createDefaultPlanAddForm(businessDateKey));
   }
 
+  function showNextDesktopRecommendations() {
+    setDesktopRecommendationCursor((current) =>
+      advanceRecommendationCursor(current, recommendationCount, 3),
+    );
+  }
+
+  function showNextMobileRecommendation() {
+    setMobileRecommendationCursor((current) =>
+      advanceRecommendationCursor(current, recommendationCount, 1),
+    );
+  }
+
   return {
     dashboardRecommendationPage,
     setDashboardRecommendationPage,
+    desktopRecommendationCursor,
+    mobileRecommendationCursor,
+    showNextDesktopRecommendations,
+    showNextMobileRecommendation,
     selectedDashboardPlanDate,
     setSelectedDashboardPlanDate,
     homePlanDetailItemId,
