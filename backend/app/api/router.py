@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 
-from fastapi import APIRouter
 
 from app.api.activity_highlights import router as activity_highlights_router
 from app.api.activity_logs import router as activity_logs_router
