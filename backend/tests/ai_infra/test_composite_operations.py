@@ -828,50 +828,51 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
         def test_composite_executor_rolls_back_completed_steps_when_later_step_fails(self) -> None:
             with self.SessionLocal() as db:
                 with self.assertRaisesRegex(ValueError, "库存操作数量必须大于 0|库存操作草稿"):
-                    execute_composite_operation_plan(
-                        db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload={
-                            "draftType": "composite_operation",
-                            "schemaVersion": "composite_operation.v1",
-                            "steps": [
-                                {
-                                    "stepId": "create-ingredient",
-                                    "domain": "ingredient",
-                                    "operation": {
-                                        "action": "create",
-                                        "payload": {
-                                            "name": "失败回滚食材",
-                                            "category": "测试",
-                                            "default_unit": "克",
-                                            "unit_conversions": [],
-                                            "default_storage": "冷藏",
-                                            "default_expiry_mode": "none",
-                                            "default_expiry_days": None,
-                                            "default_low_stock_threshold": None,
-                                            "notes": "",
-                                            "media_ids": [],
+                    with db.begin_nested():
+                        execute_composite_operation_plan(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload={
+                                "draftType": "composite_operation",
+                                "schemaVersion": "composite_operation.v1",
+                                "steps": [
+                                    {
+                                        "stepId": "create-ingredient",
+                                        "domain": "ingredient",
+                                        "operation": {
+                                            "action": "create",
+                                            "payload": {
+                                                "name": "失败回滚食材",
+                                                "category": "测试",
+                                                "default_unit": "克",
+                                                "unit_conversions": [],
+                                                "default_storage": "冷藏",
+                                                "default_expiry_mode": "none",
+                                                "default_expiry_days": None,
+                                                "default_low_stock_threshold": None,
+                                                "notes": "",
+                                                "media_ids": [],
+                                            },
                                         },
                                     },
-                                },
-                                {
-                                    "stepId": "restock",
-                                    "domain": "inventory",
-                                    "dependsOn": ["create-ingredient"],
-                                    "operation": {
-                                        "action": "restock",
-                                        "ingredientId": "$create-ingredient.entityId",
-                                        "quantity": 0,
-                                        "unit": "克",
-                                        "purchaseDate": date.today().isoformat(),
-                                        "storageLocation": "冷藏",
-                                        "status": "fresh",
+                                    {
+                                        "stepId": "restock",
+                                        "domain": "inventory",
+                                        "dependsOn": ["create-ingredient"],
+                                        "operation": {
+                                            "action": "restock",
+                                            "ingredientId": "$create-ingredient.entityId",
+                                            "quantity": 0,
+                                            "unit": "克",
+                                            "purchaseDate": date.today().isoformat(),
+                                            "storageLocation": "冷藏",
+                                            "status": "fresh",
+                                        },
                                     },
-                                },
-                            ],
-                        },
-                    )
+                                ],
+                            },
+                        )
 
                 rolled_back = db.scalar(
                     select(Ingredient).where(
@@ -880,3 +881,118 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                     )
                 )
                 self.assertIsNone(rolled_back)
+
+        def test_composite_mid_step_fault_rolls_back_business_and_highlight(self) -> None:
+            ingredient_name = "高亮原子性复合故障鸡胸肉"
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-composite-highlight-fault",
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="新增鸡胸肉并入库",
+                    response="",
+                    context={"workspace": True},
+                    title="复合操作高亮故障",
+                    status="active",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-composite-highlight-fault",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="请确认复合操作。",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, message])
+                db.flush()
+                payload = {
+                    "draftType": "composite_operation",
+                    "schemaVersion": "composite_operation.v1",
+                    "steps": [
+                        {
+                            "stepId": "create-ingredient",
+                            "domain": "ingredient",
+                            "operation": {
+                                "action": "create",
+                                "payload": {
+                                    "name": ingredient_name,
+                                    "category": "肉类",
+                                    "default_unit": "克",
+                                    "unit_conversions": [],
+                                    "default_storage": "冷冻",
+                                    "default_expiry_mode": "days",
+                                    "default_expiry_days": 90,
+                                    "default_low_stock_threshold": 100,
+                                    "notes": "适合备餐",
+                                    "media_ids": [],
+                                },
+                            },
+                        },
+                        {
+                            "stepId": "restock",
+                            "domain": "inventory",
+                            "dependsOn": ["create-ingredient"],
+                            "operation": {
+                                "action": "restock",
+                                "ingredientId": "$create-ingredient.entityId",
+                                "quantity": 500,
+                                "unit": "克",
+                                "purchaseDate": date.today().isoformat(),
+                                "expiryDate": (date.today() + timedelta(days=30)).isoformat(),
+                                "storageLocation": "冷冻",
+                                "status": "frozen",
+                                "notes": "AI 复合操作入库",
+                                "lowStockThreshold": 100,
+                            },
+                        },
+                    ],
+                }
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                draft, approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload={
+                        "draft_type": "composite_operation",
+                        "schema_version": "composite_operation.v1",
+                        "payload": payload,
+                    },
+                )
+                with patch(
+                    "app.services.ai_operations.composite._execute_inventory_step",
+                    side_effect=RuntimeError("composite mid-step fault"),
+                ):
+                    decision = service._apply_approval_decision(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id=conversation.id,
+                        approval_id=approval.id,
+                        decision="approved",
+                        draft_version=draft.version,
+                        values={"draft": draft.payload},
+                    )
+                self.assertEqual(decision["operation"]["status"], "failed")
+                self.assertEqual(decision["draft"]["status"], "pending_retry")
+                db.commit()
+
+            with self.SessionLocal() as db:
+                ingredient = db.scalar(
+                    select(Ingredient).where(
+                        Ingredient.family_id == self.family.id,
+                        Ingredient.name == ingredient_name,
+                    )
+                )
+                self.assertIsNone(ingredient)
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)

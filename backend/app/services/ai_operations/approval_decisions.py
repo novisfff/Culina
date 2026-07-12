@@ -9,13 +9,16 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
+from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIApprovalRequest, AIConversation, AIOperation, AITaskDraft, AIUserApproval
+from app.services.activity import log_activity
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
 from app.services.ai_operations.artifacts import approval_decision_artifacts
 from app.services.ai_operations.common import assert_updated_at_matches, is_database_lock_conflict
 from app.services.ai_operations.executor import execute_ai_operation_draft
+from app.services.ai_operations.highlights import classify_approval_highlight
 from app.services.ai_operations.messages import (
     append_message_approval_part,
     append_message_result_card,
@@ -190,6 +193,35 @@ def apply_ai_approval_decision(
                 assert_updated_at_matches=assert_updated_at_matches,
                 conversation_id=conversation_id,
             )
+            draft_operation_registry.after_success(
+                DraftPostExecuteContext(
+                    db=db,
+                    draft_type=draft.draft_type,
+                    family_id=family_id,
+                    user_id=user_id,
+                    message_id=draft.message_id,
+                    business_entity=business_entity,
+                )
+            )
+            highlight = classify_approval_highlight(
+                draft_operation_registry,
+                draft_type=draft.draft_type,
+                submitted_payload=submitted_payload,
+                business_entity=business_entity,
+            )
+            if highlight is not None:
+                log_activity(
+                    db,
+                    family_id=family_id,
+                    actor_id=user_id,
+                    action=ActivityAction.UPDATE,
+                    entity_type="AIOperation",
+                    entity_id=operation.id,
+                    summary="AI 审批业务操作执行成功",
+                    highlight=highlight,
+                )
+            db.flush()
+
         operation.status = "succeeded"
         operation.business_entity_ids = entity_ids
         operation.completed_at = utcnow()
@@ -197,16 +229,6 @@ def apply_ai_approval_decision(
         draft.payload = submitted_payload
         draft.updated_by = user_id
         operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
-        draft_operation_registry.after_success(
-            DraftPostExecuteContext(
-                db=db,
-                draft_type=draft.draft_type,
-                family_id=family_id,
-                user_id=user_id,
-                message_id=draft.message_id,
-                business_entity=business_entity,
-            )
-        )
         logger.info(
             "AI approval operation succeeded family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
             family_id,
