@@ -21,11 +21,18 @@ export type RecipeNavigationRequest = {
   requestId: number;
 };
 
-export type FoodPlanNavigationRequest = {
-  itemId: string;
-  planDate: string;
-  requestId: number;
-};
+export type FoodPlanNavigationRequest =
+  | {
+      target: 'item';
+      itemId: string;
+      planDate: string;
+      requestId: number;
+    }
+  | {
+      target: 'week';
+      planDate: string;
+      requestId: number;
+    };
 
 type UseAppGlobalSearchNavigationArgs = {
   foods: Food[];
@@ -96,6 +103,7 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
         setSelectedRecipePlanDate(planItem.plan_date);
       }
       setFoodPlanNavigationRequest({
+        target: 'item',
         itemId: selection.entityId,
         planDate: planItem.plan_date,
         requestId: foodPlanNavigationRequestIdRef.current,
@@ -105,6 +113,17 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
     }
     openRecipeTarget(selection.entityId);
   }, [openRecipeTarget, setActiveTab, setSelectedRecipePlanDate]);
+
+  const openFoodPlanWeek = useCallback((planDate: string) => {
+    foodPlanNavigationRequestIdRef.current += 1;
+    setSelectedRecipePlanDate(planDate);
+    setFoodPlanNavigationRequest({
+      target: 'week',
+      planDate,
+      requestId: foodPlanNavigationRequestIdRef.current,
+    });
+    setActiveTab('foods');
+  }, [setActiveTab, setSelectedRecipePlanDate]);
 
   return {
     ingredientNavigationRequest,
@@ -118,5 +137,6 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
+    openFoodPlanWeek,
   };
 }

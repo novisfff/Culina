@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe } from '../../api/types';
+import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { todayKey } from '../../lib/ui';
 import {
   FoodWorkspace,
@@ -204,6 +205,15 @@ function attachRoot() {
 
 function renderWorkspace(options: {
   food?: Food;
+  isPhoneViewport?: boolean;
+  foodPlanNavigationRequest?: FoodPlanNavigationRequest | null;
+  foodPlanWeekRange?: { start: string; end: string };
+  navigationRequest?: {
+    foodId: string;
+    requestId: number;
+    target?: 'detail' | 'edit' | 'quickMeal';
+    quickMealAction?: 'eat' | 'cook';
+  } | null;
   quickAddMeal?: (payload: {
     food_id: string;
     date: string;
@@ -239,9 +249,13 @@ function renderWorkspace(options: {
           foodRecommendations: null,
           foodScenes: [],
           foodPlanItems: [],
-          foodPlanWeekRange: { start: todayKey(), end: todayKey() },
-          navigationRequest: { foodId: food.id, requestId: 1, target: 'quickMeal', quickMealAction: 'eat' },
-          foodPlanNavigationRequest: null,
+          foodPlanWeekRange: options.foodPlanWeekRange ?? { start: todayKey(), end: todayKey() },
+          isPhoneViewport: options.isPhoneViewport ?? false,
+          navigationRequest:
+            options.navigationRequest === undefined
+              ? { foodId: food.id, requestId: 1, target: 'quickMeal', quickMealAction: 'eat' }
+              : options.navigationRequest,
+          foodPlanNavigationRequest: options.foodPlanNavigationRequest ?? null,
           createFood: vi.fn(),
           updateFood: vi.fn(),
           updateFoodFavorite: vi.fn(),
@@ -648,5 +662,45 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
     expect(source).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
     expect(ingredientWorkspace).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
     expect(ingredientWorkspace).toContain('openShoppingIntake');
+  });
+});
+
+describe('FoodWorkspace week navigation presentation', () => {
+  it('focuses the existing desktop week section for a week request', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = vi.fn();
+    }
+    const { view } = renderWorkspace({
+      isPhoneViewport: false,
+      navigationRequest: null,
+      foodPlanWeekRange: { start: '2026-07-13', end: '2026-07-19' },
+      foodPlanNavigationRequest: {
+        target: 'week', planDate: '2026-07-15', requestId: 2,
+      },
+    });
+    const week = view.querySelector('[data-testid="food-plan-week-section"]');
+    expect(document.activeElement).toBe(week);
+    expect(view.querySelector('[role="dialog"][aria-label*="菜单详情"]')).toBeNull();
+  });
+
+  it('opens and closes the lightweight mobile week page', () => {
+    const { view } = renderWorkspace({
+      isPhoneViewport: true,
+      navigationRequest: null,
+      foodPlanWeekRange: { start: '2026-07-13', end: '2026-07-19' },
+      foodPlanNavigationRequest: {
+        target: 'week', planDate: '2026-07-15', requestId: 3,
+      },
+    });
+    expect(view.querySelector('main[aria-label="手机周菜单"]')).not.toBeNull();
+    expect(view.querySelector('[role="dialog"][aria-label*="菜单详情"]')).toBeNull();
+    const back = view.querySelector<HTMLButtonElement>('button[aria-label="返回食物页"]');
+    if (!back) throw new Error('mobile week back button missing');
+    act(() => back.click());
+    expect(view.querySelector('main[aria-label="手机周菜单"]')).toBeNull();
   });
 });

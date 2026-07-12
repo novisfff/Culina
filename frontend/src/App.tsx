@@ -319,6 +319,7 @@ function App() {
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
+    openFoodPlanWeek,
   } = useAppGlobalSearchNavigation({
     foods,
     isPhoneViewport,
@@ -758,12 +759,6 @@ function App() {
     setActiveTab('family');
   }
 
-  function openFullWeek(planDate: string) {
-    // Task 13 will use discriminated food-plan week navigation. For now open Foods on that date.
-    setSelectedRecipePlanDate(planDate);
-    handleTabChange('foods');
-  }
-
   const selectedPlanSummary = selectedDashboardPlanDay
     ? `${selectedDashboardPlanDateLabel} · ${selectedDashboardPlanDay.totalCount} 项计划`
     : selectedDashboardPlanDateLabel;
@@ -1049,7 +1044,7 @@ function App() {
             onOpenIngredientPriority={openIngredientPriority}
             onOpenShoppingIntake={() => openShoppingIntake()}
             onOpenFamilyActivity={openFamilyActivity}
-            onOpenFullWeek={openFullWeek}
+            onOpenFullWeek={openFoodPlanWeek}
             onRetryHighlights={retryHomeHighlights}
             onOpenReconciliation={openReconciliation}
             onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
@@ -1070,6 +1065,7 @@ function App() {
               foodScenes={foodScenes}
               foodPlanItems={foodPlanItems}
               foodPlanWeekRange={foodPlanWeekRange}
+              isPhoneViewport={isPhoneViewport}
               notificationCenter={mobileNotificationCenter}
               navigationRequest={foodNavigationRequest}
               foodPlanNavigationRequest={foodPlanNavigationRequest}

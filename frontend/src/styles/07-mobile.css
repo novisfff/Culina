@@ -3817,6 +3817,21 @@
     display: none;
   }
 
+  .food-plan-week-mobile-page {
+    min-height: 100dvh;
+    padding:
+      calc(env(safe-area-inset-top) + 12px)
+      16px
+      calc(env(safe-area-inset-bottom) + 24px);
+    background: var(--surface-3);
+  }
+
+  .food-plan-week-mobile-head button,
+  .food-plan-week-mobile-days button,
+  .food-plan-week-mobile-page section button {
+    min-height: 44px;
+  }
+
   .mobile-food-page {
     display: grid;
     gap: 12px;

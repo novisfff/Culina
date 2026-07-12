@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -20,6 +20,7 @@ import type {
   RecipePayload,
   UpdateFoodPayload,
 } from '../../api/types';
+import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
@@ -40,6 +41,7 @@ import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickM
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodHubView } from './FoodHubView';
+import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
@@ -160,6 +162,7 @@ type Props = {
   foodScenes: FoodScene[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
+  isPhoneViewport?: boolean;
   notificationCenter?: ReactNode;
   navigationRequest?: {
     foodId: string;
@@ -167,11 +170,7 @@ type Props = {
     target?: 'detail' | 'edit' | 'quickMeal';
     quickMealAction?: 'eat' | 'cook';
   } | null;
-  foodPlanNavigationRequest?: {
-    itemId: string;
-    planDate: string;
-    requestId: number;
-  } | null;
+  foodPlanNavigationRequest?: FoodPlanNavigationRequest | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean, expectedRowVersion: number) => Promise<Food>;
@@ -581,6 +580,20 @@ export function FoodWorkspace(props: Props) {
     quickAddMeal: props.quickAddMeal,
   });
   const { notice, showNotice, clearNotice } = useNotice();
+  const foodPlanWeekRef = useRef<HTMLDivElement | null>(null);
+  const [mobileWeekPlanDate, setMobileWeekPlanDate] = useState<string | null>(null);
+
+  const handleNavigateToWeek = useCallback((planDate: string) => {
+    if (props.isPhoneViewport) {
+      setMobileWeekPlanDate(planDate);
+      return;
+    }
+    requestAnimationFrame(() => {
+      foodPlanWeekRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+      foodPlanWeekRef.current?.focus({ preventScroll: true });
+    });
+  }, [props.isPhoneViewport]);
+
   const {
     closeSceneForm,
     deleteScene,
@@ -632,6 +645,7 @@ export function FoodWorkspace(props: Props) {
     foodPlanItems: props.foodPlanItems,
     foodPlanWeekRange: props.foodPlanWeekRange,
     navigationRequest: props.foodPlanNavigationRequest,
+    onNavigateToWeek: handleNavigateToWeek,
     showNotice,
     setFeedback,
     getDefaultMealType,
@@ -1285,6 +1299,21 @@ export function FoodWorkspace(props: Props) {
             isQuickAdding={props.isQuickAdding}
             isUpdatingFavorite={props.isUpdatingFavorite}
             notificationCenter={props.notificationCenter}
+            weekPage={
+              mobileWeekPlanDate ? (
+                <FoodPlanWeekMobilePage
+                  weekRange={props.foodPlanWeekRange}
+                  days={foodPlanDays}
+                  selectedDate={mobileWeekPlanDate}
+                  onSelectDate={setMobileWeekPlanDate}
+                  onOpenItem={(item) => {
+                    setMobileWeekPlanDate(null);
+                    openPlanDetail(item);
+                  }}
+                  onBack={() => setMobileWeekPlanDate(null)}
+                />
+              ) : null
+            }
             resolveFoodAssetUrl={resolveFoodAssetUrl}
             getFoodCardPrimaryActionLabel={getFoodCardPrimaryActionLabel}
             getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
@@ -1671,7 +1700,7 @@ export function FoodWorkspace(props: Props) {
               <FoodUiIcon name="plus" />
               加食物
             </ActionButton>
-            <div className="recipe-plan-week food-plan-week">
+            <div className="recipe-plan-week food-plan-week" ref={foodPlanWeekRef} tabIndex={-1} data-testid="food-plan-week-section">
               {foodPlanDays.map((day) => (
                 <div key={day.date} className="recipe-plan-day expanded">
                   <button className="recipe-plan-day-head" type="button">
