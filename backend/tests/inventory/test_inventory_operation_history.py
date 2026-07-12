@@ -267,6 +267,9 @@ def test_snapshots_are_whitelist_only(db: Session) -> None:
         "storage_location",
         "notes",
         "low_stock_threshold",
+        "expiry_alert_snoozed_until",
+        "expiry_reviewed_at",
+        "expiry_reviewed_by",
         "last_confirmed_at",
         "last_confirmed_by",
         "last_confirmation_source",
@@ -703,6 +706,71 @@ def test_get_inventory_operation_detail_hides_guard_and_raw_snapshots(db: Sessio
     assert "actor_id" not in dumped
     assert "collection_version_guard" not in json.dumps(dumped, ensure_ascii=False, default=str)
     assert all(item.entity_type != InventoryOperationEntityType.INGREDIENT for item in detail.lines)
+
+
+def test_inventory_operation_detail_does_not_resolve_labels_from_another_family(db: Session) -> None:
+    from app.core.enums import UserRole
+    from app.services.inventory_operation_history import get_inventory_operation_detail
+
+    other_family = Family(id="family-secret-ops", name="其他家庭", motto="", location="")
+    other_ingredient = Ingredient(
+        id="ingredient-secret-ops",
+        family_id=other_family.id,
+        name="其他家庭私密食材",
+        category="测试",
+        default_unit="份",
+        default_storage="冷藏",
+        default_expiry_mode=IngredientExpiryMode.NONE,
+        unit_conversions=[],
+        quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        notes="",
+        created_by="user-ops",
+        updated_by="user-ops",
+    )
+    other_item = InventoryItem(
+        id="inventory-secret-ops",
+        family_id=other_family.id,
+        ingredient_id=other_ingredient.id,
+        quantity=Decimal("1"),
+        consumed_quantity=Decimal("0"),
+        disposed_quantity=Decimal("0"),
+        unit="份",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 7, 12),
+        storage_location="冷藏",
+        notes="",
+        low_stock_threshold=Decimal("0"),
+        created_by="user-ops",
+        updated_by="user-ops",
+    )
+    operation = _seed_operation(db, operation_id="op-corrupt-foreign-label")
+    db.add_all([other_family, other_ingredient, other_item])
+    db.flush()
+    record_operation_line(
+        db,
+        operation=operation,
+        sequence=1,
+        entity_type=InventoryOperationEntityType.INVENTORY_ITEM,
+        entity_id=other_item.id,
+        change_type=InventoryOperationChangeType.UPDATE,
+        before_snapshot=snapshot_inventory_item(other_item),
+        after_snapshot={**snapshot_inventory_item(other_item), "quantity": "2", "row_version": 2},
+        before_row_version=1,
+        after_row_version=2,
+    )
+    db.commit()
+
+    detail = get_inventory_operation_detail(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        operation_id=operation.id,
+        now=datetime(2026, 7, 12, 10, 5, tzinfo=timezone.utc),
+    )
+
+    assert detail.lines[0].title == "库存批次"
+    assert "其他家庭私密食材" not in json.dumps(detail.model_dump(), ensure_ascii=False, default=str)
 
 
 def test_can_revert_depends_on_role_deadline_and_ownership(db: Session) -> None:

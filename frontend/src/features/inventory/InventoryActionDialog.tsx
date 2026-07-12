@@ -353,7 +353,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
       <span>已选择</span>
       <strong>
         {isPresenceGroup(group) ? (
-          '家庭整体有无'
+          <span>家庭整体有无</span>
         ) : (
           <>
             <span>{selectedValidCount} 个批次</span>

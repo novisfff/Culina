@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Food, Ingredient, IngredientInventoryState, ShoppingListItem } from '../../api/types';
 import {
+  buildFreeTextLinkOptions,
   buildShoppingIntakeDraft,
   buildShoppingIntakePayload,
   canAdvanceToReview,
@@ -9,8 +10,11 @@ import {
   completeFreeTextWithoutInventory,
   findExactTitleFood,
   findExactTitleIngredient,
+  filterFreeTextLinkOptions,
+  isFreeTextLinkCandidateUnitCompatible,
   formatPurchaseQuantitySummary,
   linkFreeTextDraft,
+  rebaseShoppingIntakeDraft,
   setDraftItemSelected,
   suggestFreeTextLinkCandidates,
   summarizePurchaseQuantity,
@@ -242,6 +246,85 @@ describe('shoppingIntakeModel', () => {
     expect(food.expiryDate).toBeNull();
   });
 
+  it('rejects Food quantities beyond one decimal place without constraining exact ingredients', () => {
+    let draft = buildShoppingIntakeDraft({
+      shoppingItems: [
+        makeShoppingItem({
+          id: 's-food',
+          title: '卤牛肉',
+          food_id: braisedBeef.id,
+          target_type: 'food',
+          quantity: 1,
+          unit: '份',
+        }),
+        makeShoppingItem({
+          id: 's-milk',
+          title: '牛奶',
+          ingredient_id: milk.id,
+          quantity: 1,
+          unit: '盒',
+        }),
+      ],
+      ingredients: [milk],
+      foods: [braisedBeef],
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-quantity-precision',
+    });
+
+    draft = setDraftItemSelected(draft, 's-food', true);
+    draft = setDraftItemSelected(draft, 's-milk', true);
+    draft = updateDraftItem(draft, 's-food', { actualQuantity: '1.25' });
+    draft = updateDraftItem(draft, 's-milk', { actualQuantity: '1.25' });
+
+    const errors = validateShoppingIntakeDraft(draft);
+    expect(errors).toEqual([
+      expect.objectContaining({
+        shoppingItemId: 's-food',
+        field: 'actualQuantity',
+        code: 'invalid_quantity',
+      }),
+    ]);
+  });
+
+  it('classifies missing storage locations as invalid requests', () => {
+    let draft = buildShoppingIntakeDraft({
+      shoppingItems: [
+        makeShoppingItem({ id: 's-milk-storage', title: '牛奶', ingredient_id: milk.id, quantity: 1, unit: '盒' }),
+        makeShoppingItem({
+          id: 's-food-storage',
+          title: '卤牛肉',
+          food_id: braisedBeef.id,
+          target_type: 'food',
+          quantity: 1,
+          unit: '份',
+        }),
+      ],
+      ingredients: [milk],
+      foods: [braisedBeef],
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-storage-location',
+    });
+    draft = setDraftItemSelected(draft, 's-milk-storage', true);
+    draft = setDraftItemSelected(draft, 's-food-storage', true);
+    draft = updateDraftItem(draft, 's-milk-storage', { storageLocation: '' });
+    draft = updateDraftItem(draft, 's-food-storage', { storageLocation: '' });
+
+    expect(
+      validateShoppingIntakeDraft(draft).filter((error) => error.field === 'storageLocation'),
+    ).toEqual([
+      expect.objectContaining({
+        shoppingItemId: 's-milk-storage',
+        code: 'invalid_request',
+      }),
+      expect.objectContaining({
+        shoppingItemId: 's-food-storage',
+        code: 'invalid_request',
+      }),
+    ]);
+  });
+
   it('manual expiry blocks review/submit until confirmed', () => {
     const draft = buildShoppingIntakeDraft({
       shoppingItems: [
@@ -337,6 +420,81 @@ describe('shoppingIntakeModel', () => {
     expect(linkedItem.kind).toBe('exact_ingredient');
     expect(linkedItem.targetId).toBe(milk.id);
     expect(linkedItem.selected).toBe(true);
+  });
+
+  it('offers all family ingredients and only stockable Food types for explicit free-text search', () => {
+    const instantFood = makeFood({ id: 'food-noodles', name: '方便面', type: 'instant' });
+    const cookedFood = makeFood({ id: 'food-home', name: '昨晚剩菜', type: 'selfMade' });
+    const options = buildFreeTextLinkOptions({
+      ingredients: [milk, milkCereal],
+      foods: [braisedBeef, instantFood, cookedFood],
+    });
+
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'ingredient', id: milk.id, name: '牛奶' }),
+        expect.objectContaining({ kind: 'ingredient', id: milkCereal.id, name: '牛奶麦片' }),
+        expect.objectContaining({ kind: 'food', id: braisedBeef.id, name: '卤牛肉' }),
+        expect.objectContaining({ kind: 'food', id: instantFood.id, name: '方便面' }),
+      ]),
+    );
+    expect(options.some((option) => option.id === cookedFood.id)).toBe(false);
+    expect(
+      suggestFreeTextLinkCandidates({ title: cookedFood.name, ingredients: [], foods: [cookedFood] }),
+    ).toEqual([]);
+    expect(filterFreeTextLinkOptions(options, '牛奶')).toEqual([
+      expect.objectContaining({ id: milk.id }),
+      expect.objectContaining({ id: milkCereal.id }),
+    ]);
+    const foodOption = options.find((option) => option.id === braisedBeef.id)!;
+    expect(isFreeTextLinkCandidateUnitCompatible(foodOption, '份')).toBe(true);
+    expect(isFreeTextLinkCandidateUnitCompatible(foodOption, '个')).toBe(false);
+    expect(isFreeTextLinkCandidateUnitCompatible(options[0], '个')).toBe(true);
+  });
+
+  it('preserves a free-text shopping quantity and unit after linking inventory', () => {
+    const draft = buildShoppingIntakeDraft({
+      shoppingItems: [
+        makeShoppingItem({
+          id: 's-eggs-text',
+          title: '鸡蛋（手写）',
+          target_type: 'free_text',
+          quantity: 6,
+          unit: '个',
+        }),
+      ],
+      ingredients: [makeIngredient({ id: 'ing-eggs', name: '鸡蛋', default_unit: '个' })],
+      foods: [braisedBeef],
+      selectedItemId: 's-eggs-text',
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-free-quantity',
+    });
+
+    const freeText = draft.items[0] as FreeTextDraft;
+    expect(freeText.plannedQuantity).toBe(6);
+    expect(freeText.plannedUnit).toBe('个');
+
+    const linkedIngredient = linkFreeTextDraft(
+      draft,
+      's-eggs-text',
+      { kind: 'exact_ingredient', ingredient: makeIngredient({ id: 'ing-eggs', name: '鸡蛋', default_unit: '个' }) },
+      REFERENCE_DATE,
+    ).items[0] as ExactIngredientDraft;
+    expect(linkedIngredient.actualQuantity).toBe('6');
+    expect(linkedIngredient.plannedQuantity).toBe(6);
+    expect(linkedIngredient.unit).toBe('个');
+    expect(linkedIngredient.plannedUnit).toBe('个');
+
+    const linkedFood = linkFreeTextDraft(
+      draft,
+      's-eggs-text',
+      { kind: 'food', food: braisedBeef },
+      REFERENCE_DATE,
+    ).items[0] as FoodDraft;
+    expect(linkedFood.actualQuantity).toBe('6');
+    expect(linkedFood.plannedQuantity).toBe(6);
+    expect(linkedFood.plannedUnit).toBe('个');
   });
 
   it('legacy rows without stable target bind by exact title only', () => {
@@ -476,6 +634,141 @@ describe('shoppingIntakeModel', () => {
     });
     expect(draft.items).toHaveLength(1);
     expect(draft.items[0].shoppingItemId).toBe('open');
+  });
+
+  it('rebases concurrency tokens while preserving selected user edits', () => {
+    let draft = buildShoppingIntakeDraft({
+      shoppingItems: [
+        makeShoppingItem({
+          id: 's-milk',
+          title: '牛奶',
+          ingredient_id: milk.id,
+          quantity: 6,
+          unit: '盒',
+          row_version: 2,
+        }),
+        makeShoppingItem({ id: 's-done', title: '盐', ingredient_id: salt.id, row_version: 2 }),
+      ],
+      ingredients: [milk, salt],
+      foods: [],
+      selectedItemId: 's-milk',
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-rebase',
+    });
+    draft = setDraftItemSelected(draft, 's-done', true);
+    draft = updateDraftItem(draft, 's-milk', {
+      actualQuantity: '2.5',
+      storageLocation: '冷冻',
+      notes: '用户已核对',
+    });
+
+    const rebased = rebaseShoppingIntakeDraft(draft, {
+      shoppingItems: [
+        makeShoppingItem({
+          id: 's-milk',
+          title: '低脂牛奶',
+          ingredient_id: milk.id,
+          quantity: 8,
+          unit: '盒',
+          row_version: 9,
+        }),
+        makeShoppingItem({ id: 's-done', title: '盐', ingredient_id: salt.id, done: true, row_version: 4 }),
+        makeShoppingItem({ id: 's-new', title: '新采购项', target_type: 'free_text', row_version: 1 }),
+      ],
+      ingredients: [{ ...milk, row_version: 7 }, salt],
+      foods: [],
+      inventoryStates: [],
+    });
+
+    expect(rebased.clientRequestId).toBe('client-rebase');
+    expect(rebased.purchaseDate).toBe(REFERENCE_DATE);
+    expect(rebased.createdAt).toBe(NOW);
+    expect(rebased.items.map((item) => item.shoppingItemId)).toEqual(['s-milk', 's-new']);
+    const milkItem = rebased.items[0] as ExactIngredientDraft;
+    expect(milkItem).toMatchObject({
+      title: '低脂牛奶',
+      selected: true,
+      expectedShoppingItemRowVersion: 9,
+      expectedIngredientRowVersion: 7,
+      plannedQuantity: 8,
+      actualQuantity: '2.5',
+      storageLocation: '冷冻',
+      notes: '用户已核对',
+    });
+    expect(rebased.items[1].selected).toBe(false);
+  });
+
+  it('preserves an explicit free-text link and resets incompatible fields after tracking-mode change', () => {
+    const eggs = makeIngredient({ id: 'ing-eggs', name: '鸡蛋', default_unit: '个', row_version: 3 });
+    const shopping = makeShoppingItem({
+      id: 's-eggs-text',
+      title: '鸡蛋（手写）',
+      target_type: 'free_text',
+      quantity: 6,
+      unit: '个',
+      row_version: 2,
+    });
+    let draft = buildShoppingIntakeDraft({
+      shoppingItems: [shopping],
+      ingredients: [eggs],
+      foods: [],
+      selectedItemId: shopping.id,
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-free-rebase',
+    });
+    draft = linkFreeTextDraft(
+      draft,
+      shopping.id,
+      { kind: 'exact_ingredient', ingredient: eggs },
+      REFERENCE_DATE,
+    );
+    draft = updateDraftItem(draft, shopping.id, { actualQuantity: '4', notes: '保留备注' });
+
+    const linked = rebaseShoppingIntakeDraft(draft, {
+      shoppingItems: [{ ...shopping, row_version: 5 }],
+      ingredients: [{ ...eggs, row_version: 8 }],
+      foods: [],
+      inventoryStates: [],
+    }).items[0] as ExactIngredientDraft;
+    expect(linked).toMatchObject({
+      kind: 'exact_ingredient',
+      targetId: eggs.id,
+      selected: true,
+      expectedShoppingItemRowVersion: 5,
+      expectedIngredientRowVersion: 8,
+      actualQuantity: '4',
+      notes: '保留备注',
+    });
+
+    const state = makeState({ id: 'state-eggs', ingredient_id: eggs.id, row_version: 6 });
+    const changedMode = rebaseShoppingIntakeDraft(draft, {
+      shoppingItems: [{ ...shopping, row_version: 6 }],
+      ingredients: [
+        {
+          ...eggs,
+          row_version: 9,
+          quantity_tracking_mode: 'not_track_quantity',
+          default_expiry_mode: 'none',
+          default_expiry_days: null,
+        },
+      ],
+      foods: [],
+      inventoryStates: [state],
+    }).items[0] as PresenceIngredientDraft;
+    expect(changedMode).toMatchObject({
+      kind: 'presence_ingredient',
+      targetId: eggs.id,
+      selected: true,
+      expectedShoppingItemRowVersion: 6,
+      expectedIngredientRowVersion: 9,
+      stateId: state.id,
+      expectedStateRowVersion: 6,
+      resultingAvailabilityLevel: 'sufficient',
+    });
+    expect('actualQuantity' in changedMode).toBe(false);
+    expect('notes' in changedMode ? changedMode.notes : '').toBe('');
   });
 
   it('always includes presence and free-text selected rows as review exceptions', () => {

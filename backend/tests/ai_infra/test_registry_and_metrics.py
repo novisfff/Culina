@@ -342,6 +342,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             operation_payload = {
                 "operations": [
                     {
+                        "operationId": "operation-1",
                         "action": "update",
                         "targetId": "target-1",
                         "baseUpdatedAt": "2026-06-30T00:00:00+00:00",
@@ -349,13 +350,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ]
             }
             draft_operation_registry.validate_approval_value("meal_plan", operation_payload, operation_payload)
-            with self.assertRaisesRegex(ValueError, "确认阶段不能修改操作类型、目标或版本基线"):
+            with self.assertRaisesRegex(ValueError, "确认阶段不能修改操作标识、类型、目标或版本基线"):
                 draft_operation_registry.validate_approval_value(
                     "meal_plan",
                     operation_payload,
                     {
                         "operations": [
                             {
+                                "operationId": "operation-1",
                                 "action": "delete",
                                 "targetId": "target-1",
                                 "baseUpdatedAt": "2026-06-30T00:00:00+00:00",
@@ -403,6 +405,30 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                     ingredient_update,
                     {**ingredient_update, "targetId": "ingredient-other"},
                 )
+
+            for draft_type, target_prefix in (
+                ("food_profile", "food"),
+                ("recipe", "recipe"),
+                ("meal_log", "meal"),
+            ):
+                target_update = {
+                    "draftType": draft_type,
+                    "schemaVersion": f"{draft_type}_operation.v1",
+                    "action": "update" if draft_type != "meal_log" else "update_details",
+                    "targetId": f"{target_prefix}-target",
+                    "baseUpdatedAt": "2026-06-30T00:00:00+00:00",
+                    "before": {"name": "原对象"},
+                    "payload": {"media_ids": []} if draft_type != "meal_log" else {"mediaIds": []},
+                }
+                with self.subTest(draft_type=draft_type), self.assertRaisesRegex(
+                    ValueError,
+                    "确认阶段不能修改操作类型、目标或版本基线",
+                ):
+                    draft_operation_registry.validate_approval_value(
+                        draft_type,
+                        target_update,
+                        {**target_update, "targetId": f"{target_prefix}-other"},
+                    )
 
         def test_ai_registry_endpoint_exposes_skill_and_tool_contracts(self) -> None:
             response = self.client.get("/api/ai/registry")

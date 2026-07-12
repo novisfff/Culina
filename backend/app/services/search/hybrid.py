@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
-from app.core.enums import FoodType
+from app.core.enums import FoodType, InventoryAvailabilityLevel
 from app.models.domain import Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
@@ -670,7 +670,10 @@ def _load_ingredient_business_signals(
         signals[("ingredient", ingredient.id)] = SearchBusinessSignals(
             inventory_available=usable,
             days_until_expiry=days_until_expiry,
-            low_stock=False,
+            low_stock=(
+                state is not None
+                and state.availability_level is InventoryAvailabilityLevel.LOW
+            ),
         )
     return signals
 

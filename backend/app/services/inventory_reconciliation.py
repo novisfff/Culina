@@ -18,6 +18,7 @@ from app.core.enums import (
     InventoryOperationEntityType,
     InventoryOperationStatus,
     InventoryOperationType,
+    UserRole,
 )
 from app.core.utils import utcnow
 from app.models.domain import (
@@ -48,11 +49,12 @@ from app.schemas.inventory_operations import (
 from app.schemas.inventory_states import IngredientInventoryStateOut
 from app.services.activity import log_activity
 from app.services.food_stock import apply_food_inventory_confirm, apply_food_inventory_set_stock
-from app.services.food_stock_quantity import normalize_food_stock_quantity
+from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_inventory_state import (
     state_is_physically_present,
     upsert_inventory_state,
 )
+from app.services.ingredient_units import UnitConversionError, convert_quantity_to_default_unit
 from app.services.inventory_confirmation import (
     FOOD_STALE_AFTER_DAYS,
     PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
@@ -63,6 +65,7 @@ from app.services.inventory_confirmation import (
 )
 from app.services.inventory_operation_history import (
     canonical_request_hash,
+    compute_can_revert,
     record_ingredient_collection_guard,
     record_operation_line,
     snapshot_food_inventory,
@@ -469,7 +472,12 @@ class _PreparedFood:
     food_before_snapshot: dict[str, object]
 
 
-def _result_from_operation(operation: InventoryOperation) -> InventoryOperationResult:
+def _result_from_operation(
+    operation: InventoryOperation,
+    *,
+    user_id: str,
+    user_role: UserRole,
+) -> InventoryOperationResult:
     summary_data = operation.summary_json or {}
     summary = InventoryOperationDisplaySummary(
         title=str(summary_data.get("title") or "完成了一次库存盘点"),
@@ -479,20 +487,18 @@ def _result_from_operation(operation: InventoryOperation) -> InventoryOperationR
         completed_count=int(summary_data.get("completed_count") or 0),
         partial_count=int(summary_data.get("partial_count") or 0),
     )
-    now = utcnow()
-    revertible_until = _as_aware(operation.revertible_until)
-    can_revert = (
-        operation.status == InventoryOperationStatus.APPLIED
-        and revertible_until is not None
-        and revertible_until >= now
-    )
     return InventoryOperationResult(
         operation_id=operation.id,
         operation_type=operation.operation_type,
         status=operation.status,
         applied_at=operation.applied_at,
         revertible_until=operation.revertible_until,
-        can_revert=can_revert,
+        can_revert=compute_can_revert(
+            operation,
+            user_id=user_id,
+            user_role=user_role,
+            now=utcnow(),
+        ),
         summary=summary,
     )
 
@@ -530,13 +536,72 @@ def _apply_batch_remaining(
     notes: str,
     user_id: str,
 ) -> None:
+    expiry_changed = item.expiry_date != expiry_date
     item.quantity = item.consumed_quantity + item.disposed_quantity + actual_remaining_quantity
     item.status = inventory_status
     item.purchase_date = purchase_date
     item.expiry_date = expiry_date
+    if expiry_changed:
+        item.expiry_alert_snoozed_until = None
+        item.expiry_reviewed_at = None
+        item.expiry_reviewed_by = None
     item.storage_location = storage_location
     item.notes = notes or ""
     _confirm_batch(item, user_id=user_id)
+
+
+def _validate_exact_batch_adjustments(
+    group: ExactIngredientReconciliationRequest,
+    *,
+    group_index: int,
+    ingredient: Ingredient,
+) -> None:
+    """Validate exact-batch fields that depend on the locked Ingredient profile.
+
+    A newly created batch's unit cannot be checked by Pydantic alone because the
+    conversion table belongs to the Ingredient.  Validate it during the
+    preparation phase, before the mutation loops begin, so callers receive the
+    reconciliation endpoint's structured 422 contract rather than a late 400
+    from ``create_inventory_batch``.
+    """
+    for update_index, update in enumerate(group.updates):
+        if update.expiry_date is not None and update.expiry_date < update.purchase_date:
+            _raise_validation(
+                "到期日不能早于采购日",
+                code="invalid_date_range",
+                field=f"groups.{group_index}.updates.{update_index}.expiry_date",
+                entity_id=ingredient.id,
+            )
+
+    for create_index, create in enumerate(group.creates):
+        if create.expiry_date is not None and create.expiry_date < create.purchase_date:
+            _raise_validation(
+                "到期日不能早于采购日",
+                code="invalid_date_range",
+                field=f"groups.{group_index}.creates.{create_index}.expiry_date",
+                entity_id=ingredient.id,
+            )
+        try:
+            normalized_quantity = convert_quantity_to_default_unit(
+                create.actual_remaining_quantity,
+                ingredient.default_unit,
+                ingredient.unit_conversions,
+                create.unit,
+            )
+        except UnitConversionError as exc:
+            _raise_validation(
+                str(exc),
+                code="incompatible_unit",
+                field=f"groups.{group_index}.creates.{create_index}.unit",
+                entity_id=ingredient.id,
+            )
+        if normalized_quantity <= 0:
+            _raise_validation(
+                "新增批次换算后的数量必须大于 0",
+                code="invalid_quantity",
+                field=f"groups.{group_index}.creates.{create_index}.actual_remaining_quantity",
+                entity_id=ingredient.id,
+            )
 
 
 def apply_inventory_reconciliation(
@@ -546,6 +611,7 @@ def apply_inventory_reconciliation(
     user_id: str,
     request: InventoryReconciliationRequest,
     business_date: date,
+    user_role: UserRole = UserRole.MEMBER,
 ) -> InventoryOperationResult:
     """Validate and mutate the full reconciliation; never commit."""
     del business_date  # reserved for callers; scope validation uses locked current rows
@@ -585,7 +651,11 @@ def apply_inventory_reconciliation(
     )
     if not created:
         existing = _load_operation(db, operation.id)
-        return _result_from_operation(existing)
+        return _result_from_operation(
+            existing,
+            user_id=user_id,
+            user_role=user_role,
+        )
 
     scope_location = resolve_scope_storage_location(request.scope, request.storage_location)
     # For suggested, observed set is all physical remaining batches across locations.
@@ -598,6 +668,13 @@ def apply_inventory_reconciliation(
             group.ingredient_id
             for group in request.groups
             if isinstance(group, PresenceIngredientReconciliationRequest) and group.state_id is not None
+        )
+    )
+    optional_state_ingredient_ids = list(
+        dict.fromkeys(
+            group.ingredient_id
+            for group in request.groups
+            if isinstance(group, PresenceIngredientReconciliationRequest) and group.state_id is None
         )
     )
     inventory_item_ids: list[str] = []
@@ -613,6 +690,7 @@ def apply_inventory_reconciliation(
             ingredient_ids=ingredient_ids,
             food_ids=food_ids,
             state_ingredient_ids=state_ingredient_ids,
+            optional_state_ingredient_ids=optional_state_ingredient_ids,
             inventory_item_ids=inventory_item_ids,
         )
     except InventoryTargetNotFoundError as exc:
@@ -652,7 +730,7 @@ def apply_inventory_reconciliation(
             # Ensure locked map has them for mutation.
             locked.inventory_items.setdefault(item.id, item)
 
-    for group in request.groups:
+    for group_index, group in enumerate(request.groups):
         if isinstance(group, ExactIngredientReconciliationRequest):
             ingredient = locked.ingredients.get(group.ingredient_id)
             if ingredient is None:
@@ -734,6 +812,12 @@ def apply_inventory_reconciliation(
                 )
                 observed_items.append(item)
                 batch_before[item.id] = snapshot_inventory_item(item)
+
+            _validate_exact_batch_adjustments(
+                group,
+                group_index=group_index,
+                ingredient=ingredient,
+            )
 
             prepared_exact.append(
                 _PreparedExact(
@@ -850,6 +934,28 @@ def apply_inventory_reconciliation(
                 entity_type="food",
                 entity_id=food.id,
             )
+            if group.action == "set_stock":
+                assert group.stock_quantity is not None
+                try:
+                    validate_food_stock_quantity_precision(group.stock_quantity)
+                except ValueError as exc:
+                    _raise_validation(
+                        str(exc),
+                        code="invalid_quantity",
+                        field="stock_quantity",
+                        entity_id=food.id,
+                    )
+                if (
+                    group.stock_quantity > 0
+                    and food.stock_unit
+                    and group.stock_unit != food.stock_unit
+                ):
+                    _raise_validation(
+                        f"当前食物库存单位是 {food.stock_unit}，不能按 {group.stock_unit} 盘点",
+                        code="incompatible_unit",
+                        field="stock_unit",
+                        entity_id=food.id,
+                    )
             prepared_food.append(
                 _PreparedFood(
                     request=group,
@@ -1161,7 +1267,6 @@ def apply_inventory_reconciliation(
     )
     db.flush()
 
-    now = utcnow()
     revertible_until = _as_aware(operation.revertible_until)
     return InventoryOperationResult(
         operation_id=operation.id,
@@ -1169,10 +1274,11 @@ def apply_inventory_reconciliation(
         status=operation.status,
         applied_at=_as_aware(operation.applied_at) or operation.applied_at,
         revertible_until=revertible_until or operation.revertible_until,
-        can_revert=(
-            operation.status == InventoryOperationStatus.APPLIED
-            and revertible_until is not None
-            and revertible_until >= now
+        can_revert=compute_can_revert(
+            operation,
+            user_id=user_id,
+            user_role=user_role,
+            now=utcnow(),
         ),
         summary=summary,
     )

@@ -20,7 +20,12 @@ from app.services.activity import log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
-from app.services.inventory_versions import STALE_INVENTORY_DETAIL
+from app.services.inventory_versions import (
+    STALE_INVENTORY_DETAIL,
+    InventoryConflictError,
+    conflict_detail,
+    require_expected_version,
+)
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -63,6 +68,25 @@ def _require_food_locked_for_stock(db, *, family_id: str, food_id: str) -> Food:
         ).foods[food_id]
     except (InventoryTargetNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found") from exc
+
+
+def _select_plan_item_for_quick_add(
+    *,
+    plan_item_id: str,
+    food_id: str,
+    family_id: str,
+    user_id: str,
+):
+    return (
+        select(FoodPlanItem)
+        .where(
+            FoodPlanItem.family_id == family_id,
+            FoodPlanItem.user_id == user_id,
+            FoodPlanItem.id == plan_item_id,
+            FoodPlanItem.food_id == food_id,
+        )
+        .with_for_update()
+    )
 
 
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
@@ -274,11 +298,11 @@ def quick_add_meal_log(
     plan_item: FoodPlanItem | None = None
     if payload.food_plan_item_id:
         plan_item = db.scalar(
-            select(FoodPlanItem).where(
-                FoodPlanItem.family_id == membership.family_id,
-                FoodPlanItem.user_id == user.id,
-                FoodPlanItem.id == payload.food_plan_item_id,
-                FoodPlanItem.food_id == food.id,
+            _select_plan_item_for_quick_add(
+                plan_item_id=payload.food_plan_item_id,
+                food_id=food.id,
+                family_id=membership.family_id,
+                user_id=user.id,
             )
         )
         if plan_item is None:
@@ -362,6 +386,19 @@ def quick_add_meal_log(
         )
 
     if payload.deduct_food_stock and entry_created:
+        try:
+            require_expected_version(
+                food,
+                payload.expected_food_row_version,
+                entity_type="food",
+                entity_id=food.id,
+            )
+        except InventoryConflictError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=conflict_detail(exc),
+            ) from exc
         try:
             apply_food_stock_consume(
                 db,

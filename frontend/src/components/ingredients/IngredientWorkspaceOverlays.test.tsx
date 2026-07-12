@@ -7,6 +7,8 @@ import { ApiError } from '../../api/request';
 import type {
   CorrectInventoryExpiryDateRequest,
   DisposeExpiredInventoryRequest,
+  Food,
+  ShoppingListItem,
   SnoozeExpiryAlertsRequest,
   VersionedInventoryItemRef,
 } from '../../api/types';
@@ -284,6 +286,7 @@ describe('useIngredientActionState inventory action mutations', () => {
       shoppingForm: emptyShoppingForm,
       setShoppingForm: vi.fn(),
       editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
         inventoryActionIngredientId:
         overrides.inventoryActionIngredientId === undefined
           ? 'ingredient-tomato'
@@ -556,6 +559,7 @@ describe('useIngredientActionState ordinary presence restock', () => {
       shoppingForm: emptyShoppingForm,
       setShoppingForm: vi.fn(),
       editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
       inventoryActionIngredientId: null,
       inventoryActionGroup: null,
       selectedInventoryIngredient: presenceIngredient,
@@ -666,6 +670,7 @@ describe('useIngredientActionState ordinary presence restock', () => {
       shoppingForm: emptyShoppingForm,
       setShoppingForm: vi.fn(),
       editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
       inventoryActionIngredientId: null,
       inventoryActionGroup: null,
       selectedInventoryIngredient: exactIngredient,
@@ -706,6 +711,107 @@ describe('useIngredientActionState ordinary presence restock', () => {
       expiry_date: undefined,
       storage_location: '冷藏',
       notes: '',
+    });
+  });
+});
+
+describe('useIngredientActionState Food shopping quantities', () => {
+  function makeSubmitEvent() {
+    return {
+      preventDefault: vi.fn(),
+    } as unknown as React.FormEvent<HTMLFormElement>;
+  }
+
+  function makeFood(): Food {
+    return {
+      id: 'food-beef',
+      family_id: 'family-1',
+      name: '卤牛肉',
+      type: 'readyMade',
+      category: '熟食',
+      flavor_tags: [],
+      suitable_meal_types: [],
+      source_name: '',
+      purchase_source: '',
+      scene: '',
+      images: [],
+      notes: '',
+      routine_note: '',
+      price: null,
+      rating: null,
+      repurchase: false,
+      expiry_date: null,
+      stock_quantity: 2,
+      stock_unit: '份',
+      storage_location: '冷藏',
+      favorite: false,
+      row_version: 4,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+    };
+  }
+
+  it('does not submit a Food shopping plan with more than one decimal place', async () => {
+    const food = makeFood();
+    const createShoppingItem = vi.fn(async () => ({ id: 'unused' } as ShoppingListItem));
+    const updateShoppingItem = vi.fn(async () => ({ id: 'unused' } as ShoppingListItem));
+    const showNotice = vi.fn();
+    const actions = useIngredientActionState({
+      ingredientOptions: [],
+      foodOptions: [food],
+      summaries: [],
+      inventoryForm: emptyInventoryForm,
+      setInventoryForm: vi.fn(),
+      setInventoryAdvancedOpen: vi.fn(),
+      consumeForm: emptyConsumeForm,
+      shoppingForm: {
+        targetType: 'food',
+        ingredientId: '',
+        foodId: food.id,
+        title: food.name,
+        quantity: '1.25',
+        unit: '份',
+        reason: '补充成品库存',
+      },
+      setShoppingForm: vi.fn(),
+      editingShoppingItemId: null,
+      editingShoppingItemRowVersion: null,
+      inventoryActionIngredientId: null,
+      inventoryActionGroup: null,
+      selectedInventoryIngredient: null,
+      setSelectedIngredientId: vi.fn(),
+      closeOverlay: vi.fn(),
+      setInventoryActionBusy: vi.fn(),
+      setInventoryActionError: vi.fn(),
+      setInventoryActionConflict: vi.fn(),
+      createInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      upsertInventoryState: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      consumeInventory: vi.fn(async () => {
+        throw new Error('unused');
+      }),
+      disposeExpiredInventory: vi.fn(async () => undefined),
+      snoozeInventoryExpiryAlerts: vi.fn(async () => undefined),
+      correctInventoryExpiryDate: vi.fn(async () => undefined),
+      refreshInventoryActionGroup: vi.fn(async () => null),
+      createShoppingItem,
+      updateShoppingItem,
+      showNotice,
+      resolveErrorMessage: (reason, fallback) =>
+        reason instanceof Error && reason.message.trim() ? reason.message : fallback,
+    });
+
+    await actions.submitShopping(makeSubmitEvent());
+
+    expect(createShoppingItem).not.toHaveBeenCalled();
+    expect(updateShoppingItem).not.toHaveBeenCalled();
+    expect(showNotice).toHaveBeenCalledWith({
+      tone: 'warning',
+      title: '待买数量无效',
+      message: '待买数量最多保留 1 位小数。',
     });
   });
 });

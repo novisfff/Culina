@@ -383,8 +383,8 @@ def _call_result(label: str, fn: Callable[[], Any]) -> tuple[str, str, Any]:
         # Concurrent parent collection bump after the other session committed.
         return label, "conflict", f"stale_data:{exc}"
     except IntegrityError as exc:
-        # Unique (family_id, ingredient_id) or client_request_id races.
-        return label, "conflict", f"integrity:{exc.orig if getattr(exc, 'orig', None) else exc}"
+        # Raw database errors are not structured API conflicts and must stay visible.
+        return label, "integrity_error", f"integrity:{exc.orig if getattr(exc, 'orig', None) else exc}"
     except ValueError as exc:
         return label, "value_error", str(exc)
     except Exception as exc:  # noqa: BLE001
@@ -1025,7 +1025,7 @@ def test_concurrent_first_state_creation_produces_one_row(mysql_concurrency_cont
     )
     kinds = [kind for _, kind, _ in results]
     assert kinds.count("ok") == 1, results
-    assert any(kind in {"conflict", "value_error"} for kind in kinds), results
+    assert kinds.count("conflict") == 1, results
 
     with SessionLocal() as db:
         states = list(

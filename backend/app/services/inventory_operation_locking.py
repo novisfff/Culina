@@ -39,6 +39,7 @@ def lock_inventory_targets(
     ingredient_ids: Iterable[str] = (),
     food_ids: Iterable[str] = (),
     state_ingredient_ids: Iterable[str] = (),
+    optional_state_ingredient_ids: Iterable[str] = (),
     inventory_item_ids: Iterable[str] = (),
     shopping_item_ids: Iterable[str] = (),
 ) -> LockedInventoryTargets:
@@ -49,7 +50,13 @@ def lock_inventory_targets(
     """
     ordered_ingredient_ids = _unique_sorted_ids(ingredient_ids)
     ordered_food_ids = _unique_sorted_ids(food_ids)
-    ordered_state_ingredient_ids = _unique_sorted_ids(state_ingredient_ids)
+    required_state_ingredient_ids = _unique_sorted_ids(state_ingredient_ids)
+    ordered_state_ingredient_ids = sorted(
+        {
+            *required_state_ingredient_ids,
+            *_unique_sorted_ids(optional_state_ingredient_ids),
+        }
+    )
     ordered_inventory_item_ids = _unique_sorted_ids(inventory_item_ids)
     ordered_shopping_item_ids = _unique_sorted_ids(shopping_item_ids)
 
@@ -97,9 +104,12 @@ def lock_inventory_targets(
                 .with_for_update()
             )
         )
-        if len(locked_states) != len(ordered_state_ingredient_ids):
-            raise InventoryTargetNotFoundError("库存状态不存在或不属于当前家庭")
         states_by_ingredient_id = {item.ingredient_id: item for item in locked_states}
+        if any(
+            ingredient_id not in states_by_ingredient_id
+            for ingredient_id in required_state_ingredient_ids
+        ):
+            raise InventoryTargetNotFoundError("库存状态不存在或不属于当前家庭")
 
     inventory_items: dict[str, InventoryItem] = {}
     if ordered_inventory_item_ids:

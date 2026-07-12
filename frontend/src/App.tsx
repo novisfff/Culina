@@ -50,6 +50,7 @@ import { useInventoryReconciliationState } from './features/inventory/useInvento
 import { useShoppingIntakeState } from './features/inventory/useShoppingIntakeState';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import {
+  buildFreeTextLinkOptions,
   linkFreeTextDraft,
   suggestFreeTextLinkCandidates,
   type FreeTextLinkCandidate,
@@ -388,13 +389,19 @@ function App() {
     },
     showNotice,
     refreshSources: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.inventory }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryStates }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.ingredients }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.foods }),
+      const latest = await Promise.all([
+        queryClient.fetchQuery({ queryKey: queryKeys.shoppingList, queryFn: api.getShoppingList }),
+        queryClient.fetchQuery({ queryKey: queryKeys.ingredients, queryFn: () => api.getIngredients() }),
+        queryClient.fetchQuery({ queryKey: queryKeys.foods, queryFn: () => api.getFoods() }),
+        queryClient.fetchQuery({ queryKey: queryKeys.inventoryStates, queryFn: () => api.listInventoryStates() }),
+        queryClient.fetchQuery({ queryKey: queryKeys.inventory, queryFn: () => api.getInventory() }),
       ]);
+      return {
+        shoppingItems: latest[0],
+        ingredients: latest[1],
+        foods: latest[2],
+        inventoryStates: latest[3],
+      };
     },
   });
 
@@ -573,6 +580,11 @@ function App() {
     }
     return map;
   })();
+
+  const freeTextLinkOptions = useMemo(
+    () => buildFreeTextLinkOptions({ ingredients, foods }),
+    [ingredients, foods],
+  );
 
   const {
     overlayMode: familyOverlayMode,
@@ -1002,7 +1014,9 @@ function App() {
               foodPlanNavigationRequest={foodPlanNavigationRequest}
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
-              updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
+              updateFoodFavorite={(foodId, favorite, expectedRowVersion) =>
+                toggleFavoriteMutation.mutateAsync({ foodId, favorite, expectedRowVersion })
+              }
               createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
               updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
               quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
@@ -1157,7 +1171,9 @@ function App() {
               }
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
-              deleteShoppingItem={(itemId) => deleteShoppingMutation.mutateAsync(itemId)}
+              deleteShoppingItem={(itemId, expectedRowVersion) =>
+                deleteShoppingMutation.mutateAsync({ itemId, expectedRowVersion })
+              }
               isCreatingIngredient={createIngredientMutation.isPending}
               isUpdatingIngredient={updateIngredientMutation.isPending}
               isCreatingInventory={createInventoryMutation.isPending || upsertInventoryStateMutation.isPending}
@@ -1326,6 +1342,7 @@ function App() {
                   result: shoppingIntakeState.result,
                   expandedExceptionIds: shoppingIntakeState.expandedExceptionIds,
                   freeTextCandidatesByItemId,
+                  freeTextLinkOptions,
                   onClose: () => {
                     if (shoppingIntakeState.result) {
                       setRecentBannerOverride(shoppingIntakeState.result);

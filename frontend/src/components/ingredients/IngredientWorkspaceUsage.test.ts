@@ -102,6 +102,9 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('api.quickAddMealLog');
     expect(workspaceSource).toContain('api.restockFoodStock');
     expect(workspaceSource).toContain('api.consumeFoodStock');
+    expect(workspaceSource).toContain('expected_row_version: foodStockMealDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_food_row_version: foodStockMealDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_row_version: foodStockAdjustDialog.item.row_version');
     expect(workspaceSource).not.toContain('api.disposeFoodStock');
     expect(workspaceSource).toContain('不记录');
     expect(workspaceSource).toContain('step="0.1"');
@@ -114,6 +117,18 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('记餐入口还在食物页');
     expect(appSource).not.toContain('onOpenFoodEditor={(foodId)');
     expect(appSource).not.toContain('onOpenFoodQuickMeal={(foodId)');
+  });
+
+  it('carries shopping row versions through edit and restore actions', () => {
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+    const hubSource = readFileSync(resolve(__dirname, 'IngredientHubPage.tsx'), 'utf8');
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
+
+    expect(overlayStateSource).toContain('editingShoppingItemRowVersion');
+    expect(actionSource).toContain('expected_row_version: args.editingShoppingItemRowVersion');
+    expect(panelsSource).toContain('onRestoreShopping: (item: ShoppingListItem) => void');
+    expect(hubSource).toContain('expected_row_version: item.row_version');
   });
 
   it('makes the food restock dialog a fuller quick-entry flow without storage editing', () => {

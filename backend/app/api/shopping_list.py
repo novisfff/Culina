@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction, FoodType, IngredientQuantityTrackingMode
@@ -13,6 +15,7 @@ from app.db.transactions import commit_session
 from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
+from app.services.food_stock_quantity import validate_food_stock_quantity_precision
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail, require_expected_version
 from app.services.serializers import serialize_shopping_item
@@ -60,6 +63,15 @@ def _resolve_shopping_target(
     if food.type not in READY_LIKE_FOOD_TYPES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只有成品、速食或包装食品可以加入采购")
     return None, food
+
+
+def _validate_food_shopping_quantity(quantity: Decimal | float | None) -> None:
+    if quantity is None:
+        return
+    try:
+        validate_food_stock_quantity_precision(Decimal(str(quantity)), field_label="采购数量")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/api/shopping-list", response_model=list[ShoppingListItemOut])
@@ -110,6 +122,8 @@ def create_shopping_item(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购数量必须大于 0")
     if not payload.unit:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购单位不能为空")
+    if food is not None:
+        _validate_food_shopping_quantity(payload.quantity)
     item = ShoppingListItem(
         id=create_id("shopping"),
         family_id=membership.family_id,
@@ -245,6 +259,9 @@ def update_shopping_item(
         if item.ingredient_id is not None or item.food_id is not None:
             item.display_label = None
 
+    if item.food_id is not None and ("quantity" in payload.model_fields_set or target_changed):
+        _validate_food_shopping_quantity(item.quantity)
+
     item.updated_by = user.id
     mutation_fields = payload.model_fields_set - {"expected_row_version"}
     if mutation_fields == {"done"}:
@@ -268,6 +285,7 @@ def update_shopping_item(
 @router.delete("/api/shopping-list/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_shopping_item(
     item_id: str,
+    expected_row_version: int = Query(ge=1),
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> Response:
@@ -280,6 +298,15 @@ def delete_shopping_item(
         ).shopping_items[item_id]
     except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found")
+    try:
+        require_expected_version(
+            item,
+            expected_row_version,
+            entity_type="shopping_list_item",
+            entity_id=item.id,
+        )
+    except InventoryConflictError as exc:
+        raise _shopping_conflict_http(exc) from exc
     item_title = item.title
     log_activity(
         db,

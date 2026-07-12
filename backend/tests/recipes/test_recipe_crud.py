@@ -235,6 +235,7 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
                 f"/api/foods/{self_made['id']}",
                 json={
                     **self_made,
+                    "expected_row_version": self_made["row_version"],
                     "flavor_tags": ["清淡", "快手"],
                     "suitable_meal_types": ["lunch", "dinner"],
                     "scene": "工作日",

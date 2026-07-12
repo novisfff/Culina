@@ -4,8 +4,11 @@ import type { ShoppingIntakeRequest, ShoppingIntakeResult } from '../../api/type
 import {
   buildShoppingIntakePayload,
   getSelectedDraftItems,
+  rebaseShoppingIntakeDraft,
+  renewShoppingIntakeRequestId,
   type ShoppingIntakeDraft,
   type ShoppingIntakeFieldError,
+  type ShoppingIntakeSources,
 } from './shoppingIntakeModel';
 import type { UseShoppingIntakeStateResult } from './useShoppingIntakeState';
 
@@ -20,8 +23,8 @@ export type UseShoppingIntakeActionsArgs = {
   submitShoppingIntake: (payload: ShoppingIntakeRequest) => Promise<ShoppingIntakeResult>;
   invalidateAfterInventoryOperation: () => Promise<void>;
   showNotice?: (notice: ShoppingIntakeNotice) => void;
-  /** Optional refresh of shopping/inventory data after 409 to re-bind versions. */
-  refreshSources?: () => Promise<void>;
+  /** Fetch canonical sources after 409 so every concurrency token can be re-bound. */
+  refreshSources?: () => Promise<ShoppingIntakeSources>;
 };
 
 export type ShoppingIntakeActions = {
@@ -32,8 +35,20 @@ export type ShoppingIntakeActions = {
 type StructuredDetail = {
   code?: string;
   message?: string;
-  field_errors?: Array<{ path?: string; field?: string; message?: string; code?: string }>;
-  conflicts?: Array<{ entity_type?: string; entity_id?: string; message?: string; code?: string }>;
+  field_errors?: Array<{
+    shopping_item_id?: string;
+    path?: string;
+    field?: string;
+    message?: string;
+    code?: string;
+  }>;
+  conflicts?: Array<{
+    entity_type?: string;
+    entity_id?: string;
+    message?: string;
+    code?: string;
+    reason?: string;
+  }>;
 };
 
 function messageOf(reason: unknown, fallback: string) {
@@ -85,7 +100,8 @@ export function mapFieldErrors(
     const indexMatch = path.match(/items(?:\.|\[)(\d+)/);
     const index = indexMatch ? Number(indexMatch[1]) : -1;
     const shoppingItemId =
-      index >= 0 && index < selected.length ? selected[index].shoppingItemId : '';
+      entry.shopping_item_id ??
+      (index >= 0 && index < selected.length ? selected[index].shoppingItemId : '');
     const rawField = parts[parts.length - 1] || entry.field || 'unknown';
     // Drop the bare index token if it was the last part (shouldn't happen with field present).
     const fieldToken = /^\d+$/.test(rawField) ? entry.field || 'unknown' : rawField;
@@ -107,6 +123,55 @@ function conflictCodeOf(detail: StructuredDetail | null): UseShoppingIntakeState
     return 'stale_version';
   }
   return 'stale_version';
+}
+
+function conflictShoppingItemId(
+  conflict: NonNullable<StructuredDetail['conflicts']>[number],
+  draft: ShoppingIntakeDraft,
+): string {
+  const entityId = conflict.entity_id ?? '';
+  if (!entityId) return '';
+  const direct = draft.items.find((item) => item.shoppingItemId === entityId);
+  if (direct) return direct.shoppingItemId;
+  const target = draft.items.find((item) => {
+    if (item.kind === 'free_text') return false;
+    if (conflict.entity_type === 'ingredient') {
+      return (
+        (item.kind === 'exact_ingredient' || item.kind === 'presence_ingredient') &&
+        item.targetId === entityId
+      );
+    }
+    if (conflict.entity_type === 'food') {
+      return item.kind === 'food' && item.targetId === entityId;
+    }
+    if (conflict.entity_type === 'ingredient_inventory_state') {
+      return item.kind === 'presence_ingredient' && item.stateId === entityId;
+    }
+    return false;
+  });
+  return target?.shoppingItemId ?? '';
+}
+
+export function mapShoppingIntakeConflicts(
+  detail: StructuredDetail | null,
+  draft: ShoppingIntakeDraft,
+): ShoppingIntakeFieldError[] {
+  if (!detail?.conflicts?.length) return [];
+  const byShoppingItem = new Map<string, ShoppingIntakeFieldError>();
+  for (const conflict of detail.conflicts) {
+    const shoppingItemId = conflictShoppingItemId(conflict, draft);
+    if (!shoppingItemId || byShoppingItem.has(shoppingItemId)) continue;
+    byShoppingItem.set(shoppingItemId, {
+      shoppingItemId,
+      field: 'conflict',
+      code: conflict.code ?? detail.code ?? 'stale_version',
+      message:
+        conflict.message ??
+        detail.message ??
+        '这项采购或库存已被家人更新，请核对最新内容。',
+    });
+  }
+  return [...byShoppingItem.values()];
 }
 
 export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): ShoppingIntakeActions {
@@ -182,19 +247,39 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
 
       if (isApiError(reason) && reason.status === 409) {
         const detail = extractStructuredDetail(reason);
-        stateRef.current.setConflictState(conflictCodeOf(detail));
+        const conflictState = conflictCodeOf(detail);
+        stateRef.current.setConflictState(conflictState);
         stateRef.current.setErrorMessage(
           detail?.message ||
             messageOf(reason, '家人可能刚改动了采购项或库存，请刷新后重新确认。'),
         );
+        let conflictDraft = stateRef.current.draft;
+        if (conflictState === 'idempotency_key_reused' && conflictDraft) {
+          conflictDraft = renewShoppingIntakeRequestId(conflictDraft);
+          stateRef.current.replaceDraft(conflictDraft);
+        }
         if (refreshSourcesRef.current) {
           try {
-            await refreshSourcesRef.current();
+            const latestSources = await refreshSourcesRef.current();
+            const currentDraft = conflictDraft ?? stateRef.current.draft;
+            if (currentDraft) {
+              const rebasedDraft = rebaseShoppingIntakeDraft(currentDraft, latestSources);
+              const conflictErrors = mapShoppingIntakeConflicts(detail, rebasedDraft);
+              stateRef.current.replaceDraft(rebasedDraft);
+              stateRef.current.setFieldErrors(conflictErrors);
+              const firstConflict = conflictErrors[0];
+              stateRef.current.setFocusFieldKey(
+                firstConflict
+                  ? `${firstConflict.shoppingItemId}:${firstConflict.field}`
+                  : null,
+              );
+            }
           } catch {
             // Keep current draft; conflict message already set.
           }
         }
-        // Keep dialog/draft open on 409; network retry later reuses the same clientRequestId.
+        stateRef.current.setStep('review');
+        // Keep dialog/draft open; the next submit is an explicit confirmation of rebased data.
         return;
       }
 
@@ -240,7 +325,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
   }, [runSubmit]);
 
   const retryLatest = useCallback(async () => {
-    // Network/conflict retry reuses the same draft clientRequestId.
+    // Network/stale-version retries reuse the request id; key reuse gets renewed in the 409 branch.
     await runSubmit();
   }, [runSubmit]);
 

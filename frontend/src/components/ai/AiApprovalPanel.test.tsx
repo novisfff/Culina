@@ -1286,6 +1286,8 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('关联计划：2026-06-12 · 晚餐 · 番茄炒蛋 · 计划中');
     expect(rendered.container.textContent).toContain('需要 2 个');
     expect(rendered.container.textContent).toContain('批次 1：扣 2 个 · 冷藏 · 购于 2026-06-08 · 到期 2026-06-15');
+    expect(rendered.container.querySelector<HTMLInputElement>('.ai-recipe-cook-draft-editor input[type="number"]')?.disabled).toBe(true);
+    expect(rendered.container.textContent).toContain('份数会改变库存扣减预览，如需调整请重新生成草稿');
     rendered.unmount();
   });
 

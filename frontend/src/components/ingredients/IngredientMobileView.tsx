@@ -103,7 +103,7 @@ type IngredientMobileViewProps = {
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
   openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string; shoppingItem?: ShoppingListItem }) => void;
-  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
+  onDeleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<unknown>;
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
@@ -206,7 +206,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
   }
 
   function deleteShoppingCard(card: ShoppingCardViewModel) {
-    void props.onDeleteShoppingItem(card.shoppingItem.id)
+    void props.onDeleteShoppingItem(card.shoppingItem.id, card.shoppingItem.row_version)
       .then(closeShoppingCard)
       .catch(() => undefined);
   }

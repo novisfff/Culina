@@ -833,7 +833,7 @@ type ShoppingPanelProps = {
   onOpenInventoryFromShopping: (item: ShoppingListItem) => void;
   onOpenDetailView: (summary: IngredientSummaryViewModel) => void;
   onToggleCompletedShopping: () => void;
-  onRestoreShopping: (itemId: string) => void;
+  onRestoreShopping: (item: ShoppingListItem) => void;
   IngredientWorkspaceIcon: IngredientWorkspaceIconComponent;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
@@ -995,7 +995,7 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
                   <props.ShoppingHistoryRow
                     key={card.shoppingItem.id}
                     card={card}
-                    onRestore={() => props.onRestoreShopping(card.shoppingItem.id)}
+                    onRestore={() => props.onRestoreShopping(card.shoppingItem)}
                     onDetail={
                       card.linkedSummary
                         ? () => {

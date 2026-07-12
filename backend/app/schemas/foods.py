@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.enums import FoodType, MealType
+from app.core.enums import FoodType, InventoryConfirmationSource, MealType
 from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import CookRecipeShortageOut
 
@@ -39,6 +39,9 @@ class FoodOut(BaseModel):
     created_by: str | None = None
     updated_by: str | None = None
     row_version: int = 1
+    inventory_last_confirmed_at: datetime | None = None
+    inventory_last_confirmed_by: str | None = None
+    inventory_confirmation_source: InventoryConfirmationSource | None = None
 
 
 class FoodStockChangeRequest(BaseModel):

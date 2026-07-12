@@ -39,7 +39,7 @@ COMPOSITE_DOMAIN_DRAFT_TYPES = {
     "meal_log": "meal_log",
 }
 EXECUTABLE_COMPOSITE_DOMAINS = set(COMPOSITE_DOMAIN_DRAFT_TYPES)
-CompositeStepExecutor = Callable[[str, dict[str, Any]], tuple[dict[str, Any], list[str]]]
+CompositeStepExecutor = Callable[[str, dict[str, Any], bool], tuple[dict[str, Any], list[str]]]
 
 
 def validate_composite_operation_plan(payload: Any) -> dict[str, Any]:
@@ -134,6 +134,39 @@ def resolve_composite_step_operation(
     return _resolve_references(operation, step_results=step_results, allowed_dependencies=allowed_dependencies)
 
 
+def _is_dependency_reference(value: Any) -> bool:
+    return isinstance(value, str) and COMPOSITE_REFERENCE_RE.match(value) is not None
+
+
+def _inventory_operation_requires_deferred_normalization(operation: Any) -> bool:
+    """Only defer an inventory step when its target is created by a dependency.
+
+    Inventory drafts capture row-version boundaries during proposal. A reference in
+    a descriptive field such as ``notes`` can be resolved at execution without
+    invalidating those boundaries. Treating *any* reference as deferred would
+    rebuild the whole inventory draft at approval time and silently rebase a
+    known Ingredient/InventoryItem onto a family member's newer change.
+    """
+    if not isinstance(operation, dict):
+        return False
+    operations = operation.get("operations")
+    records = operations if isinstance(operations, list) else [operation]
+    return any(
+        isinstance(record, dict)
+        and (
+            _is_dependency_reference(record.get("ingredientId"))
+            or _is_dependency_reference(record.get("ingredient_id"))
+        )
+        for record in records
+    )
+
+
+def composite_operation_requires_deferred_normalization(operation: Any, *, domain: str | None = None) -> bool:
+    if domain == "inventory":
+        return _inventory_operation_requires_deferred_normalization(operation)
+    return bool(_collect_dependency_references(operation))
+
+
 def build_composite_operation_step_previews(payload: Any) -> dict[str, Any]:
     ordered_steps = composite_execution_order(payload)
     previews: list[dict[str, Any]] = []
@@ -173,6 +206,10 @@ def execute_composite_operation_plan(
             if domain not in EXECUTABLE_COMPOSITE_DOMAINS:
                 raise ValueError("复合操作执行器暂不支持该步骤领域")
             operation = resolve_composite_step_operation(step, step_results=step_results)
+            normalize_before_execute = composite_operation_requires_deferred_normalization(
+                step["operation"],
+                domain=domain,
+            )
             if execute_operation is None and domain == "ingredient":
                 step_result = _execute_ingredient_step(
                     db,
@@ -188,12 +225,17 @@ def execute_composite_operation_plan(
                     user_id=user_id,
                     step=step,
                     operation=operation,
+                    normalize_before_execute=normalize_before_execute,
                 )
             elif execute_operation is None:
                 raise ValueError("复合操作执行器需要统一领域 executor 后才能执行该步骤")
             else:
                 draft_type = COMPOSITE_DOMAIN_DRAFT_TYPES[domain]
-                business_entity, entity_ids = execute_operation(draft_type, operation)
+                business_entity, entity_ids = execute_operation(
+                    draft_type,
+                    operation,
+                    normalize_before_execute,
+                )
                 step_result = _step_result(step, domain=domain, business_entity=business_entity, entity_ids=entity_ids)
             step_results[str(step["stepId"])] = step_result
 
@@ -501,9 +543,14 @@ def _execute_inventory_step(
     user_id: str,
     step: dict[str, Any],
     operation: dict[str, Any],
+    normalize_before_execute: bool,
 ) -> dict[str, Any]:
     raw_payload = operation if isinstance(operation.get("operations"), list) else {"operations": [operation]}
-    payload = normalize_inventory_operation_draft(db, family_id=family_id, payload=raw_payload)
+    payload = (
+        normalize_inventory_operation_draft(db, family_id=family_id, payload=raw_payload)
+        if normalize_before_execute
+        else raw_payload
+    )
     result, entity_ids = execute_inventory_operation_draft(
         db,
         family_id=family_id,

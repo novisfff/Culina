@@ -338,6 +338,58 @@ def _is_tracked_inventory_item(item: InventoryItem) -> bool:
     return item.ingredient is None or tracks_quantity(item.ingredient)
 
 
+def _presence_low_stock_records(
+    context: ToolContext,
+    *,
+    today: date,
+    suggested_action: str | None = None,
+) -> list[dict[str, Any]]:
+    states = list(
+        context.db.scalars(
+            select(IngredientInventoryState)
+            .where(
+                IngredientInventoryState.family_id == context.family_id,
+                IngredientInventoryState.availability_level == InventoryAvailabilityLevel.LOW,
+            )
+            .order_by(
+                IngredientInventoryState.updated_at.desc(),
+                IngredientInventoryState.ingredient_id.asc(),
+            )
+        )
+    )
+    if not states:
+        return []
+    ingredients = {
+        ingredient.id: ingredient
+        for ingredient in context.db.scalars(
+            select(Ingredient).where(
+                Ingredient.family_id == context.family_id,
+                Ingredient.id.in_([state.ingredient_id for state in states]),
+            )
+        )
+    }
+    media_map = entity_media_map(
+        context.db,
+        family_id=context.family_id,
+        entity_types={"ingredient"},
+        entity_ids=list(ingredients),
+    )
+    records = [
+        inventory_state_record(
+            state,
+            ingredient,
+            media_map,
+            today=today,
+            suggested_action=suggested_action,
+        )
+        for state in states
+        if (ingredient := ingredients.get(state.ingredient_id)) is not None
+        and not tracks_quantity(ingredient)
+    ]
+    records.sort(key=lambda record: (str(record["name"]), str(record["id"])))
+    return records
+
+
 def read_inventory(context: ToolContext, *, limit: int = 80) -> list[InventoryItem]:
     return list(
         context.db.scalars(
@@ -608,6 +660,11 @@ def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]
         inventory_record(item, media_map, today=today, suggested_action="restock")
         for item in items
     ]
+    presence_records = _presence_low_stock_records(
+        context,
+        today=today,
+        suggested_action="restock",
+    )
     represented_ingredient_ids = {str(item.ingredient_id) for item in items}
     depleted_records = [
         {
@@ -634,7 +691,7 @@ def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]
         if ingredient.id not in represented_ingredient_ids
         and remaining_by_ingredient.get(ingredient.id, Decimal("0")) <= 0
     ]
-    records = [*depleted_records, *records][:limit]
+    records = [*depleted_records, *presence_records, *records][:limit]
     return _with_inventory_card(
         {"queryFocus": "low_stock", "items": records, "count": len(records)},
         title="低库存提醒",
@@ -686,10 +743,10 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
                 remaining <= InventoryItem.low_stock_threshold,
             )
             .order_by(remaining.asc(), InventoryItem.purchase_date.asc(), InventoryItem.id.asc())
-            .limit(6)
         )
     )
     low_stock_items = [item for item in low_stock_items if _is_tracked_inventory_item(item)]
+    presence_low_records = _presence_low_stock_records(context, today=today)
     if expiring_items:
         media_map = entity_media_map(
             context.db,
@@ -698,14 +755,17 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
             entity_ids=[item.ingredient_id for item in expiring_items],
         )
         records = [inventory_record(item, media_map, today=today) for item in expiring_items]
-    elif low_stock_items:
+    elif low_stock_items or presence_low_records:
         media_map = entity_media_map(
             context.db,
             family_id=context.family_id,
             entity_types={"ingredient"},
             entity_ids=[item.ingredient_id for item in low_stock_items],
         )
-        records = [inventory_record(item, media_map, today=today) for item in low_stock_items]
+        records = [
+            *[inventory_record(item, media_map, today=today) for item in low_stock_items],
+            *presence_low_records,
+        ][:6]
     else:
         records = []
     seen = {_inventory_record_key(record) for record in records}
@@ -725,7 +785,7 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
             row.get("days_until_expiry") is not None and row["days_until_expiry"] < 0
             for row in rows
         ),
-        "lowStockCount": len(low_stock_items),
+        "lowStockCount": len(low_stock_items) + len(presence_low_records),
         "foodStockCount": overview["summary"]["food_count"],
         "items": records,
     }

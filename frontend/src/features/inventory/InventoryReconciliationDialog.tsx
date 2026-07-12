@@ -122,6 +122,17 @@ function fieldErrorFor(
   );
 }
 
+function fieldErrorsFor(
+  fieldErrors: ReconciliationFieldError[] | undefined,
+  targetKey: string,
+  fields: string[],
+): ReconciliationFieldError[] {
+  return fields.flatMap((field) => {
+    const error = fieldErrorFor(fieldErrors, targetKey, field);
+    return error ? [error] : [];
+  });
+}
+
 function intentActionLabel(intent: ReconciliationIntent | null): string | null {
   if (!intent) return null;
   if (intent.kind === 'exact_ingredient') {
@@ -690,11 +701,12 @@ function ExactBatchEditor(props: {
           const update =
             updates.find((entry) => entry.inventoryItemId === batch.inventory_item_id) ??
             buildBatchUpdateFromGroup(props.group, batch.inventory_item_id)!;
-          const qtyError = fieldErrorFor(
-            props.fieldErrors,
-            targetKey,
+          const batchErrors = fieldErrorsFor(props.fieldErrors, targetKey, [
             `batch:${batch.inventory_item_id}:actualRemainingQuantity`,
-          );
+            `batch:${batch.inventory_item_id}:purchaseDate`,
+            `batch:${batch.inventory_item_id}:expiryDate`,
+            `batch:${batch.inventory_item_id}:storageLocation`,
+          ]);
           const expired = isPhysicalBatchExpired(batch, props.referenceDate);
           return (
             <div
@@ -789,12 +801,24 @@ function ExactBatchEditor(props: {
                   />
                 </label>
               </div>
-              {qtyError ? <p className="inventory-maintenance-field-error">{qtyError.message}</p> : null}
+              {batchErrors.map((error) => (
+                <p key={error.field} className="inventory-maintenance-field-error">
+                  {error.message}
+                </p>
+              ))}
             </div>
           );
         })}
 
-      {creates.map((create) => (
+      {creates.map((create) => {
+        const createErrors = fieldErrorsFor(props.fieldErrors, targetKey, [
+          `create:${create.clientLineId}:actualRemainingQuantity`,
+          `create:${create.clientLineId}:unit`,
+          `create:${create.clientLineId}:purchaseDate`,
+          `create:${create.clientLineId}:expiryDate`,
+          `create:${create.clientLineId}:storageLocation`,
+        ]);
+        return (
         <div key={create.clientLineId} className="inventory-reconciliation-batch-row is-create">
           <div className="inventory-maintenance-item-title-row">
             <strong>新增漏记批次</strong>
@@ -805,6 +829,7 @@ function ExactBatchEditor(props: {
             unitOptions={[{ value: create.unit, label: create.unit || '单位' }]}
             quantityDisabled={props.busy}
             quantityFieldKey={`${targetKey}:create:${create.clientLineId}:actualRemainingQuantity`}
+            unitFieldKey={`${targetKey}:create:${create.clientLineId}:unit`}
             onQuantityChange={(value) => {
               ensureAdjustIntent(
                 updates,
@@ -884,6 +909,11 @@ function ExactBatchEditor(props: {
               />
             </label>
           </div>
+          {createErrors.map((error) => (
+            <p key={error.field} className="inventory-maintenance-field-error">
+              {error.message}
+            </p>
+          ))}
           <ActionButton
             tone="tertiary"
             size="compact"
@@ -899,7 +929,8 @@ function ExactBatchEditor(props: {
             移除新增批次
           </ActionButton>
         </div>
-      ))}
+        );
+      })}
 
       <ActionButton
         tone="secondary"
@@ -1043,6 +1074,8 @@ function FoodGroupActions(props: {
   const targetKey = reconciliationGroupTargetKey(props.group);
   const adjusting = props.intent?.action === 'set_stock' && props.intent.stockQuantity !== '0';
   const qtyError = fieldErrorFor(props.fieldErrors, targetKey, 'stockQuantity');
+  const unitError = fieldErrorFor(props.fieldErrors, targetKey, 'stockUnit');
+  const storageError = fieldErrorFor(props.fieldErrors, targetKey, 'storageLocation');
 
   return (
     <div className="inventory-reconciliation-group-actions">
@@ -1109,7 +1142,9 @@ function FoodGroupActions(props: {
               },
             ]}
             quantityDisabled={props.busy}
+            quantityStep="0.1"
             quantityFieldKey={`${targetKey}:stockQuantity`}
+            unitFieldKey={`${targetKey}:stockUnit`}
             onQuantityChange={(value) =>
               props.onSetIntent(
                 buildFoodSetStockIntent({
@@ -1174,7 +1209,13 @@ function FoodGroupActions(props: {
               }
             />
           </label>
-          {qtyError ? <p className="inventory-maintenance-field-error">{qtyError.message}</p> : null}
+          {[qtyError, unitError, storageError]
+            .filter((error): error is ReconciliationFieldError => error !== null)
+            .map((error) => (
+              <p key={error.field} className="inventory-maintenance-field-error">
+                {error.message}
+              </p>
+            ))}
         </div>
       ) : null}
     </div>

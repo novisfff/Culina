@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/request';
 import type {
   ExactIngredientReconciliationGroup,
+  FoodReconciliationGroup,
   InventoryOperationResult,
   InventoryReconciliationResponse,
   PresenceIngredientReconciliationGroup,
@@ -13,6 +14,7 @@ import type {
 } from '../../api/types';
 import {
   buildExactConfirmAllIntent,
+  buildFoodConfirmIntent,
   createEmptyDraft,
   type InventoryReconciliationDraft,
 } from './inventoryReconciliationModel';
@@ -106,6 +108,24 @@ function makePresenceGroup(
       created_at: '2026-06-01T00:00:00.000Z',
       updated_at: '2026-06-01T00:00:00.000Z',
     },
+    ...overrides,
+  };
+}
+
+function makeFoodGroup(
+  overrides: Partial<FoodReconciliationGroup> = {},
+): FoodReconciliationGroup {
+  return {
+    kind: 'food',
+    food_id: 'food-milk',
+    food_name: '鲜奶',
+    row_version: 3,
+    stock_quantity: 2,
+    stock_unit: '盒',
+    expiry_date: '2026-07-15',
+    storage_location: '冷藏',
+    confirmation_status: 'stale',
+    last_confirmed_at: '2026-06-01T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -425,6 +445,57 @@ describe('useInventoryReconciliationActions', () => {
     expect(fetchReconciliation).toHaveBeenCalledTimes(2);
   });
 
+  it('uses a new request id after idempotency_key_reused', async () => {
+    const eggs = makeExactGroup();
+    const fetchReconciliation = vi.fn(async () => makeResponse([eggs]));
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError({
+          status: 409,
+          detail: '请求标识已被使用',
+          path: '/api/inventory/reconciliations',
+          payload: {
+            detail: {
+              code: 'idempotency_key_reused',
+              message: '相同请求标识已用于不同内容，请重新确认',
+              conflicts: [],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(makeResult());
+    renderBundle({
+      fetchReconciliation,
+      submitReconciliation: submit,
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+    });
+
+    await act(async () => {
+      await latest!.actions.openReconciliation('all');
+    });
+    act(() => {
+      latest!.state.setIntent(buildExactConfirmAllIntent(eggs), NOW);
+    });
+    const reusedId = latest!.state.draft!.clientRequestId;
+
+    await act(async () => {
+      await latest!.actions.submitDraft();
+    });
+
+    const renewedId = latest!.state.draft!.clientRequestId;
+    expect(latest!.state.conflictState).toBe('idempotency_key_reused');
+    expect(renewedId).not.toBe(reusedId);
+
+    await act(async () => {
+      await latest!.actions.retryLatest();
+    });
+
+    expect(submit.mock.calls[0][0]).toMatchObject({ client_request_id: reusedId });
+    expect(submit.mock.calls[1][0]).toMatchObject({ client_request_id: renewedId });
+    expect(latest!.state.step).toBe('result');
+  });
+
   it('422 maps field_errors onto group controls and keeps dialog open', async () => {
     const eggs = makeExactGroup();
     const submit = vi.fn().mockRejectedValueOnce(
@@ -500,6 +571,57 @@ describe('useInventoryReconciliationActions', () => {
     ]);
     expect(latest!.state.focusFieldKey).toContain('exact_ingredient:ing-egg');
     expect(latest!.state.result).toBeNull();
+  });
+
+  it('maps service 422 entity_id errors onto the matching reconciliation card', async () => {
+    const food = makeFoodGroup();
+    const submit = vi.fn().mockRejectedValueOnce(
+      new ApiError({
+        status: 422,
+        detail: '只有成品、速食或包装食品可以盘点',
+        path: '/api/inventory/reconciliations',
+        payload: {
+          detail: {
+            code: 'invalid_target',
+            message: '只有成品、速食或包装食品可以盘点',
+            field_errors: [
+              {
+                entity_id: 'food-milk',
+                field: 'food_id',
+                message: '只有成品、速食或包装食品可以盘点',
+                code: 'invalid_target',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    renderBundle({
+      fetchReconciliation: vi.fn(async () => makeResponse([food])),
+      submitReconciliation: submit,
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+    });
+
+    await act(async () => {
+      await latest!.actions.openReconciliation('all');
+    });
+    act(() => {
+      latest!.state.setIntent(buildFoodConfirmIntent(food), NOW);
+    });
+
+    await act(async () => {
+      await latest!.actions.submitDraft();
+    });
+
+    expect(latest!.state.fieldErrors).toEqual([
+      expect.objectContaining({
+        targetKey: 'food:food-milk',
+        field: 'foodId',
+        code: 'invalid_target',
+      }),
+    ]);
+    expect(latest!.state.focusFieldKey).toBe('food:food-milk:foodId');
   });
 
   it('submit from summary 422 recovers onto review with fieldErrors and expanded batch controls', async () => {

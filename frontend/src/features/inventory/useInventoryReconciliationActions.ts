@@ -8,6 +8,7 @@ import { ApiError, isApiError } from '../../api/request';
 import {
   buildReconciliationPayload,
   intentTargetKey,
+  renewReconciliationRequestId,
   storageLocationForScope,
   type InventoryReconciliationDraft,
   type InventoryReconciliationScope,
@@ -50,7 +51,13 @@ export type InventoryReconciliationActions = {
 type StructuredDetail = {
   code?: string;
   message?: string;
-  field_errors?: Array<{ path?: string; field?: string; message?: string; code?: string }>;
+  field_errors?: Array<{
+    entity_id?: string;
+    path?: string;
+    field?: string;
+    message?: string;
+    code?: string;
+  }>;
   conflicts?: Array<{ entity_type?: string; entity_id?: string; message?: string; code?: string }>;
 };
 
@@ -110,7 +117,19 @@ export function mapReconciliationFieldErrors(
     const path = entry.path ?? entry.field ?? '';
     const indexMatch = path.match(/groups(?:\.|\[)(\d+)/);
     const index = indexMatch ? Number(indexMatch[1]) : -1;
-    const intent = index >= 0 && index < intents.length ? intents[index] : null;
+    const indexedIntent = index >= 0 && index < intents.length ? intents[index] : null;
+    const entityIntent = entry.entity_id
+      ? intents.find((candidate) => {
+          if (candidate.kind === 'food') return candidate.foodId === entry.entity_id;
+          if (candidate.ingredientId === entry.entity_id) return true;
+          return candidate.kind === 'exact_ingredient'
+            ? candidate.observedBatches.some(
+                (batch) => batch.inventory_item_id === entry.entity_id,
+              )
+            : false;
+        }) ?? null
+      : null;
+    const intent = entityIntent ?? indexedIntent;
     const targetKey = intent ? intentTargetKey(intent) : '';
     const parts = path.split(/[.[\]]+/).filter(Boolean);
     const rawField = parts[parts.length - 1] || entry.field || 'unknown';
@@ -307,18 +326,25 @@ export function useInventoryReconciliationActions(
 
       if (isApiError(reason) && reason.status === 409) {
         const detail = extractStructuredDetail(reason);
-        stateRef.current.setConflictState(conflictCodeOf(detail));
+        const conflictState = conflictCodeOf(detail);
+        stateRef.current.setConflictState(conflictState);
         stateRef.current.setErrorMessage(
           detail?.message ||
             messageOf(reason, '家人可能刚改动了库存，请刷新后重新确认。'),
         );
+
+        let conflictDraft = stateRef.current.draft;
+        if (conflictState === 'idempotency_key_reused' && conflictDraft) {
+          conflictDraft = renewReconciliationRequestId(conflictDraft);
+          stateRef.current.replaceDraft(conflictDraft);
+        }
 
         // Refresh latest projection and replay current draft; keep dialog open.
         try {
           const scope = stateRef.current.scope;
           const storageLocation = stateRef.current.storageLocation;
           const latest = await fetchRef.current({ scope, storageLocation });
-          const currentDraft = stateRef.current.draft;
+          const currentDraft = conflictDraft ?? stateRef.current.draft;
           if (currentDraft) {
             stateRef.current.acceptRestoredDraft({
               draft: currentDraft,
@@ -389,7 +415,7 @@ export function useInventoryReconciliationActions(
   }, [runSubmit]);
 
   const retryLatest = useCallback(async () => {
-    // Network/conflict retry reuses the same draft clientRequestId.
+    // Network/stale-version retries reuse the request id; key reuse gets renewed in the 409 branch.
     await runSubmit();
   }, [runSubmit]);
 

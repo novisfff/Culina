@@ -37,6 +37,8 @@ const freeTextItem: ShoppingIntakeDraftItem = {
   expectedShoppingItemRowVersion: 1,
   title: '厨房纸',
   selected: false,
+  plannedQuantity: 1,
+  plannedUnit: '卷',
   resolution: 'unresolved',
 };
 
@@ -155,6 +157,101 @@ describe('ShoppingIntakeDialog', () => {
     expect(props.onToggleItem).toHaveBeenCalledWith('s-milk');
   });
 
+  it('lets free text explicitly search and link a non-exact existing profile', () => {
+    const handwrittenEggs: ShoppingIntakeDraftItem = {
+      ...freeTextItem,
+      shoppingItemId: 's-eggs',
+      title: '鸡蛋（手写）',
+      selected: true,
+      plannedQuantity: 6,
+      plannedUnit: '个',
+    };
+    const candidate = {
+      kind: 'ingredient' as const,
+      id: 'ing-eggs',
+      name: '鸡蛋',
+      quantityTrackingMode: 'track_quantity' as const,
+    };
+    const props = renderDialog({
+      draft: makeDraft([handwrittenEggs]),
+      freeTextCandidatesByItemId: { 's-eggs': [] },
+      freeTextLinkOptions: [candidate],
+    });
+
+    const openSearch = Array.from(container!.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === '搜索其他档案',
+    );
+    expect(openSearch).toBeTruthy();
+    act(() => {
+      openSearch!.click();
+    });
+
+    const searchInput = container!.querySelector(
+      'input[aria-label="鸡蛋（手写）关联档案"]',
+    ) as HTMLInputElement | null;
+    expect(searchInput).toBeTruthy();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(searchInput, '鸡蛋');
+      searchInput!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const eggOption = Array.from(container!.querySelectorAll<HTMLButtonElement>('[role="option"]')).find(
+      (button) => button.textContent?.includes('鸡蛋'),
+    );
+    expect(eggOption).toBeTruthy();
+    act(() => {
+      eggOption!.click();
+    });
+    expect(props.onLinkFreeText).toHaveBeenCalledWith('s-eggs', candidate);
+  });
+
+  it('shows but prevents an incompatible Food unit from being linked', () => {
+    const handwrittenEggs: ShoppingIntakeDraftItem = {
+      ...freeTextItem,
+      shoppingItemId: 's-eggs',
+      title: '鸡蛋（手写）',
+      selected: true,
+      plannedQuantity: 6,
+      plannedUnit: '个',
+    };
+    const foodCandidate = {
+      kind: 'food' as const,
+      id: 'food-braised-eggs',
+      name: '卤蛋',
+      stockUnit: '份',
+    };
+    const props = renderDialog({
+      draft: makeDraft([handwrittenEggs]),
+      freeTextLinkOptions: [foodCandidate],
+    });
+
+    const openSearch = Array.from(container!.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === '搜索其他档案',
+    );
+    act(() => {
+      openSearch!.click();
+    });
+    const searchInput = container!.querySelector(
+      'input[aria-label="鸡蛋（手写）关联档案"]',
+    ) as HTMLInputElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(searchInput, '卤蛋');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const foodOption = Array.from(container!.querySelectorAll<HTMLButtonElement>('[role="option"]')).find(
+      (button) => button.textContent?.includes('卤蛋'),
+    );
+    expect(foodOption?.disabled).toBe(true);
+    expect(container!.textContent).toContain('请先调整采购计划单位');
+    act(() => {
+      foodOption!.click();
+    });
+    expect(props.onLinkFreeText).not.toHaveBeenCalled();
+  });
+
   it('renders review step exceptions and submit controls', () => {
     const partialExact: ShoppingIntakeDraftItem = {
       ...exactItem,
@@ -182,6 +279,46 @@ describe('ShoppingIntakeDialog', () => {
       submit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(props.onSubmit).toHaveBeenCalled();
+  });
+
+  it('lets a default planned row enter exception editing', () => {
+    const props = renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+    });
+
+    const adjustButton = Array.from(container!.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === '调整',
+    );
+    expect(adjustButton).toBeTruthy();
+
+    act(() => {
+      adjustButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(props.onToggleException).toHaveBeenCalledWith('s-milk');
+  });
+
+  it('renders the quantity editor for an expanded default planned row', () => {
+    const props = renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+      expandedExceptionIds: ['s-milk'],
+    });
+
+    const quantityInput = container!.querySelector(
+      'input[data-field-key="s-milk:actualQuantity"]',
+    ) as HTMLInputElement | null;
+    expect(quantityInput).toBeTruthy();
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(quantityInput, '2');
+      quantityInput!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(props.onPatchItem).toHaveBeenCalledWith('s-milk', { actualQuantity: '2' });
   });
 
   it('presence default is editable on review after expand', () => {
@@ -234,6 +371,54 @@ describe('ShoppingIntakeDialog', () => {
     expect(document.activeElement).toBe(quantityInput);
   });
 
+  it('renders and focuses a structured unit error on the unit control', () => {
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+      focusFieldKey: 's-milk:unit',
+      expandedExceptionIds: ['s-milk'],
+      fieldErrors: [
+        {
+          shoppingItemId: 's-milk',
+          field: 'unit',
+          code: 'incompatible_unit',
+          message: '当前食物库存单位是 份，不能按 盒 入库',
+        },
+      ],
+    });
+
+    const unitTrigger = container!.querySelector(
+      'button[data-field-key="s-milk:unit"]',
+    ) as HTMLButtonElement | null;
+    expect(unitTrigger).toBeTruthy();
+    expect(container!.textContent).toContain('当前食物库存单位是 份，不能按 盒 入库');
+    expect(document.activeElement).toBe(unitTrigger);
+  });
+
+  it('renders a structured storage-location error beside the editable field', () => {
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([presenceItem]),
+      focusFieldKey: 's-salt:storageLocation',
+      expandedExceptionIds: ['s-salt'],
+      fieldErrors: [
+        {
+          shoppingItemId: 's-salt',
+          field: 'storageLocation',
+          code: 'invalid_target',
+          message: '存放位置不能为空',
+        },
+      ],
+    });
+
+    const storageInput = container!.querySelector(
+      'input[data-field-key="s-salt:storageLocation"]',
+    ) as HTMLInputElement | null;
+    expect(storageInput).toBeTruthy();
+    expect(container!.textContent).toContain('存放位置不能为空');
+    expect(document.activeElement).toBe(storageInput);
+  });
+
   it('renders result with applied/partial counts and revertible_until', () => {
     renderDialog({
       step: 'result',
@@ -245,6 +430,8 @@ describe('ShoppingIntakeDialog', () => {
     expect(container!.textContent).toContain('部分');
     expect(container!.textContent).toMatch(/可在/);
     expect(container!.querySelector('[aria-live]')).toBeTruthy();
+    expect(container!.textContent).toContain('牛奶');
+    expect(container!.textContent).not.toContain('s-milk');
   });
 
   it('shows loading, empty, field-error, conflict, and busy states', () => {
@@ -306,6 +493,37 @@ describe('ShoppingIntakeDialog', () => {
     expect(busySubmit).toBeTruthy();
     expect((busySubmit as HTMLButtonElement).disabled).toBe(true);
     expect(conflictProps.onRetry).toBeTruthy();
+  });
+
+  it('puts a conflicted clean row first and requires a fresh confirmation', () => {
+    const partialItem: ShoppingIntakeDraftItem = {
+      ...exactItem,
+      shoppingItemId: 's-other',
+      title: '酸奶',
+      actualQuantity: '2',
+    };
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([partialItem, exactItem]),
+      conflictState: 'stale_version',
+      errorMessage: '牛奶采购项已更新，请核对最新数量',
+      fieldErrors: [
+        {
+          shoppingItemId: 's-milk',
+          field: 'conflict',
+          code: 'stale_version',
+          message: '牛奶采购项已更新，请核对最新数量',
+        },
+      ],
+      expandedExceptionIds: ['s-milk'],
+      onRetry: vi.fn(),
+    });
+
+    const text = container!.textContent ?? '';
+    expect(text.indexOf('牛奶')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('牛奶')).toBeLessThan(text.indexOf('酸奶'));
+    expect(text).toContain('牛奶采购项已更新，请核对最新数量');
+    expect(text).toContain('重新确认并提交');
   });
 
   it('does not call APIs itself — only callbacks', () => {

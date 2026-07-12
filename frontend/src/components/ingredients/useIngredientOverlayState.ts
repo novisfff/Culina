@@ -190,6 +190,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
   const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
+  const [editingShoppingItemRowVersion, setEditingShoppingItemRowVersion] = useState<number | null>(null);
   const [inventoryActionIngredientId, setInventoryActionIngredientId] = useState<string | null>(null);
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
@@ -254,6 +255,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setInventoryForm(
       buildInventoryForm(args.ingredientOptions, ingredientId, {
@@ -288,6 +290,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setConsumeForm(buildConsumeFormForIngredient(ingredientId));
     setOverlayMode('consume');
@@ -317,9 +320,11 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
         ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
         : null;
       setEditingShoppingItemId(options.shoppingItem.id);
+      setEditingShoppingItemRowVersion(options.shoppingItem.row_version);
       setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient, matchedFood));
     } else {
       setEditingShoppingItemId(null);
+      setEditingShoppingItemRowVersion(null);
       setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason, options?.food));
     }
     setOverlayMode('shopping');
@@ -340,6 +345,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     setInventoryActionIngredientId(ingredientId);
     setInventoryActionBusy(false);
     setInventoryActionError(null);
@@ -353,6 +359,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   function closeOverlay() {
     setOverlayMode(null);
     setEditingShoppingItemId(null);
+    setEditingShoppingItemRowVersion(null);
     clearInventoryActionSelection();
     setInventoryAdvancedOpen(false);
     setConsumeForm(defaultConsumeForm());
@@ -381,6 +388,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,

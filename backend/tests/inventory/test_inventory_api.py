@@ -220,6 +220,15 @@ def inventory_api_context() -> Iterator[InventoryApiContext]:
 
 
 def test_list_inventory_returns_only_current_family_items(inventory_api_context: InventoryApiContext) -> None:
+    with inventory_api_context.SessionLocal() as db:
+        item = db.get(InventoryItem, inventory_api_context.item_id)
+        assert item is not None
+        item.last_confirmed_at = utcnow()
+        item.last_confirmed_by = inventory_api_context.user_id
+        item.last_confirmation_source = InventoryConfirmationSource.RECONCILIATION
+        db.commit()
+        expected_row_version = item.row_version
+
     response = inventory_api_context.client.get("/api/inventory")
 
     assert response.status_code == 200
@@ -227,10 +236,13 @@ def test_list_inventory_returns_only_current_family_items(inventory_api_context:
     assert [item["id"] for item in payload] == [inventory_api_context.item_id]
     assert payload[0]["family_id"] == inventory_api_context.family_id
     assert payload[0]["ingredient_name"] == "番茄"
-    assert payload[0]["row_version"] == 1
+    assert payload[0]["row_version"] == expected_row_version
     assert payload[0]["expiry_alert_snoozed_until"] is None
     assert payload[0]["expiry_reviewed_at"] is None
     assert payload[0]["expiry_reviewed_by"] is None
+    assert payload[0]["last_confirmed_at"] is not None
+    assert payload[0]["last_confirmed_by"] == inventory_api_context.user_id
+    assert payload[0]["last_confirmation_source"] == "reconciliation"
 
 
 def test_create_inventory_item_sets_audit_fields_and_activity_log(inventory_api_context: InventoryApiContext) -> None:
@@ -1627,6 +1639,7 @@ def test_update_ingredient_rejects_tracking_mode_change_with_structured_422(
         ingredient = db.get(Ingredient, inventory_api_context.ingredient_id)
         assert ingredient is not None
         payload = {
+            "expected_row_version": ingredient.row_version,
             "name": ingredient.name,
             "category": ingredient.category,
             "default_unit": ingredient.default_unit,
@@ -1653,6 +1666,57 @@ def test_update_ingredient_rejects_tracking_mode_change_with_structured_422(
         assert ingredient is not None
         assert ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY
         assert ingredient.row_version == 1
+
+
+def test_update_ingredient_rejects_stale_profile_version_without_overwrite(
+    inventory_api_context: InventoryApiContext,
+) -> None:
+    with inventory_api_context.SessionLocal() as db:
+        ingredient = db.get(Ingredient, inventory_api_context.ingredient_id)
+        assert ingredient is not None
+        stale_version = ingredient.row_version
+        payload = {
+            "expected_row_version": stale_version,
+            "name": "旧表单里的番茄",
+            "category": ingredient.category,
+            "default_unit": ingredient.default_unit,
+            "unit_conversions": [],
+            "quantity_tracking_mode": ingredient.quantity_tracking_mode.value,
+            "default_storage": ingredient.default_storage,
+            "default_expiry_mode": ingredient.default_expiry_mode.value,
+            "default_expiry_days": ingredient.default_expiry_days,
+            "default_low_stock_threshold": ingredient.default_low_stock_threshold,
+            "notes": ingredient.notes,
+            "media_ids": [],
+        }
+        db.execute(
+            Ingredient.__table__.update()
+            .where(Ingredient.id == ingredient.id)
+            .values(name="家人刚改过的番茄", row_version=stale_version + 1)
+        )
+        db.commit()
+
+    response = inventory_api_context.client.patch(
+        f"/api/ingredients/{inventory_api_context.ingredient_id}",
+        json=payload,
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "stale_version"
+    assert detail["conflicts"] == [
+        {
+            "entity_type": "ingredient",
+            "entity_id": inventory_api_context.ingredient_id,
+            "expected_row_version": stale_version,
+            "current_row_version": stale_version + 1,
+        }
+    ]
+
+    with inventory_api_context.SessionLocal() as db:
+        ingredient = db.get(Ingredient, inventory_api_context.ingredient_id)
+        assert ingredient is not None
+        assert ingredient.name == "家人刚改过的番茄"
+        assert ingredient.row_version == stale_version + 1
 
 
 def test_exact_to_presence_transition_with_physical_rows_and_no_false_confirmation(
@@ -1909,6 +1973,7 @@ def test_presence_to_exact_creates_real_batch_and_clears_state(
         db.commit()
         expected_ingredient_version = ingredient.row_version
         expected_state_version = state.row_version
+        legacy_row_version = legacy.row_version
 
     response = client.patch(
         "/api/ingredients/ingredient-oil/tracking-mode",
@@ -1955,11 +2020,21 @@ def test_presence_to_exact_creates_real_batch_and_clears_state(
         assert state.last_confirmed_at is None
         assert state.last_confirmed_by is None
         assert state.last_confirmation_source is None
-        assert legacy.quantity == Decimal("1")
+        assert legacy.quantity == legacy.consumed_quantity + legacy.disposed_quantity
+        assert legacy.disposed_quantity == Decimal("0")
+        assert legacy.row_version > legacy_row_version
         assert len(new_items) == 1
         assert new_items[0].quantity == Decimal("500")
         assert new_items[0].unit == "ml"
         assert new_items[0].notes == "real initial stock"
+        exact_remaining = sum(
+            (
+                item.quantity - item.consumed_quantity - item.disposed_quantity
+                for item in [legacy, *new_items]
+            ),
+            Decimal("0"),
+        )
+        assert exact_remaining == Decimal("500")
         assert db.scalar(select(InventoryOperation).where(InventoryOperation.family_id == inventory_api_context.family_id)) is None
 
 
@@ -1995,10 +2070,27 @@ def test_presence_to_exact_confirm_absent_creates_no_batch(
             created_by=inventory_api_context.user_id,
             updated_by=inventory_api_context.user_id,
         )
-        db.add_all([ingredient, state])
+        legacy = InventoryItem(
+            id="inventory-pepper-legacy",
+            family_id=inventory_api_context.family_id,
+            ingredient_id=ingredient.id,
+            quantity=Decimal("3"),
+            consumed_quantity=Decimal("1"),
+            disposed_quantity=Decimal("0"),
+            unit="g",
+            status=InventoryStatus.FRESH,
+            purchase_date=today_for_family(inventory_api_context.family_id),
+            storage_location="常温",
+            notes="legacy exact stock",
+            low_stock_threshold=Decimal("0"),
+            created_by=inventory_api_context.user_id,
+            updated_by=inventory_api_context.user_id,
+        )
+        db.add_all([ingredient, state, legacy])
         db.commit()
         expected_ingredient_version = ingredient.row_version
         expected_state_version = state.row_version
+        legacy_row_version = legacy.row_version
 
     response = client.patch(
         "/api/ingredients/ingredient-pepper/tracking-mode",
@@ -2027,7 +2119,11 @@ def test_presence_to_exact_confirm_absent_creates_no_batch(
         assert ingredient is not None and state is not None
         assert ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY
         assert state.availability_level == InventoryAvailabilityLevel.ABSENT
-        assert items == []
+        assert len(items) == 1
+        assert items[0].id == "inventory-pepper-legacy"
+        assert items[0].quantity == items[0].consumed_quantity + items[0].disposed_quantity
+        assert items[0].disposed_quantity == Decimal("0")
+        assert items[0].row_version > legacy_row_version
 
 
 def test_presence_to_exact_rejects_stale_state_and_rolls_back(

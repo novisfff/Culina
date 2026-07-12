@@ -10,6 +10,7 @@ import type {
   VersionedObservedBatchRequest,
 } from '../../api/types';
 import { calendarDaysBetweenDateKeys, hoursBetweenInstants } from '../../lib/date';
+import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
 
 export type InventoryReconciliationScope =
   | 'suggested'
@@ -172,6 +173,15 @@ function createClientRequestId() {
     return crypto.randomUUID();
   }
   return `recon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function renewReconciliationRequestId(
+  draft: InventoryReconciliationDraft,
+): InventoryReconciliationDraft {
+  return {
+    ...draft,
+    clientRequestId: createClientRequestId(),
+  };
 }
 
 function createClientLineId() {
@@ -591,6 +601,10 @@ function parseNonNegativeQuantity(value: string): number | null {
   return numeric;
 }
 
+function hasInvalidDateRange(purchaseDate: string | null, expiryDate: string | null): boolean {
+  return Boolean(purchaseDate && expiryDate && expiryDate < purchaseDate);
+}
+
 export function validateReconciliationDraft(
   draft: InventoryReconciliationDraft,
   groups: InventoryReconciliationGroup[],
@@ -665,6 +679,14 @@ export function validateReconciliationDraft(
               message: `请填写「${group.ingredient_name}」批次的购买日期。`,
             });
           }
+          if (hasInvalidDateRange(update.purchaseDate, update.expiryDate)) {
+            errors.push({
+              targetKey,
+              field: `batch:${update.inventoryItemId}:expiryDate`,
+              code: 'invalid_date_range',
+              message: `「${group.ingredient_name}」批次的到期日不能早于购买日期。`,
+            });
+          }
         }
         for (const create of intent.creates) {
           const qty = parseNonNegativeQuantity(create.actualRemainingQuantity);
@@ -700,6 +722,14 @@ export function validateReconciliationDraft(
               message: `请填写「${group.ingredient_name}」新增批次的购买日期。`,
             });
           }
+          if (hasInvalidDateRange(create.purchaseDate, create.expiryDate)) {
+            errors.push({
+              targetKey,
+              field: `create:${create.clientLineId}:expiryDate`,
+              code: 'invalid_date_range',
+              message: `「${group.ingredient_name}」新增批次的到期日不能早于购买日期。`,
+            });
+          }
         }
         const lineIds = intent.creates.map((create) => create.clientLineId);
         if (new Set(lineIds).size !== lineIds.length) {
@@ -732,6 +762,14 @@ export function validateReconciliationDraft(
           message: `请填写「${group.ingredient_name}」的存放位置。`,
         });
       }
+      if (hasInvalidDateRange(intent.purchaseDate, intent.expiryDate)) {
+        errors.push({
+          targetKey,
+          field: 'expiryDate',
+          code: 'invalid_date_range',
+          message: `「${group.ingredient_name}」的到期日不能早于购买日期。`,
+        });
+      }
       continue;
     }
 
@@ -754,6 +792,17 @@ export function validateReconciliationDraft(
             message: `请填写「${group.food_name}」的有效数量。`,
           });
         }
+        if (intent.stockQuantity !== null && intent.stockQuantity.trim()) {
+          const parsedFoodQuantity = parseOptionalFoodStockQuantity(intent.stockQuantity, '库存数量');
+          if (parsedFoodQuantity.error) {
+            errors.push({
+              targetKey,
+              field: 'stockQuantity',
+              code: 'invalid_quantity',
+              message: parsedFoodQuantity.error,
+            });
+          }
+        }
         const qty = intent.stockQuantity === null ? null : parseNonNegativeQuantity(intent.stockQuantity);
         if (qty !== null && qty > 0 && !intent.stockUnit?.trim()) {
           errors.push({
@@ -761,6 +810,14 @@ export function validateReconciliationDraft(
             field: 'stockUnit',
             code: 'incompatible_unit',
             message: `请填写「${group.food_name}」的单位。`,
+          });
+        }
+        if (qty !== null && qty > 0 && !intent.storageLocation?.trim()) {
+          errors.push({
+            targetKey,
+            field: 'storageLocation',
+            code: 'invalid_target',
+            message: `请填写「${group.food_name}」的存放位置。`,
           });
         }
       }

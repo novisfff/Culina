@@ -5,7 +5,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.core.enums import IngredientQuantityTrackingMode, InventoryStatus
+from app.core.enums import (
+    IngredientQuantityTrackingMode,
+    InventoryConfirmationSource,
+    InventoryStatus,
+)
 
 
 class InventoryItemOut(BaseModel):
@@ -35,6 +39,9 @@ class InventoryItemOut(BaseModel):
     expiry_alert_snoozed_until: date_type | None = None
     expiry_reviewed_at: datetime | None = None
     expiry_reviewed_by: str | None = None
+    last_confirmed_at: datetime | None = None
+    last_confirmed_by: str | None = None
+    last_confirmation_source: InventoryConfirmationSource | None = None
 
 
 class CreateInventoryItemRequest(BaseModel):

@@ -211,6 +211,7 @@ type IngredientHubPageProps = {
   onUpdateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -221,7 +222,7 @@ type IngredientHubPageProps = {
       done?: boolean;
     };
   }) => Promise<unknown>;
-  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
+  onDeleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<unknown>;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
   mobileDetailPopover?: ReactNode;
@@ -344,10 +345,10 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         onOpenInventoryFromShopping={props.openInventoryFromShopping}
         onOpenDetailView={(summary) => props.openDetailView(summary.ingredient.id)}
         onToggleCompletedShopping={() => props.setShowCompletedShopping((current) => !current)}
-        onRestoreShopping={(itemId) =>
+        onRestoreShopping={(item) =>
           void props.onUpdateShoppingItem({
-            itemId,
-            payload: { done: false },
+            itemId: item.id,
+            payload: { done: false, expected_row_version: item.row_version },
           })
         }
         IngredientWorkspaceIcon={({ name }) => props.renderIcon(name as IngredientWorkspaceIconName)}

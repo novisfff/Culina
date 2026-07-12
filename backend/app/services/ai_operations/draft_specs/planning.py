@@ -26,6 +26,7 @@ from app.services.ai_operations.draft_specs.common import (
     _build_operation_copy,
     _spec,
     _validate_operation_list_value,
+    _validate_single_target_operation_value,
 )
 from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
 
@@ -40,6 +41,7 @@ def _meal_log_media_ids(payload: Any) -> list[str]:
 
 
 def _validate_meal_log_approval_value(original: Any, submitted: Any) -> None:
+    _validate_single_target_operation_value(original, submitted)
     validate_submitted_attachment_subset(
         original_media_ids=_meal_log_media_ids(original),
         submitted_media_ids=_meal_log_media_ids(submitted),

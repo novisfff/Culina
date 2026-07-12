@@ -29,6 +29,7 @@ import {
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
 import type { InventoryActionConflictState } from './IngredientWorkspaceOverlayTypes';
+import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
@@ -42,6 +43,7 @@ type UseIngredientActionStateArgs = {
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: Dispatch<SetStateAction<ShoppingDialogFormState>>;
   editingShoppingItemId: string | null;
+  editingShoppingItemRowVersion: number | null;
   inventoryActionIngredientId: string | null;
   inventoryActionGroup: ExpiryInventoryActionGroup | null;
   selectedInventoryIngredient: Ingredient | null;
@@ -91,6 +93,7 @@ type UseIngredientActionStateArgs = {
   updateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -144,9 +147,20 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       : selectedShoppingFood
         ? true
         : tracksIngredientQuantity(selectedShoppingIngredient);
-    const quantity = tracksQuantity ? parsePositiveNumber(args.shoppingForm.quantity) : 1;
+    const parsedFoodQuantity = selectedShoppingFood
+      ? parseFoodStockQuantity(args.shoppingForm.quantity, '待买数量')
+      : null;
+    const quantity = tracksQuantity
+      ? parsedFoodQuantity
+        ? parsedFoodQuantity.quantity
+        : parsePositiveNumber(args.shoppingForm.quantity)
+      : 1;
     if (tracksQuantity && quantity === null) {
-      args.showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
+      args.showNotice({
+        tone: 'warning',
+        title: '待买数量无效',
+        message: parsedFoodQuantity?.error ?? '请确认待买数量，至少要大于 0。',
+      });
       return;
     }
     const shoppingQuantity = quantity ?? 1;
@@ -169,9 +183,16 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
           (selectedShoppingFood ? '补充成品库存' : !tracksQuantity ? '需要补充' : ''),
       } satisfies Parameters<typeof args.createShoppingItem>[0];
       if (args.editingShoppingItemId) {
+        if (args.editingShoppingItemRowVersion === null) {
+          args.showNotice({ tone: 'warning', title: '采购项已变化', message: '请刷新购物清单后再编辑。' });
+          return;
+        }
         await args.updateShoppingItem({
           itemId: args.editingShoppingItemId,
-          payload,
+          payload: {
+            ...payload,
+            expected_row_version: args.editingShoppingItemRowVersion,
+          },
         });
       } else {
         await args.createShoppingItem(payload);

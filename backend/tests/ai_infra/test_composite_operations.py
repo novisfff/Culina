@@ -2,6 +2,269 @@ from ._support import *
 
 
 class AICompositeOperationsTestCase(AIAgentInfraTestCase):
+        def test_composite_proposal_captures_nested_inventory_concurrency_boundaries(self) -> None:
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+
+            with self.SessionLocal() as db:
+                proposal = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-inventory-boundary",
+                    payload={
+                        "draftType": "composite_operation",
+                        "schemaVersion": "composite_operation.v1",
+                        "steps": [
+                            {
+                                "stepId": "consume-tomato",
+                                "domain": "inventory",
+                                "operation": {
+                                    "operations": [
+                                        {
+                                            "action": "consume",
+                                            "ingredientId": "ingredient-tomato",
+                                            "quantity": 1,
+                                            "unit": "个",
+                                        }
+                                    ]
+                                },
+                            }
+                        ],
+                    },
+                )
+
+            operation = proposal["steps"][0]["operation"]["operations"][0]
+            self.assertEqual(operation["expectedIngredientRowVersion"], 1)
+            self.assertEqual(operation["batchOptions"][0]["id"], "inventory-tomato")
+            self.assertEqual(operation["batchOptions"][0]["rowVersion"], 1)
+
+        def test_composite_approval_rejects_inventory_changed_after_proposal(self) -> None:
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.common import assert_updated_at_matches
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.executor import execute_ai_operation_draft
+
+            with self.SessionLocal() as db:
+                proposal = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-stale-inventory",
+                    payload={
+                        "draftType": "composite_operation",
+                        "schemaVersion": "composite_operation.v1",
+                        "steps": [
+                            {
+                                "stepId": "consume-tomato",
+                                "domain": "inventory",
+                                "operation": {
+                                    "operations": [
+                                        {
+                                            "action": "consume",
+                                            "ingredientId": "ingredient-tomato",
+                                            "quantity": 1,
+                                            "unit": "个",
+                                        }
+                                    ]
+                                },
+                            }
+                        ],
+                    },
+                )
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "家人在复合草稿确认前更新了批次"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                submitted = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-stale-inventory",
+                    payload=proposal,
+                    phase="approval",
+                )
+                with self.assertRaises(AIConflictError):
+                    execute_ai_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        draft_type="composite_operation",
+                        payload=submitted,
+                        assert_updated_at_matches=assert_updated_at_matches,
+                    )
+                db.rollback()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+
+        def test_composite_inventory_keeps_proposal_boundary_when_only_notes_reference_a_dependency(self) -> None:
+            """A non-target dependency reference must not turn a known inventory target into a fresh approval-time read."""
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.common import assert_updated_at_matches
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.executor import execute_ai_operation_draft
+
+            with self.SessionLocal() as db:
+                proposal = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-dependency-note-boundary",
+                    payload={
+                        "draftType": "composite_operation",
+                        "schemaVersion": "composite_operation.v1",
+                        "steps": [
+                            {
+                                "stepId": "create-context-ingredient",
+                                "domain": "ingredient",
+                                "operation": {
+                                    "action": "create",
+                                    "payload": {
+                                        "name": "复合备注食材",
+                                        "category": "测试",
+                                        "default_unit": "个",
+                                        "unit_conversions": [],
+                                        "default_storage": "冷藏",
+                                        "default_expiry_mode": "none",
+                                        "default_expiry_days": None,
+                                        "default_low_stock_threshold": None,
+                                        "notes": "",
+                                        "media_ids": [],
+                                    },
+                                },
+                            },
+                            {
+                                "stepId": "consume-existing-tomato",
+                                "domain": "inventory",
+                                "dependsOn": ["create-context-ingredient"],
+                                "operation": {
+                                    "operations": [
+                                        {
+                                            "action": "consume",
+                                            "ingredientId": "ingredient-tomato",
+                                            "quantity": 1,
+                                            "unit": "个",
+                                            "notes": "$create-context-ingredient.entityId",
+                                        }
+                                    ]
+                                },
+                            },
+                        ],
+                    },
+                )
+
+            boundary = proposal["steps"][1]["operation"]["operations"][0]
+            self.assertEqual(boundary["expectedIngredientRowVersion"], 1)
+            self.assertEqual(boundary["batchOptions"][0]["rowVersion"], 1)
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.notes = "家人在确认前修改了库存批次"
+                db.commit()
+
+            with self.SessionLocal() as db:
+                submitted = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-dependency-note-boundary",
+                    payload=proposal,
+                    phase="approval",
+                )
+                try:
+                    with self.assertRaises(AIConflictError):
+                        execute_ai_operation_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            draft_type="composite_operation",
+                            payload=submitted,
+                            assert_updated_at_matches=assert_updated_at_matches,
+                        )
+                finally:
+                    db.rollback()
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+
+        def test_composite_proposal_normalizes_nested_recipe_cook_inventory_snapshot(self) -> None:
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-composite-cook-boundary",
+                    family_id=self.family.id,
+                    title="复合番茄快炒",
+                    servings=1,
+                    prep_minutes=10,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-composite-cook-boundary-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=1,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.commit()
+
+                proposal = normalize_ai_draft_payload(
+                    db,
+                    draft_type="composite_operation",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-composite-recipe-cook-boundary",
+                    payload={
+                        "draftType": "composite_operation",
+                        "schemaVersion": "composite_operation.v1",
+                        "steps": [
+                            {
+                                "stepId": "cook-recipe",
+                                "domain": "recipe_cook",
+                                "operation": {
+                                    "recipeId": recipe.id,
+                                    "servings": 1,
+                                    "date": date.today().isoformat(),
+                                    "mealType": "dinner",
+                                    "createMealLog": False,
+                                },
+                            }
+                        ],
+                    },
+                )
+
+            operation = proposal["steps"][0]["operation"]
+            self.assertEqual(operation["inventoryBoundaries"][0]["ingredientId"], "ingredient-tomato")
+            self.assertEqual(
+                operation["inventoryBoundaries"][0]["batches"],
+                [{"inventoryItemId": "inventory-tomato", "expectedRowVersion": 1}],
+            )
+
         def test_composite_operation_protocol_validator_accepts_acyclic_steps(self) -> None:
             payload = {
                 "draftType": "composite_operation",

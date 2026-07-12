@@ -19,6 +19,7 @@ from app.core.enums import (
     InventoryOperationEntityType,
     InventoryOperationStatus,
     InventoryOperationType,
+    UserRole,
 )
 from app.core.utils import utcnow
 from app.models.domain import (
@@ -42,6 +43,7 @@ from app.schemas.inventory_operations import (
 )
 from app.services.activity import log_activity
 from app.services.food_stock import apply_food_stock_intake
+from app.services.food_stock_quantity import validate_food_stock_quantity_precision
 from app.services.ingredient_inventory_state import upsert_inventory_state
 from app.services.ingredient_units import (
     UnitConversionError,
@@ -51,6 +53,7 @@ from app.services.ingredient_units import (
 )
 from app.services.inventory_operation_history import (
     canonical_request_hash,
+    compute_can_revert,
     record_ingredient_collection_guard,
     record_operation_line,
     snapshot_food_inventory,
@@ -193,7 +196,12 @@ def _serialize_item_result(metadata: dict[str, Any], shopping_item_id: str) -> S
     )
 
 
-def _result_from_operation(operation: InventoryOperation) -> ShoppingIntakeResult:
+def _result_from_operation(
+    operation: InventoryOperation,
+    *,
+    user_id: str,
+    user_role: UserRole,
+) -> ShoppingIntakeResult:
     item_results: list[ShoppingIntakeItemResult] = []
     for line in sorted(operation.lines, key=lambda item: item.sequence):
         if line.entity_type != InventoryOperationEntityType.SHOPPING_LIST_ITEM:
@@ -212,20 +220,18 @@ def _result_from_operation(operation: InventoryOperation) -> ShoppingIntakeResul
         completed_count=int(summary_data.get("completed_count") or 0),
         partial_count=int(summary_data.get("partial_count") or 0),
     )
-    now = utcnow()
-    revertible_until = _as_aware(operation.revertible_until)
-    can_revert = (
-        operation.status == InventoryOperationStatus.APPLIED
-        and revertible_until is not None
-        and revertible_until >= now
-    )
     return ShoppingIntakeResult(
         operation_id=operation.id,
         operation_type=operation.operation_type,
         status=operation.status,
         applied_at=operation.applied_at,
         revertible_until=operation.revertible_until,
-        can_revert=can_revert,
+        can_revert=compute_can_revert(
+            operation,
+            user_id=user_id,
+            user_role=user_role,
+            now=utcnow(),
+        ),
         summary=summary,
         items=item_results,
     )
@@ -256,11 +262,14 @@ class _PreparedItem:
     shopping_before_snapshot: dict[str, object] | None = None
 
 
-def _resolve_target_ids(request: ShoppingIntakeRequest) -> tuple[list[str], list[str], list[str], list[str]]:
+def _resolve_target_ids(
+    request: ShoppingIntakeRequest,
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     shopping_ids: list[str] = []
     ingredient_ids: list[str] = []
     food_ids: list[str] = []
     state_ingredient_ids: list[str] = []
+    optional_state_ingredient_ids: list[str] = []
     for item in request.items:
         shopping_ids.append(item.shopping_item_id)
         if isinstance(item, ExactIngredientShoppingIntakeItemRequest):
@@ -269,9 +278,17 @@ def _resolve_target_ids(request: ShoppingIntakeRequest) -> tuple[list[str], list
             ingredient_ids.append(item.target_id)
             if item.state_id is not None:
                 state_ingredient_ids.append(item.target_id)
+            else:
+                optional_state_ingredient_ids.append(item.target_id)
         elif isinstance(item, FoodShoppingIntakeItemRequest):
             food_ids.append(item.target_id)
-    return shopping_ids, ingredient_ids, food_ids, state_ingredient_ids
+    return (
+        shopping_ids,
+        ingredient_ids,
+        food_ids,
+        state_ingredient_ids,
+        optional_state_ingredient_ids,
+    )
 
 
 def _ensure_manual_expiry(
@@ -319,6 +336,7 @@ def apply_shopping_intake(
     user_id: str,
     request: ShoppingIntakeRequest,
     business_date: date,
+    user_role: UserRole = UserRole.MEMBER,
 ) -> ShoppingIntakeResult:
     """Validate and mutate the full intake; never commit."""
     del business_date  # purchase_date comes from the request; business_date reserved for callers
@@ -344,9 +362,19 @@ def apply_shopping_intake(
     )
     if not created:
         existing = _load_operation_with_lines(db, operation.id)
-        return _result_from_operation(existing)
+        return _result_from_operation(
+            existing,
+            user_id=user_id,
+            user_role=user_role,
+        )
 
-    shopping_ids, ingredient_ids, food_ids, state_ingredient_ids = _resolve_target_ids(request)
+    (
+        shopping_ids,
+        ingredient_ids,
+        food_ids,
+        state_ingredient_ids,
+        optional_state_ingredient_ids,
+    ) = _resolve_target_ids(request)
 
     try:
         locked = lock_inventory_targets(
@@ -355,6 +383,7 @@ def apply_shopping_intake(
             ingredient_ids=ingredient_ids,
             food_ids=food_ids,
             state_ingredient_ids=state_ingredient_ids,
+            optional_state_ingredient_ids=optional_state_ingredient_ids,
             shopping_item_ids=shopping_ids,
         )
     except InventoryTargetNotFoundError as exc:
@@ -449,20 +478,19 @@ def apply_shopping_intake(
                     shopping_item_id=item.shopping_item_id,
                     field="expiry_date",
                 )
-            if not is_free_text:
-                try:
-                    convert_actual_to_planned_unit(
-                        ingredient=ingredient,
-                        actual_quantity=item.actual_quantity,
-                        actual_unit=item.unit,
-                        planned_unit=shopping.unit or ingredient.default_unit,
-                    )
-                except ShoppingIntakeValidationError as exc:
-                    if not exc.field_errors:
-                        raise
-                    for field_error in exc.field_errors:
-                        field_error["shopping_item_id"] = item.shopping_item_id
+            try:
+                convert_actual_to_planned_unit(
+                    ingredient=ingredient,
+                    actual_quantity=item.actual_quantity,
+                    actual_unit=item.unit,
+                    planned_unit=shopping.unit or ingredient.default_unit,
+                )
+            except ShoppingIntakeValidationError as exc:
+                if not exc.field_errors:
                     raise
+                for field_error in exc.field_errors:
+                    field_error["shopping_item_id"] = item.shopping_item_id
+                raise
             prepared_item.ingredient = ingredient
             prepared_item.ingredient_before_version = ingredient.row_version
 
@@ -592,6 +620,36 @@ def apply_shopping_intake(
                 entity_type="food",
                 entity_id=food.id,
             )
+            planned_unit = normalize_unit_label(shopping.unit) or normalize_unit_label(food.stock_unit) or "份"
+            actual_unit = normalize_unit_label(item.unit) or normalize_unit_label(food.stock_unit) or "份"
+            if actual_unit != planned_unit:
+                _raise_validation(
+                    "采购计划单位与实际入库单位不一致",
+                    code="incompatible_unit",
+                    shopping_item_id=item.shopping_item_id,
+                    field="unit",
+                )
+            current_stock_unit = normalize_unit_label(food.stock_unit)
+            if (
+                current_stock_unit
+                and Decimal(str(food.stock_quantity or 0)) > 0
+                and actual_unit != current_stock_unit
+            ):
+                _raise_validation(
+                    f"当前食物库存单位是 {current_stock_unit}，不能按 {actual_unit} 入库",
+                    code="incompatible_unit",
+                    shopping_item_id=item.shopping_item_id,
+                    field="unit",
+                )
+            try:
+                validate_food_stock_quantity_precision(item.actual_quantity)
+            except ValueError as exc:
+                _raise_validation(
+                    str(exc),
+                    code="invalid_quantity",
+                    shopping_item_id=item.shopping_item_id,
+                    field="actual_quantity",
+                )
             prepared_item.food = food
             prepared_item.food_before_snapshot = snapshot_food_inventory(food)
 
@@ -642,19 +700,12 @@ def apply_shopping_intake(
                 record_activity=False,
                 already_locked=True,
             )
-            try:
-                actual_in_planned = convert_actual_to_planned_unit(
-                    ingredient=ingredient,
-                    actual_quantity=item.actual_quantity,
-                    actual_unit=item.unit,
-                    planned_unit=planned_unit,
-                )
-            except ShoppingIntakeValidationError:
-                if not prepared_item.is_free_text:
-                    raise
-                # Free-text planned unit is often ad-hoc; fall back to actual-unit comparison.
-                planned_unit = normalize_unit_label(item.unit) or ingredient.default_unit
-                actual_in_planned = item.actual_quantity
+            actual_in_planned = convert_actual_to_planned_unit(
+                ingredient=ingredient,
+                actual_quantity=item.actual_quantity,
+                actual_unit=item.unit,
+                planned_unit=planned_unit,
+            )
             if actual_in_planned < planned_quantity:
                 remaining = planned_quantity - actual_in_planned
                 shopping.quantity = remaining
@@ -759,6 +810,7 @@ def apply_shopping_intake(
         elif isinstance(item, FoodShoppingIntakeItemRequest):
             food = prepared_item.food
             assert food is not None
+            planned_quantity = Decimal(str(shopping.quantity or 0))
             if prepared_item.is_free_text:
                 _bind_free_text_to_food(shopping, food)
 
@@ -774,9 +826,16 @@ def apply_shopping_intake(
                 note="",
                 record_activity=False,
             )
-            shopping.done = True
+            if item.actual_quantity < planned_quantity:
+                remaining = planned_quantity - item.actual_quantity
+                shopping.quantity = remaining
+                shopping.done = False
+                result_metadata["result"] = "partial"
+                result_metadata["remaining_planned_quantity"] = remaining
+            else:
+                shopping.done = True
+                result_metadata["result"] = "stocked"
             shopping.updated_by = user_id
-            result_metadata["result"] = "stocked"
             result_metadata["food_id"] = food.id
 
             db.flush()
@@ -893,7 +952,6 @@ def apply_shopping_intake(
     )
     db.flush()
 
-    now = utcnow()
     revertible_until = _as_aware(operation.revertible_until)
     return ShoppingIntakeResult(
         operation_id=operation.id,
@@ -901,10 +959,11 @@ def apply_shopping_intake(
         status=operation.status,
         applied_at=_as_aware(operation.applied_at) or operation.applied_at,
         revertible_until=revertible_until or operation.revertible_until,
-        can_revert=(
-            operation.status == InventoryOperationStatus.APPLIED
-            and revertible_until is not None
-            and revertible_until >= now
+        can_revert=compute_can_revert(
+            operation,
+            user_id=user_id,
+            user_role=user_role,
+            now=utcnow(),
         ),
         summary=summary,
         items=item_results,

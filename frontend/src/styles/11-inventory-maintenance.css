@@ -171,6 +171,11 @@
   gap: 8px;
 }
 
+.inventory-maintenance-freetext-search {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
 .inventory-maintenance-freetext-actions .solid-button,
 .inventory-maintenance-freetext-actions .ghost-button,
 .inventory-maintenance-freetext-actions .tertiary-button,

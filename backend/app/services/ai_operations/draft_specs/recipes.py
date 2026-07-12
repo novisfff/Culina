@@ -18,8 +18,25 @@ from app.services.ai_operations.registry_types import (
     default_business_entity_records as _default_business_entity_records,
 )
 from app.services.serializers import serialize_recipe
-from app.services.ai_operations.draft_specs.common import _base_config, _spec
+from app.services.ai_operations.draft_specs.common import _base_config, _spec, _validate_single_target_operation_value
 from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
+
+
+RECIPE_COOK_APPROVAL_PROTECTED_FIELDS = (
+    "draftType",
+    "schemaVersion",
+    "recipeId",
+    "title",
+    "baseUpdatedAt",
+    "before",
+    "servings",
+    "participantUserIds",
+    "planItemId",
+    "planItemBaseUpdatedAt",
+    "previewItems",
+    "shortages",
+    "inventoryBoundaries",
+)
 
 
 def _recipe_media_ids(payload: Any) -> list[str]:
@@ -32,10 +49,18 @@ def _recipe_media_ids(payload: Any) -> list[str]:
 
 
 def _validate_recipe_approval_value(original: Any, submitted: Any) -> None:
+    _validate_single_target_operation_value(original, submitted)
     validate_submitted_attachment_subset(
         original_media_ids=_recipe_media_ids(original),
         submitted_media_ids=_recipe_media_ids(submitted),
     )
+
+
+def _validate_recipe_cook_approval_value(original: Any, submitted: Any) -> None:
+    if not isinstance(original, dict) or not isinstance(submitted, dict):
+        raise ValueError("做菜草稿格式不正确")
+    if any(original.get(field) != submitted.get(field) for field in RECIPE_COOK_APPROVAL_PROTECTED_FIELDS):
+        raise ValueError("菜谱目标、份数、关联计划或库存预览不能在确认阶段修改，请重新生成做菜草稿")
 
 
 def _approval_config_for_recipe(payload: dict[str, Any]) -> dict[str, str]:
@@ -93,12 +118,16 @@ def _normalize_recipe(context: DraftNormalizeContext) -> dict[str, Any]:
 
 def _normalize_recipe_cook(context: DraftNormalizeContext) -> dict[str, Any]:
     try:
-        return normalize_recipe_cook_draft(
+        normalized = normalize_recipe_cook_draft(
             context.db,
             family_id=context.family_id,
             user_id=context.user_id,
             payload=context.payload,
         )
+        if context.phase == "approval":
+            for field in RECIPE_COOK_APPROVAL_PROTECTED_FIELDS:
+                normalized[field] = context.payload.get(field)
+        return normalized
     except ValidationError as exc:
         raise ValueError("做菜草稿字段不完整或格式不正确") from exc
 
@@ -193,6 +222,7 @@ def recipe_operation_specs() -> list[DraftOperationSpec]:
             normalize=_normalize_recipe_cook,
             execute=_execute_recipe_cook,
             preview_summary=_preview_recipe_cook,
+            validate_approval_value=_validate_recipe_cook_approval_value,
             business_entity_records=_recipe_cook_business_entity_records,
             result_metadata=DraftResultMetadata(
                 workspace_label="做菜记录",

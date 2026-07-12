@@ -7,6 +7,7 @@ import type {
   FoodStockChangePayload,
   FoodPlanItem,
   FoodPayload,
+  UpdateFoodPayload,
   FoodRecommendations,
   FoodScene,
   MealLog,
@@ -94,15 +95,15 @@ export const foodsApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updateFood: (foodId: string, payload: FoodPayload) =>
+  updateFood: (foodId: string, payload: UpdateFoodPayload) =>
     request<Food>(`/api/foods/${foodId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  updateFoodFavorite: (foodId: string, favorite: boolean) =>
+  updateFoodFavorite: (foodId: string, favorite: boolean, expectedRowVersion: number) =>
     request<Food>(`/api/foods/${foodId}/favorite`, {
       method: 'PATCH',
-      body: JSON.stringify({ favorite }),
+      body: JSON.stringify({ favorite, expected_row_version: expectedRowVersion }),
     }),
   restockFoodStock: (foodId: string, payload: FoodStockChangePayload) =>
     request<Food>(`/api/foods/${foodId}/stock/restock`, {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/request';
 import type { Ingredient, ShoppingIntakeResult, ShoppingListItem } from '../../api/types';
 import { useShoppingIntakeActions } from './useShoppingIntakeActions';
+import type { ShoppingIntakeSources } from './shoppingIntakeModel';
 import { useShoppingIntakeState } from './useShoppingIntakeState';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -92,6 +93,7 @@ function HookHost(props: {
   submitShoppingIntake: (payload: unknown) => Promise<ShoppingIntakeResult>;
   invalidateAfterInventoryOperation: () => Promise<void>;
   showNotice?: (notice: { tone: string; title: string; message: string }) => void;
+  refreshSources?: () => Promise<ShoppingIntakeSources>;
   onReady: (value: Bundle) => void;
 }) {
   const state = useShoppingIntakeState();
@@ -100,6 +102,7 @@ function HookHost(props: {
     submitShoppingIntake: props.submitShoppingIntake as never,
     invalidateAfterInventoryOperation: props.invalidateAfterInventoryOperation,
     showNotice: props.showNotice as never,
+    refreshSources: props.refreshSources,
   });
   useEffect(() => {
     props.onReady({ state, actions });
@@ -111,6 +114,7 @@ function renderBundle(args: {
   submitShoppingIntake: (payload: unknown) => Promise<ShoppingIntakeResult>;
   invalidateAfterInventoryOperation: () => Promise<void>;
   showNotice?: (notice: { tone: string; title: string; message: string }) => void;
+  refreshSources?: () => Promise<ShoppingIntakeSources>;
 }) {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -121,6 +125,7 @@ function renderBundle(args: {
         submitShoppingIntake={args.submitShoppingIntake}
         invalidateAfterInventoryOperation={args.invalidateAfterInventoryOperation}
         showNotice={args.showNotice}
+        refreshSources={args.refreshSources}
         onReady={(value) => {
           latest = value;
         }}
@@ -203,7 +208,14 @@ describe('useShoppingIntakeActions', () => {
             detail: {
               code: 'invalid_quantity',
               message: '数量无效',
-              field_errors: [{ path: 'items.0.actual_quantity', message: '请填写有效数量', code: 'invalid_quantity' }],
+              field_errors: [
+                {
+                  shopping_item_id: 's1',
+                  field: 'actual_quantity',
+                  message: '请填写有效数量',
+                  code: 'invalid_quantity',
+                },
+              ],
             },
           },
         }),
@@ -300,6 +312,135 @@ describe('useShoppingIntakeActions', () => {
       });
     });
     expect(latest!.state.draft!.clientRequestId).not.toBe(firstId);
+  });
+
+  it('rebases stale versions after 409 before the user confirms a retry', async () => {
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError({
+          status: 409,
+          detail: '采购项已被家人更新',
+          path: '/api/shopping-list/intakes',
+          payload: {
+            detail: {
+              code: 'stale_version',
+              message: '采购项已被家人更新，请重新确认',
+              conflicts: [{ entity_type: 'shopping_list_item', entity_id: 's1' }],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(makeResult());
+    const refreshSources = vi.fn(async (): Promise<ShoppingIntakeSources> => ({
+      shoppingItems: [{ ...makeShoppingItem(), quantity: 8, row_version: 4 }],
+      ingredients: [{ ...makeIngredient(), row_version: 6 }],
+      foods: [],
+      inventoryStates: [],
+    }));
+
+    renderBundle({
+      submitShoppingIntake: submit,
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+      refreshSources,
+    });
+    await openReadyDraft();
+    act(() => {
+      latest!.state.patchItem('s1', { actualQuantity: '2' });
+    });
+    const requestId = latest!.state.draft!.clientRequestId;
+
+    await act(async () => {
+      await latest!.actions.submitDraft();
+    });
+
+    expect(refreshSources).toHaveBeenCalledTimes(1);
+    expect(latest!.state.step).toBe('review');
+    expect(latest!.state.conflictState).toBe('stale_version');
+    expect(latest!.state.draft).toMatchObject({ clientRequestId: requestId });
+    expect(latest!.state.draft?.items[0]).toMatchObject({
+      selected: true,
+      expectedShoppingItemRowVersion: 4,
+      expectedIngredientRowVersion: 6,
+      plannedQuantity: 8,
+      actualQuantity: '2',
+    });
+    expect(latest!.state.fieldErrors).toEqual([
+      expect.objectContaining({
+        shoppingItemId: 's1',
+        field: 'conflict',
+        code: 'stale_version',
+      }),
+    ]);
+    expect(latest!.state.focusFieldKey).toBe('s1:conflict');
+    expect(latest!.state.expandedExceptionIds).toContain('s1');
+
+    await act(async () => {
+      await latest!.actions.retryLatest();
+    });
+
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1][0]).toMatchObject({
+      client_request_id: requestId,
+      items: [
+        expect.objectContaining({
+          shopping_item_id: 's1',
+          expected_shopping_item_row_version: 4,
+          expected_ingredient_row_version: 6,
+          actual_quantity: 2,
+        }),
+      ],
+    });
+    expect(latest!.state.step).toBe('result');
+  });
+
+  it('uses a new request id after idempotency_key_reused', async () => {
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError({
+          status: 409,
+          detail: '请求标识已被使用',
+          path: '/api/shopping-list/intakes',
+          payload: {
+            detail: {
+              code: 'idempotency_key_reused',
+              message: '相同请求标识已用于不同内容，请重新确认',
+              conflicts: [],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(makeResult());
+    const refreshSources = vi.fn(async (): Promise<ShoppingIntakeSources> => ({
+      shoppingItems: [makeShoppingItem()],
+      ingredients: [makeIngredient()],
+      foods: [],
+      inventoryStates: [],
+    }));
+    renderBundle({
+      submitShoppingIntake: submit,
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+      refreshSources,
+    });
+    await openReadyDraft();
+    const reusedId = latest!.state.draft!.clientRequestId;
+
+    await act(async () => {
+      await latest!.actions.submitDraft();
+    });
+
+    const renewedId = latest!.state.draft!.clientRequestId;
+    expect(latest!.state.conflictState).toBe('idempotency_key_reused');
+    expect(renewedId).not.toBe(reusedId);
+
+    await act(async () => {
+      await latest!.actions.retryLatest();
+    });
+
+    expect(submit.mock.calls[0][0]).toMatchObject({ client_request_id: reusedId });
+    expect(submit.mock.calls[1][0]).toMatchObject({ client_request_id: renewedId });
+    expect(latest!.state.step).toBe('result');
   });
 
   it('does not move to result when local validation fails', async () => {

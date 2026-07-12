@@ -24,6 +24,7 @@ from app.services.ai_operations.draft_specs.common import (
     _base_config,
     _spec,
     _validate_ingredient_profile_value,
+    _validate_single_target_operation_value,
 )
 
 
@@ -52,6 +53,11 @@ def _validate_profile_attachment_value(original: Any, submitted: Any) -> None:
         original_media_ids=_profile_media_ids(original),
         submitted_media_ids=_profile_media_ids(submitted),
     )
+
+
+def _validate_food_profile_approval_value(original: Any, submitted: Any) -> None:
+    _validate_single_target_operation_value(original, submitted)
+    _validate_profile_attachment_value(original, submitted)
 
 
 def _validate_ingredient_profile_approval_value(original: Any, submitted: Any) -> None:
@@ -216,7 +222,7 @@ def profile_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_food_profile,
             approval_config=_approval_config_for_food_profile,
             preview_summary=_preview_food_profile,
-            validate_approval_value=_validate_profile_attachment_value,
+            validate_approval_value=_validate_food_profile_approval_value,
             result_metadata=DraftResultMetadata(
                 workspace_label="食物库",
                 count_noun="个食物",

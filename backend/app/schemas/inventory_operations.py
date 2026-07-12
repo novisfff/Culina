@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.enums import (
     InventoryAvailabilityLevel,
@@ -153,6 +153,8 @@ class FoodShoppingIntakeItemRequest(BaseModel):
 
 
 class CompleteWithoutInventoryItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     shopping_item_id: str
     expected_shopping_item_row_version: int = Field(ge=1)
     action: Literal["complete_without_inventory"]
@@ -551,4 +553,3 @@ class InventoryReconciliationRequest(BaseModel):
         # Duplicate target groups are enforced in the service as structured
         # 422 duplicate_request_item so clients receive {code, message, ...}.
         return self
-

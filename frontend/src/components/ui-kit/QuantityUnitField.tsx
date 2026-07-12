@@ -8,8 +8,12 @@ export type QuantityUnitFieldProps = {
   onUnitChange: (value: string) => void;
   quantityDisabled?: boolean;
   quantityDisabledReason?: string;
+  /** Browser step hint; domain validation remains the source of truth. */
+  quantityStep?: string;
   /** Optional focus target key attached to the quantity input. */
   quantityFieldKey?: string;
+  /** Optional focus target key attached to the unit select trigger. */
+  unitFieldKey?: string;
   className?: string;
 };
 
@@ -21,7 +25,9 @@ export function QuantityUnitField({
   onUnitChange,
   quantityDisabled = false,
   quantityDisabledReason,
+  quantityStep = '0.01',
   quantityFieldKey,
+  unitFieldKey,
   className,
 }: QuantityUnitFieldProps) {
   return (
@@ -32,7 +38,7 @@ export function QuantityUnitField({
           aria-label="数量"
           type="number"
           inputMode="decimal"
-          step="0.01"
+          step={quantityStep}
           value={quantity}
           disabled={quantityDisabled}
           data-field-key={quantityFieldKey}
@@ -46,6 +52,7 @@ export function QuantityUnitField({
           placeholder="选择单位"
           value={unit}
           options={unitOptions}
+          triggerFieldKey={unitFieldKey}
           onChange={(value) => onUnitChange(value)}
         />
       </label>

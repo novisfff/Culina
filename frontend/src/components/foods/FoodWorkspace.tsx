@@ -18,6 +18,7 @@ import type {
   QuickAddMealLogPayload,
   Recipe,
   RecipePayload,
+  UpdateFoodPayload,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
@@ -172,8 +173,8 @@ type Props = {
     requestId: number;
   } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
-  updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
-  updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
+  updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<Food>;
+  updateFoodFavorite: (foodId: string, favorite: boolean, expectedRowVersion: number) => Promise<Food>;
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
@@ -1124,6 +1125,7 @@ export function FoodWorkspace(props: Props) {
       meal_type: mealType,
       servings: 1,
       note: '',
+      ...(stockPatch.deduct_food_stock ? { expected_food_row_version: food.row_version } : {}),
       ...stockPatch,
     });
     setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
@@ -1299,7 +1301,7 @@ export function FoodWorkspace(props: Props) {
             onOpenPlanDialog={openPlanDialog}
             onHandleRecommendationPrimaryAction={handleRecommendationPrimaryAction}
             onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
-            onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite)}
+            onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
             onOpenCreate={() => handleOpenCreate('takeout')}
             onClearFoodFilters={() => {
               clearFoodFilters();
@@ -1516,7 +1518,7 @@ export function FoodWorkspace(props: Props) {
                     type="button"
                     aria-label={food.favorite ? '取消收藏' : '收藏食物'}
                     disabled={props.isUpdatingFavorite}
-                    onClick={() => void props.updateFoodFavorite(food.id, !food.favorite)}
+                    onClick={() => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
                   >
                     <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
                   </button>

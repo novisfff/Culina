@@ -379,6 +379,58 @@ def test_create_shopping_item_with_ready_food_uses_food_target_and_stock_unit(
         assert item.title == "希腊酸奶"
 
 
+def test_create_shopping_item_rejects_food_quantity_finer_than_stock_precision(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "补酸奶",
+            "quantity": 1.25,
+            "unit": "盒",
+            "ingredient_id": None,
+            "food_id": shopping_api_context.ready_food_id,
+            "reason": "早餐",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "最多保留 1 位小数" in response.json()["detail"]
+    with shopping_api_context.SessionLocal() as db:
+        assert db.scalar(
+            select(ShoppingListItem).where(ShoppingListItem.food_id == shopping_api_context.ready_food_id)
+        ) is None
+
+
+def test_patch_shopping_item_rejects_food_quantity_finer_than_stock_precision(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    created = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "补酸奶",
+            "quantity": 1,
+            "unit": "盒",
+            "food_id": shopping_api_context.ready_food_id,
+            "reason": "早餐",
+        },
+    )
+    assert created.status_code == 201, created.text
+    item = created.json()
+
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{item['id']}",
+        json={"quantity": 1.25, "expected_row_version": item["row_version"]},
+    )
+
+    assert response.status_code == 422
+    assert "最多保留 1 位小数" in response.json()["detail"]
+    with shopping_api_context.SessionLocal() as db:
+        current = db.get(ShoppingListItem, item["id"])
+        assert current is not None
+        assert current.quantity == Decimal("1.00")
+
+
 def test_create_shopping_item_with_packaged_food_defaults_unit_to_serving(
     shopping_api_context: ShoppingApiContext,
 ) -> None:
@@ -804,7 +856,9 @@ def test_patch_shopping_item_rejects_other_family_item_without_modifying_it(
 def test_delete_shopping_item_removes_current_family_item_and_logs_activity(
     shopping_api_context: ShoppingApiContext,
 ) -> None:
-    response = shopping_api_context.client.delete(f"/api/shopping-list/{shopping_api_context.item_id}")
+    response = shopping_api_context.client.delete(
+        f"/api/shopping-list/{shopping_api_context.item_id}?expected_row_version=1"
+    )
 
     assert response.status_code == 204, response.text
 
@@ -823,8 +877,32 @@ def test_delete_shopping_item_removes_current_family_item_and_logs_activity(
         assert log.summary == "删除购物清单 番茄"
 
 
+def test_delete_shopping_item_rejects_stale_row_version(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        item.reason = "家人刚更新的用途"
+        db.commit()
+        assert item.row_version == 2
+
+    response = shopping_api_context.client.delete(
+        f"/api/shopping-list/{shopping_api_context.item_id}?expected_row_version=1"
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "stale_version"
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.reason == "家人刚更新的用途"
+
+
 def test_delete_shopping_item_rejects_other_family_item(shopping_api_context: ShoppingApiContext) -> None:
-    response = shopping_api_context.client.delete(f"/api/shopping-list/{shopping_api_context.other_item_id}")
+    response = shopping_api_context.client.delete(
+        f"/api/shopping-list/{shopping_api_context.other_item_id}?expected_row_version=1"
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Shopping item not found"

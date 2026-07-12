@@ -91,12 +91,16 @@ class _IngredientRequestBase(BaseModel):
         return self
 
 
-class CreateIngredientRequest(_IngredientRequestBase):
+class IngredientPayloadRequest(_IngredientRequestBase):
+    """Full Ingredient fields without a transport-specific concurrency token."""
+
+
+class CreateIngredientRequest(IngredientPayloadRequest):
     pass
 
 
-class UpdateIngredientRequest(_IngredientRequestBase):
-    pass
+class UpdateIngredientRequest(IngredientPayloadRequest):
+    expected_row_version: int = Field(ge=1)
 
 
 class VersionedInventoryItemRef(BaseModel):

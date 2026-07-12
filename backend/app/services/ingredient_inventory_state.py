@@ -123,12 +123,28 @@ def upsert_inventory_state(
     if tracks_quantity(ingredient):
         raise ValueError("精确计量食材请使用库存批次接口")
 
-    locked = lock_inventory_targets(
-        db,
-        family_id=family_id,
-        ingredient_ids=[ingredient.id],
-        state_ingredient_ids=[ingredient.id] if state_id is not None else (),
-    )
+    try:
+        locked = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            ingredient_ids=[ingredient.id],
+            state_ingredient_ids=[ingredient.id] if state_id is not None else (),
+            optional_state_ingredient_ids=[ingredient.id] if state_id is None else (),
+        )
+    except InventoryTargetNotFoundError as exc:
+        entity_type = "ingredient_inventory_state" if state_id is not None else "ingredient"
+        entity_id = state_id or ingredient.id
+        raise InventoryConflictError(
+            str(exc),
+            code="stale_version",
+            conflicts=[
+                {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "reason": "missing",
+                }
+            ],
+        ) from exc
     locked_ingredient = locked.ingredients.get(ingredient.id)
     if locked_ingredient is None:
         raise ValueError("食材不存在或不属于当前家庭")
@@ -144,17 +160,21 @@ def upsert_inventory_state(
     )
 
     existing = locked.states_by_ingredient_id.get(ingredient.id)
-    if existing is None:
-        existing = db.scalar(
-            select(IngredientInventoryState).where(
-                IngredientInventoryState.family_id == family_id,
-                IngredientInventoryState.ingredient_id == ingredient.id,
-            )
-        )
 
     if state_id is None:
         if existing is not None:
-            raise ValueError("该食材已有库存状态，请携带 state_id 与 expected_state_row_version 更新")
+            raise InventoryConflictError(
+                "库存状态已变化，请刷新后重试",
+                code="stale_version",
+                conflicts=[
+                    {
+                        "entity_type": "ingredient_inventory_state",
+                        "entity_id": existing.id,
+                        "reason": "created_concurrently",
+                        "current_row_version": existing.row_version,
+                    }
+                ],
+            )
         state = IngredientInventoryState(
             id=create_id("inventory-state"),
             family_id=family_id,
@@ -237,6 +257,35 @@ def upsert_inventory_state(
             summary=summary,
         )
     return state
+
+
+def _lock_tracking_transition_children(
+    db: Session,
+    *,
+    family_id: str,
+    ingredient_id: str,
+) -> tuple[IngredientInventoryState | None, list[InventoryItem]]:
+    """Read and lock the complete State/InventoryItem child set after the parent lock."""
+    state = db.scalar(
+        select(IngredientInventoryState)
+        .where(
+            IngredientInventoryState.family_id == family_id,
+            IngredientInventoryState.ingredient_id == ingredient_id,
+        )
+        .with_for_update()
+    )
+    items = list(
+        db.scalars(
+            select(InventoryItem)
+            .where(
+                InventoryItem.family_id == family_id,
+                InventoryItem.ingredient_id == ingredient_id,
+            )
+            .order_by(InventoryItem.id.asc())
+            .with_for_update()
+        )
+    )
+    return state, items
 
 
 def _physical_remaining_batches(items: list[InventoryItem]) -> list[InventoryItem]:
@@ -400,82 +449,14 @@ def _transition_exact_to_presence(
         entity_id=ingredient.id,
     )
 
-    # Global lock order: Ingredient (above) → State → InventoryItem.
-    # Discover child ids without locking, then re-lock parent-first via lock_inventory_targets.
-    existing_state = db.scalar(
-        select(IngredientInventoryState).where(
-            IngredientInventoryState.family_id == family_id,
-            IngredientInventoryState.ingredient_id == ingredient.id,
-        )
+    # Ingredient is already locked. Use current locking reads for the complete
+    # State → InventoryItem subset so MySQL REPEATABLE READ cannot reuse an old snapshot.
+    locked_state, all_items = _lock_tracking_transition_children(
+        db,
+        family_id=family_id,
+        ingredient_id=ingredient.id,
     )
-    item_ids = list(
-        db.scalars(
-            select(InventoryItem.id)
-            .where(
-                InventoryItem.family_id == family_id,
-                InventoryItem.ingredient_id == ingredient.id,
-            )
-            .order_by(InventoryItem.id.asc())
-        )
-    )
-
-    try:
-        locked_children = lock_inventory_targets(
-            db,
-            family_id=family_id,
-            ingredient_ids=[ingredient.id],
-            state_ingredient_ids=[ingredient.id] if existing_state is not None else (),
-            inventory_item_ids=item_ids,
-        )
-    except InventoryTargetNotFoundError as exc:
-        raise InventoryConflictError(
-            "库存状态或批次已变化，请刷新后重试",
-            code="stale_version",
-            conflicts=[
-                {
-                    "entity_type": "ingredient",
-                    "entity_id": ingredient.id,
-                    "reason": "scope_changed",
-                }
-            ],
-        ) from exc
-
-    ingredient = locked_children.ingredients.get(ingredient.id) or ingredient
-    if not tracks_quantity(ingredient):
-        raise InventoryConflictError(
-            "食材跟踪模式已变更，请刷新后重试",
-            code="tracking_mode_changed",
-            conflicts=[
-                {
-                    "entity_type": "ingredient",
-                    "entity_id": ingredient.id,
-                    "expected_row_version": request.expected_ingredient_row_version,
-                    "current_row_version": ingredient.row_version,
-                    "reason": "tracking_mode_changed",
-                }
-            ],
-        )
-    require_expected_version(
-        ingredient,
-        request.expected_ingredient_row_version,
-        entity_type="ingredient",
-        entity_id=ingredient.id,
-    )
-
-    locked_state = locked_children.states_by_ingredient_id.get(ingredient.id)
-    if existing_state is not None:
-        if locked_state is None:
-            raise InventoryConflictError(
-                "库存状态已变化，请刷新后重试",
-                code="stale_version",
-                conflicts=[
-                    {
-                        "entity_type": "ingredient_inventory_state",
-                        "entity_id": existing_state.id,
-                        "reason": "missing",
-                    }
-                ],
-            )
+    if locked_state is not None:
         if request.expected_state_row_version is None:
             raise InventoryConflictError(
                 "库存状态已变化，请刷新后重试",
@@ -522,23 +503,6 @@ def _transition_exact_to_presence(
             updated_by=user_id,
         )
         db.add(state)
-
-    all_items = list(locked_children.inventory_items.values())
-    all_items.sort(key=lambda item: item.id)
-    if len(all_items) != len(item_ids):
-        raise InventoryConflictError(
-            "当前精确库存批次集合已变化，请刷新后重试",
-            code="scope_changed",
-            conflicts=[
-                {
-                    "entity_type": "ingredient",
-                    "entity_id": ingredient.id,
-                    "expected_batch_ids": sorted(item_ids),
-                    "current_batch_ids": sorted(item.id for item in all_items),
-                    "reason": "scope_changed",
-                }
-            ],
-        )
 
     current_physical = _physical_remaining_batches(all_items)
     current_ids = {item.id for item in current_physical}
@@ -664,15 +628,14 @@ def _transition_presence_to_exact(
         entity_id=ingredient.id,
     )
 
-    existing_state = db.scalar(
-        select(IngredientInventoryState)
-        .where(
-            IngredientInventoryState.family_id == family_id,
-            IngredientInventoryState.ingredient_id == ingredient.id,
-        )
-        .with_for_update()
+    # Historical exact rows remain in storage during presence mode. Lock the
+    # complete State → InventoryItem child set with current reads before retiring them.
+    locked_state, historical_items = _lock_tracking_transition_children(
+        db,
+        family_id=family_id,
+        ingredient_id=ingredient.id,
     )
-    if existing_state is not None:
+    if locked_state is not None:
         if request.expected_state_row_version is None:
             raise InventoryConflictError(
                 "库存状态已变化，请刷新后重试",
@@ -680,17 +643,17 @@ def _transition_presence_to_exact(
                 conflicts=[
                     {
                         "entity_type": "ingredient_inventory_state",
-                        "entity_id": existing_state.id,
+                        "entity_id": locked_state.id,
                         "reason": "missing_expected_version",
-                        "current_row_version": existing_state.row_version,
+                        "current_row_version": locked_state.row_version,
                     }
                 ],
             )
         require_expected_version(
-            existing_state,
+            locked_state,
             request.expected_state_row_version,
             entity_type="ingredient_inventory_state",
-            entity_id=existing_state.id,
+            entity_id=locked_state.id,
         )
     elif request.expected_state_row_version is not None:
         raise InventoryConflictError(
@@ -705,6 +668,14 @@ def _transition_presence_to_exact(
                 }
             ],
         )
+
+    # The exact resolution is the new physical truth. Preserve audit history but
+    # retire every pre-presence remainder without fabricating consumption/disposal.
+    for item in historical_items:
+        if remaining_quantity(item) <= 0:
+            continue
+        item.quantity = item.consumed_quantity + item.disposed_quantity
+        item.updated_by = user_id
 
     ingredient.quantity_tracking_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
 
@@ -734,8 +705,8 @@ def _transition_presence_to_exact(
     else:
         bump_ingredient_collection(ingredient, user_id=user_id)
 
-    if existing_state is not None:
-        _clear_state_for_exact_mode(existing_state, user_id=user_id)
+    if locked_state is not None:
+        _clear_state_for_exact_mode(locked_state, user_id=user_id)
 
     db.flush()
     log_activity(

@@ -9,6 +9,7 @@ import type {
   ShoppingListItem,
 } from '../../api/types';
 import { addCalendarDaysToDateKey } from '../../lib/date';
+import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 export type ShoppingIntakeStep = 'select' | 'review' | 'result';
@@ -65,6 +66,8 @@ export interface FoodDraft extends ShoppingIntakeDraftBase {
 
 export interface FreeTextDraft extends ShoppingIntakeDraftBase {
   kind: 'free_text';
+  plannedQuantity: number;
+  plannedUnit: string;
   resolution: 'unresolved' | 'complete_without_inventory';
 }
 
@@ -80,6 +83,13 @@ export interface ShoppingIntakeDraft {
   createdAt: string;
   items: ShoppingIntakeDraftItem[];
 }
+
+export type ShoppingIntakeSources = {
+  shoppingItems: ShoppingListItem[];
+  ingredients: Ingredient[];
+  foods: Food[];
+  inventoryStates: IngredientInventoryState[];
+};
 
 export type ShoppingIntakeFieldError = {
   shoppingItemId: string;
@@ -101,7 +111,9 @@ export type FreeTextLinkTarget =
 
 export type FreeTextLinkCandidate =
   | { kind: 'ingredient'; id: string; name: string; quantityTrackingMode: Ingredient['quantity_tracking_mode'] }
-  | { kind: 'food'; id: string; name: string };
+  | { kind: 'food'; id: string; name: string; stockUnit: string };
+
+const STOCKABLE_FOOD_TYPES = new Set<Food['type']>(['readyMade', 'instant', 'packaged']);
 
 function normalizeName(value: string) {
   return value.trim().toLowerCase();
@@ -123,6 +135,15 @@ function createClientRequestId() {
     return crypto.randomUUID();
   }
   return `intake-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function renewShoppingIntakeRequestId(
+  draft: ShoppingIntakeDraft,
+): ShoppingIntakeDraft {
+  return {
+    ...draft,
+    clientRequestId: createClientRequestId(),
+  };
 }
 
 function resolveDefaultExpiryDate(args: {
@@ -195,15 +216,65 @@ export function suggestFreeTextLinkCandidates(args: {
     }
   }
   for (const food of args.foods) {
-    if (normalizeName(food.name) === normalized) {
+    if (STOCKABLE_FOOD_TYPES.has(food.type) && normalizeName(food.name) === normalized) {
       candidates.push({
         kind: 'food',
         id: food.id,
         name: food.name,
+        stockUnit: food.stock_unit?.trim() || '份',
       });
     }
   }
   return candidates;
+}
+
+/**
+ * Explicit search may offer every family Ingredient, but only Food profiles whose
+ * product semantics support stock intake. Returning candidates never binds them.
+ */
+export function buildFreeTextLinkOptions(args: {
+  ingredients: Ingredient[];
+  foods: Food[];
+}): FreeTextLinkCandidate[] {
+  return [
+    ...args.ingredients.map<FreeTextLinkCandidate>((ingredient) => ({
+      kind: 'ingredient',
+      id: ingredient.id,
+      name: ingredient.name,
+      quantityTrackingMode: ingredient.quantity_tracking_mode,
+    })),
+    ...args.foods
+      .filter((food) => STOCKABLE_FOOD_TYPES.has(food.type))
+      .map<FreeTextLinkCandidate>((food) => ({
+        kind: 'food',
+        id: food.id,
+        name: food.name,
+        stockUnit: food.stock_unit?.trim() || '份',
+      })),
+  ];
+}
+
+export function filterFreeTextLinkOptions(
+  options: FreeTextLinkCandidate[],
+  query: string,
+  limit = 20,
+): FreeTextLinkCandidate[] {
+  const normalizedQuery = normalizeName(query);
+  const matching = normalizedQuery
+    ? options.filter((option) => normalizeName(option.name).includes(normalizedQuery))
+    : options;
+  return matching.slice(0, Math.max(0, limit));
+}
+
+/** Food has no unit-conversion table, so an explicit free-text Food link may only
+ * proceed when its existing purchase unit can be used as the Food stock unit. */
+export function isFreeTextLinkCandidateUnitCompatible(
+  candidate: FreeTextLinkCandidate,
+  plannedUnit: string,
+): boolean {
+  if (candidate.kind !== 'food') return true;
+  const normalizedPlannedUnit = normalizeName(plannedUnit);
+  return !normalizedPlannedUnit || normalizedPlannedUnit === normalizeName(candidate.stockUnit);
 }
 
 function buildExactIngredientDraft(args: {
@@ -278,6 +349,7 @@ function buildFoodDraft(args: {
   selected: boolean;
 }): FoodDraft {
   const unit = args.food.stock_unit?.trim() || args.shoppingItem.unit?.trim() || '份';
+  const plannedUnit = args.shoppingItem.unit?.trim() || unit;
   return {
     kind: 'food',
     shoppingItemId: args.shoppingItem.id,
@@ -292,7 +364,7 @@ function buildFoodDraft(args: {
     expiryDate: null,
     storageLocation: args.food.storage_location?.trim() || '常温',
     plannedQuantity: args.shoppingItem.quantity,
-    plannedUnit: unit,
+    plannedUnit,
   };
 }
 
@@ -306,6 +378,8 @@ function buildFreeTextDraft(args: {
     expectedShoppingItemRowVersion: args.shoppingItem.row_version,
     title: args.shoppingItem.title,
     selected: args.selected,
+    plannedQuantity: args.shoppingItem.quantity,
+    plannedUnit: args.shoppingItem.unit?.trim() || '',
     resolution: 'unresolved',
   };
 }
@@ -498,8 +572,8 @@ export function linkFreeTextDraft(
         id: item.shoppingItemId,
         family_id: '',
         title: item.title,
-        quantity: 1,
-        unit: '',
+        quantity: item.plannedQuantity,
+        unit: item.plannedUnit,
         reason: '',
         done: false,
         created_at: '',
@@ -513,8 +587,6 @@ export function linkFreeTextDraft(
           ...buildFoodDraft({
             shoppingItem: {
               ...syntheticShoppingItem,
-              quantity: 1,
-              unit: target.food.stock_unit || '份',
               food_id: target.food.id,
               target_type: 'food',
             },
@@ -544,8 +616,6 @@ export function linkFreeTextDraft(
             ...syntheticShoppingItem,
             ingredient_id: target.ingredient.id,
             target_type: 'ingredient',
-            unit: target.ingredient.default_unit || '个',
-            quantity: 1,
             quantity_mode: 'track_quantity',
           },
           ingredient: target.ingredient,
@@ -566,6 +636,165 @@ export function linkFreeTextDraft(
         selected: true,
         purchaseDate,
       });
+    }),
+  };
+}
+
+function relinkExplicitFreeTextTarget(args: {
+  latestItem: FreeTextDraft;
+  previousItem: Exclude<ShoppingIntakeDraftItem, FreeTextDraft>;
+  draft: ShoppingIntakeDraft;
+  sources: ShoppingIntakeSources;
+}): ShoppingIntakeDraftItem | null {
+  const shell: ShoppingIntakeDraft = {
+    ...args.draft,
+    items: [args.latestItem],
+  };
+
+  if (args.previousItem.kind === 'food') {
+    const food = findFoodById(args.sources.foods, args.previousItem.targetId);
+    if (!food) return null;
+    return linkFreeTextDraft(
+      shell,
+      args.latestItem.shoppingItemId,
+      { kind: 'food', food },
+      args.draft.purchaseDate,
+    ).items[0] ?? null;
+  }
+
+  const ingredient = findIngredientById(args.sources.ingredients, args.previousItem.targetId);
+  if (!ingredient) return null;
+  const state = args.sources.inventoryStates.find(
+    (entry) => entry.ingredient_id === ingredient.id,
+  ) ?? null;
+  return linkFreeTextDraft(
+    shell,
+    args.latestItem.shoppingItemId,
+    tracksIngredientQuantity(ingredient)
+      ? { kind: 'exact_ingredient', ingredient, state }
+      : { kind: 'presence_ingredient', ingredient, state },
+    args.draft.purchaseDate,
+  ).items[0] ?? null;
+}
+
+function preserveCompatibleDraftFields(
+  latestItem: ShoppingIntakeDraftItem,
+  previousItem: ShoppingIntakeDraftItem,
+): ShoppingIntakeDraftItem {
+  const selected = previousItem.selected;
+  if (latestItem.kind !== previousItem.kind) {
+    return { ...latestItem, selected };
+  }
+
+  if (latestItem.kind === 'free_text' && previousItem.kind === 'free_text') {
+    return {
+      ...latestItem,
+      selected,
+      resolution: previousItem.resolution,
+    };
+  }
+
+  if (latestItem.kind === 'exact_ingredient' && previousItem.kind === 'exact_ingredient') {
+    if (latestItem.targetId !== previousItem.targetId) {
+      return { ...latestItem, selected };
+    }
+    const previousQuantityWasDefault =
+      previousItem.actualQuantity === formatQuantityString(previousItem.plannedQuantity);
+    const previousUnitWasDefault = previousItem.unit === previousItem.plannedUnit;
+    return {
+      ...latestItem,
+      selected,
+      actualQuantity: previousQuantityWasDefault
+        ? latestItem.actualQuantity
+        : previousItem.actualQuantity,
+      unit: previousUnitWasDefault ? latestItem.unit : previousItem.unit,
+      inventoryStatus: previousItem.inventoryStatus,
+      expiryDate: previousItem.expiryDate,
+      storageLocation: previousItem.storageLocation,
+      notes: previousItem.notes,
+    };
+  }
+
+  if (latestItem.kind === 'presence_ingredient' && previousItem.kind === 'presence_ingredient') {
+    if (latestItem.targetId !== previousItem.targetId) {
+      return { ...latestItem, selected };
+    }
+    return {
+      ...latestItem,
+      selected,
+      resultingAvailabilityLevel: previousItem.resultingAvailabilityLevel,
+      inventoryStatus: previousItem.inventoryStatus,
+      expiryDate: previousItem.expiryDate,
+      storageLocation: previousItem.storageLocation,
+      notes: previousItem.notes,
+    };
+  }
+
+  if (latestItem.kind === 'food' && previousItem.kind === 'food') {
+    if (latestItem.targetId !== previousItem.targetId) {
+      return { ...latestItem, selected };
+    }
+    const previousQuantityWasDefault =
+      previousItem.actualQuantity === formatQuantityString(previousItem.plannedQuantity);
+    const previousUnitWasDefault = previousItem.unit === previousItem.plannedUnit;
+    return {
+      ...latestItem,
+      selected,
+      actualQuantity: previousQuantityWasDefault
+        ? latestItem.actualQuantity
+        : previousItem.actualQuantity,
+      unit: previousUnitWasDefault ? latestItem.unit : previousItem.unit,
+      expiryDate: previousItem.expiryDate,
+      storageLocation: previousItem.storageLocation,
+    };
+  }
+
+  return { ...latestItem, selected };
+}
+
+/**
+ * Replay an intake draft against canonical sources after a 409.
+ * Concurrency tokens and target bindings always come from the latest projection;
+ * compatible user edits and explicit free-text links survive for re-confirmation.
+ */
+export function rebaseShoppingIntakeDraft(
+  draft: ShoppingIntakeDraft,
+  sources: ShoppingIntakeSources,
+): ShoppingIntakeDraft {
+  const latestDraft = buildShoppingIntakeDraft({
+    shoppingItems: sources.shoppingItems,
+    ingredients: sources.ingredients,
+    foods: sources.foods,
+    inventoryStates: sources.inventoryStates,
+    referenceDate: draft.purchaseDate,
+    now: draft.createdAt,
+    clientRequestId: draft.clientRequestId,
+  });
+  const previousByShoppingId = new Map(
+    draft.items.map((item) => [item.shoppingItemId, item]),
+  );
+
+  return {
+    ...latestDraft,
+    clientRequestId: draft.clientRequestId,
+    purchaseDate: draft.purchaseDate,
+    createdAt: draft.createdAt,
+    items: latestDraft.items.map((latestItem) => {
+      const previousItem = previousByShoppingId.get(latestItem.shoppingItemId);
+      if (!previousItem) {
+        return latestItem;
+      }
+
+      let resolvedLatestItem = latestItem;
+      if (latestItem.kind === 'free_text' && previousItem.kind !== 'free_text') {
+        resolvedLatestItem = relinkExplicitFreeTextTarget({
+          latestItem,
+          previousItem,
+          draft,
+          sources,
+        }) ?? latestItem;
+      }
+      return preserveCompatibleDraftFields(resolvedLatestItem, previousItem);
     }),
   };
 }
@@ -674,6 +903,16 @@ export function validateShoppingIntakeDraft(draft: ShoppingIntakeDraft): Shoppin
           code: 'invalid_quantity',
           message: `「${item.title}」数量为 0，请取消勾选或填写实际买到的数量。`,
         });
+      } else if (item.kind === 'food') {
+        const parsedFoodQuantity = parseFoodStockQuantity(item.actualQuantity, '实际数量');
+        if (parsedFoodQuantity.error) {
+          errors.push({
+            shoppingItemId: item.shoppingItemId,
+            field: 'actualQuantity',
+            code: 'invalid_quantity',
+            message: `「${item.title}」${parsedFoodQuantity.error}`,
+          });
+        }
       }
       if (!item.unit.trim()) {
         errors.push({
@@ -698,7 +937,7 @@ export function validateShoppingIntakeDraft(draft: ShoppingIntakeDraft): Shoppin
         errors.push({
           shoppingItemId: item.shoppingItemId,
           field: 'storageLocation',
-          code: 'invalid_date_range',
+          code: 'invalid_request',
           message: `请填写「${item.title}」的存放位置。`,
         });
       }
@@ -719,7 +958,7 @@ export function validateShoppingIntakeDraft(draft: ShoppingIntakeDraft): Shoppin
       errors.push({
         shoppingItemId: item.shoppingItemId,
         field: 'storageLocation',
-        code: 'invalid_date_range',
+        code: 'invalid_request',
         message: `请填写「${item.title}」的存放位置。`,
       });
     }

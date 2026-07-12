@@ -39,6 +39,7 @@ function makeIngredient(overrides: Partial<Ingredient> & Pick<Ingredient, 'id' |
 
 type HarnessProps = {
   ingredient: Ingredient;
+  formQuantityTrackingMode?: Ingredient['quantity_tracking_mode'];
   transition: (ingredientId: string, payload: IngredientTrackingModeTransitionRequest) => Promise<Ingredient>;
   update: (
     ingredientId: string,
@@ -54,6 +55,7 @@ type HarnessProps = {
       default_low_stock_threshold?: number | null;
       notes: string;
       media_ids: string[];
+      expected_row_version: number;
     }
   ) => Promise<Ingredient>;
   onSettled?: (ingredient: Ingredient) => void | Promise<void>;
@@ -69,7 +71,7 @@ function HookHost(props: HarnessProps) {
     name: '鸡蛋改名',
     category: props.ingredient.category,
     defaultUnit: props.ingredient.default_unit,
-    quantityTrackingMode: 'not_track_quantity',
+    quantityTrackingMode: props.formQuantityTrackingMode ?? 'not_track_quantity',
     defaultStorage: props.ingredient.default_storage,
     defaultExpiryMode: props.ingredient.default_expiry_mode,
     notes: 'updated notes',
@@ -171,6 +173,30 @@ afterEach(() => {
 });
 
 describe('useIngredientEditorState dual-write recovery', () => {
+  it('includes the observed row version in an ordinary profile edit', async () => {
+    const ingredient = makeIngredient({ id: 'ingredient-egg', name: '鸡蛋', row_version: 7 });
+    const update = vi.fn(async () => ({ ...ingredient, name: '鸡蛋改名', row_version: 8 }));
+    const notices: Array<{ tone: string; title: string; message: string }> = [];
+
+    const state = renderEditorHarness({
+      ingredient,
+      formQuantityTrackingMode: 'track_quantity',
+      transition: vi.fn(async () => ingredient),
+      update,
+      notices,
+      transient: { current: null },
+    });
+
+    await act(async () => {
+      await state.submitIngredient(false);
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      ingredient.id,
+      expect.objectContaining({ expected_row_version: 7 }),
+    );
+  });
+
   it('recovers from transition success + profile failure without re-running transition', async () => {
     const ingredient = makeIngredient({ id: 'ingredient-egg', name: '鸡蛋' });
     const transitioned = makeIngredient({

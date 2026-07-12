@@ -200,6 +200,9 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "expiry_alert_snoozed_until": item.expiry_alert_snoozed_until,
         "expiry_reviewed_at": _utc_datetime(item.expiry_reviewed_at),
         "expiry_reviewed_by": item.expiry_reviewed_by,
+        "last_confirmed_at": _utc_datetime(item.last_confirmed_at),
+        "last_confirmed_by": item.last_confirmed_by,
+        "last_confirmation_source": item.last_confirmation_source,
     }
 
 
@@ -402,6 +405,9 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "created_by": food.created_by,
         "updated_by": food.updated_by,
         "row_version": food.row_version,
+        "inventory_last_confirmed_at": _utc_datetime(food.inventory_last_confirmed_at),
+        "inventory_last_confirmed_by": food.inventory_last_confirmed_by,
+        "inventory_confirmation_source": food.inventory_confirmation_source,
     }
 
 

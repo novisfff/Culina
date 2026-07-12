@@ -41,6 +41,7 @@ from app.models.domain import (
     InventoryOperation,
     InventoryOperationLine,
     Membership,
+    SearchIndexJob,
     ShoppingListItem,
     User,
 )
@@ -897,6 +898,18 @@ def test_food_and_shopping_restore_together_and_versions_increase(revert_ctx: Re
         assert shopping.quantity == Decimal("6.00")
         assert food.row_version > after_food_version
         assert shopping.row_version > after_shopping_version
+        jobs = list(
+            db.scalars(
+                select(SearchIndexJob).where(
+                    SearchIndexJob.family_id == revert_ctx.family_id,
+                    SearchIndexJob.entity_type == "food",
+                    SearchIndexJob.entity_id == food.id,
+                )
+            )
+        )
+        assert [(job.status, job.user_id, job.target_name) for job in jobs] == [
+            ("queued", revert_ctx.member_id, "酸奶"),
+        ]
 
 
 def test_forced_commit_failure_leaves_operation_applied(revert_ctx: RevertCtx) -> None:

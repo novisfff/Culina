@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.models.domain import ActivityLog, Food, MealLogFood
-from app.api.meal_logs import _select_food_for_quick_add
+from app.api.meal_logs import _select_food_for_quick_add, _select_plan_item_for_quick_add
 
 from ._support import RecipeApiTestCase
 
@@ -138,6 +138,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
                 "servings": 1,
                 "note": "",
                 "deduct_food_stock": True,
+                "expected_food_row_version": 1,
                 "stock_quantity": 1.25,
             },
         )
@@ -172,6 +173,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
                 "servings": 1,
                 "note": "",
                 "deduct_food_stock": True,
+                "expected_food_row_version": 1,
                 "stock_quantity": 1,
             },
         )
@@ -181,6 +183,38 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             refreshed = db.get(Food, "food-stock-quick")
             assert refreshed is not None
             self.assertEqual(refreshed.stock_quantity, Decimal("1.00"))
+
+    def test_quick_add_stock_deduction_rejects_stale_food_version_atomically(self) -> None:
+        food = self._ready_food(id="food-stock-quick-stale", stock_quantity=Decimal("2"))
+        with self.SessionLocal() as db:
+            db.add(food)
+            db.commit()
+            food.stock_quantity = Decimal("3")
+            db.commit()
+            self.assertEqual(food.row_version, 2)
+
+        response = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": food.id,
+                "date": "2026-07-07",
+                "meal_type": "breakfast",
+                "servings": 1,
+                "note": "",
+                "deduct_food_stock": True,
+                "expected_food_row_version": 1,
+                "stock_quantity": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "stale_version")
+        with self.SessionLocal() as db:
+            refreshed = db.get(Food, food.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.stock_quantity, Decimal("3.00"))
+            meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
+            self.assertEqual(meal_entries, [])
 
     def test_quick_add_plan_replay_does_not_double_deduct_stock(self) -> None:
         food = self._ready_food(id="food-stock-replay", stock_quantity=Decimal("3"))
@@ -203,6 +237,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             "note": "完成计划",
             "food_plan_item_id": plan["id"],
             "deduct_food_stock": True,
+            "expected_food_row_version": 1,
             "stock_quantity": 1,
         }
 
@@ -241,6 +276,16 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             deduct_food_stock=False,
         )
         self.assertIsNone(unlocked_statement._for_update_arg)
+
+    def test_quick_add_plan_item_query_always_uses_row_lock(self) -> None:
+        statement = _select_plan_item_for_quick_add(
+            plan_item_id="plan-lock",
+            food_id="food-stock-lock",
+            family_id="family-test",
+            user_id="user-test",
+        )
+
+        self.assertIsNotNone(statement._for_update_arg)
 
 
     def test_food_stock_intake_uses_earliest_expiry_while_restock_overwrites(self) -> None:
@@ -297,4 +342,3 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             db.refresh(food)
             self.assertEqual(food.expiry_date, date(2026, 8, 1))
             self.assertEqual(food.storage_location, "冷藏")
-

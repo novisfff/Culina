@@ -71,6 +71,17 @@ def _quantity_label_for_presence(level: InventoryAvailabilityLevel) -> str:
     return "已有"
 
 
+def _tone_for_presence(
+    level: InventoryAvailabilityLevel,
+    expiry_date: date | None,
+    today: date,
+) -> str:
+    tone = _tone_for_stock(Decimal("1"), expiry_date, today)
+    if tone == "stable" and level is InventoryAvailabilityLevel.LOW:
+        return "warning"
+    return tone
+
+
 def _ingredient_rows(
     db: Session,
     *,
@@ -129,6 +140,7 @@ def _ingredient_rows(
             "id": f"ingredient:{item.id}",
             "source_type": "ingredient",
             "source_id": ingredient.id,
+            "row_version": item.row_version,
             "inventory_item_id": item.id,
             "title": ingredient.name,
             "category": ingredient.category,
@@ -171,13 +183,14 @@ def _ingredient_rows(
         if not state_is_physically_present(state):
             continue
         days = _days_until(state.expiry_date, today)
-        tone = _tone_for_stock(Decimal("1"), state.expiry_date, today)
+        tone = _tone_for_presence(state.availability_level, state.expiry_date, today)
         status = state.inventory_status.value if hasattr(state.inventory_status, "value") else state.inventory_status
         storage = state.storage_location or ingredient.default_storage or "常温"
         row = {
             "id": f"ingredient-state:{state.id}",
             "source_type": "ingredient",
             "source_id": ingredient.id,
+            "row_version": state.row_version,
             "inventory_item_id": None,
             "title": ingredient.name,
             "category": ingredient.category,
@@ -249,6 +262,7 @@ def _food_rows(
             "id": f"food:{food.id}",
             "source_type": "food",
             "source_id": food.id,
+            "row_version": food.row_version,
             "inventory_item_id": None,
             "title": food.name,
             "category": food.category,

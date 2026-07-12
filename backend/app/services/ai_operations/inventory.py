@@ -13,14 +13,192 @@ from app.ai.errors import AIConflictError
 from app.core.enums import InventoryAvailabilityLevel, InventoryConfirmationSource, InventoryStatus
 from app.core.utils import utcnow
 from app.ai.tools.catalog.common import entity_media_map
-from app.models.domain import AIMessage, InventoryItem
-from app.ai.tools.catalog.inventory import inventory_record
+from app.models.domain import AIMessage, IngredientInventoryState, InventoryItem
+from app.ai.tools.catalog.inventory import inventory_record, inventory_state_record
 from app.services.clock import today_for_family
 from app.services.ingredient_inventory_state import PresenceStateRequiredError, upsert_inventory_state
 from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
-from app.services.inventory_operations import consume_ingredient_inventory, create_inventory_batch, dispose_inventory_quantity, require_ingredient, require_inventory_item
+from app.services.inventory_operation_locking import (
+    InventoryTargetNotFoundError,
+    LockedInventoryTargets,
+    lock_inventory_targets,
+)
+from app.services.inventory_operations import consume_ingredient_inventory, create_inventory_batch, dispose_inventory_quantity
 from app.services.inventory_usage import tracks_quantity
+from app.services.inventory_versions import InventoryConflictError, require_expected_version
 from app.services.serializers import serialize_ingredient_inventory_state, serialize_inventory_item
+
+
+MISSING_INVENTORY_BOUNDARY_DETAIL = "库存草稿缺少并发校验信息，请重新生成后确认"
+
+
+def _required_row_version(operation: dict[str, Any], key: str) -> int:
+    if key not in operation or isinstance(operation.get(key), bool):
+        raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+    try:
+        value = int(operation[key])
+    except (TypeError, ValueError) as exc:
+        raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL) from exc
+    if value < 1:
+        raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+    return value
+
+
+def _optional_row_version(operation: dict[str, Any], key: str) -> int | None:
+    if key not in operation:
+        raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+    if operation[key] is None:
+        return None
+    return _required_row_version(operation, key)
+
+
+def _lock_and_validate_inventory_boundaries(
+    db: Session,
+    *,
+    family_id: str,
+    operations: Any,
+) -> LockedInventoryTargets:
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("库存操作草稿不能为空")
+
+    ingredient_ids: list[str] = []
+    state_ingredient_ids: list[str] = []
+    optional_state_ingredient_ids: list[str] = []
+    inventory_item_ids: list[str] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise ValueError("库存操作项格式不正确")
+        ingredient_id = str(operation.get("ingredientId") or "")
+        if not ingredient_id:
+            raise ValueError("库存操作必须引用真实食材")
+        ingredient_ids.append(ingredient_id)
+        if "quantityTrackingMode" not in operation:
+            raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+        _required_row_version(operation, "expectedIngredientRowVersion")
+        state_id = operation.get("stateId")
+        expected_state_version = _optional_row_version(operation, "expectedStateRowVersion")
+        if state_id is not None:
+            if not str(state_id):
+                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+            if expected_state_version is None:
+                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+            state_ingredient_ids.append(ingredient_id)
+        elif expected_state_version is not None:
+            raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+        elif str(operation["quantityTrackingMode"]) == "not_track_quantity":
+            optional_state_ingredient_ids.append(ingredient_id)
+
+        explicit_item_id = operation.get("inventoryItemId")
+        expected_item_version = _optional_row_version(operation, "expectedInventoryItemRowVersion")
+        if expected_item_version is not None and not explicit_item_id:
+            raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+        if explicit_item_id:
+            inventory_item_ids.append(str(explicit_item_id))
+
+        batch_options = operation.get("batchOptions")
+        if not isinstance(batch_options, list):
+            raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+        for option in batch_options:
+            if not isinstance(option, dict) or not option.get("id"):
+                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+            _required_row_version(option, "rowVersion")
+            inventory_item_ids.append(str(option["id"]))
+
+    try:
+        locked = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            ingredient_ids=ingredient_ids,
+            state_ingredient_ids=state_ingredient_ids,
+            optional_state_ingredient_ids=optional_state_ingredient_ids,
+            inventory_item_ids=inventory_item_ids,
+        )
+    except InventoryTargetNotFoundError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
+
+    for operation in operations:
+        ingredient_id = str(operation["ingredientId"])
+        ingredient = locked.ingredients.get(ingredient_id)
+        if ingredient is None:
+            raise AIConflictError(STALE_INVENTORY_DETAIL)
+        require_expected_version(
+            ingredient,
+            _required_row_version(operation, "expectedIngredientRowVersion"),
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+        )
+        actual_tracking_mode = (
+            ingredient.quantity_tracking_mode.value
+            if hasattr(ingredient.quantity_tracking_mode, "value")
+            else str(ingredient.quantity_tracking_mode)
+        )
+        if str(operation["quantityTrackingMode"]) != actual_tracking_mode:
+            raise AIConflictError("食材数量记录方式已变化，请重新生成库存草稿")
+        action = str(operation.get("action") or "")
+        if action not in {"restock", "consume", "dispose"}:
+            raise ValueError("不支持的库存操作")
+        if action == "restock" and not tracks_quantity(ingredient):
+            if "availabilityLevel" not in operation or operation.get("availabilityLevel") not in {
+                "present_unknown",
+                "low",
+                "sufficient",
+            }:
+                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+
+        state_id = operation.get("stateId")
+        expected_state_version = _optional_row_version(operation, "expectedStateRowVersion")
+        locked_state = locked.states_by_ingredient_id.get(ingredient.id)
+        if state_id is not None:
+            if locked_state is None or locked_state.id != str(state_id):
+                raise AIConflictError(STALE_INVENTORY_DETAIL)
+            assert expected_state_version is not None
+            require_expected_version(
+                locked_state,
+                expected_state_version,
+                entity_type="ingredient_inventory_state",
+                entity_id=locked_state.id,
+            )
+        elif locked_state is not None:
+            raise AIConflictError(STALE_INVENTORY_DETAIL)
+
+        explicit_item_id = operation.get("inventoryItemId")
+        expected_item_version = _optional_row_version(operation, "expectedInventoryItemRowVersion")
+        if explicit_item_id:
+            explicit_item = locked.inventory_items.get(str(explicit_item_id))
+            if explicit_item is None or explicit_item.ingredient_id != ingredient.id:
+                raise AIConflictError(STALE_INVENTORY_DETAIL)
+            if expected_item_version is not None:
+                require_expected_version(
+                    explicit_item,
+                    expected_item_version,
+                    entity_type="inventory_item",
+                    entity_id=explicit_item.id,
+                )
+        elif expected_item_version is not None:
+            raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+
+        batch_options = operation["batchOptions"]
+        batch_ids: set[str] = set()
+        for option in batch_options:
+            option_id = str(option["id"])
+            batch_ids.add(option_id)
+            item = locked.inventory_items.get(option_id)
+            if item is None or item.ingredient_id != ingredient.id:
+                raise AIConflictError(STALE_INVENTORY_DETAIL)
+            require_expected_version(
+                item,
+                _required_row_version(option, "rowVersion"),
+                entity_type="inventory_item",
+                entity_id=item.id,
+            )
+
+        if action == "consume" and explicit_item_id and str(explicit_item_id) not in batch_ids:
+            raise ValueError("消耗库存指定的批次不在原草稿候选范围内")
+        if action == "dispose":
+            if not explicit_item_id or expected_item_version is None or str(explicit_item_id) not in batch_ids:
+                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
+
+    return locked
 
 
 def execute_inventory_operation_draft(
@@ -34,49 +212,28 @@ def execute_inventory_operation_draft(
     entity_ids: list[str] = []
     today = today_for_family(family_id)
     try:
-        for operation in payload.get("operations") or []:
+        operations = payload.get("operations")
+        locked = _lock_and_validate_inventory_boundaries(
+            db,
+            family_id=family_id,
+            operations=operations,
+        )
+        runtime_states_by_ingredient_id = dict(locked.states_by_ingredient_id)
+        for operation in operations:
             action = str(operation["action"])
-            ingredient = require_ingredient(
-                db,
-                family_id=family_id,
-                ingredient_id=str(operation["ingredientId"]),
-            )
+            ingredient = locked.ingredients[str(operation["ingredientId"])]
             if action == "restock":
                 if not tracks_quantity(ingredient):
-                    from sqlalchemy import select
-                    from app.models.domain import IngredientInventoryState
-
-                    expected_ingredient_row_version = int(
-                        operation.get("expectedIngredientRowVersion")
-                        or operation.get("expected_ingredient_row_version")
-                        or ingredient.row_version
-                    )
-                    state_id = operation.get("stateId") or operation.get("state_id")
-                    expected_state_row_version = operation.get("expectedStateRowVersion") or operation.get(
-                        "expected_state_row_version"
-                    )
-                    if expected_state_row_version is not None:
-                        expected_state_row_version = int(expected_state_row_version)
-                    if state_id is None:
-                        existing_state = db.scalar(
-                            select(IngredientInventoryState).where(
-                                IngredientInventoryState.family_id == family_id,
-                                IngredientInventoryState.ingredient_id == ingredient.id,
-                            )
-                        )
-                        if existing_state is not None:
-                            state_id = existing_state.id
-                            if expected_state_row_version is None:
-                                expected_state_row_version = existing_state.row_version
-                    availability_level = operation.get("availabilityLevel") or operation.get("availability_level") or "present_unknown"
+                    runtime_state = runtime_states_by_ingredient_id.get(ingredient.id)
+                    availability_level = str(operation["availabilityLevel"])
                     state = upsert_inventory_state(
                         db,
                         family_id=family_id,
                         user_id=user_id,
                         ingredient=ingredient,
-                        expected_ingredient_row_version=expected_ingredient_row_version,
-                        state_id=str(state_id) if state_id else None,
-                        expected_state_row_version=expected_state_row_version,
+                        expected_ingredient_row_version=int(ingredient.row_version),
+                        state_id=runtime_state.id if runtime_state is not None else None,
+                        expected_state_row_version=int(runtime_state.row_version) if runtime_state is not None else None,
                         availability_level=InventoryAvailabilityLevel(str(availability_level)),
                         inventory_status=InventoryStatus(str(operation.get("status") or "fresh")),
                         purchase_date=date.fromisoformat(str(operation["purchaseDate"])) if operation.get("purchaseDate") else None,
@@ -86,6 +243,7 @@ def execute_inventory_operation_draft(
                         confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
                         record_activity=True,
                     )
+                    runtime_states_by_ingredient_id[ingredient.id] = state
                     result = {
                         "operation": "restock",
                         "ingredient_id": ingredient.id,
@@ -115,6 +273,7 @@ def execute_inventory_operation_draft(
                             if operation.get("lowStockThreshold") is not None
                             else None
                         ),
+                        already_locked=True,
                     )
                     result = {
                         "operation": "restock",
@@ -139,13 +298,8 @@ def execute_inventory_operation_draft(
                 )
                 entity_ids.extend(result["affected_item_ids"])
             elif action == "dispose":
-                # Unlocked provisional load only; dispose locks parent-first.
-                item = require_inventory_item(
-                    db,
-                    family_id=family_id,
-                    inventory_item_id=str(operation["inventoryItemId"]),
-                    for_update=False,
-                )
+                item = locked.inventory_items[str(operation["inventoryItemId"])]
+                item.ingredient = ingredient
                 result = dispose_inventory_quantity(
                     db,
                     family_id=family_id,
@@ -154,6 +308,7 @@ def execute_inventory_operation_draft(
                     quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
                     unit=str(operation.get("unit") or item.unit),
                     reason=str(operation["reason"]),
+                    already_locked=True,
                 )
                 entity_ids.append(item.id)
             else:
@@ -162,6 +317,8 @@ def execute_inventory_operation_draft(
         db.flush()
     except PresenceStateRequiredError as exc:
         raise ValueError(str(exc)) from exc
+    except InventoryConflictError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     except StaleDataError as exc:
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     return {"operations": results}, list(dict.fromkeys(entity_ids))
@@ -196,6 +353,13 @@ def refresh_inventory_result_card(
             if item_id
         )
     )
+    state_ids = list(
+        dict.fromkeys(
+            str(state_id)
+            for operation in operations
+            if (state_id := operation.get("state_id"))
+        )
+    )
     rows = list(
         db.scalars(
             select(InventoryItem)
@@ -206,6 +370,28 @@ def refresh_inventory_result_card(
     media_map = entity_media_map(db, family_id=family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in rows])
     today = today_for_family(family_id)
     records = {item.id: inventory_record(item, media_map, today=today) for item in rows}
+    state_rows = list(
+        db.scalars(
+            select(IngredientInventoryState)
+            .where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.id.in_(state_ids),
+            )
+            .options(selectinload(IngredientInventoryState.ingredient))
+        )
+    )
+    state_media_map = entity_media_map(
+        db,
+        family_id=family_id,
+        entity_types={"ingredient"},
+        entity_ids=[state.ingredient_id for state in state_rows],
+    )
+    for state in state_rows:
+        ingredient = state.ingredient
+        if ingredient is None or tracks_quantity(ingredient):
+            continue
+        record = inventory_state_record(state, ingredient, state_media_map, today=today)
+        records[str(record["id"])] = record
     operation_by_item: dict[str, dict[str, Any]] = {}
     for operation in operations:
         for item_id in [operation.get("inventory_item_id"), *(operation.get("affected_item_ids") or [])]:
@@ -218,6 +404,16 @@ def refresh_inventory_result_card(
                     "handledAt": utcnow().isoformat(),
                     "handledBy": user_id,
                 }
+        state_id = operation.get("state_id")
+        if state_id:
+            operation_by_item[f"ingredient-state:{state_id}"] = {
+                "action": operation.get("operation"),
+                "quantity": operation.get("quantity"),
+                "unit": operation.get("unit"),
+                "reason": operation.get("reason"),
+                "handledAt": utcnow().isoformat(),
+                "handledBy": user_id,
+            }
 
     next_parts: list[dict[str, Any]] = []
     for part in message.parts or []:

@@ -288,6 +288,51 @@ describe('inventoryReconciliationModel intents and payload', () => {
     expect(group.updates[0].actual_remaining_quantity).toBe(5);
   });
 
+  it('rejects exact batch dates where expiry is before purchase locally', () => {
+    const eggs = makeExactGroup({ ingredient_id: 'ing-egg', ingredient_name: '鸡蛋' });
+    const update = buildBatchUpdateFromGroup(eggs, 'batch-1', {
+      purchaseDate: '2026-07-12',
+      expiryDate: '2026-07-01',
+    });
+    const create = buildBatchCreateIntent({
+      actualRemainingQuantity: '1',
+      unit: '个',
+      inventoryStatus: 'fresh',
+      purchaseDate: '2026-07-12',
+      expiryDate: '2026-07-01',
+      storageLocation: '冷藏',
+      clientLineId: 'line-invalid-date-range',
+    });
+    const draft = {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'refrigerated',
+        now: NOW,
+      }),
+      intents: [
+        buildExactAdjustBatchesIntent({
+          group: eggs,
+          updates: [update!],
+          creates: [create],
+        }),
+      ],
+    };
+
+    expect(validateReconciliationDraft(draft, [eggs])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'batch:batch-1:expiryDate',
+          code: 'invalid_date_range',
+        }),
+        expect.objectContaining({
+          field: 'create:line-invalid-date-range:expiryDate',
+          code: 'invalid_date_range',
+        }),
+      ]),
+    );
+  });
+
   it('handles presence four-state and food confirm/set_stock/absent branches', () => {
     const salt = makePresenceGroup();
     const beef = makeFoodGroup();
@@ -323,6 +368,86 @@ describe('inventoryReconciliationModel intents and payload', () => {
     if (payload.groups[1].kind === 'food') {
       expect(payload.groups[1].stock_quantity).toBe(3);
     }
+  });
+
+  it('rejects a presence-state expiry date before its purchase date locally', () => {
+    const salt = makePresenceGroup();
+    const draft = {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'all',
+        now: NOW,
+      }),
+      intents: [
+        buildPresenceIntent({
+          group: salt,
+          availabilityLevel: 'sufficient',
+          purchaseDate: '2026-07-12',
+          expiryDate: '2026-07-01',
+        }),
+      ],
+    };
+
+    expect(validateReconciliationDraft(draft, [salt])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'expiryDate',
+          code: 'invalid_date_range',
+        }),
+      ]),
+    );
+  });
+
+  it('rejects a Food stock total with more than one decimal locally', () => {
+    const beef = makeFoodGroup();
+    const draft = {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'all',
+        now: NOW,
+      }),
+      intents: [buildFoodSetStockIntent({ group: beef, stockQuantity: '1.25' })],
+    };
+
+    expect(validateReconciliationDraft(draft, [beef])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'stockQuantity',
+          code: 'invalid_quantity',
+          message: expect.stringContaining('最多保留 1 位小数'),
+        }),
+      ]),
+    );
+  });
+
+  it('requires a storage location for positive Food stock locally', () => {
+    const beef = makeFoodGroup();
+    const draft = {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'all',
+        now: NOW,
+      }),
+      intents: [
+        buildFoodSetStockIntent({
+          group: beef,
+          stockQuantity: '2',
+          storageLocation: '   ',
+        }),
+      ],
+    };
+
+    expect(validateReconciliationDraft(draft, [beef])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'storageLocation',
+          code: 'invalid_target',
+        }),
+      ]),
+    );
   });
 
   it('summarizes only touched intents for submit preview', () => {

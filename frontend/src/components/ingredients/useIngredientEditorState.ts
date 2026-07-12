@@ -88,6 +88,7 @@ type UseIngredientEditorStateArgs = {
   updateIngredient: (
     ingredientId: string,
     payload: {
+      expected_row_version: number;
       name: string;
       category: string;
       default_unit: string;
@@ -335,7 +336,10 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
 
     try {
       const saved = args.editingIngredientId
-        ? await args.updateIngredient(args.editingIngredientId, payload)
+        ? await args.updateIngredient(args.editingIngredientId, {
+            ...payload,
+            expected_row_version: editingIngredient?.row_version ?? 1,
+          })
         : await args.createIngredient(payload);
       finishIngredientSave(saved, restockAfterSave);
     } catch (reason) {
@@ -502,6 +506,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       const profilePayload = {
         ...draft.profilePayload,
         quantity_tracking_mode: applied.quantity_tracking_mode ?? targetMode,
+        expected_row_version: applied.row_version ?? 1,
       };
       try {
         const saved = await args.updateIngredient(args.editingIngredientId, profilePayload);

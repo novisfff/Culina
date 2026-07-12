@@ -11,7 +11,7 @@ import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, event, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1309,6 +1309,77 @@ def test_state_set_absent_rejects_non_expired(state_api_context) -> None:
         assert state.availability_level == InventoryAvailabilityLevel.PRESENT_UNKNOWN
 
 
+def test_state_first_create_rejects_a_state_created_after_client_snapshot(db: Session) -> None:
+    from app.services.ingredient_inventory_state import upsert_inventory_state
+    from app.services.inventory_versions import InventoryConflictError
+
+    ingredient = db.get(Ingredient, "ingredient-salt")
+    assert ingredient is not None
+    state = IngredientInventoryState(
+        id="inventory-state-concurrent-create",
+        family_id="family-1",
+        ingredient_id=ingredient.id,
+        availability_level=InventoryAvailabilityLevel.LOW,
+        inventory_status=InventoryStatus.FRESH,
+        storage_location="常温",
+        notes="家人已创建",
+        created_by="user-1",
+        updated_by="user-1",
+    )
+    db.add(state)
+    db.commit()
+    db.refresh(ingredient)
+
+    with pytest.raises(InventoryConflictError) as raised:
+        upsert_inventory_state(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            ingredient=ingredient,
+            expected_ingredient_row_version=ingredient.row_version,
+            state_id=None,
+            expected_state_row_version=None,
+            availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+            inventory_status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 12),
+            expiry_date=None,
+            storage_location="常温",
+            notes="客户端首建",
+            confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
+        )
+
+    assert raised.value.code == "stale_version"
+    assert raised.value.conflicts == [
+        {
+            "entity_type": "ingredient_inventory_state",
+            "entity_id": state.id,
+            "reason": "created_concurrently",
+            "current_row_version": state.row_version,
+        }
+    ]
+
+
+def _capture_transition_child_reads(db: Session) -> tuple[list[tuple[type, bool]], object]:
+    observed: list[tuple[type, bool]] = []
+
+    def receive_orm_execute(execute_state) -> None:
+        if not execute_state.is_select:
+            return
+        statement = execute_state.statement
+        entities = {
+            description.get("entity")
+            for description in getattr(statement, "column_descriptions", [])
+        }
+        for entity in (IngredientInventoryState, InventoryItem):
+            if entity in entities:
+                observed.append(
+                    (entity, getattr(statement, "_for_update_arg", None) is not None)
+                )
+
+    event.listen(db, "do_orm_execute", receive_orm_execute)
+    return observed, receive_orm_execute
+
+
 def test_transition_service_exact_to_presence_matrix(db: Session) -> None:
     from app.schemas.ingredients import IngredientTrackingModeTransitionRequest
     from app.services.ingredient_inventory_state import transition_ingredient_tracking_mode
@@ -1362,13 +1433,22 @@ def test_transition_service_exact_to_presence_matrix(db: Session) -> None:
             "mark_inventory_confirmed": False,
         },
     )
-    transition_ingredient_tracking_mode(
-        db,
-        family_id="family-1",
-        user_id="user-1",
-        ingredient_id=exact.id,
-        request=request,
-    )
+    child_reads, listener = _capture_transition_child_reads(db)
+    try:
+        transition_ingredient_tracking_mode(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            ingredient_id=exact.id,
+            request=request,
+        )
+    finally:
+        event.remove(db, "do_orm_execute", listener)
+    assert {entity for entity, _ in child_reads} == {
+        IngredientInventoryState,
+        InventoryItem,
+    }
+    assert all(is_locking_read for _, is_locking_read in child_reads)
     db.commit()
     db.refresh(exact)
     db.refresh(batch)
@@ -1439,13 +1519,22 @@ def test_transition_service_presence_to_exact_never_reuses_placeholder(db: Sessi
             "notes": "real",
         },
     )
-    transition_ingredient_tracking_mode(
-        db,
-        family_id="family-1",
-        user_id="user-1",
-        ingredient_id=ingredient.id,
-        request=request,
-    )
+    child_reads, listener = _capture_transition_child_reads(db)
+    try:
+        transition_ingredient_tracking_mode(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            ingredient_id=ingredient.id,
+            request=request,
+        )
+    finally:
+        event.remove(db, "do_orm_execute", listener)
+    assert {entity for entity, _ in child_reads} == {
+        IngredientInventoryState,
+        InventoryItem,
+    }
+    assert all(is_locking_read for _, is_locking_read in child_reads)
     db.commit()
     db.refresh(ingredient)
     db.refresh(legacy)
@@ -1459,7 +1548,9 @@ def test_transition_service_presence_to_exact_never_reuses_placeholder(db: Sessi
         )
     )
     assert ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY
-    assert legacy.quantity == Decimal("1")
+    assert legacy.quantity == Decimal("0")
+    assert legacy.consumed_quantity == Decimal("0")
+    assert legacy.disposed_quantity == Decimal("0")
     assert len(new_items) == 1
     assert new_items[0].quantity == Decimal("250")
     assert state.availability_level == InventoryAvailabilityLevel.ABSENT

@@ -168,7 +168,13 @@ export function useAppMutations() {
     },
   });
   const deleteShoppingMutation = useMutation({
-    mutationFn: api.deleteShoppingItem,
+    mutationFn: ({
+      itemId,
+      expectedRowVersion,
+    }: {
+      itemId: string;
+      expectedRowVersion: number;
+    }) => api.deleteShoppingItem(itemId, expectedRowVersion),
     onSuccess: async () => {
       await invalidateAfterShoppingChanged(queryClient);
     },
@@ -267,8 +273,8 @@ export function useAppMutations() {
     },
   });
   const toggleFavoriteMutation = useMutation({
-    mutationFn: ({ foodId, favorite }: { foodId: string; favorite: boolean }) =>
-      api.updateFoodFavorite(foodId, favorite),
+    mutationFn: ({ foodId, favorite, expectedRowVersion }: { foodId: string; favorite: boolean; expectedRowVersion: number }) =>
+      api.updateFoodFavorite(foodId, favorite, expectedRowVersion),
     onSuccess: async () => {
       await invalidateAfterFoodChanged(queryClient);
     },

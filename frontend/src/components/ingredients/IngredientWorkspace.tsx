@@ -141,6 +141,7 @@ type IngredientWorkspaceProps = {
   updateIngredient: (
     ingredientId: string,
     payload: {
+      expected_row_version: number;
       name: string;
       category: string;
       default_unit: string;
@@ -197,6 +198,7 @@ type IngredientWorkspaceProps = {
   updateShoppingItem: (payload: {
     itemId: string;
     payload: {
+      expected_row_version: number;
       title?: string;
       quantity?: number | null;
       unit?: string | null;
@@ -208,7 +210,7 @@ type IngredientWorkspaceProps = {
       done?: boolean;
     };
   }) => Promise<ShoppingListItem>;
-  deleteShoppingItem: (itemId: string) => Promise<void>;
+  deleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<void>;
   isCreatingIngredient?: boolean;
   isUpdatingIngredient?: boolean;
   isCreatingInventory?: boolean;
@@ -1930,6 +1932,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,
@@ -2108,6 +2111,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
+    editingShoppingItemRowVersion,
     inventoryActionIngredientId,
     inventoryActionGroup,
     selectedInventoryIngredient,
@@ -2406,12 +2410,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           servings: 1,
           note: '',
           deduct_food_stock: true,
+          expected_food_row_version: foodStockMealDialog.item.row_version,
           stock_quantity: resolvedQuantity.quantity,
           stock_unit: foodStockMealDialog.item.unit || '份',
         });
         invalidateAfterQuickMealAdded(queryClient);
       } else {
         await api.consumeFoodStock(foodStockMealDialog.item.source_id, {
+          expected_row_version: foodStockMealDialog.item.row_version,
           quantity: resolvedQuantity.quantity,
           unit: foodStockMealDialog.item.unit || '份',
           note: '从库存页减扣成品库存',
@@ -2447,6 +2453,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       return;
     }
     const payload = {
+      expected_row_version: foodStockAdjustDialog.item.row_version,
       quantity: parsedQuantity.quantity,
       unit: foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份',
       expiry_date: foodStockAdjustDialog.expiryDate || null,

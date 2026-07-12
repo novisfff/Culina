@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe } from '../../api/types';
+import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe, UpdateFoodPayload } from '../../api/types';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { MEAL_TYPE_LABELS, formatDate, splitTags, todayKey } from '../../lib/ui';
 import type { FoodGovernanceIssue, FoodWorkspaceLens } from './FoodWorkspaceOptions';
@@ -16,7 +16,7 @@ type UseFoodWorkspaceStateArgs = {
     quickMealAction?: 'eat' | 'cook';
   } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
-  updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
+  updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<Food>;
   createFoodScene: (payload: {
     name: string;
     description: string;
@@ -90,7 +90,10 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
     if (!canSubmit) return;
     const payload = payloadOverride ?? buildFoodPayloadFromForm(form, args.recipes, getMediaIds(form.images), getPendingImageJobId(form.images));
     if (editingFood) {
-      await args.updateFood(editingFood.id, payload);
+      await args.updateFood(editingFood.id, {
+        ...payload,
+        expected_row_version: editingFood.row_version,
+      });
     } else {
       await args.createFood(payload);
     }

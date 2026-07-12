@@ -24,6 +24,7 @@ class InventoryOverviewItemOut(BaseModel):
     id: str
     source_type: InventoryOverviewSourceType
     source_id: str
+    row_version: int = Field(ge=1)
     inventory_item_id: str | None = None
     title: str
     category: str

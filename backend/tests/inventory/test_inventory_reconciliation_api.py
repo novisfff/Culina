@@ -634,6 +634,88 @@ def test_adjust_batches_quantity_and_create(recon_api_context: ReconApiContext) 
         assert created[0].last_confirmation_source == InventoryConfirmationSource.RECONCILIATION
 
 
+def test_adjust_batch_expiry_clears_reminder_and_revert_restores_it(
+    recon_api_context: ReconApiContext,
+) -> None:
+    original_expiry = date(2026, 7, 20)
+    original_snoozed_until = date(2026, 7, 25)
+    original_reviewed_at = datetime(2026, 7, 10, 8, 30, tzinfo=timezone.utc)
+    with recon_api_context.SessionLocal() as db:
+        fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
+        assert fresh is not None
+        assert fresh.expiry_date == original_expiry
+        fresh.expiry_alert_snoozed_until = original_snoozed_until
+        fresh.expiry_reviewed_at = original_reviewed_at
+        fresh.expiry_reviewed_by = recon_api_context.user_id
+        db.commit()
+
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-adjust-expiry-reminder",
+        "scope": "refrigerated",
+        "storage_location": None,
+        "groups": [
+            {
+                "kind": "exact_ingredient",
+                "ingredient_id": recon_api_context.egg_id,
+                "expected_ingredient_row_version": versions["egg"],
+                "action": "adjust_batches",
+                "observed_batches": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                    },
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                        "expected_row_version": versions["expired"],
+                    },
+                ],
+                "updates": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                        "actual_remaining_quantity": "6",
+                        "inventory_status": InventoryStatus.FRESH.value,
+                        "purchase_date": "2026-07-01",
+                        "expiry_date": "2026-07-18",
+                        "storage_location": "冷藏",
+                        "notes": "",
+                    }
+                ],
+                "creates": [],
+            }
+        ],
+    }
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert response.status_code == 200, response.text
+    operation_id = response.json()["operation_id"]
+
+    with recon_api_context.SessionLocal() as db:
+        fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
+        assert fresh is not None
+        assert fresh.expiry_date == date(2026, 7, 18)
+        assert fresh.expiry_alert_snoozed_until is None
+        assert fresh.expiry_reviewed_at is None
+        assert fresh.expiry_reviewed_by is None
+
+    revert_response = recon_api_context.client.post(
+        f"/api/inventory/operations/{operation_id}/revert"
+    )
+    assert revert_response.status_code == 200, revert_response.text
+
+    with recon_api_context.SessionLocal() as db:
+        fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
+        assert fresh is not None
+        assert fresh.expiry_date == original_expiry
+        assert fresh.expiry_alert_snoozed_until == original_snoozed_until
+        assert fresh.expiry_reviewed_at is not None
+        restored_reviewed_at = fresh.expiry_reviewed_at
+        if restored_reviewed_at.tzinfo is None:
+            restored_reviewed_at = restored_reviewed_at.replace(tzinfo=timezone.utc)
+        assert restored_reviewed_at == original_reviewed_at
+        assert fresh.expiry_reviewed_by == recon_api_context.user_id
+
+
 def test_presence_and_food_set_stock(recon_api_context: ReconApiContext) -> None:
     versions = _versions(recon_api_context)
     payload = {
@@ -679,6 +761,436 @@ def test_presence_and_food_set_stock(recon_api_context: ReconApiContext) -> None
         assert food.expiry_date == date(2026, 7, 20)
         # low does not create shopping; existing pending remains only egg
         assert all(item.ingredient_id != recon_api_context.salt_id for item in shopping)
+
+
+def test_food_quantity_precision_is_rejected_before_any_reconciliation_mutation(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-food-precision",
+        "scope": "all",
+        "groups": [
+            {
+                "kind": "presence_ingredient",
+                "ingredient_id": recon_api_context.salt_id,
+                "state_id": recon_api_context.salt_state_id,
+                "expected_ingredient_row_version": versions["salt"],
+                "expected_state_row_version": versions["salt_state"],
+                "availability_level": "sufficient",
+                "inventory_status": "fresh",
+                "purchase_date": "2026-07-12",
+                "expiry_date": None,
+                "storage_location": "常温",
+                "notes": "够用",
+            },
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "set_stock",
+                "stock_quantity": "1.25",
+                "stock_unit": "份",
+                "expiry_date": "2026-07-20",
+                "storage_location": "冷藏",
+            },
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "invalid_quantity"
+    assert detail["field_errors"] == [
+        {
+            "field": "stock_quantity",
+            "code": "invalid_quantity",
+            "message": "库存数量最多保留 1 位小数",
+            "entity_id": recon_api_context.food_id,
+        }
+    ]
+    with recon_api_context.SessionLocal() as db:
+        salt_state = db.get(IngredientInventoryState, recon_api_context.salt_state_id)
+        food = db.get(Food, recon_api_context.food_id)
+        assert salt_state is not None and food is not None
+        assert salt_state.availability_level == InventoryAvailabilityLevel.LOW
+        assert food.stock_quantity == Decimal("2.00")
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_food_set_stock_rejects_a_different_unit_before_any_reconciliation_mutation(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-food-incompatible-unit",
+        "scope": "all",
+        "groups": [
+            {
+                "kind": "presence_ingredient",
+                "ingredient_id": recon_api_context.salt_id,
+                "state_id": recon_api_context.salt_state_id,
+                "expected_ingredient_row_version": versions["salt"],
+                "expected_state_row_version": versions["salt_state"],
+                "availability_level": "sufficient",
+                "inventory_status": "fresh",
+                "purchase_date": "2026-07-12",
+                "expiry_date": None,
+                "storage_location": "常温",
+                "notes": "不应写入",
+            },
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "set_stock",
+                "stock_quantity": "2",
+                "stock_unit": "盒",
+                "expiry_date": "2026-07-20",
+                "storage_location": "冷藏",
+            },
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "incompatible_unit",
+        "message": "当前食物库存单位是 份，不能按 盒 盘点",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "stock_unit",
+                "code": "incompatible_unit",
+                "message": "当前食物库存单位是 份，不能按 盒 盘点",
+                "entity_id": recon_api_context.food_id,
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        salt_state = db.get(IngredientInventoryState, recon_api_context.salt_state_id)
+        food = db.get(Food, recon_api_context.food_id)
+        assert salt_state is not None and food is not None
+        assert salt_state.availability_level == InventoryAvailabilityLevel.LOW
+        assert food.stock_quantity == Decimal("2.00")
+        assert food.stock_unit == "份"
+        assert food.expiry_date == date(2026, 7, 15)
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_reconciliation_schema_errors_use_the_structured_detail_contract(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-food-missing-location",
+        "scope": "all",
+        "groups": [
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "set_stock",
+                "stock_quantity": "2",
+                "stock_unit": "份",
+                "expiry_date": "2026-07-20",
+                "storage_location": None,
+            }
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "invalid_request",
+        "message": "正库存必须提供存放位置",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "groups.0.storage_location",
+                "code": "invalid_request",
+                "message": "正库存必须提供存放位置",
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_adjust_batches_rejects_an_unsupported_new_batch_unit_before_any_mutation(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-invalid-create-unit",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "exact_ingredient",
+                "ingredient_id": recon_api_context.egg_id,
+                "expected_ingredient_row_version": versions["egg"],
+                "action": "adjust_batches",
+                "observed_batches": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                    },
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                        "expected_row_version": versions["expired"],
+                    },
+                ],
+                "updates": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                        "actual_remaining_quantity": "4",
+                        "inventory_status": InventoryStatus.OPENED.value,
+                        "purchase_date": "2026-07-01",
+                        "expiry_date": "2026-07-18",
+                        "storage_location": "冷藏",
+                        "notes": "不应写入",
+                    }
+                ],
+                "creates": [
+                    {
+                        "client_line_id": "line-invalid-unit",
+                        "actual_remaining_quantity": "2",
+                        "unit": "盒",
+                        "inventory_status": InventoryStatus.FRESH.value,
+                        "purchase_date": "2026-07-12",
+                        "expiry_date": "2026-07-26",
+                        "storage_location": "冷藏",
+                        "notes": "不应创建",
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "incompatible_unit",
+        "message": "不支持单位 盒",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "groups.0.creates.0.unit",
+                "code": "incompatible_unit",
+                "message": "不支持单位 盒",
+                "entity_id": recon_api_context.egg_id,
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
+        assert fresh is not None
+        assert remaining_quantity(fresh) == Decimal("6")
+        assert fresh.notes == ""
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_adjust_batches_rejects_a_new_batch_that_rounds_to_zero_quantity(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-zero-after-normalization",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "exact_ingredient",
+                "ingredient_id": recon_api_context.egg_id,
+                "expected_ingredient_row_version": versions["egg"],
+                "action": "adjust_batches",
+                "observed_batches": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                    },
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                        "expected_row_version": versions["expired"],
+                    },
+                ],
+                "updates": [],
+                "creates": [
+                    {
+                        "client_line_id": "line-rounds-to-zero",
+                        "actual_remaining_quantity": "0.001",
+                        "unit": "个",
+                        "inventory_status": InventoryStatus.FRESH.value,
+                        "purchase_date": "2026-07-12",
+                        "expiry_date": None,
+                        "storage_location": "冷藏",
+                        "notes": "不应创建",
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "invalid_quantity",
+        "message": "新增批次换算后的数量必须大于 0",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "groups.0.creates.0.actual_remaining_quantity",
+                "code": "invalid_quantity",
+                "message": "新增批次换算后的数量必须大于 0",
+                "entity_id": recon_api_context.egg_id,
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_adjust_batches_rejects_a_new_batch_expiring_before_its_purchase_date(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-invalid-create-date-range",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "exact_ingredient",
+                "ingredient_id": recon_api_context.egg_id,
+                "expected_ingredient_row_version": versions["egg"],
+                "action": "adjust_batches",
+                "observed_batches": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                    },
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                        "expected_row_version": versions["expired"],
+                    },
+                ],
+                "updates": [],
+                "creates": [
+                    {
+                        "client_line_id": "line-invalid-date-range",
+                        "actual_remaining_quantity": "2",
+                        "unit": "个",
+                        "inventory_status": InventoryStatus.FRESH.value,
+                        "purchase_date": "2026-07-12",
+                        "expiry_date": "2026-07-01",
+                        "storage_location": "冷藏",
+                        "notes": "不应创建",
+                    }
+                ],
+            }
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "invalid_date_range",
+        "message": "到期日不能早于采购日",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "groups.0.creates.0.expiry_date",
+                "code": "invalid_date_range",
+                "message": "到期日不能早于采购日",
+                "entity_id": recon_api_context.egg_id,
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        assert db.scalar(select(InventoryOperation)) is None
+        created = list(
+            db.scalars(
+                select(InventoryItem).where(
+                    InventoryItem.family_id == recon_api_context.family_id,
+                    InventoryItem.ingredient_id == recon_api_context.egg_id,
+                )
+            )
+        )
+        assert {item.id for item in created} == {
+            recon_api_context.batch_cold_fresh_id,
+            recon_api_context.batch_cold_expired_id,
+            recon_api_context.batch_cold_zero_id,
+            recon_api_context.batch_room_id,
+        }
+
+
+def test_adjust_batches_rejects_an_updated_batch_expiring_before_its_purchase_date(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-invalid-update-date-range",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "exact_ingredient",
+                "ingredient_id": recon_api_context.egg_id,
+                "expected_ingredient_row_version": versions["egg"],
+                "action": "adjust_batches",
+                "observed_batches": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                    },
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                        "expected_row_version": versions["expired"],
+                    },
+                ],
+                "updates": [
+                    {
+                        "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                        "expected_row_version": versions["fresh"],
+                        "actual_remaining_quantity": "4",
+                        "inventory_status": InventoryStatus.OPENED.value,
+                        "purchase_date": "2026-07-12",
+                        "expiry_date": "2026-07-01",
+                        "storage_location": "冷藏",
+                        "notes": "不应写入",
+                    }
+                ],
+                "creates": [],
+            }
+        ],
+    }
+
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "invalid_date_range",
+        "message": "到期日不能早于采购日",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "groups.0.updates.0.expiry_date",
+                "code": "invalid_date_range",
+                "message": "到期日不能早于采购日",
+                "entity_id": recon_api_context.egg_id,
+            }
+        ],
+    }
+    with recon_api_context.SessionLocal() as db:
+        fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
+        assert fresh is not None
+        assert fresh.purchase_date == date(2026, 7, 1)
+        assert fresh.expiry_date == date(2026, 7, 20)
+        assert db.scalar(select(InventoryOperation)) is None
 
 
 def test_stale_child_version_409(recon_api_context: ReconApiContext) -> None:
@@ -899,6 +1411,67 @@ def test_idempotent_replay(recon_api_context: ReconApiContext) -> None:
     assert second.json()["operation_id"] == first.json()["operation_id"]
     with recon_api_context.SessionLocal() as db:
         assert len(list(db.scalars(select(InventoryOperation)))) == 1
+
+
+def test_idempotent_reconciliation_replay_computes_can_revert_for_requesting_member(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-idempotent-permission",
+        "scope": "refrigerated",
+        "groups": [
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "confirm",
+            }
+        ],
+    }
+    first = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["can_revert"] is True
+
+    with recon_api_context.SessionLocal() as db:
+        second_user = User(
+            id="user-recon-second",
+            username="recon-second",
+            display_name="另一成员",
+            avatar_seed="",
+            is_active=True,
+        )
+        second_membership = Membership(
+            id="membership-recon-second",
+            family_id=recon_api_context.family_id,
+            user_id=second_user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        db.add_all([second_user, second_membership])
+        db.commit()
+
+    def override_second_auth() -> tuple[User, Membership]:
+        with recon_api_context.SessionLocal() as db:
+            user = db.get(User, "user-recon-second")
+            membership = db.get(Membership, "membership-recon-second")
+            assert user is not None and membership is not None
+            return user, membership
+
+    app.dependency_overrides[get_current_auth] = override_second_auth
+    member_replay = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert member_replay.status_code == 200, member_replay.text
+    assert member_replay.json()["can_revert"] is False
+
+    with recon_api_context.SessionLocal() as db:
+        membership = db.get(Membership, "membership-recon-second")
+        assert membership is not None
+        membership.role = UserRole.OWNER
+        db.commit()
+
+    owner_replay = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert owner_replay.status_code == 200, owner_replay.text
+    assert owner_replay.json()["can_revert"] is True
 
 
 def test_forced_commit_failure_rolls_back(recon_api_context: ReconApiContext) -> None:

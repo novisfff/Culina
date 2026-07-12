@@ -620,7 +620,7 @@ MEAL_LOG_DRAFT_SCHEMA.update(
 RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "recipeId", "title", "servings", "date", "mealType", "createMealLog", "previewItems", "shortages"],
+    "required": ["draftType", "schemaVersion", "recipeId", "title", "servings", "date", "mealType", "createMealLog", "previewItems", "shortages", "inventoryBoundaries"],
     "properties": {
         "draftType": {"type": "string", "enum": ["recipe_cook"]},
         "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v1"]},
@@ -688,6 +688,46 @@ RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
                     "missing_quantity": {"type": "number", "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
                     "shortage_type": {"type": "string", "maxLength": 64},
+                },
+            },
+        },
+        "inventoryBoundaries": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "后端根据库存预览固化的并发边界；模型不需要自行填写。",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "ingredientId",
+                    "quantityTrackingMode",
+                    "expectedIngredientRowVersion",
+                    "stateId",
+                    "expectedStateRowVersion",
+                    "batches",
+                ],
+                "properties": {
+                    "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "quantityTrackingMode": {
+                        "type": "string",
+                        "enum": ["track_quantity", "not_track_quantity"],
+                    },
+                    "expectedIngredientRowVersion": {"type": "integer", "minimum": 1},
+                    "stateId": {"type": ["string", "null"], "maxLength": 64},
+                    "expectedStateRowVersion": {"type": ["integer", "null"], "minimum": 1},
+                    "batches": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["inventoryItemId", "expectedRowVersion"],
+                            "properties": {
+                                "inventoryItemId": {"type": "string", "minLength": 1, "maxLength": 64},
+                                "expectedRowVersion": {"type": "integer", "minimum": 1},
+                            },
+                        },
+                    },
                 },
             },
         },
@@ -872,6 +912,26 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                     "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
                     "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                     "ingredientName": {"type": "string", "maxLength": 120},
+                    "quantityTrackingMode": {
+                        "type": "string",
+                        "enum": ["track_quantity", "not_track_quantity"],
+                        "description": "后端归一化草稿时固化的食材数量记录方式；模型不需要自行填写。",
+                    },
+                    "expectedIngredientRowVersion": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "后端归一化草稿时固化的食材库存集合版本；模型不需要自行填写。",
+                    },
+                    "stateId": {
+                        "type": ["string", "null"],
+                        "maxLength": 64,
+                        "description": "后端归一化 presence-only 草稿时固化的库存状态 ID。",
+                    },
+                    "expectedStateRowVersion": {
+                        "type": ["integer", "null"],
+                        "minimum": 1,
+                        "description": "后端归一化 presence-only 草稿时固化的库存状态版本。",
+                    },
                     "inventoryItemId": {
                         "type": ["string", "null"],
                         "maxLength": 64,
@@ -879,6 +939,16 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                             "库存批次 ID。consume 操作可省略，后端会按到期日、采购日和创建时间扣减可用批次，"
                             "并在草稿中展示 batchOptions；dispose 操作必须提供真实批次 ID。"
                         ),
+                    },
+                    "expectedInventoryItemRowVersion": {
+                        "type": ["integer", "null"],
+                        "minimum": 1,
+                        "description": "后端归一化显式批次草稿时固化的库存批次版本。",
+                    },
+                    "availabilityLevel": {
+                        "type": ["string", "null"],
+                        "enum": ["present_unknown", "low", "sufficient", None],
+                        "description": "不记录精确数量的补货结果；absent 不属于补货操作。",
                     },
                     "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
@@ -908,6 +978,11 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                                 "remainingQuantity": {"type": "number", "minimum": 0},
                                 "unit": {"type": "string"},
                                 "expiryDate": {"type": ["string", "null"]},
+                                "rowVersion": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "后端归一化候选批次时固化的并发版本。",
+                                },
                             },
                         },
                     },

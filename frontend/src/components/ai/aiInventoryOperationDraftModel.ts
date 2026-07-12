@@ -14,7 +14,7 @@ const INVENTORY_STATUSES: InventoryStatus[] = ['fresh', 'opened', 'frozen', 'exp
 export type InventoryOperationDraftItemViewModel = Omit<AiInventoryOperationDraftItem, 'action' | 'batchOptions' | 'quantity' | 'status'> & {
   action: AiInventoryOperationAction | '';
   batchOptions: AiInventoryBatchOption[];
-  quantity: number | '';
+  quantity: number | '' | null;
   status?: InventoryStatus | '';
   defaultUnit?: string;
   defaultStorage?: string;
@@ -50,19 +50,28 @@ function optionalNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function optionalVersion(value: unknown) {
+  const version = optionalNumber(value);
+  return version !== null && Number.isInteger(version) && version > 0 ? version : undefined;
+}
+
 function textList(value: unknown) {
   return Array.isArray(value) ? value.map((item) => asText(item).trim()).filter(Boolean) : [];
 }
 
 function batchOptionsFromUnknown(value: unknown): AiInventoryBatchOption[] {
   return asDraftArray(value)
-    .map((item) => ({
-      id: asText(item.id),
-      label: asText(item.label),
-      remainingQuantity: asNumber(item.remainingQuantity, 0),
-      unit: asText(item.unit),
-      expiryDate: nullableText(item.expiryDate),
-    }))
+    .map((item) => {
+      const rowVersion = optionalVersion(item.rowVersion ?? item.row_version);
+      return {
+        id: asText(item.id),
+        label: asText(item.label),
+        remainingQuantity: asNumber(item.remainingQuantity, 0),
+        unit: asText(item.unit),
+        expiryDate: nullableText(item.expiryDate),
+        ...(rowVersion !== undefined ? { rowVersion } : {}),
+      };
+    })
     .filter((item) => item.id);
 }
 
@@ -82,8 +91,22 @@ export function inventoryOperationDraftFromRecord(draft: Record<string, unknown>
         action: isInventoryAction(actionText) ? actionText : '',
         ingredientId: asText(item.ingredientId) || asText(item.ingredient_id),
         ingredientName: asText(item.ingredientName, '食材') || asText(item.ingredient_name, '食材'),
+        quantityTrackingMode: asText(item.quantityTrackingMode ?? item.quantity_tracking_mode) === 'not_track_quantity'
+          ? 'not_track_quantity'
+          : 'track_quantity',
+        expectedIngredientRowVersion: optionalVersion(item.expectedIngredientRowVersion ?? item.expected_ingredient_row_version),
+        stateId: nullableText(item.stateId ?? item.state_id),
+        expectedStateRowVersion: optionalVersion(item.expectedStateRowVersion ?? item.expected_state_row_version) ?? null,
         inventoryItemId: nullableText(item.inventoryItemId ?? item.inventory_item_id),
-        quantity: asNumber(item.quantity, 0),
+        expectedInventoryItemRowVersion: optionalVersion(
+          item.expectedInventoryItemRowVersion ?? item.expected_inventory_item_row_version,
+        ) ?? null,
+        availabilityLevel: ['present_unknown', 'low', 'sufficient'].includes(
+          asText(item.availabilityLevel ?? item.availability_level),
+        )
+          ? asText(item.availabilityLevel ?? item.availability_level) as 'present_unknown' | 'low' | 'sufficient'
+          : null,
+        quantity: item.quantity === null ? null : asNumber(item.quantity, 0),
         unit: asText(item.unit),
         purchaseDate: nullableText(item.purchaseDate ?? item.purchase_date),
         expiryDate: nullableText(item.expiryDate ?? item.expiry_date),
@@ -119,7 +142,8 @@ export function validateInventoryOperationDraftForSubmit(draft: InventoryOperati
     if (!item.action) {
       return `${ingredientName} 的库存处理方式无效`;
     }
-    if (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+    const isPresenceRestock = item.action === 'restock' && item.quantityTrackingMode === 'not_track_quantity';
+    if (!isPresenceRestock && (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
       return `${ingredientName} 的处理数量需要大于 0`;
     }
     if (!item.unit.trim()) {

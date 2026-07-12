@@ -8,11 +8,11 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType
+from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryAvailabilityLevel, InventoryStatus, MealType
 from app.core.utils import create_id
-from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
+from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
 from app.schemas.foods import CreateFoodRequest
-from app.schemas.ingredients import CreateIngredientRequest, UpdateIngredientRequest
+from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest
 from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
 from app.schemas.recipes import CookRecipeRequest, CreateRecipeRequest, UpdateRecipeRequest
 from app.schemas.shopping import CreateShoppingListItemRequest
@@ -25,7 +25,10 @@ from app.services.ingredient_units import (
     convert_quantity_to_default_unit,
     normalize_unit_label,
 )
-from app.services.ingredient_inventory_state import PresenceStateRequiredError
+from app.services.ingredient_inventory_state import (
+    PresenceStateRequiredError,
+    TRACKING_TRANSITION_REQUIRED_MESSAGE,
+)
 from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
 
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
@@ -619,7 +622,12 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
         recipe_id=recipe.id,
         plan_item_id=request.food_plan_item_id or request.recipe_plan_item_id,
     )
-    preview_items, shortages = _build_recipe_cook_preview(db, family_id=family_id, recipe=recipe, servings=request.servings)
+    preview_items, shortages, inventory_boundaries = _build_recipe_cook_preview(
+        db,
+        family_id=family_id,
+        recipe=recipe,
+        servings=request.servings,
+    )
     participant_user_ids = list(request.participant_user_ids or ([user_id] if request.create_meal_log else []))
     return jsonable_encoder({
         "draftType": "recipe_cook",
@@ -647,6 +655,7 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
         "rating": request.rating,
         "previewItems": preview_items,
         "shortages": shortages,
+        "inventoryBoundaries": inventory_boundaries,
     })
 
 
@@ -711,7 +720,13 @@ def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: d
     }
 
 
-def _build_recipe_cook_preview(db: Session, *, family_id: str, recipe: Recipe, servings: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _build_recipe_cook_preview(
+    db: Session,
+    *,
+    family_id: str,
+    recipe: Recipe,
+    servings: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     preview, shortages = build_cook_inventory_plan(
         db,
         family_id=family_id,
@@ -719,7 +734,54 @@ def _build_recipe_cook_preview(db: Session, *, family_id: str, recipe: Recipe, s
         servings=servings,
         today=today_for_family(family_id),
     )
-    return jsonable_encoder([serialize_cook_preview_item(item) for item in preview]), jsonable_encoder(shortages)
+    presence_ingredient_ids = [
+        item.ingredient.id
+        for item in preview
+        if item.quantity_tracking_mode == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value
+    ]
+    states_by_ingredient_id = {
+        state.ingredient_id: state
+        for state in db.scalars(
+            select(IngredientInventoryState).where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.ingredient_id.in_(presence_ingredient_ids),
+            )
+        )
+    } if presence_ingredient_ids else {}
+
+    boundaries_by_ingredient_id: dict[str, dict[str, Any]] = {}
+    batch_ids_by_ingredient_id: dict[str, set[str]] = {}
+    for item in preview:
+        ingredient = item.ingredient
+        state = states_by_ingredient_id.get(ingredient.id)
+        boundary = boundaries_by_ingredient_id.setdefault(
+            ingredient.id,
+            {
+                "ingredientId": ingredient.id,
+                "quantityTrackingMode": item.quantity_tracking_mode,
+                "expectedIngredientRowVersion": int(ingredient.row_version),
+                "stateId": state.id if state is not None else None,
+                "expectedStateRowVersion": int(state.row_version) if state is not None else None,
+                "batches": [],
+            },
+        )
+        batch_ids = batch_ids_by_ingredient_id.setdefault(ingredient.id, set())
+        for deduction in item.deductions:
+            if deduction.item.id in batch_ids:
+                continue
+            boundary["batches"].append(
+                {
+                    "inventoryItemId": deduction.item.id,
+                    "expectedRowVersion": int(deduction.item.row_version),
+                }
+            )
+            batch_ids.add(deduction.item.id)
+
+    return (
+        jsonable_encoder([serialize_cook_preview_item(item) for item in preview]),
+        jsonable_encoder(shortages),
+        list(boundaries_by_ingredient_id.values()),
+    )
 
 
 def normalize_food_profile_draft_for_tools(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
@@ -825,7 +887,7 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
     action = str(payload.get("action") or "")
     if action not in {"create", "update"}:
         raise ValueError("食材档案操作类型不正确")
-    request_model = CreateIngredientRequest if action == "create" else UpdateIngredientRequest
+    request_model = CreateIngredientRequest if action == "create" else IngredientPayloadRequest
     incoming_payload = payload.get("payload") or {}
     ingredient_payload = _strip_transport_fields(request_model.model_validate(incoming_payload).model_dump(mode="json"))
     if action == "create":
@@ -839,6 +901,21 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
     if not target_id:
         raise ValueError("更新食材档案必须引用真实食材")
     ingredient = _load_by_id(db, Ingredient, family_id=family_id, ids=[target_id], label="食材")[target_id]
+    current_tracking_mode = (
+        ingredient.quantity_tracking_mode.value
+        if hasattr(ingredient.quantity_tracking_mode, "value")
+        else str(ingredient.quantity_tracking_mode)
+    )
+    if (
+        isinstance(incoming_payload, dict)
+        and "quantity_tracking_mode" in incoming_payload
+        and ingredient_payload["quantity_tracking_mode"] != current_tracking_mode
+    ):
+        raise ValueError(TRACKING_TRANSITION_REQUIRED_MESSAGE)
+    ingredient_payload["quantity_tracking_mode"] = current_tracking_mode
+    ingredient_payload = _strip_transport_fields(
+        IngredientPayloadRequest.model_validate(ingredient_payload).model_dump(mode="json")
+    )
     if "media_ids" not in incoming_payload and "mediaIds" not in incoming_payload:
         ingredient_payload["media_ids"] = _bound_media_ids(
             db,
@@ -874,6 +951,20 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
     if len(ingredient_ids) != len(operations):
         raise ValueError("每个库存操作都必须引用食材库中的食材")
     ingredients = _load_by_id(db, Ingredient, family_id=family_id, ids=ingredient_ids, label="食材")
+    presence_ingredient_ids = [
+        ingredient_id
+        for ingredient_id in dict.fromkeys(ingredient_ids)
+        if not tracks_quantity(ingredients[ingredient_id])
+    ]
+    inventory_states_by_ingredient_id = {
+        state.ingredient_id: state
+        for state in db.scalars(
+            select(IngredientInventoryState).where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.ingredient_id.in_(presence_ingredient_ids),
+            )
+        )
+    } if presence_ingredient_ids else {}
     inventory_ids = _string_ids(
         operation.get("inventoryItemId") or operation.get("inventory_item_id")
         for operation in operations
@@ -898,6 +989,12 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             raise ValueError("库存操作类型不正确")
         ingredient_id = str(operation.get("ingredientId") or operation.get("ingredient_id") or "")
         ingredient = ingredients[ingredient_id]
+        tracking_mode = (
+            ingredient.quantity_tracking_mode.value
+            if hasattr(ingredient.quantity_tracking_mode, "value")
+            else str(ingredient.quantity_tracking_mode)
+        )
+        inventory_state = inventory_states_by_ingredient_id.get(ingredient.id)
         inventory_item_id = operation.get("inventoryItemId") or operation.get("inventory_item_id")
         inventory_item = inventory_items.get(str(inventory_item_id)) if inventory_item_id else None
         if inventory_item is not None and inventory_item.ingredient_id != ingredient.id:
@@ -914,7 +1011,13 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             "action": action,
             "ingredientId": ingredient.id,
             "ingredientName": ingredient.name,
+            "quantityTrackingMode": tracking_mode,
+            "expectedIngredientRowVersion": int(ingredient.row_version),
+            "stateId": inventory_state.id if inventory_state is not None else None,
+            "expectedStateRowVersion": int(inventory_state.row_version) if inventory_state is not None else None,
             "inventoryItemId": inventory_item.id if inventory_item is not None else None,
+            "expectedInventoryItemRowVersion": int(inventory_item.row_version) if inventory_item is not None else None,
+            "availabilityLevel": None,
             "quantity": float(quantity) if quantity is not None else None,
             "unit": unit,
             "notes": str(operation.get("notes") or ""),
@@ -945,6 +1048,16 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             else:
                 record["quantity"] = float(quantity) if quantity is not None else None
                 record["unit"] = ingredient.default_unit
+                availability_level = InventoryAvailabilityLevel(
+                    str(
+                        operation.get("availabilityLevel")
+                        or operation.get("availability_level")
+                        or InventoryAvailabilityLevel.PRESENT_UNKNOWN.value
+                    )
+                )
+                if availability_level is InventoryAvailabilityLevel.ABSENT:
+                    raise ValueError("补货操作不能把库存状态设为没有了")
+                record["availabilityLevel"] = availability_level.value
             purchase_date = date.fromisoformat(str(operation.get("purchaseDate") or today.isoformat()))
             expiry_value = operation.get("expiryDate")
             if expiry_value:
@@ -975,14 +1088,9 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             if quantity is None and tracks_quantity(ingredient):
                 raise ValueError("消耗数量不能为空")
             if not tracks_quantity(ingredient):
-                # Presence consume is not a precise InventoryItem operation.
-                # Leave draft empty of batch options; product presence updates use State.
-                record["quantity"] = float(quantity) if quantity is not None else None
-                record["unit"] = unit
-                record["remainingQuantity"] = None
-                record["batchOptions"] = []
-                normalized.append(record)
-                continue
+                raise PresenceStateRequiredError(
+                    f"{ingredient.name} 不记录精确数量；用掉一部分后请把库存状态更新为‘少量’，用完后更新为‘没有了’"
+                )
             candidate_items = [inventory_item] if inventory_item is not None else list(
                 db.scalars(
                     select(InventoryItem).where(
@@ -1036,6 +1144,7 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
                         ),
                         "unit": unit,
                         "expiryDate": item.expiry_date.isoformat() if item.expiry_date else None,
+                        "rowVersion": int(item.row_version),
                     }
                     for item in available_items
                     if available_by_item[item.id] > 0
@@ -1126,6 +1235,7 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
                     "expiryDate": inventory_item.expiry_date.isoformat()
                     if inventory_item.expiry_date
                     else None,
+                    "rowVersion": int(inventory_item.row_version),
                 }
             ]
         normalized.append(record)

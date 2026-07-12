@@ -20,6 +20,32 @@ function mockJsonFetch(payload: unknown = {}, status = 200) {
 }
 
 describe('ingredientsApi versioned expiry actions', () => {
+  it('accepts and sends the observed row version for single-batch disposal', async () => {
+    const fetchSpy = mockJsonFetch({
+      ingredient_id: 'ingredient-1',
+      inventory_item_id: 'inventory-1',
+      unit: '个',
+      disposed_quantity: 1,
+      remaining_quantity: 2,
+    });
+
+    await ingredientsApi.disposeInventory({
+      inventory_item_id: 'inventory-1',
+      expected_row_version: 4,
+      quantity: 1,
+      unit: '个',
+      reason: '损坏',
+    });
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      inventory_item_id: 'inventory-1',
+      expected_row_version: 4,
+      quantity: 1,
+      unit: '个',
+      reason: '损坏',
+    });
+  });
+
   it('sends versioned dispose-expired payload', async () => {
     const fetchSpy = mockJsonFetch({
       ingredient_id: 'ingredient-1',
@@ -166,6 +192,7 @@ describe('ingredientsApi free-text shopping items', () => {
     });
 
     await ingredientsApi.updateShoppingItem('shopping-1', {
+      expected_row_version: 1,
       title: '临时采购',
       quantity: 1,
       unit: '盒',
@@ -177,12 +204,50 @@ describe('ingredientsApi free-text shopping items', () => {
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/shopping-list/shopping-1');
     expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'PATCH' });
     expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      expected_row_version: 1,
       title: '临时采购',
       quantity: 1,
       unit: '盒',
       ingredient_id: null,
       food_id: null,
       reason: '改成自由文本',
+    });
+  });
+
+  it('sends the observed row version when deleting a shopping item', async () => {
+    const fetchSpy = mockJsonFetch();
+
+    await ingredientsApi.deleteShoppingItem('shopping-1', 7);
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+      '/api/shopping-list/shopping-1?expected_row_version=7',
+    );
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE' });
+  });
+});
+
+describe('ingredientsApi versioned profile updates', () => {
+  it('sends the observed ingredient row version', async () => {
+    const fetchSpy = mockJsonFetch({ id: 'ingredient-1', row_version: 5 });
+
+    await ingredientsApi.updateIngredient('ingredient-1', {
+      expected_row_version: 4,
+      name: '鸡蛋',
+      category: '蛋奶',
+      default_unit: '个',
+      unit_conversions: [],
+      quantity_tracking_mode: 'track_quantity',
+      default_storage: '冷藏',
+      default_expiry_mode: 'days',
+      default_expiry_days: 14,
+      default_low_stock_threshold: 6,
+      notes: '',
+      media_ids: [],
+    });
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toMatchObject({
+      name: '鸡蛋',
+      expected_row_version: 4,
     });
   });
 });

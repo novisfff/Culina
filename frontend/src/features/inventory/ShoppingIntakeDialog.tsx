@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import type { ShoppingIntakeResult } from '../../api/types';
 import {
   ActionButton,
@@ -6,6 +6,7 @@ import {
   MobileActionBar,
   OptionChipGroup,
   QuantityUnitField,
+  SearchableResourceSelect,
   StateBlock,
   WorkspaceModal,
   WorkspaceOverlayFrame,
@@ -14,7 +15,9 @@ import { formatDateTime } from '../../lib/ui';
 import { isOperationStillRevertible } from './InventoryOperationBanner';
 import {
   collectReviewExceptions,
+  filterFreeTextLinkOptions,
   formatPurchaseQuantitySummary,
+  isFreeTextLinkCandidateUnitCompatible,
   summarizePurchaseQuantity,
   type FreeTextLinkCandidate,
   type ShoppingIntakeDraft,
@@ -36,6 +39,7 @@ export type ShoppingIntakeDialogProps = {
   result?: ShoppingIntakeResult | null;
   expandedExceptionIds?: string[];
   freeTextCandidatesByItemId?: Record<string, FreeTextLinkCandidate[]>;
+  freeTextLinkOptions?: FreeTextLinkCandidate[];
   overlayRootClassName?: string;
   onClose: () => void;
   onGoReview: () => void;
@@ -140,8 +144,22 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
     [props.draft],
   );
   const reviewExceptions = useMemo(
-    () => (props.draft ? collectReviewExceptions(props.draft) : []),
-    [props.draft],
+    () => {
+      if (!props.draft) return [];
+      const selected = props.draft.items.filter((item) => item.selected);
+      const errorIds = new Set(
+        fieldErrors
+          .map((error) => error.shoppingItemId)
+          .filter(Boolean),
+      );
+      const prioritized = selected.filter((item) => errorIds.has(item.shoppingItemId));
+      const prioritizedIds = new Set(prioritized.map((item) => item.shoppingItemId));
+      const ordinary = collectReviewExceptions(props.draft).filter(
+        (item) => !prioritizedIds.has(item.shoppingItemId),
+      );
+      return [...prioritized, ...ordinary];
+    },
+    [props.draft, fieldErrors],
   );
 
   if (!props.open) {
@@ -195,13 +213,22 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
       />
     );
   } else if (props.step === 'review') {
+    const requiresReconfirmation = Boolean(
+      props.conflictState && props.conflictState !== 'none',
+    );
     footerActions = (
       <FormActions
         className="inventory-maintenance-actions"
-        primaryLabel={busy ? '提交中…' : '确认入库'}
+        primaryLabel={
+          busy
+            ? '提交中…'
+            : requiresReconfirmation
+              ? '重新确认并提交'
+              : '确认入库'
+        }
         isSubmitting={busy}
         primaryDisabled={busy || loading || selectedItems.length === 0}
-        onPrimary={props.onSubmit}
+        onPrimary={requiresReconfirmation && props.onRetry ? props.onRetry : props.onSubmit}
         secondaryLabel="返回选择"
         onSecondary={() => {
           if (!busy) props.onGoSelect();
@@ -296,11 +323,6 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
             <div className="inventory-maintenance-conflict" role="status">
               <strong>需要重新确认</strong>
               <p>{props.errorMessage ?? '家人可能刚改动了采购项或库存，请刷新后重新确认。'}</p>
-              {props.onRetry ? (
-                <ActionButton tone="secondary" size="compact" type="button" disabled={busy} onClick={props.onRetry}>
-                  重试提交
-                </ActionButton>
-              ) : null}
             </div>
           ) : null}
 
@@ -335,6 +357,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
               busy={busy}
               fieldErrors={fieldErrors}
               freeTextCandidatesByItemId={props.freeTextCandidatesByItemId}
+              freeTextLinkOptions={props.freeTextLinkOptions}
               onToggleItem={props.onToggleItem}
               onCompleteFreeText={props.onCompleteFreeText}
               onLinkFreeText={props.onLinkFreeText}
@@ -350,6 +373,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
               busy={busy}
               fieldErrors={fieldErrors}
               freeTextCandidatesByItemId={props.freeTextCandidatesByItemId}
+              freeTextLinkOptions={props.freeTextLinkOptions}
               focusRef={focusRef}
               onPatchItem={props.onPatchItem}
               onToggleException={props.onToggleException}
@@ -361,6 +385,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
           {!loading && props.step === 'result' && props.result ? (
             <ResultStep
               result={props.result}
+              draft={props.draft}
               busy={busy}
               onRevertResult={props.onRevertResult}
               onViewResult={props.onViewResult}
@@ -377,6 +402,7 @@ function SelectStep(props: {
   busy: boolean;
   fieldErrors: ShoppingIntakeFieldError[];
   freeTextCandidatesByItemId?: Record<string, FreeTextLinkCandidate[]>;
+  freeTextLinkOptions?: FreeTextLinkCandidate[];
   onToggleItem: (shoppingItemId: string) => void;
   onCompleteFreeText: (shoppingItemId: string) => void;
   onLinkFreeText: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
@@ -422,6 +448,7 @@ function SelectStep(props: {
                   item={item}
                   busy={props.busy}
                   candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
+                  linkOptions={props.freeTextLinkOptions ?? []}
                   onComplete={props.onCompleteFreeText}
                   onLink={props.onLinkFreeText}
                 />
@@ -443,6 +470,7 @@ function ReviewStep(props: {
   busy: boolean;
   fieldErrors: ShoppingIntakeFieldError[];
   freeTextCandidatesByItemId?: Record<string, FreeTextLinkCandidate[]>;
+  freeTextLinkOptions?: FreeTextLinkCandidate[];
   focusRef: MutableRefObject<HTMLInputElement | HTMLButtonElement | null>;
   onPatchItem: (shoppingItemId: string, patch: Partial<ShoppingIntakeDraftItem>) => void;
   onToggleException: (shoppingItemId: string) => void;
@@ -462,14 +490,46 @@ function ReviewStep(props: {
         {cleanItems.length === 0 ? (
           <p className="subtle">没有完全按计划的项目；请在下方处理例外。</p>
         ) : (
-          <ul className="inventory-maintenance-summary-list">
+          <div className="inventory-maintenance-item-list">
             {cleanItems.map((item) => (
-              <li key={item.shoppingItemId}>
-                <strong>{item.title}</strong>
-                <span>{plannedCopy(item)}</span>
-              </li>
+              <article
+                key={item.shoppingItemId}
+                className={[
+                  'inventory-maintenance-item-card',
+                  props.expanded.has(item.shoppingItemId) ? 'is-expanded' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <div className="inventory-maintenance-item-title-row">
+                  <strong>{item.title}</strong>
+                  <span className="inventory-maintenance-chip">{itemKindLabel(item)}</span>
+                  <ActionButton
+                    tone="tertiary"
+                    size="compact"
+                    type="button"
+                    disabled={props.busy}
+                    onClick={() => props.onToggleException(item.shoppingItemId)}
+                  >
+                    {props.expanded.has(item.shoppingItemId) ? '收起' : '调整'}
+                  </ActionButton>
+                </div>
+                <ExceptionSummary item={item} />
+                {props.expanded.has(item.shoppingItemId) ? (
+                  <ExceptionEditor
+                    item={item}
+                    busy={props.busy}
+                    fieldErrors={props.fieldErrors}
+                    candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
+                    linkOptions={props.freeTextLinkOptions ?? []}
+                    onPatchItem={props.onPatchItem}
+                    onCompleteFreeText={props.onCompleteFreeText}
+                    onLinkFreeText={props.onLinkFreeText}
+                  />
+                ) : null}
+              </article>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
@@ -484,12 +544,21 @@ function ReviewStep(props: {
           <div className="inventory-maintenance-item-list">
             {props.exceptions.map((item) => {
               const isExpanded = props.expanded.has(item.shoppingItemId);
+              const itemError = fieldErrorFor(props.fieldErrors, item.shoppingItemId);
               return (
                 <article
                   key={item.shoppingItemId}
-                  className={['inventory-maintenance-item-card', isExpanded ? 'is-expanded' : '']
+                  className={[
+                    'inventory-maintenance-item-card',
+                    isExpanded ? 'is-expanded' : '',
+                    itemError ? 'has-error' : '',
+                  ]
                     .filter(Boolean)
                     .join(' ')}
+                  data-field-key={itemError?.field === 'conflict'
+                    ? `${item.shoppingItemId}:conflict`
+                    : undefined}
+                  tabIndex={itemError?.field === 'conflict' ? -1 : undefined}
                 >
                   <div className="inventory-maintenance-item-title-row">
                     <strong>{item.title}</strong>
@@ -504,6 +573,9 @@ function ReviewStep(props: {
                       {isExpanded ? '收起' : '展开编辑'}
                     </ActionButton>
                   </div>
+                  {itemError?.field === 'conflict' ? (
+                    <p className="inventory-maintenance-field-error">{itemError.message}</p>
+                  ) : null}
                   <ExceptionSummary item={item} />
                   {isExpanded ? (
                     <ExceptionEditor
@@ -511,6 +583,7 @@ function ReviewStep(props: {
                       busy={props.busy}
                       fieldErrors={props.fieldErrors}
                       candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
+                      linkOptions={props.freeTextLinkOptions ?? []}
                       onPatchItem={props.onPatchItem}
                       onCompleteFreeText={props.onCompleteFreeText}
                       onLinkFreeText={props.onLinkFreeText}
@@ -573,6 +646,7 @@ function ExceptionEditor(props: {
   busy: boolean;
   fieldErrors: ShoppingIntakeFieldError[];
   candidates: FreeTextLinkCandidate[];
+  linkOptions: FreeTextLinkCandidate[];
   onPatchItem: (shoppingItemId: string, patch: Partial<ShoppingIntakeDraftItem>) => void;
   onCompleteFreeText: (shoppingItemId: string) => void;
   onLinkFreeText: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
@@ -585,6 +659,7 @@ function ExceptionEditor(props: {
         item={item}
         busy={props.busy}
         candidates={props.candidates}
+        linkOptions={props.linkOptions}
         onComplete={props.onCompleteFreeText}
         onLink={props.onLinkFreeText}
       />
@@ -593,6 +668,7 @@ function ExceptionEditor(props: {
 
   if (item.kind === 'presence_ingredient') {
     const expiryError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'expiryDate');
+    const storageError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'storageLocation');
     return (
       <div className="inventory-maintenance-editor">
         <div className="inventory-maintenance-field-head">
@@ -627,6 +703,7 @@ function ExceptionEditor(props: {
             }
           />
         </label>
+        {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}
         {item.requiresManualExpiry || item.expiryDate !== null ? (
           <label className="inventory-maintenance-date-field">
             <span>到期日{item.requiresManualExpiry ? '（必填）' : ''}</span>
@@ -650,10 +727,9 @@ function ExceptionEditor(props: {
 
   // exact / food
   const quantityError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'actualQuantity');
-  const expiryError =
-    item.kind === 'exact_ingredient'
-      ? fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'expiryDate')
-      : null;
+  const unitError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'unit');
+  const storageError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'storageLocation');
+  const expiryError = fieldErrorFor(props.fieldErrors, item.shoppingItemId, 'expiryDate');
   const summary = summarizePurchaseQuantity({
     actualQuantity: item.actualQuantity,
     plannedQuantity: item.plannedQuantity,
@@ -668,13 +744,16 @@ function ExceptionEditor(props: {
         unit={item.unit}
         unitOptions={[{ value: item.unit, label: item.unit || '单位' }]}
         quantityDisabled={props.busy}
+        quantityStep={item.kind === 'food' ? '0.1' : '0.01'}
         quantityFieldKey={`${item.shoppingItemId}:actualQuantity`}
+        unitFieldKey={`${item.shoppingItemId}:unit`}
         onQuantityChange={(value) => props.onPatchItem(item.shoppingItemId, { actualQuantity: value })}
         onUnitChange={(value) => props.onPatchItem(item.shoppingItemId, { unit: value })}
         className="inventory-maintenance-quantity"
       />
       {summaryCopy ? <p className="inventory-maintenance-diff-copy">{summaryCopy}</p> : null}
       {quantityError ? <p className="inventory-maintenance-field-error">{quantityError.message}</p> : null}
+      {unitError ? <p className="inventory-maintenance-field-error">{unitError.message}</p> : null}
       <label className="inventory-maintenance-date-field">
         <span>存放位置{item.kind === 'food' ? '（影响全部成品库存）' : ''}</span>
         <input
@@ -687,6 +766,7 @@ function ExceptionEditor(props: {
           }
         />
       </label>
+      {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}
 
       {item.kind === 'exact_ingredient' && (item.requiresManualExpiry || item.expiryDate !== null) ? (
         <label className="inventory-maintenance-date-field">
@@ -729,9 +809,30 @@ function FreeTextActions(props: {
   item: Extract<ShoppingIntakeDraftItem, { kind: 'free_text' }>;
   busy: boolean;
   candidates: FreeTextLinkCandidate[];
+  linkOptions: FreeTextLinkCandidate[];
   onComplete: (shoppingItemId: string) => void;
   onLink: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
 }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const matchingOptions = filterFreeTextLinkOptions(props.linkOptions, query);
+  const incompatibleExactFoodCandidates = props.candidates.filter(
+    (candidate) => !isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit),
+  );
+  const selectOptions = matchingOptions.map((candidate) => ({
+    id: `${candidate.kind}:${candidate.id}`,
+    label: candidate.name,
+    disabled: !isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit),
+    description:
+      candidate.kind === 'food'
+        ? isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
+          ? '成品库存'
+          : `成品库存 · 单位为 ${candidate.stockUnit || '份'}，请先调整采购计划单位`
+        : candidate.quantityTrackingMode === 'track_quantity'
+          ? '食材档案 · 精确数量'
+          : '食材档案 · 只记有无',
+  }));
+
   return (
     <div className="inventory-maintenance-freetext-actions">
       <ActionButton
@@ -752,7 +853,10 @@ function FreeTextActions(props: {
               tone="tertiary"
               size="compact"
               type="button"
-              disabled={props.busy}
+              disabled={
+                props.busy ||
+                !isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
+              }
               onClick={() => props.onLink(props.item.shoppingItemId, candidate)}
             >
               关联{candidate.name}
@@ -760,19 +864,63 @@ function FreeTextActions(props: {
           ))}
         </div>
       ) : (
-        <p className="subtle">没有精确同名档案可关联；可仅标记已买。</p>
+        <p className="subtle">没有精确同名档案；可搜索其他档案或仅标记已买。</p>
       )}
+      {incompatibleExactFoodCandidates.length > 0 ? (
+        <p className="subtle">成品库存需与采购计划使用相同单位，请先在采购清单中调整单位。</p>
+      ) : null}
+      {props.linkOptions.length > 0 ? (
+        <ActionButton
+          tone="tertiary"
+          size="compact"
+          type="button"
+          disabled={props.busy}
+          aria-expanded={searchOpen}
+          onClick={() => setSearchOpen((current) => !current)}
+        >
+          {searchOpen ? '收起档案搜索' : '搜索其他档案'}
+        </ActionButton>
+      ) : null}
+      {searchOpen ? (
+        <SearchableResourceSelect
+          ariaLabel={`${props.item.title}关联档案`}
+          placeholder="搜索食材或成品档案"
+          value=""
+          query={query}
+          options={selectOptions}
+          disabled={props.busy}
+          emptyText={query.trim() ? '没有找到匹配档案' : '暂无可关联档案'}
+          className="inventory-maintenance-freetext-search"
+          onQueryChange={setQuery}
+          onSearchClear={() => setQuery('')}
+          onChange={(optionId) => {
+            const candidate = matchingOptions.find(
+              (option) => `${option.kind}:${option.id}` === optionId,
+            );
+            if (
+              candidate &&
+              isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
+            ) {
+              props.onLink(props.item.shoppingItemId, candidate);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 function ResultStep(props: {
   result: ShoppingIntakeResult;
+  draft?: ShoppingIntakeDraft | null;
   busy?: boolean;
   onRevertResult?: (operationId: string) => void;
   onViewResult?: (operationId: string) => void;
 }) {
   const canRevert = isOperationStillRevertible(props.result, Date.now());
+  const titleByShoppingItemId = new Map(
+    props.draft?.items.map((item) => [item.shoppingItemId, item.title]) ?? [],
+  );
   return (
     <section className="inventory-maintenance-result" aria-label="入库结果">
       <div className="inventory-maintenance-summary-card">
@@ -834,7 +982,7 @@ function ResultStep(props: {
         <ul className="inventory-maintenance-summary-list">
           {props.result.items.map((item) => (
             <li key={item.shopping_item_id}>
-              <strong>{item.shopping_item_id}</strong>
+              <strong>{titleByShoppingItemId.get(item.shopping_item_id) ?? '采购项'}</strong>
               <span>
                 {item.result === 'partial'
                   ? `部分买到，剩余 ${item.remaining_planned_quantity ?? '—'}`

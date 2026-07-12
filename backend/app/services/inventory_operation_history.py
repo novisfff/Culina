@@ -46,6 +46,7 @@ from app.schemas.inventory_operations import (
 from app.services.activity import log_activity
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.inventory_versions import InventoryConflictError, bump_ingredient_collection
+from app.services.search.jobs import enqueue_search_index_job
 
 
 class InventoryOperationNotFoundError(LookupError):
@@ -177,6 +178,9 @@ def snapshot_inventory_item(item: InventoryItem) -> dict[str, object]:
         "storage_location": item.storage_location,
         "notes": item.notes,
         "low_stock_threshold": _decimal_string(item.low_stock_threshold),
+        "expiry_alert_snoozed_until": _date_value(item.expiry_alert_snoozed_until),
+        "expiry_reviewed_at": _date_value(item.expiry_reviewed_at),
+        "expiry_reviewed_by": item.expiry_reviewed_by,
         "last_confirmed_at": _date_value(item.last_confirmed_at),
         "last_confirmed_by": item.last_confirmed_by,
         "last_confirmation_source": _enum_value(item.last_confirmation_source),
@@ -478,7 +482,12 @@ def _line_description(line: InventoryOperationLine) -> str:
     return "库存变化"
 
 
-def _resolve_display_labels(db: Session, lines: list[InventoryOperationLine]) -> dict[str, str]:
+def _resolve_display_labels(
+    db: Session,
+    lines: list[InventoryOperationLine],
+    *,
+    family_id: str,
+) -> dict[str, str]:
     ingredient_ids: set[str] = set()
     food_ids: set[str] = set()
     item_ids: set[str] = set()
@@ -511,39 +520,75 @@ def _resolve_display_labels(db: Session, lines: list[InventoryOperationLine]) ->
             ingredient_ids.add(line.entity_id)
 
     if ingredient_ids:
-        for ingredient in db.scalars(select(Ingredient).where(Ingredient.id.in_(sorted(ingredient_ids)))):
+        for ingredient in db.scalars(
+            select(Ingredient).where(
+                Ingredient.family_id == family_id,
+                Ingredient.id.in_(sorted(ingredient_ids)),
+            )
+        ):
             labels[ingredient.id] = ingredient.name
             labels[f"ingredient:{ingredient.id}"] = ingredient.name
     if food_ids:
-        for food in db.scalars(select(Food).where(Food.id.in_(sorted(food_ids)))):
+        for food in db.scalars(
+            select(Food).where(
+                Food.family_id == family_id,
+                Food.id.in_(sorted(food_ids)),
+            )
+        ):
             labels[food.id] = food.name
             labels[f"food:{food.id}"] = food.name
     if item_ids:
         for item in db.scalars(
-            select(InventoryItem).where(InventoryItem.id.in_(sorted(item_ids))).options(selectinload(InventoryItem.ingredient))
+            select(InventoryItem)
+            .where(
+                InventoryItem.family_id == family_id,
+                InventoryItem.id.in_(sorted(item_ids)),
+            )
+            .options(selectinload(InventoryItem.ingredient))
         ):
-            name = item.ingredient.name if item.ingredient is not None else "库存批次"
+            name = (
+                item.ingredient.name
+                if item.ingredient is not None and item.ingredient.family_id == family_id
+                else "库存批次"
+            )
             labels[item.id] = name
             labels[f"item:{item.id}"] = name
     if state_ids:
         for state in db.scalars(
             select(IngredientInventoryState)
-            .where(IngredientInventoryState.id.in_(sorted(state_ids)))
+            .where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.id.in_(sorted(state_ids)),
+            )
             .options(selectinload(IngredientInventoryState.ingredient))
         ):
-            name = state.ingredient.name if state.ingredient is not None else "食材状态"
+            name = (
+                state.ingredient.name
+                if state.ingredient is not None and state.ingredient.family_id == family_id
+                else "食材状态"
+            )
             labels[state.id] = name
             labels[f"state:{state.id}"] = name
     if shopping_ids:
-        for shopping in db.scalars(select(ShoppingListItem).where(ShoppingListItem.id.in_(sorted(shopping_ids)))):
+        for shopping in db.scalars(
+            select(ShoppingListItem).where(
+                ShoppingListItem.family_id == family_id,
+                ShoppingListItem.id.in_(sorted(shopping_ids)),
+            )
+        ):
             labels[shopping.id] = shopping.title
             labels[f"shopping:{shopping.id}"] = shopping.title
     return labels
 
 
-def _display_lines(db: Session, lines: list[InventoryOperationLine]) -> list[InventoryOperationLineDisplayOut]:
+def _display_lines(
+    db: Session,
+    lines: list[InventoryOperationLine],
+    *,
+    family_id: str,
+) -> list[InventoryOperationLineDisplayOut]:
     visible = [line for line in lines if not _is_collection_guard(line)]
-    labels = _resolve_display_labels(db, visible)
+    labels = _resolve_display_labels(db, visible, family_id=family_id)
     ordered = sorted(visible, key=lambda item: item.sequence)
     return [
         InventoryOperationLineDisplayOut(
@@ -647,7 +692,7 @@ def get_inventory_operation_detail(
     )
     return InventoryOperationDetailOut(
         **summary.model_dump(),
-        lines=_display_lines(db, list(operation.lines)),
+        lines=_display_lines(db, list(operation.lines), family_id=operation.family_id),
     )
 
 
@@ -693,6 +738,12 @@ def _restore_inventory_item(item: InventoryItem, snapshot: dict[str, Any], *, us
     threshold = _parse_decimal(snapshot.get("low_stock_threshold"))
     if threshold is not None:
         item.low_stock_threshold = threshold
+    if "expiry_alert_snoozed_until" in snapshot:
+        item.expiry_alert_snoozed_until = _parse_date(snapshot.get("expiry_alert_snoozed_until"))
+    if "expiry_reviewed_at" in snapshot:
+        item.expiry_reviewed_at = _parse_datetime(snapshot.get("expiry_reviewed_at"))
+    if "expiry_reviewed_by" in snapshot:
+        item.expiry_reviewed_by = snapshot.get("expiry_reviewed_by")
     item.last_confirmed_at = _parse_datetime(snapshot.get("last_confirmed_at"))
     item.last_confirmed_by = snapshot.get("last_confirmed_by")
     item.last_confirmation_source = snapshot.get("last_confirmation_source")
@@ -943,6 +994,7 @@ def revert_inventory_operation(
             )
 
     # Apply restores in reverse sequence so dependent creates are removed after parent checks.
+    food_ids_to_reindex: set[str] = set()
     for line in reversed(lines):
         entity_type = line.entity_type
         entity_id = line.entity_id
@@ -990,6 +1042,7 @@ def revert_inventory_operation(
             if line.before_snapshot is None:
                 raise _conflict("operation_not_revertible", "缺少恢复快照，无法撤销")
             _restore_food(food, line.before_snapshot, user_id=user_id)
+            food_ids_to_reindex.add(food.id)
             continue
 
         if entity_type == InventoryOperationEntityType.SHOPPING_LIST_ITEM:
@@ -1026,5 +1079,16 @@ def revert_inventory_operation(
         entity_id=operation.id,
         summary=activity_summary,
     )
+    for food_id in sorted(food_ids_to_reindex):
+        food = locked.foods.get(food_id)
+        if food is not None:
+            enqueue_search_index_job(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                entity_type="food",
+                entity_id=food.id,
+                target_name=food.name,
+            )
     db.flush()
     return _serialize_result(operation, user_id=user_id, user_role=user_role, now=now)

@@ -13,9 +13,19 @@ from app.core.enums import (
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
+    InventoryAvailabilityLevel,
     InventoryStatus,
 )
-from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, ShoppingListItem, User
+from app.models.domain import (
+    Base,
+    Family,
+    Food,
+    Ingredient,
+    IngredientInventoryState,
+    InventoryItem,
+    ShoppingListItem,
+    User,
+)
 from app.services.food_stock import apply_food_stock_consume, apply_food_stock_dispose, apply_food_stock_restock
 from app.services.inventory_operation_locking import (
     InventoryTargetNotFoundError,
@@ -313,6 +323,50 @@ def test_lock_inventory_targets_orders_and_rejects_missing(db: Session) -> None:
             family_id="family-version",
             inventory_item_ids=[item.id, "inventory-missing"],
         )
+
+
+def test_lock_inventory_targets_allows_optional_missing_state_and_returns_existing_state(
+    db: Session,
+) -> None:
+    ingredient = _reload_ingredient(db)
+
+    locked_without_state = lock_inventory_targets(
+        db,
+        family_id="family-version",
+        ingredient_ids=[ingredient.id],
+        optional_state_ingredient_ids=[ingredient.id],
+    )
+    assert locked_without_state.states_by_ingredient_id == {}
+
+    with pytest.raises(InventoryTargetNotFoundError):
+        lock_inventory_targets(
+            db,
+            family_id="family-version",
+            ingredient_ids=[ingredient.id],
+            state_ingredient_ids=[ingredient.id],
+        )
+
+    state = IngredientInventoryState(
+        id="inventory-state-tomato",
+        family_id="family-version",
+        ingredient_id=ingredient.id,
+        availability_level=InventoryAvailabilityLevel.LOW,
+        inventory_status=InventoryStatus.FRESH,
+        storage_location="冷藏",
+        notes="",
+        created_by="user-version",
+        updated_by="user-version",
+    )
+    db.add(state)
+    db.flush()
+
+    locked_with_state = lock_inventory_targets(
+        db,
+        family_id="family-version",
+        ingredient_ids=[ingredient.id],
+        optional_state_ingredient_ids=[ingredient.id],
+    )
+    assert locked_with_state.states_by_ingredient_id == {ingredient.id: state}
 
 
 def test_stale_expected_version_on_locked_item_before_dispose(db: Session) -> None:

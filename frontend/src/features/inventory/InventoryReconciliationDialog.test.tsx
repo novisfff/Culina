@@ -12,8 +12,12 @@ import type {
 } from '../../api/types';
 import { InventoryReconciliationDialog } from './InventoryReconciliationDialog';
 import {
+  buildBatchCreateIntent,
+  buildBatchUpdateFromGroup,
+  buildExactAdjustBatchesIntent,
   buildExactConfirmAllIntent,
   buildFoodConfirmIntent,
+  buildFoodSetStockIntent,
   buildPresenceIntent,
   createEmptyDraft,
   type InventoryReconciliationDraft,
@@ -278,6 +282,34 @@ describe('InventoryReconciliationDialog', () => {
     );
   });
 
+  it('renders mapped Food field errors and constrains aggregate stock to one decimal', () => {
+    renderDialog({
+      groups: [foodGroup],
+      orderedGroups: [foodGroup],
+      draft: makeDraft([buildFoodSetStockIntent({ group: foodGroup, stockQuantity: '2' })]),
+      fieldErrors: [
+        {
+          targetKey: 'food:food-beef',
+          field: 'stockQuantity',
+          code: 'invalid_quantity',
+          message: '库存数量最多保留 1 位小数。',
+        },
+        {
+          targetKey: 'food:food-beef',
+          field: 'storageLocation',
+          code: 'invalid_target',
+          message: '请填写存放位置。',
+        },
+      ],
+    });
+
+    expect(container!.textContent).toContain('库存数量最多保留 1 位小数。');
+    expect(container!.textContent).toContain('请填写存放位置。');
+    expect(
+      container!.querySelector<HTMLInputElement>('[data-field-key="food:food-beef:stockQuantity"]')?.step,
+    ).toBe('0.1');
+  });
+
   it('shows expired physical batch after expansion', () => {
     renderDialog({
       expandedBatchGroupKeys: ['exact_ingredient:ing-egg'],
@@ -285,6 +317,49 @@ describe('InventoryReconciliationDialog', () => {
     });
     expect(container!.textContent).toContain('已过期');
     expect(container!.textContent).toContain('增加漏记批次');
+  });
+
+  it('renders mapped exact-batch date and unit errors next to the editable batch controls', () => {
+    const update = buildBatchUpdateFromGroup(exactGroup, 'batch-1')!;
+    const create = buildBatchCreateIntent({
+      clientLineId: 'line-1',
+      actualRemainingQuantity: '1',
+      unit: '个',
+      inventoryStatus: 'fresh',
+      purchaseDate: '2026-07-11',
+      expiryDate: null,
+      storageLocation: '冷藏',
+    });
+    renderDialog({
+      expandedBatchGroupKeys: ['exact_ingredient:ing-egg'],
+      draft: makeDraft([
+        buildExactAdjustBatchesIntent({
+          group: exactGroup,
+          updates: [update],
+          creates: [create],
+        }),
+      ]),
+      fieldErrors: [
+        {
+          targetKey: 'exact_ingredient:ing-egg',
+          field: 'batch:batch-1:expiryDate',
+          code: 'invalid_date_range',
+          message: '原批次的到期日不能早于购买日期。',
+        },
+        {
+          targetKey: 'exact_ingredient:ing-egg',
+          field: 'create:line-1:unit',
+          code: 'incompatible_unit',
+          message: '新增批次的单位不受支持。',
+        },
+      ],
+    });
+
+    expect(container!.textContent).toContain('原批次的到期日不能早于购买日期。');
+    expect(container!.textContent).toContain('新增批次的单位不受支持。');
+    expect(
+      container!.querySelector('[data-field-key="exact_ingredient:ing-egg:create:line-1:unit"]'),
+    ).toBeTruthy();
   });
 
   it('batch create click produces adjust intent with create line', () => {

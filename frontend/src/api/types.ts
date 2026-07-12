@@ -453,6 +453,7 @@ export interface InventoryOverviewItem {
   id: string;
   source_type: InventoryOverviewSourceType;
   source_id: string;
+  row_version: number;
   inventory_item_id?: string | null;
   title: string;
   category: string;
@@ -487,6 +488,7 @@ export interface InventoryOverview {
 }
 
 export interface FoodStockChangePayload {
+  expected_row_version: number;
   quantity: number;
   unit?: string | null;
   expiry_date?: string | null;
@@ -878,6 +880,10 @@ export interface FoodPayload {
   pending_image_job_id?: string | null;
 }
 
+export interface UpdateFoodPayload extends FoodPayload {
+  expected_row_version: number;
+}
+
 export type FoodRecommendationPrimaryAction = 'cook_recipe' | 'quick_add_meal' | 'review_food';
 
 export interface FoodRecommendationRecipeAvailability {
@@ -945,6 +951,7 @@ export interface QuickAddMealLogPayload {
   note: string;
   food_plan_item_id?: string;
   deduct_food_stock?: boolean;
+  expected_food_row_version?: number;
   stock_quantity?: number | null;
   stock_unit?: string | null;
 }
@@ -1151,14 +1158,21 @@ export interface AiInventoryBatchOption {
   remainingQuantity: number;
   unit: string;
   expiryDate?: string | null;
+  rowVersion?: number;
 }
 
 export interface AiInventoryOperationDraftItem {
   action: AiInventoryOperationAction;
   ingredientId: string;
   ingredientName: string;
+  quantityTrackingMode?: 'track_quantity' | 'not_track_quantity';
+  expectedIngredientRowVersion?: number;
+  stateId?: string | null;
+  expectedStateRowVersion?: number | null;
   inventoryItemId?: string | null;
-  quantity: number;
+  expectedInventoryItemRowVersion?: number | null;
+  availabilityLevel?: 'present_unknown' | 'low' | 'sufficient' | null;
+  quantity: number | null;
   unit: string;
   purchaseDate?: string | null;
   expiryDate?: string | null;

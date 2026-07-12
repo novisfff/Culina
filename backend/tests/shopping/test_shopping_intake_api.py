@@ -493,6 +493,245 @@ def test_food_purchase_merges_expiry_and_adds_stock(intake_api_context: IntakeAp
         assert shopping is not None and shopping.done is True
 
 
+def test_food_partial_purchase_keeps_remaining_shopping_quantity(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        assert shopping is not None
+        shopping.quantity = Decimal("6")
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
+    payload = {
+        "client_request_id": "req-food-partial",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.food_shopping_id,
+                "expected_shopping_item_row_version": shopping_version,
+                "action": "stock_and_fulfill",
+                "target_kind": "food",
+                "target_id": intake_api_context.food_id,
+                "expected_food_row_version": 1,
+                "actual_quantity": 2,
+                "unit": "份",
+                "expiry_date": "2026-07-18",
+                "storage_location": "冷藏",
+            }
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 200, response.text
+    result = response.json()["items"][0]
+    assert result["result"] == "partial"
+    assert Decimal(str(result["remaining_planned_quantity"])) == Decimal("4")
+
+    with intake_api_context.SessionLocal() as db:
+        food = db.get(Food, intake_api_context.food_id)
+        shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        assert food is not None and food.stock_quantity == Decimal("4.00")
+        assert shopping is not None
+        assert shopping.done is False
+        assert shopping.quantity == Decimal("4.00")
+        assert shopping.unit == "份"
+
+
+def test_food_quantity_precision_is_rejected_before_any_intake_mutation(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    payload = _exact_payload(
+        intake_api_context,
+        client_request_id="req-food-invalid-precision",
+    )
+    payload["items"].append(
+        {
+            "shopping_item_id": intake_api_context.food_shopping_id,
+            "expected_shopping_item_row_version": 1,
+            "action": "stock_and_fulfill",
+            "target_kind": "food",
+            "target_id": intake_api_context.food_id,
+            "expected_food_row_version": 1,
+            "actual_quantity": 1.25,
+            "unit": "份",
+            "expiry_date": "2026-07-18",
+            "storage_location": "冷藏",
+        }
+    )
+
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "invalid_quantity"
+    assert detail["field_errors"] == [
+        {
+            "shopping_item_id": intake_api_context.food_shopping_id,
+            "field": "actual_quantity",
+            "code": "invalid_quantity",
+            "message": "库存数量最多保留 1 位小数",
+        }
+    ]
+    with intake_api_context.SessionLocal() as db:
+        exact_shopping = db.get(ShoppingListItem, intake_api_context.exact_shopping_id)
+        food_shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        food = db.get(Food, intake_api_context.food_id)
+        assert exact_shopping is not None and exact_shopping.done is False
+        assert food_shopping is not None and food_shopping.done is False
+        assert food is not None and food.stock_quantity == Decimal("2.00")
+        assert db.scalar(select(InventoryItem)) is None
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_shopping_intake_schema_errors_use_the_structured_detail_contract(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    payload = {
+        "client_request_id": "req-food-empty-unit",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.food_shopping_id,
+                "expected_shopping_item_row_version": 1,
+                "action": "stock_and_fulfill",
+                "target_kind": "food",
+                "target_id": intake_api_context.food_id,
+                "expected_food_row_version": 1,
+                "actual_quantity": 1,
+                "unit": "",
+                "expiry_date": "2026-07-18",
+                "storage_location": "冷藏",
+            }
+        ],
+    }
+
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == {
+        "code": "invalid_request",
+        "message": "字段不能为空",
+        "conflicts": [],
+        "field_errors": [
+            {
+                "field": "items.0.unit",
+                "code": "invalid_request",
+                "message": "字段不能为空",
+            }
+        ],
+    }
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        food = db.get(Food, intake_api_context.food_id)
+        assert shopping is not None and shopping.done is False
+        assert food is not None and food.stock_quantity == Decimal("2.00")
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_food_current_stock_unit_is_validated_before_any_intake_mutation(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        assert shopping is not None
+        shopping.unit = "盒"
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
+    payload = _exact_payload(
+        intake_api_context,
+        client_request_id="req-food-stale-unit",
+    )
+    payload["items"].append(
+        {
+            "shopping_item_id": intake_api_context.food_shopping_id,
+            "expected_shopping_item_row_version": shopping_version,
+            "action": "stock_and_fulfill",
+            "target_kind": "food",
+            "target_id": intake_api_context.food_id,
+            "expected_food_row_version": 1,
+            "actual_quantity": 1,
+            "unit": "盒",
+            "expiry_date": "2026-07-18",
+            "storage_location": "冷藏",
+        }
+    )
+
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "incompatible_unit"
+    assert detail["field_errors"] == [
+        {
+            "shopping_item_id": intake_api_context.food_shopping_id,
+            "field": "unit",
+            "code": "incompatible_unit",
+            "message": "当前食物库存单位是 份，不能按 盒 入库",
+        }
+    ]
+    with intake_api_context.SessionLocal() as db:
+        exact_shopping = db.get(ShoppingListItem, intake_api_context.exact_shopping_id)
+        food_shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        food = db.get(Food, intake_api_context.food_id)
+        assert exact_shopping is not None and exact_shopping.done is False
+        assert food_shopping is not None and food_shopping.done is False
+        assert food is not None and food.stock_quantity == Decimal("2.00")
+        assert db.scalar(select(InventoryItem)) is None
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_free_text_link_rejects_incompatible_units_atomically(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        shopping.quantity = Decimal("2")
+        shopping.unit = "袋"
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
+    payload = {
+        "client_request_id": "req-free-incompatible-unit",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.free_text_shopping_id,
+                "expected_shopping_item_row_version": shopping_version,
+                "action": "stock_and_fulfill",
+                "target_kind": "exact_ingredient",
+                "target_id": intake_api_context.exact_ingredient_id,
+                "expected_ingredient_row_version": 1,
+                "actual_quantity": 500,
+                "unit": "克",
+                "inventory_status": InventoryStatus.FRESH.value,
+                "expiry_date": "2026-07-20",
+                "storage_location": "冷藏",
+                "notes": "",
+            }
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "incompatible_unit"
+    assert any(error["code"] == "incompatible_unit" for error in detail["field_errors"])
+
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        assert shopping.done is False
+        assert shopping.quantity == Decimal("2.00")
+        assert shopping.unit == "袋"
+        assert shopping.ingredient_id is None
+        assert db.scalar(select(InventoryItem)) is None
+        assert db.scalar(select(InventoryOperation)) is None
+
+
 @pytest.mark.parametrize(
     ("current_qty", "current_expiry", "incoming", "expected"),
     [
@@ -578,19 +817,57 @@ def test_free_text_complete_without_inventory(intake_api_context: IntakeApiConte
         shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
         assert shopping is not None
         assert shopping.done is True
+
+
+def test_complete_without_inventory_rejects_inventory_target_fields(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    payload = {
+        "client_request_id": "req-free-complete-extra-target",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.free_text_shopping_id,
+                "expected_shopping_item_row_version": 1,
+                "action": "complete_without_inventory",
+                "target_kind": "none",
+                "target_id": None,
+                "actual_quantity": "2",
+                "unit": "份",
+            }
+        ],
+    }
+
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+
+    assert response.status_code == 422, response.text
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        assert shopping.done is False
+        assert db.scalar(select(InventoryOperation)) is None
         assert shopping.ingredient_id is None
         assert shopping.food_id is None
         assert db.scalar(select(InventoryItem)) is None
 
 
 def test_free_text_bind_to_ingredient_in_same_transaction(intake_api_context: IntakeApiContext) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        shopping.quantity = Decimal("2")
+        shopping.unit = "个"
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
     payload = {
         "client_request_id": "req-free-bind-exact",
         "purchase_date": "2026-07-12",
         "items": [
             {
                 "shopping_item_id": intake_api_context.free_text_shopping_id,
-                "expected_shopping_item_row_version": 1,
+                "expected_shopping_item_row_version": shopping_version,
                 "action": "stock_and_fulfill",
                 "target_kind": "exact_ingredient",
                 "target_id": intake_api_context.exact_ingredient_id,
@@ -733,6 +1010,55 @@ def test_same_request_id_and_hash_replays_without_duplicate_stock(intake_api_con
     with intake_api_context.SessionLocal() as db:
         assert len(list(db.scalars(select(InventoryItem)))) == 1
         assert len(list(db.scalars(select(InventoryOperation)))) == 1
+
+
+def test_idempotent_intake_replay_computes_can_revert_for_requesting_member(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    payload = _exact_payload(intake_api_context, client_request_id="req-idempotent-permission")
+    first = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["can_revert"] is True
+
+    with intake_api_context.SessionLocal() as db:
+        second_user = User(
+            id="user-intake-second",
+            username="intake-second",
+            display_name="另一成员",
+            avatar_seed="",
+            is_active=True,
+        )
+        second_membership = Membership(
+            id="membership-intake-second",
+            family_id=intake_api_context.family_id,
+            user_id=second_user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        db.add_all([second_user, second_membership])
+        db.commit()
+
+    def override_second_auth() -> tuple[User, Membership]:
+        with intake_api_context.SessionLocal() as db:
+            user = db.get(User, "user-intake-second")
+            membership = db.get(Membership, "membership-intake-second")
+            assert user is not None and membership is not None
+            return user, membership
+
+    app.dependency_overrides[get_current_auth] = override_second_auth
+    member_replay = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert member_replay.status_code == 200, member_replay.text
+    assert member_replay.json()["can_revert"] is False
+
+    with intake_api_context.SessionLocal() as db:
+        membership = db.get(Membership, "membership-intake-second")
+        assert membership is not None
+        membership.role = UserRole.OWNER
+        db.commit()
+
+    owner_replay = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert owner_replay.status_code == 200, owner_replay.text
+    assert owner_replay.json()["can_revert"] is True
 
 
 def test_same_request_id_different_payload_returns_409(intake_api_context: IntakeApiContext) -> None:
@@ -973,6 +1299,55 @@ def test_free_text_exact_partial_preserves_planned_unit(intake_api_context: Inta
         assert batch is not None
         assert batch.quantity == Decimal("2.00")
         assert batch.unit == "个"
+
+
+def test_free_text_food_link_with_matching_unit_stocks_and_preserves_partial_plan(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        shopping.title = "手写卤牛肉"
+        shopping.quantity = Decimal("6")
+        shopping.unit = "份"
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
+    payload = {
+        "client_request_id": "req-free-food-partial",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.free_text_shopping_id,
+                "expected_shopping_item_row_version": shopping_version,
+                "action": "stock_and_fulfill",
+                "target_kind": "food",
+                "target_id": intake_api_context.food_id,
+                "expected_food_row_version": 1,
+                "actual_quantity": 2,
+                "unit": "份",
+                "expiry_date": "2026-07-20",
+                "storage_location": "冷藏",
+            }
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["result"] == "partial"
+    assert Decimal(str(item["remaining_planned_quantity"])) == Decimal("4")
+
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        food = db.get(Food, intake_api_context.food_id)
+        assert shopping is not None and food is not None
+        assert shopping.done is False
+        assert shopping.food_id == intake_api_context.food_id
+        assert shopping.title == "卤牛肉"
+        assert shopping.quantity == Decimal("4.00")
+        assert shopping.unit == "份"
+        assert food.stock_quantity == Decimal("4.00")
 
 
 def test_stale_presence_state_version_fails(intake_api_context: IntakeApiContext) -> None:

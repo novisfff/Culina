@@ -20,6 +20,7 @@ def execute_ai_operation_draft(
     draft_type: str,
     payload: dict[str, Any],
     assert_updated_at_matches: AssertUpdatedAt,
+    conversation_id: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     return draft_operation_registry.execute(
         DraftExecuteContext(
@@ -29,5 +30,6 @@ def execute_ai_operation_draft(
             draft_type=draft_type,
             payload=payload,
             assert_updated_at_matches=assert_updated_at_matches,
+            conversation_id=conversation_id,
         )
     )

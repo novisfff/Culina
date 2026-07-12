@@ -25,7 +25,8 @@ from app.services.ingredient_inventory_state import (
     transition_ingredient_tracking_mode,
 )
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
-from app.services.inventory_versions import InventoryConflictError, conflict_detail
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
+from app.services.inventory_versions import InventoryConflictError, conflict_detail, require_expected_version
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.hybrid import hybrid_search
 from app.services.search.jobs import enqueue_search_index_job
@@ -158,13 +159,22 @@ def update_ingredient(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    ingredient = db.scalar(
-        select(Ingredient)
-        .where(Ingredient.family_id == membership.family_id, Ingredient.id == ingredient_id)
-        .options(selectinload(Ingredient.inventory_items))
-    )
-    if ingredient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+    try:
+        ingredient = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            ingredient_ids=[ingredient_id],
+        ).ingredients[ingredient_id]
+        require_expected_version(
+            ingredient,
+            payload.expected_row_version,
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+        )
+    except (InventoryTargetNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except InventoryConflictError as exc:
+        raise _inventory_conflict_http(exc) from exc
     try:
         unit_conversions = validate_unit_conversions(
             payload.default_unit,
