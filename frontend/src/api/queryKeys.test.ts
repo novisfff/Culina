@@ -55,4 +55,3 @@ describe('queryKeys', () => {
     expect(queryKeys.activityHighlightList(5)).not.toEqual(queryKeys.activityLogs);
   });
 });
-
