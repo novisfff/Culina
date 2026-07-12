@@ -1840,3 +1840,396 @@
 .dashboard-food-cover .media-placeholder-spark {
   display: none !important;
 }
+
+/* Three-question desktop home */
+.home-question-one {
+  display: grid;
+  gap: 16px;
+  padding: 18px 18px 16px;
+}
+
+.home-question-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-question-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.home-question-head span {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.home-question-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.home-question-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-dashboard-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.27fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.home-dashboard-lower-grid > *,
+.home-question-panel,
+.home-action-row,
+.home-highlight-row {
+  min-width: 0;
+}
+
+.home-action-list,
+.home-highlight-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.home-action-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.home-action-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.home-action-row.tone-expired {
+  background: linear-gradient(90deg, rgba(253, 235, 232, 0.55), var(--surface-3));
+  border-color: rgba(217, 75, 61, 0.14);
+}
+
+.home-action-row.tone-expired::before {
+  background: color-mix(in srgb, var(--danger) 72%, transparent);
+}
+
+.home-action-row.tone-soon {
+  background: linear-gradient(90deg, rgba(253, 244, 219, 0.58), var(--surface-3));
+  border-color: rgba(230, 154, 46, 0.14);
+}
+
+.home-action-row.tone-soon::before {
+  background: color-mix(in srgb, var(--warning) 72%, transparent);
+}
+
+.home-action-row.tone-low-stock,
+.home-action-row.tone-shopping {
+  background: linear-gradient(90deg, rgba(255, 248, 220, 0.7), var(--surface-3));
+  border-color: rgba(196, 149, 36, 0.15);
+}
+
+.home-action-row.tone-low-stock::before,
+.home-action-row.tone-shopping::before {
+  background: color-mix(in srgb, var(--warning) 68%, transparent);
+}
+
+.home-action-row.tone-later {
+  background: linear-gradient(90deg, rgba(235, 245, 233, 0.55), var(--surface-3));
+  border-color: rgba(79, 154, 88, 0.12);
+}
+
+.home-action-row.tone-later::before {
+  background: color-mix(in srgb, var(--success, #4f9a58) 68%, transparent);
+}
+
+.home-action-row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.home-action-row-copy strong {
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-action-row-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-action-row .solid-button {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.home-highlight-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.home-highlight-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.home-highlight-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.home-highlight-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.home-highlight-copy strong {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.home-highlight-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-highlight-row time {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.home-highlight-skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.home-highlight-skeleton > span {
+  display: block;
+  min-height: 52px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, rgba(246, 240, 234, 0.9), rgba(255, 255, 255, 0.95), rgba(246, 240, 234, 0.9));
+  background-size: 200% 100%;
+}
+
+.home-highlight-refresh-warning {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.home-compact-calendar {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+}
+
+.home-compact-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-compact-calendar-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.home-compact-week-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-compact-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-compact-days > button,
+.home-compact-week-controls button {
+  min-height: 44px;
+}
+
+.home-compact-week-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.home-compact-week-controls button svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.home-compact-week-controls button[aria-label="下一周"] svg {
+  transform: rotate(180deg);
+}
+
+.home-compact-days > button {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 8px 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.home-compact-days > button span {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.home-compact-days > button strong {
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.home-compact-days > button i {
+  font-style: normal;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.home-compact-days > button.is-today {
+  border-color: rgba(210, 107, 51, 0.28);
+}
+
+.home-compact-days > button.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 70%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.home-compact-days > button.is-selected strong {
+  color: var(--accent-strong);
+}
+
+.home-compact-day-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-compact-day-summary p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.home-compact-day-summary button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.home-question-panel :focus-visible,
+.home-compact-calendar :focus-visible {
+  outline: 3px solid rgba(210, 107, 51, 0.24);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .home-dashboard-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
