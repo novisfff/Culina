@@ -53,7 +53,6 @@ type UseAppHomeViewModelArgs = {
   mealLogs: MealLog[];
   activityLogs: ActivityLog[];
   activityHighlights: HomeActivityHighlightsInput;
-  dashboardRecommendationPage: number;
   desktopRecommendationCursor?: number;
   mobileRecommendationCursor?: number;
   selectedDashboardPlanDate: string;
@@ -179,7 +178,6 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     recipes: args.recipes,
     mealLogs: args.mealLogs,
     today,
-    dashboardRecommendationPage: args.dashboardRecommendationPage,
     desktopRecommendationCursor: args.desktopRecommendationCursor,
     mobileRecommendationCursor: args.mobileRecommendationCursor,
     selectedDashboardPlanDate: args.selectedDashboardPlanDate,

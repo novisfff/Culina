@@ -80,8 +80,6 @@ export function useHomeDashboardState(input: {
 }) {
   const businessDateKey = input.businessDateKey ?? todayKey();
   const recommendationCount = input.recommendationCount ?? 0;
-  // Compatibility adapter for pre-cursor Home UI; Task 10/11 remove after migration.
-  const [dashboardRecommendationPage, setDashboardRecommendationPage] = useState(0);
   const [desktopRecommendationCursor, setDesktopRecommendationCursor] = useState(0);
   const [mobileRecommendationCursor, setMobileRecommendationCursor] = useState(0);
   const previousRecommendationIdSignatureRef = useRef(input.recommendationIdSignature);
@@ -127,7 +125,6 @@ export function useHomeDashboardState(input: {
     previousRecommendationIdSignatureRef.current = input.recommendationIdSignature;
     setDesktopRecommendationCursor(0);
     setMobileRecommendationCursor(0);
-    setDashboardRecommendationPage(0);
   }, [input.recommendationIdSignature]);
 
   useEffect(() => {
@@ -275,8 +272,6 @@ export function useHomeDashboardState(input: {
   }
 
   return {
-    dashboardRecommendationPage,
-    setDashboardRecommendationPage,
     desktopRecommendationCursor,
     mobileRecommendationCursor,
     showNextDesktopRecommendations,

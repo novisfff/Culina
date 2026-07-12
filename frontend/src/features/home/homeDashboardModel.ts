@@ -252,8 +252,6 @@ export function buildHomeDashboardViewModel(input: {
   recipes: Recipe[];
   mealLogs: MealLog[];
   today: string;
-  /** @deprecated Task 8 compatibility adapter; Task 10/11 migrate to cursors. */
-  dashboardRecommendationPage: number;
   desktopRecommendationCursor?: number;
   mobileRecommendationCursor?: number;
   selectedDashboardPlanDate: string;
@@ -309,12 +307,6 @@ export function buildHomeDashboardViewModel(input: {
     recommendation: item,
     coverUrl: getFoodCover(item.food, input.recipes),
   }));
-  // Compatibility adapter for pre-cursor Home UI; Task 10/11 remove after migration.
-  const dashboardRecommendationPageCount = Math.max(1, Math.ceil(dashboardRecommendationItems.length / 3));
-  const dashboardRecommendations = dashboardRecommendationItems.slice(
-    (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3,
-    (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3 + 3
-  );
   const desktopRecommendations = selectCircularWindow(
     dashboardRecommendationItems,
     input.desktopRecommendationCursor ?? 0,
@@ -370,8 +362,6 @@ export function buildHomeDashboardViewModel(input: {
     todaysMeals,
     dashboardStats,
     dashboardRecommendationItems,
-    dashboardRecommendationPageCount,
-    dashboardRecommendations,
     desktopRecommendations,
     mobileRecommendations,
     canChangeDesktopRecommendations: dashboardRecommendationItems.length > 3,

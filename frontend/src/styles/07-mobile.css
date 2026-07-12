@@ -5380,8 +5380,82 @@
     display: grid;
     gap: 12px;
     width: min(100%, 480px);
+    max-width: 100%;
     margin: 0 auto;
     padding: 0;
+    overflow-x: clip;
+  }
+
+  .mobile-dashboard-meta-row,
+  .home-compact-days.is-mobile-scroll {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .home-compact-days.is-mobile-scroll > button {
+    flex: 0 0 72px;
+    min-width: 72px;
+    min-height: 52px;
+  }
+
+  .mobile-home-question,
+  .mobile-dashboard-food-card,
+  .home-required-actions,
+  .home-highlight-panel {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .mobile-dashboard-food-card {
+    overflow: hidden;
+  }
+
+  .mobile-dashboard-actions button,
+  .mobile-dashboard-icon-actions button,
+  .mobile-home-question button {
+    min-height: 44px;
+  }
+
+  .mobile-home-question-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobile-home-question-head .mobile-dashboard-section-head {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .mobile-home-question-head > button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid rgba(226, 205, 189, 0.88);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #4a372c;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 800;
+  }
+
+  .mobile-home-question-head > button:disabled {
+    opacity: 0.45;
+  }
+
+  .mobile-dashboard-recommendation-list {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .mobile-dashboard-recommendation-list .mobile-dashboard-food-card {
+    width: 100%;
+    min-width: 0;
   }
 
   .mobile-dashboard-hero,

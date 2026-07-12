@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type FormEvent, type KeyboardEvent, type ReactNode, type SetStateAction } from 'react';
+import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon } from '../../app/shellIcons';
@@ -57,13 +57,8 @@ export type HomeDashboardProps = {
   inventoryAlerts: unknown[];
   notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
-  /** @deprecated Task 11 removes after mobile migrates to independent cursors. */
-  dashboardRecommendationItems: DashboardRecommendation[];
-  /** @deprecated Task 11 removes after mobile migrates to independent cursors. */
-  dashboardRecommendationPageCount: number;
-  /** @deprecated Task 11 removes after mobile migrates to independent cursors. */
-  dashboardRecommendations: DashboardRecommendation[];
   desktopRecommendations: DashboardRecommendation[];
+  mobileRecommendations: DashboardRecommendation[];
   recommendationCount: number;
   foodRecommendations?: FoodRecommendations | null;
   homeInventoryActionGroups: InventoryActionGroup[];
@@ -96,9 +91,8 @@ export type HomeDashboardProps = {
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   onNavigate: (tab: TabKey) => void;
   onOpenGlobalSearch: () => void;
-  /** @deprecated Task 11 removes after mobile migrates to independent cursors. */
-  onRecommendationPageChange: Dispatch<SetStateAction<number>>;
   onNextDesktopRecommendations: () => void;
+  onNextMobileRecommendation: () => void;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
   onSelectedPlanDateChange: (date: string) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
@@ -142,26 +136,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
     sidebarActivityLabel,
     inventoryAlerts,
     dashboardStats,
-    dashboardRecommendationItems,
-    dashboardRecommendationPageCount,
-    dashboardRecommendations,
     desktopRecommendations,
+    mobileRecommendations,
     recommendationCount,
     foodRecommendations,
-    homeInventoryActionGroups,
-    hasLaterInventoryActionGroups,
-    hasFullListInventoryActionGroups,
     requiredActions,
     hasMoreHomeActions,
-    activeFoodPlanItems,
-    dashboardWeekMealCapacity,
-    dashboardPlanDays,
     compactPlanDays,
     selectedDashboardPlanDay,
-    selectedDashboardPlanDateLabel,
     selectedPlanSummary,
-    pendingShoppingCount,
-    pendingShoppingPreview,
     foods,
     recipes,
     ingredients,
@@ -175,14 +158,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
     createFoodPlanItem,
     onNavigate,
     onOpenGlobalSearch,
-    onRecommendationPageChange,
     onNextDesktopRecommendations,
+    onNextMobileRecommendation,
     onStartRecipe,
     onSelectedPlanDateChange,
     onHomePlanAddDialogOpen: openHomePlanAddDialog,
     onHomePlanAddEmptyDialogOpen: openHomePlanAddEmptyDialog,
     onHomePlanDetailOpen: openHomePlanDetail,
-    onHomeRestockOpen: openHomeRestock,
     onOpenActionGroup,
     onOpenIngredientShopping,
     onOpenIngredientPriority,
@@ -195,7 +177,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
   } = props;
-  const visibleActionGroups = homeInventoryActionGroups.slice(0, 3);
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
   const [morePlansPopover, setMorePlansPopover] = useState<{
@@ -280,44 +261,36 @@ export function HomeDashboard(props: HomeDashboardProps) {
         inventoryAlerts={inventoryAlerts}
         notificationCenter={props.notificationCenter}
         dashboardStats={dashboardStats}
-        dashboardRecommendationItems={dashboardRecommendationItems}
-        dashboardRecommendationPageCount={dashboardRecommendationPageCount}
-        dashboardRecommendations={dashboardRecommendations}
+        mobileRecommendations={mobileRecommendations}
+        recommendationCount={recommendationCount}
         foodRecommendations={foodRecommendations}
-        homeInventoryActionGroups={visibleActionGroups}
-        hasLaterInventoryActionGroups={hasLaterInventoryActionGroups}
-        hasFullListInventoryActionGroups={hasFullListInventoryActionGroups}
-        activeFoodPlanItems={activeFoodPlanItems}
-        dashboardWeekMealCapacity={dashboardWeekMealCapacity}
-        dashboardPlanDays={dashboardPlanDays}
+        requiredActions={requiredActions}
+        hasMoreHomeActions={hasMoreHomeActions}
+        compactPlanDays={compactPlanDays}
         selectedDashboardPlanDay={selectedDashboardPlanDay}
-        selectedDashboardPlanDateLabel={selectedDashboardPlanDateLabel}
-        pendingShoppingCount={pendingShoppingCount}
-        pendingShoppingPreview={pendingShoppingPreview}
-        foods={foods}
-        recipes={recipes}
-        ingredients={ingredients}
+        selectedPlanSummary={selectedPlanSummary}
+        homeHighlights={homeHighlights}
         isQuickAdding={isQuickAdding}
         isCreatingFoodPlanItem={isCreatingFoodPlanItem}
         resolveAssetUrl={resolveAssetUrl}
         onNavigate={onNavigate}
         onOpenGlobalSearch={onOpenGlobalSearch}
-        onRecommendationPageChange={onRecommendationPageChange}
+        onNextMobileRecommendation={onNextMobileRecommendation}
         onSelectedPlanDateChange={onSelectedPlanDateChange}
         onFoodPlanPreviousWeek={onFoodPlanPreviousWeek}
+        onFoodPlanCurrentWeek={onFoodPlanCurrentWeek}
         onFoodPlanNextWeek={onFoodPlanNextWeek}
         onQuickStartFood={openQuickMealDialog}
         onHomePlanAddDialogOpen={openHomePlanAddDialog}
-        onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
-        onHomePlanDetailOpen={openHomePlanDetail}
-        onHomeRestockOpen={openHomeRestock}
         onOpenActionGroup={onOpenActionGroup}
         onOpenIngredientShopping={onOpenIngredientShopping}
         onOpenIngredientPriority={onOpenIngredientPriority}
+        onOpenShoppingIntake={onOpenShoppingIntake}
+        onOpenFamilyActivity={onOpenFamilyActivity}
+        onOpenFullWeek={onOpenFullWeek}
+        onRetryHighlights={onRetryHighlights}
         onOpenDetail={openDetail}
-        onShowMorePlans={(date, mealType, items) => {
-          setMorePlansPopover({ date, mealType, items });
-        }}
+        onOpenReconciliation={onOpenReconciliation}
       />
 
       {quickMealDialog && (() => {

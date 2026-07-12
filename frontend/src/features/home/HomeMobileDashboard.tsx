@@ -1,54 +1,110 @@
-import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
-import type { ReactNode } from 'react';
-import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, MealType, Recipe, ShoppingListItem } from '../../api/types';
+import type { KeyboardEvent, ReactNode } from 'react';
+import type { Food, FoodRecommendations, MealType } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
-import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
+import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Badge, EmptyState } from '../../components/ui-kit';
-import { FOOD_TYPE_LABELS, getFoodCover, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import {
-  DASHBOARD_PLAN_MEAL_TYPES,
-  findShoppingIngredient,
   type DashboardPlanDay,
   type DashboardRecommendation,
   type DashboardStat,
+  type HomeHighlightsViewModel,
+  type HomeRequiredAction,
 } from './homeDashboardModel';
+import { HomeCompactCalendar } from './HomeCompactCalendar';
+import { HomeHighlightTimeline } from './HomeHighlightTimeline';
+import { HomeRequiredActions } from './HomeRequiredActions';
 
-function getHomeActionPrimaryLabel(group: InventoryActionGroup) {
-  if (group.kind === 'low_stock') {
-    return '加入采购';
-  }
-  if (group.severity === 'expired') {
-    return '集中处理';
-  }
-  return '查看处理';
+function MobileQuestionHeading(props: { title: string }) {
+  return (
+    <div className="mobile-dashboard-section-head">
+      <h2>
+        {props.title} <span>✦</span>
+      </h2>
+    </div>
+  );
 }
 
-function getHomeActionTone(group: InventoryActionGroup) {
-  if (group.kind === 'low_stock') {
-    return 'low-stock';
+function HomeRecommendationCards(props: {
+  items: DashboardRecommendation[];
+  resolveAssetUrl: (url?: string) => string | undefined;
+  targetMealType?: MealType;
+  isQuickAdding: boolean;
+  isCreatingFoodPlanItem: boolean;
+  onOpenDetail: (food: Food) => void;
+  onQuickStartFood: (food: Food, fallbackMealType?: MealType) => void;
+  onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
+}) {
+  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    props.onOpenDetail(food);
   }
-  if (group.severity === 'expired') {
-    return 'expired';
-  }
-  if (group.severity === 'expires_today' || group.severity === 'expires_soon') {
-    return 'soon';
-  }
-  return 'later';
-}
 
-function getHomeActionEmptyCopy(hasLaterInventoryActionGroups: boolean) {
-  if (hasLaterInventoryActionGroups) {
-    return {
-      title: '今天没有急着处理的食材',
-      description: '4～7 天内的提醒仍可以在食材页查看。',
-    };
+  if (props.items.length === 0) {
+    return <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />;
   }
-  return {
-    title: '当前库存状态平稳',
-    description: '没有过期、临期或待补货的食材需要处理。',
-  };
+
+  return (
+    <div className="mobile-dashboard-recommendation-list">
+      {props.items.map(({ recommendation, coverUrl }) => {
+        const food = recommendation.food;
+        const foodCoverUrl = props.resolveAssetUrl(coverUrl);
+        return (
+          <article
+            key={food.id}
+            className="mobile-dashboard-food-card"
+            data-testid="home-recommendation-card"
+            role="button"
+            tabIndex={0}
+            aria-label={`查看食物详情：${food.name}`}
+            onClick={() => props.onOpenDetail(food)}
+            onKeyDown={(event) => handleRecommendationCardKeyDown(event, food)}
+          >
+            <div className="mobile-dashboard-food-cover">
+              <MediaWithPlaceholder src={foodCoverUrl} alt="" />
+            </div>
+            <div className="mobile-dashboard-food-body">
+              <h3>{food.name}</h3>
+              <div className="mobile-dashboard-badge-row">
+                <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
+                <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+              </div>
+              <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
+              <div className="mobile-dashboard-food-actions">
+                <button
+                  className="mobile-dashboard-primary compact"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onQuickStartFood(food, props.targetMealType);
+                  }}
+                  disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
+                >
+                  开始做
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onHomePlanAddDialogOpen(food, props.targetMealType ?? 'dinner');
+                  }}
+                  disabled={props.isCreatingFoodPlanItem}
+                  aria-label={`加入菜单：${food.name}`}
+                >
+                  <DashboardIcon name="calendar" />
+                </button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
 export type HomeMobileDashboardProps = {
@@ -60,55 +116,50 @@ export type HomeMobileDashboardProps = {
   inventoryAlerts: unknown[];
   notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
-  dashboardRecommendationItems: DashboardRecommendation[];
-  dashboardRecommendationPageCount: number;
-  dashboardRecommendations: DashboardRecommendation[];
+  mobileRecommendations: DashboardRecommendation[];
+  recommendationCount: number;
   foodRecommendations?: FoodRecommendations | null;
-  homeInventoryActionGroups: InventoryActionGroup[];
-  hasLaterInventoryActionGroups: boolean;
-  hasFullListInventoryActionGroups: boolean;
-  activeFoodPlanItems: FoodPlanItem[];
-  dashboardWeekMealCapacity: number;
-  dashboardPlanDays: DashboardPlanDay[];
+  requiredActions: HomeRequiredAction[];
+  hasMoreHomeActions: boolean;
+  compactPlanDays: DashboardPlanDay[];
   selectedDashboardPlanDay?: DashboardPlanDay;
-  selectedDashboardPlanDateLabel: string;
-  pendingShoppingCount: number;
-  pendingShoppingPreview: ShoppingListItem[];
-  foods: Food[];
-  recipes: Recipe[];
-  ingredients: Ingredient[];
+  selectedPlanSummary: string;
+  homeHighlights: HomeHighlightsViewModel;
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
   onNavigate: (tab: TabKey) => void;
   onOpenGlobalSearch: () => void;
-  onRecommendationPageChange: Dispatch<SetStateAction<number>>;
+  onNextMobileRecommendation: () => void;
   onSelectedPlanDateChange: (date: string) => void;
   onFoodPlanPreviousWeek: () => void;
+  onFoodPlanCurrentWeek: () => void;
   onFoodPlanNextWeek: () => void;
   onQuickStartFood: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
-  onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
-  onHomePlanDetailOpen: (item: FoodPlanItem) => void;
-  onHomeRestockOpen: (item: ShoppingListItem) => void;
   onOpenActionGroup: (group: InventoryActionGroup) => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
   onOpenIngredientPriority: () => void;
+  onOpenShoppingIntake: () => void;
+  onOpenFamilyActivity: () => void;
+  onOpenFullWeek: (planDate: string) => void;
+  onRetryHighlights: () => void;
   onOpenDetail: (food: Food) => void;
-  onShowMorePlans?: (date: string, mealType: MealType, items: FoodPlanItem[]) => void;
+  onOpenReconciliation?: (args?: {
+    scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all';
+  }) => void;
 };
 
 export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
-  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
-    if (event.key !== 'Enter' && event.key !== ' ') {
+  const selectedPlanDate = props.selectedDashboardPlanDay?.date ?? props.compactPlanDays[0]?.date ?? '';
+
+  function handleOpenInventoryAction(group: InventoryActionGroup) {
+    if (group.kind === 'low_stock') {
+      props.onOpenIngredientShopping(group.ingredientId);
       return;
     }
-    event.preventDefault();
-    props.onOpenDetail(food);
+    props.onOpenActionGroup(group);
   }
-
-  const emptyCopy = getHomeActionEmptyCopy(props.hasLaterInventoryActionGroups);
-  const visibleGroups = props.homeInventoryActionGroups.slice(0, 3);
 
   return (
     <main className="mobile-dashboard-page" aria-label="手机首页">
@@ -177,7 +228,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
 
       <section className="mobile-dashboard-stat-strip" aria-label="厨房状态">
         {props.dashboardStats.map((item) => (
-          <article key={item.label} className="mobile-dashboard-stat-card">
+          <article key={item.label} className="mobile-dashboard-stat-card" data-testid="mobile-home-stat">
             <span className={`mobile-dashboard-stat-icon tone-${item.tone}`}>
               <DashboardIcon name={item.icon} />
             </span>
@@ -191,256 +242,59 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
         ))}
       </section>
 
-      <section className="mobile-dashboard-panel mobile-dashboard-recommend">
-        <div className="mobile-dashboard-section-head">
-          <h2>今天吃什么 <span>✦</span></h2>
+      <section className="mobile-dashboard-panel mobile-home-question" data-testid="mobile-home-question" data-question="1">
+        <div className="mobile-home-question-head">
+          <MobileQuestionHeading title="今天吃什么" />
           <button
             type="button"
-            onClick={() => props.onRecommendationPageChange((current) => (current + 1) % props.dashboardRecommendationPageCount)}
-            disabled={props.dashboardRecommendationItems.length <= 3}
+            onClick={props.onNextMobileRecommendation}
+            disabled={props.recommendationCount <= 1}
           >
-            换一换
+            换一个
           </button>
         </div>
-        {props.dashboardRecommendations.length > 0 ? (
-          <div className="mobile-dashboard-food-scroller">
-            {props.dashboardRecommendations.map(({ recommendation, coverUrl }) => {
-              const food = recommendation.food;
-              const foodCoverUrl = props.resolveAssetUrl(coverUrl);
-              return (
-                <article
-                  key={food.id}
-                  className="mobile-dashboard-food-card"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`查看食物详情：${food.name}`}
-                  onClick={() => props.onOpenDetail(food)}
-                  onKeyDown={(event) => handleRecommendationCardKeyDown(event, food)}
-                >
-                  <div className="mobile-dashboard-food-cover">
-                    <MediaWithPlaceholder src={foodCoverUrl} alt="" />
-                  </div>
-                  <div className="mobile-dashboard-food-body">
-                    <h3>{food.name}</h3>
-                    <div className="mobile-dashboard-badge-row">
-                      <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
-                      <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
-                    </div>
-                    <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
-                    <div className="mobile-dashboard-food-actions">
-                      <button
-                        className="mobile-dashboard-primary compact"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          props.onQuickStartFood(food, props.foodRecommendations?.target_meal_type);
-                        }}
-                        disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
-                      >
-                        开始做
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          props.onHomePlanAddDialogOpen(food, props.foodRecommendations?.target_meal_type ?? 'dinner');
-                        }}
-                        disabled={props.isCreatingFoodPlanItem}
-                        aria-label={`加入菜单：${food.name}`}
-                      >
-                        <DashboardIcon name="calendar" />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
-        )}
+        <HomeRecommendationCards
+          items={props.mobileRecommendations}
+          resolveAssetUrl={props.resolveAssetUrl}
+          targetMealType={props.foodRecommendations?.target_meal_type}
+          isQuickAdding={props.isQuickAdding}
+          isCreatingFoodPlanItem={props.isCreatingFoodPlanItem}
+          onOpenDetail={props.onOpenDetail}
+          onQuickStartFood={props.onQuickStartFood}
+          onHomePlanAddDialogOpen={props.onHomePlanAddDialogOpen}
+        />
+        <HomeCompactCalendar
+          days={props.compactPlanDays}
+          selectedDate={selectedPlanDate}
+          selectedSummary={props.selectedPlanSummary}
+          onSelectDate={props.onSelectedPlanDateChange}
+          onPreviousWeek={props.onFoodPlanPreviousWeek}
+          onCurrentWeek={props.onFoodPlanCurrentWeek}
+          onNextWeek={props.onFoodPlanNextWeek}
+          onOpenFullWeek={props.onOpenFullWeek}
+          mobile
+        />
       </section>
 
-      <section className="mobile-dashboard-panel mobile-dashboard-action-panel">
-        <div className="mobile-dashboard-section-head">
-          <h2>今天要处理</h2>
-          <button type="button" onClick={props.onOpenIngredientPriority}>
-            查看全部
-          </button>
-        </div>
-        <div className="mobile-dashboard-action-list">
-          {visibleGroups.length > 0 ? (
-            visibleGroups.map((group) => {
-              const tone = getHomeActionTone(group);
-              const primaryLabel = getHomeActionPrimaryLabel(group);
-              return (
-                <article
-                  key={group.id}
-                  data-testid="home-action-group"
-                  className={`mobile-dashboard-action-item action-${tone}`}
-                >
-                  <span className={`mobile-dashboard-action-icon tone-${tone}`}>
-                    <DashboardIcon name={group.kind === 'low_stock' ? 'cart' : 'bell'} />
-                  </span>
-                  <div className="mobile-dashboard-action-copy">
-                    <strong>{group.title}</strong>
-                    <small>{group.detail}</small>
-                  </div>
-                  <button
-                    type="button"
-                    data-testid="home-action-primary"
-                    className="mobile-dashboard-action-primary"
-                    onClick={() => {
-                      if (group.kind === 'low_stock') {
-                        props.onOpenIngredientShopping(group.ingredientId);
-                        return;
-                      }
-                      props.onOpenActionGroup(group);
-                    }}
-                    aria-label={`${primaryLabel}${group.ingredientName}`}
-                  >
-                    {primaryLabel}
-                  </button>
-                </article>
-              );
-            })
-          ) : (
-            <EmptyState title={emptyCopy.title} description={emptyCopy.description} />
-          )}
-        </div>
-      </section>
+      <div className="mobile-home-question" data-testid="mobile-home-question" data-question="2">
+        <HomeRequiredActions
+          actions={props.requiredActions}
+          hasMore={props.hasMoreHomeActions}
+          onOpenInventory={handleOpenInventoryAction}
+          onOpenShoppingIntake={props.onOpenShoppingIntake}
+          onOpenReconciliation={() => props.onOpenReconciliation?.({ scope: 'suggested' })}
+          onViewAll={props.onOpenIngredientPriority}
+        />
+      </div>
 
-      <section className="mobile-dashboard-panel mobile-dashboard-week">
-        <div className="mobile-dashboard-section-head">
-          <h2>本周菜单 <span>{props.activeFoodPlanItems.length} / {props.dashboardWeekMealCapacity} 餐</span></h2>
-          <div className="mobile-dashboard-week-switcher" aria-label="切换菜单周">
-            <button type="button" onClick={props.onFoodPlanPreviousWeek} aria-label="上一周">
-              <DashboardIcon name="arrow-left" />
-              上周
-            </button>
-            <button type="button" onClick={props.onFoodPlanNextWeek} aria-label="下一周">
-              下周
-              <DashboardIcon name="arrow-right" />
-            </button>
-          </div>
-        </div>
-        <div className="mobile-dashboard-week-row">
-          {props.dashboardPlanDays.map((day) => (
-            <button
-              key={day.date}
-              className={[
-                'mobile-dashboard-day-card',
-                day.plannedMealCount > 0 ? 'filled' : '',
-                day.isToday ? 'today' : '',
-                day.isSelected ? 'selected' : '',
-              ].filter(Boolean).join(' ')}
-              type="button"
-              onClick={() => props.onSelectedPlanDateChange(day.date)}
-              aria-pressed={day.isSelected}
-            >
-              <span>{day.weekday}</span>
-              <strong>{day.plannedMealCount}/{DASHBOARD_PLAN_MEAL_TYPES.length}</strong>
-              <small>{day.dayLabel}</small>
-              <i aria-hidden="true">
-                {day.mealItems.map((meal) => (
-                  <b key={meal.mealType} className={meal.items.length > 0 ? `is-filled meal-${meal.mealType}` : `meal-${meal.mealType}`} />
-                ))}
-              </i>
-            </button>
-          ))}
-        </div>
-        {props.selectedDashboardPlanDay && (
-          <div className="mobile-dashboard-plan-detail">
-            <div className="mobile-dashboard-plan-detail-head">
-              <strong>{props.selectedDashboardPlanDateLabel}</strong>
-              <span>{props.selectedDashboardPlanDay.totalCount} 项计划</span>
-            </div>
-            <div className="mobile-dashboard-plan-meals">
-              {props.selectedDashboardPlanDay.mealItems.map((meal) => (
-                <div key={meal.mealType} className={meal.items.length > 0 ? 'mobile-dashboard-plan-meal filled' : 'mobile-dashboard-plan-meal'}>
-                  <span className={`mobile-dashboard-plan-meal-label meal-${meal.mealType}`}>
-                    <DashboardMealIcon mealType={meal.mealType} />
-                    <strong>{MEAL_TYPE_LABELS[meal.mealType]}</strong>
-                  </span>
-                  <div className="mobile-dashboard-plan-meal-dishes">
-                    {meal.items.length > 0 ? (
-                      meal.items.slice(0, 3).map((item) => {
-                        const planFood = props.foods.find((food) => food.id === item.food_id);
-                        const planCoverUrl = props.resolveAssetUrl(planFood ? getFoodCover(planFood, props.recipes) : undefined);
-                        const planTitle = item.recipe_title || item.food_name || planFood?.name || '未命名食物';
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={item.status === 'cooked' ? 'mobile-dashboard-plan-dish cooked' : 'mobile-dashboard-plan-dish'}
-                            onClick={() => props.onHomePlanDetailOpen(item)}
-                            title={planTitle}
-                          >
-                            <MediaWithPlaceholder src={planCoverUrl} alt="" />
-                            <span>{planTitle}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <span className="mobile-dashboard-plan-empty">未安排</span>
-                    )}
-                    {meal.items.length > 3 && (
-                      <button
-                        className="mobile-dashboard-plan-more"
-                        type="button"
-                        onClick={() => props.onShowMorePlans?.(props.selectedDashboardPlanDay!.date, meal.mealType, meal.items)}
-                        title="查看更多计划"
-                      >
-                        +{meal.items.length - 3}
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    className="mobile-dashboard-plan-add"
-                    type="button"
-                    onClick={() => props.onHomePlanAddEmptyDialogOpen(props.selectedDashboardPlanDay!.date, meal.mealType)}
-                    aria-label={`添加${MEAL_TYPE_LABELS[meal.mealType]}计划`}
-                  >
-                    <DashboardIcon name="plus" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="mobile-dashboard-panel">
-        <div className="mobile-dashboard-section-head">
-          <h2>采购提醒 <span>{props.pendingShoppingCount} 项待采购</span></h2>
-          <button type="button" onClick={() => props.onNavigate('ingredients')}>查看清单</button>
-        </div>
-        <div className="mobile-dashboard-shopping-row">
-          {props.pendingShoppingPreview.length > 0 ? (
-            props.pendingShoppingPreview.map((item) => {
-              const ingredient = findShoppingIngredient(item, props.ingredients);
-              const imageUrl = props.resolveAssetUrl(ingredient?.image?.url);
-              return (
-                <button
-                  key={item.id}
-                  className="mobile-dashboard-shopping-pill"
-                  type="button"
-                  onClick={() => props.onHomeRestockOpen(item)}
-                  title={`登记库存：${item.title}`}
-                >
-                  <span>
-                    <MediaWithPlaceholder src={imageUrl} alt="" />
-                  </span>
-                  <strong>{item.title}</strong>
-                  <small>{item.quantity}{item.unit}</small>
-                </button>
-              );
-            })
-          ) : (
-            <p className="subtle">采购清单已清空。</p>
-          )}
-        </div>
-      </section>
+      <div className="mobile-home-question" data-testid="mobile-home-question" data-question="3">
+        <HomeHighlightTimeline
+          viewModel={props.homeHighlights}
+          limit={3}
+          onRetry={props.onRetryHighlights}
+          onViewAll={props.onOpenFamilyActivity}
+        />
+      </div>
     </main>
   );
 }

@@ -255,11 +255,10 @@ function App() {
   );
 
   const {
-    dashboardRecommendationPage,
-    setDashboardRecommendationPage,
     desktopRecommendationCursor,
     mobileRecommendationCursor,
     showNextDesktopRecommendations,
+    showNextMobileRecommendation,
     selectedDashboardPlanDate,
     setSelectedDashboardPlanDate,
     homePlanDetailItemId,
@@ -678,9 +677,8 @@ function App() {
     todaysMeals,
     dashboardStats,
     dashboardRecommendationItems,
-    dashboardRecommendationPageCount,
-    dashboardRecommendations,
     desktopRecommendations,
+    mobileRecommendations,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,
@@ -716,7 +714,6 @@ function App() {
       isError: activityHighlightsQuery.isError,
       isFetching: activityHighlightsQuery.isFetching,
     },
-    dashboardRecommendationPage,
     desktopRecommendationCursor,
     mobileRecommendationCursor,
     selectedDashboardPlanDate,
@@ -984,10 +981,8 @@ function App() {
             inventoryAlerts={inventoryAlerts}
             notificationCenter={mobileNotificationCenter}
             dashboardStats={dashboardStats}
-            dashboardRecommendationItems={dashboardRecommendationItems}
-            dashboardRecommendationPageCount={dashboardRecommendationPageCount}
-            dashboardRecommendations={dashboardRecommendations}
             desktopRecommendations={desktopRecommendations}
+            mobileRecommendations={mobileRecommendations}
             recommendationCount={dashboardRecommendationItems.length}
             foodRecommendations={foodRecommendations}
             homeInventoryActionGroups={homeInventoryActionGroups}
@@ -1020,8 +1015,8 @@ function App() {
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
             onNavigate={handleTabChange}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
-            onRecommendationPageChange={setDashboardRecommendationPage}
             onNextDesktopRecommendations={showNextDesktopRecommendations}
+            onNextMobileRecommendation={showNextMobileRecommendation}
             onStartRecipe={startRecipeCook}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}

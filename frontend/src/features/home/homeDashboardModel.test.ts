@@ -295,7 +295,6 @@ describe('homeDashboardModel', () => {
       recipes: [],
       mealLogs: [meal, { ...meal, id: 'meal-old', date: '2026-05-31' }],
       today,
-      dashboardRecommendationPage: 0,
       selectedDashboardPlanDate: '2026-06-01',
       foodPlanWeekRange: { start: '2026-06-01', end: '2026-06-07' },
     });
@@ -314,8 +313,8 @@ describe('homeDashboardModel', () => {
       unit: '种',
     });
     expect(model.pendingShoppingCount).toBe(1);
-    expect(model.dashboardRecommendationPageCount).toBe(1);
-    expect(model.dashboardRecommendations[0]?.recommendation.food.id).toBe('food-1');
+    expect(model.mobileRecommendations[0]?.recommendation.food.id).toBe('food-1');
+    expect(model.desktopRecommendations[0]?.recommendation.food.id).toBe('food-1');
     expect(model.activeFoodPlanItems).toHaveLength(1);
     expect(model.dashboardPlanDays[0]).toMatchObject({
       date: '2026-06-01',
@@ -480,7 +479,6 @@ describe('homeDashboardModel', () => {
       recipes: [],
       mealLogs: [],
       today,
-      dashboardRecommendationPage: 0,
       selectedDashboardPlanDate: today,
       foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     });
@@ -591,7 +589,6 @@ describe('homeDashboardModel', () => {
       recipes: [],
       mealLogs: [],
       today: '2026-06-01',
-      dashboardRecommendationPage: 0,
       selectedDashboardPlanDate: '2026-06-01',
       foodPlanWeekRange: { start: '2026-06-01', end: '2026-06-07' },
     });

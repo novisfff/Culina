@@ -62,7 +62,6 @@ function buildHomeArgs(overrides: Partial<HomeArgs> = {}): HomeArgs {
       isError: false,
       isFetching: false,
     },
-    dashboardRecommendationPage: 0,
     selectedDashboardPlanDate: '2026-07-12',
     foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     homePlanDetailItemId: null,
