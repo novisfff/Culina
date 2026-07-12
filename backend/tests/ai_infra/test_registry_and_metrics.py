@@ -2,6 +2,8 @@ from typing import Any
 
 from ._support import *
 
+from app.core.enums import ActivityHighlightKind
+from app.services.activity import ActivityHighlight
 from app.services.ai_quality import canonicalize_approval_value
 
 from app.ai.tools.base import ToolDefinition
@@ -14,14 +16,130 @@ from app.services.ai_operations.artifacts import (
     approval_result_workspace_label,
     fallback_type_label,
 )
+from app.services.ai_operations.highlights import reduce_activity_highlights
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
+    DraftHighlightContext,
     DraftNormalizeContext,
     DraftOperationRegistry,
     DraftOperationSpec,
     DraftPostExecuteContext,
 )
+
+
+def _highlight_test_spec(draft_type: str) -> DraftOperationSpec:
+    """Project-native registry fixture; keep every unrelated callback inert."""
+    return DraftOperationSpec(
+        draft_type=draft_type,
+        normalize=lambda context: context.payload,
+        execute=lambda context: (context.payload, []),
+        after_success=None,
+        approval_config=lambda _payload: {"approval_type": f"{draft_type}.apply"},
+        preview_summary=lambda _payload: "测试草稿",
+    )
+
+
+def test_specs_without_classifier_are_audit_only() -> None:
+    registry = DraftOperationRegistry([_highlight_test_spec("shopping_list")])
+    result = registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="shopping_list",
+            submitted_payload={"operations": [{"action": "create"}]},
+            business_entity={"operations": [{"action": "create"}]},
+        )
+    )
+    assert result is None
+
+
+def test_meal_plan_classifier_uses_actual_eligible_results() -> None:
+    context = DraftHighlightContext(
+        draft_type="meal_plan",
+        submitted_payload={"operations": []},
+        business_entity={
+            "operations": [
+                {"action": "create", "item": {"id": "plan-1"}},
+                {"action": "update", "item": {"id": "plan-2"}},
+                {"action": "set_status", "item": {"id": "plan-3"}},
+            ]
+        },
+    )
+    result = draft_operation_registry.classify_highlight(context)
+    assert result == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL_PLAN,
+        summary="完成 2 项菜单安排",
+    )
+
+
+def test_meal_log_classifier_rejects_enrichment_and_accepts_create() -> None:
+    update_result = draft_operation_registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="meal_log",
+            submitted_payload={"action": "update_details"},
+            business_entity={"id": "meal-1"},
+        )
+    )
+    create_result = draft_operation_registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="meal_log",
+            submitted_payload={"action": "create"},
+            business_entity={"id": "meal-2", "meal_type": "dinner"},
+        )
+    )
+    assert update_result is None
+    assert create_result == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary="记录了一次晚餐",
+    )
+
+
+def test_composite_same_kind_reduces_once_and_cross_kind_is_audit_only() -> None:
+    same_kind = reduce_activity_highlights(
+        [
+            ActivityHighlight(ActivityHighlightKind.MEAL_PLAN, "完成 2 项菜单安排"),
+            ActivityHighlight(ActivityHighlightKind.MEAL_PLAN, "完成 1 项菜单安排"),
+        ]
+    )
+    cross_kind = reduce_activity_highlights(
+        [
+            ActivityHighlight(ActivityHighlightKind.MEAL_PLAN, "完成 1 项菜单安排"),
+            ActivityHighlight(ActivityHighlightKind.MEAL, "记录了一次晚餐"),
+        ]
+    )
+    assert same_kind == ActivityHighlight(
+        ActivityHighlightKind.MEAL_PLAN,
+        "完成 2 组菜单安排",
+    )
+    assert cross_kind is None
+
+
+def test_unclassified_draft_specs_remain_audit_only() -> None:
+    cases = [
+        (
+            "recipe",
+            {"action": "create", "payload": {"title": "番茄炒蛋"}},
+            {"id": "recipe-1", "title": "番茄炒蛋"},
+        ),
+        (
+            "shopping_list",
+            {"operations": [{"action": "create"}]},
+            {"operations": [{"action": "create", "item": {"id": "shop-1"}}]},
+        ),
+        (
+            "inventory_operation",
+            {"operations": [{"action": "restock"}]},
+            {"operations": [{"action": "restock", "inventory_item": {"id": "inv-1"}}]},
+        ),
+    ]
+    for draft_type, submitted_payload, business_entity in cases:
+        result = draft_operation_registry.classify_highlight(
+            DraftHighlightContext(
+                draft_type=draft_type,
+                submitted_payload=submitted_payload,
+                business_entity=business_entity,
+            )
+        )
+        assert result is None, draft_type
 
 
 def _add_quality_approval_fixture(

@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
+from app.services.activity import ActivityHighlight
+
 
 AssertUpdatedAt = Callable[..., None]
 DraftNormalizePhase = Literal["proposal", "approval"]
@@ -101,6 +103,16 @@ DEFAULT_DRAFT_RESULT_METADATA = DraftResultMetadata()
 
 
 @dataclass(frozen=True, slots=True)
+class DraftHighlightContext:
+    draft_type: str
+    submitted_payload: dict[str, Any]
+    business_entity: dict[str, Any]
+
+
+DraftHighlightClassifier = Callable[[DraftHighlightContext], ActivityHighlight | None]
+
+
+@dataclass(frozen=True, slots=True)
 class DraftOperationSpec:
     draft_type: str
     normalize: NormalizeDraft
@@ -108,6 +120,7 @@ class DraftOperationSpec:
     after_success: PostExecuteHook | None
     approval_config: ApprovalConfigBuilder
     preview_summary: PreviewSummaryBuilder
+    highlight_classifier: DraftHighlightClassifier | None = None
     validate_approval_value: ApprovalValueValidator = _allow_any_approval_value
     result_metadata: DraftResultMetadata = DEFAULT_DRAFT_RESULT_METADATA
     business_entity_records: BusinessEntityRecordsExtractor | None = None
@@ -232,6 +245,12 @@ class DraftOperationRegistry:
         if spec.load_current_value is None:
             return None
         return spec.load_current_value(db, family_id=family_id, target_id=target_id)
+
+    def classify_highlight(self, context: DraftHighlightContext) -> ActivityHighlight | None:
+        classifier = self.get(context.draft_type).highlight_classifier
+        if classifier is None:
+            return None
+        return classifier(context)
 
 
 

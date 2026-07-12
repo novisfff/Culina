@@ -1,5 +1,75 @@
 from ._support import *
 
+from app.core.enums import ActivityHighlightKind
+from app.services.activity import ActivityHighlight
+from app.services.ai_operations.highlights import classify_approval_highlight
+from app.services.ai_operations.registry import draft_operation_registry
+
+
+def test_composite_mapping_aggregates_same_kind_and_ignores_empty_steps() -> None:
+    result = classify_approval_highlight(
+        draft_operation_registry,
+        draft_type="composite_operation",
+        submitted_payload={
+            "steps": [
+                {
+                    "stepId": "ingredient-1",
+                    "domain": "ingredient",
+                    "operation": {"action": "create", "name": "番茄"},
+                },
+                {
+                    "stepId": "plan-1",
+                    "domain": "meal_plan",
+                    "operation": {"operations": [{"action": "create"}]},
+                },
+                {
+                    "stepId": "plan-2",
+                    "domain": "meal_plan",
+                    "operation": {"operations": [{"action": "create"}]},
+                },
+                {
+                    "stepId": "plan-3",
+                    "domain": "meal_plan",
+                    "operation": {"operations": [{"action": "update"}]},
+                },
+            ]
+        },
+        business_entity={
+            "steps": [
+                {
+                    "stepId": "ingredient-1",
+                    "domain": "ingredient",
+                    "payload": {"id": "ingredient-1", "name": "番茄"},
+                },
+                {
+                    "stepId": "plan-1",
+                    "domain": "meal_plan",
+                    "payload": {
+                        "operations": [{"action": "create", "item": {"id": "plan-1"}}]
+                    },
+                },
+                {
+                    "stepId": "plan-2",
+                    "domain": "meal_plan",
+                    "payload": {
+                        "operations": [{"action": "create", "item": {"id": "plan-2"}}]
+                    },
+                },
+                {
+                    "stepId": "plan-3",
+                    "domain": "meal_plan",
+                    "payload": {
+                        "operations": [{"action": "update", "item": {"id": "plan-3"}}]
+                    },
+                },
+            ]
+        },
+    )
+    assert result == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL_PLAN,
+        summary="完成 3 组菜单安排",
+    )
+
 
 class AICompositeOperationsTestCase(AIAgentInfraTestCase):
         def test_composite_proposal_captures_nested_inventory_concurrency_boundaries(self) -> None:

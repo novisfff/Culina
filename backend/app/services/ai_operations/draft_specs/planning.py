@@ -7,6 +7,8 @@ from app.ai.tools.draft_validation import (
     normalize_meal_plan_draft,
     normalize_shopping_list_draft,
 )
+from app.core.enums import ActivityHighlightKind
+from app.services.activity import ActivityHighlight
 from app.services.ai_operations.meal_logs import execute_meal_log_draft
 from app.services.ai_operations.meal_plans import execute_meal_plan_draft
 from app.services.ai_operations.recovery_loaders import (
@@ -16,6 +18,7 @@ from app.services.ai_operations.recovery_loaders import (
 )
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
+    DraftHighlightContext,
     DraftNormalizeContext,
     DraftOperationSpec,
     DraftResultMetadata,
@@ -206,6 +209,41 @@ def _preview_meal_log(payload: dict[str, Any]) -> str:
     return f"{payload.get('date')} · {payload.get('mealType')} · {len(payload.get('foods') or [])} 个食物项"
 
 
+def _classify_meal_plan_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
+    operations = context.business_entity.get("operations")
+    if isinstance(operations, list):
+        eligible_count = sum(
+            1
+            for operation in operations
+            if isinstance(operation, dict)
+            and operation.get("action") in {"create", "update", "delete"}
+        )
+    else:
+        items = context.business_entity.get("items")
+        eligible_count = len(items) if isinstance(items, list) else 0
+    if eligible_count == 0:
+        return None
+    return ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL_PLAN,
+        summary=f"完成 {eligible_count} 项菜单安排",
+    )
+
+
+def _classify_meal_log_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
+    action = str(context.submitted_payload.get("action") or "create")
+    if action != "create" or not context.business_entity.get("id"):
+        return None
+    meal_type = str(context.business_entity.get("meal_type") or "")
+    label = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "加餐"}.get(
+        meal_type,
+        "用餐",
+    )
+    return ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary=f"记录了一次{label}",
+    )
+
+
 def planning_operation_specs() -> list[DraftOperationSpec]:
     return [
         _spec(
@@ -230,6 +268,7 @@ def planning_operation_specs() -> list[DraftOperationSpec]:
             approval_config=_approval_config_for_meal_plan,
             preview_summary=_preview_meal_plan,
             validate_approval_value=_validate_operation_list_value,
+            highlight_classifier=_classify_meal_plan_highlight,
             result_metadata=DraftResultMetadata(
                 workspace_label="菜单计划",
                 count_noun="条计划",
@@ -245,6 +284,7 @@ def planning_operation_specs() -> list[DraftOperationSpec]:
             approval_config=_approval_config_for_meal_log,
             preview_summary=_preview_meal_log,
             validate_approval_value=_validate_meal_log_approval_value,
+            highlight_classifier=_classify_meal_log_highlight,
             result_metadata=DraftResultMetadata(
                 workspace_label="餐食记录",
                 count_noun="条餐食记录",

@@ -5,12 +5,15 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize_recipe_draft_for_tools
+from app.core.enums import ActivityHighlightKind
 from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.services.activity import ActivityHighlight
 from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
 from app.services.ai_operations.recipes import execute_recipe_draft
 from app.services.ai_operations.recovery_loaders import load_recipe_current_value
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
+    DraftHighlightContext,
     DraftNormalizeContext,
     DraftOperationSpec,
     DraftPostExecuteContext,
@@ -201,6 +204,18 @@ def _preview_recipe_cook(payload: dict[str, Any]) -> str:
     return f"做菜 · {payload.get('title') or '菜谱'} · {payload.get('servings')} 份{suffix}"
 
 
+def _classify_recipe_cook_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
+    cook_log = context.business_entity.get("cook_log")
+    meal_log = context.business_entity.get("meal_log")
+    if not isinstance(cook_log, dict) and not isinstance(meal_log, dict):
+        return None
+    title = str(context.submitted_payload.get("title") or "一道菜").strip()
+    return ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary=f"完成 {title} 并记录用餐",
+    )
+
+
 def recipe_operation_specs() -> list[DraftOperationSpec]:
     return [
         _spec(
@@ -223,6 +238,7 @@ def recipe_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_recipe_cook,
             preview_summary=_preview_recipe_cook,
             validate_approval_value=_validate_recipe_cook_approval_value,
+            highlight_classifier=_classify_recipe_cook_highlight,
             business_entity_records=_recipe_cook_business_entity_records,
             result_metadata=DraftResultMetadata(
                 workspace_label="做菜记录",
