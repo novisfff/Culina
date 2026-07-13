@@ -5,8 +5,11 @@ import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
-import type { ActivityHighlightsResponse, ActivityLog } from '../api/types';
-import type { TabKey } from './AppShell';
+import type { ActivityHighlightsResponse, ActivityLog, FoodPlanItem } from '../api/types';
+import {
+  initialNavigationState,
+  type AppNavigationState,
+} from './appNavigationModel';
 import { useAppWorkspaceQueries } from './useAppWorkspaceQueries';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,12 +20,21 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 let latest: WorkspaceQueries | null = null;
 
+function navigationForPrimary(
+  primaryTab: AppNavigationState['primaryTab'],
+): AppNavigationState {
+  return {
+    ...initialNavigationState,
+    primaryTab,
+  };
+}
+
 function WorkspaceQueriesHarness(props: {
-  activeTab: TabKey;
+  navigationState: AppNavigationState;
   onState: (state: WorkspaceQueries) => void;
 }) {
   const state = useAppWorkspaceQueries({
-    activeTab: props.activeTab,
+    navigationState: props.navigationState,
     isAuthenticated: true,
     foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
   });
@@ -30,7 +42,7 @@ function WorkspaceQueriesHarness(props: {
   return null;
 }
 
-function renderWorkspaceQueries(activeTab: TabKey) {
+function renderWorkspaceQueries(navigationState: AppNavigationState) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -41,7 +53,7 @@ function renderWorkspaceQueries(activeTab: TabKey) {
     root?.render(
       <QueryClientProvider client={client}>
         <WorkspaceQueriesHarness
-          activeTab={activeTab}
+          navigationState={navigationState}
           onState={(state) => { latest = state; }}
         />
       </QueryClientProvider>
@@ -124,7 +136,7 @@ describe('useAppWorkspaceQueries', () => {
     const highlights = vi
       .spyOn(api, 'getActivityHighlights')
       .mockImplementation(() => new Promise<ActivityHighlightsResponse>(() => undefined));
-    const harness = renderWorkspaceQueries('home');
+    const harness = renderWorkspaceQueries(navigationForPrimary('home'));
     await flushQueries();
     expect(highlights).toHaveBeenCalledWith(5);
     expect(harness.current().activityHighlightsQuery.isLoading).toBe(true);
@@ -136,7 +148,7 @@ describe('useAppWorkspaceQueries', () => {
       items: [],
       week_highlight_count: 0,
     });
-    renderWorkspaceQueries('family');
+    renderWorkspaceQueries(navigationForPrimary('family'));
     await flushQueries();
     expect(highlights).not.toHaveBeenCalled();
   });
@@ -147,7 +159,7 @@ describe('useAppWorkspaceQueries', () => {
       week_highlight_count: 0,
     });
     const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
-    renderWorkspaceQueries('home');
+    renderWorkspaceQueries(navigationForPrimary('home'));
     await flushQueries();
     expect(highlights).toHaveBeenCalledWith(5);
     expect(logs).not.toHaveBeenCalled();
@@ -159,7 +171,7 @@ describe('useAppWorkspaceQueries', () => {
       week_highlight_count: 0,
     });
     const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
-    renderWorkspaceQueries('family');
+    renderWorkspaceQueries(navigationForPrimary('family'));
     await flushQueries();
     expect(logs).toHaveBeenCalledWith();
     expect(highlights).not.toHaveBeenCalled();
@@ -169,15 +181,53 @@ describe('useAppWorkspaceQueries', () => {
     vi.spyOn(api, 'getActivityHighlights').mockImplementation(
       () => new Promise<ActivityHighlightsResponse>(() => undefined)
     );
-    const home = renderWorkspaceQueries('home');
+    const home = renderWorkspaceQueries(navigationForPrimary('home'));
     await flushQueries();
     expect(home.current().isBootLoading).toBe(false);
     home.unmount();
     vi.spyOn(api, 'getActivityLogs').mockImplementation(
       () => new Promise<ActivityLog[]>(() => undefined)
     );
-    const family = renderWorkspaceQueries('family');
+    const family = renderWorkspaceQueries(navigationForPrimary('family'));
     await flushQueries();
     expect(family.current().isBootLoading).toBe(false);
+  });
+
+  it('loads food plan detail for plan-detail without treating it as boot loading', async () => {
+    const detail = vi
+      .spyOn(api, 'getFoodPlanItem')
+      .mockImplementation(() => new Promise<FoodPlanItem>(() => undefined));
+    const harness = renderWorkspaceQueries({
+      primaryTab: 'eat',
+      eat: {
+        baseView: 'plan',
+        discoverSection: 'all',
+        task: {
+          kind: 'plan-detail',
+          foodPlanItemId: 'plan-1',
+          returnTo: 'plan',
+        },
+      },
+    });
+    await flushQueries();
+    expect(detail).toHaveBeenCalledWith('plan-1');
+    expect(harness.current().foodPlanDetailQuery.isLoading).toBe(true);
+    expect(harness.current().isBootLoading).toBe(false);
+  });
+
+  it('does not request food plan detail outside plan-detail / plan meal-create', async () => {
+    const detail = vi.spyOn(api, 'getFoodPlanItem').mockResolvedValue({
+      id: 'plan-1',
+    } as FoodPlanItem);
+    renderWorkspaceQueries({
+      primaryTab: 'eat',
+      eat: {
+        baseView: 'plan',
+        discoverSection: 'all',
+        task: null,
+      },
+    });
+    await flushQueries();
+    expect(detail).not.toHaveBeenCalled();
   });
 });

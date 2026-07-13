@@ -421,7 +421,19 @@ function scopeForEatTask(task: EatTask): AppQueryScope {
       }
       return enable(EMPTY_QUERY_SCOPE, keys);
     }
-    case 'meal-create':
+    case 'meal-create': {
+      const keys: Array<keyof AppQueryScope> = [
+        'needsMembers',
+        'needsFoodPlan',
+        'needsFoods',
+        'needsMealLogs',
+      ];
+      // Plan-origin meal-create reuses the ID detail query to attach the plan item.
+      if (task.source.kind === 'plan') {
+        keys.push('needsFoodPlanDetail');
+      }
+      return enable(EMPTY_QUERY_SCOPE, keys);
+    }
     case 'meal-detail':
       return enable(EMPTY_QUERY_SCOPE, [
         'needsMembers',

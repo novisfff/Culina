@@ -422,6 +422,29 @@ describe('appNavigationModel', () => {
       expected: ['needsMembers', 'needsFoodPlan', 'needsFoods', 'needsMealLogs'],
     },
     {
+      name: 'plan meal-create',
+      state: eatState({
+        baseView: 'plan',
+        task: {
+          kind: 'meal-create',
+          source: {
+            kind: 'plan',
+            foodPlanItemId: 'plan-1',
+            planItemBaseUpdatedAt: '2026-07-01T00:00:00.000Z',
+          },
+          foodId: 'food-1',
+          returnTo: 'plan',
+        },
+      }),
+      expected: [
+        'needsMembers',
+        'needsFoodPlan',
+        'needsFoodPlanDetail',
+        'needsFoods',
+        'needsMealLogs',
+      ],
+    },
+    {
       name: 'meal-detail',
       state: eatState({
         baseView: 'history',
