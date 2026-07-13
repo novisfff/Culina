@@ -18,6 +18,7 @@ from app.models.domain import Recipe, RecipeIngredient, RecipeStep
 from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
+    CookRecipePreviewRequest,
     CookRecipePreviewResponse,
     CookRecipeRequest,
     CookRecipeResponse,
@@ -476,7 +477,7 @@ def delete_recipe(
 @router.post("/api/recipes/{recipe_id}/cook-preview", response_model=CookRecipePreviewResponse)
 def preview_cook_recipe(
     recipe_id: str,
-    payload: CookRecipeRequest,
+    payload: CookRecipePreviewRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -538,23 +539,6 @@ def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
 
 
-def _log_rest_cook_compatibility_usage(payload: CookRecipeRequest) -> None:
-    """Emit ID-redacted counters for bounded REST cook compatibility paths."""
-    events: list[str] = []
-    if not payload.completion_request_id:
-        events.append("legacy_missing_completion_request_id")
-    # Read via __dict__ to avoid pydantic DeprecationWarning on deprecated field access.
-    if payload.__dict__.get("create_meal_log") is False:
-        events.append("deprecated_create_meal_log_false")
-    if payload.recipe_plan_item_id and not payload.food_plan_item_id:
-        events.append("deprecated_recipe_plan_item_id")
-    plan_item_id = payload.food_plan_item_id or payload.recipe_plan_item_id
-    if plan_item_id and payload.food_plan_item_base_updated_at is None:
-        events.append("legacy_missing_plan_base_updated_at")
-    for event in events:
-        logger.info("rest_cook_compatibility event=%s", event)
-
-
 @router.post("/api/recipes/{recipe_id}/cook", response_model=CookRecipeResponse)
 def cook_recipe(
     recipe_id: str,
@@ -563,12 +547,8 @@ def cook_recipe(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    _log_rest_cook_compatibility_usage(payload)
-
-    completion_request_id = payload.completion_request_id or create_id("legacy-cook")
-    plan_item_id = payload.food_plan_item_id or payload.recipe_plan_item_id
     command = RecipeCookCompletionCommand(
-        completion_request_id=completion_request_id,
+        completion_request_id=payload.completion_request_id,
         family_id=membership.family_id,
         actor_user_id=user.id,
         recipe_id=recipe_id,
@@ -577,7 +557,7 @@ def cook_recipe(
         servings=Decimal(str(payload.servings)),
         participant_user_ids=tuple(payload.participant_user_ids),
         notes=payload.notes,
-        food_plan_item_id=plan_item_id,
+        food_plan_item_id=payload.food_plan_item_id,
         food_plan_item_base_updated_at=payload.food_plan_item_base_updated_at,
         result_note=payload.result_note.strip(),
         adjustments=payload.adjustments.strip(),

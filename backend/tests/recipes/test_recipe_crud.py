@@ -221,14 +221,15 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
             self.assertEqual(len(favorites), 1)
 
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": "周四晚餐"},
+                "/api/food-plan",
+                json={"food_id": linked_food["id"], "plan_date": "2026-05-14", "meal_type": "dinner", "note": "周四晚餐"},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
             plan_id = plan_response.json()["id"]
             self.assertEqual(plan_response.json()["recipe_title"], "少油番茄炒蛋")
+            self.assertEqual(plan_response.json()["food_id"], linked_food["id"])
 
-            plan_update = self.client.patch(f"/api/recipe-plan/{plan_id}", json={"meal_type": "lunch"})
+            plan_update = self.client.patch(f"/api/food-plan/{plan_id}", json={"meal_type": "lunch"})
             self.assertEqual(plan_update.status_code, 200, plan_update.text)
             self.assertEqual(plan_update.json()["meal_type"], "lunch")
             self.assertEqual(plan_update.json()["status"], "planned")
@@ -253,7 +254,7 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
             scenes = self.client.get("/api/food-scenes").json()
             self.assertEqual(scenes[0]["name"], "孩子也能吃")
 
-            delete_plan = self.client.delete(f"/api/recipe-plan/{plan_id}")
+            delete_plan = self.client.delete(f"/api/food-plan/{plan_id}")
             self.assertEqual(delete_plan.status_code, 204, delete_plan.text)
             delete_favorite = self.client.delete(f"/api/recipe-favorites/{recipe_id}")
             self.assertEqual(delete_favorite.status_code, 204, delete_favorite.text)

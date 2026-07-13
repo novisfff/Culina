@@ -11,7 +11,6 @@ describe('SearchableResourceSelect usages', () => {
       'src/components/ingredients/IngredientInventoryOverlay.tsx',
       'src/components/recipes/RecipeIngredientResolutionDialog.tsx',
       'src/components/recipes/RecipeShoppingDialog.tsx',
-      'src/components/recipes/RecipePlanDialogs.tsx',
       'src/components/foods/FoodPlanDialog.tsx',
       'src/features/home/HomeDashboardDialogs.tsx',
       'src/components/ui-kit/SearchableResourceSelect.tsx',
@@ -80,19 +79,17 @@ describe('SearchableResourceSelect usages', () => {
     expect(source).not.toContain('.slice(0, 10)');
   });
 
-  it('renders food and recipe planning pickers through the unified resource select', () => {
+  it('renders food planning pickers through the unified resource select', () => {
     const files = [
       'src/components/foods/FoodPlanDialog.tsx',
-      'src/components/recipes/RecipePlanDialogs.tsx',
-      'src/components/recipes/RecipeWorkspace.tsx',
+      'src/components/foods/FoodPlanDialogParts.tsx',
       'src/features/home/HomeDashboardDialogs.tsx',
     ];
     const source = files.map((file) => readFileSync(resolve(repoRoot, file), 'utf8')).join('\n');
 
-    // Home restock picker was removed in atomic shopping intake; food/recipe plan pickers remain.
-    expect(source.match(/SearchableResourceSelect/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
-    expect(source.match(/useFoodResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
-    expect(source.match(/useRecipeResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    // Recipe plan pickers were removed with unified eating plan management cleanup.
+    expect(source.match(/SearchableResourceSelect/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(source.match(/useFoodResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(source).toContain('hasMore={');
     expect(source).toContain('onLoadMore={');
     expect(source).not.toContain('recipe-plan-combobox');
@@ -108,7 +105,6 @@ describe('SearchableResourceSelect usages', () => {
       'src/components/ingredients/IngredientInventoryOverlay.tsx',
       'src/components/recipes/RecipeIngredientResolutionDialog.tsx',
       'src/components/recipes/RecipeShoppingDialog.tsx',
-      'src/components/recipes/RecipePlanDialogs.tsx',
       'src/components/foods/FoodPlanDialog.tsx',
       'src/features/home/HomeDashboardDialogs.tsx',
     ];

@@ -731,7 +731,6 @@ const fixtures = {
     frequent: [],
   },
   '/api/recipe-favorites': [],
-  '/api/recipe-plan': [],
   '/api/food-plan': [],
   [`/api/food-plan/${planItemOutsideWeek.id}`]: planItemOutsideWeek,
   '/api/food-scenes': [],
@@ -2185,11 +2184,28 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
 
 async function runLegacyStorageRecoverySmoke(browser, baseUrl) {
   const cases = [
-    { key: 'foods', label: 'legacy foods' },
-    { key: 'recipes', label: 'legacy recipes' },
-    { key: 'logs', label: 'legacy logs' },
-    { key: 'unknown-tab', label: 'unknown tab' },
-    { key: '__corrupt__', label: 'corrupt storage', corrupt: true },
+    {
+      label: 'valid navigation v2',
+      storage: {
+        version: 2,
+        primaryTab: 'eat',
+        eatBaseView: 'discover',
+        discoverSection: 'selfMade',
+      },
+    },
+    {
+      label: 'unknown primary tab',
+      storage: {
+        version: 2,
+        primaryTab: 'mystery',
+        eatBaseView: 'discover',
+        discoverSection: 'selfMade',
+      },
+    },
+    {
+      label: 'corrupt navigation v2',
+      corrupt: true,
+    },
   ];
   for (const entry of cases) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -2197,15 +2213,12 @@ async function runLegacyStorageRecoverySmoke(browser, baseUrl) {
     const pageErrors = [];
     const consoleErrors = [];
     await installApiMocks(context, unexpectedRequests, {});
-    await context.addInitScript(({ key, corrupt }) => {
+    await context.addInitScript(({ storage, corrupt }) => {
       localStorage.setItem('culina-access-token', 'smoke-token');
       if (corrupt) {
         localStorage.setItem('culina-navigation-v2', '{not-json');
-        localStorage.setItem('culina-active-tab', 'foods');
-      } else if (key === 'unknown-tab') {
-        localStorage.setItem('culina-active-tab', 'unknown-tab');
       } else {
-        localStorage.setItem('culina-active-tab', key);
+        localStorage.setItem('culina-navigation-v2', JSON.stringify(storage));
       }
     }, entry);
     const page = await context.newPage();
@@ -2221,10 +2234,6 @@ async function runLegacyStorageRecoverySmoke(browser, baseUrl) {
     });
     if (!primaryVisible) {
       throw new Error(`storage ${entry.label} 未恢复到可见工作区`);
-    }
-    // Legacy foods/recipes/logs should land in eat workspace safely.
-    if (['foods', 'recipes', 'logs'].includes(entry.key)) {
-      await expectVisible(page.getByRole('button', { name: '吃什么' }).first(), `storage ${entry.label} eat nav`);
     }
     if (unexpectedRequests.length > 0) {
       throw new Error(`storage ${entry.label} 未 mock 的 API 请求：\n${unexpectedRequests.join('\n')}`);

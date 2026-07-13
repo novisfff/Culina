@@ -1,5 +1,5 @@
 import type { CompositionEventHandler, Dispatch, ReactNode, Ref, SetStateAction } from 'react';
-import type { RecipePlanItem } from '../../api/types';
+import type { FoodPlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { ActionButton, EmptyState, PageHeader } from '../ui-kit';
 import { SHOW_RECIPE_PLAN_MANAGEMENT } from './RecipeWorkspaceOptions';
@@ -86,8 +86,8 @@ type RecipeLibraryViewProps = {
   onRecipePlanCurrentWeek: () => void;
   onRecipePlanNextWeek: () => void;
   onTogglePlanDay: (date: string) => void;
-  onOpenPlanDetail: (item: RecipePlanItem) => void;
-  onStartPlanDetailCook: (item: RecipePlanItem) => void;
+  onOpenPlanDetail: (item: FoodPlanItem) => void;
+  onStartPlanDetailCook: (item: FoodPlanItem) => void;
 };
 
 export function RecipeLibraryView({

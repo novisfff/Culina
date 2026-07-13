@@ -16,15 +16,12 @@ from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavor
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
     CreateFoodPlanItemRequest,
-    CreateRecipePlanItemRequest,
     CreateFoodSceneRequest,
     FoodPlanItemOut,
     RecipeFavoriteOut,
-    RecipePlanItemOut,
     FoodSceneOut,
     UpdateFoodPlanItemRequest,
     UpdateFoodSceneRequest,
-    UpdateRecipePlanItemRequest,
 )
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.food_plan_locking import (
@@ -632,62 +629,3 @@ def delete_food_plan_item(
     )
     commit_session(db)
     return None
-
-
-@router.get("/api/recipe-plan", response_model=list[RecipePlanItemOut])
-def list_recipe_plan(
-    date_from: date = Query(...),
-    date_to: date = Query(...),
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> list[dict]:
-    return list_food_plan(date_from=date_from, date_to=date_to, q="", auth=auth, db=db)
-
-
-@router.post("/api/recipe-plan", response_model=RecipePlanItemOut, status_code=status.HTTP_201_CREATED)
-def create_recipe_plan_item(
-    payload: CreateRecipePlanItemRequest,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    food = _load_food_for_recipe(db, family_id=membership.family_id, user_id=user.id, recipe_id=payload.recipe_id)
-    return create_food_plan_item(
-        CreateFoodPlanItemRequest(food_id=food.id, plan_date=payload.plan_date, meal_type=payload.meal_type, note=payload.note),
-        auth=auth,
-        db=db,
-    )
-
-
-@router.patch("/api/recipe-plan/{item_id}", response_model=RecipePlanItemOut)
-def update_recipe_plan_item(
-    item_id: str,
-    payload: UpdateRecipePlanItemRequest,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    food_id = None
-    if payload.recipe_id is not None:
-        food_id = _load_food_for_recipe(db, family_id=membership.family_id, user_id=user.id, recipe_id=payload.recipe_id).id
-    return update_food_plan_item(
-        item_id,
-        UpdateFoodPlanItemRequest(
-            food_id=food_id,
-            plan_date=payload.plan_date,
-            meal_type=payload.meal_type,
-            note=payload.note,
-            status=payload.status,
-        ),
-        auth=auth,
-        db=db,
-    )
-
-
-@router.delete("/api/recipe-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-def delete_recipe_plan_item(
-    item_id: str,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> None:
-    return delete_food_plan_item(item_id, auth=auth, db=db)

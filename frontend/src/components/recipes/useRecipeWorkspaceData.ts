@@ -8,7 +8,7 @@ import type {
   Recipe,
   RecipeDiscovery,
   RecipeFavorite,
-  RecipePlanItem,
+  FoodPlanItem,
   RecipeScene,
   RecipeStats,
 } from '../../api/types';
@@ -45,7 +45,7 @@ type UseRecipeWorkspaceDataArgs = {
   recipeFavorites: RecipeFavorite[];
   recipeDiscovery: RecipeDiscovery | null;
   recipeStats: RecipeStats | null;
-  recipePlanItems: RecipePlanItem[];
+  recipePlanItems: FoodPlanItem[];
   recipeScenes: RecipeScene[];
   recipePlanWeekRange: { start: string; end: string };
   quickFilter: RecipeQuickFilter;

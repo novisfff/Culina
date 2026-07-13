@@ -46,7 +46,7 @@ export function RecipeDetailView({
   isCreatingShopping,
   isDeletingRecipe,
   compactHeader = false,
-  showPlanAction = true,
+  showPlanAction = false,
   showShoppingAction = true,
   showFavoriteAction = true,
   showEditAction = true,

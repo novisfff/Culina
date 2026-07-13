@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-RECIPE_COOK_V1 = "recipe_cook_operation.v1"
+RECIPE_COOK_V1 = "recipe_cook_operation.v1"  # historical only; no longer accepted/generated
 RECIPE_COOK_V2 = "recipe_cook_operation.v2"
-RECIPE_COOK_ACCEPTED_VERSIONS = frozenset({RECIPE_COOK_V1, RECIPE_COOK_V2})
-RECIPE_COOK_GENERATED_VERSION = RECIPE_COOK_V1
+RECIPE_COOK_ACCEPTED_VERSIONS = frozenset({RECIPE_COOK_V2})
+RECIPE_COOK_GENERATED_VERSION = RECIPE_COOK_V2
 RECIPE_COOK_PROJECTION_VERSION = 1
 
-KNOWN_DRAFT_CONTRACTS = frozenset(RECIPE_COOK_ACCEPTED_VERSIONS)
+# Capability header may still advertise historical tokens for older clients.
+KNOWN_DRAFT_CONTRACTS = frozenset({RECIPE_COOK_V1, RECIPE_COOK_V2})
 
 AI_DRAFT_CONTRACTS_HEADER = "X-Culina-AI-Draft-Contracts"
 
@@ -50,8 +51,8 @@ def select_recipe_cook_generation_version(
     *,
     generated_version: str,
 ) -> str:
-    if generated_version == RECIPE_COOK_V1:
-        return RECIPE_COOK_V1
+    if generated_version != RECIPE_COOK_V2:
+        raise ClientContractUpgradeRequired()
     if RECIPE_COOK_V2 in capabilities.recipe_cook_versions:
         return RECIPE_COOK_V2
     raise ClientContractUpgradeRequired()

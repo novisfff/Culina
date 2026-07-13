@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { CookRecipePreviewResponse, CookRecipeRequest, CookRecipeResponse } from '../../api/types';
+import type {
+  CookRecipePreviewRequest,
+  CookRecipePreviewResponse,
+  CookRecipeRequest,
+  CookRecipeResponse,
+} from '../../api/types';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import {
   advanceCookTimers,
   buildCookPayload,
+  buildCookPreviewPayload,
   buildDefaultCookSession,
   clampStepIndex,
   clearCookSession,
@@ -86,7 +92,7 @@ export function useRecipeCookState(args: {
   startRecipeReturnTarget?: RecipeCookReturnTarget | null;
   onStartRecipeHandled?: () => void;
   onCookReturnToSource?: (target: RecipeCookReturnTarget) => void;
-  previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
+  previewCookRecipe: (recipeId: string, payload: CookRecipePreviewRequest) => Promise<CookRecipePreviewResponse>;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   isCookingRecipe?: boolean;
   showRecipeNotice: (notice: RecipeNotice) => void;
@@ -172,18 +178,8 @@ export function useRecipeCookState(args: {
     let ignore = false;
     setIsCookPreviewLoading(true);
     setCookPreviewError(null);
-    const completionRequestId = resolveCompletionRequestId(cookSession, activeCookCard.recipe.id);
-    const planItemBaseUpdatedAt = resolvePlanItemBaseUpdatedAt(cookSession);
-    const payload = buildCookPayload({
+    const payload = buildCookPreviewPayload({
       servings: cookSession.servings,
-      date: cookSession.date,
-      mealType: cookSession.mealType,
-      planItemId: cookSession.planItemId,
-      resultNote: '',
-      adjustments: cookSession.adjustments,
-      rating: '',
-      completionRequestId,
-      planItemBaseUpdatedAt,
       allowPartialInventoryDeduction: true,
     });
     const timer = window.setTimeout(() => {
@@ -209,18 +205,7 @@ export function useRecipeCookState(args: {
       ignore = true;
       window.clearTimeout(timer);
     };
-  }, [
-    activeCookCard?.recipe.id,
-    cookSession?.servings,
-    cookSession?.date,
-    cookSession?.mealType,
-    cookSession?.planItemId,
-    cookSession?.adjustments,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    (cookSession as RecipeCookSessionRuntime | null)?.completionRequestId,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    (cookSession as RecipeCookSessionRuntime | null)?.planItemBaseUpdatedAt,
-  ]);
+  }, [activeCookCard?.recipe.id, cookSession?.servings]);
 
   useEffect(() => {
     if (args.view !== 'cook' || !activeCookCard || !cookSession) return;

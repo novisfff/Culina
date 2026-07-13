@@ -272,12 +272,14 @@ describe('useRecipeCookState scoped v3', () => {
     expect(cookRecipe).toHaveBeenCalledWith(
       recipe.id,
       expect.objectContaining({
-        create_meal_log: true,
         completion_request_id: 'cook-request-1',
         food_plan_item_id: 'plan-1',
         food_plan_item_base_updated_at: '2026-07-12T10:00:00Z',
       }),
     );
+    const submittedCall = cookRecipe.mock.calls.at(0) as unknown as [string, Record<string, unknown>] | undefined;
+    expect(submittedCall).toBeDefined();
+    expect(submittedCall?.[1]).not.toHaveProperty('create_meal_log');
     expect(result.current.cookCompletionResult?.mealLogId).toBe('meal-1');
     expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'plan', foodPlanItemId: 'plan-1' }))).toBeNull();
   });

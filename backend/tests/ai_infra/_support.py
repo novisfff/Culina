@@ -1989,7 +1989,7 @@ class AIEvalContext:
         elif name == "ingredient_profile.create_draft":
             payload = {"draft": {"draftType": "ingredient_profile", "schemaVersion": "ingredient_profile.v1", "action": "create", "payload": {"name": f"评估食材-{case.id}", "category": "蔬菜", "default_unit": "个", "default_storage": "冷藏", "default_expiry_mode": "none"}}}
         elif name == "recipe.create_cook_draft":
-            payload = {"draft": {"draftType": "recipe_cook", "schemaVersion": "recipe_cook_operation.v1", "recipeId": self.aliases["tomato_egg_recipe"], "servings": 2}}
+            payload = {"draft": {"draftType": "recipe_cook", "schemaVersion": "recipe_cook_operation.v2", "recipeId": self.aliases["tomato_egg_recipe"], "servings": 2}}
         elif name == "ui.propose_actions":
             return {"surface": "recipe_cook_page", "recipeId": self.aliases["tomato_egg_recipe"], "actions": [{"type": "go_next_step"}]}
         elif name == "inventory.create_operation_draft":
@@ -2085,7 +2085,12 @@ class AIEvalContext:
             )
             for target in self.CLOCK_PATCH_TARGETS:
                 stack.enter_context(patch(target, return_value=self.EVAL_TODAY))
-            response = self.owner.client.post("/api/ai/chat", json=request)
+            # Capable client is required to generate recipe_cook.v2 drafts.
+            response = self.owner.client.post(
+                "/api/ai/chat",
+                json=request,
+                headers={"X-Culina-AI-Draft-Contracts": "recipe_cook_operation.v2"},
+            )
             if any(entry.get("resume") is True for entry in script):
                 initial_payload = response.json()
                 approvals = initial_payload.get("included", {}).get("approvals", [])

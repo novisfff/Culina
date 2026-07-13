@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import {
-  migrateLegacyNavigation,
   parsePersistedNavigation,
   persistedNavigationFromState,
   reduceNavigation,
@@ -8,7 +7,7 @@ import {
   type AppNavigationTarget,
   type EatBaseView,
 } from './appNavigationModel';
-import { readStringStorage, writeJsonStorage } from '../lib/storage';
+import { writeJsonStorage } from '../lib/storage';
 
 export type AppNavigationService = {
   state: AppNavigationState;
@@ -22,20 +21,9 @@ export type AppNavigationService = {
 type FocusIntent = 'task' | 'restore' | null;
 
 const NAVIGATION_V2_KEY = 'culina-navigation-v2';
-const LEGACY_ACTIVE_TAB_KEY = 'culina-active-tab';
 
 function restoreNavigationState(): AppNavigationState {
-  const rawV2 = localStorage.getItem(NAVIGATION_V2_KEY);
-  if (rawV2) {
-    return parsePersistedNavigation(rawV2);
-  }
-
-  const legacyTab = readStringStorage(LEGACY_ACTIVE_TAB_KEY, '');
-  if (legacyTab) {
-    return migrateLegacyNavigation(legacyTab);
-  }
-
-  return parsePersistedNavigation(null);
+  return parsePersistedNavigation(localStorage.getItem(NAVIGATION_V2_KEY));
 }
 
 function targetOpensEatTask(target: AppNavigationTarget): boolean {

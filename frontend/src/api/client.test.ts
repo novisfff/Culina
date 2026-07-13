@@ -124,20 +124,19 @@ describe('paged resource lists', () => {
     const fetchSpy = mockJsonFetch([]);
 
     await api.getFoodPlan('2026-06-01', '2026-06-07', ' 晚餐 ');
-    await api.getRecipePlan('2026-06-01', '2026-06-07');
     await api.getFoodRecommendations({ limit: 5, now: '2026-06-01T18:00:00Z', meal_type: 'dinner' });
     await api.getRecipeStats('2026-06-01', '2026-06-30', 8);
 
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
       '/api/food-plan?date_from=2026-06-01&date_to=2026-06-07&q=%E6%99%9A%E9%A4%90'
     );
-    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/recipe-plan?date_from=2026-06-01&date_to=2026-06-07');
-    expect(String(fetchSpy.mock.calls[2]?.[0])).toContain(
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain(
       '/api/foods/recommendations?limit=5&now=2026-06-01T18%3A00%3A00Z&meal_type=dinner'
     );
-    expect(String(fetchSpy.mock.calls[3]?.[0])).toContain(
+    expect(String(fetchSpy.mock.calls[2]?.[0])).toContain(
       '/api/recipes/stats?limit=8&date_from=2026-06-01&date_to=2026-06-30'
     );
+    expect(fetchSpy.mock.calls.map((call) => String(call[0])).join('\n')).not.toContain('/api/recipe-plan');
   });
 
   it('sends mutation methods and JSON bodies for plan and ingredient updates', async () => {
@@ -146,8 +145,6 @@ describe('paged resource lists', () => {
     await api.createFoodPlanItem({ food_id: 'food-1', plan_date: '2026-06-01', meal_type: 'dinner', note: '加班餐' });
     await api.updateFoodPlanItem('plan-1', { status: 'skipped', note: '临时取消' });
     await api.deleteFoodPlanItem('plan-1');
-    await api.createRecipePlanItem({ recipe_id: 'recipe-1', plan_date: '2026-06-02', meal_type: 'lunch', note: '午餐' });
-    await api.updateRecipePlanItem('recipe-plan-1', { recipe_id: 'recipe-2', status: 'planned' });
     await api.createIngredient({
       name: '番茄',
       category: '蔬菜',
@@ -166,10 +163,9 @@ describe('paged resource lists', () => {
       [expect.stringContaining('/api/food-plan'), 'POST'],
       [expect.stringContaining('/api/food-plan/plan-1'), 'PATCH'],
       [expect.stringContaining('/api/food-plan/plan-1'), 'DELETE'],
-      [expect.stringContaining('/api/recipe-plan'), 'POST'],
-      [expect.stringContaining('/api/recipe-plan/recipe-plan-1'), 'PATCH'],
       [expect.stringContaining('/api/ingredients'), 'POST'],
     ]);
+    expect(fetchSpy.mock.calls.map((call) => String(call[0])).join('\n')).not.toContain('/api/recipe-plan');
     expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
       food_id: 'food-1',
       plan_date: '2026-06-01',
@@ -177,8 +173,7 @@ describe('paged resource lists', () => {
       note: '加班餐',
     });
     expect(JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body))).toEqual({ status: 'skipped', note: '临时取消' });
-    expect(JSON.parse(String(fetchSpy.mock.calls[4]?.[1]?.body))).toEqual({ recipe_id: 'recipe-2', status: 'planned' });
-    expect(JSON.parse(String(fetchSpy.mock.calls[5]?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(String(fetchSpy.mock.calls[3]?.[1]?.body))).toMatchObject({
       name: '番茄',
       quantity_tracking_mode: 'track_quantity',
       media_ids: ['media-1'],

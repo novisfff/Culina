@@ -728,31 +728,7 @@ _RECIPE_COOK_SHARED_PROPERTIES: dict[str, Any] = {
     },
 }
 
-# B1 generator-facing schema remains v1 (includes createMealLog).
-RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "draftType",
-        "schemaVersion",
-        "recipeId",
-        "title",
-        "servings",
-        "date",
-        "mealType",
-        "createMealLog",
-        "previewItems",
-        "shortages",
-        "inventoryBoundaries",
-    ],
-    "properties": {
-        **_RECIPE_COOK_SHARED_PROPERTIES,
-        "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v1"]},
-        "createMealLog": {"type": "boolean"},
-    },
-}
-
-# Persisted acceptance schema for v2 readers/normalizers (no createMealLog).
+# Generator and acceptance schema are v2-only (no createMealLog).
 RECIPE_COOK_DRAFT_V2_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -774,12 +750,15 @@ RECIPE_COOK_DRAFT_V2_SCHEMA: dict[str, Any] = {
     },
 }
 
+# Alias kept for catalog imports that still reference the generic name.
+RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = RECIPE_COOK_DRAFT_V2_SCHEMA
+
 RECIPE_COOK_DRAFT_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "description": (
-        "做菜确认草稿输入。模型只需要提供真实 recipeId、份数和用户明确给出的日期/餐别/记录餐食意图；"
+        "做菜确认草稿输入。模型只需要提供真实 recipeId、份数和用户明确给出的日期/餐别；"
         "previewItems 和 shortages 会由后端根据当前库存重新计算，不要求模型手写。"
-        "B1 生成版本固定为 recipe_cook_operation.v1。"
+        "生成版本固定为 recipe_cook_operation.v2；完成后始终记录餐食。"
     ),
     "additionalProperties": False,
     "required": ["draftType", "schemaVersion", "recipeId", "servings"],

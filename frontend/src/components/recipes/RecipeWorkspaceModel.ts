@@ -1019,19 +1019,35 @@ export function buildCookPayload(args: {
   planItemBaseUpdatedAt?: string | null;
   allowPartialInventoryDeduction?: boolean;
 }): CookRecipeRequest {
+  const planBase = typeof args.planItemBaseUpdatedAt === 'string' ? args.planItemBaseUpdatedAt.trim() : '';
+  if (args.planItemId && !planBase) {
+    // Match backend final contract: plan source requires OCC base. Fail closed in the
+    // client instead of POSTing a body that only 422s after the user finishes cooking.
+    throw new Error('计划来源完成请求缺少菜单版本（planItemBaseUpdatedAt），请重新从菜单打开或刷新后重试。');
+  }
   return {
     servings: Number(args.servings),
     date: args.date,
     meal_type: args.mealType,
-    create_meal_log: true,
     completion_request_id: args.completionRequestId,
     food_plan_item_id: args.planItemId ?? undefined,
-    ...(args.planItemId && args.planItemBaseUpdatedAt
-      ? { food_plan_item_base_updated_at: args.planItemBaseUpdatedAt }
+    ...(args.planItemId
+      ? { food_plan_item_base_updated_at: planBase }
       : {}),
     result_note: args.resultNote.trim(),
     adjustments: args.adjustments.trim(),
     rating: args.rating ? Number(args.rating) : null,
+    ...(args.allowPartialInventoryDeduction ? { allow_partial_inventory_deduction: true } : {}),
+  };
+}
+
+/** Preview must not claim a completion identity or plan OCC token. */
+export function buildCookPreviewPayload(args: {
+  servings: string;
+  allowPartialInventoryDeduction?: boolean;
+}): { servings: number; allow_partial_inventory_deduction?: boolean } {
+  return {
+    servings: Number(args.servings),
     ...(args.allowPartialInventoryDeduction ? { allow_partial_inventory_deduction: true } : {}),
   };
 }

@@ -66,6 +66,9 @@ export function relatedSelfMadeFoods(foods: Food[], recipeId: string): Food[] {
 /**
  * Build cook launch context. When foodPlanItemId is provided, always keep plan
  * source even if the full plan item is missing from the week cache.
+ *
+ * Callers must treat empty planItemBaseUpdatedAt as incomplete OCC and resolve
+ * plan detail before submit (see isCompletableCookLaunch).
  */
 export function buildCookLaunchContext(args: {
   foodPlanItemId?: string;
@@ -95,6 +98,12 @@ export function buildCookLaunchContext(args: {
     servings,
     source: { kind: 'direct' },
   };
+}
+
+/** Plan cook is only completable when OCC base is present; direct cook always is. */
+export function isCompletableCookLaunch(launch: CookLaunchContext): boolean {
+  if (launch.source.kind === 'direct') return true;
+  return Boolean(launch.source.planItemBaseUpdatedAt?.trim());
 }
 
 /** Plan Cook context from a loaded plan detail response + recipe servings. */

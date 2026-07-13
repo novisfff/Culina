@@ -319,11 +319,11 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                                 "stepId": "cook-recipe",
                                 "domain": "recipe_cook",
                                 "operation": {
+                                    "schemaVersion": "recipe_cook_operation.v2",
                                     "recipeId": recipe.id,
                                     "servings": 1,
                                     "date": date.today().isoformat(),
                                     "mealType": "dinner",
-                                    "createMealLog": False,
                                 },
                             }
                         ],
