@@ -290,7 +290,7 @@ describe('resolveEatTask', () => {
           foodsStatus: 'success',
         }),
       ),
-    ).toMatchObject({ kind: 'none' });
+    ).toMatchObject({ kind: 'food-not-found', foodId: 'missing' });
   });
 
   it('resolves plan detail from the ID query and weekContaining(plan_date)', () => {

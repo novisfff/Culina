@@ -43,6 +43,8 @@ type Props = {
   recentMeals: MealLog[];
   isUpdatingMeal: boolean;
   notificationCenter?: ReactNode;
+  /** When set, select this meal log (e.g. meal-detail eat task). */
+  focusMealLogId?: string | null;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onBackHome: () => void;
 };
@@ -74,6 +76,12 @@ export function MealLogWorkspace(props: Props) {
       setSelectedMealId(viewModel.selectedMeal.id);
     }
   }, [selectedMealId, viewModel.selectedMeal?.id]);
+
+  useEffect(() => {
+    if (!props.focusMealLogId) return;
+    if (!props.recentMeals.some((meal) => meal.id === props.focusMealLogId)) return;
+    setSelectedMealId(props.focusMealLogId);
+  }, [props.focusMealLogId, props.recentMeals]);
 
   function openMealRecord(meal: MealLog) {
     setSelectedMealId(meal.id);

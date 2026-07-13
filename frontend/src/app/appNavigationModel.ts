@@ -186,7 +186,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
           task: {
             kind: 'meal-detail',
             mealLogId: target.mealLogId,
-            returnTo: state.eat.baseView,
+            returnTo: 'history',
           },
         });
       }
@@ -355,6 +355,7 @@ function scopeForEatBaseView(baseView: EatBaseView): AppQueryScope {
         'needsIngredients',
         'needsInventory',
         'needsRecipes',
+        'needsFoodPlan',
         'needsFoodScenes',
         'needsFoods',
         'needsFoodRecommendations',

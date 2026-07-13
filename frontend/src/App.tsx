@@ -13,8 +13,13 @@ import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
+import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
-import { resolveEatTask, type QuerySettleStatus } from './features/eat/EatWorkspaceViewModel';
+import {
+  relatedSelfMadeFoods,
+  resolveEatTask,
+  type QuerySettleStatus,
+} from './features/eat/EatWorkspaceViewModel';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -357,8 +362,9 @@ function App() {
   }, [navigation]);
 
   // FoodWorkspace / plan surface still use the legacy (recipeId, foodPlanItemId?) signature.
+  // Exact-one selfMade relation: 0 or >1 matches → recipe-target (never arbitrary find()).
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
-    const linkedFood = foods.find((food) => food.recipe_id === recipeId && food.type === 'selfMade');
+    const related = relatedSelfMadeFoods(foods, recipeId);
     // Prefer latest plan detail query when the cook originates from a plan item.
     const planItem = foodPlanItemId
       ? (
@@ -367,11 +373,12 @@ function App() {
           ?? null
         )
       : null;
-    if (!linkedFood) {
-      // Fall back to recipe-target so relation errors surface in EatWorkspace.
+    if (related.length !== 1) {
+      // Fall back to recipe-target so missing/ambiguous relation errors surface in EatWorkspace.
       navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId });
       return;
     }
+    const linkedFood = related[0];
     const launchContext: CookLaunchContext = planItem
       ? {
           date: planItem.plan_date,
@@ -397,6 +404,21 @@ function App() {
       launchContext,
     });
   }, [foodPlanDetail, foodPlanItems, foods, navigation]);
+
+  const startCookWithFood = useCallback((foodId: string, recipeId: string) => {
+    navigation.navigate({
+      workspace: 'eat',
+      view: 'cook',
+      foodId,
+      recipeId,
+      launchContext: {
+        date: todayKey(),
+        mealType: 'dinner',
+        servings: 1,
+        source: { kind: 'direct' },
+      },
+    });
+  }, [navigation]);
 
   const resolvedEatTask = useMemo(
     () =>
@@ -1168,6 +1190,59 @@ function App() {
             <EatWorkspace
               navigation={navigation}
               resolvedTask={resolvedEatTask}
+              completionPending={
+                cookRecipeMutation.isPending
+                || quickAddMealMutation.isPending
+                || updateFoodPlanItemMutation.isPending
+                || deleteFoodPlanItemMutation.isPending
+              }
+              {...buildEatTaskBodies({
+                resolvedTask: resolvedEatTask,
+                recipes,
+                foods,
+                ingredients,
+                inventoryItems,
+                mealLogs,
+                foodPlanItems,
+                isQuickAdding: quickAddMealMutation.isPending,
+                isUpdatingPlan:
+                  createFoodPlanItemMutation.isPending
+                  || updateFoodPlanItemMutation.isPending
+                  || deleteFoodPlanItemMutation.isPending,
+                isCookingRecipe: cookRecipeMutation.isPending,
+                cookRecipe: (recipeId, payload) =>
+                  cookRecipeMutation.mutateAsync({ recipeId, payload }),
+                previewCookRecipe: (recipeId, payload) =>
+                  previewCookRecipeMutation.mutateAsync({ recipeId, payload }),
+                updateFoodPlanItem: (itemId, payload) =>
+                  updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
+                deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
+                quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
+                onClose: navigation.closeTask,
+                onOpenLogs: () => navigation.navigate({ workspace: 'eat', view: 'history' }),
+                onNavigateFoodEdit: (foodId) =>
+                  navigation.navigate({ workspace: 'eat', view: 'food', foodId }),
+                onNavigateRecipe: (recipeId, mode = 'view') =>
+                  navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId, mode }),
+                onOpenPlanDialog: (_food) => {
+                  navigation.navigate({ workspace: 'eat', view: 'plan' });
+                },
+                onStartCook: startRecipeCook,
+                onStartCookWithFood: startCookWithFood,
+                onQuickAdd: (food, mealType) => {
+                  navigation.navigate({
+                    workspace: 'eat',
+                    view: 'meal-create',
+                    source: { kind: 'direct' },
+                    foodId: food.id,
+                    date: todayKey(),
+                    mealType,
+                  });
+                },
+                onCookCompleted: () => {
+                  navigation.navigate({ workspace: 'eat', view: 'history' });
+                },
+              })}
               discoverContent={
                 <FoodWorkspace
                   surface="discover"
@@ -1261,6 +1336,9 @@ function App() {
                   recentMeals={recentMeals}
                   isUpdatingMeal={updateMealMutation.isPending}
                   notificationCenter={mobileNotificationCenter}
+                  focusMealLogId={
+                    resolvedEatTask.kind === 'meal' ? resolvedEatTask.mealLog.id : null
+                  }
                   updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
                   onBackHome={() => navigation.navigate({ workspace: 'home' })}
                 />

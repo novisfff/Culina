@@ -258,7 +258,24 @@ function renderResolvedTask(
     );
   }
 
+  if (resolved.kind === 'food-not-found') {
+    return (
+      <RelationErrorTask
+        title="这份家常菜已经不存在"
+        description="它可能已被家庭成员删除或更新。"
+        returnLabel={backLabel}
+        headingRef={options.headingRef}
+        onClose={onClose}
+        completionPending={pending}
+      />
+    );
+  }
+
   if (resolved.kind === 'food') {
+    // Full-chrome body (e.g. FoodDetailDrawer) owns its overlay; skip the task shell.
+    if (props.foodTaskContent) {
+      return props.foodTaskContent;
+    }
     return (
       <EatTaskShell
         title={resolved.food.name || '家常菜详情'}
@@ -266,18 +283,19 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.foodTaskContent ?? (
-          <StateBlock
-            status="empty"
-            title={resolved.food.name}
-            description="家常菜任务内容将由上层装配。"
-          />
-        )}
+        <StateBlock
+          status="empty"
+          title={resolved.food.name}
+          description="家常菜任务内容将由上层装配。"
+        />
       </EatTaskShell>
     );
   }
 
   if (resolved.kind === 'ready-recipe') {
+    if (props.recipeTaskContent) {
+      return props.recipeTaskContent;
+    }
     return (
       <EatTaskShell
         title="做法"
@@ -285,14 +303,15 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.recipeTaskContent ?? (
-          <StateBlock status="empty" title="做法" description="做法任务内容将由上层装配。" />
-        )}
+        <StateBlock status="empty" title="做法" description="做法任务内容将由上层装配。" />
       </EatTaskShell>
     );
   }
 
   if (resolved.kind === 'plan') {
+    if (props.planTaskContent) {
+      return props.planTaskContent;
+    }
     return (
       <EatTaskShell
         title={resolved.item.food_name || '菜单项'}
@@ -300,18 +319,19 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.planTaskContent ?? (
-          <StateBlock
-            status="empty"
-            title={resolved.item.food_name}
-            description="菜单项任务内容将由上层装配。"
-          />
-        )}
+        <StateBlock
+          status="empty"
+          title={resolved.item.food_name}
+          description="菜单项任务内容将由上层装配。"
+        />
       </EatTaskShell>
     );
   }
 
   if (resolved.kind === 'cook') {
+    if (props.cookTaskContent) {
+      return props.cookTaskContent;
+    }
     return (
       <EatTaskShell
         title={resolved.recipe.title || '做菜'}
@@ -319,18 +339,19 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.cookTaskContent ?? (
-          <StateBlock
-            status="empty"
-            title={resolved.recipe.title}
-            description="做菜任务内容将由上层装配。"
-          />
-        )}
+        <StateBlock
+          status="empty"
+          title={resolved.recipe.title}
+          description="做菜任务内容将由上层装配。"
+        />
       </EatTaskShell>
     );
   }
 
   if (resolved.kind === 'meal-create') {
+    if (props.mealCreateContent) {
+      return props.mealCreateContent;
+    }
     return (
       <EatTaskShell
         title="记录一餐"
@@ -338,14 +359,15 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.mealCreateContent ?? (
-          <StateBlock status="empty" title="记录一餐" description="新建这餐的内容将由上层装配。" />
-        )}
+        <StateBlock status="empty" title="记录一餐" description="新建这餐的内容将由上层装配。" />
       </EatTaskShell>
     );
   }
 
   if (resolved.kind === 'meal') {
+    if (props.mealTaskContent) {
+      return props.mealTaskContent;
+    }
     return (
       <EatTaskShell
         title="这餐详情"
@@ -353,9 +375,7 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        {props.mealTaskContent ?? (
-          <StateBlock status="empty" title="这餐详情" description="这餐任务内容将由上层装配。" />
-        )}
+        <StateBlock status="empty" title="这餐详情" description="这餐任务内容将由上层装配。" />
       </EatTaskShell>
     );
   }

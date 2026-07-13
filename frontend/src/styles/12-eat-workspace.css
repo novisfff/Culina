@@ -137,6 +137,39 @@
   min-width: 0;
 }
 
+/* Full-chrome task bodies rendered outside EatTaskShell (recipe/cook/food/plan/meal). */
+.eat-recipe-task-body,
+.eat-cook-task-body {
+  min-width: 0;
+  border: 1px solid rgba(49, 30, 20, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 252, 248, 0.98);
+  box-shadow: 0 18px 40px rgba(49, 30, 20, 0.08);
+  overflow: auto;
+  max-height: min(88vh, 960px);
+}
+
+.eat-recipe-task-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 0;
+}
+
+.eat-recipe-task-title {
+  margin: 0;
+  color: #231812;
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.eat-recipe-task-body .recipe-task-surface,
+.eat-cook-task-body .recipe-task-surface {
+  min-width: 0;
+}
+
 .eat-task-relation-copy {
   margin: 0;
   color: var(--text-soft);
@@ -167,11 +200,13 @@
     align-items: start;
   }
 
-  .eat-workspace-layout:not(:has(.eat-task-overlay)) {
+  .eat-workspace-layout:not(:has(.eat-task-overlay)):not(:has(.eat-recipe-task-body)):not(:has(.eat-cook-task-body)):not(:has(.eat-task-body-overlay-root)) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .eat-task-overlay {
+  .eat-task-overlay,
+  .eat-recipe-task-body,
+  .eat-cook-task-body {
     position: sticky;
     top: 12px;
   }

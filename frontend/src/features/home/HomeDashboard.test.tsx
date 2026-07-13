@@ -585,26 +585,12 @@ describe('HomeDashboard three-question desktop', () => {
     expect(onStartPlanRecipe).not.toHaveBeenCalled();
   });
 
-  it('starts plan cook after quick-meal dialog creates a plan item', async () => {
+  it('starts direct cook from quick-meal dialog without creating a plan item', async () => {
     const onStartRecommendedRecipe = vi.fn();
     const onStartPlanRecipe = vi.fn();
-    const createFoodPlanItem = vi.fn(async () => ({
-      id: 'plan-created-1',
-      family_id: 'family-1',
-      user_id: 'user-1',
-      food_id: 'food-0',
-      food_name: '推荐菜 0',
-      food_type: 'selfMade',
-      recipe_id: 'recipe-plan-1',
-      recipe_title: '推荐菜 0',
-      plan_date: '2026-07-14',
-      meal_type: 'dinner' as const,
-      note: '',
-      status: 'planned',
-      meal_log_id: null,
-      created_at: '2026-07-13T00:00:00.000Z',
-      updated_at: '2026-07-13T12:00:00.000Z',
-    }));
+    const createFoodPlanItem = vi.fn(async () => {
+      throw new Error('quick-meal cook should not create a plan item');
+    });
     const food = {
       ...makeFood(0),
       recipe_id: 'recipe-plan-1',
@@ -647,16 +633,14 @@ describe('HomeDashboard three-question desktop', () => {
     await act(async () => {
       form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
-    expect(createFoodPlanItem).toHaveBeenCalled();
-    expect(onStartPlanRecipe).toHaveBeenCalledWith({
+    expect(createFoodPlanItem).not.toHaveBeenCalled();
+    expect(onStartPlanRecipe).not.toHaveBeenCalled();
+    expect(onStartRecommendedRecipe).toHaveBeenCalledWith({
       foodId: 'food-0',
       recipeId: 'recipe-plan-1',
-      foodPlanItemId: 'plan-created-1',
-      planDate: '2026-07-14',
-      mealType: 'dinner',
+      date: expect.any(String),
+      mealType: expect.any(String),
       servings: 1,
-      planItemBaseUpdatedAt: '2026-07-13T12:00:00.000Z',
     });
-    expect(onStartRecommendedRecipe).not.toHaveBeenCalled();
   });
 });

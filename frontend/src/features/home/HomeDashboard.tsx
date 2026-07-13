@@ -224,22 +224,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
     event.preventDefault();
     if (!quickMealDialog) return;
     const current = quickMealDialog;
-    if (current.food.recipe_id) {
-      const planItem = await createFoodPlanItem({
-        food_id: current.food.id,
-        plan_date: current.date,
-        meal_type: current.mealType,
-        note: '',
-      });
+    // Cook path: direct cook without creating a plan item (matches recommendation detail).
+    if ((current.action === 'cook' || current.food.recipe_id) && current.food.recipe_id) {
       setQuickMealDialog(null);
-      onStartPlanRecipe({
+      onStartRecommendedRecipe({
         foodId: current.food.id,
         recipeId: current.food.recipe_id,
-        foodPlanItemId: planItem.id,
-        planDate: planItem.plan_date,
-        mealType: planItem.meal_type,
+        date: current.date,
+        mealType: current.mealType,
         servings: 1,
-        planItemBaseUpdatedAt: planItem.updated_at,
       });
       return;
     }

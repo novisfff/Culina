@@ -8,6 +8,7 @@ export type ResolvedEatTask =
   | { kind: 'none' }
   | { kind: 'loading'; label: string }
   | { kind: 'food'; food: Food }
+  | { kind: 'food-not-found'; foodId: string }
   | { kind: 'ready-recipe'; foodId: string; recipeId: string; mode: 'view' | 'edit' }
   | { kind: 'recipe-not-found'; recipeId: string }
   | { kind: 'recipe-food-missing'; recipe: Recipe }
@@ -44,7 +45,8 @@ function loading(label: string): ResolvedEatTask {
   return { kind: 'loading', label };
 }
 
-function relatedSelfMadeFoods(foods: Food[], recipeId: string): Food[] {
+/** selfMade foods linked to a recipe; cook/view require exactly one match. */
+export function relatedSelfMadeFoods(foods: Food[], recipeId: string): Food[] {
   return foods.filter((food) => food.type === 'selfMade' && food.recipe_id === recipeId);
 }
 
@@ -85,7 +87,7 @@ function resolveFoodDetail(task: Extract<EatTask, { kind: 'food-detail' }>, inpu
   }
   const food = input.foods.find((item) => item.id === task.foodId);
   if (!food) {
-    return { kind: 'none' };
+    return { kind: 'food-not-found', foodId: task.foodId };
   }
   return { kind: 'food', food };
 }

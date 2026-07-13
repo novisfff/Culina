@@ -231,12 +231,11 @@ describe('EatWorkspace', () => {
           navigation,
           resolvedTask,
           completionPending: true,
-          foodTaskContent: <div>食物详情内容</div>,
         })}
       />,
     );
 
-    expect(screen.getByText('食物详情内容')).toBeInTheDocument();
+    expect(screen.getByText('家常菜任务内容将由上层装配。')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(navigation.closeTask).not.toHaveBeenCalled();
 
@@ -284,13 +283,49 @@ describe('EatWorkspace', () => {
               updated_at: '2026-07-01T00:00:00.000Z',
             },
           },
-          foodTaskContent: <div>食物详情内容</div>,
         })}
       />,
     );
 
     await user.keyboard('{Escape}');
     expect(navigation.closeTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders provided food task content without the empty shell placeholder', () => {
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: {
+            kind: 'food',
+            food: {
+              id: 'food-1',
+              family_id: 'family-1',
+              name: 'Tomato eggs',
+              type: 'selfMade',
+              category: 'home',
+              flavor_tags: [],
+              suitable_meal_types: ['dinner'],
+              source_name: '',
+              purchase_source: '',
+              scene: '',
+              images: [],
+              notes: '',
+              routine_note: '',
+              stock_unit: '',
+              storage_location: '',
+              favorite: false,
+              recipe_id: 'recipe-1',
+              row_version: 1,
+              created_at: '2026-07-01T00:00:00.000Z',
+              updated_at: '2026-07-01T00:00:00.000Z',
+            },
+          },
+          foodTaskContent: <div>食物详情内容</div>,
+        })}
+      />,
+    );
+    expect(screen.getByText('食物详情内容')).toBeInTheDocument();
+    expect(screen.queryByText('家常菜任务内容将由上层装配。')).not.toBeInTheDocument();
   });
 
   it('shows recipe-not-found recoverably without write actions', () => {

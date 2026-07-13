@@ -240,6 +240,21 @@ describe('appNavigationModel', () => {
     });
   });
 
+  it('opens meal-detail with returnTo history even when previous base was discover', () => {
+    const opened = reduceNavigation(eatState({ baseView: 'discover' }), {
+      type: 'navigate',
+      target: { workspace: 'eat', view: 'history', mealLogId: 'meal-42' },
+    });
+    expect(opened.eat).toMatchObject({
+      baseView: 'history',
+      task: {
+        kind: 'meal-detail',
+        mealLogId: 'meal-42',
+        returnTo: 'history',
+      },
+    });
+  });
+
   it('closes the current task when switching primary tabs or eat base views', () => {
     const withTask = reduceNavigation(migrateLegacyNavigation('foods'), {
       type: 'navigate',
@@ -300,6 +315,7 @@ describe('appNavigationModel', () => {
         'needsIngredients',
         'needsInventory',
         'needsRecipes',
+        'needsFoodPlan',
         'needsFoodScenes',
         'needsFoods',
         'needsFoodRecommendations',

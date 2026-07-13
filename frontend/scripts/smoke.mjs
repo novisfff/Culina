@@ -2074,7 +2074,7 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
   await page.getByLabel('关闭弹窗').last().click();
   await page.locator('.food-detail-drawer').waitFor({ state: 'detached', timeout: 10_000 });
 
-  // desktop: 搜索 Recipe → recipe-target
+  // desktop: 搜索 Recipe → recipe-target with real recipe detail content
   await page.locator('.dashboard-page').getByRole('button', { name: '全局搜索' }).click();
   await expectVisible(page.getByRole('dialog', { name: '全局搜索' }), `${label} 搜索弹层`);
   await page.getByLabel('搜索食材、食物、菜谱、餐食计划').fill('番茄');
@@ -2082,7 +2082,18 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
   const recipeResult = page.locator('.global-search-result-list button, .global-search-result-list [role="button"]').filter({ hasText: '番茄炒蛋' }).first();
   await expectVisible(recipeResult, `${label} 搜索 Recipe 结果`);
   await recipeResult.click();
-  await expectVisible(page.locator('.eat-task-heading').filter({ hasText: /做法|番茄炒蛋|这份做法/ }).first(), `${label} recipe-target 任务`);
+  await expectVisible(
+    page.getByTestId('eat-recipe-task-body').or(
+      page.locator('.recipe-task-surface, .recipe-detail-subpage, .eat-recipe-task-title').filter({ hasText: /番茄炒蛋|做法|菜谱/ }),
+    ).first(),
+    `${label} recipe-target 任务真实内容`,
+  );
+  await expectVisible(page.getByText('番茄炒蛋').first(), `${label} recipe title`);
+  // Prefer real detail chrome over empty shell placeholder
+  const recipePlaceholder = await page.getByText('做法任务内容将由上层装配').count();
+  if (recipePlaceholder > 0) {
+    throw new Error(`${label} recipe-target 仍是占位内容`);
+  }
 
   // plan search: non-current-week result → detail fetch
   // reopen search from home after closing the eat task
@@ -2106,11 +2117,15 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
     throw new Error(`${label} plan 搜索后菜单 tab 未选中 (aria-selected=${planTabSelected})`);
   }
   await expectVisible(
-    page.locator('.eat-task-heading').filter({ hasText: /番茄|菜单项|smoke non-current-week/ }).or(
-      page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal'),
+    page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal').or(
+      page.locator('.eat-task-heading').filter({ hasText: /番茄|菜单项|smoke non-current-week/ }),
     ).first(),
     `${label} plan 详情任务`,
   );
+  const planPlaceholder = await page.getByText('菜单项任务内容将由上层装配').count();
+  if (planPlaceholder > 0) {
+    throw new Error(`${label} plan 详情仍是占位内容`);
+  }
   // week range for 2026-06-15 is Mon 06/15 – Sun 06/21; surface shows MM/DD - MM/DD
   await page.waitForFunction(() => {
     const head = document.querySelector('.food-sidebar-section-head span');
