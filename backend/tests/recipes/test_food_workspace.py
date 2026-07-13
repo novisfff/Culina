@@ -260,6 +260,25 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                 ActivityHighlightKind.MEAL,
             ])
 
+            replay = self.client.post(
+                "/api/meal-logs/quick-add",
+                json={
+                    "food_id": food["id"],
+                    "date": "2026-05-15",
+                    "meal_type": "lunch",
+                    "servings": 1,
+                    "note": "完成计划",
+                    "food_plan_item_id": plan["id"],
+                },
+            )
+            self.assertEqual(replay.status_code, 201, replay.text)
+            self.assertEqual(replay.json()["id"], quick_add.json()["id"])
+            self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL_PLAN,
+                ActivityHighlightKind.MEAL,
+            ])
+
         def test_food_plan_delete_and_status_only_highlight_matrix(self) -> None:
             food_response = self.client.post(
                 "/api/foods",

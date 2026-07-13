@@ -416,6 +416,9 @@ def quick_add_meal_log(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    # Only first material completion should highlight. Plan-linked quick-add
+    # replays (entry_created=False) and pure no-ops stay audit-only.
+    should_highlight = created or entry_created
     log_activity(
         db,
         family_id=membership.family_id,
@@ -424,9 +427,13 @@ def quick_add_meal_log(
         entity_type="MealLog",
         entity_id=meal_log.id,
         summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
-        highlight=ActivityHighlight(
-            kind=ActivityHighlightKind.MEAL,
-            summary=f"记录了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}",
+        highlight=(
+            ActivityHighlight(
+                kind=ActivityHighlightKind.MEAL,
+                summary=f"记录了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}",
+            )
+            if should_highlight
+            else None
         ),
     )
     _commit_meal_log_session(db)
