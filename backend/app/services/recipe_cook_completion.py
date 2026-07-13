@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActivityAction, ActivityHighlightKind, FoodType, MealType
@@ -151,6 +152,22 @@ def hash_completion_command(command: RecipeCookCompletionCommand) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def normalize_participant_ids_for_hash(
+    *,
+    actor_user_id: str,
+    participant_user_ids: Sequence[str],
+) -> tuple[str, ...]:
+    """Sort/dedupe participant IDs for hashing without active-membership checks.
+
+    Replay must still match the stored claim hash after a member leaves. Active
+    membership is enforced only on the first-write path.
+    """
+    normalized = tuple(sorted({str(value).strip() for value in participant_user_ids if str(value).strip()}))
+    if not normalized:
+        return (actor_user_id,)
+    return normalized
+
+
 def encode_completion_result(response: CookRecipeResponse) -> dict[str, Any]:
     payload = response.model_dump(mode="json")
     payload.pop("replayed", None)
@@ -218,8 +235,8 @@ def claim_completion(
     """Insert the first-write completion claim row and flush.
 
     Called after read locks and before inventory/MealLog/plan/activity writes.
-    On unique conflict the IntegrityError propagates so the caller can roll back
-    and load the winner through load_completion_replay_if_present.
+    On unique conflict the IntegrityError propagates; complete_recipe_cook rolls
+    back and loads the winner through load_completion_replay_if_present.
     """
     cook_log = RecipeCookLog(
         id=create_id("recipe-cook"),
@@ -271,7 +288,8 @@ def discover_completion_inventory_candidates(
     command: RecipeCookCompletionCommand,
 ) -> CompletionInventoryCandidates:
     """Discover lock targets without writing or locking inventory parents."""
-    today = command.cook_date or today_for_family(command.family_id)
+    # Usability filters use family "today"; cook_date remains the meal log date.
+    today = today_for_family(command.family_id)
     ingredient_ids = _unique_sorted_ids(
         [item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id]
     )
@@ -479,7 +497,7 @@ def rebuild_and_validate_completion_plan(
     candidates: CompletionInventoryCandidates,
     locked: LockedInventoryTargets,
 ) -> tuple[list[CookInventoryPlanItem], list[dict]]:
-    today = command.cook_date or today_for_family(command.family_id)
+    today = today_for_family(command.family_id)
     inventory_by_ingredient = _inventory_by_ingredient_from_locked(locked, today=today)
     plan, shortages = build_cook_inventory_plan(
         db,
@@ -496,16 +514,25 @@ def rebuild_and_validate_completion_plan(
     planned_item_ids = {
         deduction.item.id for item in plan for deduction in item.deductions if deduction.item is not None
     }
+    # Plan may only touch parents/items that were discovered and locked. Using the
+    # locked set alone is tautological (plan was built from locked items).
+    locked_ingredient_ids = set(locked.ingredients)
+    locked_item_ids = set(locked.inventory_items)
     candidate_ingredient_ids = set(candidates.ingredient_ids)
     candidate_item_ids = set(candidates.inventory_item_ids)
-    if not planned_ingredient_ids.issubset(candidate_ingredient_ids | set(locked.ingredients)):
+    if not planned_ingredient_ids.issubset(candidate_ingredient_ids):
         raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
-    if not planned_item_ids.issubset(candidate_item_ids | set(locked.inventory_items)):
+    if not planned_item_ids.issubset(candidate_item_ids):
         raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
-    if any(ingredient_id not in locked.ingredients for ingredient_id in planned_ingredient_ids):
+    if not planned_ingredient_ids.issubset(locked_ingredient_ids):
         raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
-    if any(item_id not in locked.inventory_items for item_id in planned_item_ids):
+    if not planned_item_ids.issubset(locked_item_ids):
         raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
+
+    # Required presence states from AI expectation must also be in the locked set.
+    for state_ingredient_id in candidates.required_state_ingredient_ids:
+        if state_ingredient_id not in locked.states_by_ingredient_id:
+            raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
 
     if command.inventory_expectation is not None:
         try:
@@ -613,12 +640,14 @@ def ensure_completion_food_after_claim(
             and food.type == FoodType.SELF_MADE.value
         ):
             return food
+    # Create-only under the held recipe lock. Never rebind an unlocked orphan by name.
     food, _ = ensure_food_for_recipe(
         db,
         family_id=command.family_id,
         user_id=command.actor_user_id,
         recipe=recipe,
         sync_media=False,
+        allow_orphan_rebind=False,
     )
     return food
 
@@ -724,14 +753,14 @@ def successful_completion_response(
 
 
 def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> CookRecipeResponse:
-    normalized_participants = normalize_and_validate_participant_user_ids(
-        db,
-        family_id=command.family_id,
+    # Hash without active-membership checks so an existing claim can replay even if
+    # a participant later leaves the family. Membership is revalidated for writes.
+    hashed_participants = normalize_participant_ids_for_hash(
         actor_user_id=command.actor_user_id,
         participant_user_ids=command.participant_user_ids,
     )
-    normalized_command = replace(command, participant_user_ids=normalized_participants)
-    request_hash = hash_completion_command(normalized_command)
+    hashed_command = replace(command, participant_user_ids=hashed_participants)
+    request_hash = hash_completion_command(hashed_command)
     replay = load_completion_replay_if_present(
         db,
         family_id=command.family_id,
@@ -741,7 +770,7 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
     if replay is not None:
         return replay
 
-    recipe = lock_recipe_for_completion(db, normalized_command)
+    recipe = lock_recipe_for_completion(db, hashed_command)
     replay = load_completion_replay_if_present(
         db,
         family_id=command.family_id,
@@ -750,6 +779,18 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
     )
     if replay is not None:
         return replay
+
+    # First-write path requires currently active participants.
+    normalized_participants = normalize_and_validate_participant_user_ids(
+        db,
+        family_id=command.family_id,
+        actor_user_id=command.actor_user_id,
+        participant_user_ids=command.participant_user_ids,
+    )
+    normalized_command = replace(command, participant_user_ids=normalized_participants)
+    # Defensive: validated set must match the hashed identity used for the claim.
+    if normalized_participants != hashed_participants:
+        raise CompletionConflict(IDEMPOTENCY_KEY_REUSED_CODE, IDEMPOTENCY_KEY_REUSED_MESSAGE)
 
     candidates = discover_completion_inventory_candidates(db, recipe=recipe, command=normalized_command)
     try:
@@ -776,7 +817,22 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
     if shortages and not command.allow_partial_inventory_deduction:
         return blocked_shortage_response(recipe.id, shortages)
 
-    cook_log = claim_completion(db, command=normalized_command, request_hash=request_hash)
+    try:
+        cook_log = claim_completion(db, command=normalized_command, request_hash=request_hash)
+    except IntegrityError as exc:
+        # Claim is the first write. Full rollback matches inventory idempotency and
+        # clears the failed INSERT so we can load the winner's claim cleanly.
+        db.rollback()
+        replay = load_completion_replay_if_present(
+            db,
+            family_id=command.family_id,
+            completion_request_id=command.completion_request_id,
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            return replay
+        raise CompletionConflict(IDEMPOTENCY_KEY_REUSED_CODE, IDEMPOTENCY_KEY_REUSED_MESSAGE) from exc
+
     plan_item = lock_optional_completion_plan_item(
         db,
         command=normalized_command,

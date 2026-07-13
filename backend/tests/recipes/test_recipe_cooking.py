@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from ._support import *
 
-from app.core.enums import ActivityHighlightKind
-from app.models.domain import ActivityLog, FoodPlanItem
+from app.core.enums import ActivityHighlightKind, FoodType, MembershipStatus, UserRole
+from app.models.domain import ActivityLog, Food, FoodPlanItem, Membership, Recipe, User
 from app.schemas.recipes import CookRecipeResponse
 from app.services.recipe_cook_completion import (
     CompletionConflict,
@@ -15,6 +16,7 @@ from app.services.recipe_cook_completion import (
     claim_completion,
     complete_recipe_cook,
     encode_completion_result,
+    ensure_completion_food_after_claim,
     hash_completion_command,
     load_completion_replay_if_present,
 )
@@ -516,6 +518,197 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     ),
                     0,
                 )
+
+        def test_claim_integrity_error_recovers_to_replay(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-claim-race",
+                egg_id="inventory-egg-claim-race",
+            )
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-claim-race",
+            )
+            request_hash = hash_completion_command(command)
+            winner_response = CookRecipeResponse(
+                recipe_id=recipe["id"],
+                consumed_items=[],
+                shortages=[],
+                meal_log_id="meal-claim-race-winner",
+                cook_log_id="cook-claim-race-winner",
+            )
+            with self.SessionLocal() as db:
+                db.add(
+                    RecipeCookLog(
+                        id="cook-claim-race-winner",
+                        family_id=self.family.id,
+                        recipe_id=recipe["id"],
+                        cook_date=command.cook_date,
+                        meal_type=command.meal_type,
+                        servings=command.servings,
+                        result_note=command.result_note,
+                        adjustments=command.adjustments,
+                        rating=command.rating,
+                        completion_request_id=command.completion_request_id,
+                        completion_request_hash=request_hash,
+                        completion_result_json=encode_completion_result(winner_response),
+                        meal_log_id="meal-claim-race-winner",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+
+            load_calls = {"n": 0}
+            real_load = load_completion_replay_if_present
+
+            def load_skipping_early_hits(*args, **kwargs):
+                load_calls["n"] += 1
+                # First two lookups simulate the race window before the winner is visible.
+                if load_calls["n"] <= 2:
+                    return None
+                return real_load(*args, **kwargs)
+
+            with self.SessionLocal() as db:
+                with (
+                    patch(
+                        "app.services.recipe_cook_completion.load_completion_replay_if_present",
+                        side_effect=load_skipping_early_hits,
+                    ),
+                    patch(
+                        "app.services.recipe_cook_completion.claim_completion",
+                        side_effect=IntegrityError("INSERT", {}, Exception("unique")),
+                    ),
+                ):
+                    result = complete_recipe_cook(db, command)
+
+            self.assertIs(result.replayed, True)
+            self.assertEqual(result.cook_log_id, "cook-claim-race-winner")
+            self.assertEqual(result.meal_log_id, "meal-claim-race-winner")
+            with self.SessionLocal() as db:
+                tomato = db.get(InventoryItem, "inventory-tomato-claim-race")
+                egg = db.get(InventoryItem, "inventory-egg-claim-race")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("0"))
+                self.assertEqual(egg.consumed_quantity, Decimal("0"))
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(RecipeCookLog)),
+                    1,
+                )
+
+        def test_ensure_completion_food_does_not_rebind_unlocked_orphan(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False, title="番茄炒蛋-orphan")
+            with self.SessionLocal() as db:
+                orphan = Food(
+                    id="food-orphan-unlocked",
+                    family_id=self.family.id,
+                    name=recipe["title"],
+                    type=FoodType.SELF_MADE.value,
+                    category="家常菜",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=[],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    favorite=False,
+                    recipe_id=None,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(orphan)
+                db.commit()
+
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-orphan",
+                egg_id="inventory-egg-orphan",
+            )
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-orphan-food",
+            )
+            with self.SessionLocal() as db:
+                result = complete_recipe_cook(db, command)
+                db.commit()
+                meal = db.get(MealLog, result.meal_log_id)
+                assert meal is not None
+                food_id = meal.food_entries[0].food_id
+                self.assertNotEqual(food_id, "food-orphan-unlocked")
+                orphan = db.get(Food, "food-orphan-unlocked")
+                assert orphan is not None
+                self.assertIsNone(orphan.recipe_id)
+                linked = db.get(Food, food_id)
+                assert linked is not None
+                self.assertEqual(linked.recipe_id, recipe["id"])
+
+            # Helper unit: create-only when locked set has no linked food.
+            with self.SessionLocal() as db:
+                recipe_row = db.scalar(select(Recipe).where(Recipe.id == recipe["id"]))
+                assert recipe_row is not None
+                # Detach linked food so ensure path runs again against orphan.
+                for food in list(db.scalars(select(Food).where(Food.recipe_id == recipe["id"]))):
+                    food.recipe_id = None
+                db.flush()
+                created = ensure_completion_food_after_claim(
+                    db,
+                    recipe=recipe_row,
+                    command=command,
+                    locked_foods={},
+                )
+                orphan = db.get(Food, "food-orphan-unlocked")
+                assert orphan is not None
+                self.assertIsNone(orphan.recipe_id)
+                self.assertNotEqual(created.id, "food-orphan-unlocked")
+                self.assertEqual(created.recipe_id, recipe["id"])
+                db.rollback()
+
+        def test_replay_after_participant_membership_deactivated(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-participant-replay",
+                egg_id="inventory-egg-participant-replay",
+                tomato_qty="4",
+                egg_qty="6",
+            )
+            with self.SessionLocal() as db:
+                guest = User(
+                    id="user-guest-replay",
+                    username="guest-replay",
+                    display_name="Guest",
+                    avatar_seed="",
+                    is_active=True,
+                )
+                membership = Membership(
+                    id="membership-guest-replay",
+                    family_id=self.family.id,
+                    user_id=guest.id,
+                    role=UserRole.MEMBER,
+                    status=MembershipStatus.ACTIVE,
+                )
+                db.add_all([guest, membership])
+                db.commit()
+
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-participant-replay",
+                participant_user_ids=(self.user.id, "user-guest-replay"),
+            )
+            with self.SessionLocal() as db:
+                first = complete_recipe_cook(db, command)
+                db.commit()
+                self.assertIs(first.replayed, False)
+                membership = db.get(Membership, "membership-guest-replay")
+                assert membership is not None
+                membership.status = MembershipStatus.INVITED
+                db.commit()
+
+            with self.SessionLocal() as db:
+                second = complete_recipe_cook(db, command)
+            self.assertIs(second.replayed, True)
+            self.assertEqual(second.cook_log_id, first.cook_log_id)
+            self.assertEqual(second.meal_log_id, first.meal_log_id)
 
         def test_cook_recipe_deducts_inventory_and_creates_meal_log(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
