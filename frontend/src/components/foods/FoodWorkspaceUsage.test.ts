@@ -17,6 +17,9 @@ describe('FoodWorkspace navigation usage', () => {
 
     expect(appNavigationSource).toContain("target?: 'detail' | 'edit' | 'quickMeal'");
     expect(appNavigationSource).toContain("quickMealAction?: 'eat' | 'cook'");
+    // Global search emits semantic food targets, not Food request IDs.
+    expect(appNavigationSource).toContain("args.navigate({ workspace: 'eat', view: 'food', foodId: selection.entityId })");
+    expect(appNavigationSource).not.toContain('setFoodNavigationRequest');
     expect(stateSource).toContain("args.navigationRequest?.target === 'edit'");
     expect(stateSource).toContain("args.navigationRequest?.target === 'quickMeal'");
     expect(workspaceSource).toContain('resolveFoodNavigationRequestAction');

@@ -357,7 +357,7 @@ export function MealLogWorkspace(props: Props) {
                         <button key={photo.id} className="meal-photo-open-button" type="button" onClick={() => setActivePreviewPhotoId(photo.id)} aria-label="查看大图">
                           <MediaWithPlaceholder
                             src={resolveAssetUrl(photo.url) ?? photo.url}
-                            alt={photo.alt || buildMealTitle(viewModel.selectedMeal)}
+                            alt={photo.alt || buildMealTitle(viewModel.selectedMeal!)}
                           />
                         </button>
                       ))}
