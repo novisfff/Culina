@@ -454,7 +454,176 @@
   }
 
   .inventory-maintenance-scroll {
+    align-content: start;
+    gap: 10px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .inventory-maintenance-state {
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 2px 10px;
+    min-height: 0;
+    padding: 14px;
+    border-style: solid;
+    background: var(--surface-warm, #fcfaf7);
+  }
+
+  .inventory-maintenance-state::before {
+    content: '';
+    grid-row: 1 / span 2;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-soft) 78%, #fff);
+    box-shadow: inset 0 0 0 7px #fff;
+  }
+
+  .inventory-maintenance-state.is-loading::before {
+    border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    border-top-color: var(--accent);
+    background: transparent;
+    box-shadow: none;
+    animation: inventory-maintenance-spin 780ms linear infinite;
+  }
+
+  .inventory-maintenance-state strong,
+  .inventory-maintenance-state p {
+    grid-column: 2;
+    margin: 0;
+  }
+
+  .inventory-maintenance-state strong {
+    font-size: 0.92rem;
+  }
+
+  .inventory-maintenance-state p {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+
+  .inventory-shopping-intake-modal.workspace-modal {
+    border-radius: 26px 26px 0 0;
+    background: var(--surface-2);
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-head {
+    padding: 32px 16px 12px;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-head > .workspace-overlay-titleblock {
+    gap: 3px;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-head > .workspace-overlay-titleblock .subtle {
+    max-width: 26ch;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-body {
+    padding: 0 14px 12px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-section {
+    gap: 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-section-head {
+    padding: 0 2px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-list {
+    gap: 8px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-card {
+    gap: 8px;
+    padding: 12px;
+    border-radius: 16px;
+    background: #fffdfa;
+    box-shadow: none;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-card.is-selected {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--line-soft));
+    background: color-mix(in srgb, var(--accent-soft) 25%, #fffdfa);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-main {
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-main input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+    margin: 0;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-title-row {
+    gap: 6px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-title-row strong {
+    font-size: 0.94rem;
+    line-height: 1.3;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-item-copy > .subtle,
+  .inventory-shopping-intake-modal .inventory-maintenance-item-card > .subtle {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-chip {
+    min-height: 24px;
+    padding-inline: 8px;
+    font-size: 0.7rem;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-freetext-actions {
+    gap: 6px;
+    padding-left: 34px;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-freetext-actions :is(.solid-button, .ghost-button, .tertiary-button) {
+    min-height: 40px;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-footer {
+    margin: 0;
+    padding: 10px 14px max(12px, env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--line-soft);
+    background: var(--surface-2);
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-footer > .workspace-overlay-footer-info {
+    display: none;
+  }
+
+  .inventory-shopping-intake-modal > .workspace-overlay-footer > .workspace-overlay-footer-actions,
+  .inventory-shopping-intake-modal .inventory-maintenance-mobile-actions {
+    width: 100%;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-mobile-actions .ui-form-actions-row {
+    gap: 8px !important;
+  }
+
+  .inventory-shopping-intake-modal .inventory-maintenance-mobile-actions .ui-form-actions-row > button {
+    min-height: 48px !important;
   }
 
   .inventory-maintenance-desktop-actions {
@@ -476,6 +645,16 @@
   .inventory-maintenance-item-card,
   .inventory-maintenance-modal.workspace-modal {
     transition: none;
+  }
+
+  .inventory-maintenance-state.is-loading::before {
+    animation: none;
+  }
+}
+
+@keyframes inventory-maintenance-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -522,15 +701,43 @@
 
 .inventory-reconciliation-layout {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
 .inventory-reconciliation-progress {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 0.88rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-faint);
+  font-size: 0.78rem;
   font-weight: 700;
+}
+
+.inventory-reconciliation-progress progress {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-muted, #f4eee8);
+  appearance: none;
+}
+
+.inventory-reconciliation-progress progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--surface-muted, #f4eee8);
+}
+
+.inventory-reconciliation-progress progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.inventory-reconciliation-progress progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .inventory-reconciliation-group-actions {
@@ -597,6 +804,196 @@
   align-self: start;
 }
 
+.inventory-reconciliation-summary-empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px 4px 6px;
+}
+
+.inventory-reconciliation-summary-icon {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong, var(--accent));
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.inventory-reconciliation-summary-empty strong {
+  font-size: 0.96rem;
+}
+
+.inventory-reconciliation-summary-empty p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.inventory-reconciliation-summary-remaining {
+  margin-top: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--surface-muted, #f4eee8);
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+/* Quick reconciliation is a focused workspace, so keep its shell flatter and denser. */
+.inventory-reconciliation-modal.workspace-modal {
+  border: 1px solid color-mix(in srgb, var(--line-soft) 88%, transparent);
+  background: var(--surface-2, #fffdfb);
+  box-shadow: 0 24px 70px rgba(58, 43, 33, 0.18);
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock {
+  gap: 3px;
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock .eyebrow {
+  color: var(--accent-strong, var(--accent));
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  letter-spacing: -0.035em;
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock .subtle {
+  font-size: 0.86rem;
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-close {
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label {
+  display: none;
+}
+
+.inventory-reconciliation-scroll {
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.inventory-reconciliation-scope.inventory-maintenance-section {
+  gap: 12px;
+  padding: 12px 14px;
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent-soft) 26%, var(--surface-1));
+}
+
+.inventory-reconciliation-scope .inventory-maintenance-chip-group {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.inventory-reconciliation-scope .inventory-maintenance-chip-group::-webkit-scrollbar {
+  display: none;
+}
+
+.inventory-reconciliation-scope .inventory-maintenance-chip-group .ui-option-chip {
+  min-height: 36px;
+  padding-inline: 14px;
+  flex: 0 0 auto;
+}
+
+.inventory-reconciliation-list.inventory-maintenance-section,
+.inventory-reconciliation-side-summary.inventory-maintenance-section {
+  padding: 14px;
+  background: var(--surface-1, #fffdfb);
+}
+
+.inventory-reconciliation-group-card.inventory-maintenance-item-card {
+  gap: 12px;
+  padding: 14px 16px;
+  border-color: var(--line-soft);
+  background: var(--surface-1, #fffdfb);
+  box-shadow: none;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.inventory-reconciliation-group-card.inventory-maintenance-item-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line-soft));
+  box-shadow: 0 8px 22px rgba(73, 49, 33, 0.06);
+}
+
+.inventory-reconciliation-group-card.inventory-maintenance-item-card.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent-soft) 24%, var(--surface-1));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.inventory-reconciliation-group-card .inventory-maintenance-item-copy > .subtle {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.inventory-reconciliation-group-card .inventory-maintenance-chip {
+  min-height: 24px;
+  padding-inline: 8px;
+  font-size: 0.7rem;
+}
+
+.inventory-reconciliation-action-row {
+  align-items: center;
+}
+
+.inventory-reconciliation-action-row :is(.solid-button, .ghost-button, .tertiary-button) {
+  min-height: 38px;
+}
+
+.inventory-reconciliation-side-summary {
+  position: sticky;
+  top: 0;
+}
+
+.inventory-reconciliation-side-summary .inventory-maintenance-summary-list li {
+  padding: 9px 10px;
+  border: 0;
+  background: var(--surface-muted, #f6f0ea);
+}
+
+.inventory-reconciliation-modal > .workspace-overlay-footer {
+  margin-inline: -20px;
+  margin-bottom: 0;
+  padding-inline: 20px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top-color: var(--line-soft);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.inventory-reconciliation-modal .inventory-maintenance-footer-summary {
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 8px;
+}
+
+.inventory-reconciliation-modal .inventory-maintenance-footer-summary p {
+  grid-column: 1 / -1;
+}
+
 @media (min-width: 900px) {
   .inventory-reconciliation-layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.8fr);
@@ -604,7 +1001,7 @@
   }
 
   .inventory-reconciliation-modal.workspace-modal {
-    width: min(960px, calc(100vw - 48px));
+    width: min(1040px, calc(100vw - 48px));
   }
 
   .inventory-reconciliation-batch-fields {
@@ -616,14 +1013,119 @@
   .inventory-reconciliation-modal.workspace-modal {
     width: 100%;
     max-height: calc(100dvh - 8px);
-    min-height: min(92dvh, calc(100dvh - 8px));
+    min-height: 0;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
-    padding-bottom: 0;
+    padding: 0;
   }
 
   .inventory-reconciliation-side-summary {
-    order: -1;
+    position: static;
+    order: 0;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-head {
+    padding: 32px 16px 12px;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock .subtle {
+    max-width: 26ch;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-body {
+    padding: 0 14px 12px;
+  }
+
+  .inventory-reconciliation-scroll {
+    gap: 10px;
+    padding: 0;
+  }
+
+  .inventory-reconciliation-scope.inventory-maintenance-section {
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .inventory-reconciliation-scope .inventory-maintenance-section-head > span,
+  .inventory-reconciliation-scope .inventory-maintenance-section-head em {
+    font-size: 0.76rem;
+  }
+
+  .inventory-reconciliation-scope .inventory-maintenance-chip-group {
+    gap: 6px;
+    margin-inline: -2px;
+    padding: 0 2px 2px;
+  }
+
+  .inventory-reconciliation-scope .inventory-maintenance-chip-group .ui-option-chip {
+    min-height: 40px !important;
+    height: 40px !important;
+    padding-inline: 13px !important;
+    border-radius: 999px !important;
+    font-size: 0.82rem !important;
+  }
+
+  .inventory-reconciliation-progress {
+    gap: 8px;
+    font-size: 0.72rem;
+  }
+
+  .inventory-reconciliation-list.inventory-maintenance-section {
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .inventory-reconciliation-side-summary.inventory-maintenance-section {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .inventory-reconciliation-group-card.inventory-maintenance-item-card {
+    gap: 10px;
+    padding: 11px 12px;
+    border-radius: 16px;
+  }
+
+  .inventory-reconciliation-action-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .inventory-reconciliation-action-row :is(.solid-button, .ghost-button, .tertiary-button) {
+    min-height: 42px;
+    width: 100%;
+    padding-inline: 8px;
+    font-size: 0.82rem;
+  }
+
+  .inventory-reconciliation-action-row .tertiary-button:last-child {
+    grid-column: 1 / -1;
+    width: auto;
+    justify-self: start;
+  }
+
+  .inventory-reconciliation-summary-empty {
+    padding-top: 8px;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-footer > .workspace-overlay-footer-info {
+    display: none;
+  }
+
+  .inventory-reconciliation-modal > .workspace-overlay-footer {
+    margin: 0;
+    padding-inline: 14px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   }
 }
 

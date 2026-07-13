@@ -330,6 +330,52 @@ describe('HomeDashboard three-question desktop', () => {
     expect(desktop.querySelector('[data-testid="home-lower-grid"]')?.classList.contains('home-dashboard-lower-grid')).toBe(true);
   });
 
+  it('opens plan details and quick-adds directly from the selected meal slots', () => {
+    const addMeal = vi.fn();
+    const openDetail = vi.fn();
+    const days = Array.from({ length: 7 }, (_, index) => makePlanDay(index));
+    const plannedItem = {
+      id: 'plan-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-1',
+      food_name: '番茄炒蛋',
+      food_type: 'dish',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: days[0]!.date,
+      meal_type: 'breakfast' as const,
+      note: '',
+      status: 'planned',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-01T00:00:00.000Z',
+    };
+    days[0] = {
+      ...days[0]!,
+      mealItems: days[0]!.mealItems.map((meal) =>
+        meal.mealType === 'breakfast' ? { ...meal, items: [plannedItem] } : meal,
+      ),
+      plannedMealCount: 1,
+      totalCount: 1,
+    };
+
+    const view = renderDashboard({
+      compactPlanDays: days,
+      selectedDashboardPlanDay: days[0],
+      onHomePlanAddEmptyDialogOpen: addMeal,
+      onHomePlanDetailOpen: openDetail,
+    });
+    const desktop = desktopSurface(view);
+
+    act(() => buttonByText(desktop, '番茄炒蛋').click());
+    expect(openDetail).toHaveBeenCalledWith(plannedItem);
+
+    const lunchAdd = desktop.querySelector('button[aria-label="为6日午餐安排餐食"]') as HTMLButtonElement | null;
+    expect(lunchAdd).not.toBeNull();
+    act(() => lunchAdd?.click());
+    expect(addMeal).toHaveBeenCalledWith(days[0]!.date, 'lunch');
+  });
+
   it('renders local loading/error/stale states without hiding the other two questions', () => {
     const retry = vi.fn();
     const view = renderDashboard({
@@ -469,7 +515,7 @@ describe('HomeDashboard three-question desktop', () => {
     expect(onOpenShoppingIntake).toHaveBeenCalledTimes(1);
     expect(onOpenIngredientShopping).toHaveBeenCalledWith(eggs.ingredientId);
 
-    act(() => buttonByText(desktop, '建议再确认').click());
+    act(() => buttonByText(desktop, '核对库存').click());
     expect(onOpenReconciliation).toHaveBeenCalledWith({ scope: 'suggested' });
 
     act(() => buttonByText(desktop, '查看全部').click());

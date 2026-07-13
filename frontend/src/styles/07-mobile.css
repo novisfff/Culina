@@ -5439,16 +5439,128 @@
 
   .mobile-dashboard-meta-row,
   .home-compact-days.is-mobile-scroll {
+    gap: 8px;
+    padding: 2px 16px 4px 1px;
     display: flex;
     overflow-x: auto;
     overscroll-behavior-inline: contain;
+    scroll-padding-inline: 1px 16px;
+    scroll-snap-type: x mandatory;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .home-compact-days.is-mobile-scroll::-webkit-scrollbar,
+  .home-compact-meal-grid::-webkit-scrollbar {
+    display: none;
   }
 
   .home-compact-days.is-mobile-scroll > button {
-    flex: 0 0 72px;
-    min-width: 72px;
-    min-height: 52px;
+    flex: 0 0 96px;
+    min-width: 96px;
+    min-height: 84px;
+    gap: 5px;
+    padding: 9px 10px;
+    scroll-snap-align: start;
+  }
+
+  .home-compact-days.is-mobile-scroll .home-compact-day-date {
+    display: grid;
+    justify-content: start;
+    gap: 2px;
+  }
+
+  .home-compact-days.is-mobile-scroll .home-compact-day-weekday,
+  .home-compact-days.is-mobile-scroll .home-compact-day-date strong,
+  .home-compact-days.is-mobile-scroll .home-compact-day-status {
+    white-space: nowrap;
+  }
+
+  .home-compact-calendar {
+    gap: 11px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .home-compact-calendar-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .home-compact-week-range {
+    grid-column: 1;
+    grid-row: 2;
+    margin-left: 0;
+    color: var(--text-faint);
+    font-size: 0.75rem;
+  }
+
+  .home-compact-calendar-title-icon {
+    display: none;
+  }
+
+  .home-compact-calendar-title p {
+    display: none;
+  }
+
+  .home-compact-calendar-title h3 {
+    font-size: 1.125rem;
+  }
+
+  .home-compact-week-controls {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 12px;
+  }
+
+  .home-compact-week-controls button {
+    min-width: 40px;
+    padding: 0 8px;
+  }
+
+  .home-compact-week-controls .home-compact-current-week {
+    min-width: 50px;
+  }
+
+  .home-compact-full-week-button span {
+    display: none;
+  }
+
+  .home-compact-full-week-button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .home-compact-meal-grid {
+    display: grid;
+    grid-template-columns: none;
+    grid-auto-columns: minmax(148px, 50%);
+    grid-auto-flow: column;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 1px 14px 3px 1px;
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: 1px 14px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .home-compact-meal-slot {
+    min-height: 70px;
+    padding: 8px 9px;
+    scroll-snap-align: start;
+  }
+
+  .home-compact-meal-item,
+  .home-compact-meal-more,
+  .home-compact-meal-add {
+    min-height: 30px;
   }
 
   .mobile-home-question,
@@ -6257,6 +6369,32 @@
 
   .food-plan-modal.recipe-plan-modal {
     max-height: calc(100dvh - 18px);
+  }
+
+  .home-dashboard-overlay-root .home-more-plans-modal.workspace-modal,
+  .home-dashboard-overlay-root .home-plan-add-modal.recipe-plan-modal.workspace-modal {
+    width: calc(100vw - 16px);
+    max-width: none;
+    border-radius: 22px;
+  }
+
+  .home-more-plans-grid {
+    grid-template-columns: 1fr;
+    max-height: min(420px, 58dvh);
+  }
+
+  .home-more-plans-modal .home-more-plans-grid .dashboard-plan-dish {
+    height: 58px;
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .home-more-plans-modal .home-more-plans-grid .dashboard-plan-dish > .media-with-placeholder {
+    width: 58px;
+  }
+
+  .home-dashboard-overlay-root .home-plan-add-modal .ui-searchable-resource-select-list.is-popover {
+    width: 100%;
+    max-height: min(300px, 42dvh);
   }
 
   .food-plan-modal .recipe-plan-dialog-form {

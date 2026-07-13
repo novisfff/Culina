@@ -288,6 +288,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
         onFoodPlanNextWeek={onFoodPlanNextWeek}
         onQuickStartFood={openQuickMealDialog}
         onHomePlanAddDialogOpen={openHomePlanAddDialog}
+        onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
+        onHomePlanDetailOpen={openHomePlanDetail}
+        onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
         onOpenActionGroup={onOpenActionGroup}
         onOpenIngredientShopping={onOpenIngredientShopping}
         onOpenIngredientPriority={onOpenIngredientPriority}
@@ -470,7 +473,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <section className="home-question-one card dashboard-panel">
           <header className="home-question-head home-question-one-head">
             <div>
-              <span>问题 1</span>
               <h2>今天吃什么</h2>
             </div>
             <button
@@ -553,6 +555,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onCurrentWeek={onFoodPlanCurrentWeek}
             onNextWeek={onFoodPlanNextWeek}
             onOpenFullWeek={onOpenFullWeek}
+            onAddMeal={openHomePlanAddEmptyDialog}
+            onOpenPlanDetail={openHomePlanDetail}
+            onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
           />
         </section>
 

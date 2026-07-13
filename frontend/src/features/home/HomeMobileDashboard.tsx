@@ -1,5 +1,5 @@
 import type { KeyboardEvent, ReactNode } from 'react';
-import type { Food, FoodRecommendations, MealType } from '../../api/types';
+import type { Food, FoodPlanItem, FoodRecommendations, MealType } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
@@ -137,6 +137,9 @@ export type HomeMobileDashboardProps = {
   onFoodPlanNextWeek: () => void;
   onQuickStartFood: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
+  onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
+  onHomePlanDetailOpen: (item: FoodPlanItem) => void;
+  onOpenMealPlans: (planDate: string, mealType: MealType, items: FoodPlanItem[]) => void;
   onOpenActionGroup: (group: InventoryActionGroup) => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
   onOpenIngredientPriority: () => void;
@@ -272,6 +275,9 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
           onCurrentWeek={props.onFoodPlanCurrentWeek}
           onNextWeek={props.onFoodPlanNextWeek}
           onOpenFullWeek={props.onOpenFullWeek}
+          onAddMeal={props.onHomePlanAddEmptyDialogOpen}
+          onOpenPlanDetail={props.onHomePlanDetailOpen}
+          onOpenMealPlans={props.onOpenMealPlans}
           mobile
         />
       </section>

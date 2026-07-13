@@ -2028,7 +2028,7 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   const isPhoneViewport = isPhoneViewportSize(viewport);
   const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '查看完整周菜单' }).click();
+  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '完整周菜单', exact: true }).click();
 
   // Unified Eat plan surface (Task 9/10) replaces the legacy foods-tab week page.
   await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} 菜单 tab`);
