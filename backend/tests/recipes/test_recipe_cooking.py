@@ -119,6 +119,74 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(len(meal_rows), 1)
                 self.assertEqual(meal_rows[0].highlight_summary, "完成 番茄炒蛋 并记录用餐")
 
+        def test_cook_recipe_without_meal_log_uses_plain_completion_summary(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            recipe_id = recipe["id"]
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-no-meal",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("2"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-egg-no-meal",
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal("3"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+            cook_response = self.client.post(
+                f"/api/recipes/{recipe_id}/cook",
+                json={
+                    "servings": 2,
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "create_meal_log": False,
+                },
+            )
+            self.assertEqual(cook_response.status_code, 200, cook_response.text)
+            payload = cook_response.json()
+            self.assertIsNone(payload["meal_log_id"])
+            self.assertIsNotNone(payload["cook_log_id"])
+
+            with self.SessionLocal() as db:
+                meal_rows = list(
+                    db.scalars(
+                        select(ActivityLog)
+                        .where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind == ActivityHighlightKind.MEAL,
+                        )
+                        .order_by(ActivityLog.created_at, ActivityLog.id)
+                    )
+                )
+                self.assertEqual(len(meal_rows), 1)
+                self.assertEqual(meal_rows[0].highlight_summary, "完成 番茄炒蛋")
+
         def test_cook_preview_returns_batches_without_deducting_inventory(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
             recipe_id = recipe["id"]

@@ -55,12 +55,53 @@ def test_specs_without_classifier_are_audit_only() -> None:
 def test_meal_plan_classifier_uses_actual_eligible_results() -> None:
     context = DraftHighlightContext(
         draft_type="meal_plan",
-        submitted_payload={"operations": []},
+        submitted_payload={
+            "operations": [
+                {"operationId": "op-1", "action": "create"},
+                {
+                    "operationId": "op-2",
+                    "action": "update",
+                    "before": {"foodId": "food-a", "date": "2026-05-15", "mealType": "dinner"},
+                    "payload": {"foodId": "food-b", "date": "2026-05-15", "mealType": "dinner"},
+                },
+                {"operationId": "op-3", "action": "set_status", "payload": {"status": "cooked"}},
+            ]
+        },
         business_entity={
             "operations": [
-                {"action": "create", "item": {"id": "plan-1"}},
-                {"action": "update", "item": {"id": "plan-2"}},
-                {"action": "set_status", "item": {"id": "plan-3"}},
+                {"operationId": "op-1", "action": "create", "item": {"id": "plan-1"}},
+                {"operationId": "op-2", "action": "update", "item": {"id": "plan-2"}},
+                {"operationId": "op-3", "action": "set_status", "item": {"id": "plan-3"}},
+            ]
+        },
+    )
+    result = draft_operation_registry.classify_highlight(context)
+    assert result == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL_PLAN,
+        summary="完成 2 项菜单安排",
+    )
+
+
+def test_meal_plan_classifier_excludes_note_only_updates() -> None:
+    context = DraftHighlightContext(
+        draft_type="meal_plan",
+        submitted_payload={
+            "operations": [
+                {"operationId": "op-1", "action": "create"},
+                {
+                    "operationId": "op-2",
+                    "action": "update",
+                    "before": {"foodId": "food-a", "date": "2026-05-15", "mealType": "dinner", "reason": "原备注"},
+                    "payload": {"foodId": "food-a", "date": "2026-05-15", "mealType": "dinner", "reason": "新备注"},
+                },
+                {"operationId": "op-3", "action": "delete"},
+            ]
+        },
+        business_entity={
+            "operations": [
+                {"operationId": "op-1", "action": "create", "item": {"id": "plan-1"}},
+                {"operationId": "op-2", "action": "update", "item": {"id": "plan-2"}},
+                {"operationId": "op-3", "action": "delete", "item": {"id": "plan-3"}},
             ]
         },
     )
@@ -72,6 +113,8 @@ def test_meal_plan_classifier_uses_actual_eligible_results() -> None:
 
 
 def test_meal_log_classifier_rejects_enrichment_and_accepts_create() -> None:
+    from app.core.enums import MealType
+
     update_result = draft_operation_registry.classify_highlight(
         DraftHighlightContext(
             draft_type="meal_log",
@@ -86,10 +129,54 @@ def test_meal_log_classifier_rejects_enrichment_and_accepts_create() -> None:
             business_entity={"id": "meal-2", "meal_type": "dinner"},
         )
     )
+    enum_result = draft_operation_registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="meal_log",
+            submitted_payload={"action": "create"},
+            business_entity={"id": "meal-3", "meal_type": MealType.DINNER},
+        )
+    )
     assert update_result is None
     assert create_result == ActivityHighlight(
         kind=ActivityHighlightKind.MEAL,
         summary="记录了一次晚餐",
+    )
+    assert enum_result == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary="记录了一次晚餐",
+    )
+
+
+def test_recipe_cook_classifier_summary_depends_on_meal_log() -> None:
+    with_meal = draft_operation_registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="recipe_cook",
+            submitted_payload={"title": "payload 菜"},
+            business_entity={
+                "title": "番茄炒蛋",
+                "cook_log": {"id": "cook-1"},
+                "meal_log_id": "meal-1",
+            },
+        )
+    )
+    without_meal = draft_operation_registry.classify_highlight(
+        DraftHighlightContext(
+            draft_type="recipe_cook",
+            submitted_payload={"title": "payload 菜"},
+            business_entity={
+                "title": "番茄炒蛋",
+                "cook_log": {"id": "cook-2"},
+                "meal_log_id": None,
+            },
+        )
+    )
+    assert with_meal == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary="完成 番茄炒蛋 并记录用餐",
+    )
+    assert without_meal == ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary="完成 番茄炒蛋",
     )
 
 

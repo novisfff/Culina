@@ -672,7 +672,11 @@ def cook_recipe(
         summary=f"完成菜谱 {recipe.title}，扣减 {len(consumed_items)} 项食材",
         highlight=ActivityHighlight(
             kind=ActivityHighlightKind.MEAL,
-            summary=f"完成 {recipe.title} 并记录用餐",
+            summary=(
+                f"完成 {recipe.title} 并记录用餐"
+                if meal_log_id is not None
+                else f"完成 {recipe.title}"
+            ),
         ),
     )
     try:

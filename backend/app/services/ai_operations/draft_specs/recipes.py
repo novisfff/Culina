@@ -207,12 +207,19 @@ def _preview_recipe_cook(payload: dict[str, Any]) -> str:
 def _classify_recipe_cook_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
     cook_log = context.business_entity.get("cook_log")
     meal_log = context.business_entity.get("meal_log")
+    meal_log_id = context.business_entity.get("meal_log_id")
     if not isinstance(cook_log, dict) and not isinstance(meal_log, dict):
         return None
-    title = str(context.submitted_payload.get("title") or "一道菜").strip()
+    title = str(
+        context.business_entity.get("title")
+        or context.submitted_payload.get("title")
+        or "一道菜"
+    ).strip()
+    recorded_meal = isinstance(meal_log, dict) or bool(meal_log_id)
+    summary = f"完成 {title} 并记录用餐" if recorded_meal else f"完成 {title}"
     return ActivityHighlight(
         kind=ActivityHighlightKind.MEAL,
-        summary=f"完成 {title} 并记录用餐",
+        summary=summary,
     )
 
 
