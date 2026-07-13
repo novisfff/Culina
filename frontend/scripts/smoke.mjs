@@ -2099,6 +2099,41 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
     throw new Error(`${label} 非当周 plan 搜索未触发 GET /api/food-plan/{id}: ${requestedApiPaths.join(',')}`);
   }
 
+  // plan search selection focuses the plan surface / week containing fixture plan_date 2026-06-15
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} plan 搜索后菜单 tab`);
+  const planTabSelected = await page.getByRole('tab', { name: '菜单' }).getAttribute('aria-selected');
+  if (planTabSelected !== 'true') {
+    throw new Error(`${label} plan 搜索后菜单 tab 未选中 (aria-selected=${planTabSelected})`);
+  }
+  await expectVisible(
+    page.locator('.eat-task-heading').filter({ hasText: /番茄|菜单项|smoke non-current-week/ }).or(
+      page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal'),
+    ).first(),
+    `${label} plan 详情任务`,
+  );
+  // week range for 2026-06-15 is Mon 06/15 – Sun 06/21; surface shows MM/DD - MM/DD
+  await page.waitForFunction(() => {
+    const head = document.querySelector('.food-sidebar-section-head span');
+    const text = `${head?.textContent || ''} ${document.body.innerText || ''}`;
+    return (
+      text.includes('06/15')
+      || text.includes('06/16')
+      || text.includes('06/17')
+      || text.includes('06/18')
+      || text.includes('06/19')
+      || text.includes('06/20')
+      || text.includes('06/21')
+      || text.includes('6月15')
+      || text.includes('2026-06-15')
+    );
+  }, undefined, { timeout: 10_000 }).catch(() => {
+    throw new Error(`${label} plan 搜索后未聚焦 fixture 周(2026-06-15)`);
+  });
+  await expectVisible(
+    page.getByTestId('food-plan-week-section').or(page.getByLabel('菜单')).first(),
+    `${label} 菜单周表面`,
+  );
+
   assertClean();
   await context.close();
 }

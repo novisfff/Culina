@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
+import type { HomePlanCookArgs, HomeRecommendedCookArgs } from '../../app/useAppHomeHandlers';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import {
@@ -93,7 +94,10 @@ export type HomeDashboardProps = {
   onOpenGlobalSearch: () => void;
   onNextDesktopRecommendations: () => void;
   onNextMobileRecommendation: () => void;
-  onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
+  /** Direct cook from recommendation/detail — never creates a plan item. */
+  onStartRecommendedRecipe: (input: HomeRecommendedCookArgs) => void;
+  /** Plan cook after creating or opening a plan item. */
+  onStartPlanRecipe: (input: HomePlanCookArgs) => void;
   onSelectedPlanDateChange: (date: string) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
@@ -160,7 +164,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onOpenGlobalSearch,
     onNextDesktopRecommendations,
     onNextMobileRecommendation,
-    onStartRecipe,
+    onStartRecommendedRecipe,
+    onStartPlanRecipe,
     onSelectedPlanDateChange,
     onHomePlanAddDialogOpen: openHomePlanAddDialog,
     onHomePlanAddEmptyDialogOpen: openHomePlanAddEmptyDialog,
@@ -227,7 +232,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
         note: '',
       });
       setQuickMealDialog(null);
-      onStartRecipe(current.food.recipe_id, planItem.id);
+      onStartPlanRecipe({
+        foodId: current.food.id,
+        recipeId: current.food.recipe_id,
+        foodPlanItemId: planItem.id,
+        planDate: planItem.plan_date,
+        mealType: planItem.meal_type,
+        servings: 1,
+        planItemBaseUpdatedAt: planItem.updated_at,
+      });
       return;
     }
     await quickAddMeal({
@@ -372,7 +385,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
               setDetailFood(null);
             }}
             onStartCook={(recipeId) => {
-              onStartRecipe(recipeId);
+              onStartRecommendedRecipe({
+                foodId: detailFood.id,
+                recipeId,
+                date: foodRecommendations?.target_date ?? todayKey(),
+                mealType: foodRecommendations?.target_meal_type ?? getSuggestedHomeMealType(),
+                servings: 1,
+              });
               setDetailFood(null);
             }}
             onQuickAdd={(food, mealType) => {

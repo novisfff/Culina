@@ -356,6 +356,7 @@ function App() {
     navigation.navigate({ workspace: 'eat', view: 'plan' });
   }, [navigation]);
 
+  // FoodWorkspace / plan surface still use the legacy (recipeId, foodPlanItemId?) signature.
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
     const linkedFood = foods.find((food) => food.recipe_id === recipeId && food.type === 'selfMade');
     // Prefer latest plan detail query when the cook originates from a plan item.
@@ -705,6 +706,52 @@ function App() {
     isOwner: membership?.role === 'Owner',
     showNotice,
   });
+
+  const {
+    openIngredientsCatalog,
+    openIngredientDetail,
+    openIngredientShopping,
+    openIngredientPriority,
+    openHomeRestock,
+    closeHomeRestock,
+    closeHomeMealDetail,
+    updateHomeRestockForm,
+    startRecommendedRecipe,
+    startPlanRecipe: startPlanRecipeRaw,
+  } = useAppHomeHandlers({
+    ingredientNavigationRequestIdRef,
+    setIngredientNavigationRequest,
+    navigate: navigation.navigate,
+    setHomeRestockShoppingItemId,
+    setHomeRestockForm,
+    setHomeMealDetailId,
+    ingredients,
+    openShoppingIntake,
+  });
+
+  // Prefer latest foodPlanDetail.updated_at when cook originates from an open plan item.
+  const startPlanRecipe = useCallback(
+    (input: Parameters<typeof startPlanRecipeRaw>[0]) => {
+      const latest =
+        foodPlanDetail && foodPlanDetail.id === input.foodPlanItemId ? foodPlanDetail : null;
+      startPlanRecipeRaw({
+        ...input,
+        planDate: latest?.plan_date ?? input.planDate,
+        mealType: latest?.meal_type ?? input.mealType,
+        planItemBaseUpdatedAt: latest?.updated_at ?? input.planItemBaseUpdatedAt,
+      });
+    },
+    [foodPlanDetail, startPlanRecipeRaw],
+  );
+
+  // Plan-detail task (including global search) focuses the week after detail fetch.
+  useEffect(() => {
+    const task = navigation.state.eat.task;
+    if (task?.kind !== 'plan-detail' || !foodPlanDetail) return;
+    if (foodPlanDetail.id !== task.foodPlanItemId) return;
+    setSelectedRecipePlanDate(foodPlanDetail.plan_date);
+  }, [foodPlanDetail, navigation.state.eat.task]);
+
   if (!isAuthenticated) {
     return <LoginScreen />;
   }
@@ -864,25 +911,6 @@ function App() {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
   }
 
-  const {
-    openIngredientsCatalog,
-    openIngredientDetail,
-    openIngredientShopping,
-    openIngredientPriority,
-    openHomeRestock,
-    closeHomeRestock,
-    closeHomeMealDetail,
-    updateHomeRestockForm,
-  } = useAppHomeHandlers({
-    ingredientNavigationRequestIdRef,
-    setIngredientNavigationRequest,
-    navigate: navigation.navigate,
-    setHomeRestockShoppingItemId,
-    setHomeRestockForm,
-    setHomeMealDetailId,
-    ingredients,
-    openShoppingIntake,
-  });
   void openIngredientsCatalog;
   void openIngredientDetail;
   void closeHomeRestock;
@@ -968,7 +996,7 @@ function App() {
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
-    startRecipeCook,
+    startPlanRecipe,
     openMealLogEnrichment: setHomeMealEnrichmentRequest,
   });
 
@@ -1114,7 +1142,8 @@ function App() {
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onNextDesktopRecommendations={showNextDesktopRecommendations}
             onNextMobileRecommendation={showNextMobileRecommendation}
-            onStartRecipe={startRecipeCook}
+            onStartRecommendedRecipe={startRecommendedRecipe}
+            onStartPlanRecipe={startPlanRecipe}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}

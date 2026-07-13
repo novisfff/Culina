@@ -126,13 +126,29 @@ export function useHomeDashboardActions(input: {
   closeHomePlanDetail: () => void;
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
-  startRecipeCook: (recipeId: string, foodPlanItemId: string) => void;
+  startPlanRecipe: (input: {
+    foodId: string;
+    recipeId: string;
+    foodPlanItemId: string;
+    planDate: string;
+    mealType: FoodPlanItem['meal_type'];
+    servings?: number;
+    planItemBaseUpdatedAt: string;
+  }) => void;
   openMealLogEnrichment: (request: HomeMealEnrichmentOpenRequest) => void;
 }) {
   async function startHomePlanDetailCook(item: FoodPlanItem) {
     input.closeHomePlanDetail();
     if (item.recipe_id) {
-      input.startRecipeCook(item.recipe_id, item.id);
+      input.startPlanRecipe({
+        foodId: item.food_id,
+        recipeId: item.recipe_id,
+        foodPlanItemId: item.id,
+        planDate: item.plan_date,
+        mealType: item.meal_type,
+        servings: 1,
+        planItemBaseUpdatedAt: item.updated_at,
+      });
       return;
     }
     try {

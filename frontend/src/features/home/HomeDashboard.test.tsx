@@ -262,7 +262,8 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     onOpenGlobalSearch: vi.fn(),
     onNextDesktopRecommendations: vi.fn(),
     onNextMobileRecommendation: vi.fn(),
-    onStartRecipe: vi.fn(),
+    onStartRecommendedRecipe: vi.fn(),
+    onStartPlanRecipe: vi.fn(),
     onSelectedPlanDateChange: vi.fn(),
     onHomePlanAddDialogOpen: vi.fn(),
     onHomePlanAddEmptyDialogOpen: vi.fn(),
@@ -530,5 +531,132 @@ describe('HomeDashboard three-question desktop', () => {
     expect(onNavigate).not.toHaveBeenCalledWith('ingredients');
     expect(onNavigate).not.toHaveBeenCalledWith('foods');
     expect(onNavigate).not.toHaveBeenCalledWith('recipes');
+  });
+
+  it('starts direct cook from food detail with complete recommendation launch context', () => {
+    const onStartRecommendedRecipe = vi.fn();
+    const onStartPlanRecipe = vi.fn();
+    const food = {
+      ...makeFood(0),
+      recipe_id: 'recipe-direct-1',
+    };
+    const view = renderDashboard({
+      desktopRecommendations: [
+        {
+          recommendation: {
+            food,
+            score: 0.95,
+            reasons: ['今日推荐'],
+            primary_action: 'cook_recipe',
+          },
+          coverUrl: undefined,
+        },
+      ],
+      recommendationCount: 1,
+      foodRecommendations: {
+        target_meal_type: 'lunch',
+        target_date: '2026-07-14',
+        items: [
+          {
+            food,
+            score: 0.95,
+            reasons: ['今日推荐'],
+            primary_action: 'cook_recipe',
+          },
+        ],
+      },
+      onStartRecommendedRecipe,
+      onStartPlanRecipe,
+    });
+    const desktop = desktopSurface(view);
+    const card = desktop.querySelector('[data-testid="home-recommendation-card"]') as HTMLElement | null;
+    expect(card).not.toBeNull();
+    act(() => card?.click());
+    const startCook = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('开始做'));
+    expect(startCook).toBeDefined();
+    act(() => startCook?.click());
+    expect(onStartRecommendedRecipe).toHaveBeenCalledWith({
+      foodId: food.id,
+      recipeId: 'recipe-direct-1',
+      date: '2026-07-14',
+      mealType: 'lunch',
+      servings: 1,
+    });
+    expect(onStartPlanRecipe).not.toHaveBeenCalled();
+  });
+
+  it('starts plan cook after quick-meal dialog creates a plan item', async () => {
+    const onStartRecommendedRecipe = vi.fn();
+    const onStartPlanRecipe = vi.fn();
+    const createFoodPlanItem = vi.fn(async () => ({
+      id: 'plan-created-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-0',
+      food_name: '推荐菜 0',
+      food_type: 'selfMade',
+      recipe_id: 'recipe-plan-1',
+      recipe_title: '推荐菜 0',
+      plan_date: '2026-07-14',
+      meal_type: 'dinner' as const,
+      note: '',
+      status: 'planned',
+      meal_log_id: null,
+      created_at: '2026-07-13T00:00:00.000Z',
+      updated_at: '2026-07-13T12:00:00.000Z',
+    }));
+    const food = {
+      ...makeFood(0),
+      recipe_id: 'recipe-plan-1',
+    };
+    const view = renderDashboard({
+      desktopRecommendations: [
+        {
+          recommendation: {
+            food,
+            score: 0.9,
+            reasons: ['可做'],
+            primary_action: 'cook_recipe',
+          },
+          coverUrl: undefined,
+        },
+      ],
+      recommendationCount: 1,
+      foodRecommendations: {
+        target_meal_type: 'dinner',
+        target_date: '2026-07-14',
+        items: [
+          {
+            food,
+            score: 0.9,
+            reasons: ['可做'],
+            primary_action: 'cook_recipe',
+          },
+        ],
+      },
+      createFoodPlanItem,
+      onStartRecommendedRecipe,
+      onStartPlanRecipe,
+    });
+    const desktop = desktopSurface(view);
+    const startButton = Array.from(desktop.querySelectorAll('button')).find((button) => button.textContent?.includes('开始做'));
+    expect(startButton).toBeDefined();
+    act(() => startButton?.click());
+    const form = view.querySelector('form');
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(createFoodPlanItem).toHaveBeenCalled();
+    expect(onStartPlanRecipe).toHaveBeenCalledWith({
+      foodId: 'food-0',
+      recipeId: 'recipe-plan-1',
+      foodPlanItemId: 'plan-created-1',
+      planDate: '2026-07-14',
+      mealType: 'dinner',
+      servings: 1,
+      planItemBaseUpdatedAt: '2026-07-13T12:00:00.000Z',
+    });
+    expect(onStartRecommendedRecipe).not.toHaveBeenCalled();
   });
 });
