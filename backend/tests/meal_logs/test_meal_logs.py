@@ -13,7 +13,13 @@ from app.core.deps import get_current_auth
 from app.core.enums import FoodType, MealType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import Base, Family, Food, Membership, User
+from app.models.domain import Base, Family, Food, FoodPlanItem, Membership, User
+from app.services.food_plan_locking import (
+    FoodPlanWriteIntent,
+    discover_food_plan_write_intents,
+    lock_food_plan_write_intents,
+    lock_plan_item_after_food,
+)
 from app.services.meal_log_references import (
     MealLogReferenceError,
     ValidatedMealLogReferences,
@@ -405,6 +411,247 @@ class MealLogReferencesTestCase(unittest.TestCase):
         self.assertEqual(calls[0]["food_ids"], [self.food.id])
         self.assertEqual(result["notes"], "AI")
         self.assertEqual(len(entity_ids), 1)
+
+    def _create_plan_item(
+        self,
+        *,
+        food_id: str,
+        plan_date: date = date(2026, 5, 18),
+        status: str = "planned",
+        meal_log_id: str | None = None,
+    ) -> FoodPlanItem:
+        with self.SessionLocal() as db:
+            item = FoodPlanItem(
+                id=f"food-plan-{food_id}-{status}",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food_id=food_id,
+                plan_date=plan_date,
+                meal_type=MealType.DINNER,
+                note="plan",
+                status=status,
+                meal_log_id=meal_log_id,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(item)
+            db.commit()
+            db.refresh(item)
+            return item
+
+    def test_plan_origin_quick_add_completes_one_plan_and_meal_atomically(self) -> None:
+        planned = self._create_plan_item(food_id=self.food.id)
+        response = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": planned.food_id,
+                "date": planned.plan_date.isoformat(),
+                "meal_type": planned.meal_type.value,
+                "servings": 1.5,
+                "food_plan_item_id": planned.id,
+                "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        meal_id = response.json()["id"]
+        with self.SessionLocal() as db:
+            refreshed = db.get(FoodPlanItem, planned.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.status, "cooked")
+            self.assertEqual(refreshed.meal_log_id, meal_id)
+
+    def test_completed_plan_returns_existing_meal_id_without_second_meal(self) -> None:
+        first = self.client.post(
+            "/api/meal-logs",
+            json={
+                "date": "2026-05-18",
+                "meal_type": "dinner",
+                "food_entries": [{"food_id": self.food.id, "servings": 1, "note": ""}],
+                "participant_user_ids": [self.user.id],
+                "notes": "",
+                "mood": "",
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(first.status_code, 201, first.text)
+        meal_id = first.json()["id"]
+        cooked = self._create_plan_item(
+            food_id=self.food.id,
+            status="cooked",
+            meal_log_id=meal_id,
+        )
+        response = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": cooked.food_id,
+                "date": cooked.plan_date.isoformat(),
+                "meal_type": cooked.meal_type.value,
+                "servings": 1,
+                "food_plan_item_id": cooked.id,
+                "food_plan_item_base_updated_at": cooked.updated_at.isoformat(),
+            },
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(
+            response.json()["detail"],
+            {
+                "code": "food_plan_item_already_completed",
+                "message": "该菜单项已经记录完成",
+                "meal_log_id": meal_id,
+            },
+        )
+        second_list = self.client.get("/api/meal-logs")
+        self.assertEqual(second_list.status_code, 200, second_list.text)
+        self.assertEqual(len(second_list.json()), 1)
+
+    def test_food_plan_lock_order_locks_foods_before_plan_items(self) -> None:
+        food_a = self.food
+        with self.SessionLocal() as db:
+            food_b = Food(
+                id="food-2",
+                family_id=self.family.id,
+                name="青椒肉丝",
+                type=FoodType.SELF_MADE,
+                category="家常",
+                flavor_tags=[],
+                scene_tags=[],
+                suitable_meal_types=["dinner"],
+                source_name="",
+                purchase_source="",
+                scene="",
+                notes="",
+                routine_note="",
+                stock_quantity=None,
+                stock_unit="",
+                favorite=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(food_b)
+            db.commit()
+        item = self._create_plan_item(food_id=food_a.id)
+
+        lock_calls: list[list[str]] = []
+
+        from app.services import food_plan_locking as locking
+
+        original_inventory_lock = locking.lock_inventory_targets
+
+        def tracking_inventory_lock(*args, **kwargs):
+            lock_calls.append(list(kwargs.get("food_ids") or []))
+            return original_inventory_lock(*args, **kwargs)
+
+        with self.SessionLocal() as db:
+            with patch.object(locking, "lock_inventory_targets", side_effect=tracking_inventory_lock):
+                intents = discover_food_plan_write_intents(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    intents=[
+                        FoodPlanWriteIntent(
+                            action="update",
+                            item_id=item.id,
+                            target_food_id=food_b.id,
+                            base_updated_at=None,
+                        ),
+                        FoodPlanWriteIntent(
+                            action="create",
+                            item_id=None,
+                            target_food_id=food_a.id,
+                            base_updated_at=None,
+                        ),
+                        FoodPlanWriteIntent(
+                            action="delete",
+                            item_id=item.id,
+                            target_food_id=None,
+                            base_updated_at=None,
+                        ),
+                    ],
+                )
+                # Discover should not lock foods.
+                self.assertEqual(lock_calls, [])
+                locked = lock_food_plan_write_intents(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    intents=intents,
+                )
+            self.assertEqual(lock_calls, [sorted([food_a.id, food_b.id])])
+            self.assertEqual(set(locked.foods_by_id), {food_a.id, food_b.id})
+            self.assertEqual(set(locked.items_by_id), {item.id})
+
+            # lock_plan_item_after_food assumes Food already locked and only locks plan.
+            with patch.object(locking, "lock_inventory_targets", side_effect=AssertionError("food already locked")):
+                plan_item = lock_plan_item_after_food(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    item_id=item.id,
+                    expected_food_id=food_a.id,
+                    require_planned=True,
+                )
+            self.assertEqual(plan_item.id, item.id)
+
+    def test_ai_meal_plan_batch_locks_foods_once_before_plan_items(self) -> None:
+        from app.services.ai_operations.meal_plans import execute_meal_plan_draft
+
+        item = self._create_plan_item(food_id=self.food.id)
+        food_lock_calls: list[list[str]] = []
+        from app.services import food_plan_locking as locking
+
+        original = locking.lock_inventory_targets
+
+        def tracking_lock(*args, **kwargs):
+            food_lock_calls.append(list(kwargs.get("food_ids") or []))
+            return original(*args, **kwargs)
+
+        with self.SessionLocal() as db:
+            with patch.object(locking, "lock_inventory_targets", side_effect=tracking_lock):
+                result, entity_ids = execute_meal_plan_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "operations": [
+                            {
+                                "operationId": "op-create",
+                                "action": "create",
+                                "payload": {
+                                    "foodId": self.food.id,
+                                    "date": "2026-05-19",
+                                    "mealType": "lunch",
+                                    "reason": "batch",
+                                },
+                            },
+                            {
+                                "operationId": "op-update",
+                                "action": "update",
+                                "targetId": item.id,
+                                "baseUpdatedAt": item.updated_at.isoformat(),
+                                "payload": {
+                                    "foodId": self.food.id,
+                                    "date": "2026-05-20",
+                                    "mealType": "dinner",
+                                    "reason": "rebind",
+                                },
+                            },
+                            {
+                                "operationId": "op-status",
+                                "action": "set_status",
+                                "targetId": item.id,
+                                "baseUpdatedAt": item.updated_at.isoformat(),
+                                "payload": {"status": "skipped"},
+                            },
+                        ]
+                    },
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+            db.commit()
+
+        self.assertEqual(len(food_lock_calls), 1)
+        self.assertEqual(food_lock_calls[0], [self.food.id])
+        self.assertEqual(len(result["operations"]), 3)
+        self.assertTrue(entity_ids)
 
 
 if __name__ == "__main__":

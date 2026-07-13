@@ -25,6 +25,11 @@ from app.services.inventory_versions import (
     conflict_detail,
     require_expected_version,
 )
+from app.services.food_plan_locking import (
+    FoodPlanConflict,
+    food_plan_conflict_detail,
+    lock_plan_item_after_food,
+)
 from app.services.meal_log_references import (
     MealLogReferenceError,
     lock_and_validate_meal_log_references,
@@ -72,23 +77,18 @@ def _raise_meal_log_reference_error(exc: MealLogReferenceError) -> None:
     raise HTTPException(status_code=status_code, detail=meal_log_reference_error_detail(exc)) from exc
 
 
-def _select_plan_item_for_quick_add(
-    *,
-    plan_item_id: str,
-    food_id: str,
-    family_id: str,
-    user_id: str,
-):
-    return (
-        select(FoodPlanItem)
-        .where(
-            FoodPlanItem.family_id == family_id,
-            FoodPlanItem.user_id == user_id,
-            FoodPlanItem.id == plan_item_id,
-            FoodPlanItem.food_id == food_id,
-        )
-        .with_for_update()
-    )
+def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
+    if exc.code == "food_plan_item_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found") from exc
+    if exc.code in {
+        "food_plan_item_already_completed",
+        "food_plan_item_stale",
+        "food_plan_targets_changed",
+        "food_plan_food_mismatch",
+        "food_plan_item_not_planned",
+    }:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
 
 
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
@@ -324,29 +324,24 @@ def quick_add_meal_log(
 
     plan_item: FoodPlanItem | None = None
     if payload.food_plan_item_id:
-        plan_item = db.scalar(
-            _select_plan_item_for_quick_add(
-                plan_item_id=payload.food_plan_item_id,
-                food_id=food.id,
+        # Food is already locked via meal-log references; lock plan item after Food.
+        try:
+            plan_item = lock_plan_item_after_food(
+                db,
                 family_id=membership.family_id,
                 user_id=user.id,
+                item_id=payload.food_plan_item_id,
+                expected_food_id=food.id,
+                base_updated_at=payload.food_plan_item_base_updated_at,
+                require_planned=True,
             )
-        )
-        if plan_item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
+        except FoodPlanConflict as exc:
+            _raise_food_plan_conflict(exc)
 
+    # Plan-origin completion always creates a fresh exact MealLog in one transaction.
+    # Non-plan quick-add may append to the latest same-day/same-meal log.
     meal_log = None
-    if plan_item is not None and plan_item.meal_log_id:
-        meal_log = db.scalar(
-            select(MealLog)
-            .where(MealLog.id == plan_item.meal_log_id, MealLog.family_id == membership.family_id)
-            .options(
-                selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
-                selectinload(MealLog.deduction_suggestions),
-            )
-        )
-
-    if meal_log is None and plan_item is None:
+    if plan_item is None:
         meal_log = db.scalar(
             select(MealLog)
             .where(
@@ -379,24 +374,20 @@ def quick_add_meal_log(
     else:
         meal_log.updated_by = user.id
 
-    entry = None
-    if plan_item is not None:
-        entry = next((item for item in meal_log.food_entries if item.food_id == food.id and item.note == payload.note), None)
-    entry_created = entry is None
-    if entry_created:
-        entry = MealLogFood(
-            id=create_id("meal-food"),
-            meal_log_id=meal_log.id,
-            food_id=food.id,
-            servings=payload.servings,
-            note=payload.note,
-        )
-        db.add(entry)
-        db.flush()
+    entry = MealLogFood(
+        id=create_id("meal-food"),
+        meal_log_id=meal_log.id,
+        food_id=food.id,
+        servings=payload.servings,
+        note=payload.note,
+    )
+    db.add(entry)
+    db.flush()
+    entry_created = True
 
-        for suggestion in _build_deduction_suggestions(db, [entry]):
-            suggestion.meal_log_id = meal_log.id
-            db.add(suggestion)
+    for suggestion in _build_deduction_suggestions(db, [entry]):
+        suggestion.meal_log_id = meal_log.id
+        db.add(suggestion)
 
     if plan_item is not None:
         plan_item.status = "cooked"
@@ -439,8 +430,6 @@ def quick_add_meal_log(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Only first material completion should highlight. Plan-linked quick-add
-    # replays (entry_created=False) and pure no-ops stay audit-only.
     should_highlight = created or entry_created
     log_activity(
         db,

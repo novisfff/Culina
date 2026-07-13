@@ -330,6 +330,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,
             ])
+            plan = update_response.json()
 
             quick_add = self.client.post(
                 "/api/meal-logs/quick-add",
@@ -340,6 +341,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                     "servings": 1,
                     "note": "完成计划",
                     "food_plan_item_id": plan["id"],
+                    "food_plan_item_base_updated_at": plan["updated_at"],
                 },
             )
             self.assertEqual(quick_add.status_code, 201, quick_add.text)
@@ -362,10 +364,18 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                     "servings": 1,
                     "note": "完成计划",
                     "food_plan_item_id": plan["id"],
+                    "food_plan_item_base_updated_at": plan_items[0]["updated_at"],
                 },
             )
-            self.assertEqual(replay.status_code, 201, replay.text)
-            self.assertEqual(replay.json()["id"], quick_add.json()["id"])
+            self.assertEqual(replay.status_code, 409, replay.text)
+            self.assertEqual(
+                replay.json()["detail"],
+                {
+                    "code": "food_plan_item_already_completed",
+                    "message": "该菜单项已经记录完成",
+                    "meal_log_id": quick_add.json()["id"],
+                },
+            )
             self.assert_highlight_kinds([
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,

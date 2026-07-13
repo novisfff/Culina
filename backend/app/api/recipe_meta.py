@@ -27,6 +27,13 @@ from app.schemas.recipes import (
     UpdateRecipePlanItemRequest,
 )
 from app.services.activity import ActivityHighlight, log_activity
+from app.services.food_plan_locking import (
+    FoodPlanConflict,
+    FoodPlanWriteIntent,
+    discover_food_plan_write_intents,
+    food_plan_conflict_detail,
+    lock_food_plan_write_intents,
+)
 from app.services.media import replace_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
@@ -78,6 +85,47 @@ def _load_plan_item(db: Session, *, family_id: str, user_id: str, item_id: str) 
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
     return item
+
+
+def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
+    if exc.code == "food_plan_item_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found") from exc
+    if exc.code == "food_plan_food_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found") from exc
+    if exc.code == "food_plan_food_required":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Food not found") from exc
+    if exc.code in {
+        "food_plan_item_stale",
+        "food_plan_targets_changed",
+        "food_plan_item_already_completed",
+        "food_plan_food_mismatch",
+    }:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
+
+
+def _lock_single_food_plan_intent(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    intent: FoodPlanWriteIntent,
+):
+    try:
+        intents = discover_food_plan_write_intents(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            intents=[intent],
+        )
+        return lock_food_plan_write_intents(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            intents=intents,
+        )
+    except FoodPlanConflict as exc:
+        _raise_food_plan_conflict(exc)
 
 
 def _load_scene(db: Session, *, family_id: str, scene_id: str) -> FoodScene:
@@ -407,7 +455,18 @@ def create_food_plan_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = _load_food(db, family_id=membership.family_id, food_id=payload.food_id)
+    locked = _lock_single_food_plan_intent(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        intent=FoodPlanWriteIntent(
+            action="create",
+            item_id=None,
+            target_food_id=payload.food_id,
+            base_updated_at=None,
+        ),
+    )
+    food = locked.foods_by_id[payload.food_id]
     item = FoodPlanItem(
         id=create_id("food-plan"),
         family_id=membership.family_id,
@@ -459,11 +518,24 @@ def update_food_plan_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
+    locked = _lock_single_food_plan_intent(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        intent=FoodPlanWriteIntent(
+            action="update",
+            item_id=item_id,
+            target_food_id=payload.food_id,
+            base_updated_at=None,
+        ),
+    )
+    item = locked.items_by_id[item_id]
     before_material = (item.food_id, item.plan_date, item.meal_type)
     if payload.food_id is not None:
-        item.food = _load_food(db, family_id=membership.family_id, food_id=payload.food_id)
+        item.food = locked.foods_by_id[payload.food_id]
         item.food_id = payload.food_id
+    elif item.food_id in locked.foods_by_id:
+        item.food = locked.foods_by_id[item.food_id]
     if payload.plan_date is not None:
         item.plan_date = payload.plan_date
     if payload.meal_type is not None:
@@ -522,7 +594,20 @@ def delete_food_plan_item(
     db: Session = Depends(get_db),
 ) -> None:
     user, membership = auth
-    item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
+    locked = _lock_single_food_plan_intent(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        intent=FoodPlanWriteIntent(
+            action="delete",
+            item_id=item_id,
+            target_food_id=None,
+            base_updated_at=None,
+        ),
+    )
+    item = locked.items_by_id[item_id]
+    if item.food_id in locked.foods_by_id:
+        item.food = locked.foods_by_id[item.food_id]
     food_name = item.food.name if item.food else "食物"
     delete_search_document(
         db,
