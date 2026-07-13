@@ -260,6 +260,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     "run_artifacts": [],
                     "injected_skill_keys": ["meal_plan"],
                     "injection_history": [],
+                    "generation_contracts": [],
                     "agent_rounds": 0,
                     "pending_human_input": {},
                     "pending_approval_id": "",
