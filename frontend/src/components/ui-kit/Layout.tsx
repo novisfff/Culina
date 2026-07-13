@@ -14,7 +14,7 @@ export function SectionHeading(props: { title: string; description: string; acti
 
 export function PageHeader(props: {
   eyebrow?: string;
-  title: string;
+  title?: string;
   description: string;
   actions?: ReactNode;
   meta?: ReactNode;
@@ -30,7 +30,7 @@ export function PageHeader(props: {
     >
       <div className="page-header-copy">
         {props.eyebrow && <p className="eyebrow">{props.eyebrow}</p>}
-        <h2>{props.title}</h2>
+        {props.title ? <h2>{props.title}</h2> : null}
         <p className="subtle">{props.description}</p>
       </div>
       {(props.meta || props.actions) && (

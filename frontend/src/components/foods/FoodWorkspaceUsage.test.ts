@@ -33,6 +33,7 @@ describe('FoodWorkspace navigation usage', () => {
     const workspaceSource = readSource('FoodWorkspace.tsx');
     const hubSource = readSource('FoodHubView.tsx');
     const mobileSource = readSource('FoodMobileView.tsx');
+    const foodCss = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
     expect(discoverSource).toContain('export function FoodDiscoverSurface');
     expect(planSource).toContain('export function FoodPlanSurface');
@@ -43,5 +44,20 @@ describe('FoodWorkspace navigation usage', () => {
     expect(planSource).not.toContain('<AppShell');
     expect(hubSource).not.toContain('title="食物"');
     expect(mobileSource).not.toMatch(/<h1>\s*食物\s*<\/h1>/);
+
+    // Plan surface root is the sidebar grid item (no anonymous wrapper).
+    expect(planSource).toMatch(
+      /<section[\s\S]*className="eat-plan-surface food-sidebar-section food-sidebar-plan-section"/,
+    );
+    expect(planSource).not.toContain('eat-plan-surface-panel');
+
+    // Desktop keeps PageHeader chrome (description + actions) without primary 食物 title.
+    expect(hubSource).toContain('<PageHeader');
+    expect(hubSource).toContain('variant="compact"');
+    expect(hubSource).toContain('actions={props.heroActions}');
+    expect(hubSource).toContain('从常吃、临期、外卖外食和可记录的家常菜里快速选一份，马上记到今天。');
+
+    // Discover surface must not break the food-desktop-view height chain.
+    expect(foodCss).toMatch(/\.eat-discover-surface\s*\{\s*display:\s*contents;/);
   });
 });
