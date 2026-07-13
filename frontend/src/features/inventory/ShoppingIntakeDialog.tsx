@@ -303,7 +303,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         eyebrow="采购入库"
         closeLabel="关闭"
         closeAriaLabel="关闭采购入库"
-        className="workspace-modal-wide inventory-maintenance-modal"
+        className="workspace-modal-wide inventory-maintenance-modal inventory-shopping-intake-modal"
         onClose={closeIfAllowed}
         busy={busy}
         footerInfo={footerInfo}

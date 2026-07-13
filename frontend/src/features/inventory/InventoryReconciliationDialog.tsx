@@ -194,7 +194,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
       ? props.result?.summary.description || '库存确认已同步更新。'
       : props.step === 'summary'
         ? '只提交你确认或调整过的项目；未触碰项保持原状。'
-        : `范围：${scopeLabel(props.scope)} · 已检查 ${checkedCount}/${totalCount}`;
+        : `${scopeLabel(props.scope)}范围 · 逐项核对当前库存，未操作的项目不会被修改。`;
 
   const remainingErrorCount = fieldErrors.length;
   const canRevertResult = isOperationStillRevertible(props.result, Date.now());
@@ -283,7 +283,6 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           <strong>
             {checkedCount}/{totalCount}
           </strong>
-          <p>{scopeLabel(props.scope)}</p>
         </>
       )}
     </div>
@@ -344,9 +343,10 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
                   label: SCOPE_LABELS[scope],
                 }))}
               />
-              <p className="inventory-reconciliation-progress" aria-live="polite">
-                进度 {checkedCount} / {totalCount}
-              </p>
+              <div className="inventory-reconciliation-progress" aria-live="polite">
+                <progress value={checkedCount} max={Math.max(totalCount, 1)} aria-label={`盘点进度 ${checkedCount} / ${totalCount}`} />
+                <span>进度 {checkedCount} / {totalCount}</span>
+              </div>
             </section>
           ) : null}
 
@@ -468,7 +468,14 @@ function ReviewLayout(props: {
           <em>{props.summary.totalTouched} 项</em>
         </div>
         {summaryLines.length === 0 ? (
-          <p className="subtle">还没有确认任何项目。点选卡片上的动作后会出现在这里。</p>
+          <div className="inventory-reconciliation-summary-empty">
+            <span className="inventory-reconciliation-summary-icon" aria-hidden="true">✓</span>
+            <strong>从左侧开始确认</strong>
+            <p className="subtle">确认、调整或清空库存后，本次变更会汇总在这里。</p>
+            <span className="inventory-reconciliation-summary-remaining">
+              待检查 {props.orderedGroups.length} 项
+            </span>
+          </div>
         ) : (
           <ul className="inventory-maintenance-summary-list">
             {summaryLines.map((line) => (
