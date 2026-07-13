@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.ai.errors import AIConflictError
 from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
-from app.models.domain import FoodPlanItem, MealLog, MealLogFood
+from app.models.domain import MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
+from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
 from app.services.meal_log_references import MealLogReferenceError, lock_and_validate_meal_log_references
 from app.services.media import bind_media_assets, replace_media_assets
@@ -91,12 +92,14 @@ def execute_meal_log_draft(
                 {"food_entry_ratings": (payload.get("payload") or {}).get("foodEntryRatings") or []}
             ).food_entry_ratings or []
             try:
+                # Rating-only: lock foods with actor-only participants so historical
+                # members who left the family do not block the rating update.
                 lock_and_validate_meal_log_references(
                     db,
                     family_id=family_id,
                     actor_user_id=user_id,
                     food_ids=[entry.food_id for entry in meal_log.food_entries],
-                    participant_user_ids=meal_log.participant_user_ids,
+                    participant_user_ids=[user_id],
                 )
             except MealLogReferenceError as exc:
                 raise ValueError(exc.message) from exc
@@ -217,20 +220,35 @@ def execute_meal_log_draft(
         )
     plan_item_id = effective_payload.get("planItemId")
     if plan_item_id:
-        plan_item = db.scalar(
-            select(FoodPlanItem)
-            .where(
-                FoodPlanItem.family_id == family_id,
-                FoodPlanItem.user_id == user_id,
-                FoodPlanItem.id == str(plan_item_id),
+        # Prefer the first food entry as the expected plan target; create path
+        # already validated foods and locked them via meal-log references.
+        if not food_entries:
+            raise AIConflictError("关联计划项需要至少一个食物")
+        expected_food_id = food_entries[0][0].id
+        base_updated_raw = effective_payload.get("planItemBaseUpdatedAt")
+        base_updated_at = None
+        if base_updated_raw:
+            try:
+                text = str(base_updated_raw).strip()
+                if text.endswith("Z"):
+                    text = f"{text[:-1]}+00:00"
+                base_updated_at = datetime.fromisoformat(text)
+            except ValueError as exc:
+                raise ValueError("planItemBaseUpdatedAt 格式不正确") from exc
+        try:
+            plan_item = lock_plan_item_after_food(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                item_id=str(plan_item_id),
+                expected_food_id=expected_food_id,
+                base_updated_at=base_updated_at,
+                require_planned=True,
             )
-            .with_for_update()
-        )
-        if plan_item is None:
-            raise AIConflictError("关联计划项不存在或已被删除")
-        expected = effective_payload.get("planItemBaseUpdatedAt")
-        if expected:
-            assert_updated_at_matches(actual=plan_item.updated_at, expected=str(expected), label="关联餐食计划")
+        except FoodPlanConflict as exc:
+            if exc.code == "food_plan_item_not_found":
+                raise AIConflictError("关联计划项不存在或已被删除") from exc
+            raise AIConflictError(str(exc.message or exc)) from exc
         plan_item.status = "cooked"
         plan_item.completed_at = utcnow()
         plan_item.meal_log_id = meal_log.id

@@ -86,6 +86,117 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             second = _make_completion_command(completion_request_id="req-b")
             self.assertEqual(hash_completion_command(first), hash_completion_command(second))
 
+        def test_completion_hash_normalizes_plan_base_updated_at_timezone(self) -> None:
+            from datetime import timedelta
+
+            from app.services.recipe_cook_completion import canonicalize_completion_command
+
+            utc = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+            offset = utc.astimezone(timezone(timedelta(hours=8)))
+            naive = datetime(2026, 5, 14, 12, 0)
+            first = _make_completion_command(food_plan_item_base_updated_at=utc)
+            second = _make_completion_command(food_plan_item_base_updated_at=offset)
+            third = _make_completion_command(food_plan_item_base_updated_at=naive)
+            self.assertEqual(hash_completion_command(first), hash_completion_command(second))
+            self.assertEqual(hash_completion_command(first), hash_completion_command(third))
+            canonical = canonicalize_completion_command(first)["food_plan_item_base_updated_at"]
+            self.assertTrue(str(canonical).endswith("Z"))
+
+        def test_claim_integrity_error_under_outer_savepoint_preserves_outer_txn(self) -> None:
+            """IntegrityError on claim must not full-rollback an outer begin_nested txn."""
+            recipe = self.create_recipe(auto_create_food=False, title="番茄炒蛋-nested-claim")
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-nested-claim",
+                egg_id="inventory-egg-nested-claim",
+            )
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-nested-claim",
+            )
+            request_hash = hash_completion_command(command)
+            winner_response = CookRecipeResponse(
+                recipe_id=recipe["id"],
+                consumed_items=[],
+                shortages=[],
+                meal_log_id="meal-nested-winner",
+                cook_log_id="cook-nested-winner",
+                replayed=False,
+            )
+            with self.SessionLocal() as db:
+                db.add(
+                    RecipeCookLog(
+                        id="cook-nested-winner",
+                        family_id=self.family.id,
+                        recipe_id=recipe["id"],
+                        cook_date=command.cook_date,
+                        meal_type=command.meal_type,
+                        servings=command.servings,
+                        result_note=command.result_note,
+                        adjustments=command.adjustments,
+                        rating=command.rating,
+                        completion_request_id=command.completion_request_id,
+                        completion_request_hash=request_hash,
+                        completion_result_json=encode_completion_result(winner_response),
+                        meal_log_id="meal-nested-winner",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                # Stage an outer mutation that must survive claim IntegrityError recovery.
+                outer_recipe = db.get(Recipe, recipe["id"])
+                assert outer_recipe is not None
+                outer_recipe.tips = "outer-marker-tips"
+                db.flush()
+                load_calls = {"n": 0}
+                real_load = load_completion_replay_if_present
+
+                def load_skipping_early_hits(*args, **kwargs):
+                    load_calls["n"] += 1
+                    if load_calls["n"] <= 2:
+                        return None
+                    return real_load(*args, **kwargs)
+
+                with db.begin_nested():
+                    with (
+                        patch(
+                            "app.services.recipe_cook_completion.load_completion_replay_if_present",
+                            side_effect=load_skipping_early_hits,
+                        ),
+                        patch(
+                            "app.services.recipe_cook_completion.claim_completion",
+                            side_effect=IntegrityError("INSERT", {}, Exception("unique")),
+                        ),
+                    ):
+                        result = complete_recipe_cook(db, command)
+                self.assertIs(result.replayed, True)
+                # Outer mutation still visible — full session rollback did not fire.
+                refreshed = db.get(Recipe, recipe["id"])
+                assert refreshed is not None
+                self.assertEqual(refreshed.tips, "outer-marker-tips")
+                db.rollback()
+
+        def test_lock_recipe_for_completion_rejects_stale_base_updated_at(self) -> None:
+            from app.services.recipe_cook_completion import lock_recipe_for_completion
+
+            recipe = self.create_recipe(auto_create_food=False, title="番茄炒蛋-stale-base")
+            with self.SessionLocal() as db:
+                orm = db.get(Recipe, recipe["id"])
+                assert orm is not None
+                command = _make_completion_command(
+                    family_id=self.family.id,
+                    actor_user_id=self.user.id,
+                    recipe_id=recipe["id"],
+                    participant_user_ids=(self.user.id,),
+                    recipe_base_updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                )
+                with self.assertRaises(CompletionConflict) as raised:
+                    lock_recipe_for_completion(db, command)
+                self.assertEqual(raised.exception.code, "recipe_stale")
+                # Matching base passes.
+                command_ok = replace(command, recipe_base_updated_at=orm.updated_at)
+                locked = lock_recipe_for_completion(db, command_ok)
+                self.assertEqual(locked.id, recipe["id"])
+
         def test_encode_completion_result_envelope_omits_replayed(self) -> None:
             response = CookRecipeResponse(
                 recipe_id="recipe-1",

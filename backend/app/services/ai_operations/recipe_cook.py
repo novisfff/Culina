@@ -55,6 +55,8 @@ def _parse_optional_datetime(value: Any) -> datetime | None:
 def _map_completion_conflict(exc: CompletionConflict) -> AIConflictError:
     if exc.code == "recipe_not_found":
         return AIConflictError("菜谱不存在或已被删除")
+    if exc.code == "recipe_stale":
+        return AIConflictError(exc.message)
     if exc.code in {
         "inventory_targets_changed",
         "idempotency_key_reused",
@@ -76,6 +78,41 @@ def _map_food_plan_conflict(exc: FoodPlanConflict) -> AIConflictError:
     }:
         return AIConflictError(str(exc.message or exc))
     return AIConflictError(str(exc.message or exc))
+
+
+def _require_inventory_boundaries(boundaries: list[Any]) -> tuple[dict[str, Any], ...]:
+    """Hard-require inventory OCC boundary version fields on AI execute.
+
+    Missing expected version fields would otherwise silently skip optimistic
+    concurrency checks and weaken inventory OCC. Empty lists are allowed here
+    for ingredient-less recipes; execute_recipe_cook_draft rejects empty
+    boundaries when the recipe actually has ingredients.
+    """
+    normalized: list[dict[str, Any]] = []
+    for item in boundaries:
+        if not isinstance(item, dict):
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        ingredient_version = item.get("expectedIngredientRowVersion")
+        if ingredient_version is None:
+            ingredient_version = item.get("expected_ingredient_row_version")
+        if ingredient_version is None:
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        batches = item.get("batches") or []
+        if not isinstance(batches, list):
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        for batch in batches:
+            if not isinstance(batch, dict):
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+            item_version = batch.get("expectedRowVersion")
+            if item_version is None:
+                item_version = batch.get("expected_row_version")
+            if item_version is None:
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+            inventory_item_id = batch.get("inventoryItemId") or batch.get("inventory_item_id")
+            if not inventory_item_id:
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        normalized.append(item)
+    return tuple(normalized)
 
 
 def recipe_cook_command_from_ai_payload(
@@ -108,16 +145,22 @@ def recipe_cook_command_from_ai_payload(
     plan_item_id = payload.get("planItemId") or payload.get("food_plan_item_id") or payload.get("recipe_plan_item_id")
     plan_item_id = str(plan_item_id) if plan_item_id else None
 
-    boundaries = payload.get("inventoryBoundaries") or []
+    boundaries = payload.get("inventoryBoundaries")
+    if boundaries is None:
+        boundaries = []
     preview_items = payload.get("previewItems") or []
     shortages = payload.get("shortages") or []
     if not isinstance(boundaries, list) or not isinstance(preview_items, list) or not isinstance(shortages, list):
         raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
 
     inventory_expectation = RecipeCookInventoryExpectation(
-        ingredient_boundaries=tuple(item for item in boundaries if isinstance(item, dict)),
+        ingredient_boundaries=_require_inventory_boundaries(boundaries),
         preview_items=tuple(item for item in preview_items if isinstance(item, dict)),
         shortages=tuple(item for item in shortages if isinstance(item, dict)),
+    )
+
+    recipe_base_updated_at = _parse_optional_datetime(
+        payload.get("baseUpdatedAt") if "baseUpdatedAt" in payload else payload.get("base_updated_at")
     )
 
     return RecipeCookCompletionCommand(
@@ -137,6 +180,7 @@ def recipe_cook_command_from_ai_payload(
         rating=payload.get("rating"),
         allow_partial_inventory_deduction=False,
         inventory_expectation=inventory_expectation,
+        recipe_base_updated_at=recipe_base_updated_at,
     )
 
 
@@ -158,6 +202,8 @@ def execute_recipe_cook_draft(
     )
     if recipe is None:
         raise AIConflictError("菜谱不存在或已被删除")
+    # Soft pre-check for early conflict messaging; hard re-check happens after
+    # FOR UPDATE inside lock_recipe_for_completion via recipe_base_updated_at.
     base_updated_at = payload.get("baseUpdatedAt")
     if base_updated_at:
         assert_updated_at_matches(
@@ -172,6 +218,24 @@ def execute_recipe_cook_draft(
         payload=payload,
         completion_request_id=operation_idempotency_key,
     )
+    # Recipes with ingredients must carry non-empty OCC boundaries on AI execute.
+    from sqlalchemy import func
+
+    from app.models.domain import RecipeIngredient
+
+    ingredient_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(RecipeIngredient)
+            .where(RecipeIngredient.recipe_id == recipe.id)
+        )
+        or 0
+    )
+    if ingredient_count > 0 and (
+        command.inventory_expectation is None
+        or not command.inventory_expectation.ingredient_boundaries
+    ):
+        raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
     try:
         result = complete_recipe_cook(db, command)
     except CompletionConflict as exc:

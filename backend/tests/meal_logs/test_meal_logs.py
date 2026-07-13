@@ -653,6 +653,145 @@ class MealLogReferencesTestCase(unittest.TestCase):
         self.assertEqual(len(result["operations"]), 3)
         self.assertTrue(entity_ids)
 
+    def test_rating_only_update_allows_departed_historical_participant(self) -> None:
+        create_response = self.client.post(
+            "/api/meal-logs",
+            json={
+                "date": "2026-05-16",
+                "meal_type": "dinner",
+                "food_entries": [{"food_id": self.food.id, "servings": 1, "note": ""}],
+                "participant_user_ids": [self.user.id, self.member.id],
+                "notes": "",
+                "mood": "",
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.text)
+        body = create_response.json()
+        meal_id = body["id"]
+        entry_id = body["food_entries"][0]["id"]
+
+        with self.SessionLocal() as db:
+            membership = db.get(Membership, self.member_membership.id)
+            assert membership is not None
+            # INVITED stands in for a non-active / departed membership.
+            membership.status = MembershipStatus.INVITED
+            db.commit()
+
+        rating_response = self.client.patch(
+            f"/api/meal-logs/{meal_id}",
+            json={"food_entry_ratings": [{"id": entry_id, "rating": 4.5}]},
+        )
+        self.assertEqual(rating_response.status_code, 200, rating_response.text)
+        self.assertEqual(float(rating_response.json()["food_entries"][0]["rating"]), 4.5)
+
+        # Explicit participant updates still revalidate membership.
+        participant_response = self.client.patch(
+            f"/api/meal-logs/{meal_id}",
+            json={"participant_user_ids": [self.user.id, self.member.id]},
+        )
+        self.assertEqual(participant_response.status_code, 404, participant_response.text)
+
+    def test_ai_rate_food_allows_departed_historical_participant(self) -> None:
+        from app.models.domain import MealLog, MealLogFood
+        from app.services.ai_operations.meal_logs import execute_meal_log_draft
+
+        with self.SessionLocal() as db:
+            meal = MealLog(
+                id="meal-rate-left",
+                family_id=self.family.id,
+                date=date(2026, 5, 16),
+                meal_type=MealType.DINNER,
+                participant_user_ids=[self.user.id, self.member.id],
+                notes="",
+                mood="",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            entry = MealLogFood(
+                id="meal-food-rate-left",
+                meal_log_id=meal.id,
+                food_id=self.food.id,
+                servings=1,
+                note="",
+                rating=None,
+            )
+            db.add_all([meal, entry])
+            membership = db.get(Membership, self.member_membership.id)
+            assert membership is not None
+            membership.status = MembershipStatus.INVITED
+            db.commit()
+
+            result, entity_ids = execute_meal_log_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload={
+                    "action": "rate_food",
+                    "targetId": meal.id,
+                    "baseUpdatedAt": meal.updated_at.isoformat(),
+                    "payload": {
+                        "foodEntryRatings": [{"id": entry.id, "rating": 5}],
+                    },
+                },
+                assert_updated_at_matches=lambda **_kwargs: None,
+            )
+            db.commit()
+            self.assertIn(meal.id, entity_ids)
+            self.assertEqual(float(result["food_entries"][0]["rating"]), 5.0)
+
+    def test_ai_meal_log_plan_completion_uses_lock_plan_item_after_food(self) -> None:
+        from app.services.ai_operations.meal_logs import execute_meal_log_draft
+
+        planned = self._create_plan_item(food_id=self.food.id)
+        with self.SessionLocal() as db:
+            with patch(
+                "app.services.ai_operations.meal_logs.lock_plan_item_after_food",
+                wraps=lock_plan_item_after_food,
+            ) as mocked_lock:
+                result, _entity_ids = execute_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "date": date.today().isoformat(),
+                        "mealType": MealType.DINNER.value,
+                        "foods": [{"foodId": self.food.id, "name": self.food.name, "servings": 1}],
+                        "participantUserIds": [self.user.id],
+                        "planItemId": planned.id,
+                        "planItemBaseUpdatedAt": planned.updated_at.isoformat(),
+                    },
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+                self.assertTrue(mocked_lock.called)
+                self.assertTrue(result["id"])
+                refreshed = db.get(FoodPlanItem, planned.id)
+                assert refreshed is not None
+                self.assertEqual(refreshed.status, "cooked")
+                self.assertEqual(refreshed.meal_log_id, result["id"])
+
+            # Second completion of already-cooked plan must conflict.
+            with self.assertRaises(Exception) as raised:
+                execute_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "date": date.today().isoformat(),
+                        "mealType": MealType.DINNER.value,
+                        "foods": [{"foodId": self.food.id, "name": self.food.name, "servings": 1}],
+                        "participantUserIds": [self.user.id],
+                        "planItemId": planned.id,
+                        "planItemBaseUpdatedAt": refreshed.updated_at.isoformat(),
+                    },
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+            message = str(raised.exception)
+            self.assertTrue(
+                "已经记录完成" in message or "已被其他修改更新" in message or "不可完成" in message,
+                msg=message,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

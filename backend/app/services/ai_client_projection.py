@@ -188,11 +188,12 @@ def project_ai_decision_response(payload: dict[str, Any], capabilities: DraftCon
         projected["draft"] = project_ai_draft(projected["draft"], capabilities)
     if isinstance(projected.get("message"), dict):
         projected["message"] = project_ai_message(projected["message"], capabilities)
-    if isinstance(projected.get("business_entity"), dict) and not viewer_supports_schema(
-        extract_contract_schema(projected["business_entity"]), capabilities
-    ):
-        # business entity itself is not a draft command; keep structure but strip nested commands
-        if RECIPE_COOK_V2 in _collect_contract_schemas(projected["business_entity"]):
+    if isinstance(projected.get("business_entity"), dict):
+        # Do not gate on first-schema only: composite trees can surface v1 before nested v2.
+        if (
+            not viewer_supports_schema(RECIPE_COOK_V2, capabilities)
+            and RECIPE_COOK_V2 in _collect_contract_schemas(projected["business_entity"])
+        ):
             projected["business_entity"] = _strip_v2_commands(projected["business_entity"])
     return projected
 
@@ -215,10 +216,12 @@ def project_ai_run_event(payload: dict[str, Any], capabilities: DraftContractCap
             projected["draft"] = project_ai_draft(projected["draft"], capabilities)
         else:
             projected.pop("draft", None)
-    if isinstance(projected.get("payload"), dict) and not viewer_supports_schema(
-        extract_contract_schema(projected["payload"]), capabilities
-    ):
-        if RECIPE_COOK_V2 in _collect_contract_schemas(projected["payload"]):
+    if isinstance(projected.get("payload"), dict):
+        # Always scan the full tree for nested v2; first-schema short-circuit can miss it.
+        if (
+            not viewer_supports_schema(RECIPE_COOK_V2, capabilities)
+            and RECIPE_COOK_V2 in _collect_contract_schemas(projected["payload"])
+        ):
             projected["payload"] = _strip_v2_commands(projected["payload"])
     return projected
 

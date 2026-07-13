@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -88,6 +88,7 @@ class RecipeCookCompletionCommand:
     rating: int | None
     allow_partial_inventory_deduction: bool
     inventory_expectation: RecipeCookInventoryExpectation | None = None
+    recipe_base_updated_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +114,22 @@ def _decimal_string(value: Decimal) -> str:
     return "0" if normalized == 0 else format(normalized, "f")
 
 
+def _canonicalize_datetime(value: datetime | None) -> str | None:
+    """Normalize datetimes to UTC ISO-8601 with Z for stable hashing."""
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    else:
+        dt = dt.astimezone(UTC)
+    # Use microseconds-preserving ISO then force Z suffix for UTC.
+    text = dt.isoformat().replace("+00:00", "Z")
+    if not text.endswith("Z"):
+        text = f"{text}Z"
+    return text
+
+
 def canonicalize_completion_command(command: RecipeCookCompletionCommand) -> dict[str, Any]:
     """Build the stable business payload used for completion request hashing.
 
@@ -129,11 +146,7 @@ def canonicalize_completion_command(command: RecipeCookCompletionCommand) -> dic
         "participant_user_ids": sorted(set(command.participant_user_ids)),
         "notes": command.notes,
         "food_plan_item_id": command.food_plan_item_id,
-        "food_plan_item_base_updated_at": (
-            command.food_plan_item_base_updated_at.isoformat()
-            if command.food_plan_item_base_updated_at
-            else None
-        ),
+        "food_plan_item_base_updated_at": _canonicalize_datetime(command.food_plan_item_base_updated_at),
         "result_note": command.result_note,
         "adjustments": command.adjustments,
         "rating": command.rating,
@@ -235,8 +248,9 @@ def claim_completion(
     """Insert the first-write completion claim row and flush.
 
     Called after read locks and before inventory/MealLog/plan/activity writes.
-    On unique conflict the IntegrityError propagates; complete_recipe_cook rolls
-    back and loads the winner through load_completion_replay_if_present.
+    On unique conflict the IntegrityError propagates; complete_recipe_cook wraps
+    this call in begin_nested so only the claim savepoint rolls back, then loads
+    the winner through load_completion_replay_if_present.
     """
     cook_log = RecipeCookLog(
         id=create_id("recipe-cook"),
@@ -274,6 +288,15 @@ def lock_recipe_for_completion(db: Session, command: RecipeCookCompletionCommand
     )
     if recipe is None:
         raise CompletionConflict("recipe_not_found", "菜谱不存在或不属于当前家庭")
+    if command.recipe_base_updated_at is not None:
+        actual = recipe.updated_at
+        expected = command.recipe_base_updated_at
+        if actual is None:
+            raise CompletionConflict("recipe_stale", "菜谱已被其他成员更新，请刷新后重试")
+        actual_dt = actual if actual.tzinfo is not None else actual.replace(tzinfo=UTC)
+        expected_dt = expected if expected.tzinfo is not None else expected.replace(tzinfo=UTC)
+        if actual_dt.astimezone(UTC) != expected_dt.astimezone(UTC):
+            raise CompletionConflict("recipe_stale", "菜谱已被其他成员更新，请刷新后重试")
     return recipe
 
 
@@ -430,13 +453,14 @@ def _validate_inventory_expectation(
         expected_ingredient_version = boundary.get("expectedIngredientRowVersion")
         if expected_ingredient_version is None:
             expected_ingredient_version = boundary.get("expected_ingredient_row_version")
-        if expected_ingredient_version is not None:
-            require_expected_version(
-                ingredient,
-                int(expected_ingredient_version),
-                entity_type="ingredient",
-                entity_id=ingredient.id,
-            )
+        if expected_ingredient_version is None:
+            raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
+        require_expected_version(
+            ingredient,
+            int(expected_ingredient_version),
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+        )
 
         expected_tracking = str(
             boundary.get("quantityTrackingMode") or boundary.get("quantity_tracking_mode") or ""
@@ -474,13 +498,14 @@ def _validate_inventory_expectation(
             expected_item_version = batch.get("expectedRowVersion")
             if expected_item_version is None:
                 expected_item_version = batch.get("expected_row_version")
-            if expected_item_version is not None:
-                require_expected_version(
-                    item,
-                    int(expected_item_version),
-                    entity_type="inventory_item",
-                    entity_id=item.id,
-                )
+            if expected_item_version is None:
+                raise CompletionConflict(INVENTORY_TARGETS_CHANGED_CODE, INVENTORY_TARGETS_CHANGED_MESSAGE)
+            require_expected_version(
+                item,
+                int(expected_item_version),
+                entity_type="inventory_item",
+                entity_id=item.id,
+            )
 
     current_preview = jsonable_encoder([serialize_cook_preview_item(item) for item in plan])
     expected_preview = jsonable_encoder(list(expectation.preview_items))
@@ -818,11 +843,23 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
         return blocked_shortage_response(recipe.id, shortages)
 
     try:
-        cook_log = claim_completion(db, command=normalized_command, request_hash=request_hash)
+        # When already inside a SAVEPOINT (AI approval begin_nested), wrap the claim
+        # so IntegrityError only rolls back the claim savepoint and keeps the outer
+        # AI transaction open. On the REST path claim is the first write: avoid
+        # begin_nested so successful claims remain fully rollback-able under SQLite
+        # StaticPool (released savepoints can otherwise leave durable rows).
+        if db.in_nested_transaction():
+            with db.begin_nested():
+                cook_log = claim_completion(db, command=normalized_command, request_hash=request_hash)
+        else:
+            cook_log = claim_completion(db, command=normalized_command, request_hash=request_hash)
     except IntegrityError as exc:
-        # Claim is the first write. Full rollback matches inventory idempotency and
-        # clears the failed INSERT so we can load the winner's claim cleanly.
-        db.rollback()
+        if db.in_nested_transaction():
+            # Claim savepoint already rolled back by begin_nested; outer txn intact.
+            pass
+        else:
+            # Full rollback clears the failed INSERT so we can load the winner cleanly.
+            db.rollback()
         replay = load_completion_replay_if_present(
             db,
             family_id=command.family_id,

@@ -239,22 +239,31 @@ def update_meal_log(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found")
 
     if payload.participant_user_ids is not None or payload.food_entry_ratings is not None:
-        try:
-            references = lock_and_validate_meal_log_references(
-                db,
-                family_id=membership.family_id,
-                actor_user_id=user.id,
-                food_ids=[entry.food_id for entry in meal_log.food_entries],
-                participant_user_ids=(
-                    payload.participant_user_ids
-                    if payload.participant_user_ids is not None
-                    else meal_log.participant_user_ids
-                ),
-            )
-        except MealLogReferenceError as exc:
-            _raise_meal_log_reference_error(exc)
+        # Rating-only updates re-lock foods but must not revalidate historical
+        # participants (a departed family member would otherwise block ratings).
         if payload.participant_user_ids is not None:
+            try:
+                references = lock_and_validate_meal_log_references(
+                    db,
+                    family_id=membership.family_id,
+                    actor_user_id=user.id,
+                    food_ids=[entry.food_id for entry in meal_log.food_entries],
+                    participant_user_ids=payload.participant_user_ids,
+                )
+            except MealLogReferenceError as exc:
+                _raise_meal_log_reference_error(exc)
             meal_log.participant_user_ids = list(references.participant_user_ids)
+        else:
+            try:
+                lock_and_validate_meal_log_references(
+                    db,
+                    family_id=membership.family_id,
+                    actor_user_id=user.id,
+                    food_ids=[entry.food_id for entry in meal_log.food_entries],
+                    participant_user_ids=[user.id],
+                )
+            except MealLogReferenceError as exc:
+                _raise_meal_log_reference_error(exc)
     if payload.notes is not None:
         meal_log.notes = payload.notes
     if payload.mood is not None:

@@ -407,6 +407,39 @@ class AIClientProjectionUnitTestCase(unittest.TestCase):
         self.assertEqual(projected_event["part"]["type"], "error_recovery")
         self.assertEqual(event["part"]["type"], "draft")
 
+    def test_v1_first_nested_v2_is_stripped_for_old_viewer(self) -> None:
+        """Composite trees can surface v1 before nested v2; strip must not short-circuit."""
+        decision = {
+            "business_entity": {
+                "schemaVersion": RECIPE_COOK_V1,
+                "title": "outer-v1",
+                "nested": {
+                    "schemaVersion": RECIPE_COOK_V2,
+                    "recipeId": "recipe-nested-v2",
+                    "servings": 2,
+                },
+            }
+        }
+        projected = project_ai_decision_response(decision, old_capabilities())
+        nested = projected["business_entity"]["nested"]
+        self.assertEqual(nested.get("schemaVersion"), RECIPE_COOK_V2)
+        self.assertTrue(nested.get("blocked"))
+        self.assertNotIn("recipeId", nested)
+        # Input not mutated.
+        self.assertEqual(decision["business_entity"]["nested"]["recipeId"], "recipe-nested-v2")
+
+        event = {
+            "payload": {
+                "schemaVersion": RECIPE_COOK_V1,
+                "child": {"schemaVersion": RECIPE_COOK_V2, "recipeId": "recipe-event-v2"},
+            }
+        }
+        projected_event = project_ai_run_event(event, old_capabilities())
+        child = projected_event["payload"]["child"]
+        self.assertEqual(child.get("schemaVersion"), RECIPE_COOK_V2)
+        self.assertTrue(child.get("blocked"))
+        self.assertNotIn("recipeId", child)
+
 
 class AIClientProjectionRouteTestCase(AIAgentInfraTestCase):
     def _seed_v2_cook_graph(self, db, *, conversation_id: str = "conversation-projection-v2") -> SimpleNamespace:

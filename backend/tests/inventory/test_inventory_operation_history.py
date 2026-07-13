@@ -827,3 +827,71 @@ def test_can_revert_depends_on_role_deadline_and_ownership(db: Session) -> None:
         now=applied + timedelta(minutes=16),
     )
     assert all(item.can_revert is False for item in expired)
+
+
+def test_food_create_revert_blocked_when_meal_history_exists(db: Session) -> None:
+    from app.core.enums import MealType, UserRole
+    from app.models.domain import MealLog, MealLogFood
+    from app.services.inventory_operation_history import (
+        revert_inventory_operation,
+        snapshot_food_inventory,
+    )
+
+    food = db.get(Food, "food-yogurt")
+    assert food is not None
+    summary = InventoryOperationDisplaySummary(title="创建食物", description="新增酸奶")
+    operation = start_operation(
+        db,
+        family_id="family-ops",
+        actor_id="user-ops",
+        operation_type=InventoryOperationType.RECONCILIATION,
+        client_request_id="req-food-create-history",
+        request_hash="hash-food-create-history",
+        summary=summary,
+    )
+    after = snapshot_food_inventory(food)
+    record_operation_line(
+        db,
+        operation=operation,
+        sequence=1,
+        entity_type=InventoryOperationEntityType.FOOD,
+        entity_id=food.id,
+        change_type=InventoryOperationChangeType.CREATE,
+        before_snapshot=None,
+        after_snapshot=after,
+        before_row_version=None,
+        after_row_version=int(food.row_version),
+    )
+    meal = MealLog(
+        id="meal-food-history",
+        family_id="family-ops",
+        date=date(2026, 7, 12),
+        meal_type=MealType.BREAKFAST,
+        participant_user_ids=["user-ops"],
+        notes="",
+        mood="",
+        created_by="user-ops",
+        updated_by="user-ops",
+    )
+    entry = MealLogFood(
+        id="meal-food-entry-history",
+        meal_log_id=meal.id,
+        food_id=food.id,
+        servings=Decimal("1"),
+        note="",
+        rating=None,
+    )
+    db.add_all([meal, entry])
+    db.flush()
+
+    with pytest.raises(InventoryConflictError) as raised:
+        revert_inventory_operation(
+            db,
+            family_id="family-ops",
+            user_id="user-ops",
+            user_role=UserRole.OWNER,
+            operation_id=operation.id,
+            now=datetime(2026, 7, 12, 12, 5, tzinfo=timezone.utc),
+        )
+    assert raised.value.code == "food_has_history"
+    assert db.get(Food, "food-yogurt") is not None

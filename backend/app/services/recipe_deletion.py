@@ -20,6 +20,13 @@ class RecipeHasHistoryError(ValueError):
         super().__init__("这份做法已有菜单或餐食历史，暂时不能删除")
 
 
+class FoodHasHistoryError(ValueError):
+    code = "food_has_history"
+
+    def __init__(self, message: str = "该食物已有菜单或餐食历史，暂时不能删除") -> None:
+        super().__init__(message)
+
+
 @dataclass(frozen=True, slots=True)
 class LockedRecipeDeletionTarget:
     recipe: Recipe
@@ -31,6 +38,30 @@ def recipe_has_history_detail(exc: RecipeHasHistoryError) -> dict[str, str]:
         "code": exc.code,
         "message": str(exc),
     }
+
+
+def food_has_history(db: Session, *, food_id: str) -> bool:
+    """Return True when a food is referenced by meal logs, plans, or cook logs."""
+    has_meal = (
+        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id == food_id).limit(1)) is not None
+    )
+    if has_meal:
+        return True
+    has_plan = (
+        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id == food_id).limit(1)) is not None
+    )
+    if has_plan:
+        return True
+    # Cook logs are recipe-scoped; foods created by cook completion may still be
+    # referenced only via meal_log/plan, which are covered above.
+    return False
+
+
+def assert_food_deletable(db: Session, *, food_id: str, family_id: str | None = None) -> None:
+    """Raise FoodHasHistoryError when deleting would cascade-destroy history."""
+    del family_id  # reserved for future family-scoped checks
+    if food_has_history(db, food_id=food_id):
+        raise FoodHasHistoryError()
 
 
 def lock_recipe_deletion_target(

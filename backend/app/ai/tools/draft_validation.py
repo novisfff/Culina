@@ -609,8 +609,10 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
 
     if schema_version == RECIPE_COOK_V1:
         if "createMealLog" not in payload and "create_meal_log" not in payload:
-            # Generator/tool input may omit the field; default False for normalization only.
-            create_meal_log = False
+            # B1 always-record semantics: omitted createMealLog defaults to True so
+            # generated drafts remain executable. Explicit False is still rejected
+            # at execute time with a recoverable conflict.
+            create_meal_log = True
         else:
             raw_create = payload.get("createMealLog") if "createMealLog" in payload else payload.get("create_meal_log")
             if not isinstance(raw_create, bool):

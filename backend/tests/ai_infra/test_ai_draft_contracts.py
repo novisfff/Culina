@@ -378,6 +378,72 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             inventory = db.get(InventoryItem, "inventory-tomato")
             self.assertEqual(inventory.consumed_quantity, Decimal("0"))
 
+    def test_v1_omitted_create_meal_log_defaults_true_and_executes(self) -> None:
+        with self.SessionLocal() as db:
+            self._seed_cook_recipe(db, recipe_id="recipe-v1-omit")
+            db.commit()
+
+        with self.SessionLocal() as db:
+            draft = normalize_recipe_cook_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload={
+                    "schemaVersion": "recipe_cook_operation.v1",
+                    "recipeId": "recipe-v1-omit",
+                    "servings": 1,
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                },
+            )
+            self.assertIs(draft.get("createMealLog"), True)
+            result, ids = execute_recipe_cook_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload=draft,
+                operation_idempotency_key="approval-omit:recipe.cook:v1",
+            )
+            db.commit()
+            self.assertTrue(result["meal_log_id"])
+            self.assertIn(result["cook_log_id"], ids)
+
+    def test_ai_execute_rejects_missing_inventory_boundary_versions(self) -> None:
+        with self.SessionLocal() as db:
+            self._seed_cook_recipe(db, recipe_id="recipe-v1-missing-boundary")
+            db.commit()
+
+        with self.SessionLocal() as db:
+            draft = normalize_recipe_cook_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload={
+                    "schemaVersion": "recipe_cook_operation.v1",
+                    "recipeId": "recipe-v1-missing-boundary",
+                    "servings": 1,
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                    "createMealLog": True,
+                },
+            )
+            # Strip OCC versions after normalize to simulate a tampered draft.
+            draft["inventoryBoundaries"] = [
+                {
+                    "ingredientId": draft["inventoryBoundaries"][0]["ingredientId"],
+                    "batches": [{"inventoryItemId": "inventory-tomato"}],
+                }
+            ]
+            with self.assertRaises(AIConflictError) as raised:
+                execute_recipe_cook_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload=draft,
+                    operation_idempotency_key="approval-missing-boundary:recipe.cook:v1",
+                )
+            self.assertIn("库存并发校验", str(raised.exception))
+
     def test_v2_rejects_create_meal_log_field(self) -> None:
         with self.SessionLocal() as db:
             self._seed_cook_recipe(db, recipe_id="recipe-v2-reject")
