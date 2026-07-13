@@ -16,6 +16,15 @@ import { tokenizeFamilyFoodContext } from './useFamilySettingsState';
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
+beforeEach(() => {
+  // jsdom's default window.scrollTo logs "Not implemented"; stub for mobile activity page mounts.
+  Object.defineProperty(window, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();

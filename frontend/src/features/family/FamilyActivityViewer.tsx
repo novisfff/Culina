@@ -308,10 +308,15 @@ export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { on
   const pageRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    try {
-      window.scrollTo(0, 0);
-    } catch {
-      // jsdom does not implement window.scrollTo.
+    // Prefer the page root and document scroll positions. Only call window.scrollTo
+    // when it is a native browser implementation — jsdom's stub logs "Not implemented"
+    // even when wrapped in try/catch.
+    const windowScrollTo = window.scrollTo;
+    if (
+      typeof windowScrollTo === 'function' &&
+      Function.prototype.toString.call(windowScrollTo).includes('[native code]')
+    ) {
+      windowScrollTo.call(window, 0, 0);
     }
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
