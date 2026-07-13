@@ -1,7 +1,30 @@
+from typing import Any
+
 from ._support import *
+from app.core.enums import ActivityHighlightKind
 from app.services.ai_operations.approval_requests import create_ai_draft_approval
 from app.services.ai_operations.messages import approval_result_card
 from app.ai.workflows.runner_support.run_summary import record_approval_outcome_summary
+from sqlalchemy import event
+
+
+def _highlight_meal_plan_payload(*, suffix: str) -> dict[str, Any]:
+    return {
+        "draftType": "meal_plan",
+        "schemaVersion": "meal_plan_operation.v1",
+        "operations": [
+            {
+                "action": "create",
+                "payload": {
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
+                    "reason": f"高亮原子性测试 {suffix}",
+                },
+            }
+        ],
+    }
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
@@ -3024,3 +3047,260 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     ["text", "draft", "approval_request", "result_card", "text"],
                 )
                 self.assertEqual(message.parts[3]["card"]["id"], result_cards[0]["id"])
+
+        def test_approved_meal_plan_writes_one_transaction_level_highlight(self) -> None:
+            with self.SessionLocal() as db:
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_plan",
+                    payload=_highlight_meal_plan_payload(suffix="success"),
+                    suffix="highlight-success",
+                )
+                result = self._approve_ai_approval_for_test(
+                    service,
+                    draft=draft,
+                    approval=approval,
+                )
+                self.assertEqual(result["operation"]["status"], "succeeded")
+                db.commit()
+
+            with self.SessionLocal() as db:
+                rows = list(
+                    db.scalars(
+                        select(ActivityLog).where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind.is_not(None),
+                        )
+                    )
+                )
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0].entity_type, "AIOperation")
+                self.assertEqual(rows[0].highlight_kind, ActivityHighlightKind.MEAL_PLAN)
+
+        def test_approved_shopping_list_is_audit_only_without_highlight(self) -> None:
+            with self.SessionLocal() as db:
+                salt = Ingredient(
+                    id="ingredient-shopping-highlight-salt",
+                    family_id=self.family.id,
+                    name="高亮测试盐",
+                    category="调料",
+                    default_unit="g",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(salt)
+                db.flush()
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="shopping_list",
+                    payload={
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list_operation.v1",
+                        "operations": [
+                            {
+                                "action": "create",
+                                "payload": {
+                                    "ingredientId": salt.id,
+                                    "title": "高亮测试盐",
+                                    "quantityMode": "not_track_quantity",
+                                    "displayLabel": "需要补充",
+                                    "reason": "高亮原子性购物清单对照",
+                                },
+                            }
+                        ],
+                    },
+                    suffix="highlight-shopping-audit",
+                )
+                result = self._approve_ai_approval_for_test(
+                    service,
+                    draft=draft,
+                    approval=approval,
+                )
+                self.assertEqual(result["operation"]["status"], "succeeded")
+                shopping_id = result["business_entity"]["operations"][0]["item"]["id"]
+                self.assertIsNotNone(db.get(ShoppingListItem, shopping_id))
+                db.commit()
+
+            with self.SessionLocal() as db:
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)
+                shopping = db.scalar(
+                    select(ShoppingListItem).where(
+                        ShoppingListItem.family_id == self.family.id,
+                        ShoppingListItem.reason == "高亮原子性购物清单对照",
+                    )
+                )
+                self.assertIsNotNone(shopping)
+
+        def test_rejected_meal_plan_writes_no_business_entity_or_highlight(self) -> None:
+            reason = "高亮原子性测试 rejected"
+            with self.SessionLocal() as db:
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_plan",
+                    payload=_highlight_meal_plan_payload(suffix="rejected"),
+                    suffix="highlight-rejected",
+                )
+                result = service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=approval.conversation_id,
+                    approval_id=approval.id,
+                    decision="rejected",
+                    draft_version=draft.version,
+                    values={},
+                )
+                self.assertEqual(result["draft"]["status"], "rejected")
+                self.assertIsNone(result["operation"])
+                db.commit()
+
+            with self.SessionLocal() as db:
+                plan = db.scalar(
+                    select(FoodPlanItem).where(
+                        FoodPlanItem.family_id == self.family.id,
+                        FoodPlanItem.note == reason,
+                    )
+                )
+                self.assertIsNone(plan)
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)
+
+        def test_after_success_fault_rolls_back_meal_plan_and_highlight(self) -> None:
+            with self.SessionLocal() as db:
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_plan",
+                    payload=_highlight_meal_plan_payload(suffix="after-success"),
+                    suffix="highlight-after-success-fault",
+                )
+                with patch(
+                    "app.services.ai_operations.approval_decisions.draft_operation_registry.after_success",
+                    side_effect=RuntimeError("after_success fault"),
+                ):
+                    result = self._approve_ai_approval_for_test(
+                        service,
+                        draft=draft,
+                        approval=approval,
+                    )
+                self.assertEqual(result["operation"]["status"], "failed")
+                self.assertEqual(result["draft"]["status"], "pending_retry")
+                plan_id = (result.get("business_entity") or {}).get("operations", [{}])[0].get("item", {}).get("id")
+                db.commit()
+
+            with self.SessionLocal() as db:
+                if plan_id:
+                    self.assertIsNone(db.get(FoodPlanItem, plan_id))
+                plan = db.scalar(
+                    select(FoodPlanItem).where(
+                        FoodPlanItem.family_id == self.family.id,
+                        FoodPlanItem.note == "高亮原子性测试 after-success",
+                    )
+                )
+                self.assertIsNone(plan)
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)
+
+        def test_classifier_fault_rolls_back_meal_plan_and_highlight(self) -> None:
+            with self.SessionLocal() as db:
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_plan",
+                    payload=_highlight_meal_plan_payload(suffix="classifier"),
+                    suffix="highlight-classifier-fault",
+                )
+                with patch(
+                    "app.services.ai_operations.approval_decisions.classify_approval_highlight",
+                    side_effect=RuntimeError("classifier fault"),
+                ):
+                    result = self._approve_ai_approval_for_test(
+                        service,
+                        draft=draft,
+                        approval=approval,
+                    )
+                self.assertEqual(result["operation"]["status"], "failed")
+                self.assertEqual(result["draft"]["status"], "pending_retry")
+                plan_id = (result.get("business_entity") or {}).get("operations", [{}])[0].get("item", {}).get("id")
+                db.commit()
+
+            with self.SessionLocal() as db:
+                if plan_id:
+                    self.assertIsNone(db.get(FoodPlanItem, plan_id))
+                plan = db.scalar(
+                    select(FoodPlanItem).where(
+                        FoodPlanItem.family_id == self.family.id,
+                        FoodPlanItem.note == "高亮原子性测试 classifier",
+                    )
+                )
+                self.assertIsNone(plan)
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)
+
+        def test_activity_flush_fault_rolls_back_meal_plan_and_highlight(self) -> None:
+            def raise_on_ai_operation_activity(session, flush_context, instances=None):
+                for obj in session.new:
+                    if isinstance(obj, ActivityLog) and obj.entity_type == "AIOperation":
+                        raise RuntimeError("activity flush fault")
+
+            with self.SessionLocal() as db:
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_plan",
+                    payload=_highlight_meal_plan_payload(suffix="activity-flush"),
+                    suffix="highlight-activity-flush-fault",
+                )
+                event.listen(db, "before_flush", raise_on_ai_operation_activity)
+                try:
+                    result = self._approve_ai_approval_for_test(
+                        service,
+                        draft=draft,
+                        approval=approval,
+                    )
+                finally:
+                    event.remove(db, "before_flush", raise_on_ai_operation_activity)
+                self.assertEqual(result["operation"]["status"], "failed")
+                self.assertEqual(result["draft"]["status"], "pending_retry")
+                plan_id = (result.get("business_entity") or {}).get("operations", [{}])[0].get("item", {}).get("id")
+                db.commit()
+
+            with self.SessionLocal() as db:
+                if plan_id:
+                    self.assertIsNone(db.get(FoodPlanItem, plan_id))
+                plan = db.scalar(
+                    select(FoodPlanItem).where(
+                        FoodPlanItem.family_id == self.family.id,
+                        FoodPlanItem.note == "高亮原子性测试 activity-flush",
+                    )
+                )
+                self.assertIsNone(plan)
+                highlight_count = db.scalar(
+                    select(func.count(ActivityLog.id)).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind.is_not(None),
+                    )
+                )
+                self.assertEqual(highlight_count, 0)

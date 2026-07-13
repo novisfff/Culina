@@ -971,6 +971,34 @@
   padding: 18px 0;
 }
 
+.family-activity-viewer-skeleton,
+.family-activity-preview-skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.family-activity-viewer-skeleton > span,
+.family-activity-preview-skeleton > span {
+  display: block;
+  min-height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(246, 240, 234, 0.9), rgba(255, 255, 255, 0.95), rgba(246, 240, 234, 0.9));
+  background-size: 200% 100%;
+}
+
+.family-activity-viewer-refresh-warning,
+.family-activity-preview-refresh-warning {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 999px;
+  color: #6A5B51;
+  background: #F6F0EA;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
 .family-activity-viewer-actions {
   display: flex;
   justify-content: center;

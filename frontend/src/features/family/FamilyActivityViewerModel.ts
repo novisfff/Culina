@@ -23,6 +23,16 @@ export type FamilyActivityGroup = {
   items: ActivityLog[];
 };
 
+export type FamilyActivityQueryState = {
+  data: ActivityLog[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  refetch: () => void;
+};
+
+export type FamilyActivityViewerPhase = 'loading' | 'empty' | 'ready' | 'error';
+
 export const FAMILY_ACTIVITY_PAGE_SIZE = 50;
 
 export const DEFAULT_FAMILY_ACTIVITY_FILTERS: FamilyActivityFilters = {
@@ -164,4 +174,21 @@ export function hasFamilyActivityFilters(filters: FamilyActivityFilters) {
     Boolean(filters.action) ||
     Boolean(filters.entityType)
   );
+}
+
+export function resolveFamilyActivityViewerPhase(input: {
+  queryData: ActivityLog[] | undefined;
+  seedData: ActivityLog[] | undefined;
+  logs: ActivityLog[];
+  isQueryError: boolean;
+  isPreviewError: boolean;
+}): FamilyActivityViewerPhase {
+  const hasCachedData = input.queryData !== undefined || input.seedData !== undefined;
+  if (hasCachedData) {
+    return input.logs.length === 0 ? 'empty' : 'ready';
+  }
+  if (input.isQueryError || input.isPreviewError) {
+    return 'error';
+  }
+  return 'loading';
 }

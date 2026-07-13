@@ -4,12 +4,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     AiMode,
     AIConversationVisibility,
     Difficulty,
@@ -130,6 +131,19 @@ class Membership(AuditMixin, Base):
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "(highlight_kind IS NULL AND highlight_summary IS NULL) OR "
+            "(highlight_kind IS NOT NULL AND highlight_summary IS NOT NULL)",
+            name="ck_activity_logs_highlight_pair",
+        ),
+        Index(
+            "ix_activity_logs_family_created_highlight",
+            "family_id",
+            "created_at",
+            "highlight_kind",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("activity"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -138,6 +152,11 @@ class ActivityLog(Base):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
+    highlight_kind: Mapped[ActivityHighlightKind | None] = mapped_column(
+        SqlEnum(ActivityHighlightKind, native_enum=False),
+        nullable=True,
+    )
+    highlight_summary: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="activity_logs")

@@ -1,5 +1,5 @@
-import { useState, type FormEventHandler, type ReactNode } from 'react';
-import type { ActivityLog, FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
+import type { FormEventHandler, ReactNode } from 'react';
+import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar, Badge, StateBlock, StatusBadge } from '../../components/ui-kit';
@@ -19,8 +19,16 @@ import {
 } from './FamilySettingsModals';
 import { FamilyMobileView } from './FamilyMobileView';
 import { FamilyActivityMobilePage, FamilyActivityModal } from './FamilyActivityViewer';
+import type { FamilyActivityQueryState } from './FamilyActivityViewerModel';
 
-export type FamilyOverlayMode = 'invite' | 'profile' | 'password' | 'family' | 'member' | null;
+export type FamilyOverlayMode =
+  | 'invite'
+  | 'profile'
+  | 'password'
+  | 'family'
+  | 'member'
+  | 'activity'
+  | null;
 
 export type FamilyStatCard = {
   label: string;
@@ -41,9 +49,10 @@ export type FamilySettingsProps = {
   errorMessage?: string | null;
   familyHeroImageUrl?: string;
   familyStatCards: FamilyStatCard[];
-  currentUserRecentLogs: number;
+  currentUserRecentLogs: number | null;
   familyOwnerMember?: Member;
-  activityLogs: ActivityLog[];
+  activityQuery: FamilyActivityQueryState;
+  activityPhase?: 'loading' | 'empty' | 'ready' | 'error';
   isPhoneViewport: boolean;
   notificationCenter?: ReactNode;
   overlayMode: FamilyOverlayMode;
@@ -77,10 +86,72 @@ export type FamilySettingsProps = {
   onFamilySubmit: FormEventHandler<HTMLFormElement>;
 };
 
+function FamilyActivityPreview(props: {
+  activityQuery: FamilyActivityQueryState;
+  activityPhase: 'loading' | 'empty' | 'ready' | 'error';
+  onOpen: () => void;
+  onRetry: () => void;
+}) {
+  const logs = props.activityQuery.data ?? [];
+
+  return (
+    <section className="card family-activity-panel">
+      <div className="family-section-head">
+        <h2>家庭活动</h2>
+        <button className="tertiary-button button-compact" type="button" onClick={props.onOpen}>
+          查看全部
+        </button>
+      </div>
+      <div className="family-activity-list">
+        {props.activityPhase === 'loading' && (
+          <div className="family-activity-preview-skeleton" aria-label="家庭活动加载中">
+            {[0, 1, 2].map((index) => (
+              <span key={index} aria-hidden="true" />
+            ))}
+          </div>
+        )}
+        {props.activityPhase === 'error' && (
+          <StateBlock
+            status="error"
+            title="家庭活动暂时加载失败"
+            description="稍后重试；其他家庭功能仍可使用。"
+            actionLabel="重试活动记录"
+            onAction={props.onRetry}
+          />
+        )}
+        {props.activityPhase === 'empty' && (
+          <StateBlock status="empty" title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />
+        )}
+        {props.activityPhase === 'ready' && logs.slice(0, 4).map((log, index) => (
+          <article key={log.id} className="family-activity-item">
+            <span className={`family-activity-icon tone-${index % 4}`}>
+              <DashboardIcon name={index % 3 === 0 ? 'edit' : index % 3 === 1 ? 'leaf' : 'cart'} />
+            </span>
+            <div>
+              <strong>{log.actor_name ?? '家庭成员'} {log.summary}</strong>
+              <p>{formatDateTime(log.created_at)}</p>
+            </div>
+          </article>
+        ))}
+        {props.activityPhase === 'ready' && props.activityQuery.isError && (
+          <button className="family-activity-preview-refresh-warning" type="button" onClick={props.onRetry}>
+            刷新失败，重试
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function FamilySettings(props: FamilySettingsProps) {
   const closeOverlay = () => props.onOverlayChange(null);
-  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
-  const [isMobileActivityPageOpen, setIsMobileActivityPageOpen] = useState(false);
+  const activityPhase = props.activityPhase
+    ?? (props.activityQuery.data !== undefined
+      ? ((props.activityQuery.data.length === 0) ? 'empty' : 'ready')
+      : props.activityQuery.isError
+        ? 'error'
+        : 'loading');
+  const previewLogs = props.activityQuery.data ?? [];
 
   if (props.isLoading) {
     return (
@@ -106,21 +177,13 @@ export function FamilySettings(props: FamilySettingsProps) {
     );
   }
 
-  const openActivityViewer = () => {
-    if (props.isPhoneViewport) {
-      setIsMobileActivityPageOpen(true);
-      return;
-    }
-    setIsActivityModalOpen(true);
-  };
-
-  if (isMobileActivityPageOpen) {
+  if (props.overlayMode === 'activity' && props.isPhoneViewport) {
     return (
       <main className="family-workspace">
         <FamilyActivityMobilePage
           members={props.members}
-          previewLogs={props.activityLogs}
-          onBack={() => setIsMobileActivityPageOpen(false)}
+          previewQuery={props.activityQuery}
+          onBack={() => props.onOverlayChange(null)}
         />
       </main>
     );
@@ -139,12 +202,15 @@ export function FamilySettings(props: FamilySettingsProps) {
         isOwner={props.isOwner}
         familyStatCards={props.familyStatCards}
         familyOwnerMember={props.familyOwnerMember}
-        activityLogs={props.activityLogs}
+        activityLogs={previewLogs}
+        activityPhase={activityPhase}
+        hasRefreshError={activityPhase === 'ready' && props.activityQuery.isError}
+        onActivityRetry={() => props.activityQuery.refetch()}
         notificationCenter={props.notificationCenter}
         resolveAssetUrl={props.resolveAssetUrl}
         onOverlayChange={props.onOverlayChange}
         onNavigate={props.onNavigate}
-        onActivityViewerOpen={openActivityViewer}
+        onActivityViewerOpen={() => props.onOverlayChange('activity')}
         onMemberEdit={props.onMemberEdit}
       />
 
@@ -292,7 +358,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <p>{member.username}</p>
                     <span>
                       {member.id === props.currentUser?.id
-                        ? `今天记录 ${props.currentUserRecentLogs} 次`
+                        ? `今天记录 ${props.currentUserRecentLogs ?? '--'} 次`
                         : member.email ?? member.phone ?? '等待补充联系信息'}
                     </span>
                   </div>
@@ -321,28 +387,12 @@ export function FamilySettings(props: FamilySettingsProps) {
         </section>
 
         <div className="family-bottom-grid">
-          <section className="card family-activity-panel">
-            <div className="family-section-head">
-              <h2>家庭活动</h2>
-              <button className="tertiary-button button-compact" type="button" onClick={openActivityViewer}>
-                查看全部
-              </button>
-            </div>
-            <div className="family-activity-list">
-              {props.activityLogs.slice(0, 4).map((log, index) => (
-                <article key={log.id} className="family-activity-item">
-                  <span className={`family-activity-icon tone-${index % 4}`}>
-                    <DashboardIcon name={index % 3 === 0 ? 'edit' : index % 3 === 1 ? 'leaf' : 'cart'} />
-                  </span>
-                  <div>
-                    <strong>{log.actor_name ?? '家庭成员'} {log.summary}</strong>
-                    <p>{formatDateTime(log.created_at)}</p>
-                  </div>
-                </article>
-              ))}
-              {props.activityLogs.length === 0 && <StateBlock status="empty" title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />}
-            </div>
-          </section>
+          <FamilyActivityPreview
+            activityQuery={props.activityQuery}
+            activityPhase={activityPhase}
+            onOpen={() => props.onOverlayChange('activity')}
+            onRetry={() => props.activityQuery.refetch()}
+          />
 
           <section className="card family-invite-panel">
             <div className="family-section-head">
@@ -483,11 +533,11 @@ export function FamilySettings(props: FamilySettingsProps) {
         />
       )}
 
-      {isActivityModalOpen && (
+      {props.overlayMode === 'activity' && !props.isPhoneViewport && (
         <FamilyActivityModal
           members={props.members}
-          previewLogs={props.activityLogs}
-          onClose={() => setIsActivityModalOpen(false)}
+          previewQuery={props.activityQuery}
+          onClose={() => props.onOverlayChange(null)}
         />
       )}
     </main>

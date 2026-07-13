@@ -7,6 +7,8 @@ from app.ai.tools.draft_validation import (
     normalize_meal_plan_draft,
     normalize_shopping_list_draft,
 )
+from app.core.enums import ActivityHighlightKind
+from app.services.activity import ActivityHighlight
 from app.services.ai_operations.meal_logs import execute_meal_log_draft
 from app.services.ai_operations.meal_plans import execute_meal_plan_draft
 from app.services.ai_operations.recovery_loaders import (
@@ -16,6 +18,7 @@ from app.services.ai_operations.recovery_loaders import (
 )
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
+    DraftHighlightContext,
     DraftNormalizeContext,
     DraftOperationSpec,
     DraftResultMetadata,
@@ -206,6 +209,99 @@ def _preview_meal_log(payload: dict[str, Any]) -> str:
     return f"{payload.get('date')} · {payload.get('mealType')} · {len(payload.get('foods') or [])} 个食物项"
 
 
+def _meal_plan_update_is_material(
+    *,
+    operation: dict[str, Any],
+    submitted_operations_by_id: dict[str, dict[str, Any]],
+) -> bool:
+    """Align with REST: only food_id / plan_date / meal_type changes count."""
+    operation_id = str(operation.get("operationId") or operation.get("operation_id") or "")
+    submitted = submitted_operations_by_id.get(operation_id) if operation_id else None
+    source = submitted if isinstance(submitted, dict) else operation
+    before = source.get("before") if isinstance(source.get("before"), dict) else {}
+    payload = source.get("payload") if isinstance(source.get("payload"), dict) else {}
+    if not before and not payload:
+        # Execute result only has action/item and no before snapshot.
+        # Without material field evidence, keep historical behavior (count update).
+        return True
+
+    def _norm(value: Any) -> str:
+        if hasattr(value, "value"):
+            return str(value.value)
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value or "")
+
+    before_material = (
+        _norm(before.get("foodId") if "foodId" in before else before.get("food_id")),
+        _norm(before.get("date") if "date" in before else before.get("plan_date")),
+        _norm(before.get("mealType") if "mealType" in before else before.get("meal_type")),
+    )
+    after_material = (
+        _norm(payload.get("foodId") if "foodId" in payload else payload.get("food_id")),
+        _norm(payload.get("date") if "date" in payload else payload.get("plan_date")),
+        _norm(payload.get("mealType") if "mealType" in payload else payload.get("meal_type")),
+    )
+    if not any(after_material):
+        # Note/status-like payload with no material fields → not eligible.
+        return False
+    return before_material != after_material
+
+
+def _classify_meal_plan_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
+    operations = context.business_entity.get("operations")
+    submitted_operations = context.submitted_payload.get("operations")
+    submitted_operations_by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(submitted_operations, list):
+        for submitted in submitted_operations:
+            if not isinstance(submitted, dict):
+                continue
+            operation_id = str(submitted.get("operationId") or submitted.get("operation_id") or "")
+            if operation_id:
+                submitted_operations_by_id[operation_id] = submitted
+    if isinstance(operations, list):
+        eligible_count = 0
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            action = operation.get("action")
+            if action in {"create", "delete"}:
+                eligible_count += 1
+            elif action == "update" and _meal_plan_update_is_material(
+                operation=operation,
+                submitted_operations_by_id=submitted_operations_by_id,
+            ):
+                eligible_count += 1
+    else:
+        items = context.business_entity.get("items")
+        eligible_count = len(items) if isinstance(items, list) else 0
+    if eligible_count == 0:
+        return None
+    return ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL_PLAN,
+        summary=f"完成 {eligible_count} 项菜单安排",
+    )
+
+
+def _classify_meal_log_highlight(context: DraftHighlightContext) -> ActivityHighlight | None:
+    action = str(context.submitted_payload.get("action") or "create")
+    if action != "create" or not context.business_entity.get("id"):
+        return None
+    raw = context.business_entity.get("meal_type")
+    if hasattr(raw, "value"):
+        meal_type = str(raw.value)
+    else:
+        meal_type = str(raw or "")
+    label = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "加餐"}.get(
+        meal_type,
+        "用餐",
+    )
+    return ActivityHighlight(
+        kind=ActivityHighlightKind.MEAL,
+        summary=f"记录了一次{label}",
+    )
+
+
 def planning_operation_specs() -> list[DraftOperationSpec]:
     return [
         _spec(
@@ -230,6 +326,7 @@ def planning_operation_specs() -> list[DraftOperationSpec]:
             approval_config=_approval_config_for_meal_plan,
             preview_summary=_preview_meal_plan,
             validate_approval_value=_validate_operation_list_value,
+            highlight_classifier=_classify_meal_plan_highlight,
             result_metadata=DraftResultMetadata(
                 workspace_label="菜单计划",
                 count_noun="条计划",
@@ -245,6 +342,7 @@ def planning_operation_specs() -> list[DraftOperationSpec]:
             approval_config=_approval_config_for_meal_log,
             preview_summary=_preview_meal_log,
             validate_approval_value=_validate_meal_log_approval_value,
+            highlight_classifier=_classify_meal_log_highlight,
             result_metadata=DraftResultMetadata(
                 workspace_label="餐食记录",
                 count_noun="条餐食记录",

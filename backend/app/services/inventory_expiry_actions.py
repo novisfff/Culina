@@ -7,10 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.core.enums import ActivityAction, InventoryAvailabilityLevel
+from app.core.enums import ActivityAction, ActivityHighlightKind, InventoryAvailabilityLevel
 from app.core.utils import utcnow
 from app.models.domain import Ingredient, IngredientInventoryState, InventoryItem
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.ingredient_inventory_state import upsert_inventory_state
 from app.services.inventory_operation_locking import lock_inventory_targets
 from app.services.inventory_operations import dispose_inventory_quantity
@@ -366,6 +366,10 @@ def dispose_expired_inventory_items(
         entity_type="Ingredient",
         entity_id=ingredient.id,
         summary=f"{actor_display_name}销毁{ingredient.name} {len(disposed_item_ids)} 个过期批次",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.INVENTORY,
+            summary=f"集中处理 {len(disposed_item_ids)} 个过期批次",
+        ),
     )
     _flush_versioned_inventory(db)
     return {

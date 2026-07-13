@@ -1,4 +1,6 @@
 import type {
+  ActivityHighlight,
+  ActivityHighlightsResponse,
   FoodPlanItem,
   FoodRecommendations,
   Ingredient,
@@ -71,6 +73,97 @@ export type DashboardPlanSummaryItem = {
   icon: DashboardIconName;
   tone: string;
 };
+
+export type HomeRequiredAction =
+  | { kind: 'inventory'; group: InventoryActionGroup }
+  | { kind: 'shopping'; pendingCount: number };
+
+export type HomeHighlightsViewModel = {
+  items: ActivityHighlight[];
+  phase: 'loading' | 'empty' | 'ready' | 'error';
+  hasRefreshError: boolean;
+  isRefreshing: boolean;
+  weekCountLabel: string;
+};
+
+export function selectCircularWindow<T>(
+  items: readonly T[],
+  cursor: number,
+  pageSize: number,
+): T[] {
+  if (items.length === 0 || pageSize <= 0) return [];
+  const count = Math.min(items.length, pageSize);
+  const normalizedCursor = ((cursor % items.length) + items.length) % items.length;
+  return Array.from({ length: count }, (_, index) => items[(normalizedCursor + index) % items.length]);
+}
+
+export function advanceRecommendationCursor(cursor: number, sourceLength: number, step: number) {
+  return sourceLength === 0 ? 0 : (cursor + step) % sourceLength;
+}
+
+export function buildHomeRequiredActions(input: {
+  inventoryGroups: InventoryActionGroup[];
+  pendingShoppingCount: number;
+}): {
+  actions: HomeRequiredAction[];
+  hasMoreHomeActions: boolean;
+} {
+  const urgent = input.inventoryGroups
+    .filter((group) => group.kind === 'expiry')
+    .map((group) => ({ kind: 'inventory' as const, group }));
+  const shopping =
+    input.pendingShoppingCount > 0
+      ? [{ kind: 'shopping' as const, pendingCount: input.pendingShoppingCount }]
+      : [];
+  const lowStock = input.inventoryGroups
+    .filter((group) => group.kind === 'low_stock')
+    .map((group) => ({ kind: 'inventory' as const, group }));
+  const candidates = [...urgent, ...shopping, ...lowStock];
+  return {
+    actions: candidates.slice(0, 3),
+    hasMoreHomeActions: candidates.length > 3,
+  };
+}
+
+export function buildHomeHighlightsViewModel(input: {
+  data?: ActivityHighlightsResponse;
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+}): HomeHighlightsViewModel {
+  if (input.data) {
+    return {
+      items: input.data.items,
+      phase: input.data.items.length === 0 ? 'empty' : 'ready',
+      hasRefreshError: input.isError,
+      isRefreshing: input.isFetching,
+      weekCountLabel: `本周协作 ${input.data.week_highlight_count} 次`,
+    };
+  }
+  return {
+    items: [],
+    phase: input.isError ? 'error' : 'loading',
+    hasRefreshError: false,
+    isRefreshing: input.isFetching,
+    weekCountLabel: '本周协作 --',
+  };
+}
+
+export function resolveHomeHighlightActor(actorName: string | null | undefined) {
+  return actorName?.trim() || '家庭成员';
+}
+
+const HOME_HIGHLIGHT_ICONS: Record<string, DashboardIconName> = {
+  shopping: 'cart',
+  inventory: 'leaf',
+  meal_plan: 'calendar',
+  meal: 'pot',
+  family: 'family',
+};
+
+export function homeHighlightIcon(kind: string): DashboardIconName {
+  return HOME_HIGHLIGHT_ICONS[kind] ?? 'family';
+}
 
 export function formatDashboardPlanRange(range: { start: string; end: string }) {
   const format = (dateKey: string) => {
@@ -159,7 +252,8 @@ export function buildHomeDashboardViewModel(input: {
   recipes: Recipe[];
   mealLogs: MealLog[];
   today: string;
-  dashboardRecommendationPage: number;
+  desktopRecommendationCursor?: number;
+  mobileRecommendationCursor?: number;
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
 }) {
@@ -213,10 +307,15 @@ export function buildHomeDashboardViewModel(input: {
     recommendation: item,
     coverUrl: getFoodCover(item.food, input.recipes),
   }));
-  const dashboardRecommendationPageCount = Math.max(1, Math.ceil(dashboardRecommendationItems.length / 3));
-  const dashboardRecommendations = dashboardRecommendationItems.slice(
-    (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3,
-    (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3 + 3
+  const desktopRecommendations = selectCircularWindow(
+    dashboardRecommendationItems,
+    input.desktopRecommendationCursor ?? 0,
+    3,
+  );
+  const mobileRecommendations = selectCircularWindow(
+    dashboardRecommendationItems,
+    input.mobileRecommendationCursor ?? 0,
+    1,
   );
   const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;
   const completedFoodPlanCount = activeFoodPlanItems.filter((item) => item.status === 'cooked').length;
@@ -263,8 +362,10 @@ export function buildHomeDashboardViewModel(input: {
     todaysMeals,
     dashboardStats,
     dashboardRecommendationItems,
-    dashboardRecommendationPageCount,
-    dashboardRecommendations,
+    desktopRecommendations,
+    mobileRecommendations,
+    canChangeDesktopRecommendations: dashboardRecommendationItems.length > 3,
+    canChangeMobileRecommendation: dashboardRecommendationItems.length > 1,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,

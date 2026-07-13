@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
@@ -41,7 +42,7 @@ from app.schemas.inventory_operations import (
     ShoppingIntakeRequest,
     ShoppingIntakeResult,
 )
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.food_stock import apply_food_stock_intake
 from app.services.food_stock_quantity import validate_food_stock_quantity_precision
 from app.services.ingredient_inventory_state import upsert_inventory_state
@@ -941,6 +942,7 @@ def apply_shopping_intake(
     if operation.status is None:
         operation.status = InventoryOperationStatus.APPLIED
 
+    highlight_count = full_completed + partial_only
     log_activity(
         db,
         family_id=family_id,
@@ -949,6 +951,10 @@ def apply_shopping_intake(
         entity_type="InventoryOperation",
         entity_id=operation.id,
         summary=f"登记了本次购买：{description}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.SHOPPING,
+            summary=f"完成 {highlight_count} 项采购入库",
+        ),
     )
     db.flush()
 

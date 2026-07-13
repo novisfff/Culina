@@ -9,7 +9,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, Difficulty, MealType
+from app.core.enums import ActivityAction, ActivityHighlightKind, Difficulty, MealType
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
@@ -29,7 +29,7 @@ from app.schemas.recipes import (
     RecipeStatsOut,
     UpdateRecipeRequest,
 )
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
@@ -670,6 +670,14 @@ def cook_recipe(
         entity_type="Recipe",
         entity_id=recipe.id,
         summary=f"完成菜谱 {recipe.title}，扣减 {len(consumed_items)} 项食材",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.MEAL,
+            summary=(
+                f"完成 {recipe.title} 并记录用餐"
+                if meal_log_id is not None
+                else f"完成 {recipe.title}"
+            ),
+        ),
     )
     try:
         commit_session(db)

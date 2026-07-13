@@ -1,15 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, ShoppingListItem } from '../../api/types';
-import { buildInventoryActionGroups, countUniqueAvailableIngredients } from '../inventory/inventoryActionModel';
+import type {
+  ActivityHighlight,
+  Food,
+  FoodPlanItem,
+  Ingredient,
+  InventoryItem,
+  MealLog,
+  ShoppingListItem,
+} from '../../api/types';
 import {
+  buildInventoryActionGroups,
+  countUniqueAvailableIngredients,
+  type InventoryActionGroup,
+} from '../inventory/inventoryActionModel';
+import {
+  advanceRecommendationCursor,
   buildHomeDashboardViewModel,
+  buildHomeHighlightsViewModel,
+  buildHomeRequiredActions,
   buildHomeRestockForm,
   findShoppingIngredient,
+  homeHighlightIcon,
   matchIngredientByExactName,
   formatDashboardPlanRange,
   parsePositiveNumber,
   resolveExpiryDateFromDays,
+  resolveHomeHighlightActor,
   resolveInventoryStatusForStorage,
+  selectCircularWindow,
 } from './homeDashboardModel';
 
 const ingredient: Ingredient = {
@@ -277,7 +295,6 @@ describe('homeDashboardModel', () => {
       recipes: [],
       mealLogs: [meal, { ...meal, id: 'meal-old', date: '2026-05-31' }],
       today,
-      dashboardRecommendationPage: 0,
       selectedDashboardPlanDate: '2026-06-01',
       foodPlanWeekRange: { start: '2026-06-01', end: '2026-06-07' },
     });
@@ -296,8 +313,8 @@ describe('homeDashboardModel', () => {
       unit: '种',
     });
     expect(model.pendingShoppingCount).toBe(1);
-    expect(model.dashboardRecommendationPageCount).toBe(1);
-    expect(model.dashboardRecommendations[0]?.recommendation.food.id).toBe('food-1');
+    expect(model.mobileRecommendations[0]?.recommendation.food.id).toBe('food-1');
+    expect(model.desktopRecommendations[0]?.recommendation.food.id).toBe('food-1');
     expect(model.activeFoodPlanItems).toHaveLength(1);
     expect(model.dashboardPlanDays[0]).toMatchObject({
       date: '2026-06-01',
@@ -462,7 +479,6 @@ describe('homeDashboardModel', () => {
       recipes: [],
       mealLogs: [],
       today,
-      dashboardRecommendationPage: 0,
       selectedDashboardPlanDate: today,
       foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     });
@@ -474,4 +490,187 @@ describe('homeDashboardModel', () => {
     expect(model.hasFullListInventoryActionGroups).toBe(true);
     expect(model.homeEligibleInventoryActionGroups.some((group) => group.ingredientId === 'ingredient-6')).toBe(false);
   });
+
+  describe.each([
+    { size: 0, pageSize: 3, cursor: 0, expected: [] as number[] },
+    { size: 1, pageSize: 3, cursor: 0, expected: [0] },
+    { size: 2, pageSize: 3, cursor: 0, expected: [0, 1] },
+    { size: 4, pageSize: 3, cursor: 3, expected: [3, 0, 1] },
+    { size: 5, pageSize: 3, cursor: 3, expected: [3, 4, 0] },
+    { size: 6, pageSize: 3, cursor: 3, expected: [3, 4, 5] },
+  ])('circular recommendations: $size items', ({ size, pageSize, cursor, expected }) => {
+    it('returns only real items and never repeats inside a full window', () => {
+      const items = Array.from({ length: size }, (_, id) => ({ id }));
+      const result = selectCircularWindow(items, cursor, pageSize);
+      expect(result.map((item) => item.id)).toEqual(expected);
+      expect(new Set(result.map((item) => item.id)).size).toBe(result.length);
+    });
+  });
+
+  it('advances recommendation cursor with wrap and empty-source guard', () => {
+    expect(advanceRecommendationCursor(0, 6, 3)).toBe(3);
+    expect(advanceRecommendationCursor(3, 6, 3)).toBe(0);
+    expect(advanceRecommendationCursor(0, 0, 3)).toBe(0);
+    expect(advanceRecommendationCursor(5, 6, 1)).toBe(0);
+  });
+
+  it('merges urgent expiry, one shopping action, then low stock before one truncation', () => {
+    const result = buildHomeRequiredActions({
+      inventoryGroups: [expiredTomato, expiringMilk, lowStockEggs, lowStockRice],
+      pendingShoppingCount: 5,
+    });
+    expect(result.actions).toEqual([
+      { kind: 'inventory', group: expiredTomato },
+      { kind: 'inventory', group: expiringMilk },
+      { kind: 'shopping', pendingCount: 5 },
+    ]);
+    expect(result.hasMoreHomeActions).toBe(true);
+  });
+
+  it('does not create a shopping action when pending count is zero', () => {
+    const result = buildHomeRequiredActions({
+      inventoryGroups: [expiredTomato, lowStockEggs],
+      pendingShoppingCount: 0,
+    });
+    expect(result.actions.map((item) => item.kind)).toEqual(['inventory', 'inventory']);
+  });
+
+  it('distinguishes success zero, no-cache failure and stale refresh failure', () => {
+    expect(
+      buildHomeHighlightsViewModel({
+        data: { items: [], week_highlight_count: 0 },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+      }),
+    ).toMatchObject({ phase: 'empty', weekCountLabel: '本周协作 0 次' });
+
+    expect(
+      buildHomeHighlightsViewModel({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isFetching: false,
+      }),
+    ).toMatchObject({ phase: 'error', weekCountLabel: '本周协作 --' });
+
+    expect(
+      buildHomeHighlightsViewModel({
+        data: { items: [shoppingHighlight], week_highlight_count: 7 },
+        isLoading: false,
+        isError: true,
+        isFetching: false,
+      }),
+    ).toMatchObject({
+      phase: 'ready',
+      hasRefreshError: true,
+      weekCountLabel: '本周协作 7 次',
+    });
+  });
+
+  it('normalizes highlight actors, icons and keeps seven compact plan days', () => {
+    expect(resolveHomeHighlightActor('')).toBe('家庭成员');
+    expect(resolveHomeHighlightActor(null)).toBe('家庭成员');
+    expect(resolveHomeHighlightActor('  小明  ')).toBe('小明');
+    expect(homeHighlightIcon('shopping')).toBe('cart');
+    expect(homeHighlightIcon('inventory')).toBe('leaf');
+    expect(homeHighlightIcon('meal_plan')).toBe('calendar');
+    expect(homeHighlightIcon('meal')).toBe('pot');
+    expect(homeHighlightIcon('family')).toBe('family');
+    expect(homeHighlightIcon('unknown')).toBe('family');
+
+    const model = buildHomeDashboardViewModel({
+      inventoryItems: [],
+      inventoryActionGroups: [],
+      availableIngredientCount: 0,
+      shoppingItems: [],
+      foodPlanItems: [],
+      foodRecommendations: null,
+      recipes: [],
+      mealLogs: [],
+      today: '2026-06-01',
+      selectedDashboardPlanDate: '2026-06-01',
+      foodPlanWeekRange: { start: '2026-06-01', end: '2026-06-07' },
+    });
+    expect(model.dashboardPlanDays).toHaveLength(7);
+  });
 });
+
+const expiredTomato: InventoryActionGroup = {
+  kind: 'expiry',
+  id: 'expiry:ingredient-tomato',
+  ingredientId: 'ingredient-tomato',
+  ingredientName: '番茄',
+  severity: 'expired',
+  batches: [],
+  expiredBatchCount: 1,
+  todayBatchCount: 0,
+  soonBatchCount: 0,
+  laterBatchCount: 0,
+  totalBatchCount: 1,
+  quantityLabels: ['2 个'],
+  storageLocations: ['冷藏'],
+  earliestExpiryDate: '2026-06-28',
+  earliestDaysLeft: -2,
+  title: '番茄需要处理',
+  detail: '1 批已过期',
+  primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
+};
+
+const expiringMilk: InventoryActionGroup = {
+  kind: 'expiry',
+  id: 'expiry:ingredient-milk',
+  ingredientId: 'ingredient-milk',
+  ingredientName: '牛奶',
+  severity: 'expires_soon',
+  batches: [],
+  expiredBatchCount: 0,
+  todayBatchCount: 0,
+  soonBatchCount: 1,
+  laterBatchCount: 0,
+  totalBatchCount: 1,
+  quantityLabels: ['1 盒'],
+  storageLocations: ['冷藏'],
+  earliestExpiryDate: '2026-07-02',
+  earliestDaysLeft: 2,
+  title: '牛奶需要处理',
+  detail: '1 批即将过期',
+  primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
+};
+
+const lowStockEggs: InventoryActionGroup = {
+  kind: 'low_stock',
+  id: 'low_stock:ingredient-egg',
+  ingredientId: 'ingredient-egg',
+  ingredientName: '鸡蛋',
+  availableQuantity: 1,
+  unit: '个',
+  threshold: 4,
+  title: '鸡蛋库存不足',
+  detail: '现有 1 个，补货线 4 个',
+  primaryAction: 'add_shopping',
+};
+
+const lowStockRice: InventoryActionGroup = {
+  kind: 'low_stock',
+  id: 'low_stock:ingredient-rice',
+  ingredientId: 'ingredient-rice',
+  ingredientName: '大米',
+  availableQuantity: 0.5,
+  unit: '袋',
+  threshold: 1,
+  title: '大米库存不足',
+  detail: '现有 0.5 袋，补货线 1 袋',
+  primaryAction: 'add_shopping',
+};
+
+const shoppingHighlight: ActivityHighlight = {
+  id: 'highlight-1',
+  kind: 'shopping',
+  summary: '完成了采购清单',
+  actor_id: 'user-1',
+  actor_name: '小明',
+  created_at: '2026-07-12T08:00:00.000Z',
+};

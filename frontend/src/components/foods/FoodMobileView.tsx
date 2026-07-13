@@ -59,6 +59,7 @@ export function FoodMobileView(props: {
   isQuickAdding?: boolean;
   isUpdatingFavorite?: boolean;
   notificationCenter?: ReactNode;
+  weekPage?: ReactNode;
   resolveFoodAssetUrl: (url: string) => string;
   getFoodCardPrimaryActionLabel: (food: Food) => string;
   getRecommendationPrimaryActionLabel: (item: MobileRecommendationItem) => string;
@@ -92,6 +93,10 @@ export function FoodMobileView(props: {
     }
     event.preventDefault();
     props.onOpenDetail(food);
+  }
+
+  if (props.weekPage) {
+    return <>{props.weekPage}</>;
   }
 
   return (

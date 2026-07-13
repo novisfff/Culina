@@ -200,44 +200,43 @@ def execute_composite_operation_plan(
 
     ordered_steps = composite_execution_order(payload)
     step_results: dict[str, dict[str, Any]] = {}
-    with db.begin_nested():
-        for step in ordered_steps:
-            domain = str(step["domain"])
-            if domain not in EXECUTABLE_COMPOSITE_DOMAINS:
-                raise ValueError("复合操作执行器暂不支持该步骤领域")
-            operation = resolve_composite_step_operation(step, step_results=step_results)
-            normalize_before_execute = composite_operation_requires_deferred_normalization(
-                step["operation"],
-                domain=domain,
+    for step in ordered_steps:
+        domain = str(step["domain"])
+        if domain not in EXECUTABLE_COMPOSITE_DOMAINS:
+            raise ValueError("复合操作执行器暂不支持该步骤领域")
+        operation = resolve_composite_step_operation(step, step_results=step_results)
+        normalize_before_execute = composite_operation_requires_deferred_normalization(
+            step["operation"],
+            domain=domain,
+        )
+        if execute_operation is None and domain == "ingredient":
+            step_result = _execute_ingredient_step(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                step=step,
+                operation=operation,
             )
-            if execute_operation is None and domain == "ingredient":
-                step_result = _execute_ingredient_step(
-                    db,
-                    family_id=family_id,
-                    user_id=user_id,
-                    step=step,
-                    operation=operation,
-                )
-            elif domain == "inventory":
-                step_result = _execute_inventory_step(
-                    db,
-                    family_id=family_id,
-                    user_id=user_id,
-                    step=step,
-                    operation=operation,
-                    normalize_before_execute=normalize_before_execute,
-                )
-            elif execute_operation is None:
-                raise ValueError("复合操作执行器需要统一领域 executor 后才能执行该步骤")
-            else:
-                draft_type = COMPOSITE_DOMAIN_DRAFT_TYPES[domain]
-                business_entity, entity_ids = execute_operation(
-                    draft_type,
-                    operation,
-                    normalize_before_execute,
-                )
-                step_result = _step_result(step, domain=domain, business_entity=business_entity, entity_ids=entity_ids)
-            step_results[str(step["stepId"])] = step_result
+        elif domain == "inventory":
+            step_result = _execute_inventory_step(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                step=step,
+                operation=operation,
+                normalize_before_execute=normalize_before_execute,
+            )
+        elif execute_operation is None:
+            raise ValueError("复合操作执行器需要统一领域 executor 后才能执行该步骤")
+        else:
+            draft_type = COMPOSITE_DOMAIN_DRAFT_TYPES[domain]
+            business_entity, entity_ids = execute_operation(
+                draft_type,
+                operation,
+                normalize_before_execute,
+            )
+            step_result = _step_result(step, domain=domain, business_entity=business_entity, entity_ids=entity_ids)
+        step_results[str(step["stepId"])] = step_result
 
     return {
         "schemaVersion": COMPOSITE_OPERATION_SCHEMA_VERSION,

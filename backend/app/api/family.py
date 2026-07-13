@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.deps import get_current_auth, require_owner
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, ActivityHighlightKind
 from app.core.security import get_password_hash
 from app.core.utils import create_id
 from app.ai.images.jobs import attach_image_generation_job_to_entity
@@ -15,7 +15,7 @@ from app.models.domain import AIRecommendation, Membership, User, UserCredential
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.repos.auth import get_user_by_username
 from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut, UpdateFamilyRequest, UpdateMemberRequest
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.media import replace_media_assets
 from app.services.serializers import serialize_family, serialize_member
 
@@ -152,6 +152,10 @@ def create_member(
         entity_type="Membership",
         entity_id=member_membership.id,
         summary=f"邀请 {member_user.display_name} 成为{'管理员' if payload.role.value == 'Owner' else '成员'}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.FAMILY,
+            summary=f"邀请 {member_user.display_name} 加入家庭",
+        ),
     )
     commit_session(db)
     db.refresh(member_user)

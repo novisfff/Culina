@@ -1,0 +1,183 @@
+// @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, useEffect } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../api/client';
+import type { ActivityHighlightsResponse, ActivityLog } from '../api/types';
+import type { TabKey } from './AppShell';
+import { useAppWorkspaceQueries } from './useAppWorkspaceQueries';
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+type WorkspaceQueries = ReturnType<typeof useAppWorkspaceQueries>;
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+let latest: WorkspaceQueries | null = null;
+
+function WorkspaceQueriesHarness(props: {
+  activeTab: TabKey;
+  onState: (state: WorkspaceQueries) => void;
+}) {
+  const state = useAppWorkspaceQueries({
+    activeTab: props.activeTab,
+    isAuthenticated: true,
+    foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
+  });
+  useEffect(() => props.onState(state));
+  return null;
+}
+
+function renderWorkspaceQueries(activeTab: TabKey) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  act(() => {
+    root?.render(
+      <QueryClientProvider client={client}>
+        <WorkspaceQueriesHarness
+          activeTab={activeTab}
+          onState={(state) => { latest = state; }}
+        />
+      </QueryClientProvider>
+    );
+  });
+  return {
+    client,
+    current: () => {
+      if (!latest) throw new Error('workspace query harness not ready');
+      return latest;
+    },
+    unmount() {
+      act(() => root?.unmount());
+      root = null;
+      container?.remove();
+      container = null;
+      latest = null;
+    },
+  };
+}
+
+async function flushQueries() {
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+function stubHomeBootQueries() {
+  vi.spyOn(api, 'getFamily').mockResolvedValue({
+    id: 'family-1',
+    name: 'Culina',
+    motto: '',
+    location: '',
+    food_preferences: [],
+    food_avoidances: [],
+    created_at: '2026-07-01T00:00:00.000Z',
+    updated_at: '2026-07-01T00:00:00.000Z',
+    ai_recommendations: [],
+  });
+  vi.spyOn(api, 'getMembers').mockResolvedValue([]);
+  vi.spyOn(api, 'getIngredients').mockResolvedValue([]);
+  vi.spyOn(api, 'getInventory').mockResolvedValue([]);
+  vi.spyOn(api, 'listInventoryStates').mockResolvedValue([]);
+  vi.spyOn(api, 'getShoppingList').mockResolvedValue([]);
+  vi.spyOn(api, 'getRecipes').mockResolvedValue([]);
+  vi.spyOn(api, 'getFoodPlan').mockResolvedValue([]);
+  vi.spyOn(api, 'getFoods').mockResolvedValue([]);
+  vi.spyOn(api, 'getFoodRecommendations').mockResolvedValue({
+    target_meal_type: 'dinner',
+    target_date: '2026-07-12',
+    items: [],
+  });
+  vi.spyOn(api, 'getMealLogs').mockResolvedValue([]);
+  vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
+}
+
+describe('useAppWorkspaceQueries', () => {
+  beforeEach(() => {
+    latest = null;
+    stubHomeBootQueries();
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    container?.remove();
+    container = null;
+    latest = null;
+    vi.restoreAllMocks();
+  });
+
+  it('enables five highlights on home without adding them to boot loading', async () => {
+    const highlights = vi
+      .spyOn(api, 'getActivityHighlights')
+      .mockImplementation(() => new Promise<ActivityHighlightsResponse>(() => undefined));
+    const harness = renderWorkspaceQueries('home');
+    await flushQueries();
+    expect(highlights).toHaveBeenCalledWith(5);
+    expect(harness.current().activityHighlightsQuery.isLoading).toBe(true);
+    expect(harness.current().isBootLoading).toBe(false);
+  });
+
+  it('does not request highlights outside home', async () => {
+    const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
+      items: [],
+      week_highlight_count: 0,
+    });
+    renderWorkspaceQueries('family');
+    await flushQueries();
+    expect(highlights).not.toHaveBeenCalled();
+  });
+
+  it('requests highlights but never full activity logs on home', async () => {
+    const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
+      items: [],
+      week_highlight_count: 0,
+    });
+    const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
+    renderWorkspaceQueries('home');
+    await flushQueries();
+    expect(highlights).toHaveBeenCalledWith(5);
+    expect(logs).not.toHaveBeenCalled();
+  });
+
+  it('requests full activity logs without a preview limit on family', async () => {
+    const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
+      items: [],
+      week_highlight_count: 0,
+    });
+    const logs = vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
+    renderWorkspaceQueries('family');
+    await flushQueries();
+    expect(logs).toHaveBeenCalledWith();
+    expect(highlights).not.toHaveBeenCalled();
+  });
+
+  it('keeps both activity queries out of boot loading', async () => {
+    vi.spyOn(api, 'getActivityHighlights').mockImplementation(
+      () => new Promise<ActivityHighlightsResponse>(() => undefined)
+    );
+    const home = renderWorkspaceQueries('home');
+    await flushQueries();
+    expect(home.current().isBootLoading).toBe(false);
+    home.unmount();
+    vi.spyOn(api, 'getActivityLogs').mockImplementation(
+      () => new Promise<ActivityLog[]>(() => undefined)
+    );
+    const family = renderWorkspaceQueries('family');
+    await flushQueries();
+    expect(family.current().isBootLoading).toBe(false);
+  });
+});

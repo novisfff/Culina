@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.deps import get_current_auth
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
@@ -310,6 +311,19 @@ def intake_api_context() -> Iterator[IntakeApiContext]:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+def _highlight_rows(db: Session, *, family_id: str) -> list[ActivityLog]:
+    return list(
+        db.scalars(
+            select(ActivityLog)
+            .where(
+                ActivityLog.family_id == family_id,
+                ActivityLog.highlight_kind.is_not(None),
+            )
+            .order_by(ActivityLog.created_at, ActivityLog.id)
+        )
+    )
 
 
 def _exact_payload(
@@ -903,6 +917,7 @@ def test_cross_family_target_fails_atomically(intake_api_context: IntakeApiConte
         assert shopping is not None and shopping.done is False
         assert db.scalar(select(InventoryItem)) is None
         assert db.scalar(select(InventoryOperation)) is None
+        assert _highlight_rows(db, family_id=intake_api_context.family_id) == []
 
 
 def test_incompatible_unit_fails(intake_api_context: IntakeApiContext) -> None:
@@ -976,6 +991,7 @@ def test_stale_version_fails(intake_api_context: IntakeApiContext) -> None:
     assert response.json()["detail"]["code"] == "stale_version"
     with intake_api_context.SessionLocal() as db:
         assert db.scalar(select(InventoryItem)) is None
+        assert _highlight_rows(db, family_id=intake_api_context.family_id) == []
 
 
 def test_second_completion_fails_atomically(intake_api_context: IntakeApiContext) -> None:
@@ -1009,6 +1025,22 @@ def test_same_request_id_and_hash_replays_without_duplicate_stock(intake_api_con
     assert second.json()["items"][0]["inventory_item_id"] == first.json()["items"][0]["inventory_item_id"]
     with intake_api_context.SessionLocal() as db:
         assert len(list(db.scalars(select(InventoryItem)))) == 1
+        assert len(list(db.scalars(select(InventoryOperation)))) == 1
+
+
+def test_shopping_intake_writes_one_highlight_and_replay_does_not_duplicate(
+    intake_api_context: IntakeApiContext,
+) -> None:
+    payload = _exact_payload(intake_api_context, client_request_id="intake-highlight-1")
+    first = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    replay = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    with intake_api_context.SessionLocal() as db:
+        highlights = _highlight_rows(db, family_id=intake_api_context.family_id)
+        assert len(highlights) == 1
+        assert highlights[0].highlight_kind is ActivityHighlightKind.SHOPPING
+        assert highlights[0].highlight_summary == "完成 1 项采购入库"
         assert len(list(db.scalars(select(InventoryOperation)))) == 1
 
 
@@ -1090,6 +1122,7 @@ def test_forced_commit_failure_leaves_no_partial_write(intake_api_context: Intak
         assert shopping is not None and shopping.done is False
         assert db.scalar(select(InventoryOperation)) is None
         assert db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "InventoryOperation")) is None
+        assert _highlight_rows(db, family_id=intake_api_context.family_id) == []
 
 
 def test_presence_absent_rejected(intake_api_context: IntakeApiContext) -> None:

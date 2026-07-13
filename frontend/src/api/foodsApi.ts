@@ -1,5 +1,6 @@
 import { request } from './request';
 import type {
+  ActivityHighlightsResponse,
   ActivityLog,
   ActivityLogQuery,
   CreateFoodPlanItemPayload,
@@ -143,4 +144,8 @@ export const foodsApi = {
     const suffix = search.size > 0 ? `?${search.toString()}` : '';
     return request<ActivityLog[]>(`/api/activity-logs${suffix}`);
   },
+  getActivityHighlights: (limit = 5) =>
+    request<ActivityHighlightsResponse>(
+      `/api/activity-highlights?limit=${encodeURIComponent(String(limit))}`
+    ),
 };

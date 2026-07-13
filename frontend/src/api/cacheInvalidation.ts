@@ -27,7 +27,11 @@ export async function invalidateAfterSearchIndexJobChanged(
 }
 
 export async function invalidateAfterMemberChanged(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [queryKeys.members, queryKeys.activityLogs]);
+  await invalidateMany(queryClient, [
+    queryKeys.members,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ]);
 }
 
 export async function invalidateAfterProfileChanged(queryClient: QueryClient) {
@@ -49,6 +53,7 @@ export async function invalidateAfterInventoryChanged(queryClient: QueryClient) 
     queryKeys.inventoryOverviewRoot,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
+    queryKeys.activityHighlights,
   ]);
 }
 
@@ -67,6 +72,7 @@ export async function invalidateAfterInventoryOperation(queryClient: QueryClient
     queryKeys.recipeDiscovery,
     queryKeys.searchRoot,
     queryKeys.activityLogs,
+    queryKeys.activityHighlights,
   ]);
 }
 
@@ -110,6 +116,7 @@ export async function invalidateAfterRecipeCooked(queryClient: QueryClient) {
     queryKeys.mealLogs,
     queryKeys.foodPlanRoot,
     queryKeys.activityLogs,
+    queryKeys.activityHighlights,
   ]);
 }
 
@@ -118,7 +125,11 @@ export async function invalidateAfterRecipeFavoriteChanged(queryClient: QueryCli
 }
 
 export async function invalidateAfterFoodPlanChanged(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [queryKeys.foodPlanRoot, queryKeys.activityLogs]);
+  await invalidateMany(queryClient, [
+    queryKeys.foodPlanRoot,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ]);
 }
 
 export async function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
@@ -130,7 +141,12 @@ export async function invalidateAfterFoodChanged(queryClient: QueryClient) {
 }
 
 export async function invalidateAfterMealLogChanged(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  await invalidateMany(queryClient, [
+    queryKeys.mealLogs,
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ]);
 }
 
 export async function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
@@ -141,6 +157,7 @@ export async function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
     queryKeys.inventoryOverviewRoot,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
+    queryKeys.activityHighlights,
   ]);
 }
 
@@ -160,6 +177,7 @@ export async function invalidateAfterAiApprovalSettled(queryClient: QueryClient,
     queryKeys.foods,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
+    queryKeys.activityHighlights,
   ]);
 }
 

@@ -56,6 +56,9 @@ export const queryKeys = {
       params.limit ?? '',
       params.offset ?? 0,
     ] as const,
+  activityHighlights: ['activity-highlights'] as const,
+  activityHighlightList: (limit = 5) =>
+    ['activity-highlights', 'list', limit] as const,
   aiStatus: ['ai-status'] as const,
   aiImageJobs: ['ai-image-jobs'] as const,
   searchIndexJobs: ['search-index-jobs'] as const,

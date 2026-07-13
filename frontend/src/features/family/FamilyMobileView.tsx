@@ -18,6 +18,9 @@ export function FamilyMobileView(props: {
   familyStatCards: FamilyStatCard[];
   familyOwnerMember?: Member;
   activityLogs: ActivityLog[];
+  activityPhase?: 'loading' | 'empty' | 'ready' | 'error';
+  hasRefreshError?: boolean;
+  onActivityRetry?: () => void;
   notificationCenter?: ReactNode;
   resolveAssetUrl: (url?: string) => string | undefined;
   onOverlayChange: (mode: FamilyOverlayMode) => void;
@@ -188,7 +191,23 @@ export function FamilyMobileView(props: {
             <DashboardIcon name="list" />
           </button>
         </div>
-        {props.activityLogs.length > 0 ? (
+        {props.activityPhase === 'loading' ? (
+          <div className="mobile-family-activity-skeleton" aria-label="家庭活动加载中">
+            {[0, 1, 2].map((index) => (
+              <span key={index} aria-hidden="true" />
+            ))}
+          </div>
+        ) : props.activityPhase === 'error' ? (
+          <div className="mobile-family-empty">
+            <strong>家庭活动暂时加载失败</strong>
+            <span>稍后重试即可继续查看协作动态。</span>
+            {props.onActivityRetry && (
+              <button type="button" onClick={props.onActivityRetry}>
+                重试活动记录
+              </button>
+            )}
+          </div>
+        ) : props.activityLogs.length > 0 ? (
           <div className="mobile-family-activity-list">
             {props.activityLogs.slice(0, 4).map((log, index) => (
               <article key={log.id} className="mobile-family-activity-item">
@@ -201,6 +220,15 @@ export function FamilyMobileView(props: {
                 </div>
               </article>
             ))}
+            {props.activityPhase === 'ready' && props.hasRefreshError && props.onActivityRetry && (
+              <button
+                className="mobile-family-activity-refresh-warning"
+                type="button"
+                onClick={props.onActivityRetry}
+              >
+                刷新失败，重试
+              </button>
+            )}
           </div>
         ) : (
           <div className="mobile-family-empty">

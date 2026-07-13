@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { act, useEffect } from 'react';
+import { act, useEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FoodPlanItem } from '../api/types';
+import type { GlobalSearchSelection } from '../features/search/GlobalSearchOverlay';
 import type { TabKey } from './AppShell';
 import {
   useAppGlobalSearchNavigation,
@@ -18,17 +20,53 @@ let container: HTMLDivElement | null = null;
 type NavApi = ReturnType<typeof useAppGlobalSearchNavigation>;
 type HandlerApi = ReturnType<typeof useAppHomeHandlers>;
 
+const planItemFixture: FoodPlanItem = {
+  id: 'plan-1',
+  family_id: 'family-1',
+  user_id: 'user-1',
+  food_id: 'food-1',
+  food_name: '番茄炒蛋',
+  food_type: 'selfMade',
+  recipe_id: null,
+  recipe_title: '',
+  plan_date: '2026-07-15',
+  meal_type: 'dinner',
+  note: '',
+  status: 'planned',
+  created_at: '2026-06-01T00:00:00.000Z',
+  updated_at: '2026-06-01T00:00:00.000Z',
+};
+
+const mealPlanSelection: GlobalSearchSelection = {
+  entityType: 'meal_plan',
+  entityId: planItemFixture.id,
+  item: {
+    entity_type: 'meal_plan',
+    entity_id: planItemFixture.id,
+    score: 1,
+    keyword_score: 1,
+    semantic_score: 0,
+    business_score: 0,
+    match_reason: [],
+    entity: planItemFixture,
+  },
+};
+
 function NavigationHarness({
   onReady,
 }: {
   onReady: (api: { nav: NavApi; handlers: HandlerApi; activeTab: TabKey }) => void;
 }) {
-  const setActiveTab = vi.fn<(tab: TabKey) => void>();
+  // Keep mock instances stable across re-renders so call history is preserved.
+  const setActiveTab = useRef(vi.fn<(tab: TabKey) => void>()).current;
+  const setSelectedRecipePlanDate = useRef(vi.fn<(date: string) => void>()).current;
+  setActiveTabMock = setActiveTab;
+  setSelectedRecipePlanDateMock = setSelectedRecipePlanDate;
   const nav = useAppGlobalSearchNavigation({
     foods: [],
     isPhoneViewport: false,
     setActiveTab: setActiveTab as never,
-    setSelectedRecipePlanDate: vi.fn(),
+    setSelectedRecipePlanDate: setSelectedRecipePlanDate as never,
   });
   const handlers = useAppHomeHandlers({
     ingredientNavigationRequestIdRef: nav.ingredientNavigationRequestIdRef,
@@ -54,6 +92,7 @@ function NavigationHarness({
 
 let latest: { nav: NavApi; handlers: HandlerApi } | null = null;
 let setActiveTabMock: ReturnType<typeof vi.fn> | null = null;
+let setSelectedRecipePlanDateMock: ReturnType<typeof vi.fn> | null = null;
 
 function renderNavigation() {
   act(() => {
@@ -71,6 +110,7 @@ function renderNavigation() {
 beforeEach(() => {
   latest = null;
   setActiveTabMock = null;
+  setSelectedRecipePlanDateMock = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -85,6 +125,7 @@ afterEach(() => {
   container = null;
   latest = null;
   setActiveTabMock = null;
+  setSelectedRecipePlanDateMock = null;
 });
 
 describe('IngredientNavigationRequest contract', () => {
@@ -222,5 +263,30 @@ describe('Ingredient navigation consumption contract', () => {
       expect(consume(request)).toBe(false);
     }
     expect(handled.size).toBe(4);
+  });
+});
+
+describe('Food plan navigation protocol', () => {
+  it('keeps global-search plan results as item targets', () => {
+    const api = renderNavigation();
+    act(() => api!.nav.handleGlobalSearchSelect(mealPlanSelection));
+    expect(latest!.nav.foodPlanNavigationRequest).toEqual({
+      target: 'item',
+      itemId: mealPlanSelection.entityId,
+      planDate: planItemFixture.plan_date,
+      requestId: 1,
+    });
+  });
+
+  it('opens the selected natural week without inventing an item id', () => {
+    const api = renderNavigation();
+    act(() => api!.nav.openFoodPlanWeek('2026-07-15'));
+    expect(setSelectedRecipePlanDateMock).toHaveBeenCalledWith('2026-07-15');
+    expect(setActiveTabMock).toHaveBeenCalledWith('foods');
+    expect(latest!.nav.foodPlanNavigationRequest).toEqual({
+      target: 'week',
+      planDate: '2026-07-15',
+      requestId: 1,
+    });
   });
 });

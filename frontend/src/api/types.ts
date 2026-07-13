@@ -987,6 +987,27 @@ export interface ActivityLogQuery {
   offset?: number;
 }
 
+export type ActivityHighlightKind =
+  | 'shopping'
+  | 'inventory'
+  | 'meal_plan'
+  | 'meal'
+  | 'family';
+
+export type ActivityHighlight = {
+  id: string;
+  kind: ActivityHighlightKind;
+  summary: string;
+  actor_id: string;
+  actor_name: string;
+  created_at: string;
+};
+
+export type ActivityHighlightsResponse = {
+  items: ActivityHighlight[];
+  week_highlight_count: number;
+};
+
 export type AiConversationVisibility = 'private' | 'family';
 
 export interface AiConversation {

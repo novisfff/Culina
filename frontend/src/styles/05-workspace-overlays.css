@@ -5208,3 +5208,8 @@
 .recipe-work-cover {
   aspect-ratio: 4 / 3;
 }
+
+/* Family activity modal inherits workspace overlay shell; keep body scroll local. */
+.family-settings-overlay-root .family-activity-viewer-modal .workspace-overlay-body {
+  overscroll-behavior: contain;
+}

@@ -47,4 +47,11 @@ describe('queryKeys', () => {
     ]);
     expect(scopes).toEqual(['recipe', 'ingredient', 'food']);
   });
+
+  it('keeps highlight limits and audit logs in separate caches', () => {
+    expect(queryKeys.activityHighlights).toEqual(['activity-highlights']);
+    expect(queryKeys.activityHighlightList(5)).toEqual(['activity-highlights', 'list', 5]);
+    expect(queryKeys.activityHighlightList(3)).not.toEqual(queryKeys.activityHighlightList(5));
+    expect(queryKeys.activityHighlightList(5)).not.toEqual(queryKeys.activityLogs);
+  });
 });

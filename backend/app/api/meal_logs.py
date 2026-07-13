@@ -8,7 +8,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, ActivityHighlightKind
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
@@ -16,7 +16,7 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
@@ -195,6 +195,10 @@ def create_meal_log(
         entity_type="MealLog",
         entity_id=meal_log.id,
         summary=f"记录了{'今天' if payload.date == today_for_family(membership.family_id) else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.MEAL,
+            summary=f"记录了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}",
+        ),
     )
     commit_session(db)
     db.refresh(meal_log)
@@ -412,6 +416,9 @@ def quick_add_meal_log(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    # Only first material completion should highlight. Plan-linked quick-add
+    # replays (entry_created=False) and pure no-ops stay audit-only.
+    should_highlight = created or entry_created
     log_activity(
         db,
         family_id=membership.family_id,
@@ -420,6 +427,14 @@ def quick_add_meal_log(
         entity_type="MealLog",
         entity_id=meal_log.id,
         summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
+        highlight=(
+            ActivityHighlight(
+                kind=ActivityHighlightKind.MEAL,
+                summary=f"记录了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}",
+            )
+            if should_highlight
+            else None
+        ),
     )
     _commit_meal_log_session(db)
     db.refresh(meal_log)

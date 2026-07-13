@@ -89,16 +89,19 @@ function makeLowStockGroup(ingredientId: string, name: string): InventoryActionG
 function Harness({
   groups,
   businessDateKey,
+  recommendationCount = 0,
   onState,
 }: {
   groups: InventoryActionGroup[];
   businessDateKey?: string;
+  recommendationCount?: number;
   onState: (state: UseHomeDashboardStateResult) => void;
 }) {
   const state = useHomeDashboardState({
     foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     homeEligibleInventoryActionGroups: groups,
     businessDateKey,
+    recommendationCount,
   });
 
   useEffect(() => {
@@ -117,12 +120,17 @@ function Harness({
 
 let latest: UseHomeDashboardStateResult | null = null;
 
-function renderHarness(groups: InventoryActionGroup[], businessDateKey?: string) {
+function renderHarness(
+  groups: InventoryActionGroup[],
+  businessDateKey?: string,
+  recommendationCount = 0,
+) {
   act(() => {
     root?.render(
       <Harness
         groups={groups}
         businessDateKey={businessDateKey}
+        recommendationCount={recommendationCount}
         onState={(state) => {
           latest = state;
         }}
@@ -314,5 +322,17 @@ describe('useHomeDashboardState', () => {
     state = latest!;
     expect(state.nextGroupId).toBe(milk.id);
     expect(state.completionSummary?.title).toBe('已处理番茄');
+  });
+
+  it('advances desktop and mobile cursors independently', () => {
+    let state = renderHarness([], undefined, 6);
+    act(() => state!.showNextDesktopRecommendations());
+    state = latest!;
+    expect(state.desktopRecommendationCursor).toBe(3);
+    expect(state.mobileRecommendationCursor).toBe(0);
+    act(() => state!.showNextMobileRecommendation());
+    state = latest!;
+    expect(state.desktopRecommendationCursor).toBe(3);
+    expect(state.mobileRecommendationCursor).toBe(1);
   });
 });

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import (
     ActivityAction,
+    ActivityHighlightKind,
     InventoryOperationChangeType,
     InventoryOperationEntityType,
     InventoryOperationStatus,
@@ -43,7 +44,7 @@ from app.schemas.inventory_operations import (
     InventoryOperationResult,
     InventoryOperationSummaryOut,
 )
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.inventory_versions import InventoryConflictError, bump_ingredient_collection
 from app.services.search.jobs import enqueue_search_index_job
@@ -1065,10 +1066,19 @@ def revert_inventory_operation(
     summary = _summary_from_operation(operation)
     if operation.operation_type == InventoryOperationType.SHOPPING_INTAKE:
         activity_summary = f"撤销了刚才的采购入库：{summary.description}" if summary.description else "撤销了刚才的采购入库"
+        highlight = ActivityHighlight(
+            kind=ActivityHighlightKind.SHOPPING,
+            summary="撤销一次采购入库",
+        )
     elif operation.operation_type == InventoryOperationType.RECONCILIATION:
         activity_summary = f"撤销了刚才的库存盘点：{summary.description}" if summary.description else "撤销了刚才的库存盘点"
+        highlight = ActivityHighlight(
+            kind=ActivityHighlightKind.INVENTORY,
+            summary="撤销一次库存盘点",
+        )
     else:
         activity_summary = "撤销了刚才的库存操作"
+        highlight = None
 
     log_activity(
         db,
@@ -1078,6 +1088,7 @@ def revert_inventory_operation(
         entity_type="InventoryOperation",
         entity_id=operation.id,
         summary=activity_summary,
+        highlight=highlight,
     )
     for food_id in sorted(food_ids_to_reindex):
         food = locked.foods.get(food_id)

@@ -7,6 +7,7 @@ import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
+import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
@@ -34,7 +35,6 @@ import {
   todayKey,
 } from './lib/ui';
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
-import type { FamilyStatCard } from './features/family/FamilySettings';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
@@ -209,6 +209,7 @@ function App() {
     foodsQuery,
     mealLogsQuery,
     activityLogsQuery,
+    activityHighlightsQuery,
     aiConversationsQuery,
     isBootLoading: isWorkspaceBootLoading,
     members,
@@ -226,7 +227,6 @@ function App() {
     foods,
     foodRecommendations,
     mealLogs,
-    activityLogs,
     aiConversations,
     family,
   } = useAppWorkspaceQueries({
@@ -254,8 +254,10 @@ function App() {
   );
 
   const {
-    dashboardRecommendationPage,
-    setDashboardRecommendationPage,
+    desktopRecommendationCursor,
+    mobileRecommendationCursor,
+    showNextDesktopRecommendations,
+    showNextMobileRecommendation,
     selectedDashboardPlanDate,
     setSelectedDashboardPlanDate,
     homePlanDetailItemId,
@@ -302,6 +304,10 @@ function App() {
     foodPlanWeekRange,
     homeEligibleInventoryActionGroups: homeEligibleInventoryActionGroupsForState,
     businessDateKey: homeBusinessDateKey,
+    recommendationCount: foodRecommendations?.items.length ?? 0,
+    recommendationIdSignature: (foodRecommendations?.items ?? [])
+      .map((item) => item.food.id)
+      .join('|'),
   });
 
   const {
@@ -316,6 +322,7 @@ function App() {
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
+    openFoodPlanWeek,
   } = useAppGlobalSearchNavigation({
     foods,
     isPhoneViewport,
@@ -646,12 +653,7 @@ function App() {
     pendingShoppingCount,
     aiRecommendationCount,
     recentMeals,
-    currentUserRecentLogs,
-    familyOwnerMember,
     editingMember,
-    weekActivityCount,
-    familyHeroImageUrl,
-    familyStatCards,
     headerName,
     sidebarRoleLabel,
     sidebarFamilyName,
@@ -673,8 +675,8 @@ function App() {
     todaysMeals,
     dashboardStats,
     dashboardRecommendationItems,
-    dashboardRecommendationPageCount,
-    dashboardRecommendations,
+    desktopRecommendations,
+    mobileRecommendations,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,
@@ -685,6 +687,9 @@ function App() {
     homeMealDetailParticipants,
     homeRestockIngredient,
     homeRestockIngredientImageUrl,
+    homeHighlightsViewModel,
+    homeRequiredActions,
+    hasMoreHomeActions,
   } = useAppHomeViewModel({
     user,
     membershipRole: membership?.role,
@@ -700,8 +705,14 @@ function App() {
     foodPlanItems,
     foodRecommendations,
     mealLogs,
-    activityLogs,
-    dashboardRecommendationPage,
+    activityHighlights: {
+      data: activityHighlightsQuery.data,
+      isLoading: activityHighlightsQuery.isLoading,
+      isError: activityHighlightsQuery.isError,
+      isFetching: activityHighlightsQuery.isFetching,
+    },
+    desktopRecommendationCursor,
+    mobileRecommendationCursor,
     selectedDashboardPlanDate,
     foodPlanWeekRange,
     homePlanDetailItemId,
@@ -713,6 +724,47 @@ function App() {
     inventoryActionGroups: homePreparedActionGroups,
     resolveDashboardAssetUrl,
   });
+
+  const familyActivityQuery = {
+    data: activityLogsQuery.data,
+    isLoading: activityLogsQuery.isLoading,
+    isError: activityLogsQuery.isError,
+    isFetching: activityLogsQuery.isFetching,
+    refetch: () => {
+      void activityLogsQuery.refetch();
+    },
+  };
+
+  const {
+    currentUserRecentLogs,
+    familyOwnerMember,
+    familyHeroImageUrl,
+    familyStatCards,
+    activityPhase: familyActivityPhase,
+  } = useAppFamilyViewModel({
+    activityQuery: familyActivityQuery,
+    user,
+    membership,
+    family,
+    members,
+    shoppingItems,
+    mealLogs,
+    foods,
+    recipes,
+  });
+
+  function retryHomeHighlights() {
+    void activityHighlightsQuery.refetch();
+  }
+
+  function openFamilyActivity() {
+    setFamilyOverlayMode('activity');
+    setActiveTab('family');
+  }
+
+  const selectedPlanSummary = selectedDashboardPlanDay
+    ? `${selectedDashboardPlanDateLabel} · ${selectedDashboardPlanDay.totalCount} 项计划`
+    : selectedDashboardPlanDateLabel;
 
   void homeInventoryActionCount;
   void availableInventoryCount;
@@ -948,31 +1000,33 @@ function App() {
             inventoryAlerts={inventoryAlerts}
             notificationCenter={mobileNotificationCenter}
             dashboardStats={dashboardStats}
-            dashboardRecommendationItems={dashboardRecommendationItems}
-            dashboardRecommendationPageCount={dashboardRecommendationPageCount}
-            dashboardRecommendations={dashboardRecommendations}
+            desktopRecommendations={desktopRecommendations}
+            mobileRecommendations={mobileRecommendations}
+            recommendationCount={dashboardRecommendationItems.length}
             foodRecommendations={foodRecommendations}
             homeInventoryActionGroups={homeInventoryActionGroups}
             hasLaterInventoryActionGroups={hasLaterInventoryActionGroups}
             hasFullListInventoryActionGroups={hasFullListInventoryActionGroups}
+            requiredActions={homeRequiredActions}
+            hasMoreHomeActions={hasMoreHomeActions}
             activeFoodPlanItems={activeFoodPlanItems}
             foodPlanItems={foodPlanItems}
             dashboardWeekMealCapacity={dashboardWeekMealCapacity}
             dashboardPlanDays={dashboardPlanDays}
+            compactPlanDays={dashboardPlanDays}
             selectedDashboardPlanDay={selectedDashboardPlanDay}
             selectedDashboardPlanDateLabel={selectedDashboardPlanDateLabel}
+            selectedPlanSummary={selectedPlanSummary}
             pendingShoppingCount={pendingShoppingCount}
             pendingShoppingPreview={pendingShoppingPreview}
             dashboardPlanSummary={dashboardPlanSummary}
             foodPlanWeekRange={foodPlanWeekRange}
+            homeHighlights={homeHighlightsViewModel}
             foods={foods}
             recipes={recipes}
             ingredients={ingredients}
-            members={members}
             mealLogs={mealLogs}
             inventoryItems={inventoryItems}
-            activityLogs={activityLogs}
-            recentMeals={recentMeals}
             isQuickAdding={quickAddMealMutation.isPending}
             isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
             resolveAssetUrl={resolveDashboardAssetUrl}
@@ -980,7 +1034,8 @@ function App() {
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
             onNavigate={handleTabChange}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
-            onRecommendationPageChange={setDashboardRecommendationPage}
+            onNextDesktopRecommendations={showNextDesktopRecommendations}
+            onNextMobileRecommendation={showNextMobileRecommendation}
             onStartRecipe={startRecipeCook}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
@@ -990,6 +1045,10 @@ function App() {
             onOpenActionGroup={handleOpenActionGroup}
             onOpenIngredientShopping={openIngredientShopping}
             onOpenIngredientPriority={openIngredientPriority}
+            onOpenShoppingIntake={() => openShoppingIntake()}
+            onOpenFamilyActivity={openFamilyActivity}
+            onOpenFullWeek={openFoodPlanWeek}
+            onRetryHighlights={retryHomeHighlights}
             onOpenReconciliation={openReconciliation}
             onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
@@ -1009,6 +1068,7 @@ function App() {
               foodScenes={foodScenes}
               foodPlanItems={foodPlanItems}
               foodPlanWeekRange={foodPlanWeekRange}
+              isPhoneViewport={isPhoneViewport}
               notificationCenter={mobileNotificationCenter}
               navigationRequest={foodNavigationRequest}
               foodPlanNavigationRequest={foodPlanNavigationRequest}
@@ -1224,7 +1284,8 @@ function App() {
               familyStatCards={familyStatCards}
               currentUserRecentLogs={currentUserRecentLogs}
               familyOwnerMember={familyOwnerMember}
-              activityLogs={activityLogs}
+              activityQuery={familyActivityQuery}
+              activityPhase={familyActivityPhase}
               isPhoneViewport={isPhoneViewport}
               notificationCenter={mobileNotificationCenter}
               overlayMode={familyOverlayMode}

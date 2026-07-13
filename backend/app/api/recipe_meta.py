@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, ActivityHighlightKind
 from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
@@ -26,7 +26,7 @@ from app.schemas.recipes import (
     UpdateFoodSceneRequest,
     UpdateRecipePlanItemRequest,
 )
-from app.services.activity import log_activity
+from app.services.activity import ActivityHighlight, log_activity
 from app.services.media import replace_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
@@ -35,6 +35,13 @@ from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
+
+MEAL_TYPE_LABELS = {
+    "breakfast": "早餐",
+    "lunch": "午餐",
+    "dinner": "晚餐",
+    "snack": "加餐/夜宵",
+}
 
 
 def _load_recipe(db: Session, *, family_id: str, recipe_id: str) -> Recipe:
@@ -414,6 +421,13 @@ def create_food_plan_item(
         entity_type="FoodPlanItem",
         entity_id=item.id,
         summary=f"加入菜单计划 {food.name}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.MEAL_PLAN,
+            summary=(
+                f"将 {food.name} 安排到 {item.plan_date.isoformat()} "
+                f"{MEAL_TYPE_LABELS[item.meal_type.value]}"
+            ),
+        ),
     )
     commit_session(db)
     db.refresh(item)
@@ -430,6 +444,7 @@ def update_food_plan_item(
 ) -> dict:
     user, membership = auth
     item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
+    before_material = (item.food_id, item.plan_date, item.meal_type)
     if payload.food_id is not None:
         item.food = _load_food(db, family_id=membership.family_id, food_id=payload.food_id)
         item.food_id = payload.food_id
@@ -447,6 +462,20 @@ def update_food_plan_item(
             item.completed_at = None
             item.meal_log_id = None
     item.updated_by = user.id
+    after_material = (item.food_id, item.plan_date, item.meal_type)
+    materially_changed = before_material != after_material
+    food_name = item.food.name if item.food else "食物"
+    highlight = (
+        ActivityHighlight(
+            kind=ActivityHighlightKind.MEAL_PLAN,
+            summary=(
+                f"将 {food_name} 安排到 {item.plan_date.isoformat()} "
+                f"{MEAL_TYPE_LABELS[item.meal_type.value]}"
+            ),
+        )
+        if materially_changed
+        else None
+    )
     enqueue_search_index_job(
         db,
         family_id=membership.family_id,
@@ -462,7 +491,8 @@ def update_food_plan_item(
         action=ActivityAction.UPDATE,
         entity_type="FoodPlanItem",
         entity_id=item.id,
-        summary=f"更新菜单计划 {item.food.name if item.food else '食物'}",
+        summary=f"更新菜单计划 {food_name}",
+        highlight=highlight,
     )
     commit_session(db)
     db.refresh(item)
@@ -477,6 +507,7 @@ def delete_food_plan_item(
 ) -> None:
     user, membership = auth
     item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
+    food_name = item.food.name if item.food else "食物"
     delete_search_document(
         db,
         family_id=membership.family_id,
@@ -492,7 +523,11 @@ def delete_food_plan_item(
         action=ActivityAction.UPDATE,
         entity_type="FoodPlanItem",
         entity_id=item.id,
-        summary=f"移除菜单计划 {item.food.name if item.food else '食物'}",
+        summary=f"移除菜单计划 {food_name}",
+        highlight=ActivityHighlight(
+            kind=ActivityHighlightKind.MEAL_PLAN,
+            summary=f"移除菜单计划 {food_name}",
+        ),
     )
     commit_session(db)
     return None

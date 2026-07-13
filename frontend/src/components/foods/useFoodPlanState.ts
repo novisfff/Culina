@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
+import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';
 import type { FoodPlanDetailFormState } from './FoodPlanDetailModal';
@@ -22,11 +23,8 @@ export function useFoodPlanState(input: {
   foods: Food[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
-  navigationRequest?: {
-    itemId: string;
-    planDate: string;
-    requestId: number;
-  } | null;
+  navigationRequest?: FoodPlanNavigationRequest | null;
+  onNavigateToWeek: (planDate: string) => void;
   showNotice: (notice: NoticeState) => void;
   setFeedback: (message: string) => void;
   getDefaultMealType: (food: Food) => MealType;
@@ -131,11 +129,24 @@ export function useFoodPlanState(input: {
     const request = input.navigationRequest;
     if (!request || handledNavigationRequestIdRef.current === request.requestId) return;
     if (request.planDate < input.foodPlanWeekRange.start || request.planDate > input.foodPlanWeekRange.end) return;
+
+    if (request.target === 'week') {
+      input.onNavigateToWeek(request.planDate);
+      handledNavigationRequestIdRef.current = request.requestId;
+      return;
+    }
+
     const item = input.foodPlanItems.find((entry) => entry.id === request.itemId);
     if (!item) return;
     openPlanDetail(item);
     handledNavigationRequestIdRef.current = request.requestId;
-  }, [input.foodPlanItems, input.foodPlanWeekRange.end, input.foodPlanWeekRange.start, input.navigationRequest]);
+  }, [
+    input.foodPlanItems,
+    input.foodPlanWeekRange.end,
+    input.foodPlanWeekRange.start,
+    input.navigationRequest,
+    input.onNavigateToWeek,
+  ]);
 
   function closePlanDetail() {
     setPlanDetailItemId(null);
