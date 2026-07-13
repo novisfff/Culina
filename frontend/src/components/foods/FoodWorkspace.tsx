@@ -40,7 +40,9 @@ import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
+import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
+import { FoodPlanSurface } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
@@ -162,6 +164,7 @@ type Props = {
   foodScenes: FoodScene[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
+  surface?: 'discover' | 'plan';
   isPhoneViewport?: boolean;
   notificationCenter?: ReactNode;
   navigationRequest?: {
@@ -1265,80 +1268,39 @@ export function FoodWorkspace(props: Props) {
     }
   }, [props.foods, props.navigationRequest]);
 
-  return (
-    <main className="food-workspace">
-      {notice && (
-        <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-          <span className="recipe-notice-icon">
-            <FoodUiIcon name={notice.tone === 'success' ? 'check' : 'bell'} />
-          </span>
-          <span className="recipe-notice-copy">
-            <strong>{notice.title}</strong>
-            <small>{notice.message}</small>
-          </span>
-          <button type="button" onClick={clearNotice} aria-label="关闭提示">
-            ×
-          </button>
-        </div>
-      )}
-      <FoodHubView
-        mobileView={
-          <FoodMobileView
-            recipes={props.recipes}
-            mealLogs={props.mealLogs}
-            visibleRecommendations={visibleRecommendations}
-            recommendationCardCount={recommendationCards.length}
-            managementIssueCount={managementIssueCount}
-            mobileScenePages={mobileScenePages}
-            mobileLibraryFoods={mobileLibraryFoods}
-            mobileLibraryResetKey={mobileLibraryResetKey}
-            hasFoodFilters={hasFoodFilters}
-            search={search}
-            isSearchFetching={isFoodSearchFetching}
-            emptyTitle={currentLensCopy.emptyTitle}
-            isQuickAdding={props.isQuickAdding}
-            isUpdatingFavorite={props.isUpdatingFavorite}
-            notificationCenter={props.notificationCenter}
-            weekPage={
-              mobileWeekPlanDate ? (
-                <FoodPlanWeekMobilePage
-                  weekRange={props.foodPlanWeekRange}
-                  days={foodPlanDays}
-                  selectedDate={mobileWeekPlanDate}
-                  onSelectDate={setMobileWeekPlanDate}
-                  onOpenItem={(item) => {
-                    setMobileWeekPlanDate(null);
-                    openPlanDetail(item);
-                  }}
-                  onBack={() => setMobileWeekPlanDate(null)}
-                />
-              ) : null
-            }
-            resolveFoodAssetUrl={resolveFoodAssetUrl}
-            getFoodCardPrimaryActionLabel={getFoodCardPrimaryActionLabel}
-            getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
-            getDefaultMealType={getDefaultMealType}
-            getFoodSceneTags={getFoodSceneTags}
-            getFoodCookingSummary={getFoodCookingSummary}
-            onSearchChange={setSearch}
-            onSearchCompositionStart={foodSearchComposition.onCompositionStart}
-            onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
-            onRotateRecommendation={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
-            onOpenGovernanceIssue={() => openGovernanceIssue('all')}
-            onOpenSceneManager={() => setIsSceneManagerOpen(true)}
-            onOpenDetail={openDetail}
-            onOpenPlanDialog={openPlanDialog}
-            onHandleRecommendationPrimaryAction={handleRecommendationPrimaryAction}
-            onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
-            onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
-            onOpenCreate={() => handleOpenCreate('takeout')}
-            onClearFoodFilters={() => {
-              clearFoodFilters();
-              setMobileCookingFilter('all');
+  const planSurfaceProps = {
+      weekRange: props.foodPlanWeekRange,
+      days: foodPlanDays,
+      weekSectionRef: foodPlanWeekRef,
+      isUpdatingPlan: props.isUpdatingPlan,
+      isStartingPlanItem: props.isQuickAdding,
+      canCreatePlan: props.foods.length > 0,
+      mobileWeekPage:
+        mobileWeekPlanDate ? (
+          <FoodPlanWeekMobilePage
+            weekRange={props.foodPlanWeekRange}
+            days={foodPlanDays}
+            selectedDate={mobileWeekPlanDate}
+            onSelectDate={setMobileWeekPlanDate}
+            onOpenItem={(item) => {
+              setMobileWeekPlanDate(null);
+              openPlanDetail(item);
             }}
-            filterTabs={mobileFilterTabs}
+            onBack={() => setMobileWeekPlanDate(null)}
           />
-        }
+        ) : null,
+      onPreviousWeek: props.onFoodPlanPreviousWeek,
+      onCurrentWeek: props.onFoodPlanCurrentWeek,
+      onNextWeek: props.onFoodPlanNextWeek,
+      onCreatePlan: () => openPlanDialog(),
+      onOpenPlanItem: openPlanDetail,
+      onStartPlanItem: (item: FoodPlanItem) => {
+        void completePlanItem(item);
+      },
+    };
+
+    const discoverDesktopContent = (
+      <FoodHubView
         heroActions={
           <div className="hero-actions">
             <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>
@@ -1678,63 +1640,7 @@ export function FoodWorkspace(props: Props) {
               </button>
             </div>
           </div>
-          <div className="food-sidebar-section food-sidebar-plan-section">
-            <div className="food-sidebar-section-head">
-              <strong>菜单计划</strong>
-              <span>{props.foodPlanWeekRange.start.slice(5).replace('-', '/')} - {props.foodPlanWeekRange.end.slice(5).replace('-', '/')}</span>
-            </div>
-            <div className="recipe-plan-switcher food-plan-switcher" aria-label="切换菜单周">
-              <button type="button" onClick={props.onFoodPlanPreviousWeek}>
-                <FoodUiIcon name="arrowLeft" />
-                上一周
-              </button>
-              <button type="button" onClick={props.onFoodPlanCurrentWeek}>
-                本周
-              </button>
-              <button type="button" onClick={props.onFoodPlanNextWeek}>
-                下一周
-                <FoodUiIcon name="arrowRight" />
-              </button>
-            </div>
-            <ActionButton tone="primary" type="button" size="compact" className="recipe-plan-add-button food-plan-add-button" onClick={() => openPlanDialog()} disabled={props.isUpdatingPlan || props.foods.length === 0}>
-              <FoodUiIcon name="plus" />
-              加食物
-            </ActionButton>
-            <div className="recipe-plan-week food-plan-week" ref={foodPlanWeekRef} tabIndex={-1} data-testid="food-plan-week-section">
-              {foodPlanDays.map((day) => (
-                <div key={day.date} className="recipe-plan-day expanded">
-                  <button className="recipe-plan-day-head" type="button">
-                    <strong>{day.label}</strong>
-                    <span>{day.items.length > 0 ? `${day.items.length} 项` : '未安排'}</span>
-                  </button>
-                  {day.items.length > 0 ? (
-                    day.items.map((item) => (
-                      <article key={item.id} className="recipe-plan-item" role="button" tabIndex={0} onClick={() => openPlanDetail(item)}>
-                        <div className="recipe-plan-item-summary">
-                          <strong>{item.food_name}</strong>
-                          <span>{MEAL_TYPE_LABELS[item.meal_type]}{item.status === 'cooked' ? ' · 已完成' : ''}</span>
-                        </div>
-                        <button
-                          className="recipe-plan-item-detail-button"
-                          type="button"
-                          aria-label={`${item.recipe_id ? '开始做' : '记到今天'}：${item.food_name}`}
-                          disabled={props.isQuickAdding || item.status === 'cooked'}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void completePlanItem(item);
-                          }}
-                        >
-                          <FoodUiIcon name={item.recipe_id ? 'bowl' : 'check'} />
-                        </button>
-                      </article>
-                    ))
-                  ) : (
-                    <div className="recipe-plan-empty-row">未安排</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <FoodPlanSurface {...planSurfaceProps} mobileWeekPage={null} />
           <div className="food-sidebar-section food-sidebar-scenes-section">
             <div className="food-sidebar-section-head">
               <strong>按场景探索</strong>
@@ -1773,6 +1679,99 @@ export function FoodWorkspace(props: Props) {
           </div>
         </aside>}
       />
+    );
+
+    const discoverMobileContent = (
+      <FoodMobileView
+        recipes={props.recipes}
+        mealLogs={props.mealLogs}
+        visibleRecommendations={visibleRecommendations}
+        recommendationCardCount={recommendationCards.length}
+        managementIssueCount={managementIssueCount}
+        mobileScenePages={mobileScenePages}
+        mobileLibraryFoods={mobileLibraryFoods}
+        mobileLibraryResetKey={mobileLibraryResetKey}
+        hasFoodFilters={hasFoodFilters}
+        search={search}
+        isSearchFetching={isFoodSearchFetching}
+        emptyTitle={currentLensCopy.emptyTitle}
+        isQuickAdding={props.isQuickAdding}
+        isUpdatingFavorite={props.isUpdatingFavorite}
+        notificationCenter={props.notificationCenter}
+        weekPage={
+          mobileWeekPlanDate ? (
+            <FoodPlanWeekMobilePage
+              weekRange={props.foodPlanWeekRange}
+              days={foodPlanDays}
+              selectedDate={mobileWeekPlanDate}
+              onSelectDate={setMobileWeekPlanDate}
+              onOpenItem={(item) => {
+                setMobileWeekPlanDate(null);
+                openPlanDetail(item);
+              }}
+              onBack={() => setMobileWeekPlanDate(null)}
+            />
+          ) : null
+        }
+        resolveFoodAssetUrl={resolveFoodAssetUrl}
+        getFoodCardPrimaryActionLabel={getFoodCardPrimaryActionLabel}
+        getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
+        getDefaultMealType={getDefaultMealType}
+        getFoodSceneTags={getFoodSceneTags}
+        getFoodCookingSummary={getFoodCookingSummary}
+        onSearchChange={setSearch}
+        onSearchCompositionStart={foodSearchComposition.onCompositionStart}
+        onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
+        onRotateRecommendation={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
+        onOpenGovernanceIssue={() => openGovernanceIssue('all')}
+        onOpenSceneManager={() => setIsSceneManagerOpen(true)}
+        onOpenDetail={openDetail}
+        onOpenPlanDialog={openPlanDialog}
+        onHandleRecommendationPrimaryAction={handleRecommendationPrimaryAction}
+        onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
+        onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
+        onOpenCreate={() => handleOpenCreate('takeout')}
+        onClearFoodFilters={() => {
+          clearFoodFilters();
+          setMobileCookingFilter('all');
+        }}
+        filterTabs={mobileFilterTabs}
+      />
+    );
+
+    const discoverSurfaceProps = {
+      desktopContent: discoverDesktopContent,
+      mobileContent: discoverMobileContent,
+      loading: false,
+      errorMessage: null as string | null,
+      isEmpty: false,
+      onCreateFood: () => handleOpenCreate('takeout'),
+    };
+
+    const surfaceContent =
+      props.surface === 'plan' ? (
+        <FoodPlanSurface {...planSurfaceProps} />
+      ) : (
+        <FoodDiscoverSurface {...discoverSurfaceProps} />
+      );
+
+    return (
+    <main className="food-workspace">
+      {notice && (
+        <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
+          <span className="recipe-notice-icon">
+            <FoodUiIcon name={notice.tone === 'success' ? 'check' : 'bell'} />
+          </span>
+          <span className="recipe-notice-copy">
+            <strong>{notice.title}</strong>
+            <small>{notice.message}</small>
+          </span>
+          <button type="button" onClick={clearNotice} aria-label="关闭提示">
+            ×
+          </button>
+        </div>
+      )}
+      {surfaceContent}
 
       {view !== 'list' && !isFoodRecipeEditorOpen && (
         <WorkspaceOverlayFrame

@@ -665,6 +665,16 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
   });
 });
 
+describe('FoodWorkspace surface extraction', () => {
+  it('keeps FoodWorkspace as a temporary discover/plan surface adapter', () => {
+    const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    expect(source).toContain("surface?: 'discover' | 'plan'");
+    expect(source).toContain("props.surface === 'plan'");
+    expect(source).toContain('<FoodDiscoverSurface');
+    expect(source).toContain('<FoodPlanSurface');
+  });
+});
+
 describe('FoodWorkspace week navigation presentation', () => {
   it('focuses the existing desktop week section for a week request', () => {
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
