@@ -34,6 +34,10 @@ function uniqueFoodForRecipe(foods: Food[], recipeId: string): Food | null {
   return matches[0];
 }
 
+function descriptorKey(descriptor: ActiveCookDescriptor): string {
+  return `${descriptor.recipeId}:${descriptor.foodPlanItemId ?? ''}:${descriptor.savedAt}`;
+}
+
 function buildLaunchFromDescriptor(
   descriptor: ActiveCookDescriptor,
   recipe: Recipe,
@@ -75,18 +79,21 @@ function buildLaunchFromDescriptor(
 export function ActiveCookResumeCard(props: ActiveCookResumeCardProps) {
   const storage = props.storage ?? localStorage;
   const now = props.now ?? Date.now();
-  const [dismissed, setDismissed] = useState(false);
+  /** Identity of the descriptor the user dismissed/auto-cleared; any other descriptor re-shows. */
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  /** Bumped after local clear so the same render cycle re-reads storage. */
   const [revision, setRevision] = useState(0);
 
-  const active = useMemo(() => {
-    void revision;
-    if (!props.scope || dismissed) return null;
-    return readActiveCook(storage, props.scope);
-    // revision forces re-read after cleanup
-  }, [props.scope, storage, dismissed, revision]);
+  // Read every render (plus revision after clear). Same-tab writes do not fire "storage" events;
+  // parent re-renders (or the post-clear revision bump) pick up the latest descriptor.
+  void revision;
+  const active = props.scope ? readActiveCook(storage, props.scope) : null;
+
+  const activeKey = active ? descriptorKey(active) : null;
+  const isDismissed = Boolean(activeKey && dismissedKey && activeKey === dismissedKey);
 
   const resolved = useMemo(() => {
-    if (!props.scope || !active) return null;
+    if (!props.scope || !active || isDismissed) return null;
     const source = active.foodPlanItemId
       ? ({ kind: 'plan' as const, foodPlanItemId: active.foodPlanItemId })
       : ({ kind: 'direct' as const });
@@ -108,13 +115,10 @@ export function ActiveCookResumeCard(props: ActiveCookResumeCardProps) {
     if (!food) {
       return { kind: 'missing-food' as const, descriptor: active, sessionKey, recipe };
     }
-    let planItem: FoodPlanItem | null = null;
-    if (active.foodPlanItemId) {
-      planItem = (props.foodPlanItems ?? []).find((item) => item.id === active.foodPlanItemId) ?? null;
-      if (!planItem) {
-        return { kind: 'missing-plan' as const, descriptor: active, sessionKey, recipe, food };
-      }
-    }
+    // Week-scoped foodPlanItems miss is NOT "deleted". Session already holds date/meal/servings/base.
+    const planItem = active.foodPlanItemId
+      ? (props.foodPlanItems ?? []).find((item) => item.id === active.foodPlanItemId) ?? null
+      : null;
 
     // Guard against descriptor/session TTL drift.
     if (isCookSessionExpired(read.bundle.savedAt, read.bundle.source, now)) {
@@ -130,7 +134,7 @@ export function ActiveCookResumeCard(props: ActiveCookResumeCardProps) {
       planItem,
       session: read.bundle.session,
     };
-  }, [active, now, props.foodPlanItems, props.foods, props.recipes, props.scope, storage]);
+  }, [active, isDismissed, now, props.foodPlanItems, props.foods, props.recipes, props.scope, storage]);
 
   function clearCurrent(descriptor: ActiveCookDescriptor, sessionKey: string) {
     if (!props.scope) return;
@@ -140,7 +144,7 @@ export function ActiveCookResumeCard(props: ActiveCookResumeCardProps) {
       expectedDescriptor: descriptor,
       expectedSessionKey: sessionKey,
     });
-    setDismissed(true);
+    setDismissedKey(descriptorKey(descriptor));
     setRevision((value) => value + 1);
   }
 
@@ -150,21 +154,19 @@ export function ActiveCookResumeCard(props: ActiveCookResumeCardProps) {
 
   useEffect(() => {
     if (!resolved || resolved.kind === 'ready' || resolved.kind === 'incompatible') return;
-    if (dismissed) return;
+    if (isDismissed) return;
     clearCurrent(resolved.descriptor, resolved.sessionKey);
     if (resolved.kind === 'missing-recipe') {
       notifyMissing('上次做菜已失效', '对应菜谱已不存在，已清除本地进度。');
     } else if (resolved.kind === 'missing-food') {
       notifyMissing('上次做菜已失效', '做法与家常菜的关联需要修复，已清除本地进度。');
-    } else if (resolved.kind === 'missing-plan') {
-      notifyMissing('上次做菜已失效', '对应菜单项已不存在，已清除本地进度。');
     } else {
       notifyMissing('上次做菜已过期', '本地烹饪进度已过期并清除。');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved, dismissed]);
+  }, [resolved, isDismissed]);
 
-  if (!props.scope || !active || !resolved || resolved.kind !== 'ready') {
+  if (!props.scope || !active || isDismissed || !resolved || resolved.kind !== 'ready') {
     return null;
   }
 

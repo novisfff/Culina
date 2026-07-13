@@ -401,7 +401,7 @@ describe('appNavigationModel', () => {
           },
         },
       }),
-      expected: ['needsIngredients', 'needsInventory', 'needsRecipes', 'needsFoods'],
+      expected: ['needsIngredients', 'needsInventory', 'needsRecipes', 'needsFoods', 'needsMealLogs'],
     },
     {
       name: 'plan cook',
@@ -424,7 +424,7 @@ describe('appNavigationModel', () => {
           },
         },
       }),
-      expected: ['needsIngredients', 'needsInventory', 'needsRecipes', 'needsFoodPlan', 'needsFoods'],
+      expected: ['needsIngredients', 'needsInventory', 'needsRecipes', 'needsFoodPlan', 'needsFoods', 'needsMealLogs'],
     },
     {
       name: 'meal-create',

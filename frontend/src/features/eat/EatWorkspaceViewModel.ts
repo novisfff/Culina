@@ -32,6 +32,8 @@ export type ResolveEatTaskInput = {
   planDetailStatus: QuerySettleStatus;
   mealLogs: MealLog[];
   mealLogsStatus: QuerySettleStatus;
+  /** True while mealLogs are refetching after invalidation (stale data may still be present). */
+  mealLogsFetching?: boolean;
 };
 
 /** Monday–Sunday week range containing the given plan date (YYYY-MM-DD). */
@@ -286,6 +288,11 @@ function resolveMealDetail(
   const mealLog = input.mealLogs.find((item) => item.id === task.mealLogId);
   if (mealLog) {
     return { kind: 'meal', mealLog };
+  }
+  // After cook completion, invalidate marks mealLogs stale while disabled queries may still
+  // report success with an older list. Prefer loading over a false not-found.
+  if (input.mealLogsFetching) {
+    return loading('正在加载这餐记录');
   }
   if (isFailedWithoutData(input.mealLogsStatus, input.mealLogs.length > 0)) {
     return loadError('这餐记录加载失败');

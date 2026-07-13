@@ -29,7 +29,12 @@ export function readJsonStorage<T>(
 }
 
 export function writeJsonStorage<T>(key: string, value: T, storage: StorageLike = defaultStorage()): void {
-  storage.setItem(key, JSON.stringify(value));
+  try {
+    storage.setItem(key, JSON.stringify(value));
+  } catch {
+    // QuotaExceeded / private mode / disabled storage — callers on hot paths
+    // (cook timer autosave) must not crash the React tree.
+  }
 }
 
 export function readStringStorage(key: string, fallback: string, storage: StorageLike = defaultStorage()): string {

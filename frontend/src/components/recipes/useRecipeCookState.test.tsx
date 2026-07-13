@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Recipe } from '../../api/types';
 import {
   buildCookSessionV3Key,
@@ -52,6 +52,11 @@ function makeCard(recipe: Recipe = makeRecipe()): RecipeCardViewModel {
     updatedAt: recipe.updated_at,
   };
 }
+
+beforeEach(() => {
+  // jsdom does not implement scrollTo; openCook uses it for focus reset.
+  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+});
 
 afterEach(() => {
   localStorage.clear();
@@ -275,6 +280,68 @@ describe('useRecipeCookState scoped v3', () => {
     );
     expect(result.current.cookCompletionResult?.mealLogId).toBe('meal-1');
     expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'plan', foodPlanItemId: 'plan-1' }))).toBeNull();
+  });
+
+  it('does not resurrect a cleared session when a timer keeps ticking after success', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const recipe = makeRecipe();
+    const card = makeCard(recipe);
+    const sessionKey = buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' });
+    const cookRecipe = vi.fn(async () => ({
+      recipe_id: recipe.id,
+      consumed_items: [],
+      shortages: [],
+      meal_log_id: 'meal-timer-1',
+      cook_log_id: 'cook-timer-1',
+    }));
+
+    const { result, rerender } = renderHook(
+      ({ view }: { view: 'library' | 'cook' }) =>
+        useRecipeCookState({
+          cards: [card],
+          selectedCard: card,
+          view,
+          setView: vi.fn(),
+          setSelectedRecipeId: vi.fn(),
+          previewCookRecipe: vi.fn(async () => ({ recipe_id: recipe.id, preview_items: [], shortages: [] })),
+          cookRecipe,
+          showRecipeNotice: vi.fn(),
+          sessionScope: SCOPE,
+          foodId: 'food-1',
+          ownershipVerified: true,
+        }),
+      { initialProps: { view: 'library' as 'library' | 'cook' } },
+    );
+
+    act(() => {
+      result.current.openCook(card);
+    });
+    rerender({ view: 'cook' });
+    await waitFor(() => expect(result.current.cookSession).not.toBeNull());
+
+    act(() => {
+      result.current.startTimerById();
+    });
+    expect(result.current.cookSession?.timers.some((timer) => timer.running)).toBe(true);
+
+    await act(async () => {
+      await result.current.submitCookRecipe({ preventDefault() {} } as never);
+    });
+    expect(result.current.cookCompletionResult?.mealLogId).toBe('meal-timer-1');
+    expect(localStorage.getItem(sessionKey)).toBeNull();
+    expect(readActiveCook(localStorage, SCOPE)).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    act(() => {
+      result.current.dismissCookCompletion();
+    });
+
+    expect(localStorage.getItem(sessionKey)).toBeNull();
+    expect(readActiveCook(localStorage, SCOPE)).toBeNull();
+    vi.useRealTimers();
   });
 
   it('keeps the session when a nominal response is missing either result ID', async () => {

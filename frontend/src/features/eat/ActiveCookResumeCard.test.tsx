@@ -240,4 +240,118 @@ describe('ActiveCookResumeCard', () => {
     expect(onResume).not.toHaveBeenCalled();
     expect(screen.getByTestId('active-cook-resume-card')).toBeInTheDocument();
   });
+
+  it('resumes a plan cook from session fields when the plan item is outside the loaded week list', async () => {
+    const user = userEvent.setup();
+    const recipe = makeRecipe();
+    const food = makeFood();
+    const session = buildDefaultCookSessionV3(recipe, {
+      source: 'plan',
+      planItemId: 'plan-other-week',
+      completionRequestId: 'cook-cross-week',
+      planItemBaseUpdatedAt: '2026-07-05T10:00:00.000Z',
+      date: '2026-07-05',
+      mealType: 'lunch',
+      servings: 3,
+    });
+    session.currentStepIndex = 1;
+    saveCookSessionV3({
+      scope: SCOPE,
+      recipeId: recipe.id,
+      session,
+      savedAt: '2026-07-12T11:00:00.000Z',
+    });
+
+    const onResume = vi.fn();
+    const onNotice = vi.fn();
+    render(
+      <ActiveCookResumeCard
+        scope={SCOPE}
+        recipes={[recipe]}
+        foods={[food]}
+        foodPlanItems={[]}
+        onResume={onResume}
+        onNotice={onNotice}
+        now={NOW}
+      />,
+    );
+
+    expect(screen.getByTestId('active-cook-resume-card')).toBeInTheDocument();
+    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'plan', foodPlanItemId: 'plan-other-week' }))).not.toBeNull();
+    expect(onNotice).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '继续做菜' }));
+    expect(onResume).toHaveBeenCalledWith({
+      food,
+      recipe,
+      launchContext: {
+        date: '2026-07-05',
+        mealType: 'lunch',
+        servings: 3,
+        source: {
+          kind: 'plan',
+          foodPlanItemId: 'plan-other-week',
+          planItemBaseUpdatedAt: '2026-07-05T10:00:00.000Z',
+        },
+      },
+    });
+  });
+
+  it('shows a new active cook after the previous one was abandoned without remounting', async () => {
+    const user = userEvent.setup();
+    const recipeA = makeRecipe({ id: 'recipe-a', title: '菜A' });
+    const recipeB = makeRecipe({ id: 'recipe-b', title: '菜B' });
+    const foodA = makeFood({ id: 'food-a', recipe_id: 'recipe-a', name: '菜A' });
+    const foodB = makeFood({ id: 'food-b', recipe_id: 'recipe-b', name: '菜B' });
+    saveCookSessionV3({
+      scope: SCOPE,
+      recipeId: recipeA.id,
+      session: buildDefaultCookSessionV3(recipeA, {
+        source: 'direct',
+        planItemId: null,
+        completionRequestId: 'cook-a',
+      }),
+      savedAt: '2026-07-12T11:00:00.000Z',
+    });
+
+    const { rerender } = render(
+      <ActiveCookResumeCard
+        scope={SCOPE}
+        recipes={[recipeA, recipeB]}
+        foods={[foodA, foodB]}
+        onResume={vi.fn()}
+        now={NOW}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '放弃' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('active-cook-resume-card')).not.toBeInTheDocument();
+    });
+
+    saveCookSessionV3({
+      scope: SCOPE,
+      recipeId: recipeB.id,
+      session: buildDefaultCookSessionV3(recipeB, {
+        source: 'direct',
+        planItemId: null,
+        completionRequestId: 'cook-b',
+      }),
+      savedAt: '2026-07-12T11:30:00.000Z',
+    });
+    rerender(
+      <ActiveCookResumeCard
+        scope={SCOPE}
+        recipes={[recipeA, recipeB]}
+        foods={[foodA, foodB]}
+        onResume={vi.fn()}
+        now={NOW}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-cook-resume-card')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/菜B/)).toBeInTheDocument();
+  });
 });

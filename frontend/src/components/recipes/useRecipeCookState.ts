@@ -106,6 +106,8 @@ export function useRecipeCookState(args: {
   const previewCookRecipeRef = useRef(args.previewCookRecipe);
   const descriptorAtSessionStartRef = useRef<ActiveCookDescriptor | null>(null);
   const sessionKeyAtStartRef = useRef<string | null>(null);
+  /** Blocks autosave immediately after a successful complete, before React state catches up. */
+  const completionLockedRef = useRef(false);
 
   const [cookCard, setCookCard] = useState<RecipeCardViewModel | null>(null);
   const [cookPreview, setCookPreview] = useState<CookRecipePreviewResponse | null>(null);
@@ -222,6 +224,8 @@ export function useRecipeCookState(args: {
 
   useEffect(() => {
     if (args.view !== 'cook' || !activeCookCard || !cookSession) return;
+    // After a successful complete, never rewrite the cleared session/descriptor.
+    if (completionLockedRef.current || cookCompletionResult) return;
     const scope = args.sessionScope;
     if (scope) {
       const runtime = cookSession as RecipeCookSessionRuntime;
@@ -256,21 +260,22 @@ export function useRecipeCookState(args: {
       return;
     }
     saveCookSession(activeCookCard.recipe.id, cookSession as RecipeCookSessionState);
-  }, [args.view, activeCookCard, cookSession, args.sessionScope]);
+  }, [args.view, activeCookCard, cookSession, args.sessionScope, cookCompletionResult]);
 
   useEffect(() => {
     if (args.view !== 'cook' || !cookSession) return;
+    if (completionLockedRef.current || cookCompletionResult) return;
     const hasRunningTimer = cookSession.timers.some((t) => t.running);
     if (!hasRunningTimer) return;
     const timer = window.setInterval(() => {
       setCookSession((current) => {
-        if (!current) return current;
+        if (!current || completionLockedRef.current) return current;
         const { timers, newlyFinishedTimerId } = advanceCookTimers(current.timers);
         return { ...current, timers, activeTimerId: newlyFinishedTimerId ?? current.activeTimerId };
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [args.view, cookSession?.timers.some((t) => t.running)]);
+  }, [args.view, cookSession?.timers.some((t) => t.running), cookCompletionResult]);
 
   useEffect(() => {
     if (!cookTimerJustStarted) return;
@@ -350,6 +355,7 @@ export function useRecipeCookState(args: {
       args.setSelectedRecipeId(card.recipe.id);
       setCookCard(card);
       setCookReturnTarget(returnTarget ?? null);
+      completionLockedRef.current = false;
       setCookSession(runtime);
       setWasCookSessionRestored(loaded.restored);
       setIsCookFinishOpen(false);
@@ -450,8 +456,21 @@ export function useRecipeCookState(args: {
     setCookCompletionResult(null);
     setCookPreview(null);
     setCookPreviewError(null);
+    completionLockedRef.current = false;
     descriptorAtSessionStartRef.current = null;
     sessionKeyAtStartRef.current = null;
+  }
+
+  function pauseAllCookTimers(
+    session: RecipeCookSessionState | RecipeCookSessionRuntime,
+  ): RecipeCookSessionState | RecipeCookSessionRuntime {
+    return {
+      ...session,
+      timers: session.timers.map((timer) => {
+        const advanced = advanceCookTimers([timer]).timers[0] ?? timer;
+        return { ...advanced, running: false, lastTickedAt: null };
+      }),
+    };
   }
 
   function updateCookSession(patch: Partial<RecipeCookSessionState | RecipeCookSessionRuntime>) {
@@ -878,6 +897,8 @@ export function useRecipeCookState(args: {
       };
     });
     if (isLastStep) {
+      // Freeze timers while the finish wizard is open so autosave does not keep advancing.
+      setCookSession((current) => (current ? pauseAllCookTimers(current) : current));
       setIsCookFinishOpen(true);
     }
   }
@@ -940,6 +961,10 @@ export function useRecipeCookState(args: {
         return;
       }
 
+      // Lock before any post-success state updates so a racing timer tick cannot rewrite storage.
+      completionLockedRef.current = true;
+      setCookSession((current) => (current ? pauseAllCookTimers(current) : current));
+
       const message = getCookCompletionMessage(response, {
         recipeTitle: activeCookCard.recipe.title,
         date: cookSession.date,
@@ -968,6 +993,13 @@ export function useRecipeCookState(args: {
 
   function dismissCookCompletion(options?: { viewMeal?: boolean }) {
     const result = cookCompletionResult;
+    // Belt-and-suspenders: clear any session that a racing write may have restored.
+    if (result) {
+      clearScopedSessionIfMatches();
+      if (!args.sessionScope && activeCookCard) {
+        clearCookSession(activeCookCard.recipe.id, cookSession?.planItemId ?? null);
+      }
+    }
     setCookCompletionResult(null);
     setCookFinishStatusMessage(null);
     setIsCookFinishOpen(false);

@@ -602,5 +602,18 @@ describe('resolveEatTask', () => {
         }),
       ),
     ).toEqual({ kind: 'meal-not-found', mealLogId: 'missing' });
+
+    // After cook completion, mealLogs may still be stale while a refetch is in flight.
+    // Prefer loading over a false "not found" for the brand-new meal_log_id.
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: { kind: 'meal-detail', mealLogId: 'meal-new', returnTo: 'history' },
+          mealLogs: [meal],
+          mealLogsStatus: 'success',
+          mealLogsFetching: true,
+        }),
+      ),
+    ).toMatchObject({ kind: 'loading', label: '正在加载这餐记录' });
   });
 });

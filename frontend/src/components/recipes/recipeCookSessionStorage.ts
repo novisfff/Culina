@@ -546,6 +546,12 @@ export function compareAndClearCookSession(args: {
     const matchesTarget =
       args.expectedDescriptor.foodPlanItemId === parsed.planItemId ||
       (args.expectedDescriptor.foodPlanItemId == null && parsed.planItemId == null);
+    // Same exact key can be rewritten mid-save before the descriptor lands.
+    // Never delete a session whose savedAt is newer than the expected clear token.
+    const sessionSavedAt = typeof parsed.savedAt === 'string' ? parsed.savedAt : null;
+    if (sessionSavedAt && sessionSavedAt !== args.expectedDescriptor.savedAt) {
+      return clearedDescriptor;
+    }
     // Session key already encodes recipe/source; clear only when descriptor compare succeeded
     // or the descriptor was already cleared and the session is for the same plan/direct target.
     if (clearedDescriptor || matchesTarget) {

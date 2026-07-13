@@ -424,6 +424,7 @@ function App() {
         planDetailStatus: querySettleStatus(foodPlanDetailQuery),
         mealLogs,
         mealLogsStatus: querySettleStatus(mealLogsQuery),
+        mealLogsFetching: mealLogsQuery.isFetching,
       }),
     [
       foodPlanDetail,

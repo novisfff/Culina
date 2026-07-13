@@ -500,6 +500,38 @@ describe('legacy parser and migration', () => {
 
     expect(storage.getItem(otherRecipeKey)).not.toBeNull();
   });
+
+  it('does not delete a newer same-key session when descriptor is missing mid-save', () => {
+    const recipe = makeRecipe();
+    const sessionKey = buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' });
+    const olderDescriptor = descriptor(recipe.id, null, '2026-07-12T10:00:00.000Z');
+    const newerSession = buildDefaultCookSessionV3(recipe, {
+      source: 'direct',
+      planItemId: null,
+      completionRequestId: 'cook-newer-same-key',
+    });
+    const storage = memoryStorage({
+      // Mid-save window: session rewritten with newer savedAt, descriptor not yet present.
+      [sessionKey]: JSON.stringify({
+        version: 3,
+        savedAt: '2026-07-12T11:00:00.000Z',
+        source: 'direct',
+        planItemId: null,
+        session: newerSession,
+      }),
+    });
+
+    const cleared = compareAndClearCookSession({
+      storage,
+      scope: SCOPE,
+      expectedDescriptor: olderDescriptor,
+      expectedSessionKey: sessionKey,
+    });
+
+    expect(cleared).toBe(false);
+    expect(storage.getItem(sessionKey)).not.toBeNull();
+    expect(JSON.parse(storage.getItem(sessionKey)!).savedAt).toBe('2026-07-12T11:00:00.000Z');
+  });
 });
 
 describe('save and default session', () => {
