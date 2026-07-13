@@ -1986,7 +1986,7 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   const isPhoneViewport = isPhoneViewportSize(viewport);
   const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '查看完整周菜单' }).click();
+  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '完整周菜单', exact: true }).click();
 
   if (isPhoneViewport) {
     await expectVisible(page.getByLabel('手机周菜单'), `${label} 手机周菜单`);

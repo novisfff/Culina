@@ -163,7 +163,7 @@ export function HomeDashboardDialogs(props: Props) {
             description="选择日期和餐次后加入当前周菜单。"
             eyebrow="菜单计划"
             onClose={closeHomePlanAddDialogIfAllowed}
-            className="recipe-plan-modal food-plan-modal"
+            className="recipe-plan-modal food-plan-modal home-plan-add-modal"
             footerActions={
               <FormActions
                 className="recipe-plan-dialog-actions"

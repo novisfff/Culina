@@ -237,6 +237,9 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
     onFoodPlanNextWeek: vi.fn(),
     onQuickStartFood: vi.fn(),
     onHomePlanAddDialogOpen: vi.fn(),
+    onHomePlanAddEmptyDialogOpen: vi.fn(),
+    onHomePlanDetailOpen: vi.fn(),
+    onOpenMealPlans: vi.fn(),
     onOpenActionGroup: vi.fn(),
     onOpenIngredientShopping: vi.fn(),
     onOpenIngredientPriority: vi.fn(),
@@ -380,6 +383,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
     const scroller = view.querySelector('[data-testid="mobile-home-calendar-scroll"]');
     expect(scroller?.classList.contains('is-mobile-scroll')).toBe(true);
     expect(scroller?.querySelectorAll('button[aria-label^="选择 "]')).toHaveLength(7);
+    expect(view.textContent).toContain('7月6日 - 7月12日');
   });
 
   it('uses 本周协作 -- for no-cache failure and Q2 shopping copy 项待采购', () => {

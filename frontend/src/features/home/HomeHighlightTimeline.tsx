@@ -28,11 +28,11 @@ export function HomeHighlightTimeline(props: {
     <section className="home-question-panel home-highlight-panel" aria-labelledby="home-highlight-title">
       <header className="home-question-head">
         <div>
-          <span>问题 3</span>
           <h2 id="home-highlight-title">家里发生了什么</h2>
         </div>
-        <button className="tertiary-button button-compact" type="button" onClick={props.onViewAll}>
+        <button className="tertiary-button button-compact home-question-head-action" type="button" onClick={props.onViewAll}>
           查看完整记录
+          <DashboardIcon name="arrow-right" />
         </button>
       </header>
       {props.viewModel.phase === 'loading' && <HomeHighlightSkeleton />}
@@ -55,7 +55,7 @@ export function HomeHighlightTimeline(props: {
       {items.length > 0 && (
         <div className="home-highlight-list">
           {items.map((item) => (
-            <article key={item.id} className="home-highlight-row" data-testid="home-highlight-row">
+            <article key={item.id} className={`home-highlight-row tone-${item.kind}`} data-testid="home-highlight-row">
               <span className="home-highlight-icon" aria-hidden="true">
                 <DashboardIcon name={homeHighlightIcon(item.kind)} />
               </span>
