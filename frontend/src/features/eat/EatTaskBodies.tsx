@@ -9,11 +9,19 @@ import type {
   InventoryItem,
   MealLog,
   MealType,
+  Member,
+  QuickAddMealLogPayload,
   Recipe,
+  RecipePayload,
+  ShoppingListItem,
+  UpdateFoodPayload,
+  UpdateMealLogPayload,
 } from '../../api/types';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
+import { FoodEditorForm } from '../../components/foods/FoodEditorForm';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
+import { FoodPlanDialog } from '../../components/foods/FoodPlanDialog';
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from '../../components/foods/FoodQuickMealDialog';
 import {
   buildFoodRelationViewModel,
@@ -32,10 +40,27 @@ import {
   isReadyLikeFood,
   normalizeFoodType,
 } from '../../components/foods/FoodWorkspaceHelpers';
+import {
+  buildFoodPayloadFromForm,
+  foodToForm,
+  getFoodFormCompletionItems,
+  type FoodFormState,
+} from '../../components/foods/FoodWorkspaceModel';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
+import { RecipeCookFinishDialog } from '../../components/recipes/RecipeCookFinishDialog';
 import { RecipeDetailView } from '../../components/recipes/RecipeDetailView';
+import { RecipeEditorView } from '../../components/recipes/RecipeEditorView';
+import { RecipeShoppingDialog } from '../../components/recipes/RecipeShoppingDialog';
 import { RecipeTaskSurface } from '../../components/recipes/RecipeTaskSurface';
+import {
+  buildRecipePayload,
+  getRecipeDraftGenerationButtonLabel,
+  resolveIngredientImageUrl,
+} from '../../components/recipes/RecipeWorkspaceModel';
+import { SHOPPING_UNIT_OPTIONS } from '../../components/recipes/RecipeWorkspaceOptions';
 import { useRecipeCookState } from '../../components/recipes/useRecipeCookState';
+import { useRecipeEditorState } from '../../components/recipes/useRecipeEditorState';
+import { useRecipeShoppingState } from '../../components/recipes/useRecipeShoppingState';
 import { buildRecipeCards, type RecipeWorkspaceView } from '../../components/recipes/workspaceModel';
 import {
   ActionButton,
@@ -44,8 +69,16 @@ import {
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
-import { getFoodCoverAsset, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { IDLE_IMAGE_GENERATION_STATE } from '../../hooks/useImageComposer';
+import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
+import { addDateKeyDays } from '../../lib/date';
+import {
+  parseFoodStockQuantity,
+  resolveFoodStockDeductQuantity,
+} from '../../lib/foodStockQuantity';
+import { getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
 import {
   buildMealTitle,
   getMealRecordPresentation,
@@ -60,11 +93,21 @@ function resolveUrl(url: string) {
   return resolveAssetUrl(url) ?? url;
 }
 
-function addDateDays(dateKey: string, days: number) {
+function getFoodPlanDateParts(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
   const date = new Date(year, (month || 1) - 1, day || 1);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
+
+function resolveErrorMessage(reason: unknown, fallback: string) {
+  if (reason instanceof Error && reason.message.trim()) {
+    return reason.message;
+  }
+  return fallback;
 }
 
 export function EatFoodTaskBody(props: {
@@ -75,14 +118,39 @@ export function EatFoodTaskBody(props: {
   mealLogs: MealLog[];
   foods: Food[];
   isQuickAdding?: boolean;
+  isSavingFood?: boolean;
+  isUpdatingPlan?: boolean;
+  updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<unknown>;
+  createFoodPlanItem: (payload: {
+    food_id: string;
+    plan_date: string;
+    meal_type: MealType;
+    note: string;
+  }) => Promise<unknown>;
   onClose: () => void;
-  onEdit: (food: Food) => void;
   onEditRecipe: (food: Food) => void;
   onOpenLogs: () => void;
-  onOpenPlanDialog: (food: Food) => void;
   onStartCook: (recipeId: string) => void;
   onQuickAdd: (food: Food, mealType: MealType) => void;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState<FoodFormState>(() => foodToForm(props.food));
+  const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
+  const [planForm, setPlanForm] = useState({
+    foodId: props.food.id,
+    planDate: todayKey(),
+    mealType: getDefaultMealType(props.food),
+    note: '',
+  });
+  const [planFoodSearch, setPlanFoodSearch] = useState(props.food.name);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setForm(foodToForm(props.food));
+    setIsEditing(false);
+    setSaveError(null);
+  }, [props.food.id, props.food.updated_at]);
+
   const usage = getMealUsage(props.food, props.mealLogs);
   const expiry = describeExpiry(props.food);
   const normalizedType = normalizeFoodType(props.food);
@@ -108,39 +176,214 @@ export function EatFoodTaskBody(props: {
       ? MEAL_OPTIONS.filter((meal) => props.food.suitable_meal_types.includes(meal.value))
       : MEAL_OPTIONS;
 
+  const isSelfMade = normalizedType === 'selfMade';
+  const completionItems = getFoodFormCompletionItems(form, props.food, props.recipes);
+  const completionPercent = Math.round(
+    (completionItems.filter((item) => item.done).length / Math.max(completionItems.length, 1)) * 100,
+  );
+  const planDateOptions = Array.from({ length: 14 }, (_, index) => addDateKeyDays(todayKey(), index));
+
+  async function handleSubmitFood(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaveError(null);
+    try {
+      const payload = buildFoodPayloadFromForm(
+        form,
+        props.recipes,
+        getMediaIds(form.images).length > 0
+          ? getMediaIds(form.images)
+          : props.food.images.map((image) => image.id).filter(Boolean),
+        getPendingImageJobId(form.images),
+      );
+      await props.updateFood(props.food.id, {
+        ...payload,
+        expected_row_version: props.food.row_version,
+      });
+      setIsEditing(false);
+    } catch (reason) {
+      setSaveError(resolveErrorMessage(reason, '保存食物失败'));
+    }
+  }
+
+  async function handleSubmitPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!planForm.foodId) return;
+    await props.createFoodPlanItem({
+      food_id: planForm.foodId,
+      plan_date: planForm.planDate,
+      meal_type: planForm.mealType,
+      note: planForm.note.trim(),
+    });
+    setIsPlanDialogOpen(false);
+  }
+
   return (
-    <FoodDetailDrawer
-      food={props.food}
-      audienceText={getFoodAudienceText(props.food, props.mealLogs)}
-      cover={cover}
-      coverAsset={coverAsset}
-      detailMealOptions={detailMealOptions}
-      expiry={expiry}
-      factRows={factRows}
-      history={history}
-      isOutsideFood={isOutsideFood(props.food)}
-      isQuickAdding={props.isQuickAdding}
-      isReadyLikeFood={isReadyLikeFood(props.food)}
-      normalizedType={normalizedType}
-      recipe={recipe}
-      relation={relation}
-      status={status}
-      usage={usage}
-      getDefaultMealType={getDefaultMealType}
-      getPrimaryFoodActionLabel={getPrimaryFoodActionLabel}
-      getRepurchaseLabel={getRepurchaseLabel}
-      getSceneTags={getFoodSceneTags}
-      getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
-      onClose={props.onClose}
-      onEdit={props.onEdit}
-      onEditRecipe={props.onEditRecipe}
-      onOpenLogs={props.onOpenLogs}
-      onOpenPlanDialog={props.onOpenPlanDialog}
-      onStartCook={props.onStartCook}
-      onQuickAdd={props.onQuickAdd}
-      resolveAssetUrl={resolveUrl}
-      overlayRootClassName="eat-task-body-overlay-root"
-    />
+    <>
+      <FoodDetailDrawer
+        food={props.food}
+        audienceText={getFoodAudienceText(props.food, props.mealLogs)}
+        cover={cover}
+        coverAsset={coverAsset}
+        detailMealOptions={detailMealOptions}
+        expiry={expiry}
+        factRows={factRows}
+        history={history}
+        isOutsideFood={isOutsideFood(props.food)}
+        isQuickAdding={props.isQuickAdding}
+        isReadyLikeFood={isReadyLikeFood(props.food)}
+        normalizedType={normalizedType}
+        recipe={recipe}
+        relation={relation}
+        status={status}
+        usage={usage}
+        getDefaultMealType={getDefaultMealType}
+        getPrimaryFoodActionLabel={getPrimaryFoodActionLabel}
+        getRepurchaseLabel={getRepurchaseLabel}
+        getSceneTags={getFoodSceneTags}
+        getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
+        onClose={props.onClose}
+        onEdit={() => setIsEditing(true)}
+        onEditRecipe={props.onEditRecipe}
+        onOpenLogs={props.onOpenLogs}
+        onOpenPlanDialog={() => {
+          setPlanForm({
+            foodId: props.food.id,
+            planDate: todayKey(),
+            mealType: getDefaultMealType(props.food),
+            note: '',
+          });
+          setPlanFoodSearch(props.food.name);
+          setIsPlanDialogOpen(true);
+        }}
+        onStartCook={props.onStartCook}
+        onQuickAdd={props.onQuickAdd}
+        resolveAssetUrl={resolveUrl}
+        overlayRootClassName="eat-task-body-overlay-root"
+      />
+
+      {isEditing ? (
+        <WorkspaceOverlayFrame
+          rootClassName="eat-task-body-overlay-root"
+          onClose={() => {
+            if (!props.isSavingFood) setIsEditing(false);
+          }}
+          closeOnBackdrop={!props.isSavingFood}
+        >
+          <WorkspaceModal
+            title="编辑食物"
+            description="补充名称、库存和日常信息。"
+            eyebrow="食物资料"
+            className="food-editor-modal"
+            onClose={() => {
+              if (!props.isSavingFood) setIsEditing(false);
+            }}
+          >
+            <FoodEditorForm
+              embedded
+              availableSceneTagOptions={[]}
+              canSubmit={!props.isSavingFood && Boolean(form.name.trim() || isSelfMade)}
+              completionItems={completionItems}
+              completionPercent={completionPercent}
+              currentRecipe={recipe}
+              editorFoodTitle={form.name || props.food.name}
+              editorProfile={{
+                title: isSelfMade ? '家常菜资料' : '食物资料',
+                description: '保存后会更新这份家常菜的基础信息。',
+              }}
+              editorRecipeCover={recipe?.images[0]?.url}
+              editorRecipeMeta={recipe ? `${recipe.ingredient_items.length} 项用料 · ${recipe.steps.length} 步` : '未绑定做法'}
+              form={form}
+              imageState={IDLE_IMAGE_GENERATION_STATE}
+              isSavingFood={props.isSavingFood}
+              isSceneTagPickerOpen={false}
+              isSelfMade={isSelfMade}
+              isUpdatingScene={false}
+              newSceneTagName=""
+              sceneTags={splitTags(form.sceneTags)}
+              submitLabel="保存"
+              view="edit"
+              onAddSceneTag={(tag) =>
+                setForm((current) => ({
+                  ...current,
+                  sceneTags: [...new Set([...splitTags(current.sceneTags), tag])].join('、'),
+                }))
+              }
+              onBack={() => {
+                if (!props.isSavingFood) setIsEditing(false);
+              }}
+              onCreateAndAddSceneTag={() => undefined}
+              onFormChange={setForm}
+              onGenerateImage={() => undefined}
+              onEditRecipe={() => {
+                setIsEditing(false);
+                props.onEditRecipe(props.food);
+              }}
+              onRemoveSceneTag={(tag) =>
+                setForm((current) => ({
+                  ...current,
+                  sceneTags: splitTags(current.sceneTags).filter((item) => item !== tag).join('、'),
+                }))
+              }
+              onResetImage={() => undefined}
+              onSceneTagPickerToggle={() => undefined}
+              onSubmit={(event) => {
+                void handleSubmitFood(event);
+              }}
+              onToggleMealType={(mealType, checked) =>
+                setForm((current) => ({
+                  ...current,
+                  suitableMealTypes: checked
+                    ? [...new Set([...current.suitableMealTypes, mealType])]
+                    : current.suitableMealTypes.filter((item) => item !== mealType),
+                }))
+              }
+              onUploadImage={() => undefined}
+              resolveAssetUrl={resolveUrl}
+              setNewSceneTagName={() => undefined}
+            />
+            {saveError ? <p className="subtle" role="alert">{saveError}</p> : null}
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      ) : null}
+
+      <FoodPlanDialog
+        isOpen={isPlanDialogOpen}
+        selectedPlanFood={props.food}
+        foods={props.foods}
+        recipes={props.recipes}
+        planFoodSearch={planFoodSearch}
+        planForm={planForm}
+        todayDate={todayKey()}
+        planDateOptions={planDateOptions}
+        isUpdatingPlan={props.isUpdatingPlan}
+        onClose={() => setIsPlanDialogOpen(false)}
+        onSubmit={(event) => {
+          void handleSubmitPlan(event);
+        }}
+        onClearPlanFoodSelection={() => {
+          setPlanForm((current) => ({ ...current, foodId: '' }));
+          setPlanFoodSearch('');
+        }}
+        onPlanFoodSearchChange={setPlanFoodSearch}
+        onSelectPlanFood={(food) => {
+          setPlanForm((current) => ({
+            ...current,
+            foodId: food.id,
+            mealType: getDefaultMealType(food),
+          }));
+          setPlanFoodSearch(food.name);
+        }}
+        onPlanDateChange={(value) => setPlanForm((current) => ({ ...current, planDate: value }))}
+        onMealTypeChange={(value) => setPlanForm((current) => ({ ...current, mealType: value }))}
+        onPlanNoteChange={(value) => setPlanForm((current) => ({ ...current, note: value }))}
+        resolveFoodAssetUrl={resolveUrl}
+        getFoodCover={getFoodCover}
+        getFoodCoverAsset={getFoodCoverAsset}
+        getDefaultMealType={getDefaultMealType}
+        getPlanDateParts={getFoodPlanDateParts}
+        normalizeFoodType={normalizeFoodType}
+      />
+    </>
   );
 }
 
@@ -232,6 +475,8 @@ export function EatRecipeTaskBody(props: {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   mealLogs: MealLog[];
+  isUpdatingRecipe?: boolean;
+  updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<unknown>;
   onClose: () => void;
   onCook: (foodId: string, recipeId: string) => void;
   onEdit: (recipeId: string) => void;
@@ -241,7 +486,20 @@ export function EatRecipeTaskBody(props: {
     [props.foods, props.ingredients, props.inventoryItems, props.mealLogs, props.recipes],
   );
   const selectedCard = cards.find((card) => card.recipe.id === props.recipeId) ?? null;
-  // food is available via cards.linkedFood when needed for relation checks.
+  const editor = useRecipeEditorState({ ingredients: props.ingredients });
+  const [editorSeeded, setEditorSeeded] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (props.mode !== 'edit' || !selectedCard || editorSeeded) return;
+    editor.openEdit(selectedCard);
+    setEditorSeeded(true);
+  }, [editor, editorSeeded, props.mode, selectedCard]);
+
+  useEffect(() => {
+    setEditorSeeded(false);
+    setSaveError(null);
+  }, [props.recipeId, props.mode]);
 
   if (!selectedCard) {
     return (
@@ -253,12 +511,106 @@ export function EatRecipeTaskBody(props: {
     );
   }
 
+  if (props.mode === 'edit') {
+    const editorIngredientCount = editor.ingredientRows.filter(
+      (item) => item.ingredient_id || item.ingredient_name.trim(),
+    ).length;
+    const editorStepCount = editor.form.steps.filter((step) => step.text.trim()).length;
+    const editorSceneTags = splitTags(editor.form.sceneTags);
+    const editorCoverAsset = getImagePreview(editor.form.images) ?? selectedCard.recipe.images[0];
+    const editorCoverUrl = editorCoverAsset?.url ? resolveUrl(editorCoverAsset.url) : undefined;
+    const editorCompletionItems = [
+      { label: '已填写基础信息', done: Boolean(editor.form.title.trim() && Number(editor.form.servings) > 0) },
+      { label: '已添加原料', done: editorIngredientCount > 0 },
+      { label: '已添加步骤', done: editorStepCount > 0 },
+      { label: '已设置封面', done: Boolean(editorCoverAsset) },
+    ];
+    const editorCompletionPercent = Math.round(
+      (editorCompletionItems.filter((item) => item.done).length / editorCompletionItems.length) * 100,
+    );
+
+    return (
+      <div className="eat-recipe-task-body" data-testid="eat-recipe-task-body" data-mode="edit">
+        <RecipeEditorView
+          isEditing
+          isRecipeAiApplied={false}
+          selectedRecipeId={props.recipeId}
+          form={editor.form}
+          setForm={editor.setForm}
+          ingredientRows={editor.ingredientRows}
+          ingredients={props.ingredients}
+          sceneTagDraft={editor.sceneTagDraft}
+          setSceneTagDraft={editor.setSceneTagDraft}
+          sceneSelectOptions={editorSceneTags}
+          editorSceneTags={editorSceneTags}
+          visibleStepTips={editor.visibleStepTips}
+          editorCoverUrl={editorCoverUrl}
+          editorCoverAsset={editorCoverAsset}
+          editorIngredientCount={editorIngredientCount}
+          editorStepCount={editorStepCount}
+          editorCompletionItems={editorCompletionItems}
+          editorCompletionPercent={editorCompletionPercent}
+          recipeDraftError={saveError}
+          isRecipeDraftBusy={false}
+          recipeImageState={{
+            isGenerating: false,
+            errorMessage: null,
+          }}
+          recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel('idle')}
+          submitDisabled={Boolean(props.isUpdatingRecipe)}
+          isUpdatingRecipe={props.isUpdatingRecipe}
+          showAiDraftAction={false}
+          showDeleteAction={false}
+          compactHeader
+          entityLabel="做法"
+          submitLabel="保存做法"
+          backLabel="关闭"
+          onBack={props.onClose}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const payload = buildRecipePayload(
+              editor.form,
+              editor.ingredientRows,
+              props.ingredients,
+              getPendingImageJobId(editor.form.images),
+            );
+            void props
+              .updateRecipe(props.recipeId, payload)
+              .then(() => props.onClose())
+              .catch((reason) => {
+                setSaveError(resolveErrorMessage(reason, '保存做法失败'));
+              });
+          }}
+          onDelete={async () => undefined}
+          onOpenDraftDialog={() => undefined}
+          updateIngredientRow={editor.updateIngredientRow}
+          selectIngredientRow={editor.selectIngredientRow}
+          updateIngredientNote={editor.updateIngredientNote}
+          updateIngredientRequirement={editor.updateIngredientRequirement}
+          addIngredientRow={editor.addIngredientRow}
+          removeIngredientRow={editor.removeIngredientRow}
+          updateStepDraft={editor.updateStepDraft}
+          getStepKeyPointValues={editor.getStepKeyPointValues}
+          getStepKeyPointRowCount={editor.getStepKeyPointRowCount}
+          addStepTip={editor.addStepTip}
+          addStepKeyPoint={editor.addStepKeyPoint}
+          updateStepKeyPoint={editor.updateStepKeyPoint}
+          removeStepKeyPoint={editor.removeStepKeyPoint}
+          commitSceneTagDraft={editor.commitSceneTagDraft}
+          handleRecipeImageUpload={async () => undefined}
+          handleRecipeImageGenerate={async () => undefined}
+          resetRecipeImageInput={() => undefined}
+        />
+      </div>
+    );
+  }
+
   const selectedReadyCount = selectedCard.ingredientAvailability.filter((item) => item.ready).length;
   const selectedIngredientCount = selectedCard.ingredientAvailability.length;
   const selectedShortageCount = selectedCard.shortages.length;
 
   return (
-    <div className="eat-recipe-task-body" data-testid="eat-recipe-task-body">
+    <div className="eat-recipe-task-body" data-testid="eat-recipe-task-body" data-mode="view">
       <section className="recipe-task-surface recipe-task-surface-view" aria-label="做法">
         <header className="eat-recipe-task-header">
           <div>
@@ -308,8 +660,18 @@ export function EatCookTaskBody(props: {
   inventoryItems: InventoryItem[];
   mealLogs: MealLog[];
   isCookingRecipe?: boolean;
+  isCreatingShopping?: boolean;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id: string;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
+    reason: string;
+  }) => Promise<ShoppingListItem>;
   onClose: () => void;
   onCompleted: () => void;
 }) {
@@ -324,6 +686,14 @@ export function EatCookTaskBody(props: {
   const [view, setView] = useState<RecipeWorkspaceView>('cook');
   const [, setSelectedRecipeId] = useState<string | null>(props.recipe.id);
   const [launchSeeded, setLaunchSeeded] = useState(false);
+  // Only auto-start cook once; cards refresh must not re-open the session.
+  const [startRecipeId, setStartRecipeId] = useState<string | null>(props.recipe.id);
+
+  const shopping = useRecipeShoppingState({
+    ingredients: props.ingredients,
+    createShoppingItem: props.createShoppingItem,
+    showRecipeNotice: () => undefined,
+  });
 
   const cookState = useRecipeCookState({
     cards,
@@ -331,10 +701,12 @@ export function EatCookTaskBody(props: {
     view,
     setView,
     setSelectedRecipeId,
-    startRecipeId: props.recipe.id,
+    startRecipeId,
     startFoodPlanItemId: planItemId,
     startRecipeReturnTarget: null,
-    onStartRecipeHandled: () => undefined,
+    onStartRecipeHandled: () => {
+      setStartRecipeId(null);
+    },
     previewCookRecipe: props.previewCookRecipe,
     cookRecipe: async (recipeId, payload) => {
       const result = await props.cookRecipe(recipeId, payload);
@@ -405,7 +777,11 @@ export function EatCookTaskBody(props: {
           completeCurrentCookStepAndContinue: cookState.completeCurrentCookStepAndContinue,
           resetActiveCookSession: cookState.resetActiveCookSession,
           openCookFinishDialog: () => cookState.setIsCookFinishOpen(true),
-          openShoppingDialog: () => undefined,
+          openShoppingDialog: () => {
+            if (cookState.activeCookCard) {
+              shopping.openShoppingDialog(cookState.activeCookCard, () => undefined);
+            }
+          },
           confirmCustomCookTimer: cookState.confirmCustomCookTimer,
           openCustomCookTimer: cookState.openCustomCookTimer,
           selectCookTimerDuration: cookState.selectCookTimerDuration,
@@ -427,6 +803,47 @@ export function EatCookTaskBody(props: {
           setCookAssistantMessages: cookState.setCookAssistantMessages,
         }}
       />
+
+      {cookState.isCookFinishOpen && cookState.activeCookCard && cookState.cookSession ? (
+        <RecipeCookFinishDialog
+          recipeTitle={cookState.activeCookCard.recipe.title}
+          cookPreview={cookState.cookPreview}
+          cookPreviewError={cookState.cookPreviewError}
+          isCookPreviewLoading={cookState.isCookPreviewLoading}
+          session={cookState.cookSession}
+          isCooking={props.isCookingRecipe}
+          submitDisabled={cookState.cookSubmitDisabled}
+          onUpdateSession={cookState.updateCookSession}
+          onClose={() => cookState.setIsCookFinishOpen(false)}
+          onSubmit={cookState.submitCookRecipe}
+        />
+      ) : null}
+
+      {shopping.shoppingDialogCard ? (
+        <RecipeShoppingDialog
+          card={shopping.shoppingDialogCard}
+          ingredients={props.ingredients}
+          drafts={shopping.shoppingDrafts}
+          customForm={shopping.shoppingCustomForm}
+          isIngredientPickerOpen={shopping.isShoppingIngredientPickerOpen}
+          isCreatingShopping={props.isCreatingShopping}
+          unitOptions={SHOPPING_UNIT_OPTIONS}
+          resolveIngredientImageUrl={resolveIngredientImageUrl}
+          onClose={shopping.closeShoppingDialog}
+          onUpdateDraft={shopping.updateShoppingDraft}
+          onAdjustDraftQuantity={shopping.adjustShoppingDraftQuantity}
+          onRemoveDraft={shopping.removeShoppingDraft}
+          onAddRecipeIngredient={shopping.addRecipeIngredientToShoppingDraft}
+          onChangeCustomForm={shopping.setShoppingCustomForm}
+          onSetIngredientPickerOpen={shopping.setIsShoppingIngredientPickerOpen}
+          onSelectIngredientOption={shopping.selectShoppingIngredientOption}
+          onAdjustCustomQuantity={shopping.adjustCustomShoppingQuantity}
+          onAddCustomDraft={shopping.addCustomShoppingDraft}
+          onSubmit={() => {
+            void shopping.submitShoppingDrafts();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -434,74 +851,89 @@ export function EatCookTaskBody(props: {
 export function EatMealTaskBody(props: {
   mealLog: MealLog;
   foodPlanItems: FoodPlanItem[];
+  members: Member[];
+  isUpdatingMeal?: boolean;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onClose: () => void;
-  onEnrich?: () => void;
 }) {
+  const [isEnrichOpen, setIsEnrichOpen] = useState(false);
   const source = resolveMealSource(props.mealLog, props.foodPlanItems);
   const presentation = getMealRecordPresentation(props.mealLog);
 
   return (
-    <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
-      <WorkspaceModal
-        title="这餐详情"
-        description="查看这次餐食的来源、评价、评论和照片。"
-        eyebrow="记录"
-        className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
-        onClose={props.onClose}
-        footerActions={
-          <FormActions
-            className="meal-log-preview-modal-actions"
-            primaryLabel={presentation.enrichment === 'enriched' ? '关闭' : '继续补充'}
-            onPrimary={() => {
-              if (presentation.enrichment === 'enriched') {
-                props.onClose();
-                return;
-              }
-              props.onEnrich?.();
-              props.onClose();
-            }}
-            secondaryLabel="关闭"
-            onSecondary={props.onClose}
-          />
-        }
-      >
-        <MealHistorySurface
-          mode="detail"
-          meal={props.mealLog}
-          detailContent={
-            <div className="meal-log-preview-detail" data-testid="eat-meal-task-body">
-              <div className="meal-enrichment-summary">
-                <span className={`meal-enrichment-meal-pill ${getMealTone(props.mealLog.meal_type)}`}>
-                  <span className="meal-log-icon-slot">
-                    <MealLogIcon name="done" />
-                  </span>
-                  {MEAL_TYPE_LABELS[props.mealLog.meal_type]}
-                </span>
-                <strong>{buildMealTitle(props.mealLog)}</strong>
-                <span className="meal-enrichment-summary-divider" />
-                <small>{formatDateTime(props.mealLog.created_at)}</small>
-                {source ? (
-                  <span className="meal-enrichment-source-pill">
-                    {source.status === 'planned' ? '来自菜单计划' : '手动补录'}
-                  </span>
-                ) : null}
-              </div>
-              <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录还没有补充评论。'}</p>
-              <ul className="eat-meal-task-foods">
-                {props.mealLog.food_entries.map((entry) => (
-                  <li key={entry.id}>
-                    <strong>{entry.food_name || '未命名菜品'}</strong>
-                    <span>
-                      {entry.rating == null ? '未评分' : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+    <>
+      <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
+        <WorkspaceModal
+          title="这餐详情"
+          description="查看这次餐食的来源、评价、评论和照片。"
+          eyebrow="记录"
+          className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
+          onClose={props.onClose}
+          footerActions={
+            <FormActions
+              className="meal-log-preview-modal-actions"
+              primaryLabel={presentation.enrichment === 'enriched' ? '关闭' : '继续补充'}
+              onPrimary={() => {
+                if (presentation.enrichment === 'enriched') {
+                  props.onClose();
+                  return;
+                }
+                setIsEnrichOpen(true);
+              }}
+              secondaryLabel="关闭"
+              onSecondary={props.onClose}
+            />
           }
-        />
-      </WorkspaceModal>
-    </WorkspaceOverlayFrame>
+        >
+          <MealHistorySurface
+            mode="detail"
+            meal={props.mealLog}
+            detailContent={
+              <div className="meal-log-preview-detail" data-testid="eat-meal-task-body">
+                <div className="meal-enrichment-summary">
+                  <span className={`meal-enrichment-meal-pill ${getMealTone(props.mealLog.meal_type)}`}>
+                    <span className="meal-log-icon-slot">
+                      <MealLogIcon name="done" />
+                    </span>
+                    {MEAL_TYPE_LABELS[props.mealLog.meal_type]}
+                  </span>
+                  <strong>{buildMealTitle(props.mealLog)}</strong>
+                  <span className="meal-enrichment-summary-divider" />
+                  <small>{formatDateTime(props.mealLog.created_at)}</small>
+                  {source ? (
+                    <span className="meal-enrichment-source-pill">
+                      {source.status === 'planned' ? '来自菜单计划' : '手动补录'}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录还没有补充评论。'}</p>
+                <ul className="eat-meal-task-foods">
+                  {props.mealLog.food_entries.map((entry) => (
+                    <li key={entry.id}>
+                      <strong>{entry.food_name || '未命名菜品'}</strong>
+                      <span>
+                        {entry.rating == null ? '未评分' : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+        </WorkspaceModal>
+      </WorkspaceOverlayFrame>
+
+      <MealEnrichmentModal
+        open={isEnrichOpen}
+        meal={props.mealLog}
+        source={source}
+        members={props.members}
+        isUpdating={Boolean(props.isUpdatingMeal)}
+        updateMealLog={props.updateMealLog}
+        onClose={() => setIsEnrichOpen(false)}
+        overlayRootClassName="eat-task-body-overlay-root"
+      />
+    </>
   );
 }
 
@@ -513,26 +945,27 @@ export function EatMealCreateTaskBody(props: {
   recipes: Recipe[];
   isSubmitting?: boolean;
   onClose: () => void;
-  onSubmit: (payload: {
-    food_id: string;
-    date: string;
-    meal_type: MealType;
-    servings: number;
-    note: string;
-  }) => Promise<unknown>;
+  onSubmit: (payload: QuickAddMealLogPayload) => Promise<unknown>;
 }) {
   const food = props.food;
-  const [dialog, setDialog] = useState<FoodQuickMealDialogState | null>(() =>
-    food
-      ? {
-          action: 'eat',
-          date: props.date ?? props.planItem?.plan_date ?? todayKey(),
-          food,
-          mealType: props.mealType ?? props.planItem?.meal_type ?? getDefaultMealType(food),
-          recipeId: food.recipe_id ?? undefined,
-        }
-      : null,
-  );
+  const [dialog, setDialog] = useState<FoodQuickMealDialogState | null>(() => {
+    if (!food) return null;
+    const shouldDeductStock =
+      isReadyLikeFood(food)
+      && food.stock_quantity !== null
+      && food.stock_quantity !== undefined
+      && food.stock_quantity > 0;
+    return {
+      action: 'eat',
+      date: props.date ?? props.planItem?.plan_date ?? todayKey(),
+      food,
+      mealType: props.mealType ?? props.planItem?.meal_type ?? getDefaultMealType(food),
+      recipeId: food.recipe_id ?? undefined,
+      deductStock: shouldDeductStock,
+      stockQuantity: shouldDeductStock ? '1' : '',
+      stockQuantityError: null,
+    };
+  });
 
   if (!food || !dialog) {
     return (
@@ -551,7 +984,7 @@ export function EatMealCreateTaskBody(props: {
     );
   }
 
-  const dateOptions = Array.from({ length: 7 }, (_, index) => addDateDays(todayKey(), index));
+  const dateOptions = Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index));
 
   return (
     <FoodQuickMealDialog
@@ -559,17 +992,72 @@ export function EatMealCreateTaskBody(props: {
       dateOptions={dateOptions}
       isSubmitting={props.isSubmitting}
       recipes={props.recipes}
-      onChange={(patch) => setDialog((current) => (current ? { ...current, ...patch } : current))}
+      onChange={(patch) => {
+        setDialog((current) =>
+          current
+            ? {
+                ...current,
+                ...patch,
+                stockQuantityError: null,
+              }
+            : current,
+        );
+      }}
       onClose={props.onClose}
       onSubmit={async (event) => {
         event.preventDefault();
-        await props.onSubmit({
+
+        let stockQuantity: number | null = null;
+        if (dialog.deductStock) {
+          const parsedStockQuantity = parseFoodStockQuantity(dialog.stockQuantity ?? '', '扣减数量');
+          if (parsedStockQuantity.error || parsedStockQuantity.quantity === null) {
+            setDialog((current) =>
+              current
+                ? {
+                    ...current,
+                    stockQuantityError: parsedStockQuantity.error ?? '请输入大于 0 的扣减数量。',
+                  }
+                : current,
+            );
+            return;
+          }
+          const resolvedStockQuantity = resolveFoodStockDeductQuantity(
+            parsedStockQuantity.quantity,
+            dialog.food.stock_quantity,
+            dialog.food.stock_unit || '份',
+          );
+          if (resolvedStockQuantity.error || resolvedStockQuantity.quantity === null) {
+            setDialog((current) =>
+              current
+                ? {
+                    ...current,
+                    stockQuantityError: resolvedStockQuantity.error ?? '当前库存不足。',
+                  }
+                : current,
+            );
+            return;
+          }
+          stockQuantity = resolvedStockQuantity.quantity;
+        }
+
+        const payload: QuickAddMealLogPayload = {
           food_id: dialog.food.id,
           date: dialog.date,
           meal_type: dialog.mealType,
           servings: 1,
           note: props.planItem ? '来自菜单记录' : '快捷记录',
-        });
+          ...(props.planItem ? { food_plan_item_id: props.planItem.id } : {}),
+          ...(dialog.deductStock
+            ? {
+                deduct_food_stock: true,
+                stock_quantity: stockQuantity,
+                stock_unit: dialog.food.stock_unit || '份',
+                expected_food_row_version: dialog.food.row_version,
+              }
+            : {}),
+        };
+
+        await props.onSubmit(payload);
         props.onClose();
       }}
     />
@@ -584,9 +1072,14 @@ export function buildEatTaskBodies(args: {
   inventoryItems: InventoryItem[];
   mealLogs: MealLog[];
   foodPlanItems: FoodPlanItem[];
+  members: Member[];
   isQuickAdding?: boolean;
   isUpdatingPlan?: boolean;
   isCookingRecipe?: boolean;
+  isCreatingShopping?: boolean;
+  isSavingFood?: boolean;
+  isUpdatingRecipe?: boolean;
+  isUpdatingMeal?: boolean;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
   updateFoodPlanItem: (
@@ -594,23 +1087,32 @@ export function buildEatTaskBodies(args: {
     payload: { plan_date?: string; meal_type?: MealType; note?: string },
   ) => Promise<unknown>;
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
-  quickAddMeal: (payload: {
+  createFoodPlanItem: (payload: {
     food_id: string;
-    date: string;
+    plan_date: string;
     meal_type: MealType;
-    servings: number;
     note: string;
   }) => Promise<unknown>;
+  updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<unknown>;
+  updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<unknown>;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id: string;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
+    reason: string;
+  }) => Promise<ShoppingListItem>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<unknown>;
   onClose: () => void;
   onOpenLogs: () => void;
-  onNavigateFoodEdit: (foodId: string) => void;
   onNavigateRecipe: (recipeId: string, mode?: 'view' | 'edit') => void;
-  onOpenPlanDialog: (food: Food) => void;
   onStartCook: (recipeId: string, foodPlanItemId?: string) => void;
   onStartCookWithFood: (foodId: string, recipeId: string) => void;
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onCookCompleted: () => void;
-  onMealEnrich?: (mealLogId: string) => void;
 }): {
   foodTaskContent?: ReactNode;
   recipeTaskContent?: ReactNode;
@@ -632,14 +1134,15 @@ export function buildEatTaskBodies(args: {
           mealLogs={args.mealLogs}
           foods={args.foods}
           isQuickAdding={args.isQuickAdding}
+          isSavingFood={args.isSavingFood}
+          isUpdatingPlan={args.isUpdatingPlan}
+          updateFood={args.updateFood}
+          createFoodPlanItem={args.createFoodPlanItem}
           onClose={args.onClose}
-          onEdit={(food) => args.onNavigateFoodEdit(food.id)}
           onEditRecipe={(food) => {
             if (food.recipe_id) args.onNavigateRecipe(food.recipe_id, 'edit');
-            else args.onNavigateFoodEdit(food.id);
           }}
           onOpenLogs={args.onOpenLogs}
-          onOpenPlanDialog={args.onOpenPlanDialog}
           onStartCook={(recipeId) => args.onStartCook(recipeId)}
           onQuickAdd={args.onQuickAdd}
         />
@@ -659,6 +1162,8 @@ export function buildEatTaskBodies(args: {
           ingredients={args.ingredients}
           inventoryItems={args.inventoryItems}
           mealLogs={args.mealLogs}
+          isUpdatingRecipe={args.isUpdatingRecipe}
+          updateRecipe={args.updateRecipe}
           onClose={args.onClose}
           onCook={(foodId, recipeId) => args.onStartCookWithFood(foodId, recipeId)}
           onEdit={(recipeId) => args.onNavigateRecipe(recipeId, 'edit')}
@@ -688,6 +1193,7 @@ export function buildEatTaskBodies(args: {
                 meal_type: item.meal_type,
                 servings: 1,
                 note: item.note || '来自菜单记录',
+                food_plan_item_id: item.id,
               })
               .then(() => args.onClose());
           }}
@@ -710,8 +1216,10 @@ export function buildEatTaskBodies(args: {
           inventoryItems={args.inventoryItems}
           mealLogs={args.mealLogs}
           isCookingRecipe={args.isCookingRecipe}
+          isCreatingShopping={args.isCreatingShopping}
           cookRecipe={args.cookRecipe}
           previewCookRecipe={args.previewCookRecipe}
+          createShoppingItem={args.createShoppingItem}
           onClose={args.onClose}
           onCompleted={args.onCookCompleted}
         />
@@ -725,8 +1233,10 @@ export function buildEatTaskBodies(args: {
         <EatMealTaskBody
           mealLog={resolved.mealLog}
           foodPlanItems={args.foodPlanItems}
+          members={args.members}
+          isUpdatingMeal={args.isUpdatingMeal}
+          updateMealLog={args.updateMealLog}
           onClose={args.onClose}
-          onEnrich={() => args.onMealEnrich?.(resolved.mealLog.id)}
         />
       ),
     };

@@ -98,6 +98,31 @@ describe('EatWorkspace', () => {
     expect(screen.getByRole('button', { name: '返回发现' })).toBeInTheDocument();
   });
 
+  it('renders load-error distinctly from not-found copy', () => {
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: { kind: 'load-error', label: '食物加载失败', retryable: true },
+        })}
+      />,
+    );
+    expect(screen.getAllByText('食物加载失败').length).toBeGreaterThan(0);
+    expect(screen.getByText(/不一定表示内容已被删除/)).toBeInTheDocument();
+    expect(screen.queryByText(/已经不存在/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回发现' })).toBeInTheDocument();
+  });
+
+  it('still shows not-found wording for food-not-found', () => {
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: { kind: 'food-not-found', foodId: 'missing' },
+        })}
+      />,
+    );
+    expect(screen.getByText('这份家常菜已经不存在')).toBeInTheDocument();
+  });
+
   it('renders the selected base view content and registers the base focus target', () => {
     const navigation = createNavigationService({
       eat: { baseView: 'plan', task: null, discoverSection: 'all' },

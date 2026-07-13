@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Food, FoodPlanItem, MealLog, Recipe } from '../../api/types';
 import type { EatTask } from '../../app/appNavigationModel';
 import {
+  buildCookLaunchContext,
   resolveEatTask,
   weekContaining,
   type ResolveEatTaskInput,
@@ -130,6 +131,56 @@ function resolveRecipeTargetForTest(
     }),
   );
 }
+
+describe('buildCookLaunchContext', () => {
+  it('keeps plan source when foodPlanItemId is set but plan item is missing from cache', () => {
+    expect(
+      buildCookLaunchContext({
+        foodPlanItemId: 'plan-missing',
+        planItem: null,
+        fallbackDate: '2026-07-12',
+        fallbackMealType: 'lunch',
+      }),
+    ).toEqual({
+      date: '2026-07-12',
+      mealType: 'lunch',
+      servings: 1,
+      source: {
+        kind: 'plan',
+        foodPlanItemId: 'plan-missing',
+        planItemBaseUpdatedAt: '',
+      },
+    });
+  });
+
+  it('uses plan item fields when available', () => {
+    const planItem = makePlanItem({
+      id: 'plan-1',
+      plan_date: '2026-07-15',
+      meal_type: 'breakfast',
+      updated_at: '2026-07-10T00:00:00.000Z',
+    });
+    expect(buildCookLaunchContext({ foodPlanItemId: 'plan-1', planItem })).toEqual({
+      date: '2026-07-15',
+      mealType: 'breakfast',
+      servings: 1,
+      source: {
+        kind: 'plan',
+        foodPlanItemId: 'plan-1',
+        planItemBaseUpdatedAt: '2026-07-10T00:00:00.000Z',
+      },
+    });
+  });
+
+  it('uses direct source when no plan id is provided', () => {
+    expect(
+      buildCookLaunchContext({
+        fallbackDate: '2026-07-12',
+        fallbackMealType: 'dinner',
+      }).source,
+    ).toEqual({ kind: 'direct' });
+  });
+});
 
 describe('weekContaining', () => {
   it('returns Monday-Sunday range for a midweek plan date', () => {
@@ -293,6 +344,40 @@ describe('resolveEatTask', () => {
     ).toMatchObject({ kind: 'food-not-found', foodId: 'missing' });
   });
 
+  it('distinguishes load-error from not-found when foods query fails empty', () => {
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: { kind: 'food-detail', foodId: 'food-1', returnTo: 'discover' },
+          foods: [],
+          foodsStatus: 'error',
+        }),
+      ),
+    ).toMatchObject({ kind: 'load-error', label: '食物加载失败', retryable: true });
+
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: { kind: 'food-detail', foodId: 'missing', returnTo: 'discover' },
+          foods: [makeFood()],
+          foodsStatus: 'success',
+        }),
+      ),
+    ).toMatchObject({ kind: 'food-not-found', foodId: 'missing' });
+  });
+
+  it('returns load-error for plan detail query failure instead of not-found', () => {
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: { kind: 'plan-detail', foodPlanItemId: 'plan-1', returnTo: 'plan' },
+          planDetail: null,
+          planDetailStatus: 'error',
+        }),
+      ),
+    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
+  });
+
   it('resolves plan detail from the ID query and weekContaining(plan_date)', () => {
     const item = makePlanItem({ plan_date: '2026-07-15' });
     expect(
@@ -323,10 +408,20 @@ describe('resolveEatTask', () => {
         baseInput({
           task: { kind: 'plan-detail', foodPlanItemId: 'plan-missing', returnTo: 'plan' },
           planDetail: null,
-          planDetailStatus: 'error',
+          planDetailStatus: 'success',
         }),
       ),
     ).toEqual({ kind: 'plan-not-found', foodPlanItemId: 'plan-missing' });
+
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: { kind: 'plan-detail', foodPlanItemId: 'plan-missing', returnTo: 'plan' },
+          planDetail: null,
+          planDetailStatus: 'error',
+        }),
+      ),
+    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
   });
 
   it('resolves cook only when both food and recipe exist', () => {
@@ -434,10 +529,20 @@ describe('resolveEatTask', () => {
         baseInput({
           task: planTask,
           planDetail: null,
-          planDetailStatus: 'error',
+          planDetailStatus: 'success',
         }),
       ),
     ).toEqual({ kind: 'plan-not-found', foodPlanItemId: 'plan-1' });
+
+    expect(
+      resolveEatTask(
+        baseInput({
+          task: planTask,
+          planDetail: null,
+          planDetailStatus: 'error',
+        }),
+      ),
+    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
   });
 
   it('resolves meal detail by exact id', () => {

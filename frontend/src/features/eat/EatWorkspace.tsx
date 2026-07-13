@@ -202,6 +202,35 @@ function renderResolvedTask(
     );
   }
 
+  if (resolved.kind === 'load-error') {
+    return (
+      <EatTaskShell
+        title={resolved.label}
+        headingRef={options.headingRef}
+        onClose={onClose}
+        completionPending={pending}
+        footerActions={
+          <ActionButton
+            tone="primary"
+            type="button"
+            disabled={Boolean(pending)}
+            onClick={() => {
+              if (!pending) onClose();
+            }}
+          >
+            {backLabel}
+          </ActionButton>
+        }
+      >
+        <StateBlock
+          status="error"
+          title={resolved.label}
+          description="内容暂时加载失败，请返回后稍后再试。这不一定表示内容已被删除。"
+        />
+      </EatTaskShell>
+    );
+  }
+
   if (resolved.kind === 'recipe-food-missing' || resolved.kind === 'recipe-food-ambiguous') {
     return (
       <RelationErrorTask

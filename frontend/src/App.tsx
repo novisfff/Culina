@@ -5,7 +5,7 @@ import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
-import type { AppNavigationTarget, CookLaunchContext, PrimaryTabKey } from './app/appNavigationModel';
+import type { AppNavigationTarget, PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
@@ -17,6 +17,7 @@ import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
   relatedSelfMadeFoods,
+  buildCookLaunchContext,
   resolveEatTask,
   type QuerySettleStatus,
 } from './features/eat/EatWorkspaceViewModel';
@@ -379,23 +380,7 @@ function App() {
       return;
     }
     const linkedFood = related[0];
-    const launchContext: CookLaunchContext = planItem
-      ? {
-          date: planItem.plan_date,
-          mealType: planItem.meal_type,
-          servings: 1,
-          source: {
-            kind: 'plan',
-            foodPlanItemId: planItem.id,
-            planItemBaseUpdatedAt: planItem.updated_at,
-          },
-        }
-      : {
-          date: todayKey(),
-          mealType: 'dinner',
-          servings: 1,
-          source: { kind: 'direct' },
-        };
+    const launchContext = buildCookLaunchContext({ foodPlanItemId, planItem });
     navigation.navigate({
       workspace: 'eat',
       view: 'cook',
@@ -1204,12 +1189,17 @@ function App() {
                 inventoryItems,
                 mealLogs,
                 foodPlanItems,
+                members,
                 isQuickAdding: quickAddMealMutation.isPending,
                 isUpdatingPlan:
                   createFoodPlanItemMutation.isPending
                   || updateFoodPlanItemMutation.isPending
                   || deleteFoodPlanItemMutation.isPending,
                 isCookingRecipe: cookRecipeMutation.isPending,
+                isCreatingShopping: createShoppingMutation.isPending,
+                isSavingFood: updateFoodMutation.isPending,
+                isUpdatingRecipe: updateRecipeMutation.isPending,
+                isUpdatingMeal: updateMealMutation.isPending,
                 cookRecipe: (recipeId, payload) =>
                   cookRecipeMutation.mutateAsync({ recipeId, payload }),
                 previewCookRecipe: (recipeId, payload) =>
@@ -1217,16 +1207,18 @@ function App() {
                 updateFoodPlanItem: (itemId, payload) =>
                   updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
                 deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
+                createFoodPlanItem: (payload) => createFoodPlanItemMutation.mutateAsync(payload),
+                updateFood: (foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload }),
+                updateRecipe: (recipeId, payload) =>
+                  updateRecipeMutation.mutateAsync({ recipeId, payload }),
+                updateMealLog: (mealLogId, payload) =>
+                  updateMealMutation.mutateAsync({ mealLogId, payload }),
+                createShoppingItem: (payload) => createShoppingMutation.mutateAsync(payload),
                 quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
                 onClose: navigation.closeTask,
                 onOpenLogs: () => navigation.navigate({ workspace: 'eat', view: 'history' }),
-                onNavigateFoodEdit: (foodId) =>
-                  navigation.navigate({ workspace: 'eat', view: 'food', foodId }),
                 onNavigateRecipe: (recipeId, mode = 'view') =>
                   navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId, mode }),
-                onOpenPlanDialog: (_food) => {
-                  navigation.navigate({ workspace: 'eat', view: 'plan' });
-                },
                 onStartCook: startRecipeCook,
                 onStartCookWithFood: startCookWithFood,
                 onQuickAdd: (food, mealType) => {
