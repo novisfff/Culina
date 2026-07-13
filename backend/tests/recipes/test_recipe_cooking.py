@@ -2,6 +2,7 @@ from ._support import *
 
 from app.core.enums import ActivityHighlightKind
 from app.models.domain import ActivityLog
+from app.schemas.recipes import CookRecipeResponse
 
 
 class RecipeRecipeCookingTestCase(RecipeApiTestCase):
@@ -21,6 +22,42 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     )
                 )
             self.assertEqual([row.highlight_kind for row in rows], expected)
+
+        def test_recipe_cook_log_completion_fields_are_nullable_for_history(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            with self.SessionLocal() as db:
+                historical = RecipeCookLog(
+                    id="cook-historical-completion-nulls",
+                    family_id=self.family.id,
+                    recipe_id=recipe["id"],
+                    cook_date=date(2026, 5, 14),
+                    meal_type=MealType.DINNER,
+                    servings=Decimal("2"),
+                    result_note="历史记录",
+                    adjustments="",
+                    rating=None,
+                    completion_request_id=None,
+                    completion_request_hash=None,
+                    completion_result_json=None,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(historical)
+                db.flush()
+                self.assertIsNone(historical.completion_request_id)
+                self.assertIsNone(historical.completion_request_hash)
+                self.assertIsNone(historical.completion_result_json)
+                db.commit()
+
+        def test_cook_response_defaults_replayed_false(self) -> None:
+            response = CookRecipeResponse(
+                recipe_id="recipe-1",
+                consumed_items=[],
+                shortages=[],
+                meal_log_id="meal-1",
+                cook_log_id="cook-1",
+            )
+            self.assertIs(response.replayed, False)
 
         def test_cook_recipe_deducts_inventory_and_creates_meal_log(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)

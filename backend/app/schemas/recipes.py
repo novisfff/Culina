@@ -195,6 +195,7 @@ class CookRecipeResponse(BaseModel):
     shortages: list[CookRecipeShortageOut] = Field(default_factory=list)
     meal_log_id: str | None = None
     cook_log_id: str | None = None
+    replayed: bool = False
 
 
 class CookRecipePreviewResponse(BaseModel):
