@@ -22,7 +22,7 @@ export type RecipeCookSessionSourceRef =
   | { kind: 'direct' }
   | { kind: 'plan'; foodPlanItemId: string };
 
-export type RecipeCookSessionStateV3 = Omit<RecipeCookSessionState, 'createMealLog'> & {
+export type RecipeCookSessionStateV3 = RecipeCookSessionState & {
   completionRequestId: string;
   source: RecipeCookSessionSource;
   planItemId: string | null;
@@ -817,22 +817,17 @@ export function isSameCookTarget(
   return descriptor.recipeId === recipeId && descriptor.foodPlanItemId === planItemId;
 }
 
-/**
- * Runtime hybrid session for UI still using createMealLog until Task 24.
- * Persisted form is always V3 without createMealLog.
- */
-export type RecipeCookSessionRuntime = RecipeCookSessionStateV3 & {
-  createMealLog: boolean;
-};
+/** Runtime session used by cook UI; identical to persisted V3 shape. */
+export type RecipeCookSessionRuntime = RecipeCookSessionStateV3;
 
-export function toRuntimeCookSession(session: RecipeCookSessionStateV3, createMealLog = true): RecipeCookSessionRuntime {
-  return { ...session, createMealLog };
+export function toRuntimeCookSession(session: RecipeCookSessionStateV3): RecipeCookSessionRuntime {
+  return session;
 }
 
 export function toPersistedCookSessionV3(session: RecipeCookSessionRuntime | RecipeCookSessionStateV3): RecipeCookSessionStateV3 {
   const {
     createMealLog: _ignored,
     ...rest
-  } = session as RecipeCookSessionStateV3 & { createMealLog?: boolean };
+  } = session as RecipeCookSessionStateV3 & { createMealLog?: unknown };
   return rest;
 }

@@ -749,6 +749,7 @@ export function EatCookTaskBody(props: {
   }) => Promise<ShoppingListItem>;
   onClose: () => void;
   onCompleted: () => void;
+  onViewMealLog?: (mealLogId: string) => void;
   /** Authenticated user+family scope for v3 cook session persistence. */
   sessionScope?: { userId: string; familyId: string } | null;
 }) {
@@ -785,17 +786,15 @@ export function EatCookTaskBody(props: {
       setStartRecipeId(null);
     },
     previewCookRecipe: props.previewCookRecipe,
-    cookRecipe: async (recipeId, payload) => {
-      const result = await props.cookRecipe(recipeId, payload);
-      props.onCompleted();
-      return result;
-    },
+    cookRecipe: props.cookRecipe,
     isCookingRecipe: props.isCookingRecipe,
     showRecipeNotice: () => undefined,
     sessionScope: props.sessionScope ?? null,
     launchContext: props.launchContext,
     foodId: props.food.id,
     ownershipVerified: true,
+    onViewMealLog: props.onViewMealLog,
+    onCookFinished: props.onCompleted,
   });
 
   useEffect(() => {
@@ -930,9 +929,20 @@ export function EatCookTaskBody(props: {
           session={cookState.cookSession}
           isCooking={props.isCookingRecipe}
           submitDisabled={cookState.cookSubmitDisabled}
+          statusMessage={cookState.cookFinishStatusMessage}
+          success={
+            cookState.cookCompletionResult
+              ? {
+                  message: cookState.cookCompletionResult.message,
+                  mealLogId: cookState.cookCompletionResult.mealLogId,
+                }
+              : null
+          }
           onUpdateSession={cookState.updateCookSession}
           onClose={() => cookState.setIsCookFinishOpen(false)}
           onSubmit={cookState.submitCookRecipe}
+          onFinishAndReturn={() => cookState.dismissCookCompletion()}
+          onViewMeal={() => cookState.dismissCookCompletion({ viewMeal: true })}
         />
       ) : null}
 
@@ -1230,6 +1240,7 @@ export function buildEatTaskBodies(args: {
   onStartCookWithFood: (foodId: string, recipeId: string) => void;
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onCookCompleted: () => void;
+  onViewMealLog?: (mealLogId: string) => void;
   sessionScope?: { userId: string; familyId: string } | null;
 }): {
   foodTaskContent?: ReactNode;
@@ -1340,6 +1351,7 @@ export function buildEatTaskBodies(args: {
           createShoppingItem={args.createShoppingItem}
           onClose={args.onClose}
           onCompleted={args.onCookCompleted}
+          onViewMealLog={args.onViewMealLog}
           sessionScope={args.sessionScope ?? null}
         />
       ),

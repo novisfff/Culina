@@ -10,6 +10,7 @@ import {
   getNextManualTimerName,
   getCookCompletionMessage,
   getStepSuggestedSeconds,
+  handleCookResult,
   loadCookSession,
   removeCookTimer,
   resolveErrorMessage,
@@ -55,6 +56,25 @@ function planItemBaseFromLaunch(launch: CookLaunchContext | null | undefined, pl
   return launch.source.planItemBaseUpdatedAt || null;
 }
 
+function resolveCompletionRequestId(
+  session: RecipeCookSessionState | RecipeCookSessionRuntime,
+  recipeId: string,
+): string {
+  if ('completionRequestId' in session && typeof session.completionRequestId === 'string' && session.completionRequestId) {
+    return session.completionRequestId;
+  }
+  return `cook-legacy-${recipeId}`;
+}
+
+function resolvePlanItemBaseUpdatedAt(
+  session: RecipeCookSessionState | RecipeCookSessionRuntime,
+): string | null {
+  if ('planItemBaseUpdatedAt' in session && typeof session.planItemBaseUpdatedAt === 'string' && session.planItemBaseUpdatedAt) {
+    return session.planItemBaseUpdatedAt;
+  }
+  return null;
+}
+
 export function useRecipeCookState(args: {
   cards: RecipeCardViewModel[];
   selectedCard: RecipeCardViewModel | null;
@@ -76,6 +96,10 @@ export function useRecipeCookState(args: {
   /** Caller-verified unique Food id for the active recipe (required for legacy migration). */
   foodId?: string | null;
   ownershipVerified?: boolean;
+  /** Navigate to the exact meal log created by this cook. */
+  onViewMealLog?: (mealLogId: string) => void;
+  /** Called after a successful complete cook when the user dismisses without viewing the meal. */
+  onCookFinished?: () => void;
 }) {
   const cookTimerMinuteWheelRef = useRef<HTMLDivElement | null>(null);
   const cookTimerSecondWheelRef = useRef<HTMLDivElement | null>(null);
@@ -95,6 +119,13 @@ export function useRecipeCookState(args: {
   const [cookTimerJustStarted, setCookTimerJustStarted] = useState(false);
   const [cookReturnTarget, setCookReturnTarget] = useState<RecipeCookReturnTarget | null>(null);
   const [cookCollision, setCookCollision] = useState<CookSessionCollision | null>(null);
+  const [cookFinishStatusMessage, setCookFinishStatusMessage] = useState<string | null>(null);
+  const [cookCompletionResult, setCookCompletionResult] = useState<{
+    mealLogId: string;
+    cookLogId: string;
+    message: string;
+    recipeTitle: string;
+  } | null>(null);
 
   const activeCookCard = cookCard ?? (args.view === 'cook' ? args.selectedCard : null);
   const cookSteps = activeCookCard?.recipe.steps.length
@@ -139,19 +170,18 @@ export function useRecipeCookState(args: {
     let ignore = false;
     setIsCookPreviewLoading(true);
     setCookPreviewError(null);
-    const createMealLog =
-      'createMealLog' in cookSession && typeof cookSession.createMealLog === 'boolean'
-        ? cookSession.createMealLog
-        : true;
+    const completionRequestId = resolveCompletionRequestId(cookSession, activeCookCard.recipe.id);
+    const planItemBaseUpdatedAt = resolvePlanItemBaseUpdatedAt(cookSession);
     const payload = buildCookPayload({
       servings: cookSession.servings,
       date: cookSession.date,
       mealType: cookSession.mealType,
-      createMealLog,
       planItemId: cookSession.planItemId,
       resultNote: '',
       adjustments: cookSession.adjustments,
       rating: '',
+      completionRequestId,
+      planItemBaseUpdatedAt,
       allowPartialInventoryDeduction: true,
     });
     const timer = window.setTimeout(() => {
@@ -182,10 +212,12 @@ export function useRecipeCookState(args: {
     cookSession?.servings,
     cookSession?.date,
     cookSession?.mealType,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    (cookSession as RecipeCookSessionState | null)?.createMealLog,
     cookSession?.planItemId,
     cookSession?.adjustments,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (cookSession as RecipeCookSessionRuntime | null)?.completionRequestId,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (cookSession as RecipeCookSessionRuntime | null)?.planItemBaseUpdatedAt,
   ]);
 
   useEffect(() => {
@@ -311,7 +343,7 @@ export function useRecipeCookState(args: {
 
       // Restored sessions keep date/meal/servings/timers/feedback/request ID.
       // New sessions may already be seeded via launch in loadOrMigrate.
-      const runtime = toRuntimeCookSession(loaded.session, true);
+      const runtime = toRuntimeCookSession(loaded.session);
       descriptorAtSessionStartRef.current = loaded.descriptor;
       sessionKeyAtStartRef.current = loaded.sessionKey;
 
@@ -321,6 +353,8 @@ export function useRecipeCookState(args: {
       setCookSession(runtime);
       setWasCookSessionRestored(loaded.restored);
       setIsCookFinishOpen(false);
+      setCookFinishStatusMessage(null);
+      setCookCompletionResult(null);
       setCookPreview(null);
       setCookPreviewError(null);
       setCookCollision(null);
@@ -412,6 +446,8 @@ export function useRecipeCookState(args: {
     setCookSession(null);
     setWasCookSessionRestored(false);
     setIsCookFinishOpen(false);
+    setCookFinishStatusMessage(null);
+    setCookCompletionResult(null);
     setCookPreview(null);
     setCookPreviewError(null);
     descriptorAtSessionStartRef.current = null;
@@ -720,7 +756,7 @@ export function useRecipeCookState(args: {
           : undefined,
       });
       // Force a brand-new session after explicit reset: abandon current then create defaults.
-      const runtime = toRuntimeCookSession(loaded.session, true);
+      const runtime = toRuntimeCookSession(loaded.session);
       // Replace completion ID and progress by building fresh if restored old data snuck in.
       if (loaded.restored) {
         compareAndClearCookSession({
@@ -745,7 +781,7 @@ export function useRecipeCookState(args: {
         });
         descriptorAtSessionStartRef.current = fresh.descriptor;
         sessionKeyAtStartRef.current = fresh.sessionKey;
-        setCookSession(toRuntimeCookSession(fresh.session, true));
+        setCookSession(toRuntimeCookSession(fresh.session));
       } else {
         descriptorAtSessionStartRef.current = loaded.descriptor;
         sessionKeyAtStartRef.current = loaded.sessionKey;
@@ -753,6 +789,8 @@ export function useRecipeCookState(args: {
       }
       setWasCookSessionRestored(false);
       setIsCookFinishOpen(false);
+      setCookFinishStatusMessage(null);
+      setCookCompletionResult(null);
       return;
     }
 
@@ -760,6 +798,8 @@ export function useRecipeCookState(args: {
     setCookSession(nextSession);
     setWasCookSessionRestored(false);
     setIsCookFinishOpen(false);
+    setCookFinishStatusMessage(null);
+    setCookCompletionResult(null);
     clearCookSession(activeCookCard.recipe.id, planItemId);
   }
 
@@ -859,42 +899,88 @@ export function useRecipeCookState(args: {
   async function submitCookRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeCookCard || !cookSession) return;
+    setCookFinishStatusMessage(null);
     try {
-      const createMealLog =
-        'createMealLog' in cookSession && typeof cookSession.createMealLog === 'boolean'
-          ? cookSession.createMealLog
-          : true;
+      const completionRequestId = resolveCompletionRequestId(cookSession, activeCookCard.recipe.id);
+      const planItemBaseUpdatedAt = resolvePlanItemBaseUpdatedAt(cookSession);
       const response = await args.cookRecipe(
         activeCookCard.recipe.id,
         buildCookPayload({
           servings: cookSession.servings,
           date: cookSession.date,
           mealType: cookSession.mealType,
-          createMealLog,
           planItemId: cookSession.planItemId,
           resultNote: cookSession.resultNote,
           adjustments: cookSession.adjustments,
           rating: cookSession.rating,
+          completionRequestId,
+          planItemBaseUpdatedAt,
           allowPartialInventoryDeduction: true,
         })
       );
-      if (args.sessionScope) {
-        clearScopedSessionIfMatches();
-      } else {
-        clearCookSession(activeCookCard.recipe.id, cookSession.planItemId);
+
+      const result = handleCookResult(response, {
+        clear: () => {
+          // Cache invalidation is scheduled by the cook mutation; clear only after both IDs are present.
+          if (args.sessionScope) {
+            clearScopedSessionIfMatches();
+          } else {
+            clearCookSession(activeCookCard.recipe.id, cookSession.planItemId);
+          }
+        },
+      });
+
+      if (result === 'incomplete') {
+        setCookFinishStatusMessage('完成结果不完整，请重试');
+        args.showRecipeNotice({
+          tone: 'danger',
+          title: '完成结果不完整',
+          message: '完成结果不完整，请重试',
+        });
+        return;
       }
+
+      const message = getCookCompletionMessage(response, {
+        recipeTitle: activeCookCard.recipe.title,
+        date: cookSession.date,
+        mealType: cookSession.mealType,
+      });
+      setCookFinishStatusMessage('烹饪完成');
+      setCookCompletionResult({
+        mealLogId: response.meal_log_id as string,
+        cookLogId: response.cook_log_id as string,
+        message,
+        recipeTitle: activeCookCard.recipe.title,
+      });
       args.setSelectedRecipeId(activeCookCard.recipe.id);
-      closeCookDialog();
-      args.setView('detail');
       args.showRecipeNotice({
         tone: 'success',
         title: '烹饪完成',
-        message: getCookCompletionMessage(response, createMealLog),
+        message,
       });
     } catch (reason) {
-      // Completion failure preserves session and descriptor.
-      args.showRecipeNotice({ tone: 'danger', title: '开始做失败', message: resolveErrorMessage(reason, '开始做失败') });
+      // Completion failure preserves session and descriptor for retry with the same completion_request_id.
+      const message = resolveErrorMessage(reason, '完成烹饪失败');
+      setCookFinishStatusMessage(message);
+      args.showRecipeNotice({ tone: 'danger', title: '完成烹饪失败', message });
     }
+  }
+
+  function dismissCookCompletion(options?: { viewMeal?: boolean }) {
+    const result = cookCompletionResult;
+    setCookCompletionResult(null);
+    setCookFinishStatusMessage(null);
+    setIsCookFinishOpen(false);
+    if (result && options?.viewMeal) {
+      args.onViewMealLog?.(result.mealLogId);
+      closeCookDialog();
+      return;
+    }
+    if (result) {
+      args.onCookFinished?.();
+    }
+    closeCookDialog();
+    args.setView('detail');
   }
 
   return {
@@ -923,6 +1009,8 @@ export function useRecipeCookState(args: {
     cookTimerProgress,
     cookProgressPercent,
     cookSubmitDisabled,
+    cookFinishStatusMessage,
+    cookCompletionResult,
     openCook,
     closeCookDialog,
     updateCookSession,
@@ -939,6 +1027,7 @@ export function useRecipeCookState(args: {
     completeCurrentCookStepAndContinue,
     moveCookStep,
     submitCookRecipe,
+    dismissCookCompletion,
     timers: cookSession?.timers ?? [],
     activeTimerId: cookSession?.activeTimerId ?? '',
     addTimer,

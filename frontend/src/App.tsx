@@ -1265,6 +1265,9 @@ function App() {
                 onCookCompleted: () => {
                   navigation.navigate({ workspace: 'eat', view: 'history' });
                 },
+                onViewMealLog: (mealLogId) => {
+                  navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
+                },
               })}
               discoverContent={
                 <FoodWorkspace

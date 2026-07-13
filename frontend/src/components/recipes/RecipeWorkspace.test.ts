@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ingredient } from '../../api/types';
 import {
   buildCookPayload,
@@ -15,6 +15,7 @@ import {
   formatCookShortageDetail,
   formatCookShortageSummary,
   getCookCompletionMessage,
+  handleCookResult,
   getCookFinishStepStatus,
   getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
@@ -427,25 +428,27 @@ describe('recipe workspace payload helpers', () => {
     expect(getRecipeDraftGenerationStepState('done', 3)).toBe('completed');
   });
 
-  it('builds cook payloads for plan-linked cook logs and empty optional rating', () => {
+  it('builds a compatible always-record completion payload', () => {
     expect(
       buildCookPayload({
         servings: '3',
         date: '2026-05-14',
         mealType: 'dinner',
-        createMealLog: true,
         planItemId: 'plan-1',
         resultNote: ' 很成功 ',
         adjustments: ' 少放盐 ',
         rating: '5',
+        completionRequestId: 'cook-request-1',
+        planItemBaseUpdatedAt: '2026-07-12T10:00:00Z',
       })
     ).toEqual({
       servings: 3,
       date: '2026-05-14',
       meal_type: 'dinner',
       create_meal_log: true,
+      completion_request_id: 'cook-request-1',
       food_plan_item_id: 'plan-1',
-      recipe_plan_item_id: 'plan-1',
+      food_plan_item_base_updated_at: '2026-07-12T10:00:00Z',
       result_note: '很成功',
       adjustments: '少放盐',
       rating: 5,
@@ -456,33 +459,47 @@ describe('recipe workspace payload helpers', () => {
         servings: '1',
         date: '2026-05-15',
         mealType: 'lunch',
-        createMealLog: false,
         planItemId: null,
         resultNote: '',
         adjustments: '',
         rating: '',
+        completionRequestId: 'cook-direct-1',
       })
     ).toMatchObject({
       servings: 1,
-      create_meal_log: false,
-      recipe_plan_item_id: undefined,
+      create_meal_log: true,
+      completion_request_id: 'cook-direct-1',
+      food_plan_item_id: undefined,
       rating: null,
     });
+    expect(
+      buildCookPayload({
+        servings: '1',
+        date: '2026-05-15',
+        mealType: 'lunch',
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-direct-1',
+      })
+    ).not.toHaveProperty('recipe_plan_item_id');
 
     expect(
       buildCookPayload({
         servings: '2',
         date: '2026-05-16',
         mealType: 'dinner',
-        createMealLog: true,
         planItemId: null,
         resultNote: '',
         adjustments: '',
         rating: '',
+        completionRequestId: 'cook-partial-1',
         allowPartialInventoryDeduction: true,
       })
     ).toMatchObject({
       servings: 2,
+      create_meal_log: true,
       allow_partial_inventory_deduction: true,
     });
   });
@@ -509,7 +526,6 @@ describe('recipe workspace payload helpers', () => {
           servings: '',
           date: '',
           mealType: 'bad',
-          createMealLog: false,
           planItemId: 'plan-1',
           adjustments: '少油',
           resultNote: '成功',
@@ -539,7 +555,6 @@ describe('recipe workspace payload helpers', () => {
       servings: '2',
       date: expect.any(String),
       mealType: 'dinner',
-      createMealLog: false,
       planItemId: 'plan-1',
       adjustments: '少油',
       resultNote: '成功',
@@ -573,7 +588,6 @@ describe('recipe workspace payload helpers', () => {
           servings: '2',
           date: '2026-05-21',
           mealType: 'dinner',
-          createMealLog: true,
           planItemId: null,
           adjustments: '少油',
           resultNote: '',
@@ -714,7 +728,6 @@ describe('recipe workspace payload helpers', () => {
           servings: '4',
           date: '2026-05-21',
           mealType: 'dinner',
-          createMealLog: true,
           planItemId: 'plan-1',
           adjustments: '',
           resultNote: '计划内继续做',
@@ -976,8 +989,7 @@ describe('recipe workspace payload helpers', () => {
             },
           ],
           shortages: [],
-        },
-        true
+        }
       )
     ).toBe('已记录完成并生成餐食记录，本次没有需要扣减的数量库存。');
     expect(
@@ -1002,10 +1014,9 @@ describe('recipe workspace payload helpers', () => {
             },
           ],
           shortages: [],
-        },
-        false
+        }
       )
-    ).toBe('已扣减数量库存；只记录有无的食材未扣减数量。');
+    ).toBe('已扣减数量库存并生成餐食记录；只记录有无的食材未扣减数量。');
     expect(
       getCookCompletionMessage(
         {
@@ -1020,10 +1031,31 @@ describe('recipe workspace payload helpers', () => {
             },
           ],
           shortages: [quantityShortage],
-        },
-        true
+        }
       )
     ).toBe('已扣减库存并生成餐食记录，还有 1 项缺料已保留提醒。');
+  });
+
+  it('keeps the session when a nominal response is missing either result ID', () => {
+    const clear = vi.fn();
+    const onIncomplete = vi.fn();
+    const outcome = handleCookResult(
+      { recipe_id: 'r1', consumed_items: [], shortages: [], meal_log_id: null, cook_log_id: 'c1' } as never,
+      { clear, onIncomplete },
+    );
+    expect(outcome).toBe('incomplete');
+    expect(clear).not.toHaveBeenCalled();
+    expect(onIncomplete).toHaveBeenCalled();
+  });
+
+  it('clears the session only when both meal and cook log IDs are present', () => {
+    const clear = vi.fn();
+    const outcome = handleCookResult(
+      { meal_log_id: 'm1', cook_log_id: 'c1', replayed: true },
+      { clear },
+    );
+    expect(outcome).toBe('success');
+    expect(clear).toHaveBeenCalledTimes(1);
   });
 
   it('tracks finish cooking step statuses', () => {

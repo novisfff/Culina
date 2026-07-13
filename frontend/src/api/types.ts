@@ -627,9 +627,11 @@ export interface CookRecipeRequest {
   meal_type?: MealType;
   participant_user_ids?: string[];
   notes?: string;
-  create_meal_log: boolean;
+  /** Compatibility transport always true; callers must not set false. */
+  create_meal_log: true;
+  completion_request_id: string;
   food_plan_item_id?: string;
-  recipe_plan_item_id?: string;
+  food_plan_item_base_updated_at?: string;
   result_note?: string;
   adjustments?: string;
   rating?: number | null;
@@ -679,8 +681,9 @@ export interface CookRecipeResponse {
   recipe_id: string;
   consumed_items: CookRecipeConsumedItem[];
   shortages: CookRecipeShortage[];
-  meal_log_id?: string | null;
-  cook_log_id?: string | null;
+  meal_log_id: string | null;
+  cook_log_id: string | null;
+  replayed?: boolean;
 }
 
 export interface CookRecipePreviewResponse {

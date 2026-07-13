@@ -116,6 +116,7 @@ import {
   formatCookShortageSummary,
   formatShoppingQuantity,
   getCookCompletionMessage,
+  handleCookResult,
   getCookFinishStepStatus,
   getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
@@ -171,6 +172,7 @@ export {
   formatCookShortageDetail,
   formatCookShortageSummary,
   getCookCompletionMessage,
+  handleCookResult,
   getCookFinishStepStatus,
   getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
@@ -694,6 +696,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     cookTimerProgress,
     cookProgressPercent,
     cookSubmitDisabled,
+    cookFinishStatusMessage,
+    cookCompletionResult,
     openCook,
     closeCookDialog,
     updateCookSession,
@@ -710,16 +714,17 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     completeCurrentCookStepAndContinue,
     moveCookStep,
     submitCookRecipe,
+    dismissCookCompletion,
     timers,
     activeTimerId,
     addTimer,
     startTimerById,
     pauseTimerById,
     resetTimerById,
-	    addTimerSecondsById,
-	    setTimerById,
-	    setCookAssistantMessages,
-	    deleteTimer,
+    addTimerSecondsById,
+    setTimerById,
+    setCookAssistantMessages,
+    deleteTimer,
     selectTimer,
     toggleTimerById,
   } = useRecipeCookState({
@@ -1733,9 +1738,20 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           session={cookSession}
           isCooking={props.isCookingRecipe}
           submitDisabled={cookSubmitDisabled}
+          statusMessage={cookFinishStatusMessage}
+          success={
+            cookCompletionResult
+              ? {
+                  message: cookCompletionResult.message,
+                  mealLogId: cookCompletionResult.mealLogId,
+                }
+              : null
+          }
           onUpdateSession={updateCookSession}
           onClose={() => setIsCookFinishOpen(false)}
           onSubmit={submitCookRecipe}
+          onFinishAndReturn={() => dismissCookCompletion()}
+          onViewMeal={() => dismissCookCompletion({ viewMeal: true })}
         />
       )}
 
