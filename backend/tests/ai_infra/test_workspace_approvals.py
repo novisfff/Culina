@@ -641,28 +641,6 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 db.add(food)
                 db.flush()
-                meal_log = MealLog(
-                    id="meal-delete-linked-food",
-                    family_id=self.family.id,
-                    date=date.today(),
-                    meal_type=MealType.DINNER,
-                    participant_user_ids=[self.user.id],
-                    notes="引用同步食物",
-                    mood="",
-                    created_by=self.user.id,
-                    updated_by=self.user.id,
-                )
-                db.add(meal_log)
-                db.flush()
-                meal_food = MealLogFood(
-                    id="meal-food-delete-linked-food",
-                    meal_log_id=meal_log.id,
-                    food_id=food.id,
-                    servings=Decimal("1"),
-                    note="",
-                )
-                db.add(meal_food)
-                db.flush()
                 service = AIApplicationService(db, provider=FakeChatProvider())
                 conversation = service._get_or_create_conversation(
                     family_id=self.family.id,
@@ -713,8 +691,127 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertTrue(result["business_entity"]["deleted"])
                 self.assertIsNone(db.get(Recipe, recipe.id))
                 self.assertIsNone(db.get(Food, food.id))
+
+        def test_recipe_delete_operation_blocks_when_history_referenced(self) -> None:
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-delete-history-target",
+                    family_id=self.family.id,
+                    title="有历史菜谱",
+                    servings=2,
+                    prep_minutes=15,
+                    difficulty=Difficulty.EASY,
+                    tips="原始提示",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                food = Food(
+                    id="food-delete-history-target",
+                    family_id=self.family.id,
+                    name="有历史家常菜",
+                    type=FoodType.SELF_MADE,
+                    category="家常菜",
+                    flavor_tags=[],
+                    scene_tags=["家常菜"],
+                    suitable_meal_types=["dinner"],
+                    source_name="自家菜谱",
+                    purchase_source="",
+                    scene="晚餐",
+                    notes="",
+                    routine_note="",
+                    recipe_id=recipe.id,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(food)
+                db.flush()
+                meal_log = MealLog(
+                    id="meal-delete-history-linked-food",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="引用同步食物",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                meal_food = MealLogFood(
+                    id="meal-food-delete-history-linked-food",
+                    meal_log_id=meal_log.id,
+                    food_id=food.id,
+                    servings=Decimal("1"),
+                    note="",
+                )
+                db.add(meal_food)
+                db.flush()
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                conversation = service._get_or_create_conversation(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    prompt="删除有历史菜谱",
+                    quick_task=None,
+                )
+                message = AIMessage(
+                    id="ai-message-recipe-delete-history",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add(message)
+                db.flush()
+                draft, approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload={
+                        "draft_type": "recipe",
+                        "payload": {
+                            "draftType": "recipe",
+                            "schemaVersion": "recipe_operation.v1",
+                            "action": "delete",
+                            "targetId": recipe.id,
+                            "baseUpdatedAt": recipe.updated_at.isoformat(),
+                            "payload": {"reason": "不再需要"},
+                        },
+                    },
+                )
+                self.assertEqual(approval.approval_type, "recipe.delete")
+                original_approval_id = approval.id
+                original_draft_version = draft.version
+                result = service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    approval_id=approval.id,
+                    decision="approved",
+                    draft_version=draft.version,
+                    values=approval.initial_values,
+                )
+                self.assertIsNone(result["business_entity"])
+                self.assertEqual(result["operation"]["status"], "failed")
+                self.assertIn("菜单或餐食历史", result["operation"]["error_message"])
+                self.assertEqual(result["draft"]["status"], "pending_retry")
+                self.assertNotEqual(result["approval"]["id"], original_approval_id)
+                self.assertEqual(result["approval"]["status"], "pending")
+                self.assertIsNotNone(db.get(Recipe, recipe.id))
+                self.assertIsNotNone(db.get(Food, food.id))
                 self.assertIsNotNone(db.get(MealLog, meal_log.id))
-                self.assertIsNone(db.get(MealLogFood, meal_food.id))
+                self.assertIsNotNone(db.get(MealLogFood, meal_food.id))
+                refreshed_draft = db.get(AITaskDraft, draft.id)
+                assert refreshed_draft is not None
+                self.assertEqual(refreshed_draft.version, original_draft_version)
 
         def test_recipe_favorite_operation_updates_recipe_favorite(self) -> None:
             with self.SessionLocal() as db:

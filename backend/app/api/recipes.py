@@ -35,10 +35,10 @@ from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_deletion import RecipeHasHistoryError, delete_recipe_with_guard, recipe_has_history_detail
 from app.services.recipe_ingredient_refs import RecipeIngredientReferenceError, normalize_recipe_ingredient_items, recipe_ingredient_reference_error_detail
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
-from app.services.search.indexing import delete_search_document
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family
 from app.services.serializers import serialize_recipe
@@ -447,38 +447,20 @@ def delete_recipe(
     db: Session = Depends(get_db),
 ) -> None:
     user, membership = auth
-    recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    title = recipe.title
-    synced_food_ids = [food.id for food in list(recipe.foods)]
-    for food in list(recipe.foods):
-        replace_media_assets(
+    try:
+        delete_recipe_with_guard(
             db,
             family_id=membership.family_id,
-            media_ids=[],
-            entity_type="food",
-            entity_id=food.id,
+            actor_id=user.id,
+            recipe_id=recipe_id,
         )
-        db.delete(food)
-    replace_media_assets(
-        db,
-        family_id=membership.family_id,
-        media_ids=[],
-        entity_type="recipe",
-        entity_id=recipe.id,
-    )
-    db.delete(recipe)
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.UPDATE,
-        entity_type="Recipe",
-        entity_id=recipe_id,
-        summary=f"删除菜谱 {title}",
-    )
-    delete_search_document(db, family_id=membership.family_id, entity_type="recipe", entity_id=recipe_id, delete_vector=True)
-    for food_id in synced_food_ids:
-        delete_search_document(db, family_id=membership.family_id, entity_type="food", entity_id=food_id, delete_vector=True)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    except RecipeHasHistoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=recipe_has_history_detail(exc),
+        ) from exc
     commit_session(db)
     return None
 
