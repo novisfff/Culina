@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -9,14 +10,12 @@ from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, ActivityHighlightKind, Difficulty, MealType
-from app.core.utils import create_id, utcnow
+from app.core.enums import ActivityAction, Difficulty, MealType
+from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, Recipe, RecipeCookLog, RecipeIngredient, RecipeStep
+from app.models.domain import Recipe, RecipeIngredient, RecipeStep
 from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
-from app.services.inventory_operation_locking import lock_inventory_targets
-from app.services.inventory_versions import bump_ingredient_collection
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
     CookRecipePreviewResponse,
@@ -29,12 +28,19 @@ from app.schemas.recipes import (
     RecipeStatsOut,
     UpdateRecipeRequest,
 )
-from app.services.activity import ActivityHighlight, log_activity
+from app.services.activity import log_activity
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.clock import today_for_family
+from app.services.food_plan_locking import FoodPlanConflict, food_plan_conflict_detail
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
+from app.services.meal_log_references import MealLogReferenceError, meal_log_reference_error_detail
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_cook_completion import (
+    CompletionConflict,
+    RecipeCookCompletionCommand,
+    complete_recipe_cook,
+)
 from app.services.recipe_deletion import RecipeHasHistoryError, delete_recipe_with_guard, recipe_has_history_detail
 from app.services.recipe_ingredient_refs import RecipeIngredientReferenceError, normalize_recipe_ingredient_items, recipe_ingredient_reference_error_detail
 from app.services.recipe_food_sync import ensure_food_for_recipe
@@ -42,6 +48,8 @@ from app.services.search.hybrid import hybrid_search
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family
 from app.services.serializers import serialize_recipe
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["recipes"])
 
@@ -494,6 +502,59 @@ def preview_cook_recipe(
     }
 
 
+def _completion_conflict_detail(exc: CompletionConflict) -> dict[str, str]:
+    return {"code": exc.code, "message": exc.message}
+
+
+def _raise_completion_conflict(exc: CompletionConflict) -> None:
+    if exc.code == "recipe_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=_completion_conflict_detail(exc),
+    ) from exc
+
+
+def _raise_meal_log_reference_error(exc: MealLogReferenceError) -> None:
+    status_code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code in {"meal_log_food_not_found", "meal_log_participant_not_found"}
+        else status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    raise HTTPException(status_code=status_code, detail=meal_log_reference_error_detail(exc)) from exc
+
+
+def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
+    if exc.code == "food_plan_item_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found") from exc
+    if exc.code in {
+        "food_plan_item_already_completed",
+        "food_plan_item_stale",
+        "food_plan_targets_changed",
+        "food_plan_food_mismatch",
+        "food_plan_item_not_planned",
+    }:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
+
+
+def _log_rest_cook_compatibility_usage(payload: CookRecipeRequest) -> None:
+    """Emit ID-redacted counters for bounded REST cook compatibility paths."""
+    events: list[str] = []
+    if not payload.completion_request_id:
+        events.append("legacy_missing_completion_request_id")
+    # Read via __dict__ to avoid pydantic DeprecationWarning on deprecated field access.
+    if payload.__dict__.get("create_meal_log") is False:
+        events.append("deprecated_create_meal_log_false")
+    if payload.recipe_plan_item_id and not payload.food_plan_item_id:
+        events.append("deprecated_recipe_plan_item_id")
+    plan_item_id = payload.food_plan_item_id or payload.recipe_plan_item_id
+    if plan_item_id and payload.food_plan_item_base_updated_at is None:
+        events.append("legacy_missing_plan_base_updated_at")
+    for event in events:
+        logger.info("rest_cook_compatibility event=%s", event)
+
+
 @router.post("/api/recipes/{recipe_id}/cook", response_model=CookRecipeResponse)
 def cook_recipe(
     recipe_id: str,
@@ -502,178 +563,46 @@ def cook_recipe(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    try:
-        consumption_plan, shortages = build_cook_inventory_plan(
-            db,
-            family_id=membership.family_id,
-            recipe=recipe,
-            servings=payload.servings,
-            today=today_for_family(membership.family_id),
-            allow_partial_deduction=payload.allow_partial_inventory_deduction,
-        )
-    except UnitConversionError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _log_rest_cook_compatibility_usage(payload)
 
-    if shortages and not payload.allow_partial_inventory_deduction:
-        return {
-            "recipe_id": recipe.id,
-            "consumed_items": [],
-            "shortages": shortages,
-            "meal_log_id": None,
-        }
-
-    planned_item_ids = [
-        deduction.item.id
-        for plan in consumption_plan
-        for deduction in plan.deductions
-    ]
-    planned_ingredient_ids = sorted({plan.ingredient.id for plan in consumption_plan if plan.ingredient is not None})
-    locked = lock_inventory_targets(
-        db,
-        family_id=membership.family_id,
-        ingredient_ids=planned_ingredient_ids,
-        inventory_item_ids=planned_item_ids,
-    )
-    locked_items = locked.inventory_items
-    locked_ingredients = locked.ingredients
-
-    consumed_items: list[dict] = []
-    bumped_ingredient_ids: set[str] = set()
-    for plan in consumption_plan:
-        affected_item_ids: list[str] = []
-        for deduction in plan.deductions:
-            item = locked_items.get(deduction.item.id)
-            if item is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=STALE_INVENTORY_DETAIL,
-                )
-            item.consumed_quantity = item.consumed_quantity + deduction.quantity
-            item.updated_by = user.id
-            affected_item_ids.append(item.id)
-
-        if affected_item_ids and plan.ingredient is not None and plan.ingredient.id not in bumped_ingredient_ids:
-            ingredient = locked_ingredients.get(plan.ingredient.id)
-            if ingredient is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=STALE_INVENTORY_DETAIL,
-                )
-            bump_ingredient_collection(ingredient, user_id=user.id)
-            bumped_ingredient_ids.add(plan.ingredient.id)
-
-        consumed_items.append(
-            {
-                "ingredient_id": plan.ingredient.id,
-                "ingredient_name": plan.ingredient_item.ingredient_name,
-                "requested_quantity": float(plan.requested_quantity),
-                "unit": plan.ingredient_item.unit,
-                "quantity_tracking_mode": plan.quantity_tracking_mode,
-                "deduction_note": plan.deduction_note,
-                "affected_item_ids": affected_item_ids,
-            }
-        )
-
-    meal_log_id: str | None = None
-    if payload.create_meal_log:
-        food, _ = ensure_food_for_recipe(
-            db,
-            family_id=membership.family_id,
-            user_id=user.id,
-            recipe=recipe,
-            sync_media=False,
-        )
-
-        meal_log = MealLog(
-            id=create_id("meal"),
-            family_id=membership.family_id,
-            date=payload.date or today_for_family(membership.family_id),
-            meal_type=payload.meal_type or MealType.DINNER,
-            participant_user_ids=payload.participant_user_ids,
-            notes=payload.notes,
-            mood="已做菜谱",
-            created_by=user.id,
-            updated_by=user.id,
-        )
-        db.add(meal_log)
-        db.flush()
-        db.add(
-            MealLogFood(
-                id=create_id("meal-food"),
-                meal_log_id=meal_log.id,
-                food_id=food.id,
-                servings=Decimal(str(payload.servings)),
-                note=f"来自菜谱：{recipe.title}",
-            )
-        )
-        meal_log_id = meal_log.id
-
+    completion_request_id = payload.completion_request_id or create_id("legacy-cook")
     plan_item_id = payload.food_plan_item_id or payload.recipe_plan_item_id
-    if plan_item_id:
-        plan_item = db.scalar(
-            select(FoodPlanItem)
-            .join(Food, FoodPlanItem.food_id == Food.id)
-            .where(
-                FoodPlanItem.family_id == membership.family_id,
-                FoodPlanItem.user_id == user.id,
-                FoodPlanItem.id == plan_item_id,
-                Food.recipe_id == recipe.id,
-            )
-        )
-        if plan_item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
-        plan_item.status = "cooked"
-        plan_item.completed_at = utcnow()
-        plan_item.meal_log_id = meal_log_id
-        plan_item.updated_by = user.id
-
-    cook_log = RecipeCookLog(
-        id=create_id("recipe-cook"),
+    command = RecipeCookCompletionCommand(
+        completion_request_id=completion_request_id,
         family_id=membership.family_id,
-        recipe_id=recipe.id,
-        meal_log_id=meal_log_id,
+        actor_user_id=user.id,
+        recipe_id=recipe_id,
         cook_date=payload.date or today_for_family(membership.family_id),
         meal_type=payload.meal_type or MealType.DINNER,
         servings=Decimal(str(payload.servings)),
+        participant_user_ids=tuple(payload.participant_user_ids),
+        notes=payload.notes,
+        food_plan_item_id=plan_item_id,
+        food_plan_item_base_updated_at=payload.food_plan_item_base_updated_at,
         result_note=payload.result_note.strip(),
         adjustments=payload.adjustments.strip(),
         rating=payload.rating,
-        created_by=user.id,
-        updated_by=user.id,
-    )
-    db.add(cook_log)
-
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.UPDATE,
-        entity_type="Recipe",
-        entity_id=recipe.id,
-        summary=f"完成菜谱 {recipe.title}，扣减 {len(consumed_items)} 项食材",
-        highlight=ActivityHighlight(
-            kind=ActivityHighlightKind.MEAL,
-            summary=(
-                f"完成 {recipe.title} 并记录用餐"
-                if meal_log_id is not None
-                else f"完成 {recipe.title}"
-            ),
-        ),
+        allow_partial_inventory_deduction=payload.allow_partial_inventory_deduction,
     )
     try:
+        result = complete_recipe_cook(db, command)
         commit_session(db)
+    except CompletionConflict as exc:
+        db.rollback()
+        _raise_completion_conflict(exc)
+    except FoodPlanConflict as exc:
+        db.rollback()
+        _raise_food_plan_conflict(exc)
+    except MealLogReferenceError as exc:
+        db.rollback()
+        _raise_meal_log_reference_error(exc)
+    except UnitConversionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except StaleDataError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=STALE_INVENTORY_DETAIL,
         ) from exc
-
-    return {
-        "recipe_id": recipe.id,
-        "consumed_items": consumed_items,
-        "shortages": shortages,
-        "meal_log_id": meal_log_id,
-        "cook_log_id": cook_log.id,
-    }
+    return result.model_dump(mode="json")
