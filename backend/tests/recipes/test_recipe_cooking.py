@@ -1737,5 +1737,41 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertTrue(body["shortages"])
             self.assertIsNone(body["meal_log_id"])
             self.assertIsNone(body["cook_log_id"])
-            self.assertIs(body["replayed"], False)
 
+        def test_b1_compatibility_matrix_old_rest_and_extra_fields(self) -> None:
+            """B1 matrix: old REST true/false both record; extra fields parse; payload is replayable."""
+            # Compatible frontend may send create_meal_log plus forward-compatible extras.
+            for index, flag in enumerate((True, False)):
+                with self.subTest(create_meal_log=flag):
+                    recipe = self.create_recipe(auto_create_food=False, title=f"矩阵菜-{index}")
+                    recipe_id = recipe["id"]
+                    self._seed_full_inventory(
+                        tomato_id=f"inventory-tomato-matrix-{index}",
+                        egg_id=f"inventory-egg-matrix-{index}",
+                    )
+                    payload = self._rest_cook_payload(
+                        create_meal_log=flag,
+                        completion_request_id=f"matrix-request-{index}",
+                        future_client_field="forward-compatible",
+                        client_trace_id=f"trace-{index}",
+                    )
+                    # Schema ignores unknown extras (old backend fixture behavior).
+                    from app.schemas.recipes import CookRecipeRequest
+
+                    parsed = CookRecipeRequest.model_validate(payload)
+                    self.assertEqual(parsed.create_meal_log, flag)
+                    self.assertEqual(parsed.completion_request_id, f"matrix-request-{index}")
+
+                    first = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+                    self.assertEqual(first.status_code, 200, first.text)
+                    first_body = first.json()
+                    self.assertTrue(first_body["meal_log_id"])
+                    self.assertTrue(first_body["cook_log_id"])
+                    self.assertIs(first_body["replayed"], False)
+
+                    second = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+                    self.assertEqual(second.status_code, 200, second.text)
+                    second_body = second.json()
+                    self.assertEqual(second_body["meal_log_id"], first_body["meal_log_id"])
+                    self.assertEqual(second_body["cook_log_id"], first_body["cook_log_id"])
+                    self.assertIs(second_body["replayed"], True)

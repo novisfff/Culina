@@ -52,6 +52,16 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
         )
         self.assertEqual(generated_recipe_cook_version(), "recipe_cook_operation.v1")
 
+    def test_b1_deployment_gate_matrix_probe(self) -> None:
+        """B1 indivisible probe: accepted={v1,v2}, generated=v1, projection version present."""
+        probe = recipe_cook_contracts_probe()
+        self.assertEqual(
+            set(probe["accepted_versions"]),
+            {"recipe_cook_operation.v1", "recipe_cook_operation.v2"},
+        )
+        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v1")
+        self.assertEqual(probe["projection_version"], 1)
+
     def test_capability_parser_accepts_known_tokens_only(self) -> None:
         capabilities = parse_draft_contract_capabilities(
             " recipe_cook_operation.v2,unknown.v9,recipe_cook_operation.v1 "
