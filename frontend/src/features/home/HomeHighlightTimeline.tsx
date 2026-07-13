@@ -68,7 +68,7 @@ export function HomeHighlightTimeline(props: {
           ))}
         </div>
       )}
-      {props.viewModel.hasRefreshError && items.length > 0 && (
+      {props.viewModel.hasRefreshError && (
         <button className="home-highlight-refresh-warning" type="button" onClick={props.onRetry}>
           刷新失败，重试
         </button>

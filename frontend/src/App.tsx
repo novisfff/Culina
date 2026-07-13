@@ -305,6 +305,9 @@ function App() {
     homeEligibleInventoryActionGroups: homeEligibleInventoryActionGroupsForState,
     businessDateKey: homeBusinessDateKey,
     recommendationCount: foodRecommendations?.items.length ?? 0,
+    recommendationIdSignature: (foodRecommendations?.items ?? [])
+      .map((item) => item.food.id)
+      .join('|'),
   });
 
   const {

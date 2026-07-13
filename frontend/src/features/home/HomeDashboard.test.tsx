@@ -347,6 +347,24 @@ describe('HomeDashboard three-question desktop', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
+  it('shows refresh failure retry on empty highlights phase', () => {
+    const retry = vi.fn();
+    const view = renderDashboard({
+      homeHighlights: {
+        items: [],
+        phase: 'empty',
+        hasRefreshError: true,
+        isRefreshing: false,
+        weekCountLabel: '本周协作 0 次',
+      },
+      onRetryHighlights: retry,
+    });
+    expect(view.textContent).toContain('还没有家庭高亮');
+    const refreshRetry = buttonByText(view, '刷新失败，重试');
+    act(() => refreshRetry.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it('does not own a second activity modal', () => {
     const onOpenFamilyActivity = vi.fn();
     const view = renderDashboard({ onOpenFamilyActivity });
