@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -8,6 +9,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.ai.draft_contracts import RECIPE_COOK_V1, RECIPE_COOK_V2, require_recipe_cook_schema_version
 from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryAvailabilityLevel, InventoryStatus, MealType
 from app.core.utils import create_id
 from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
@@ -33,6 +35,8 @@ from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_
 
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
+
+logger = logging.getLogger(__name__)
 
 
 READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
@@ -594,10 +598,27 @@ def normalize_recipe_draft_for_tools(db: Session, *, family_id: str, payload: An
 def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("做菜草稿格式不正确")
+    schema_version = require_recipe_cook_schema_version(payload)
+    if schema_version == RECIPE_COOK_V2 and ("createMealLog" in payload or "create_meal_log" in payload):
+        raise ValueError("recipe_cook_operation.v2 不支持 createMealLog 字段")
+
     recipe_id = str(payload.get("recipeId") or payload.get("recipe_id") or "")
     if not recipe_id:
         raise ValueError("做菜草稿必须引用真实菜谱")
     recipe = _load_recipe_target(db, family_id=family_id, recipe_id=recipe_id)
+
+    if schema_version == RECIPE_COOK_V1:
+        if "createMealLog" not in payload and "create_meal_log" not in payload:
+            # Generator/tool input may omit the field; default False for normalization only.
+            create_meal_log = False
+        else:
+            raw_create = payload.get("createMealLog") if "createMealLog" in payload else payload.get("create_meal_log")
+            if not isinstance(raw_create, bool):
+                raise ValueError("createMealLog 必须是布尔值")
+            create_meal_log = raw_create
+    else:
+        create_meal_log = True
+
     request = CookRecipeRequest.model_validate(
         {
             "servings": payload.get("servings"),
@@ -605,9 +626,7 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
             "meal_type": payload.get("mealType") or payload.get("meal_type"),
             "participant_user_ids": payload.get("participantUserIds") or payload.get("participant_user_ids") or [],
             "notes": payload.get("notes") or "",
-            "create_meal_log": payload.get("createMealLog")
-            if payload.get("createMealLog") is not None
-            else payload.get("create_meal_log") or False,
+            "create_meal_log": create_meal_log,
             "food_plan_item_id": payload.get("planItemId") or payload.get("food_plan_item_id"),
             "recipe_plan_item_id": payload.get("planItemId") or payload.get("recipe_plan_item_id"),
             "result_note": payload.get("resultNote") or payload.get("result_note") or "",
@@ -628,10 +647,14 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
         recipe=recipe,
         servings=request.servings,
     )
-    participant_user_ids = list(request.participant_user_ids or ([user_id] if request.create_meal_log else []))
-    return jsonable_encoder({
+    # v2 always records a meal; v1 keeps the declared createMealLog intent for display.
+    # Read via __dict__ to avoid pydantic DeprecationWarning on deprecated field access.
+    create_meal_log_value = bool(request.__dict__.get("create_meal_log"))
+    records_meal = True if schema_version == RECIPE_COOK_V2 else create_meal_log_value
+    participant_user_ids = list(request.participant_user_ids or ([user_id] if records_meal else []))
+    normalized: dict[str, Any] = {
         "draftType": "recipe_cook",
-        "schemaVersion": payload.get("schemaVersion") or "recipe_cook_operation.v1",
+        "schemaVersion": schema_version,
         "recipeId": recipe.id,
         "title": recipe.title,
         "baseUpdatedAt": _normalize_base_updated_at(payload.get("baseUpdatedAt") or recipe.updated_at.isoformat()),
@@ -647,7 +670,6 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
         "mealType": (request.meal_type or MealType.DINNER).value,
         "participantUserIds": participant_user_ids,
         "notes": request.notes,
-        "createMealLog": request.create_meal_log,
         "planItemId": plan_item.id if plan_item is not None else None,
         "planItemBaseUpdatedAt": _normalize_base_updated_at(plan_item.updated_at.isoformat()) if plan_item is not None else None,
         "resultNote": request.result_note,
@@ -656,7 +678,15 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
         "previewItems": preview_items,
         "shortages": shortages,
         "inventoryBoundaries": inventory_boundaries,
-    })
+    }
+    if schema_version == RECIPE_COOK_V1:
+        normalized["createMealLog"] = create_meal_log_value
+    # Preserve nested composite identity when present.
+    operation_id = payload.get("operationId") or payload.get("operation_id")
+    if operation_id:
+        normalized["operationId"] = str(operation_id)
+    logger.info("ai_recipe_cook event=normalized version=%s", schema_version)
+    return jsonable_encoder(normalized)
 
 
 def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:

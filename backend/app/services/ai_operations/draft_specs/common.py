@@ -39,7 +39,7 @@ DRAFT_APPROVAL_BASE_CONFIGS: dict[str, dict[str, str]] = {
         "operation_type": "recipe.cook",
         "business_entity_type": "RecipeCookLog",
         "title": "确认完成做菜",
-        "instruction": "确认后会按当前预览扣减库存，并按选择创建餐食记录或完成关联计划。",
+        "instruction": "确认后会按当前预览扣减库存，并自动记录这餐；有关联菜单时会同时完成菜单项。",
         "approve_label": "确认做菜",
         "reject_label": "暂不执行",
     },

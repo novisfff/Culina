@@ -39,6 +39,81 @@ ResolveUserId = Callable[[str], str | None]
 logger = logging.getLogger(__name__)
 
 
+def _payload_contains_recipe_cook(draft_type: str, payload: dict[str, Any] | None) -> bool:
+    if draft_type == "recipe_cook":
+        return True
+    if draft_type != "composite_operation" or not isinstance(payload, dict):
+        return False
+    steps = payload.get("steps") or []
+    if not isinstance(steps, list):
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("domain") or "") == "recipe_cook":
+            return True
+    return False
+
+
+def _acquire_operation_for_approval(
+    db: Session,
+    *,
+    family_id: str,
+    approval: AIApprovalRequest,
+    draft: AITaskDraft,
+    config: dict[str, str],
+) -> AIOperation:
+    """Create or reuse the AIOperation row for this approval decision.
+
+    Recipe-cook (and composite containing recipe_cook) retries must reuse the
+    latest failed operation for the same draft so completion_request_id remains
+    stable across pending_retry repairs.
+    """
+    if _payload_contains_recipe_cook(draft.draft_type, draft.payload if isinstance(draft.payload, dict) else None):
+        try:
+            failed_operation = db.scalar(
+                select(AIOperation)
+                .where(
+                    AIOperation.family_id == family_id,
+                    AIOperation.draft_id == draft.id,
+                    AIOperation.operation_type == config["operation_type"],
+                    AIOperation.status == "failed",
+                )
+                .order_by(AIOperation.created_at.desc(), AIOperation.id.desc())
+                .with_for_update(nowait=True)
+            )
+        except OperationalError as exc:
+            if is_database_lock_conflict(exc):
+                raise AIConflictError("确认请求正在处理，请稍后刷新或重试") from exc
+            raise
+        if failed_operation is not None:
+            failed_operation.status = "running"
+            failed_operation.error_message = None
+            failed_operation.completed_at = None
+            failed_operation.approval_request_id = approval.id
+            failed_operation.business_entity_ids = []
+            db.flush()
+            return failed_operation
+
+    operation = AIOperation(
+        id=create_id("ai_operation"),
+        family_id=family_id,
+        approval_request_id=approval.id,
+        draft_id=draft.id,
+        operation_type=config["operation_type"],
+        status="running",
+        business_entity_type=config["business_entity_type"],
+        business_entity_ids=[],
+        idempotency_key=f"{approval.id}:{config['operation_type']}:v{draft.version}",
+    )
+    try:
+        db.add(operation)
+        db.flush()
+    except IntegrityError as exc:
+        raise AIConflictError("该确认请求已经创建过执行操作") from exc
+    return operation
+
+
 def apply_ai_approval_decision(
     db: Session,
     *,
@@ -164,24 +239,23 @@ def apply_ai_approval_decision(
         raise
     if existing_operation is not None:
         raise AIConflictError("该确认请求已经创建过执行操作")
-    operation = AIOperation(
-        id=create_id("ai_operation"),
+
+    operation = _acquire_operation_for_approval(
+        db,
         family_id=family_id,
-        approval_request_id=approval.id,
-        draft_id=draft.id,
-        operation_type=config["operation_type"],
-        status="running",
-        business_entity_type=config["business_entity_type"],
-        business_entity_ids=[],
-        idempotency_key=f"{approval.id}:{config['operation_type']}:v{draft.version}",
+        approval=approval,
+        draft=draft,
+        config=config,
     )
-    try:
-        db.add(operation)
-        db.flush()
-    except IntegrityError as exc:
-        raise AIConflictError("该确认请求已经创建过执行操作") from exc
     decision_approval = approval
     operation_summary: dict[str, Any] = {}
+    # Recipe-cook completion is idempotent by operation key. Keep its business
+    # writes outside post-execute failure rollback so a later artifact failure can
+    # pending_retry and reuse the same completion_request_id without a second MealLog.
+    recipe_cook_effect = _payload_contains_recipe_cook(
+        draft.draft_type,
+        submitted_payload if isinstance(submitted_payload, dict) else None,
+    )
     try:
         with db.begin_nested():
             business_entity, entity_ids = execute_ai_operation_draft(
@@ -191,8 +265,40 @@ def apply_ai_approval_decision(
                 draft_type=draft.draft_type,
                 payload=submitted_payload,
                 assert_updated_at_matches=assert_updated_at_matches,
+                operation_idempotency_key=operation.idempotency_key,
                 conversation_id=conversation_id,
             )
+            if not recipe_cook_effect:
+                draft_operation_registry.after_success(
+                    DraftPostExecuteContext(
+                        db=db,
+                        draft_type=draft.draft_type,
+                        family_id=family_id,
+                        user_id=user_id,
+                        message_id=draft.message_id,
+                        business_entity=business_entity,
+                    )
+                )
+                highlight = classify_approval_highlight(
+                    draft_operation_registry,
+                    draft_type=draft.draft_type,
+                    submitted_payload=submitted_payload,
+                    business_entity=business_entity,
+                )
+                if highlight is not None:
+                    log_activity(
+                        db,
+                        family_id=family_id,
+                        actor_id=user_id,
+                        action=ActivityAction.UPDATE,
+                        entity_type="AIOperation",
+                        entity_id=operation.id,
+                        summary="AI 审批业务操作执行成功",
+                        highlight=highlight,
+                    )
+            db.flush()
+
+        if recipe_cook_effect:
             draft_operation_registry.after_success(
                 DraftPostExecuteContext(
                     db=db,

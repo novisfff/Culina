@@ -617,115 +617,109 @@ MEAL_LOG_DRAFT_SCHEMA.update(
     }
 )
 
-RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "recipeId", "title", "servings", "date", "mealType", "createMealLog", "previewItems", "shortages", "inventoryBoundaries"],
-    "properties": {
-        "draftType": {"type": "string", "enum": ["recipe_cook"]},
-        "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v1"]},
-        "recipeId": {"type": "string", "minLength": 1},
-        "title": {"type": "string", "minLength": 1, "maxLength": 120},
-        "baseUpdatedAt": {"type": ["string", "null"]},
-        "before": {"type": ["object", "null"]},
-        "servings": {"type": "number", "exclusiveMinimum": 0},
-        "date": {"type": "string", "minLength": 10, "maxLength": 10},
-        "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
-        "participantUserIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
-        "notes": {"type": "string", "maxLength": 1000},
-        "createMealLog": {"type": "boolean"},
-        "planItemId": {"type": ["string", "null"]},
-        "planItemBaseUpdatedAt": {"type": ["string", "null"]},
-        "resultNote": {"type": "string", "maxLength": 2000},
-        "adjustments": {"type": "string", "maxLength": 2000},
-        "rating": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
-        "previewItems": {
-            "type": "array",
-            "maxItems": 50,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["ingredient_id", "ingredient_name", "requested_quantity", "unit", "batches"],
-                "properties": {
-                    "ingredient_id": {"type": "string", "minLength": 1},
-                    "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
-                    "requested_quantity": {"type": "number", "exclusiveMinimum": 0},
-                    "unit": {"type": "string", "minLength": 1, "maxLength": 32},
-                    "quantity_tracking_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
-                    "deduction_note": {"type": ["string", "null"], "maxLength": 255},
-                    "batches": {
-                        "type": "array",
-                        "maxItems": 50,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["inventory_item_id", "quantity", "unit", "purchase_date", "storage_location"],
-                            "properties": {
-                                "inventory_item_id": {"type": "string", "minLength": 1},
-                                "quantity": {"type": "number", "exclusiveMinimum": 0},
-                                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
-                                "purchase_date": {"type": "string", "minLength": 10, "maxLength": 10},
-                                "expiry_date": {"type": ["string", "null"]},
-                                "storage_location": {"type": "string", "minLength": 1, "maxLength": 120},
-                            },
+_RECIPE_COOK_SHARED_PROPERTIES: dict[str, Any] = {
+    "draftType": {"type": "string", "enum": ["recipe_cook"]},
+    "recipeId": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1, "maxLength": 120},
+    "baseUpdatedAt": {"type": ["string", "null"]},
+    "before": {"type": ["object", "null"]},
+    "servings": {"type": "number", "exclusiveMinimum": 0},
+    "date": {"type": "string", "minLength": 10, "maxLength": 10},
+    "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
+    "participantUserIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+    "notes": {"type": "string", "maxLength": 1000},
+    "planItemId": {"type": ["string", "null"]},
+    "planItemBaseUpdatedAt": {"type": ["string", "null"]},
+    "resultNote": {"type": "string", "maxLength": 2000},
+    "adjustments": {"type": "string", "maxLength": 2000},
+    "rating": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+    "operationId": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
+    "previewItems": {
+        "type": "array",
+        "maxItems": 50,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["ingredient_id", "ingredient_name", "requested_quantity", "unit", "batches"],
+            "properties": {
+                "ingredient_id": {"type": "string", "minLength": 1},
+                "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
+                "requested_quantity": {"type": "number", "exclusiveMinimum": 0},
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "quantity_tracking_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                "deduction_note": {"type": ["string", "null"], "maxLength": 255},
+                "batches": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["inventory_item_id", "quantity", "unit", "purchase_date", "storage_location"],
+                        "properties": {
+                            "inventory_item_id": {"type": "string", "minLength": 1},
+                            "quantity": {"type": "number", "exclusiveMinimum": 0},
+                            "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                            "purchase_date": {"type": "string", "minLength": 10, "maxLength": 10},
+                            "expiry_date": {"type": ["string", "null"]},
+                            "storage_location": {"type": "string", "minLength": 1, "maxLength": 120},
                         },
                     },
                 },
             },
         },
-        "shortages": {
-            "type": "array",
-            "maxItems": 50,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["ingredient_name", "required_quantity", "available_quantity", "missing_quantity", "unit"],
-                "properties": {
-                    "ingredient_id": {"type": ["string", "null"]},
-                    "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
-                    "required_quantity": {"type": "number", "minimum": 0},
-                    "available_quantity": {"type": "number", "minimum": 0},
-                    "missing_quantity": {"type": "number", "exclusiveMinimum": 0},
-                    "unit": {"type": "string", "minLength": 1, "maxLength": 32},
-                    "shortage_type": {"type": "string", "maxLength": 64},
-                },
+    },
+    "shortages": {
+        "type": "array",
+        "maxItems": 50,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["ingredient_name", "required_quantity", "available_quantity", "missing_quantity", "unit"],
+            "properties": {
+                "ingredient_id": {"type": ["string", "null"]},
+                "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
+                "required_quantity": {"type": "number", "minimum": 0},
+                "available_quantity": {"type": "number", "minimum": 0},
+                "missing_quantity": {"type": "number", "exclusiveMinimum": 0},
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "shortage_type": {"type": "string", "maxLength": 64},
             },
         },
-        "inventoryBoundaries": {
-            "type": "array",
-            "maxItems": 50,
-            "description": "后端根据库存预览固化的并发边界；模型不需要自行填写。",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": [
-                    "ingredientId",
-                    "quantityTrackingMode",
-                    "expectedIngredientRowVersion",
-                    "stateId",
-                    "expectedStateRowVersion",
-                    "batches",
-                ],
-                "properties": {
-                    "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "quantityTrackingMode": {
-                        "type": "string",
-                        "enum": ["track_quantity", "not_track_quantity"],
-                    },
-                    "expectedIngredientRowVersion": {"type": "integer", "minimum": 1},
-                    "stateId": {"type": ["string", "null"], "maxLength": 64},
-                    "expectedStateRowVersion": {"type": ["integer", "null"], "minimum": 1},
-                    "batches": {
-                        "type": "array",
-                        "maxItems": 100,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["inventoryItemId", "expectedRowVersion"],
-                            "properties": {
-                                "inventoryItemId": {"type": "string", "minLength": 1, "maxLength": 64},
-                                "expectedRowVersion": {"type": "integer", "minimum": 1},
-                            },
+    },
+    "inventoryBoundaries": {
+        "type": "array",
+        "maxItems": 50,
+        "description": "后端根据库存预览固化的并发边界；模型不需要自行填写。",
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "ingredientId",
+                "quantityTrackingMode",
+                "expectedIngredientRowVersion",
+                "stateId",
+                "expectedStateRowVersion",
+                "batches",
+            ],
+            "properties": {
+                "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
+                "quantityTrackingMode": {
+                    "type": "string",
+                    "enum": ["track_quantity", "not_track_quantity"],
+                },
+                "expectedIngredientRowVersion": {"type": "integer", "minimum": 1},
+                "stateId": {"type": ["string", "null"], "maxLength": 64},
+                "expectedStateRowVersion": {"type": ["integer", "null"], "minimum": 1},
+                "batches": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["inventoryItemId", "expectedRowVersion"],
+                        "properties": {
+                            "inventoryItemId": {"type": "string", "minLength": 1, "maxLength": 64},
+                            "expectedRowVersion": {"type": "integer", "minimum": 1},
                         },
                     },
                 },
@@ -734,11 +728,58 @@ RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
     },
 }
 
+# B1 generator-facing schema remains v1 (includes createMealLog).
+RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "draftType",
+        "schemaVersion",
+        "recipeId",
+        "title",
+        "servings",
+        "date",
+        "mealType",
+        "createMealLog",
+        "previewItems",
+        "shortages",
+        "inventoryBoundaries",
+    ],
+    "properties": {
+        **_RECIPE_COOK_SHARED_PROPERTIES,
+        "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v1"]},
+        "createMealLog": {"type": "boolean"},
+    },
+}
+
+# Persisted acceptance schema for v2 readers/normalizers (no createMealLog).
+RECIPE_COOK_DRAFT_V2_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "draftType",
+        "schemaVersion",
+        "recipeId",
+        "title",
+        "servings",
+        "date",
+        "mealType",
+        "previewItems",
+        "shortages",
+        "inventoryBoundaries",
+    ],
+    "properties": {
+        **_RECIPE_COOK_SHARED_PROPERTIES,
+        "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v2"]},
+    },
+}
+
 RECIPE_COOK_DRAFT_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "description": (
         "做菜确认草稿输入。模型只需要提供真实 recipeId、份数和用户明确给出的日期/餐别/记录餐食意图；"
         "previewItems 和 shortages 会由后端根据当前库存重新计算，不要求模型手写。"
+        "B1 生成版本固定为 recipe_cook_operation.v1。"
     ),
     "additionalProperties": False,
     "required": ["draftType", "schemaVersion", "recipeId", "servings"],

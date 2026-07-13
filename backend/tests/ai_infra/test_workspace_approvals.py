@@ -2084,7 +2084,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                             "servings": 1,
                             "date": date.today().isoformat(),
                             "mealType": "dinner",
-                            "createMealLog": False,
+                            "createMealLog": True,
                         },
                     ),
                 ]

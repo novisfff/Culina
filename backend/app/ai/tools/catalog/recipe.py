@@ -419,12 +419,22 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
 
 
 def recipe_create_cook_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.ai.draft_contracts import generated_recipe_cook_version
+    import logging
+
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    # B1: tools always generate/normalize as the configured generated version (v1).
+    if not draft.get("schemaVersion"):
+        draft = {**draft, "schemaVersion": generated_recipe_cook_version()}
     normalized = normalize_recipe_cook_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=draft,
+    )
+    logging.getLogger(__name__).info(
+        "ai_recipe_cook event=generated version=%s",
+        normalized.get("schemaVersion"),
     )
     return {
         "draft": normalized,

@@ -39,7 +39,7 @@ COMPOSITE_DOMAIN_DRAFT_TYPES = {
     "meal_log": "meal_log",
 }
 EXECUTABLE_COMPOSITE_DOMAINS = set(COMPOSITE_DOMAIN_DRAFT_TYPES)
-CompositeStepExecutor = Callable[[str, dict[str, Any], bool], tuple[dict[str, Any], list[str]]]
+CompositeStepExecutor = Callable[[str, dict[str, Any], bool, str], tuple[dict[str, Any], list[str]]]
 
 
 def validate_composite_operation_plan(payload: Any) -> dict[str, Any]:
@@ -234,6 +234,7 @@ def execute_composite_operation_plan(
                 draft_type,
                 operation,
                 normalize_before_execute,
+                str(step["stepId"]),
             )
             step_result = _step_result(step, domain=domain, business_entity=business_entity, entity_ids=entity_ids)
         step_results[str(step["stepId"])] = step_result
