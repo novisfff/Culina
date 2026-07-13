@@ -35,7 +35,6 @@ function buildSession(): RecipeCookSessionState {
     servings: '2',
     date: '2026-07-07',
     mealType: 'dinner',
-    createMealLog: true,
     planItemId: null,
     adjustments: '',
     resultNote: '',
@@ -50,26 +49,36 @@ function findButton(view: HTMLElement, text: string) {
   );
 }
 
-function renderDialog(options: { isCooking?: boolean } = {}) {
+function renderDialog(options: {
+  isCooking?: boolean;
+  statusMessage?: string | null;
+  success?: { message: string; mealLogId: string } | null;
+} = {}) {
   const onClose = vi.fn();
+  const onFinishAndReturn = vi.fn();
+  const onViewMeal = vi.fn();
   const view = attachRoot();
   act(() => {
     root?.render(
       <RecipeCookFinishDialog
         recipeTitle="番茄炒蛋"
-        cookPreview={null}
+        cookPreview={{ recipe_id: 'r1', preview_items: [], shortages: [] }}
         cookPreviewError={null}
         isCookPreviewLoading={false}
         session={buildSession()}
         isCooking={options.isCooking}
         submitDisabled={false}
+        statusMessage={options.statusMessage}
+        success={options.success}
         onUpdateSession={vi.fn()}
         onClose={onClose}
         onSubmit={vi.fn()}
+        onFinishAndReturn={onFinishAndReturn}
+        onViewMeal={onViewMeal}
       />,
     );
   });
-  return { onClose, view };
+  return { onClose, onFinishAndReturn, onViewMeal, view };
 }
 
 describe('RecipeCookFinishDialog', () => {
@@ -99,5 +108,41 @@ describe('RecipeCookFinishDialog', () => {
     act(() => laterButton?.click());
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('has no MealLog opt-out in the finish dialog', () => {
+    const { view } = renderDialog();
+
+    expect(view.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(view.textContent).not.toMatch(/同步生成餐食记录/);
+
+    // Navigate to meal step and summary via next buttons.
+    act(() => findButton(view, '下一步')?.click());
+    expect(view.textContent).toContain('完成后会自动记入吃过的');
+    act(() => findButton(view, '下一步')?.click());
+    act(() => findButton(view, '下一步')?.click());
+    expect(view.textContent).toContain('将生成 1 条餐食记录');
+  });
+
+  it('renders success actions for exact meal navigation', () => {
+    const { onFinishAndReturn, onViewMeal, view } = renderDialog({
+      success: {
+        message: '已更新库存，并把番茄炒蛋记到今天的晚餐。',
+        mealLogId: 'meal-1',
+      },
+    });
+
+    expect(view.textContent).toContain('烹饪完成');
+    expect(view.textContent).toContain('已更新库存，并把番茄炒蛋记到今天的晚餐。');
+    act(() => findButton(view, '查看这餐')?.click());
+    expect(onViewMeal).toHaveBeenCalledTimes(1);
+    act(() => findButton(view, '完成并返回')?.click());
+    expect(onFinishAndReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces incomplete status messages live', () => {
+    const { view } = renderDialog({ statusMessage: '完成结果不完整，请重试' });
+    const status = view.querySelector('[role="status"]');
+    expect(status?.textContent).toContain('完成结果不完整，请重试');
   });
 });

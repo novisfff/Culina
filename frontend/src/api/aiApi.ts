@@ -19,6 +19,23 @@ import type {
   GenerateRecipeDraftResponse,
 } from './types';
 
+export const AI_DRAFT_CONTRACT_CAPABILITIES = [
+  'recipe_cook_operation.v1',
+  'recipe_cook_operation.v2',
+] as const;
+
+export const AI_DRAFT_CONTRACTS_HEADER = 'X-Culina-AI-Draft-Contracts';
+
+export function aiContractHeaders(init?: HeadersInit) {
+  const headers = new Headers(init);
+  headers.set(AI_DRAFT_CONTRACTS_HEADER, AI_DRAFT_CONTRACT_CAPABILITIES.join(','));
+  return headers;
+}
+
+function aiRequest<T>(path: string, init: RequestInit = {}) {
+  return request<T>(path, { ...init, headers: aiContractHeaders(init.headers) });
+}
+
 type AiChatPayload = {
   message: string;
   conversation_id?: string;
@@ -76,7 +93,9 @@ type AiHumanInputResponsePayload = {
 };
 
 async function streamAiResponse(url: string, payload: unknown, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
-  const headers = new Headers({ 'Content-Type': 'application/json' });
+  // Rebuild capability headers on every stream connect/reconnect so capability never
+  // freezes to a response-derived value from a prior connection.
+  const headers = aiContractHeaders({ 'Content-Type': 'application/json' });
   const token = getAccessToken();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -157,40 +176,40 @@ async function streamCookingAssistantVoiceAi(payload: AiChatPayload, handlers: A
 }
 
 export const aiApi = {
-  getAiStatus: () => request<AiStatus>('/api/ai/status'),
-  getAiQualityMetrics: () => request<AiQualityMetrics>('/api/ai/quality-metrics?limit=50'),
-  getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
+  getAiStatus: () => aiRequest<AiStatus>('/api/ai/status'),
+  getAiQualityMetrics: () => aiRequest<AiQualityMetrics>('/api/ai/quality-metrics?limit=50'),
+  getAiConversations: () => aiRequest<AiConversation[]>('/api/ai/conversations'),
   deleteAiConversation: (conversationId: string) =>
-    request<void>(`/api/ai/conversations/${conversationId}`, {
+    aiRequest<void>(`/api/ai/conversations/${conversationId}`, {
       method: 'DELETE',
     }),
   updateAiConversationVisibility: (conversationId: string, visibility: AiConversationVisibility) =>
-    request<AiConversation>(`/api/ai/conversations/${conversationId}/visibility`, {
+    aiRequest<AiConversation>(`/api/ai/conversations/${conversationId}/visibility`, {
       method: 'PATCH',
       body: JSON.stringify({ visibility }),
     }),
   chatAi: (payload: AiChatPayload) =>
-    request<AiChatResponse>('/api/ai/chat', {
+    aiRequest<AiChatResponse>('/api/ai/chat', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   streamChatAi,
   streamCookingAssistantVoiceAi,
   cancelAiRun: (runId: string) =>
-    request<{ run: Record<string, unknown>; events: AiRunEvent[] }>(`/api/ai/runs/${runId}/cancel`, {
+    aiRequest<{ run: Record<string, unknown>; events: AiRunEvent[] }>(`/api/ai/runs/${runId}/cancel`, {
       method: 'POST',
     }),
   retryAiRun: (runId: string) =>
-    request<AiChatResponse>(`/api/ai/runs/${runId}/retry`, {
+    aiRequest<AiChatResponse>(`/api/ai/runs/${runId}/retry`, {
       method: 'POST',
     }),
   getAiMessages: (conversationId: string) =>
-    request<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
+    aiRequest<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
   recordAiRecommendationSelection: (
     messageId: string,
     payload: { part_id: string; card_id: string; entity_id: string; food_plan_item_id: string },
   ) =>
-    request<AiMessage>(`/api/ai/messages/${messageId}/recommendation-selection`, {
+    aiRequest<AiMessage>(`/api/ai/messages/${messageId}/recommendation-selection`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -198,31 +217,31 @@ export const aiApi = {
     messageId: string,
     payload: { part_id: string; card_id: string; item_id: string; action: 'restock' | 'consume' | 'dispose' },
   ) =>
-    request<AiMessage>(`/api/ai/messages/${messageId}/inventory-operation-draft`, {
+    aiRequest<AiMessage>(`/api/ai/messages/${messageId}/inventory-operation-draft`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   getAiRunEvents: (runId: string) =>
-    request<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
+    aiRequest<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
   getAiRunTrace: (runId: string) =>
-    request<AiRunTraceResponse>(`/api/ai/runs/${runId}/trace`),
+    aiRequest<AiRunTraceResponse>(`/api/ai/runs/${runId}/trace`),
   getAiRunTraceTree: (runId: string) =>
-    request<AiRunTraceTreeResponse>(`/api/ai/runs/${runId}/trace/tree`),
+    aiRequest<AiRunTraceTreeResponse>(`/api/ai/runs/${runId}/trace/tree`),
   getAiRunLlmExchanges: (runId: string, options: { includePayload?: boolean } = {}) => {
     const includePayload = options.includePayload ?? true;
     const query = includePayload ? '' : '?includePayload=false';
-    return request<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges${query}`);
+    return aiRequest<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges${query}`);
   },
   getAiRunLlmExchange: (runId: string, exchangeId: string) =>
-    request<AiRunLLMExchange>(`/api/ai/runs/${runId}/llm-exchanges/${exchangeId}`),
+    aiRequest<AiRunLLMExchange>(`/api/ai/runs/${runId}/llm-exchanges/${exchangeId}`),
   getPendingAiApprovals: (conversationId: string) =>
-    request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
+    aiRequest<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
   decideAiApproval: (
     conversationId: string,
     approvalId: string,
     payload: AiApprovalDecisionPayload
   ) =>
-    request<AiApprovalDecisionResponse>(`/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision`, {
+    aiRequest<AiApprovalDecisionResponse>(`/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -233,7 +252,7 @@ export const aiApi = {
     handlers: AiChatStreamHandlers = {},
   ) => streamAiResponse(`${API_BASE_URL}/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision/stream`, payload, handlers),
   respondAiHumanInput: (conversationId: string, requestId: string, payload: AiHumanInputResponsePayload) =>
-    request<AiChatResponse>(`/api/ai/conversations/${conversationId}/human-input/${requestId}/response`, {
+    aiRequest<AiChatResponse>(`/api/ai/conversations/${conversationId}/human-input/${requestId}/response`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -244,7 +263,7 @@ export const aiApi = {
     handlers: AiChatStreamHandlers = {},
   ) => streamAiResponse(`${API_BASE_URL}/api/ai/conversations/${conversationId}/human-input/${requestId}/response/stream`, payload, handlers),
   generateRecipeDraft: (payload: GenerateRecipeDraftPayload) =>
-    request<GenerateRecipeDraftResponse>('/api/ai/recipes/draft', {
+    aiRequest<GenerateRecipeDraftResponse>('/api/ai/recipes/draft', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

@@ -667,6 +667,7 @@ export function MessageBubble({
     if (part.type === 'text') return Boolean(part.text?.trim());
     if (part.type === 'run_activity') return Boolean(part.activity);
     if (part.type === 'image') return Boolean(part.image);
+    if (part.type === 'error_recovery') return Boolean(part.card || part.text?.trim());
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
   const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
@@ -749,6 +750,17 @@ export function MessageBubble({
               return (
                 <div key={item.key} className="ai-message-part ai-message-image-part">
                   <AiMessageImageGrid images={[part.image as AiMessageImagePartData]} />
+                </div>
+              );
+            }
+            if (part.type === 'error_recovery' && !part.card) {
+              const upgradeText = part.text?.trim() || '当前应用版本不支持新的做菜确认，请刷新并更新后继续。原草稿仍会安全保留。';
+              return (
+                <div key={item.key} className="ai-message-part ai-error-recovery-part" role="status">
+                  <div className="ai-recipe-danger-impact">
+                    <strong>需要更新后继续</strong>
+                    <p className="ai-approval-compare-copy">{upgradeText}</p>
+                  </div>
                 </div>
               );
             }

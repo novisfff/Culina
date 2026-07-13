@@ -1,32 +1,52 @@
-export function readJsonStorage<T>(key: string, fallback: T, options: { clearOnError?: boolean } = {}): T {
+export type StorageLike = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+};
+
+function defaultStorage(): StorageLike {
+  return localStorage;
+}
+
+export function readJsonStorage<T>(
+  key: string,
+  fallback: T,
+  options: { clearOnError?: boolean; storage?: StorageLike } = {},
+): T {
+  const storage = options.storage ?? defaultStorage();
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (!raw) {
       return fallback;
     }
     return JSON.parse(raw) as T;
   } catch {
     if (options.clearOnError ?? true) {
-      localStorage.removeItem(key);
+      storage.removeItem(key);
     }
     return fallback;
   }
 }
 
-export function writeJsonStorage<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value));
+export function writeJsonStorage<T>(key: string, value: T, storage: StorageLike = defaultStorage()): void {
+  try {
+    storage.setItem(key, JSON.stringify(value));
+  } catch {
+    // QuotaExceeded / private mode / disabled storage — callers on hot paths
+    // (cook timer autosave) must not crash the React tree.
+  }
 }
 
-export function readStringStorage(key: string, fallback: string): string {
-  return localStorage.getItem(key) ?? fallback;
+export function readStringStorage(key: string, fallback: string, storage: StorageLike = defaultStorage()): string {
+  return storage.getItem(key) ?? fallback;
 }
 
-export function writeStringStorage(key: string, value: string): void {
-  localStorage.setItem(key, value);
+export function writeStringStorage(key: string, value: string, storage: StorageLike = defaultStorage()): void {
+  storage.setItem(key, value);
 }
 
-export function removeStorage(key: string): void {
-  localStorage.removeItem(key);
+export function removeStorage(key: string, storage: StorageLike = defaultStorage()): void {
+  storage.removeItem(key);
 }
 
 /** Local draft key for inventory reconciliation. Scoped to family + user only. */

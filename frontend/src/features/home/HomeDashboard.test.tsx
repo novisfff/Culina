@@ -621,6 +621,13 @@ describe('HomeDashboard three-question desktop', () => {
     const startCook = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('开始做'));
     expect(startCook).toBeDefined();
     act(() => startCook?.click());
+    // Detail cook opens the confirmation dialog (no Recipe-ID-only shortcut).
+    const form = view.querySelector('form');
+    expect(form).not.toBeNull();
+    expect(view.textContent).toContain('确认日期、餐次和份量后开始做');
+    act(() => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
     expect(onStartRecommendedRecipe).toHaveBeenCalledWith({
       foodId: food.id,
       recipeId: 'recipe-direct-1',

@@ -152,7 +152,6 @@ export type RecipeCookSessionState = {
   servings: string;
   date: string;
   mealType: MealType;
-  createMealLog: boolean;
   planItemId: string | null;
   adjustments: string;
   resultNote: string;
@@ -549,22 +548,50 @@ export function getCookPreviewActionLabel(preview: Array<{ batches: readonly unk
   return preview?.some((item) => item.batches.length > 0) ? '确认扣库存' : '确认完成';
 }
 
-export function getCookCompletionMessage(response: Pick<CookRecipeResponse, 'consumed_items' | 'shortages'>, createMealLog: boolean) {
+export function getCookCompletionMessage(
+  response: Pick<CookRecipeResponse, 'consumed_items' | 'shortages'>,
+  options?: { recipeTitle?: string; date?: string; mealType?: MealType },
+) {
   const deductedCount = response.consumed_items.filter((item) => item.affected_item_ids.length > 0).length;
   const hasPresenceOnlyItems = response.consumed_items.some((item) => item.quantity_tracking_mode === 'not_track_quantity');
   const shortageCount = response.shortages.length;
-  const mealLogSuffix = createMealLog ? '并生成餐食记录' : '';
   const shortageSuffix = shortageCount > 0 ? `，还有 ${shortageCount} 项缺料已保留提醒` : '';
+  const mealLabel = MEAL_TYPE_OPTIONS.find((item) => item.value === options?.mealType)?.label;
+  const recipeTitle = options?.recipeTitle?.trim();
+  if (recipeTitle && options?.date && mealLabel) {
+    const inventoryPart = deductedCount > 0 ? '已更新库存' : '已记录完成';
+    const base = `${inventoryPart}，并把${recipeTitle}记到${options.date === todayKey() ? '今天' : options.date}的${mealLabel}。`;
+    if (deductedCount > 0 && hasPresenceOnlyItems) {
+      return `${base}只记录有无的食材未扣减数量${shortageSuffix}。`;
+    }
+    return `${base.replace(/。$/, '')}${shortageSuffix}。`;
+  }
 
   if (deductedCount > 0 && hasPresenceOnlyItems) {
-    return `已扣减数量库存${mealLogSuffix}${shortageSuffix}；只记录有无的食材未扣减数量。`;
+    return `已扣减数量库存并生成餐食记录${shortageSuffix}；只记录有无的食材未扣减数量。`;
   }
   if (deductedCount > 0) {
-    return createMealLog ? `已扣减库存并生成餐食记录${shortageSuffix}。` : `已扣减库存${shortageSuffix}。`;
+    return `已扣减库存并生成餐食记录${shortageSuffix}。`;
   }
-  return createMealLog
-    ? `已记录完成并生成餐食记录，本次没有需要扣减的数量库存${shortageSuffix}。`
-    : `已记录完成，本次没有需要扣减的数量库存${shortageSuffix}。`;
+  return `已记录完成并生成餐食记录，本次没有需要扣减的数量库存${shortageSuffix}。`;
+}
+
+export function isCompleteCookResult(
+  response: Pick<CookRecipeResponse, 'meal_log_id' | 'cook_log_id'>,
+): response is { meal_log_id: string; cook_log_id: string } {
+  return Boolean(response.meal_log_id && response.cook_log_id);
+}
+
+export function handleCookResult(
+  response: Pick<CookRecipeResponse, 'meal_log_id' | 'cook_log_id' | 'replayed'>,
+  handlers: { clear: () => void; onIncomplete?: () => void },
+): 'success' | 'incomplete' {
+  if (!isCompleteCookResult(response)) {
+    handlers.onIncomplete?.();
+    return 'incomplete';
+  }
+  handlers.clear();
+  return 'success';
 }
 
 export type CookFinishStepId = 'inventory' | 'meal' | 'feedback' | 'summary';
@@ -699,7 +726,6 @@ export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps
     servings: String(recipe.servings),
     date: todayKey(),
     mealType: 'dinner',
-    createMealLog: true,
     planItemId,
     adjustments: '',
     resultNote: '',
@@ -787,7 +813,6 @@ export function sanitizeCookSession(
     servings: typeof parsed.servings === 'string' && parsed.servings.trim() ? parsed.servings : fallback.servings,
     date: typeof parsed.date === 'string' && parsed.date ? parsed.date : fallback.date,
     mealType: MEAL_TYPE_OPTIONS.some((item) => item.value === parsed.mealType) ? parsed.mealType as MealType : fallback.mealType,
-    createMealLog: typeof parsed.createMealLog === 'boolean' ? parsed.createMealLog : fallback.createMealLog,
     planItemId: typeof parsed.planItemId === 'string' ? parsed.planItemId : planItemId,
     adjustments: typeof parsed.adjustments === 'string' ? parsed.adjustments : '',
     resultNote: typeof parsed.resultNote === 'string' ? parsed.resultNote : '',
@@ -986,20 +1011,24 @@ export function buildCookPayload(args: {
   servings: string;
   date: string;
   mealType: MealType;
-  createMealLog: boolean;
   planItemId: string | null;
   resultNote: string;
   adjustments: string;
   rating: string;
+  completionRequestId: string;
+  planItemBaseUpdatedAt?: string | null;
   allowPartialInventoryDeduction?: boolean;
 }): CookRecipeRequest {
   return {
     servings: Number(args.servings),
     date: args.date,
     meal_type: args.mealType,
-    create_meal_log: args.createMealLog,
+    create_meal_log: true,
+    completion_request_id: args.completionRequestId,
     food_plan_item_id: args.planItemId ?? undefined,
-    recipe_plan_item_id: args.planItemId ?? undefined,
+    ...(args.planItemId && args.planItemBaseUpdatedAt
+      ? { food_plan_item_base_updated_at: args.planItemBaseUpdatedAt }
+      : {}),
     result_note: args.resultNote.trim(),
     adjustments: args.adjustments.trim(),
     rating: args.rating ? Number(args.rating) : null,

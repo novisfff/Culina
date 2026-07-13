@@ -206,17 +206,40 @@ export function HomeDashboard(props: HomeDashboardProps) {
     [],
   );
 
-  function openQuickMealDialog(food: Food, fallbackMealType?: MealType) {
+  function openQuickMealDialog(
+    food: Food,
+    fallbackMealType?: MealType,
+    options?: { date?: string; preferFallbackMealType?: boolean },
+  ) {
+    const recipeId = food.recipe_id ?? undefined;
+    const recipeServings =
+      recipeId != null
+        ? recipes.find((recipe) => recipe.id === recipeId)?.servings
+        : undefined;
+    const isCook = Boolean(food.recipe_id);
+    // Recommendation / detail cook may pass an explicit target meal that should
+    // survive into the dialog even when the food's suitable_meal_types differ.
+    const mealType =
+      isCook && options?.preferFallbackMealType && fallbackMealType
+        ? fallbackMealType
+        : getHomeQuickDefaultMealType(food, fallbackMealType);
     setQuickMealDialog({
-      action: food.recipe_id ? 'cook' : 'eat',
-      date: todayKey(),
+      action: isCook ? 'cook' : 'eat',
+      date: options?.date ?? todayKey(),
       food,
-      mealType: getHomeQuickDefaultMealType(food, fallbackMealType),
-      recipeId: food.recipe_id ?? undefined,
+      mealType,
+      recipeId,
+      servings: isCook
+        ? recipeServings && recipeServings > 0
+          ? recipeServings
+          : 1
+        : undefined,
     });
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) {
+  function updateQuickMealDialog(
+    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
+  ) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -226,13 +249,17 @@ export function HomeDashboard(props: HomeDashboardProps) {
     const current = quickMealDialog;
     // Cook path: direct cook without creating a plan item (matches recommendation detail).
     if ((current.action === 'cook' || current.food.recipe_id) && current.food.recipe_id) {
+      const servings =
+        current.servings != null && current.servings > 0
+          ? current.servings
+          : recipes.find((recipe) => recipe.id === current.food.recipe_id)?.servings || 1;
       setQuickMealDialog(null);
       onStartRecommendedRecipe({
         foodId: current.food.id,
         recipeId: current.food.recipe_id,
         date: current.date,
         mealType: current.mealType,
-        servings: 1,
+        servings,
       });
       return;
     }
@@ -380,13 +407,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
               openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
               setDetailFood(null);
             }}
-            onStartCook={(recipeId) => {
-              onStartRecommendedRecipe({
-                foodId: detailFood.id,
-                recipeId,
-                date: foodRecommendations?.target_date ?? todayKey(),
-                mealType: foodRecommendations?.target_meal_type ?? getSuggestedHomeMealType(),
-                servings: 1,
+            onStartCook={() => {
+              // Same confirmation dialog as Discover / primary recommendation cook.
+              openQuickMealDialog(detailFood, foodRecommendations?.target_meal_type, {
+                date: foodRecommendations?.target_date,
+                preferFallbackMealType: true,
               });
               setDetailFood(null);
             }}

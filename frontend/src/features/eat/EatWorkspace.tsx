@@ -18,6 +18,8 @@ export type EatWorkspaceProps = {
   discoverContent?: ReactNode;
   planContent?: ReactNode;
   historyContent?: ReactNode;
+  /** Compact active-cook resume entry rendered above Discover content when present. */
+  activeCookResumeContent?: ReactNode;
   /** Optional focused task body for food/plan/meal/cook/ready-recipe kinds. */
   foodTaskContent?: ReactNode;
   planTaskContent?: ReactNode;
@@ -45,7 +47,12 @@ function renderBaseView(props: EatWorkspaceProps): ReactNode {
       return props.historyContent ?? null;
     case 'discover':
     default:
-      return props.discoverContent ?? null;
+      return (
+        <>
+          {props.activeCookResumeContent ?? null}
+          {props.discoverContent ?? null}
+        </>
+      );
   }
 }
 

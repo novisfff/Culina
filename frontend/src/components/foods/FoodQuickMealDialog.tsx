@@ -3,7 +3,7 @@ import type { Food, MealType, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { FormActions, TouchStepperField, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
 import { formatFoodStockQuantity, getPrimaryFoodActionLabel, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 
@@ -13,6 +13,7 @@ export type FoodQuickMealDialogState = {
   food: Food;
   mealType: MealType;
   recipeId?: string;
+  servings?: number;
   deductStock?: boolean;
   stockQuantity?: string;
   stockQuantityError?: string | null;
@@ -24,7 +25,11 @@ type FoodQuickMealDialogProps = {
   isSubmitting?: boolean;
   recipes: Recipe[];
   overlayRootClassName?: string;
-  onChange: (patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) => void;
+  onChange: (
+    patch: Partial<
+      Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings' | 'deductStock' | 'stockQuantity'>
+    >,
+  ) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
@@ -44,8 +49,12 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
   const cover = resolveMediaUrl(coverAsset, 'card');
   const isCookAction = props.dialog.action === 'cook' && props.dialog.recipeId;
   const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(props.dialog.food);
+  const description = isCookAction
+    ? '确认日期、餐次和份量后开始做'
+    : '确认日期和餐次，点一下就完成。';
   const isSubmitting = Boolean(props.isSubmitting);
   const quickMealFormId = 'food-workspace-quick-meal-form';
+  const servings = props.dialog.servings ?? 1;
 
   function closeIfAllowed() {
     if (!isSubmitting) {
@@ -61,7 +70,7 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
     >
       <WorkspaceModal
         title={title}
-        description="确认日期和餐次，点一下就完成。"
+        description={description}
         eyebrow="快速操作"
         className="food-quick-meal-modal"
         onClose={closeIfAllowed}
@@ -134,6 +143,19 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
               ))}
             </div>
           </div>
+
+          {isCookAction ? (
+            <div className="food-quick-meal-field eat-quick-meal-servings">
+              <TouchStepperField
+                label="份量"
+                value={servings}
+                min={0.5}
+                step={0.5}
+                disabled={isSubmitting}
+                onChange={(nextServings) => props.onChange({ servings: nextServings })}
+              />
+            </div>
+          ) : null}
 
           {!isCookAction && isReadyLikeFood(props.dialog.food) && props.dialog.food.stock_quantity != null && props.dialog.food.stock_quantity > 0 && (
             <div className="food-quick-meal-stock-box">

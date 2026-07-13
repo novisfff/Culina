@@ -749,6 +749,9 @@ export function EatCookTaskBody(props: {
   }) => Promise<ShoppingListItem>;
   onClose: () => void;
   onCompleted: () => void;
+  onViewMealLog?: (mealLogId: string) => void;
+  /** Authenticated user+family scope for v3 cook session persistence. */
+  sessionScope?: { userId: string; familyId: string } | null;
 }) {
   const cards = useMemo(
     () => buildRecipeCards(props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods),
@@ -783,17 +786,24 @@ export function EatCookTaskBody(props: {
       setStartRecipeId(null);
     },
     previewCookRecipe: props.previewCookRecipe,
-    cookRecipe: async (recipeId, payload) => {
-      const result = await props.cookRecipe(recipeId, payload);
-      props.onCompleted();
-      return result;
-    },
+    cookRecipe: props.cookRecipe,
     isCookingRecipe: props.isCookingRecipe,
     showRecipeNotice: () => undefined,
+    sessionScope: props.sessionScope ?? null,
+    launchContext: props.launchContext,
+    foodId: props.food.id,
+    ownershipVerified: true,
+    onViewMealLog: props.onViewMealLog,
+    onCookFinished: props.onCompleted,
   });
 
   useEffect(() => {
     if (!cookState.cookSession || launchSeeded) return;
+    // Restored v3 sessions keep their date/meal/servings/request ID.
+    if (props.sessionScope && cookState.wasCookSessionRestored) {
+      setLaunchSeeded(true);
+      return;
+    }
     cookState.updateCookSession({
       date: props.launchContext.date,
       mealType: props.launchContext.mealType,
@@ -801,7 +811,38 @@ export function EatCookTaskBody(props: {
       planItemId,
     });
     setLaunchSeeded(true);
-  }, [cookState, cookState.cookSession, launchSeeded, planItemId, props.launchContext]);
+  }, [cookState, cookState.cookSession, cookState.wasCookSessionRestored, launchSeeded, planItemId, props.launchContext, props.sessionScope]);
+
+  if (cookState.cookCollision) {
+    return (
+      <div className="eat-cook-task-body" data-testid="eat-cook-task-body">
+        <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
+          <WorkspaceModal
+            title="已有进行中的做菜"
+            description="同一时间只能继续一份做菜进度"
+            onClose={() => {
+              cookState.dismissCookCollision();
+              props.onClose();
+            }}
+            footerActions={
+              <div className="eat-workspace-actions">
+                <ActionButton type="button" tone="primary" onClick={cookState.continueExistingCook}>
+                  继续上次
+                </ActionButton>
+                <ActionButton type="button" tone="secondary" onClick={cookState.abandonAndStartNewCook}>
+                  放弃并开始新的
+                </ActionButton>
+              </div>
+            }
+          >
+            <p className="eat-task-relation-copy">
+              你有一份未完成的做菜进度。请选择继续上次，或放弃后开始当前这份。
+            </p>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      </div>
+    );
+  }
 
   if (!cookState.activeCookCard || !cookState.cookSession) {
     return (
@@ -888,9 +929,20 @@ export function EatCookTaskBody(props: {
           session={cookState.cookSession}
           isCooking={props.isCookingRecipe}
           submitDisabled={cookState.cookSubmitDisabled}
+          statusMessage={cookState.cookFinishStatusMessage}
+          success={
+            cookState.cookCompletionResult
+              ? {
+                  message: cookState.cookCompletionResult.message,
+                  mealLogId: cookState.cookCompletionResult.mealLogId,
+                }
+              : null
+          }
           onUpdateSession={cookState.updateCookSession}
           onClose={() => cookState.setIsCookFinishOpen(false)}
           onSubmit={cookState.submitCookRecipe}
+          onFinishAndReturn={() => cookState.dismissCookCompletion()}
+          onViewMeal={() => cookState.dismissCookCompletion({ viewMeal: true })}
         />
       ) : null}
 
@@ -1188,6 +1240,8 @@ export function buildEatTaskBodies(args: {
   onStartCookWithFood: (foodId: string, recipeId: string) => void;
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onCookCompleted: () => void;
+  onViewMealLog?: (mealLogId: string) => void;
+  sessionScope?: { userId: string; familyId: string } | null;
 }): {
   foodTaskContent?: ReactNode;
   recipeTaskContent?: ReactNode;
@@ -1297,6 +1351,8 @@ export function buildEatTaskBodies(args: {
           createShoppingItem={args.createShoppingItem}
           onClose={args.onClose}
           onCompleted={args.onCookCompleted}
+          onViewMealLog={args.onViewMealLog}
+          sessionScope={args.sessionScope ?? null}
         />
       ),
     };

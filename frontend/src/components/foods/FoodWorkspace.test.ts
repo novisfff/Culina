@@ -27,7 +27,13 @@ import {
   formatFoodStockQuantity,
   getFoodGovernanceIssues,
 } from './FoodWorkspaceHelpers';
-import { foodToForm, getFoodFormCompletionItems, makeBlankFoodForm } from './FoodWorkspaceModel';
+import {
+  buildDirectCookTarget,
+  buildPlanCookLaunchContext,
+  foodToForm,
+  getFoodFormCompletionItems,
+  makeBlankFoodForm,
+} from './FoodWorkspaceModel';
 import { buildRecipeCards } from '../recipes/workspaceModel';
 
 const recipe: Recipe = {
@@ -465,6 +471,60 @@ describe('food workspace helpers', () => {
       navigationRequest: { foodId: baseFood.id, requestId: 5, target: 'quickMeal', quickMealAction: 'cook' },
       handledRequestId: 5,
     })).toEqual({ kind: 'idle' });
+  });
+
+  it('builds direct Cook targets without a plan mutation payload', () => {
+    expect(
+      buildDirectCookTarget({
+        foodId: 'food-1',
+        recipeId: 'recipe-1',
+        date: '2026-07-15',
+        mealType: 'lunch',
+        servings: 2.5,
+      }),
+    ).toEqual({
+      workspace: 'eat',
+      view: 'cook',
+      foodId: 'food-1',
+      recipeId: 'recipe-1',
+      launchContext: {
+        date: '2026-07-15',
+        mealType: 'lunch',
+        servings: 2.5,
+        source: { kind: 'direct' },
+      },
+    });
+
+    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    expect(workspaceSource).toContain('buildDirectCookTarget');
+    expect(workspaceSource).toContain('// Direct Cook: never create a plan item just to start cooking.');
+    // Direct cook no longer creates a FoodPlanItem just to start cooking.
+    expect(workspaceSource).not.toMatch(
+      /action === 'cook'[\s\S]{0,200}createFoodPlanItem/,
+    );
+  });
+
+  it('builds plan Cook launch context from the loaded detail timestamp', () => {
+    expect(
+      buildPlanCookLaunchContext(
+        {
+          id: 'plan-1',
+          plan_date: '2026-07-15',
+          meal_type: 'dinner',
+          updated_at: '2026-07-12T10:00:00Z',
+        },
+        { servings: 4 },
+      ),
+    ).toEqual({
+      date: '2026-07-15',
+      mealType: 'dinner',
+      servings: 4,
+      source: {
+        kind: 'plan',
+        foodPlanItemId: 'plan-1',
+        planItemBaseUpdatedAt: '2026-07-12T10:00:00Z',
+      },
+    });
   });
 
   it('keeps generated scene media on default mobile scene cards', () => {

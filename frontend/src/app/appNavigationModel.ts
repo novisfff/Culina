@@ -416,6 +416,8 @@ function scopeForEatTask(task: EatTask): AppQueryScope {
         'needsInventory',
         'needsRecipes',
         'needsFoods',
+        // Keep mealLogs enabled so post-cook invalidation can refetch before "查看这餐".
+        'needsMealLogs',
       ];
       if (task.launchContext.source.kind === 'plan') {
         keys.push('needsFoodPlan');

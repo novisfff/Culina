@@ -54,7 +54,6 @@ const cookSession: RecipeCookSessionState = {
   servings: '2',
   date: '2026-06-28',
   mealType: 'dinner',
-  createMealLog: true,
   planItemId: null,
   adjustments: '',
   resultNote: '',

@@ -986,3 +986,38 @@ describe('MessageBubble approval gating', () => {
     rendered.unmount();
   });
 });
+
+describe('MessageBubble error recovery rendering', () => {
+  it('renders upgrade error_recovery parts as non-editable guidance', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-upgrade',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '',
+          content_type: 'parts',
+          parts: [{
+            id: 'upgrade-part',
+            type: 'error_recovery',
+            status: 'blocked',
+            text: '当前应用版本不支持新的做菜确认，请刷新并更新后继续。原草稿仍会安全保留。',
+          }],
+          run_id: 'run-upgrade',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={testUser}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+      />,
+    );
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('需要更新后继续');
+    expect(rendered.container.textContent).toContain('当前应用版本不支持新的做菜确认');
+    expect(rendered.container.querySelector('.ai-approval-actions')).toBeNull();
+    rendered.unmount();
+  });
+});
