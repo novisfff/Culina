@@ -446,17 +446,17 @@ describe('appNavigationModel', () => {
     },
     {
       name: 'ingredients',
-      state: { primaryTab: 'ingredients', eat: initialNavigationState.eat },
+      state: { primaryTab: 'ingredients' as const, eat: initialNavigationState.eat },
       expected: ['needsIngredients', 'needsInventory', 'needsShopping', 'needsRecipes'],
     },
     {
       name: 'ai',
-      state: { primaryTab: 'ai', eat: initialNavigationState.eat },
+      state: { primaryTab: 'ai' as const, eat: initialNavigationState.eat },
       expected: ['needsAiConversations'],
     },
     {
       name: 'family',
-      state: { primaryTab: 'family', eat: initialNavigationState.eat },
+      state: { primaryTab: 'family' as const, eat: initialNavigationState.eat },
       expected: ['needsMembers', 'needsRecipes', 'needsFoods', 'needsMealLogs', 'needsActivityLogs'],
     },
   ])('derives query scope for $name', ({ state, expected }) => {
