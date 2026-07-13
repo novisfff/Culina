@@ -173,6 +173,7 @@ def _execute_recipe_cook(context: DraftExecuteContext) -> tuple[dict[str, Any], 
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
+        operation_idempotency_key=context.operation_idempotency_key,
     )
 
 

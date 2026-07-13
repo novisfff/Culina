@@ -532,6 +532,13 @@ class FoodPlanItem(AuditMixin, Base):
 
 class RecipeCookLog(AuditMixin, Base):
     __tablename__ = "recipe_cook_logs"
+    __table_args__ = (
+        UniqueConstraint(
+            "family_id",
+            "completion_request_id",
+            name="uq_recipe_cook_logs_family_completion_request",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("recipe-cook"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -543,6 +550,9 @@ class RecipeCookLog(AuditMixin, Base):
     result_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
     adjustments: Mapped[str] = mapped_column(Text, default="", nullable=False)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    completion_request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completion_result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     recipe: Mapped["Recipe"] = relationship(back_populates="cook_logs")
 

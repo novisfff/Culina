@@ -17,7 +17,14 @@ def ensure_food_for_recipe(
     recipe: Recipe,
     recipe_media_ids: list[str] | None = None,
     sync_media: bool = False,
+    allow_orphan_rebind: bool = True,
 ) -> tuple[Food, bool]:
+    """Return the self-made Food linked to recipe, creating one when missing.
+
+    When ``allow_orphan_rebind`` is True (legacy default), an unlinked self-made
+    Food with the same name may be adopted. Completion holds inventory locks and
+    must pass False so an unlocked orphan is never rebound under a race.
+    """
     food = db.scalar(
         select(Food).where(
             Food.family_id == family_id,
@@ -27,16 +34,17 @@ def ensure_food_for_recipe(
     )
     created = food is None
     if food is None:
-        food = db.scalar(
-            select(Food)
-            .where(
-                Food.family_id == family_id,
-                Food.recipe_id.is_(None),
-                Food.type == FoodType.SELF_MADE.value,
-                Food.name == recipe.title,
+        if allow_orphan_rebind:
+            food = db.scalar(
+                select(Food)
+                .where(
+                    Food.family_id == family_id,
+                    Food.recipe_id.is_(None),
+                    Food.type == FoodType.SELF_MADE.value,
+                    Food.name == recipe.title,
+                )
+                .order_by(Food.updated_at.desc())
             )
-            .order_by(Food.updated_at.desc())
-        )
         if food is None:
             food = Food(
                 id=create_id("food"),
@@ -47,6 +55,7 @@ def ensure_food_for_recipe(
                 updated_by=user_id,
             )
             db.add(food)
+            created = True
         food.recipe_id = recipe.id
 
     food.name = recipe.title

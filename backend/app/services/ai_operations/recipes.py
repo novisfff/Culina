@@ -17,6 +17,7 @@ from app.schemas.recipes import CreateRecipeRequest, UpdateRecipeRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_recipe_image_request, enqueue_ai_entity_image_generation
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_deletion import RecipeHasHistoryError, delete_recipe_with_guard
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.jobs import enqueue_search_index_job
@@ -102,33 +103,19 @@ def execute_recipe_draft(
     if action == "delete":
         title = recipe.title
         recipe_id = recipe.id
-        for food in list(recipe.foods):
-            replace_media_assets(
+        difficulty = recipe.difficulty
+        try:
+            delete_recipe_with_guard(
                 db,
                 family_id=family_id,
-                media_ids=[],
-                entity_type="food",
-                entity_id=food.id,
+                actor_id=user_id,
+                recipe_id=recipe_id,
+                activity_summary=f"AI 删除菜谱 {title}",
             )
-            db.delete(food)
-        replace_media_assets(
-            db,
-            family_id=family_id,
-            media_ids=[],
-            entity_type="recipe",
-            entity_id=recipe.id,
-        )
-        difficulty = recipe.difficulty
-        db.delete(recipe)
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.UPDATE,
-            entity_type="Recipe",
-            entity_id=recipe_id,
-            summary=f"AI 删除菜谱 {title}",
-        )
+        except LookupError as exc:
+            raise AIConflictError("菜谱不存在或已被删除") from exc
+        except RecipeHasHistoryError as exc:
+            raise AIConflictError(str(exc)) from exc
         return Recipe(
             id=recipe_id,
             family_id=family_id,

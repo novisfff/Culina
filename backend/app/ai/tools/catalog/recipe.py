@@ -6,6 +6,11 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.ai.draft_contracts import (
+    DraftContractCapabilities,
+    generated_recipe_cook_version,
+    select_recipe_cook_generation_version,
+)
 from app.ai.errors import ToolExecutionError
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
 from app.ai.skills.registry import build_workspace_skill_registry
@@ -419,12 +424,24 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
 
 
 def recipe_create_cook_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    import logging
+
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    # Gate generation by the current request's capabilities before any draft persistence.
+    schema_version = select_recipe_cook_generation_version(
+        DraftContractCapabilities(values=frozenset(context.generation_contracts or ())),
+        generated_version=generated_recipe_cook_version(),
+    )
+    draft = {**draft, "schemaVersion": schema_version}
     normalized = normalize_recipe_cook_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=draft,
+    )
+    logging.getLogger(__name__).info(
+        "ai_recipe_cook event=generated version=%s",
+        normalized.get("schemaVersion"),
     )
     return {
         "draft": normalized,

@@ -1036,6 +1036,16 @@ def revert_inventory_operation(
             food = locked.foods.get(entity_id)
             if line.change_type == InventoryOperationChangeType.CREATE:
                 if food is not None:
+                    # Refuse cascade-delete when meal/plan history exists.
+                    from app.services.recipe_deletion import FoodHasHistoryError, assert_food_deletable
+
+                    try:
+                        assert_food_deletable(db, food_id=food.id, family_id=operation.family_id)
+                    except FoodHasHistoryError as exc:
+                        raise _conflict(
+                            "food_has_history",
+                            str(exc),
+                        ) from exc
                     db.delete(food)
                     locked.foods.pop(entity_id, None)
                 continue

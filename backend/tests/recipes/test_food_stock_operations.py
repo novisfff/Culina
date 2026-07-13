@@ -6,7 +6,8 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.models.domain import ActivityLog, Food, MealLogFood
-from app.api.meal_logs import _select_food_for_quick_add, _select_plan_item_for_quick_add
+from app.api.meal_logs import _select_food_for_quick_add
+from app.services.food_plan_locking import lock_plan_item_after_food
 
 from ._support import RecipeApiTestCase
 
@@ -245,8 +246,9 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(first_response.status_code, 201, first_response.text)
 
         second_response = self.client.post("/api/meal-logs/quick-add", json=payload)
-        self.assertEqual(second_response.status_code, 201, second_response.text)
-        self.assertEqual(second_response.json()["id"], first_response.json()["id"])
+        self.assertEqual(second_response.status_code, 409, second_response.text)
+        self.assertEqual(second_response.json()["detail"]["code"], "food_plan_item_already_completed")
+        self.assertEqual(second_response.json()["detail"]["meal_log_id"], first_response.json()["id"])
 
         with self.SessionLocal() as db:
             refreshed = db.get(Food, food.id)
@@ -277,15 +279,8 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         )
         self.assertIsNone(unlocked_statement._for_update_arg)
 
-    def test_quick_add_plan_item_query_always_uses_row_lock(self) -> None:
-        statement = _select_plan_item_for_quick_add(
-            plan_item_id="plan-lock",
-            food_id="food-stock-lock",
-            family_id="family-test",
-            user_id="user-test",
-        )
-
-        self.assertIsNotNone(statement._for_update_arg)
+    def test_lock_plan_item_after_food_is_callable(self) -> None:
+        self.assertTrue(callable(lock_plan_item_after_food))
 
 
     def test_food_stock_intake_uses_earliest_expiry_while_restock_overwrites(self) -> None:

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from app.services.ai_operations.composite import (
     COMPOSITE_DOMAIN_DRAFT_TYPES,
+    composite_execution_order,
     composite_operation_requires_deferred_normalization,
     execute_composite_operation_plan,
     normalize_composite_operation_draft,
     validate_composite_operation_shape,
 )
+from app.services.ai_operations.executor import derive_child_operation_idempotency_key
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
     DraftNormalizeContext,
@@ -48,12 +51,40 @@ def _normalize_composite_operation(context: DraftNormalizeContext) -> dict[str, 
 
 
 def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
+    steps_by_id = {
+        str(step.get("stepId") or ""): step
+        for step in (context.payload.get("steps") or [])
+        if isinstance(step, dict)
+    }
+
     def execute_step(
         step_draft_type: str,
         step_payload: dict[str, Any],
         normalize_before_execute: bool,
+        step_id: str,
     ) -> tuple[dict[str, Any], list[str]]:
         from app.services.ai_operations.registry import draft_operation_registry
+
+        step = steps_by_id.get(step_id) or {}
+        if step_draft_type == "recipe_cook":
+            child_operation_id = str(
+                step_payload.get("operationId")
+                or step_payload.get("operation_id")
+                or step.get("operationId")
+                or step.get("operation_id")
+                or ""
+            ).strip()
+            if not child_operation_id:
+                raise ValueError("复合做菜步骤必须包含稳定的 operationId，不能使用列表位置作为幂等标识")
+        else:
+            child_operation_id = str(
+                step_payload.get("operationId")
+                or step_payload.get("operation_id")
+                or step_id
+                or ""
+            ).strip()
+            if not child_operation_id:
+                raise ValueError("复合操作步骤缺少稳定 operationId/stepId，无法生成幂等键")
 
         if normalize_before_execute:
             step_payload = draft_operation_registry.normalize(
@@ -67,18 +98,19 @@ def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str
                     phase="proposal",
                 )
             )
-        return draft_operation_registry.execute(
-            DraftExecuteContext(
-                db=context.db,
-                family_id=context.family_id,
-                user_id=context.user_id,
-                draft_type=step_draft_type,
-                payload=step_payload,
-                assert_updated_at_matches=context.assert_updated_at_matches,
-                conversation_id=context.conversation_id,
-            )
+        child_context = replace(
+            context,
+            draft_type=step_draft_type,
+            payload=step_payload,
+            operation_idempotency_key=derive_child_operation_idempotency_key(
+                context.operation_idempotency_key,
+                child_operation_id,
+            ),
         )
+        return draft_operation_registry.execute(child_context)
 
+    # Ensure topological order is validated before execution.
+    composite_execution_order(context.payload)
     result = execute_composite_operation_plan(
         context.db,
         family_id=context.family_id,

@@ -77,6 +77,7 @@ class QuickAddMealLogRequest(BaseModel):
     servings: float = 1
     note: str = ""
     food_plan_item_id: str | None = None
+    food_plan_item_base_updated_at: datetime | None = None
     deduct_food_stock: bool = False
     expected_food_row_version: int | None = Field(default=None, ge=1)
     stock_quantity: float | None = Field(default=None, gt=0)

@@ -204,11 +204,13 @@ class WorkspaceGraphRunner:
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         prompt = message.strip()
         normalized_attachments = normalize_chat_attachments(attachments)
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
+        contracts = frozenset(generation_contracts or ())
         message_summary_text = message_summary(prompt, len(normalized_attachments))
         prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
@@ -266,6 +268,7 @@ class WorkspaceGraphRunner:
                     initial_skill_keys=initial_skill_keys,
                     run_id=prepared["run_id"],
                     user_message_id=prepared["user_message_id"],
+                    generation_contracts=contracts,
                 ),
                 config=config,
                 durability="sync",
@@ -311,11 +314,13 @@ class WorkspaceGraphRunner:
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prompt = message.strip()
         normalized_attachments = normalize_chat_attachments(attachments)
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
+        contracts = frozenset(generation_contracts or ())
         message_summary_text = message_summary(prompt, len(normalized_attachments))
         prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
@@ -358,6 +363,7 @@ class WorkspaceGraphRunner:
             client_run_id=client_run_id,
             quick_task=quick_task,
             prepared=prepared,
+            generation_contracts=contracts,
         )
 
     def _stream_prepared_user_message(
@@ -371,10 +377,12 @@ class WorkspaceGraphRunner:
         client_run_id: str | None,
         quick_task: str | None,
         prepared: dict[str, Any],
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         conversation_id = str(prepared["conversation_id"])
         config = self._config(conversation_id)
         run_id = str(prepared["run_id"])
+        contracts = frozenset(generation_contracts or ())
         orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
             quick_task=quick_task,
             subject=prepared["subject"],
@@ -406,6 +414,7 @@ class WorkspaceGraphRunner:
                         initial_skill_keys=initial_skill_keys,
                         run_id=run_id,
                         user_message_id=prepared["user_message_id"],
+                        generation_contracts=contracts,
                     ),
                     config=config,
                     stream_mode=["updates", "custom"],
@@ -504,6 +513,17 @@ class WorkspaceGraphRunner:
             },
         )
 
+    @staticmethod
+    def _resume_command(
+        *,
+        resume_payload: dict[str, Any],
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+    ) -> Command:
+        return Command(
+            update={"generation_contracts": sorted(frozenset(generation_contracts or ()))},
+            resume=resume_payload,
+        )
+
     def _resume_graph_stream(
         self,
         *,
@@ -515,14 +535,17 @@ class WorkspaceGraphRunner:
         run_id: str,
         flow: str,
         seen_event_ids: set[str],
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
         before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         handle_update_extra: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         require_run_id: bool = False,
         on_completed: Callable[[str], None] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
+        contracts = frozenset(generation_contracts or ())
+
         def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
             return runner.graph.stream(
-                Command(resume=resume_payload),
+                runner._resume_command(resume_payload=resume_payload, generation_contracts=contracts),
                 config=config,
                 stream_mode=["updates", "custom"],
                 durability="sync",
@@ -600,6 +623,7 @@ class WorkspaceGraphRunner:
         draft_version: int,
         values: dict[str, Any],
         comment: str | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         prepared = self.approval_resume_preparer.prepare(
             family_id=family_id,
@@ -625,7 +649,10 @@ class WorkspaceGraphRunner:
         )
 
         output = self.graph.invoke(
-            Command(resume=prepared.resume_payload),
+            self._resume_command(
+                resume_payload=prepared.resume_payload,
+                generation_contracts=frozenset(generation_contracts or ()),
+            ),
             config=prepared.config,
             durability="sync",
         )
@@ -664,6 +691,7 @@ class WorkspaceGraphRunner:
         draft_version: int,
         values: dict[str, Any],
         comment: str | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         require_conversation(
             self.db,
@@ -672,6 +700,10 @@ class WorkspaceGraphRunner:
             conversation_id=conversation_id,
             capability="contribute",
         )
+        # generation_contracts is request-scoped for resume continuations; the fast
+        # decision path does not re-enter the graph, so the value is accepted for API
+        # uniformity and reserved for resume/continuation callers.
+        _ = frozenset(generation_contracts or ())
         result = self.service._apply_approval_decision(
             family_id=family_id,
             user_id=user_id,
@@ -726,6 +758,7 @@ class WorkspaceGraphRunner:
         request_id: str,
         selected_option_ids: list[str],
         text: str | None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         prepared = self.human_input_resume_preparer.prepare(
             family_id=family_id,
@@ -737,7 +770,10 @@ class WorkspaceGraphRunner:
             stream=False,
         )
         output = self.graph.invoke(
-            Command(resume=prepared.resume_payload),
+            self._resume_command(
+                resume_payload=prepared.resume_payload,
+                generation_contracts=frozenset(generation_contracts or ()),
+            ),
             config=prepared.config,
             durability="sync",
         )
@@ -759,6 +795,7 @@ class WorkspaceGraphRunner:
         request_id: str,
         selected_option_ids: list[str],
         text: str | None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prepared = self.human_input_resume_preparer.prepare(
             family_id=family_id,
@@ -770,6 +807,7 @@ class WorkspaceGraphRunner:
             stream=True,
         )
         run_id = prepared.run_id
+        contracts = frozenset(generation_contracts or ())
         logger.info(
             "AI graph human input stream resume started family_id=%s user_id=%s conversation_id=%s request_id=%s run_id=%s has_snapshot=%s next=%s",
             family_id,
@@ -802,6 +840,7 @@ class WorkspaceGraphRunner:
                 run_id=run_id,
                 flow="human_input_resume",
                 seen_event_ids=seen_event_ids,
+                generation_contracts=contracts,
                 require_run_id=True,
                 on_completed=log_completed,
             )
@@ -822,6 +861,7 @@ class WorkspaceGraphRunner:
         draft_version: int,
         values: dict[str, Any],
         comment: str | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prepared = self.approval_resume_preparer.prepare(
             family_id=family_id,
@@ -835,6 +875,7 @@ class WorkspaceGraphRunner:
             stream=True,
         )
         run_id = prepared.run_id
+        contracts = frozenset(generation_contracts or ())
         logger.info(
             "AI graph approval stream resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s run_id=%s has_snapshot=%s next=%s",
             family_id,
@@ -890,6 +931,7 @@ class WorkspaceGraphRunner:
                 run_id=run_id,
                 flow="approval_resume",
                 seen_event_ids=seen_event_ids,
+                generation_contracts=contracts,
                 before_graph=before_graph,
                 handle_update_extra=handle_update_extra,
                 on_completed=log_completed,

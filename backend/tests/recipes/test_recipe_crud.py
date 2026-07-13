@@ -1,7 +1,129 @@
+from datetime import date
+from decimal import Decimal
+from unittest.mock import patch
+
+from app.core.enums import MealType
+from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, Recipe, RecipeCookLog
 from ._support import *
 
 
 class RecipeRecipeCrudTestCase(RecipeApiTestCase):
+        def _linked_food_id(self, recipe_id: str) -> str:
+            foods = self.client.get("/api/foods").json()
+            linked = next(item for item in foods if item["recipe_id"] == recipe_id)
+            return linked["id"]
+
+        def _attach_history_reference(self, *, recipe_id: str, food_id: str, reference_kind: str) -> None:
+            with self.SessionLocal() as db:
+                if reference_kind == "cook_log":
+                    db.add(
+                        RecipeCookLog(
+                            id=f"cook-log-{recipe_id}",
+                            family_id=self.family.id,
+                            recipe_id=recipe_id,
+                            cook_date=date.today(),
+                            meal_type=MealType.DINNER,
+                            servings=Decimal("2"),
+                            result_note="",
+                            adjustments="",
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        )
+                    )
+                elif reference_kind == "meal_log_food":
+                    meal_log = MealLog(
+                        id=f"meal-log-{recipe_id}",
+                        family_id=self.family.id,
+                        date=date.today(),
+                        meal_type=MealType.DINNER,
+                        participant_user_ids=[self.user.id],
+                        notes="history",
+                        mood="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                    db.add(meal_log)
+                    db.flush()
+                    db.add(
+                        MealLogFood(
+                            id=f"meal-food-{recipe_id}",
+                            meal_log_id=meal_log.id,
+                            food_id=food_id,
+                            servings=Decimal("1"),
+                            note="",
+                        )
+                    )
+                elif reference_kind == "food_plan_item":
+                    db.add(
+                        FoodPlanItem(
+                            id=f"food-plan-{recipe_id}",
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            food_id=food_id,
+                            plan_date=date.today(),
+                            meal_type=MealType.DINNER,
+                            note="planned",
+                            status="planned",
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        )
+                    )
+                else:
+                    raise AssertionError(f"unknown reference_kind={reference_kind}")
+                db.commit()
+
+        def test_recipe_delete_preserves_history_reference(self) -> None:
+            for reference_kind in ("cook_log", "meal_log_food", "food_plan_item"):
+                with self.subTest(reference_kind=reference_kind):
+                    recipe = self.create_recipe(auto_create_food=True, title=f"历史菜谱-{reference_kind}")
+                    recipe_id = recipe["id"]
+                    food_id = self._linked_food_id(recipe_id)
+                    self._attach_history_reference(
+                        recipe_id=recipe_id,
+                        food_id=food_id,
+                        reference_kind=reference_kind,
+                    )
+
+                    response = self.client.delete(f"/api/recipes/{recipe_id}")
+                    self.assertEqual(response.status_code, 409, response.text)
+                    detail = response.json()["detail"]
+                    self.assertEqual(detail["code"], "recipe_has_history")
+
+                    with self.SessionLocal() as db:
+                        self.assertIsNotNone(db.get(Recipe, recipe_id))
+                        self.assertIsNotNone(db.get(Food, food_id))
+
+        def test_blocked_delete_does_not_delete_media_or_search(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True, title="阻塞删除菜谱")
+            recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
+            self._attach_history_reference(
+                recipe_id=recipe_id,
+                food_id=food_id,
+                reference_kind="meal_log_food",
+            )
+
+            with (
+                patch("app.services.recipe_deletion.replace_media_assets") as delete_media,
+                patch("app.services.recipe_deletion.delete_search_document") as delete_search,
+            ):
+                response = self.client.delete(f"/api/recipes/{recipe_id}")
+                self.assertEqual(response.status_code, 409, response.text)
+                delete_media.assert_not_called()
+                delete_search.assert_not_called()
+
+        def test_recipe_delete_without_history_still_works(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True, title="可删除菜谱")
+            recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
+
+            response = self.client.delete(f"/api/recipes/{recipe_id}")
+            self.assertEqual(response.status_code, 204, response.text)
+
+            with self.SessionLocal() as db:
+                self.assertIsNone(db.get(Recipe, recipe_id))
+                self.assertIsNone(db.get(Food, food_id))
+
         def test_recipe_create_rejects_unresolved_ingredient_references(self) -> None:
             response = self.client.post(
                 "/api/recipes",

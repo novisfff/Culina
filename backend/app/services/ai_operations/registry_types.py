@@ -33,6 +33,7 @@ class DraftExecuteContext:
     user_id: str
     payload: dict[str, Any]
     assert_updated_at_matches: AssertUpdatedAt
+    operation_idempotency_key: str
     conversation_id: str = ""
 
 

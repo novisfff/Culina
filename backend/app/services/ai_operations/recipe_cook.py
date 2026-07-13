@@ -1,148 +1,187 @@
 from __future__ import annotations
 
-from datetime import date
+import logging
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.ai.draft_contracts import RECIPE_COOK_V1, require_recipe_cook_schema_version
 from app.ai.errors import AIConflictError
-from app.core.enums import ActivityAction, MealType
-from app.core.utils import create_id, utcnow
-from app.models.domain import FoodPlanItem, MealLog, MealLogFood, Recipe, RecipeCookLog
-from app.schemas.recipes import CookRecipeRequest
-from app.services.activity import log_activity
-from app.services.ai_operations.common import assert_updated_at_matches
-from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
-from app.services.inventory_operation_locking import (
-    InventoryTargetNotFoundError,
-    LockedInventoryTargets,
-    lock_inventory_targets,
-)
-from app.services.inventory_versions import InventoryConflictError, bump_ingredient_collection, require_expected_version
-from app.services.inventory_usage import build_cook_inventory_plan, serialize_cook_preview_item, tracks_quantity
-from app.services.recipe_food_sync import ensure_food_for_recipe
-from app.services.serializers import serialize_recipe_cook_log
+from app.core.enums import MealType
+from app.models.domain import Recipe, RecipeCookLog
 from app.services.clock import today_for_family
+from app.services.food_plan_locking import FoodPlanConflict
+from app.services.inventory_versions import InventoryConflictError, STALE_INVENTORY_DETAIL
+from app.services.meal_log_references import MealLogReferenceError
+from app.services.recipe_cook_completion import (
+    CompletionConflict,
+    RecipeCookCompletionCommand,
+    RecipeCookInventoryExpectation,
+    complete_recipe_cook,
+)
+from app.services.serializers import serialize_recipe_cook_log
+from app.services.ai_operations.common import assert_updated_at_matches
+
+logger = logging.getLogger(__name__)
+
+V1_FALSE_CONFLICT_MESSAGE = "做菜完成规则已更新，请刷新草稿并重新确认；完成后会自动记录餐食。"
+SHORTAGE_CONFLICT_MESSAGE = "当前库存不足，不能直接完成做菜，请刷新预览或先补采购"
 
 
-MISSING_RECIPE_COOK_BOUNDARY_DETAIL = "做菜草稿缺少库存并发校验信息，请重新生成后确认"
+def _parse_optional_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError("planItemBaseUpdatedAt 格式不正确") from exc
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
-def _boundary_row_version(record: dict[str, Any], key: str) -> int:
-    if key not in record or isinstance(record.get(key), bool):
-        raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-    try:
-        version = int(record[key])
-    except (TypeError, ValueError) as exc:
-        raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL) from exc
-    if version < 1:
-        raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-    return version
+def _map_completion_conflict(exc: CompletionConflict) -> AIConflictError:
+    if exc.code == "recipe_not_found":
+        return AIConflictError("菜谱不存在或已被删除")
+    if exc.code == "recipe_stale":
+        return AIConflictError(exc.message)
+    if exc.code in {
+        "inventory_targets_changed",
+        "idempotency_key_reused",
+        "completion_result_version_unsupported",
+    }:
+        return AIConflictError(STALE_INVENTORY_DETAIL if exc.code == "inventory_targets_changed" else exc.message)
+    return AIConflictError(exc.message)
 
 
-def _lock_and_validate_recipe_cook_boundaries(
-    db: Session,
-    *,
-    family_id: str,
-    payload: dict[str, Any],
-) -> LockedInventoryTargets:
-    if "inventoryBoundaries" not in payload or not isinstance(payload["inventoryBoundaries"], list):
-        raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-    boundaries = payload["inventoryBoundaries"]
-    ingredient_ids: list[str] = []
-    state_ingredient_ids: list[str] = []
-    inventory_item_ids: list[str] = []
-    seen_ingredient_ids: set[str] = set()
-    for boundary in boundaries:
-        if not isinstance(boundary, dict):
-            raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-        ingredient_id = str(boundary.get("ingredientId") or "")
-        if not ingredient_id or ingredient_id in seen_ingredient_ids:
-            raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-        seen_ingredient_ids.add(ingredient_id)
-        ingredient_ids.append(ingredient_id)
-        _boundary_row_version(boundary, "expectedIngredientRowVersion")
-        state_id = boundary.get("stateId")
-        expected_state_version = boundary.get("expectedStateRowVersion")
-        if state_id is not None:
-            if not str(state_id) or expected_state_version is None:
-                raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-            _boundary_row_version(boundary, "expectedStateRowVersion")
-            state_ingredient_ids.append(ingredient_id)
-        elif expected_state_version is not None:
-            raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-        batches = boundary.get("batches")
+def _map_food_plan_conflict(exc: FoodPlanConflict) -> AIConflictError:
+    if exc.code == "food_plan_item_not_found":
+        return AIConflictError("关联计划项不存在或不匹配当前菜谱")
+    if exc.code in {
+        "food_plan_item_already_completed",
+        "food_plan_item_stale",
+        "food_plan_targets_changed",
+        "food_plan_food_mismatch",
+        "food_plan_item_not_planned",
+    }:
+        return AIConflictError(str(exc.message or exc))
+    return AIConflictError(str(exc.message or exc))
+
+
+def _require_inventory_boundaries(boundaries: list[Any]) -> tuple[dict[str, Any], ...]:
+    """Hard-require inventory OCC boundary version fields on AI execute.
+
+    Missing expected version fields would otherwise silently skip optimistic
+    concurrency checks and weaken inventory OCC. Empty lists are allowed here
+    for ingredient-less recipes; execute_recipe_cook_draft rejects empty
+    boundaries when the recipe actually has ingredients.
+    """
+    normalized: list[dict[str, Any]] = []
+    for item in boundaries:
+        if not isinstance(item, dict):
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        ingredient_version = item.get("expectedIngredientRowVersion")
+        if ingredient_version is None:
+            ingredient_version = item.get("expected_ingredient_row_version")
+        if ingredient_version is None:
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        batches = item.get("batches") or []
         if not isinstance(batches, list):
-            raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-        seen_batch_ids: set[str] = set()
+            raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
         for batch in batches:
             if not isinstance(batch, dict):
-                raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-            item_id = str(batch.get("inventoryItemId") or "")
-            if not item_id or item_id in seen_batch_ids:
-                raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
-            seen_batch_ids.add(item_id)
-            _boundary_row_version(batch, "expectedRowVersion")
-            inventory_item_ids.append(item_id)
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+            item_version = batch.get("expectedRowVersion")
+            if item_version is None:
+                item_version = batch.get("expected_row_version")
+            if item_version is None:
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+            inventory_item_id = batch.get("inventoryItemId") or batch.get("inventory_item_id")
+            if not inventory_item_id:
+                raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+        normalized.append(item)
+    return tuple(normalized)
 
-    try:
-        locked = lock_inventory_targets(
-            db,
-            family_id=family_id,
-            ingredient_ids=ingredient_ids,
-            state_ingredient_ids=state_ingredient_ids,
-            inventory_item_ids=inventory_item_ids,
-        )
-    except InventoryTargetNotFoundError as exc:
-        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
 
-    for boundary in boundaries:
-        ingredient_id = str(boundary["ingredientId"])
-        ingredient = locked.ingredients.get(ingredient_id)
-        if ingredient is None:
-            raise AIConflictError(STALE_INVENTORY_DETAIL)
-        require_expected_version(
-            ingredient,
-            _boundary_row_version(boundary, "expectedIngredientRowVersion"),
-            entity_type="ingredient",
-            entity_id=ingredient.id,
-        )
-        expected_tracking_mode = str(boundary.get("quantityTrackingMode") or "")
-        actual_tracking_mode = "track_quantity" if tracks_quantity(ingredient) else "not_track_quantity"
-        if expected_tracking_mode != actual_tracking_mode:
-            raise AIConflictError("食材数量记录方式已变化，请重新生成做菜草稿")
+def recipe_cook_command_from_ai_payload(
+    *,
+    family_id: str,
+    user_id: str,
+    payload: dict[str, Any],
+    completion_request_id: str,
+) -> RecipeCookCompletionCommand:
+    recipe_id = str(payload.get("recipeId") or payload.get("recipe_id") or "")
+    if not recipe_id:
+        raise AIConflictError("菜谱不存在或已被删除")
 
-        state_id = boundary.get("stateId")
-        state = locked.states_by_ingredient_id.get(ingredient.id)
-        if expected_tracking_mode == "not_track_quantity":
-            if state_id is None or state is None or state.id != str(state_id):
-                raise AIConflictError(STALE_INVENTORY_DETAIL)
-            require_expected_version(
-                state,
-                _boundary_row_version(boundary, "expectedStateRowVersion"),
-                entity_type="ingredient_inventory_state",
-                entity_id=state.id,
-            )
-        elif state_id is not None or boundary.get("expectedStateRowVersion") is not None:
-            raise AIConflictError(MISSING_RECIPE_COOK_BOUNDARY_DETAIL)
+    cook_date_raw = payload.get("date")
+    if cook_date_raw:
+        cook_date = date.fromisoformat(str(cook_date_raw))
+    else:
+        cook_date = today_for_family(family_id)
 
-        for batch in boundary["batches"]:
-            item_id = str(batch["inventoryItemId"])
-            item = locked.inventory_items.get(item_id)
-            if item is None or item.ingredient_id != ingredient.id:
-                raise AIConflictError(STALE_INVENTORY_DETAIL)
-            require_expected_version(
-                item,
-                _boundary_row_version(batch, "expectedRowVersion"),
-                entity_type="inventory_item",
-                entity_id=item.id,
-            )
+    meal_type_raw = payload.get("mealType") or payload.get("meal_type") or MealType.DINNER.value
+    meal_type = meal_type_raw if isinstance(meal_type_raw, MealType) else MealType(str(meal_type_raw))
 
-    return locked
+    participant_ids = payload.get("participantUserIds") or payload.get("participant_user_ids") or []
+    if not isinstance(participant_ids, list):
+        participant_ids = []
+    participants = tuple(str(item) for item in participant_ids if str(item).strip())
+    if not participants:
+        participants = (user_id,)
+
+    plan_item_id = payload.get("planItemId") or payload.get("food_plan_item_id") or payload.get("recipe_plan_item_id")
+    plan_item_id = str(plan_item_id) if plan_item_id else None
+
+    boundaries = payload.get("inventoryBoundaries")
+    if boundaries is None:
+        boundaries = []
+    preview_items = payload.get("previewItems") or []
+    shortages = payload.get("shortages") or []
+    if not isinstance(boundaries, list) or not isinstance(preview_items, list) or not isinstance(shortages, list):
+        raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
+
+    inventory_expectation = RecipeCookInventoryExpectation(
+        ingredient_boundaries=_require_inventory_boundaries(boundaries),
+        preview_items=tuple(item for item in preview_items if isinstance(item, dict)),
+        shortages=tuple(item for item in shortages if isinstance(item, dict)),
+    )
+
+    recipe_base_updated_at = _parse_optional_datetime(
+        payload.get("baseUpdatedAt") if "baseUpdatedAt" in payload else payload.get("base_updated_at")
+    )
+
+    return RecipeCookCompletionCommand(
+        completion_request_id=completion_request_id,
+        family_id=family_id,
+        actor_user_id=user_id,
+        recipe_id=recipe_id,
+        cook_date=cook_date,
+        meal_type=meal_type,
+        servings=Decimal(str(payload.get("servings"))),
+        participant_user_ids=participants,
+        notes=str(payload.get("notes") or ""),
+        food_plan_item_id=plan_item_id,
+        food_plan_item_base_updated_at=_parse_optional_datetime(payload.get("planItemBaseUpdatedAt")),
+        result_note=str(payload.get("resultNote") or payload.get("result_note") or "").strip(),
+        adjustments=str(payload.get("adjustments") or "").strip(),
+        rating=payload.get("rating"),
+        allow_partial_inventory_deduction=False,
+        inventory_expectation=inventory_expectation,
+        recipe_base_updated_at=recipe_base_updated_at,
+    )
 
 
 def execute_recipe_cook_draft(
@@ -151,188 +190,70 @@ def execute_recipe_cook_draft(
     family_id: str,
     user_id: str,
     payload: dict[str, Any],
+    operation_idempotency_key: str,
 ) -> tuple[dict[str, Any], list[str]]:
+    schema_version = require_recipe_cook_schema_version(payload)
+    if schema_version == RECIPE_COOK_V1 and payload.get("createMealLog") is not True:
+        logger.info("ai_recipe_cook event=v1_false_conflict")
+        raise AIConflictError(V1_FALSE_CONFLICT_MESSAGE)
+
     recipe = db.scalar(
-        select(Recipe)
-        .where(Recipe.family_id == family_id, Recipe.id == str(payload.get("recipeId")))
-        .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.steps), selectinload(Recipe.foods), selectinload(Recipe.cook_logs))
-        .with_for_update()
+        select(Recipe).where(Recipe.family_id == family_id, Recipe.id == str(payload.get("recipeId") or ""))
     )
     if recipe is None:
         raise AIConflictError("菜谱不存在或已被删除")
-    assert_updated_at_matches(actual=recipe.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"菜谱 {recipe.title}")
-
-    request = CookRecipeRequest.model_validate(
-        {
-            "servings": payload.get("servings"),
-            "date": payload.get("date"),
-            "meal_type": payload.get("mealType"),
-            "participant_user_ids": payload.get("participantUserIds") or [],
-            "notes": payload.get("notes") or "",
-            "create_meal_log": payload.get("createMealLog") or False,
-            "food_plan_item_id": payload.get("planItemId"),
-            "recipe_plan_item_id": payload.get("planItemId"),
-            "result_note": payload.get("resultNote") or "",
-            "adjustments": payload.get("adjustments") or "",
-            "rating": payload.get("rating"),
-        }
-    )
-    try:
-        locked = _lock_and_validate_recipe_cook_boundaries(
-            db,
-            family_id=family_id,
-            payload=payload,
+    # Soft pre-check for early conflict messaging; hard re-check happens after
+    # FOR UPDATE inside lock_recipe_for_completion via recipe_base_updated_at.
+    base_updated_at = payload.get("baseUpdatedAt")
+    if base_updated_at:
+        assert_updated_at_matches(
+            actual=recipe.updated_at,
+            expected=str(base_updated_at),
+            label=f"菜谱 {recipe.title}",
         )
-    except InventoryConflictError as exc:
-        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
 
-    consumption_plan, shortages = build_cook_inventory_plan(
-        db,
+    command = recipe_cook_command_from_ai_payload(
         family_id=family_id,
-        recipe=recipe,
-        servings=request.servings,
-        today=today_for_family(family_id),
+        user_id=user_id,
+        payload=payload,
+        completion_request_id=operation_idempotency_key,
     )
-    if shortages:
-        raise AIConflictError("当前库存不足，不能直接完成做菜，请刷新预览或先补采购")
-    current_preview = jsonable_encoder([serialize_cook_preview_item(item) for item in consumption_plan])
-    if payload.get("shortages") != [] or payload.get("previewItems") != current_preview:
-        raise AIConflictError("库存扣减预览已变化，请重新生成做菜草稿")
+    # Recipes with ingredients must carry non-empty OCC boundaries on AI execute.
+    from sqlalchemy import func
 
-    planned_item_ids = [
-        deduction.item.id
-        for plan in consumption_plan
-        for deduction in plan.deductions
-    ]
-    planned_ingredient_ids = sorted({plan.ingredient.id for plan in consumption_plan if plan.ingredient is not None})
-    locked_items = locked.inventory_items
-    locked_ingredients = locked.ingredients
-    if any(item_id not in locked_items for item_id in planned_item_ids) or any(
-        ingredient_id not in locked_ingredients for ingredient_id in planned_ingredient_ids
+    from app.models.domain import RecipeIngredient
+
+    ingredient_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(RecipeIngredient)
+            .where(RecipeIngredient.recipe_id == recipe.id)
+        )
+        or 0
+    )
+    if ingredient_count > 0 and (
+        command.inventory_expectation is None
+        or not command.inventory_expectation.ingredient_boundaries
     ):
-        raise AIConflictError("库存扣减范围已变化，请重新生成做菜草稿")
-
-    consumed_items: list[dict[str, Any]] = []
+        raise AIConflictError("做菜草稿缺少库存并发校验信息，请重新生成后确认")
     try:
-        bumped_ingredient_ids: set[str] = set()
-        for plan in consumption_plan:
-            affected_item_ids: list[str] = []
-            for deduction in plan.deductions:
-                item = locked_items.get(deduction.item.id)
-                if item is None:
-                    raise AIConflictError(STALE_INVENTORY_DETAIL)
-                item.consumed_quantity = item.consumed_quantity + deduction.quantity
-                item.updated_by = user_id
-                affected_item_ids.append(item.id)
-            if affected_item_ids and plan.ingredient is not None and plan.ingredient.id not in bumped_ingredient_ids:
-                ingredient = locked_ingredients.get(plan.ingredient.id)
-                if ingredient is None:
-                    raise AIConflictError(STALE_INVENTORY_DETAIL)
-                bump_ingredient_collection(ingredient, user_id=user_id)
-                bumped_ingredient_ids.add(plan.ingredient.id)
-            consumed_items.append(
-                {
-                    "ingredient_id": plan.ingredient.id,
-                    "ingredient_name": plan.ingredient_item.ingredient_name,
-                    "requested_quantity": float(plan.requested_quantity),
-                    "unit": plan.ingredient_item.unit,
-                    "quantity_tracking_mode": plan.quantity_tracking_mode,
-                    "deduction_note": plan.deduction_note,
-                    "affected_item_ids": affected_item_ids,
-                }
-            )
-        db.flush()
+        result = complete_recipe_cook(db, command)
+    except CompletionConflict as exc:
+        raise _map_completion_conflict(exc) from exc
+    except FoodPlanConflict as exc:
+        raise _map_food_plan_conflict(exc) from exc
+    except MealLogReferenceError as exc:
+        raise AIConflictError(str(exc)) from exc
     except (InventoryConflictError, StaleDataError) as exc:
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
 
-    meal_log_id: str | None = None
-    if request.create_meal_log:
-        food, _ = ensure_food_for_recipe(
-            db,
-            family_id=family_id,
-            user_id=user_id,
-            recipe=recipe,
-            sync_media=False,
-        )
-        meal_log = MealLog(
-            id=create_id("meal"),
-            family_id=family_id,
-            date=request.date or today_for_family(family_id),
-            meal_type=request.meal_type or MealType.DINNER,
-            participant_user_ids=list(request.participant_user_ids or [user_id]),
-            notes=request.notes,
-            mood="已做菜谱",
-            created_by=user_id,
-            updated_by=user_id,
-        )
-        db.add(meal_log)
-        db.flush()
-        db.add(
-            MealLogFood(
-                id=create_id("meal-food"),
-                meal_log_id=meal_log.id,
-                food_id=food.id,
-                servings=Decimal(str(request.servings)),
-                note=f"来自菜谱：{recipe.title}",
-            )
-        )
-        meal_log_id = meal_log.id
+    if not result.meal_log_id or not result.cook_log_id:
+        raise AIConflictError(SHORTAGE_CONFLICT_MESSAGE)
 
-    plan_item = None
-    if request.food_plan_item_id or request.recipe_plan_item_id:
-        plan_item_id = request.food_plan_item_id or request.recipe_plan_item_id
-        plan_item = db.scalar(
-            select(FoodPlanItem)
-            .join(FoodPlanItem.food)
-            .where(
-                FoodPlanItem.family_id == family_id,
-                FoodPlanItem.user_id == user_id,
-                FoodPlanItem.id == plan_item_id,
-                FoodPlanItem.food.has(recipe_id=recipe.id),
-            )
-            .with_for_update()
-        )
-        if plan_item is None:
-            raise AIConflictError("关联计划项不存在或不匹配当前菜谱")
-        assert_updated_at_matches(actual=plan_item.updated_at, expected=str(payload.get("planItemBaseUpdatedAt")), label="关联餐食计划")
-        plan_item.status = "cooked"
-        plan_item.completed_at = utcnow()
-        plan_item.meal_log_id = meal_log_id
-        plan_item.updated_by = user_id
-
-    cook_log = RecipeCookLog(
-        id=create_id("recipe-cook"),
-        family_id=family_id,
-        recipe_id=recipe.id,
-        meal_log_id=meal_log_id,
-        cook_date=request.date or today_for_family(family_id),
-        meal_type=request.meal_type or MealType.DINNER,
-        servings=Decimal(str(request.servings)),
-        result_note=request.result_note.strip(),
-        adjustments=request.adjustments.strip(),
-        rating=request.rating,
-        created_by=user_id,
-        updated_by=user_id,
-    )
-    db.add(cook_log)
-    db.flush()
-    log_activity(
-        db,
-        family_id=family_id,
-        actor_id=user_id,
-        action=ActivityAction.UPDATE,
-        entity_type="Recipe",
-        entity_id=recipe.id,
-        summary=f"AI 完成做菜 {recipe.title}，扣减 {len(consumed_items)} 项食材",
-    )
-    result = {
-        "recipe_id": recipe.id,
-        "title": recipe.title,
-        "consumed_items": consumed_items,
-        "shortages": [],
-        "meal_log_id": meal_log_id,
-        "cook_log_id": cook_log.id,
-        "plan_item_id": plan_item.id if plan_item is not None else None,
-        "cook_log": serialize_recipe_cook_log(cook_log),
-    }
-    return result, [cook_log.id]
+    logger.info("ai_recipe_cook event=executed version=%s", schema_version)
+    response = result.model_dump(mode="json")
+    response["title"] = str(payload.get("title") or recipe.title or "")
+    response["plan_item_id"] = command.food_plan_item_id
+    cook_log = db.get(RecipeCookLog, result.cook_log_id)
+    response["cook_log"] = serialize_recipe_cook_log(cook_log) if cook_log is not None else None
+    return response, [result.cook_log_id]

@@ -141,8 +141,10 @@ class CookRecipeRequest(BaseModel):
     meal_type: MealType | None = None
     participant_user_ids: list[str] = Field(default_factory=list)
     notes: str = ""
-    create_meal_log: bool = False
+    create_meal_log: bool | None = Field(default=None)  # deprecated: ignored for REST completion semantics
+    completion_request_id: str | None = Field(default=None, min_length=1, max_length=120)
     food_plan_item_id: str | None = None
+    food_plan_item_base_updated_at: datetime | None = None
     recipe_plan_item_id: str | None = None
     result_note: str = ""
     adjustments: str = ""
@@ -195,6 +197,7 @@ class CookRecipeResponse(BaseModel):
     shortages: list[CookRecipeShortageOut] = Field(default_factory=list)
     meal_log_id: str | None = None
     cook_log_id: str | None = None
+    replayed: bool = False
 
 
 class CookRecipePreviewResponse(BaseModel):

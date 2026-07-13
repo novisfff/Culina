@@ -2424,12 +2424,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
             with self.SessionLocal() as db:
                 with self.assertRaises(AIConflictError):
-                    execute_recipe_cook_draft(
-                        db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload=draft,
-                    )
+                        draft["createMealLog"] = True
+                        execute_recipe_cook_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload=draft,
+                            operation_idempotency_key="test:recipe.cook:v1",
+                        )
                 db.rollback()
 
             with self.SessionLocal() as db:
@@ -2527,12 +2529,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
             with self.SessionLocal() as db:
                 with self.assertRaises(AIConflictError):
-                    execute_recipe_cook_draft(
-                        db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload=draft,
-                    )
+                        draft["createMealLog"] = True
+                        execute_recipe_cook_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload=draft,
+                            operation_idempotency_key="test:recipe.cook:v1",
+                        )
                 db.rollback()
 
         def test_recipe_cook_approval_protects_target_servings_plan_and_inventory_preview(self) -> None:
@@ -2675,12 +2679,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     1,
                 )
                 with self.assertRaises(AIConflictError):
-                    execute_recipe_cook_draft(
-                        db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload=submitted,
-                    )
+                        submitted["createMealLog"] = True
+                        execute_recipe_cook_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload=submitted,
+                            operation_idempotency_key="test:recipe.cook:v1",
+                        )
                 db.rollback()
 
         def test_ai_recipe_cook_stale_data_error_maps_to_ai_conflict(self) -> None:
@@ -2741,12 +2747,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
                 with patch.object(type(db), "flush", flush_raising_stale):
                     with self.assertRaises(AIConflictError) as raised:
+                        payload["createMealLog"] = True
                         execute_recipe_cook_draft(
-                        db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload=payload,
-                    )
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload=payload,
+                            operation_idempotency_key="test:recipe.cook:v1",
+                        )
                 self.assertEqual(str(raised.exception), STALE_INVENTORY_DETAIL)
 
             with self.SessionLocal() as db:

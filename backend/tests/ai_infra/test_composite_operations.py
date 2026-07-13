@@ -168,6 +168,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                         draft_type="composite_operation",
                         payload=submitted,
                         assert_updated_at_matches=assert_updated_at_matches,
+                        operation_idempotency_key="test:composite.apply:v1",
                     )
                 db.rollback()
 
@@ -262,6 +263,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                             draft_type="composite_operation",
                             payload=submitted,
                             assert_updated_at_matches=assert_updated_at_matches,
+                            operation_idempotency_key="test:composite.apply:v1",
                         )
                 finally:
                     db.rollback()
