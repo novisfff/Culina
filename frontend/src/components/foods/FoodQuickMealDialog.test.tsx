@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Food, Recipe } from '../../api/types';
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
+import { buildDirectCookTarget, buildPlanCookLaunchContext } from './FoodWorkspaceModel';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,7 +53,7 @@ function buildFood(): Food {
   };
 }
 
-function buildRecipe(): Recipe {
+function buildRecipe(overrides: Partial<Recipe> = {}): Recipe {
   return {
     id: 'recipe-1',
     family_id: 'family-1',
@@ -68,6 +69,7 @@ function buildRecipe(): Recipe {
     cook_logs: [],
     created_at: '2026-07-07T00:00:00Z',
     updated_at: '2026-07-07T00:00:00Z',
+    ...overrides,
   };
 }
 
@@ -77,13 +79,20 @@ function findButton(view: HTMLElement, text: string) {
   );
 }
 
+function findByAriaLabel(view: HTMLElement, label: string) {
+  return view.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+}
+
 function renderDialog(options: {
   dialog?: Partial<FoodQuickMealDialogState>;
   isSubmitting?: boolean;
+  recipes?: Recipe[];
+  onChange?: ReturnType<typeof vi.fn>;
+  onSubmit?: ReturnType<typeof vi.fn>;
 } = {}) {
-  const onChange = vi.fn();
+  const onChange = options.onChange ?? vi.fn();
   const onClose = vi.fn();
-  const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
+  const onSubmit = options.onSubmit ?? vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
   const dialog: FoodQuickMealDialogState = {
     action: 'eat',
     date: '2026-07-07',
@@ -96,16 +105,82 @@ function renderDialog(options: {
     root?.render(
       <FoodQuickMealDialog
         dialog={dialog}
-        dateOptions={['2026-07-07', '2026-07-08']}
+        dateOptions={['2026-07-07', '2026-07-08', '2026-07-15']}
         isSubmitting={options.isSubmitting}
-        recipes={[buildRecipe()]}
+        recipes={options.recipes ?? [buildRecipe()]}
         onChange={onChange}
         onClose={onClose}
         onSubmit={onSubmit}
       />,
     );
   });
-  return { onChange, onClose, onSubmit, view };
+  return { onChange, onClose, onSubmit, view, dialog };
+}
+
+/**
+ * Controlled cook dialog that applies onChange patches so user can confirm date/meal/servings
+ * and submit — exercises the direct Cook launch path without plan mutation.
+ */
+function renderFoodQuickMeal(options: {
+  action?: 'cook' | 'eat';
+  createFoodPlanItem: ReturnType<typeof vi.fn>;
+  navigate: ReturnType<typeof vi.fn>;
+  recipeServings?: number;
+}) {
+  const recipe = buildRecipe({ servings: options.recipeServings ?? 2 });
+  const food = buildFood();
+  let dialog: FoodQuickMealDialogState = {
+    action: options.action ?? 'cook',
+    date: '2026-07-07',
+    food,
+    mealType: 'dinner',
+    recipeId: recipe.id,
+    servings: recipe.servings,
+  };
+  const onChange = vi.fn((patch: Partial<FoodQuickMealDialogState>) => {
+    dialog = { ...dialog, ...patch };
+    act(() => {
+      root?.render(
+        <FoodQuickMealDialog
+          dialog={dialog}
+          dateOptions={['2026-07-07', '2026-07-08', '2026-07-15']}
+          recipes={[recipe]}
+          onChange={onChange}
+          onClose={vi.fn()}
+          onSubmit={onSubmit}
+        />,
+      );
+    });
+  });
+  const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    // Mirror FoodWorkspace.submitQuickMealDialog cook branch (no plan mutation).
+    if (dialog.action === 'cook' && dialog.recipeId) {
+      options.navigate(
+        buildDirectCookTarget({
+          foodId: dialog.food.id,
+          recipeId: dialog.recipeId,
+          date: dialog.date,
+          mealType: dialog.mealType,
+          servings: dialog.servings ?? recipe.servings,
+        }),
+      );
+    }
+  });
+  const view = attachRoot();
+  act(() => {
+    root?.render(
+      <FoodQuickMealDialog
+        dialog={dialog}
+        dateOptions={['2026-07-07', '2026-07-08', '2026-07-15']}
+        recipes={[recipe]}
+        onChange={onChange}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+  });
+  return { view, createFoodPlanItem: options.createFoodPlanItem, navigate: options.navigate };
 }
 
 describe('FoodQuickMealDialog', () => {
@@ -195,5 +270,73 @@ describe('FoodQuickMealDialog', () => {
     expect(quantityInput?.getAttribute('aria-invalid')).toBe('true');
     expect(quantityInput?.getAttribute('aria-describedby')).toBe('food-quick-meal-stock-error');
     expect(error?.textContent).toContain('请输入大于 0 的扣减数量。');
+  });
+
+  it('shows cook-only servings stepper and cook confirmation copy', () => {
+    const { onChange, view } = renderDialog({
+      dialog: {
+        action: 'cook',
+        recipeId: 'recipe-1',
+        servings: 2,
+        mealType: 'dinner',
+      },
+    });
+
+    expect(view.textContent).toContain('确认日期、餐次和份量后开始做');
+    expect(view.querySelector('.eat-quick-meal-servings')).not.toBeNull();
+    expect(findByAriaLabel(view, '份量增加')).not.toBeNull();
+    expect(view.textContent).not.toContain('同步扣减库存');
+
+    act(() => findByAriaLabel(view, '份量增加')?.click());
+    expect(onChange).toHaveBeenCalledWith({ servings: 2.5 });
+  });
+
+  it('launches direct Cook with the user-confirmed context and no plan mutation', () => {
+    const createFoodPlanItem = vi.fn();
+    const navigate = vi.fn();
+    const { view } = renderFoodQuickMeal({
+      action: 'cook',
+      createFoodPlanItem,
+      navigate,
+      recipeServings: 2,
+    });
+
+    const dateListbox = view.querySelector<HTMLElement>('[role="listbox"][aria-label="选择日期"]');
+    const july15 = Array.from(dateListbox?.querySelectorAll('button') ?? []).find((button) =>
+      button.textContent?.includes('7/15'),
+    );
+    act(() => july15?.click());
+    act(() => findButton(view, '午餐')?.click());
+    act(() => findByAriaLabel(view, '份量增加')?.click());
+    act(() => findButton(view, '开始做')?.click());
+
+    expect(createFoodPlanItem).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: 'eat',
+        view: 'cook',
+        launchContext: {
+          date: '2026-07-15',
+          mealType: 'lunch',
+          servings: 2.5,
+          source: { kind: 'direct' },
+        },
+      }),
+    );
+  });
+
+  it('launches plan Cook from the loaded detail version', () => {
+    const item = {
+      id: 'plan-1',
+      plan_date: '2026-07-15',
+      meal_type: 'dinner' as const,
+      updated_at: '2026-07-12T10:00:00Z',
+    };
+    expect(buildPlanCookLaunchContext(item, buildRecipe({ servings: 4 }))).toEqual({
+      date: item.plan_date,
+      mealType: item.meal_type,
+      servings: 4,
+      source: { kind: 'plan', foodPlanItemId: 'plan-1', planItemBaseUpdatedAt: item.updated_at },
+    });
   });
 });

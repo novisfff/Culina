@@ -20,6 +20,7 @@ import type {
   RecipePayload,
   UpdateFoodPayload,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
@@ -72,6 +73,7 @@ import {
   type FoodWorkspaceLens,
 } from './FoodWorkspaceOptions';
 import {
+  buildDirectCookTarget,
   getFoodFormCompletionItems,
   getFoodImagePayload,
   buildFoodPayloadFromForm,
@@ -214,6 +216,8 @@ type Props = {
   ) => Promise<FoodScene>;
   deleteFoodScene: (sceneId: string) => Promise<void>;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
+  /** Semantic navigation for direct Cook (no implicit plan creation). */
+  navigate?: (target: AppNavigationTarget) => void;
   onOpenLogs: () => void;
   onFoodPlanPreviousWeek: () => void;
   onFoodPlanCurrentWeek: () => void;
@@ -1118,12 +1122,18 @@ export function FoodWorkspace(props: Props) {
       food.stock_quantity !== null &&
       food.stock_quantity !== undefined &&
       food.stock_quantity > 0;
+    const recipeId = action === 'cook' ? food.recipe_id ?? undefined : undefined;
+    const recipeServings =
+      recipeId != null
+        ? props.recipes.find((recipe) => recipe.id === recipeId)?.servings
+        : undefined;
     setQuickMealDialog({
       action,
       date: todayKey(),
       food,
       mealType,
-      recipeId: action === 'cook' ? food.recipe_id ?? undefined : undefined,
+      recipeId,
+      servings: action === 'cook' ? (recipeServings && recipeServings > 0 ? recipeServings : 1) : undefined,
       deductStock: shouldDeductStock,
       stockQuantity: shouldDeductStock ? '1' : '',
     });
@@ -1165,7 +1175,9 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) {
+  function updateQuickMealDialog(
+    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings' | 'deductStock' | 'stockQuantity'>>,
+  ) {
     setQuickMealStockError(null);
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
@@ -1175,15 +1187,25 @@ export function FoodWorkspace(props: Props) {
     if (!quickMealDialog) return;
     const current = quickMealDialog;
     if (current.action === 'cook' && current.recipeId) {
-      const planItem = await props.createFoodPlanItem({
-        food_id: current.food.id,
-        plan_date: current.date,
-        meal_type: current.mealType,
-        note: '',
+      // Direct Cook: never create a plan item just to start cooking.
+      const servings =
+        current.servings != null && current.servings > 0
+          ? current.servings
+          : props.recipes.find((recipe) => recipe.id === current.recipeId)?.servings || 1;
+      const target = buildDirectCookTarget({
+        foodId: current.food.id,
+        recipeId: current.recipeId,
+        date: current.date,
+        mealType: current.mealType,
+        servings,
       });
-      setFeedback(`${current.food.name} 已安排到${current.date === todayKey() ? '今天' : formatDate(current.date)}${MEAL_TYPE_LABELS[current.mealType]}`);
       setQuickMealDialog(null);
-      props.onStartRecipe(current.recipeId, planItem.id);
+      if (props.navigate) {
+        props.navigate(target);
+      } else {
+        // Legacy fallback when navigate is not composed (older tests).
+        props.onStartRecipe(current.recipeId);
+      }
       return;
     }
     let stockQuantity: number | null = null;
@@ -1957,9 +1979,9 @@ export function FoodWorkspace(props: Props) {
             onEditRecipe={handleOpenRecipeEditorDirectly}
             onOpenLogs={props.onOpenLogs}
             onOpenPlanDialog={openPlanDialog}
-            onStartCook={(recipeId) => {
-              closeDetail();
-              props.onStartRecipe(recipeId);
+            onStartCook={() => {
+              // Route through the same date/meal/servings dialog as Discover primary cook.
+              openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
             }}
             onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
             resolveAssetUrl={resolveFoodAssetUrl}

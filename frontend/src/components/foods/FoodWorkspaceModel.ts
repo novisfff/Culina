@@ -1,7 +1,47 @@
-import type { Food, FoodPayload, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
+import type { Food, FoodPayload, FoodPlanItem, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
+import type { AppNavigationTarget, CookLaunchContext } from '../../app/appNavigationModel';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { formatFoodStockNumber } from '../../lib/foodStockQuantity';
 import { FOOD_TYPE_LABELS, emptyImages, getFoodCover, splitTags } from '../../lib/ui';
+
+/** Direct Cook navigation target from a user-confirmed quick-meal dialog. */
+export function buildDirectCookTarget(args: {
+  foodId: string;
+  recipeId: string;
+  date: string;
+  mealType: MealType;
+  servings: number;
+}): Extract<AppNavigationTarget, { workspace: 'eat'; view: 'cook' }> {
+  return {
+    workspace: 'eat',
+    view: 'cook',
+    foodId: args.foodId,
+    recipeId: args.recipeId,
+    launchContext: {
+      date: args.date,
+      mealType: args.mealType,
+      servings: args.servings,
+      source: { kind: 'direct' },
+    },
+  };
+}
+
+/** Plan Cook launch context from a loaded plan-item detail + recipe servings. */
+export function buildPlanCookLaunchContext(
+  item: Pick<FoodPlanItem, 'id' | 'plan_date' | 'meal_type' | 'updated_at'>,
+  recipe: Pick<Recipe, 'servings'>,
+): CookLaunchContext {
+  return {
+    date: item.plan_date,
+    mealType: item.meal_type,
+    servings: recipe.servings > 0 ? recipe.servings : 1,
+    source: {
+      kind: 'plan',
+      foodPlanItemId: item.id,
+      planItemBaseUpdatedAt: item.updated_at,
+    },
+  };
+}
 
 export type FoodFormState = {
   name: string;

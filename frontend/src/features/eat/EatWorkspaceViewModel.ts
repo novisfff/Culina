@@ -70,14 +70,16 @@ export function buildCookLaunchContext(args: {
   planItem?: FoodPlanItem | null;
   fallbackDate?: string;
   fallbackMealType?: MealType;
+  servings?: number;
 }): CookLaunchContext {
   const fallbackDate = args.fallbackDate ?? todayKey();
   const fallbackMealType = args.fallbackMealType ?? 'dinner';
+  const servings = args.servings != null && args.servings > 0 ? args.servings : 1;
   if (args.foodPlanItemId) {
     return {
       date: args.planItem?.plan_date ?? fallbackDate,
       mealType: args.planItem?.meal_type ?? fallbackMealType,
-      servings: 1,
+      servings,
       source: {
         kind: 'plan',
         foodPlanItemId: args.foodPlanItemId,
@@ -88,8 +90,25 @@ export function buildCookLaunchContext(args: {
   return {
     date: fallbackDate,
     mealType: fallbackMealType,
-    servings: 1,
+    servings,
     source: { kind: 'direct' },
+  };
+}
+
+/** Plan Cook context from a loaded plan detail response + recipe servings. */
+export function buildPlanCookLaunchContext(
+  item: Pick<FoodPlanItem, 'id' | 'plan_date' | 'meal_type' | 'updated_at'>,
+  recipe: Pick<Recipe, 'servings'>,
+): CookLaunchContext {
+  return {
+    date: item.plan_date,
+    mealType: item.meal_type,
+    servings: recipe.servings > 0 ? recipe.servings : 1,
+    source: {
+      kind: 'plan',
+      foodPlanItemId: item.id,
+      planItemBaseUpdatedAt: item.updated_at,
+    },
   };
 }
 

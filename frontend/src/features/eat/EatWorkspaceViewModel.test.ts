@@ -3,6 +3,7 @@ import type { Food, FoodPlanItem, MealLog, Recipe } from '../../api/types';
 import type { EatTask } from '../../app/appNavigationModel';
 import {
   buildCookLaunchContext,
+  buildPlanCookLaunchContext,
   resolveEatTask,
   weekContaining,
   type ResolveEatTaskInput,
@@ -168,6 +169,34 @@ describe('buildCookLaunchContext', () => {
         kind: 'plan',
         foodPlanItemId: 'plan-1',
         planItemBaseUpdatedAt: '2026-07-10T00:00:00.000Z',
+      },
+    });
+  });
+
+  it('launches plan Cook from the loaded detail version via buildPlanCookLaunchContext', () => {
+    const item = makePlanItem({ id: 'plan-1', updated_at: '2026-07-12T10:00:00Z' });
+    expect(buildPlanCookLaunchContext(item, makeRecipe({ servings: 4 }))).toEqual({
+      date: item.plan_date,
+      mealType: item.meal_type,
+      servings: 4,
+      source: { kind: 'plan', foodPlanItemId: 'plan-1', planItemBaseUpdatedAt: item.updated_at },
+    });
+  });
+
+  it('uses recipe servings when provided to buildCookLaunchContext', () => {
+    const planItem = makePlanItem({ id: 'plan-2', updated_at: '2026-07-11T00:00:00.000Z' });
+    expect(
+      buildCookLaunchContext({
+        foodPlanItemId: 'plan-2',
+        planItem,
+        servings: 3.5,
+      }),
+    ).toMatchObject({
+      servings: 3.5,
+      source: {
+        kind: 'plan',
+        foodPlanItemId: 'plan-2',
+        planItemBaseUpdatedAt: '2026-07-11T00:00:00.000Z',
       },
     });
   });

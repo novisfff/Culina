@@ -366,6 +366,7 @@ function App() {
   // Exact-one selfMade relation: 0 or >1 matches → recipe-target (never arbitrary find()).
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
     const related = relatedSelfMadeFoods(foods, recipeId);
+    const recipe = recipes.find((item) => item.id === recipeId) ?? null;
     // Prefer latest plan detail query when the cook originates from a plan item.
     const planItem = foodPlanItemId
       ? (
@@ -380,7 +381,11 @@ function App() {
       return;
     }
     const linkedFood = related[0];
-    const launchContext = buildCookLaunchContext({ foodPlanItemId, planItem });
+    const launchContext = buildCookLaunchContext({
+      foodPlanItemId,
+      planItem,
+      servings: recipe?.servings,
+    });
     navigation.navigate({
       workspace: 'eat',
       view: 'cook',
@@ -388,9 +393,10 @@ function App() {
       recipeId,
       launchContext,
     });
-  }, [foodPlanDetail, foodPlanItems, foods, navigation]);
+  }, [foodPlanDetail, foodPlanItems, foods, navigation, recipes]);
 
   const startCookWithFood = useCallback((foodId: string, recipeId: string) => {
+    const recipe = recipes.find((item) => item.id === recipeId) ?? null;
     navigation.navigate({
       workspace: 'eat',
       view: 'cook',
@@ -399,11 +405,11 @@ function App() {
       launchContext: {
         date: todayKey(),
         mealType: 'dinner',
-        servings: 1,
+        servings: recipe?.servings && recipe.servings > 0 ? recipe.servings : 1,
         source: { kind: 'direct' },
       },
     });
-  }, [navigation]);
+  }, [navigation, recipes]);
 
   const resolvedEatTask = useMemo(
     () =>
@@ -1265,6 +1271,7 @@ function App() {
                   updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
                   deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
                   onStartRecipe={startRecipeCook}
+                  navigate={navigation.navigate}
                   onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
                   onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
                   onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
@@ -1308,6 +1315,7 @@ function App() {
                   updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
                   deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
                   onStartRecipe={startRecipeCook}
+                  navigate={navigation.navigate}
                   onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
                   onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
                   onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
