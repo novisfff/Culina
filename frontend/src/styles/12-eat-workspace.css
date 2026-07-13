@@ -178,6 +178,47 @@
   line-height: 1.5;
 }
 
+.eat-active-cook-resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+}
+
+.eat-active-cook-resume-copy {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.eat-active-cook-resume-title {
+  display: block;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.eat-active-cook-resume-meta {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.eat-active-cook-resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.eat-active-cook-resume-actions > button {
+  min-height: 44px;
+}
+
 .eat-workspace-actions,
 .eat-task-action-bar {
   display: flex;

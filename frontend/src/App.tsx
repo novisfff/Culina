@@ -14,6 +14,7 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
+import { ActiveCookResumeCard } from './features/eat/ActiveCookResumeCard';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
   relatedSelfMadeFoods,
@@ -1187,6 +1188,26 @@ function App() {
                 || updateFoodPlanItemMutation.isPending
                 || deleteFoodPlanItemMutation.isPending
               }
+              activeCookResumeContent={
+                user?.id && membership?.family_id ? (
+                  <ActiveCookResumeCard
+                    scope={{ userId: user.id, familyId: membership.family_id }}
+                    recipes={recipes}
+                    foods={foods}
+                    foodPlanItems={foodPlanItems}
+                    onResume={({ food, recipe, launchContext }) => {
+                      navigation.navigate({
+                        workspace: 'eat',
+                        view: 'cook',
+                        foodId: food.id,
+                        recipeId: recipe.id,
+                        launchContext,
+                      });
+                    }}
+                    onNotice={showNotice}
+                  />
+                ) : null
+              }
               {...buildEatTaskBodies({
                 resolvedTask: resolvedEatTask,
                 recipes,
@@ -1196,6 +1217,10 @@ function App() {
                 mealLogs,
                 foodPlanItems,
                 members,
+                sessionScope:
+                  user?.id && membership?.family_id
+                    ? { userId: user.id, familyId: membership.family_id }
+                    : null,
                 isQuickAdding: quickAddMealMutation.isPending,
                 isUpdatingPlan:
                   createFoodPlanItemMutation.isPending

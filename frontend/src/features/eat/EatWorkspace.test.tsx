@@ -134,6 +134,38 @@ describe('EatWorkspace', () => {
     expect(screen.getByRole('tab', { name: '菜单' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('renders the active cook resume entry only on Discover base view', () => {
+    const navigation = createNavigationService({
+      eat: { baseView: 'discover', task: null, discoverSection: 'all' },
+    });
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          navigation,
+          activeCookResumeContent: <div data-testid="resume-slot">继续做菜入口</div>,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('resume-slot')).toBeInTheDocument();
+    expect(screen.getByText('发现内容')).toBeInTheDocument();
+  });
+
+  it('hides the active cook resume entry on Plan base view', () => {
+    const navigation = createNavigationService({
+      eat: { baseView: 'plan', task: null, discoverSection: 'all' },
+    });
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          navigation,
+          activeCookResumeContent: <div data-testid="resume-slot">继续做菜入口</div>,
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('resume-slot')).not.toBeInTheDocument();
+    expect(screen.getByText('菜单内容')).toBeInTheDocument();
+  });
+
   it('closes a relation-error task through the return action', async () => {
     const user = userEvent.setup();
     const navigation = createNavigationService({
