@@ -286,7 +286,9 @@ def upgrade() -> None:
         sa.Column("purchase_date", sa.Date(), nullable=True),
         sa.Column("expiry_date", sa.Date(), nullable=True),
         sa.Column("storage_location", sa.String(length=120), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=False, server_default=""),
+        # MySQL 8.x rejects DEFAULT on TEXT under STRICT_TRANS_TABLES.
+        # Keep the column non-null and rely on application defaults / INSERT values.
+        sa.Column("notes", sa.Text(), nullable=False),
         sa.Column("expiry_alert_snoozed_until", sa.Date(), nullable=True),
         sa.Column("expiry_reviewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("expiry_reviewed_by", sa.String(length=64), nullable=True),
