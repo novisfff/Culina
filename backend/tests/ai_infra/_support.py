@@ -2085,7 +2085,12 @@ class AIEvalContext:
             )
             for target in self.CLOCK_PATCH_TARGETS:
                 stack.enter_context(patch(target, return_value=self.EVAL_TODAY))
-            response = self.owner.client.post("/api/ai/chat", json=request)
+            # Capable client is required to generate recipe_cook.v2 drafts.
+            response = self.owner.client.post(
+                "/api/ai/chat",
+                json=request,
+                headers={"X-Culina-AI-Draft-Contracts": "recipe_cook_operation.v2"},
+            )
             if any(entry.get("resume") is True for entry in script):
                 initial_payload = response.json()
                 approvals = initial_payload.get("included", {}).get("approvals", [])

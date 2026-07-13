@@ -160,7 +160,12 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
 
             cook_response = self.client.post(
                 f"/api/recipes/{recipe_id}/cook",
-                json={"servings": 2, "date": "2026-05-14", "meal_type": "dinner", "create_meal_log": True},
+                json={
+                    "servings": 2,
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "completion_request_id": "discovery-cook-request-1",
+                },
             )
             self.assertEqual(cook_response.status_code, 200, cook_response.text)
             stats = self.client.get("/api/recipes/stats?date_from=2026-05-01&date_to=2026-05-31")
