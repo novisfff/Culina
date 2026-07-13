@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import MembershipStatus
@@ -29,6 +29,35 @@ def meal_log_reference_error_detail(exc: MealLogReferenceError) -> dict[str, str
         "code": exc.code,
         "message": exc.message,
     }
+
+
+def active_family_participant_statement(family_id: str, user_ids: Sequence[str]) -> Select[tuple[str]]:
+    return (
+        select(Membership.user_id)
+        .join(User, User.id == Membership.user_id)
+        .where(
+            Membership.family_id == family_id,
+            Membership.user_id.in_(list(user_ids)),
+            Membership.status == MembershipStatus.ACTIVE,
+            User.is_active.is_(True),
+        )
+    )
+
+
+def normalize_and_validate_participant_user_ids(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    participant_user_ids: Sequence[str],
+) -> tuple[str, ...]:
+    normalized = tuple(sorted({str(value).strip() for value in participant_user_ids if str(value).strip()}))
+    if not normalized:
+        normalized = (actor_user_id,)
+    active_ids = set(db.scalars(active_family_participant_statement(family_id, normalized)))
+    if active_ids != set(normalized):
+        raise MealLogReferenceError("meal_log_participant_not_found", "参与成员不存在或不属于当前家庭")
+    return normalized
 
 
 def lock_and_validate_meal_log_references(
@@ -67,28 +96,12 @@ def lock_and_validate_meal_log_references(
         ):
             raise MealLogReferenceError("meal_log_food_not_found", "食物不存在或不属于当前家庭")
 
-    normalized_participants = tuple(
-        sorted({str(value).strip() for value in participant_user_ids if str(value).strip()})
+    normalized_participants = normalize_and_validate_participant_user_ids(
+        db,
+        family_id=family_id,
+        actor_user_id=actor_user_id,
+        participant_user_ids=participant_user_ids,
     )
-    if not normalized_participants:
-        normalized_participants = (actor_user_id,)
-    active_ids = set(
-        db.scalars(
-            select(Membership.user_id)
-            .join(User, User.id == Membership.user_id)
-            .where(
-                Membership.family_id == family_id,
-                Membership.user_id.in_(normalized_participants),
-                Membership.status == MembershipStatus.ACTIVE,
-                User.is_active.is_(True),
-            )
-        )
-    )
-    if active_ids != set(normalized_participants):
-        raise MealLogReferenceError(
-            "meal_log_participant_not_found",
-            "参与成员不存在或不属于当前家庭",
-        )
     return ValidatedMealLogReferences(
         foods_by_id=foods_by_id,
         participant_user_ids=normalized_participants,

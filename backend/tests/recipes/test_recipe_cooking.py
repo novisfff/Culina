@@ -1,15 +1,19 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+from unittest.mock import patch
+
+from sqlalchemy import func
 
 from ._support import *
 
 from app.core.enums import ActivityHighlightKind
-from app.models.domain import ActivityLog
+from app.models.domain import ActivityLog, FoodPlanItem
 from app.schemas.recipes import CookRecipeResponse
 from app.services.recipe_cook_completion import (
     CompletionConflict,
     RecipeCookCompletionCommand,
     claim_completion,
+    complete_recipe_cook,
     encode_completion_result,
     hash_completion_command,
     load_completion_replay_if_present,
@@ -305,6 +309,213 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 cook_log_id="cook-1",
             )
             self.assertIs(response.replayed, False)
+
+        def _seed_full_inventory(self, *, tomato_id: str, egg_id: str, tomato_qty: str = "2", egg_qty: str = "3") -> None:
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id=tomato_id,
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal(tomato_qty),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id=egg_id,
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal(egg_qty),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=date(2026, 5, 14),
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+        def _completion_command_for_recipe(self, recipe_id: str, **overrides) -> RecipeCookCompletionCommand:
+            base = dict(
+                completion_request_id="req-service-completion-1",
+                family_id=self.family.id,
+                actor_user_id=self.user.id,
+                recipe_id=recipe_id,
+                cook_date=date(2026, 5, 14),
+                meal_type=MealType.DINNER,
+                servings=Decimal("2"),
+                participant_user_ids=(self.user.id,),
+                notes="service cook",
+                food_plan_item_id=None,
+                food_plan_item_base_updated_at=None,
+                result_note="完成",
+                adjustments="少油",
+                rating=4,
+                allow_partial_inventory_deduction=False,
+                inventory_expectation=None,
+            )
+            base.update(overrides)
+            return RecipeCookCompletionCommand(**base)
+
+        def test_complete_recipe_cook_creates_all_business_results(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-service",
+                egg_id="inventory-egg-service",
+            )
+            command = self._completion_command_for_recipe(recipe["id"])
+
+            with self.SessionLocal() as db:
+                result = complete_recipe_cook(db, command)
+                db.commit()
+
+                self.assertIs(result.replayed, False)
+                self.assertIsNotNone(result.meal_log_id)
+                self.assertIsNotNone(result.cook_log_id)
+                cook_log = db.get(RecipeCookLog, result.cook_log_id)
+                assert cook_log is not None
+                self.assertEqual(cook_log.meal_log_id, result.meal_log_id)
+                self.assertEqual(cook_log.result_note, "完成")
+                self.assertEqual(cook_log.rating, 4)
+                self.assertIsNotNone(cook_log.completion_result_json)
+
+                meal = db.get(MealLog, result.meal_log_id)
+                assert meal is not None
+                self.assertEqual(meal.mood, "")
+                self.assertEqual(meal.notes, "service cook")
+                self.assertEqual(meal.participant_user_ids, [self.user.id])
+                self.assertEqual(len(meal.food_entries), 1)
+                self.assertEqual(meal.food_entries[0].note, "")
+                self.assertEqual(meal.food_entries[0].servings, command.servings)
+                self.assertIsNone(meal.food_entries[0].rating)
+
+                tomato = db.get(InventoryItem, "inventory-tomato-service")
+                egg = db.get(InventoryItem, "inventory-egg-service")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("2.00"))
+                self.assertEqual(egg.consumed_quantity, Decimal("3.00"))
+
+                activity_count = db.scalar(
+                    select(func.count()).select_from(ActivityLog).where(
+                        ActivityLog.family_id == self.family.id,
+                        ActivityLog.highlight_kind == ActivityHighlightKind.MEAL,
+                    )
+                )
+                self.assertEqual(activity_count, 1)
+
+        def test_blocked_shortage_claims_nothing_and_writes_nothing(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-service-shortage",
+            )
+
+            with self.SessionLocal() as db:
+                result = complete_recipe_cook(db, command)
+                db.commit()
+
+                self.assertIsNone(result.meal_log_id)
+                self.assertIsNone(result.cook_log_id)
+                self.assertTrue(result.shortages)
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(RecipeCookLog)),
+                    0,
+                )
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(MealLog)),
+                    0,
+                )
+                self.assertEqual(
+                    db.scalar(
+                        select(func.count()).select_from(ActivityLog).where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind == ActivityHighlightKind.MEAL,
+                        )
+                    ),
+                    0,
+                )
+
+        def test_plan_completion_updates_same_meal_id(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True)
+            recipe_id = recipe["id"]
+            plan_response = self.client.post(
+                "/api/recipe-plan",
+                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan_payload = plan_response.json()
+            plan_id = plan_payload["id"]
+            base_updated_at = datetime.fromisoformat(plan_payload["updated_at"].replace("Z", "+00:00"))
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-plan-service",
+                egg_id="inventory-egg-plan-service",
+            )
+            command = self._completion_command_for_recipe(
+                recipe_id,
+                completion_request_id="req-service-plan",
+                food_plan_item_id=plan_id,
+                food_plan_item_base_updated_at=base_updated_at,
+            )
+
+            with self.SessionLocal() as db:
+                result = complete_recipe_cook(db, command)
+                db.commit()
+
+                plan = db.get(FoodPlanItem, plan_id)
+                assert plan is not None
+                self.assertEqual(plan.status, "cooked")
+                self.assertEqual(plan.meal_log_id, result.meal_log_id)
+                self.assertIsNotNone(plan.completed_at)
+
+        def test_complete_recipe_cook_forced_failure_rolls_back_everything(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-rollback",
+                egg_id="inventory-egg-rollback",
+            )
+            command = self._completion_command_for_recipe(
+                recipe["id"],
+                completion_request_id="req-service-rollback",
+            )
+
+            with self.SessionLocal() as db:
+                with patch(
+                    "app.services.recipe_cook_completion.record_completion_activity",
+                    side_effect=RuntimeError("forced completion failure"),
+                ):
+                    with self.assertRaises(RuntimeError):
+                        complete_recipe_cook(db, command)
+                db.rollback()
+
+                tomato = db.get(InventoryItem, "inventory-tomato-rollback")
+                egg = db.get(InventoryItem, "inventory-egg-rollback")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("0"))
+                self.assertEqual(egg.consumed_quantity, Decimal("0"))
+                self.assertEqual(db.scalar(select(func.count()).select_from(RecipeCookLog)), 0)
+                self.assertEqual(db.scalar(select(func.count()).select_from(MealLog)), 0)
+                self.assertEqual(
+                    db.scalar(
+                        select(func.count()).select_from(ActivityLog).where(
+                            ActivityLog.family_id == self.family.id,
+                            ActivityLog.highlight_kind == ActivityHighlightKind.MEAL,
+                        )
+                    ),
+                    0,
+                )
 
         def test_cook_recipe_deducts_inventory_and_creates_meal_log(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
