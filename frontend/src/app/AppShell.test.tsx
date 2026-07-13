@@ -2,8 +2,10 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppNotificationCenter, AppShell, type AppNotificationJob } from './AppShell';
+import type { PrimaryTabKey } from './appNavigationModel';
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -60,14 +62,14 @@ function renderNotificationCenter(props: Parameters<typeof AppNotificationCenter
   return container;
 }
 
-function renderAppShell(children: React.ReactNode) {
+function renderAppShell(children: React.ReactNode, activeTab: PrimaryTabKey = 'home') {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
   act(() => {
     root?.render(
       <AppShell
-        activeTab="foods"
+        activeTab={activeTab}
         sidebarCollapsed={false}
         familyName="今天家"
         familyMotto="好好吃饭"
@@ -367,6 +369,22 @@ describe('AppNotificationCenter', () => {
     const titles = Array.from(view.querySelectorAll('.app-notification-row strong')).map((node) => node.textContent);
     expect(titles).toEqual(['新失败图片', '旧失败索引', '新成功索引', '旧成功图片']);
   });
+
+describe('AppShell primary navigation', () => {
+  it('renders the same five primary entries on desktop and mobile', () => {
+    renderAppShell(<div>内容</div>, 'eat');
+    const expected = ['首页', '吃什么', '食材', 'AI', '家庭'];
+    for (const name of ['大屏主导航', '顶部主导航', '手机主导航']) {
+      expect(
+        within(screen.getByRole('navigation', { name }))
+          .getAllByRole('button')
+          .map((node) => node.textContent?.trim()),
+      ).toEqual(expected);
+    }
+    expect(screen.queryByRole('button', { name: '菜谱' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '记录' })).not.toBeInTheDocument();
+  });
+});
 
 describe('AppShell mobile keyboard layout', () => {
   it('renders orientation guidance for tablet/desktop portrait and mobile landscape', () => {

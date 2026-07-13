@@ -1,25 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar } from '../components/ui-kit';
+import type { PrimaryTabKey } from './appNavigationModel';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
 
+/** @deprecated Prefer PrimaryTabKey; retained for legacy workspace consumers. */
 export type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
 
-const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
+export const PRIMARY_NAV_ITEMS: ReadonlyArray<{
+  key: PrimaryTabKey;
+  label: string;
+  icon: ShellIconName;
+}> = [
   { key: 'home', label: '首页', icon: 'home' },
-  { key: 'foods', label: '食物', icon: 'foods' },
-  { key: 'recipes', label: '菜谱', icon: 'recipes' },
+  { key: 'eat', label: '吃什么', icon: 'foods' },
   { key: 'ingredients', label: '食材', icon: 'ingredients' },
-  { key: 'logs', label: '记录', icon: 'logs' },
   { key: 'ai', label: 'AI', icon: 'ai' },
-  { key: 'family', label: '我的家庭', icon: 'family' },
-];
-
-const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
-  { key: 'home', label: '首页', icon: 'home' },
-  { key: 'foods', label: '食物', icon: 'foods' },
-  { key: 'ai', label: 'AI', icon: 'ai' },
-  { key: 'ingredients', label: '食材', icon: 'ingredients' },
   { key: 'family', label: '家庭', icon: 'family' },
 ];
 
@@ -104,7 +100,7 @@ function syncMobileVisualViewportMetrics() {
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 
-function useMobileVisualViewportMetrics(activeTab: TabKey) {
+function useMobileVisualViewportMetrics(activeTab: PrimaryTabKey) {
   useEffect(() => {
     let frameId: number | null = null;
     const timeoutIds: number[] = [];
@@ -351,7 +347,7 @@ export function AppNotificationCenter(props: {
 }
 
 type AppShellProps = {
-  activeTab: TabKey;
+  activeTab: PrimaryTabKey;
   sidebarCollapsed: boolean;
   familyName: string;
   familyMotto: string;
@@ -370,7 +366,7 @@ type AppShellProps = {
   onRetryImageJob?: (jobId: string) => void;
   retryingImageJobId?: string | null;
   children: ReactNode;
-  onTabChange: (tab: TabKey) => void;
+  onTabChange: (tab: PrimaryTabKey) => void;
   onToggleSidebar: () => void;
   onOpenProfile: () => void;
   onLogout: () => void;
@@ -466,13 +462,14 @@ export function AppShell({
             </div>
 
             <nav className="sidebar-nav" aria-label="大屏主导航">
-              {NAV_ITEMS.map((item) => (
+              {PRIMARY_NAV_ITEMS.map((item) => (
                 <button
                   key={item.key}
                   className={activeTab === item.key ? 'sidebar-nav-item active' : 'sidebar-nav-item'}
                   type="button"
                   onClick={() => onTabChange(item.key)}
                   aria-label={item.label}
+                  aria-current={activeTab === item.key ? 'page' : undefined}
                   title={item.label}
                 >
                   <span className="sidebar-icon">
@@ -514,15 +511,16 @@ export function AppShell({
         </aside>
 
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
-          <nav className="tabbar">
+          <nav className="tabbar" aria-label="顶部主导航">
             <div className="tabbar-inner">
               <div className="tabbar-scroll">
-                {NAV_ITEMS.map((item) => (
+                {PRIMARY_NAV_ITEMS.map((item) => (
                   <button
                     key={item.key}
                     className={activeTab === item.key ? 'tab-button active' : 'tab-button'}
                     type="button"
                     onClick={() => onTabChange(item.key)}
+                    aria-current={activeTab === item.key ? 'page' : undefined}
                   >
                     {item.label}
                   </button>
@@ -533,9 +531,9 @@ export function AppShell({
           {children}
         </div>
       </div>
-      {activeTab !== 'ai' && activeTab !== 'logs' && (
+      {activeTab !== 'ai' && (
         <nav className="mobile-bottom-nav" aria-label="手机主导航">
-          {MOBILE_NAV_ITEMS.map((item) => {
+          {PRIMARY_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.key;
             const isAiTab = item.key === 'ai';
             return (
