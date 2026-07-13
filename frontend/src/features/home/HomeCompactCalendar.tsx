@@ -122,6 +122,7 @@ export function HomeCompactCalendar(props: {
           <button
             className="home-compact-full-week-button"
             type="button"
+            aria-label="完整周菜单"
             onClick={() => props.onOpenFullWeek(props.selectedDate)}
           >
             <span>完整周菜单</span>
