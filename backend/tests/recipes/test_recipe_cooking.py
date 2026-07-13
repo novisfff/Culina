@@ -1,8 +1,42 @@
+from dataclasses import replace
+from datetime import datetime, timezone
+
 from ._support import *
 
 from app.core.enums import ActivityHighlightKind
 from app.models.domain import ActivityLog
 from app.schemas.recipes import CookRecipeResponse
+from app.services.recipe_cook_completion import (
+    CompletionConflict,
+    RecipeCookCompletionCommand,
+    claim_completion,
+    encode_completion_result,
+    hash_completion_command,
+    load_completion_replay_if_present,
+)
+
+
+def _make_completion_command(**overrides) -> RecipeCookCompletionCommand:
+    base = dict(
+        completion_request_id="req-completion-1",
+        family_id="family-test",
+        actor_user_id="user-test",
+        recipe_id="recipe-1",
+        cook_date=date(2026, 5, 14),
+        meal_type=MealType.DINNER,
+        servings=Decimal("2"),
+        participant_user_ids=("user-a",),
+        notes="",
+        food_plan_item_id=None,
+        food_plan_item_base_updated_at=None,
+        result_note="",
+        adjustments="",
+        rating=None,
+        allow_partial_inventory_deduction=False,
+        inventory_expectation=None,
+    )
+    base.update(overrides)
+    return RecipeCookCompletionCommand(**base)
 
 
 class RecipeRecipeCookingTestCase(RecipeApiTestCase):
@@ -22,6 +56,219 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     )
                 )
             self.assertEqual([row.highlight_kind for row in rows], expected)
+
+        def test_completion_hash_is_stable_for_participant_set_and_decimal_spelling(self) -> None:
+            first = _make_completion_command(
+                servings=Decimal("2.00"),
+                participant_user_ids=("user-b", "user-a", "user-a"),
+            )
+            second = _make_completion_command(
+                servings=Decimal("2"),
+                participant_user_ids=("user-a", "user-b"),
+            )
+            self.assertEqual(hash_completion_command(first), hash_completion_command(second))
+
+        def test_completion_hash_changes_for_business_inputs(self) -> None:
+            base = _make_completion_command(notes="少盐")
+            self.assertNotEqual(
+                hash_completion_command(base),
+                hash_completion_command(replace(base, notes="正常盐")),
+            )
+
+        def test_completion_hash_excludes_request_id(self) -> None:
+            first = _make_completion_command(completion_request_id="req-a")
+            second = _make_completion_command(completion_request_id="req-b")
+            self.assertEqual(hash_completion_command(first), hash_completion_command(second))
+
+        def test_encode_completion_result_envelope_omits_replayed(self) -> None:
+            response = CookRecipeResponse(
+                recipe_id="recipe-1",
+                consumed_items=[],
+                shortages=[],
+                meal_log_id="meal-1",
+                cook_log_id="cook-1",
+                replayed=True,
+            )
+            envelope = encode_completion_result(response)
+            self.assertEqual(envelope["version"], 1)
+            self.assertNotIn("replayed", envelope["response"])
+            self.assertEqual(envelope["response"]["recipe_id"], "recipe-1")
+            self.assertEqual(envelope["response"]["cook_log_id"], "cook-1")
+
+        def test_unknown_result_envelope_never_reexecutes(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            request_hash = "a" * 64
+            with self.SessionLocal() as db:
+                completed = RecipeCookLog(
+                    id="cook-completion-unsupported-version",
+                    family_id=self.family.id,
+                    recipe_id=recipe["id"],
+                    cook_date=date(2026, 5, 14),
+                    meal_type=MealType.DINNER,
+                    servings=Decimal("2"),
+                    result_note="",
+                    adjustments="",
+                    rating=None,
+                    completion_request_id="req-unsupported-version",
+                    completion_request_hash=request_hash,
+                    completion_result_json={"version": 99, "response": {}},
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(completed)
+                db.commit()
+
+                with self.assertRaises(CompletionConflict) as raised:
+                    load_completion_replay_if_present(
+                        db,
+                        family_id=self.family.id,
+                        completion_request_id="req-unsupported-version",
+                        request_hash=request_hash,
+                    )
+                self.assertEqual(raised.exception.code, "completion_result_version_unsupported")
+
+        def test_missing_result_envelope_never_reexecutes(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            request_hash = "b" * 64
+            with self.SessionLocal() as db:
+                pending = RecipeCookLog(
+                    id="cook-completion-missing-result",
+                    family_id=self.family.id,
+                    recipe_id=recipe["id"],
+                    cook_date=date(2026, 5, 14),
+                    meal_type=MealType.DINNER,
+                    servings=Decimal("2"),
+                    result_note="",
+                    adjustments="",
+                    rating=None,
+                    completion_request_id="req-missing-result",
+                    completion_request_hash=request_hash,
+                    completion_result_json=None,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(pending)
+                db.commit()
+
+                with self.assertRaises(CompletionConflict) as raised:
+                    load_completion_replay_if_present(
+                        db,
+                        family_id=self.family.id,
+                        completion_request_id="req-missing-result",
+                        request_hash=request_hash,
+                    )
+                self.assertEqual(raised.exception.code, "completion_result_version_unsupported")
+
+        def test_same_id_same_hash_returns_replayed_true(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            response = CookRecipeResponse(
+                recipe_id=recipe["id"],
+                consumed_items=[],
+                shortages=[],
+                meal_log_id="meal-replay-1",
+                cook_log_id="cook-replay-1",
+            )
+            request_hash = "c" * 64
+            with self.SessionLocal() as db:
+                completed = RecipeCookLog(
+                    id="cook-completion-replay-ok",
+                    family_id=self.family.id,
+                    recipe_id=recipe["id"],
+                    cook_date=date(2026, 5, 14),
+                    meal_type=MealType.DINNER,
+                    servings=Decimal("2"),
+                    result_note="",
+                    adjustments="",
+                    rating=None,
+                    completion_request_id="req-replay-ok",
+                    completion_request_hash=request_hash,
+                    completion_result_json=encode_completion_result(response),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(completed)
+                db.commit()
+
+                replayed = load_completion_replay_if_present(
+                    db,
+                    family_id=self.family.id,
+                    completion_request_id="req-replay-ok",
+                    request_hash=request_hash,
+                )
+            self.assertIsNotNone(replayed)
+            assert replayed is not None
+            self.assertIs(replayed.replayed, True)
+            self.assertEqual(replayed.recipe_id, recipe["id"])
+            self.assertEqual(replayed.cook_log_id, "cook-replay-1")
+            self.assertEqual(replayed.meal_log_id, "meal-replay-1")
+
+        def test_same_id_different_hash_raises_idempotency_key_reused(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            with self.SessionLocal() as db:
+                completed = RecipeCookLog(
+                    id="cook-completion-hash-mismatch",
+                    family_id=self.family.id,
+                    recipe_id=recipe["id"],
+                    cook_date=date(2026, 5, 14),
+                    meal_type=MealType.DINNER,
+                    servings=Decimal("2"),
+                    result_note="",
+                    adjustments="",
+                    rating=None,
+                    completion_request_id="req-hash-mismatch",
+                    completion_request_hash="d" * 64,
+                    completion_result_json=encode_completion_result(
+                        CookRecipeResponse(recipe_id=recipe["id"])
+                    ),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(completed)
+                db.commit()
+
+                with self.assertRaises(CompletionConflict) as raised:
+                    load_completion_replay_if_present(
+                        db,
+                        family_id=self.family.id,
+                        completion_request_id="req-hash-mismatch",
+                        request_hash="e" * 64,
+                    )
+                self.assertEqual(raised.exception.code, "idempotency_key_reused")
+
+        def test_claim_completion_inserts_pending_log(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            command = _make_completion_command(
+                family_id=self.family.id,
+                actor_user_id=self.user.id,
+                recipe_id=recipe["id"],
+                completion_request_id="req-claim-1",
+                food_plan_item_base_updated_at=datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc),
+                result_note="完成",
+                adjustments="少油",
+                rating=4,
+            )
+            request_hash = hash_completion_command(command)
+            with self.SessionLocal() as db:
+                cook_log = claim_completion(db, command=command, request_hash=request_hash)
+                db.commit()
+                self.assertEqual(cook_log.completion_request_id, "req-claim-1")
+                self.assertEqual(cook_log.completion_request_hash, request_hash)
+                self.assertIsNone(cook_log.meal_log_id)
+                self.assertIsNone(cook_log.completion_result_json)
+                self.assertEqual(cook_log.result_note, "完成")
+                self.assertEqual(cook_log.rating, 4)
+                self.assertEqual(cook_log.created_by, self.user.id)
+
+            # Claim exists but result is not written yet → unsupported, never re-executes.
+            with self.SessionLocal() as db:
+                with self.assertRaises(CompletionConflict) as raised:
+                    load_completion_replay_if_present(
+                        db,
+                        family_id=self.family.id,
+                        completion_request_id="req-claim-1",
+                        request_hash=request_hash,
+                    )
+                self.assertEqual(raised.exception.code, "completion_result_version_unsupported")
 
         def test_recipe_cook_log_completion_fields_are_nullable_for_history(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
