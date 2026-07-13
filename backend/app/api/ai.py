@@ -49,10 +49,20 @@ from app.schemas.ai import (
     GenerateRecipeDraftRequest,
     GenerateRecipeDraftResponse,
 )
+from app.ai.draft_contracts import (
+    AI_DRAFT_CONTRACTS_HEADER,
+    ClientContractUpgradeRequired,
+    DraftContractCapabilities,
+    recipe_cook_contracts_probe,
+)
 from app.ai.errors import AIConflictError
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
+from app.api.ai_contracts import (
+    get_ai_draft_contract_capabilities,
+    set_ai_client_aware_headers,
+)
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.conversation_access import (
     accessible_ai_conversation_clause,
@@ -164,6 +174,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
     model = settings.ai_model or "gpt-4o-mini"
     supports_vision = _model_supports_vision(model, getattr(settings, "ai_supports_vision", None))
     supported = {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}
+    contracts = recipe_cook_contracts_probe()
     if provider in {"", "disabled", "mock"}:
         return {
             "enabled": False,
@@ -172,6 +183,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
             "supports_vision": False,
             "status": "disabled",
             "detail": "AI 模型未配置。",
+            "recipe_cook_contracts": contracts,
         }
     if provider not in supported:
         return {
@@ -181,6 +193,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
             "supports_vision": False,
             "status": "unsupported_provider",
             "detail": "AI provider 配置不受支持。",
+            "recipe_cook_contracts": contracts,
         }
     if not settings.ai_api_key:
         return {
@@ -190,6 +203,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
             "supports_vision": False,
             "status": "missing_api_key",
             "detail": "AI API Key 未配置。",
+            "recipe_cook_contracts": contracts,
         }
     return {
         "enabled": True,
@@ -198,6 +212,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
         "supports_vision": supports_vision,
         "status": "ready",
         "detail": "AI 已就绪。",
+        "recipe_cook_contracts": contracts,
     }
 
 
@@ -279,6 +294,7 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
             )
             for profile in ORCHESTRATOR_PROFILE_REGISTRY.profiles
         ],
+        "recipe_cook_contracts": recipe_cook_contracts_probe(),
     }
 
 
@@ -409,12 +425,14 @@ def delete_ai_conversation(
 @router.post("/api/ai/chat", response_model=AIChatResponse)
 def chat_ai(
     payload: AIChatRequest,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> dict:
     user, membership = auth
     try:
-        response = AIApplicationService(db).chat(
+        result = AIApplicationService(db).chat(
             family_id=membership.family_id,
             user_id=user.id,
             message=payload.message,
@@ -424,7 +442,10 @@ def chat_ai(
             quick_task=payload.quick_task,
             subject=payload.subject.model_dump() if payload.subject else {},
             attachments=[attachment.model_dump() for attachment in payload.attachments],
+            generation_contracts=capabilities.values,
         )
+    except ClientContractUpgradeRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
     except AIConflictError as exc:
         logger.warning(
             "AI chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
@@ -473,9 +494,10 @@ def chat_ai(
         )
         raise
     if not payload.persist_history:
-        _discard_transient_chat_history(db, family_id=membership.family_id, response=response)
+        _discard_transient_chat_history(db, family_id=membership.family_id, response=result)
     commit_session(db)
-    return response
+    set_ai_client_aware_headers(response)
+    return result
 
 
 @router.post("/api/ai/chat/stream")
@@ -483,6 +505,7 @@ def stream_chat_ai(
     payload: AIChatRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> StreamingResponse:
     user, membership = auth
 
@@ -502,6 +525,7 @@ def stream_chat_ai(
                 quick_task=payload.quick_task,
                 subject=payload.subject.model_dump() if payload.subject else {},
                 attachments=[attachment.model_dump() for attachment in payload.attachments],
+                generation_contracts=capabilities.values,
             ):
                 if event == "response":
                     if not payload.persist_history:
@@ -510,6 +534,9 @@ def stream_chat_ai(
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)
                 yield encode(event, data)
+        except ClientContractUpgradeRequired as exc:
+            yield encode("error", {"detail": exc.to_detail(), "status": 409})
+            return
         except AIConflictError as exc:
             logger.warning(
                 "AI stream chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
@@ -569,6 +596,7 @@ def stream_chat_ai(
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Vary": AI_DRAFT_CONTRACTS_HEADER,
         },
     )
 
@@ -881,12 +909,21 @@ def cancel_ai_run(
 @router.post("/api/ai/runs/{run_id}/retry", response_model=AIChatResponse)
 def retry_ai_run(
     run_id: str,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> dict:
     user, membership = auth
     try:
-        result = AIApplicationService(db).retry_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+        result = AIApplicationService(db).retry_run(
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            generation_contracts=capabilities.values,
+        )
+    except ClientContractUpgradeRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AIConflictError as exc:
@@ -894,6 +931,7 @@ def retry_ai_run(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
+    set_ai_client_aware_headers(response)
     return result
 
 
@@ -901,8 +939,10 @@ def retry_ai_run(
 def regenerate_ai_message_part(
     message_id: str,
     part_id: str,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> dict:
     user, membership = auth
     try:
@@ -911,7 +951,10 @@ def regenerate_ai_message_part(
             user_id=user.id,
             message_id=message_id,
             part_id=part_id,
+            generation_contracts=capabilities.values,
         )
+    except ClientContractUpgradeRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AIConflictError as exc:
@@ -919,6 +962,7 @@ def regenerate_ai_message_part(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
+    set_ai_client_aware_headers(response)
     return result
 
 
@@ -947,8 +991,10 @@ def decide_ai_approval(
     conversation_id: str,
     approval_id: str,
     payload: AIApprovalDecisionRequest,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> dict:
     user, membership = auth
     try:
@@ -961,7 +1007,10 @@ def decide_ai_approval(
             draft_version=payload.draft_version,
             values=payload.values,
             comment=payload.comment,
+            generation_contracts=capabilities.values,
         )
+    except ClientContractUpgradeRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AIConflictError as exc:
@@ -969,6 +1018,7 @@ def decide_ai_approval(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
+    set_ai_client_aware_headers(response)
     return result
 
 
@@ -977,8 +1027,10 @@ def respond_ai_human_input(
     conversation_id: str,
     request_id: str,
     payload: AIHumanInputResponseRequest,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> dict:
     user, membership = auth
     try:
@@ -989,12 +1041,16 @@ def respond_ai_human_input(
             request_id=request_id,
             selected_option_ids=payload.selected_option_ids,
             text=payload.text,
+            generation_contracts=capabilities.values,
         )
+    except ClientContractUpgradeRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     commit_session(db)
+    set_ai_client_aware_headers(response)
     return result
 
 
@@ -1005,6 +1061,7 @@ def stream_ai_human_input_response(
     payload: AIHumanInputResponseRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> StreamingResponse:
     user, membership = auth
 
@@ -1021,12 +1078,16 @@ def stream_ai_human_input_response(
                 request_id=request_id,
                 selected_option_ids=payload.selected_option_ids,
                 text=payload.text,
+                generation_contracts=capabilities.values,
             ):
                 if event == "response":
                     commit_session(db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)
                 yield encode(event, data)
+        except ClientContractUpgradeRequired as exc:
+            yield encode("error", {"detail": exc.to_detail(), "status": 409})
+            return
         except ValueError as exc:
             yield encode("error", {"detail": str(exc), "status": 400})
             return
@@ -1051,6 +1112,7 @@ def stream_ai_human_input_response(
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Vary": AI_DRAFT_CONTRACTS_HEADER,
         },
     )
 
@@ -1062,6 +1124,7 @@ def stream_ai_approval_decision(
     payload: AIApprovalDecisionRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
 ) -> StreamingResponse:
     user, membership = auth
 
@@ -1080,12 +1143,16 @@ def stream_ai_approval_decision(
                 draft_version=payload.draft_version,
                 values=payload.values,
                 comment=payload.comment,
+                generation_contracts=capabilities.values,
             ):
                 if event == "response":
                     commit_session(db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)
                 yield encode(event, data)
+        except ClientContractUpgradeRequired as exc:
+            yield encode("error", {"detail": exc.to_detail(), "status": 409})
+            return
         except LookupError as exc:
             yield encode("error", {"detail": str(exc), "status": 404})
             return
@@ -1113,6 +1180,7 @@ def stream_ai_approval_decision(
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Vary": AI_DRAFT_CONTRACTS_HEADER,
         },
     )
 

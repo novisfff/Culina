@@ -1999,6 +1999,68 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertEqual(retry_data["conversation_id"], data["conversation_id"])
             self.assertNotEqual(retry_data["run"]["id"], data["run"]["id"])
 
+        def test_generation_entrypoint_retry_propagates_capability(self) -> None:
+            from app.ai.draft_contracts import AI_DRAFT_CONTRACTS_HEADER
+            from app.ai.tools.base import ToolContext
+
+            failed_response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})
+            self.assertEqual(failed_response.status_code, 200, failed_response.text)
+            data = failed_response.json()
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, data["run"]["id"])
+                assert run is not None
+                run.status = "failed"
+                run.error = "forced failure"
+                db.commit()
+
+            captured: list[frozenset[str]] = []
+            original_init = ToolContext.__init__
+
+            def spy_init(self, *args, **kwargs):
+                captured.append(frozenset(kwargs.get("generation_contracts") or ()))
+                return original_init(self, *args, **kwargs)
+
+            with patch.object(ToolContext, "__init__", spy_init):
+                retry_response = self.client.post(
+                    f"/api/ai/runs/{data['run']['id']}/retry",
+                    headers={AI_DRAFT_CONTRACTS_HEADER: "recipe_cook_operation.v1,recipe_cook_operation.v2"},
+                )
+            self.assertEqual(retry_response.status_code, 200, retry_response.text)
+            self.assertIn(
+                frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+                captured,
+            )
+            self.assertEqual(retry_response.headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(retry_response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+
+        def test_generation_entrypoint_chat_stream_propagates_capability(self) -> None:
+            from app.ai.draft_contracts import AI_DRAFT_CONTRACTS_HEADER
+            from app.ai.tools.base import ToolContext
+
+            captured: list[frozenset[str]] = []
+            original_init = ToolContext.__init__
+
+            def spy_init(self, *args, **kwargs):
+                captured.append(frozenset(kwargs.get("generation_contracts") or ()))
+                return original_init(self, *args, **kwargs)
+
+            with patch.object(ToolContext, "__init__", spy_init):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "库存怎么样"},
+                    headers={AI_DRAFT_CONTRACTS_HEADER: "recipe_cook_operation.v1,recipe_cook_operation.v2"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+                    vary = response.headers.get("Vary")
+            self.assertIn("event: response", body)
+            self.assertIn(
+                frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+                captured,
+            )
+            self.assertEqual(vary, AI_DRAFT_CONTRACTS_HEADER)
+
         def test_ai_workspace_phase4_regenerates_message_part_with_same_context(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "今日吃什么？", "quick_task": "today_recommendation"})
             self.assertEqual(response.status_code, 200, response.text)
@@ -2011,3 +2073,33 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             regenerated = regenerate_response.json()
             self.assertEqual(regenerated["conversation_id"], data["conversation_id"])
             self.assertEqual(regenerated["run"]["agent_key"], data["run"]["agent_key"])
+
+        def test_generation_entrypoint_regenerate_propagates_capability(self) -> None:
+            from app.ai.draft_contracts import AI_DRAFT_CONTRACTS_HEADER
+            from app.ai.tools.base import ToolContext
+
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "今日吃什么？", "quick_task": "today_recommendation"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            result_part = next(part for part in data["message"]["parts"] if part["type"] == "result_card")
+
+            captured: list[frozenset[str]] = []
+            original_init = ToolContext.__init__
+
+            def spy_init(self, *args, **kwargs):
+                captured.append(frozenset(kwargs.get("generation_contracts") or ()))
+                return original_init(self, *args, **kwargs)
+
+            with patch.object(ToolContext, "__init__", spy_init):
+                regenerate_response = self.client.post(
+                    f"/api/ai/messages/{data['message']['id']}/parts/{result_part['id']}/regenerate",
+                    headers={AI_DRAFT_CONTRACTS_HEADER: "recipe_cook_operation.v1,recipe_cook_operation.v2"},
+                )
+            self.assertEqual(regenerate_response.status_code, 200, regenerate_response.text)
+            self.assertIn(
+                frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+                captured,
+            )

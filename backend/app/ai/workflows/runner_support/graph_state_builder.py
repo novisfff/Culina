@@ -25,6 +25,7 @@ class GraphStateBuilder:
         initial_skill_keys: list[str],
         run_id: str,
         user_message_id: str,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "family_id": family_id,
@@ -32,6 +33,7 @@ class GraphStateBuilder:
             "conversation_id": conversation_id,
             "message": prompt,
             "current_message_attachments": attachments,
+            "generation_contracts": sorted(generation_contracts or ()),
             "client_message_id": client_message_id,
             "client_run_id": client_run_id,
             "quick_task": quick_task,

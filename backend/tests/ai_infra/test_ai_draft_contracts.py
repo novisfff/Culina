@@ -9,9 +9,19 @@ from sqlalchemy import func, select
 from ._support import *
 
 from app.ai.draft_contracts import (
+    AI_DRAFT_CONTRACTS_HEADER,
+    ClientContractUpgradeRequired,
+    DraftContractCapabilities,
+    RECIPE_COOK_V1,
+    RECIPE_COOK_V2,
     accepted_recipe_cook_versions,
     generated_recipe_cook_version,
+    parse_draft_contract_capabilities,
+    recipe_cook_contracts_probe,
+    select_recipe_cook_generation_version,
 )
+from app.ai.tools.base import ToolContext
+from app.ai.tools.catalog.recipe import recipe_create_cook_draft
 from app.ai.errors import AIConflictError
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft
 from app.core.enums import Difficulty, FoodType, MealType
@@ -41,6 +51,216 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             {"recipe_cook_operation.v1", "recipe_cook_operation.v2"},
         )
         self.assertEqual(generated_recipe_cook_version(), "recipe_cook_operation.v1")
+
+    def test_capability_parser_accepts_known_tokens_only(self) -> None:
+        capabilities = parse_draft_contract_capabilities(
+            " recipe_cook_operation.v2,unknown.v9,recipe_cook_operation.v1 "
+        )
+        self.assertEqual(
+            capabilities.recipe_cook_versions,
+            frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+        )
+        self.assertEqual(parse_draft_contract_capabilities(None).values, frozenset())
+        self.assertEqual(parse_draft_contract_capabilities("").values, frozenset())
+
+    def test_select_recipe_cook_generation_version_b1_allows_v1_without_header(self) -> None:
+        empty = DraftContractCapabilities(values=frozenset())
+        self.assertEqual(
+            select_recipe_cook_generation_version(empty, generated_version=RECIPE_COOK_V1),
+            RECIPE_COOK_V1,
+        )
+
+    def test_select_recipe_cook_generation_version_rejects_future_v2_without_capability(self) -> None:
+        empty = DraftContractCapabilities(values=frozenset())
+        with self.assertRaises(ClientContractUpgradeRequired) as raised:
+            select_recipe_cook_generation_version(empty, generated_version=RECIPE_COOK_V2)
+        self.assertEqual(raised.exception.code, "client_contract_upgrade_required")
+
+        capable = DraftContractCapabilities(values=frozenset({RECIPE_COOK_V2}))
+        self.assertEqual(
+            select_recipe_cook_generation_version(capable, generated_version=RECIPE_COOK_V2),
+            RECIPE_COOK_V2,
+        )
+
+    def test_recipe_create_cook_draft_gates_before_normalize(self) -> None:
+        with self.SessionLocal() as db:
+            self._seed_cook_recipe(db, recipe_id="recipe-gate-capability")
+            db.commit()
+            context = ToolContext(
+                db=db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-gate",
+                run_id="run-gate",
+                generation_contracts=frozenset(),
+            )
+            with patch(
+                "app.ai.tools.catalog.recipe.select_recipe_cook_generation_version",
+                side_effect=ClientContractUpgradeRequired(),
+            ):
+                with self.assertRaises(ClientContractUpgradeRequired):
+                    recipe_create_cook_draft(
+                        context,
+                        {
+                            "draft": {
+                                "recipeId": "recipe-gate-capability",
+                                "servings": 1,
+                                "date": date.today().isoformat(),
+                                "mealType": "dinner",
+                            }
+                        },
+                    )
+
+    def test_recipe_cook_contracts_probe_is_non_secret(self) -> None:
+        probe = recipe_cook_contracts_probe()
+        self.assertEqual(
+            probe["accepted_versions"],
+            ["recipe_cook_operation.v1", "recipe_cook_operation.v2"],
+        )
+        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v1")
+        self.assertEqual(probe["projection_version"], 1)
+
+    def test_ai_status_and_registry_expose_recipe_cook_contracts(self) -> None:
+        status = self.client.get("/api/ai/status")
+        self.assertEqual(status.status_code, 200, status.text)
+        self.assertEqual(
+            status.json()["recipe_cook_contracts"]["generated_version"],
+            "recipe_cook_operation.v1",
+        )
+        registry = self.client.get("/api/ai/registry")
+        self.assertEqual(registry.status_code, 200, registry.text)
+        self.assertIn("recipe_cook_operation.v2", registry.json()["recipe_cook_contracts"]["accepted_versions"])
+
+    def test_chat_propagates_generation_contracts_into_tool_context(self) -> None:
+        captured: list[frozenset[str]] = []
+        original_init = ToolContext.__init__
+
+        def spy_init(self, *args, **kwargs):
+            captured.append(frozenset(kwargs.get("generation_contracts") or ()))
+            return original_init(self, *args, **kwargs)
+
+        with patch.object(ToolContext, "__init__", spy_init):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "库存怎么样"},
+                headers={
+                    AI_DRAFT_CONTRACTS_HEADER: "recipe_cook_operation.v1,recipe_cook_operation.v2",
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers.get("Cache-Control"), "private, no-store")
+        self.assertEqual(response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+        self.assertTrue(captured)
+        self.assertIn(
+            frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+            captured,
+        )
+
+    def test_generation_entrypoint_service_methods_forward_current_request_capability(self) -> None:
+        contracts = frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"})
+        with self.SessionLocal() as db:
+            service = AIApplicationService(db, provider=FakeChatProvider())
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.invoke_user_message",
+                return_value={"ok": True},
+            ) as invoke:
+                service.chat(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    message="hello",
+                    generation_contracts=contracts,
+                )
+                self.assertEqual(invoke.call_args.kwargs["generation_contracts"], contracts)
+
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.stream_user_message",
+                return_value=iter([]),
+            ) as stream:
+                list(
+                    service.stream_chat(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        message="hello",
+                        generation_contracts=contracts,
+                    )
+                )
+                self.assertEqual(stream.call_args.kwargs["generation_contracts"], contracts)
+
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.resume_human_input",
+                return_value={"ok": True},
+            ) as resume_hi, patch.object(service, "_require_conversation"):
+                service.respond_human_input(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-capability",
+                    request_id="request-1",
+                    selected_option_ids=["a"],
+                    text=None,
+                    generation_contracts=contracts,
+                )
+                self.assertEqual(resume_hi.call_args.kwargs["generation_contracts"], contracts)
+
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.stream_resume_human_input",
+                return_value=iter([]),
+            ) as stream_hi, patch.object(service, "_require_conversation"):
+                list(
+                    service.stream_human_input_response(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-capability",
+                        request_id="request-1",
+                        selected_option_ids=["a"],
+                        text=None,
+                        generation_contracts=contracts,
+                    )
+                )
+                self.assertEqual(stream_hi.call_args.kwargs["generation_contracts"], contracts)
+
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.apply_approval_decision_fast",
+                return_value={"ok": True},
+            ) as decide, patch.object(service, "_require_conversation"):
+                service.decide_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-capability",
+                    approval_id="approval-1",
+                    decision="approved",
+                    draft_version=1,
+                    values={},
+                    generation_contracts=contracts,
+                )
+                self.assertEqual(decide.call_args.kwargs["generation_contracts"], contracts)
+
+            with patch(
+                "app.ai.workflows.runner.WorkspaceGraphRunner.stream_resume_approval",
+                return_value=iter([]),
+            ) as stream_approval, patch.object(service, "_require_conversation"):
+                list(
+                    service.stream_approval_decision(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-capability",
+                        approval_id="approval-1",
+                        decision="approved",
+                        draft_version=1,
+                        values={},
+                        generation_contracts=contracts,
+                    )
+                )
+                self.assertEqual(stream_approval.call_args.kwargs["generation_contracts"], contracts)
+
+    def test_resume_command_overrides_checkpoint_generation_contracts(self) -> None:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        command = WorkspaceGraphRunner._resume_command(
+            resume_payload={"requestId": "request-1"},
+            generation_contracts=frozenset({"recipe_cook_operation.v2"}),
+        )
+        self.assertEqual(command.update, {"generation_contracts": ["recipe_cook_operation.v2"]})
+        self.assertEqual(command.resume, {"requestId": "request-1"})
 
     def _seed_cook_recipe(self, db, *, recipe_id: str = "recipe-contract-cook", quantity: int = 1) -> Recipe:
         recipe = Recipe(

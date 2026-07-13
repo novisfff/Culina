@@ -42,6 +42,12 @@ class AIRecommendationOut(BaseModel):
     created_at: datetime
 
 
+class RecipeCookContractsProbe(BaseModel):
+    accepted_versions: list[str] = Field(default_factory=list)
+    generated_version: str
+    projection_version: int
+
+
 class AIStatusResponse(BaseModel):
     enabled: bool
     provider: str
@@ -49,6 +55,7 @@ class AIStatusResponse(BaseModel):
     supports_vision: bool = False
     status: Literal["ready", "disabled", "missing_api_key", "unsupported_provider"]
     detail: str
+    recipe_cook_contracts: RecipeCookContractsProbe | None = None
 
 
 class AIRecipeDraftOut(BaseModel):
@@ -829,6 +836,7 @@ class AIRegistryResponse(BaseModel):
     skills: list[AISkillRegistryItemDTO] = Field(default_factory=list)
     tools: list[AIToolRegistryItemDTO] = Field(default_factory=list)
     profiles: list[AIProfileRegistryItemDTO] = Field(default_factory=list)
+    recipe_cook_contracts: RecipeCookContractsProbe | None = None
 
 
 class AIApprovalDecisionRequest(BaseModel):

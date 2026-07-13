@@ -81,6 +81,7 @@ class AIApplicationService:
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -94,6 +95,7 @@ class AIApplicationService:
             quick_task=quick_task,
             subject=subject,
             attachments=attachments,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def stream_chat(
@@ -108,6 +110,7 @@ class AIApplicationService:
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -121,6 +124,7 @@ class AIApplicationService:
             quick_task=quick_task,
             subject=subject,
             attachments=attachments,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def normalize_subject(self, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:
@@ -153,6 +157,7 @@ class AIApplicationService:
         prompt: str,
         subject: dict[str, Any],
         generate_image: bool,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         draft_input = RecipeDraftGenerationInput(prompt=prompt, subject=subject)
         context = load_agent_context(
@@ -208,6 +213,7 @@ class AIApplicationService:
                 user_id=user_id,
                 conversation_id="recipe-draft",
                 run_id=run.id,
+                generation_contracts=frozenset(generation_contracts or ()),
             ),
             allowed_tools={"ingredient.search", "recipe.create_draft"},
             allowed_side_effects={"read", "draft"},
@@ -366,7 +372,14 @@ class AIApplicationService:
         run, event = cancel_workspace_run(self.db, family_id=family_id, user_id=user_id, run_id=run_id)
         return {"run": serialize_ai_run(run), "events": [serialize_ai_run_event(event)]}
 
-    def retry_run(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+    def retry_run(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        run_id: str,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+    ) -> dict[str, Any]:
         require_ai_run_access(
             self.db,
             family_id=family_id,
@@ -383,9 +396,18 @@ class AIApplicationService:
             client_message_id=retry_request["client_message_id"],
             quick_task=retry_request["quick_task"],
             subject=retry_request["subject"],
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
-    def regenerate_part(self, *, family_id: str, user_id: str, message_id: str, part_id: str) -> dict[str, Any]:
+    def regenerate_part(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        message_id: str,
+        part_id: str,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+    ) -> dict[str, Any]:
         require_ai_message_access(
             self.db,
             family_id=family_id,
@@ -407,6 +429,7 @@ class AIApplicationService:
             client_message_id=regenerate_request["client_message_id"],
             quick_task=regenerate_request["quick_task"],
             subject=regenerate_request["subject"],
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def decide_approval(
@@ -420,6 +443,7 @@ class AIApplicationService:
         draft_version: int,
         values: dict[str, Any],
         comment: str | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -438,6 +462,7 @@ class AIApplicationService:
             draft_version=draft_version,
             values=values,
             comment=comment,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def stream_approval_decision(
@@ -451,6 +476,7 @@ class AIApplicationService:
         draft_version: int,
         values: dict[str, Any],
         comment: str | None = None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -469,6 +495,7 @@ class AIApplicationService:
             draft_version=draft_version,
             values=values,
             comment=comment,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def respond_human_input(
@@ -480,6 +507,7 @@ class AIApplicationService:
         request_id: str,
         selected_option_ids: list[str],
         text: str | None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -496,6 +524,7 @@ class AIApplicationService:
             request_id=request_id,
             selected_option_ids=selected_option_ids,
             text=text,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def stream_human_input_response(
@@ -507,6 +536,7 @@ class AIApplicationService:
         request_id: str,
         selected_option_ids: list[str],
         text: str | None,
+        generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -523,6 +553,7 @@ class AIApplicationService:
             request_id=request_id,
             selected_option_ids=selected_option_ids,
             text=text,
+            generation_contracts=frozenset(generation_contracts or ()),
         )
 
     def _apply_approval_decision(

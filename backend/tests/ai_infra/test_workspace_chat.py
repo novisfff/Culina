@@ -548,3 +548,28 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
         def test_ai_chat_request_rejects_overlong_message_before_running_agent(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "x" * 2001})
             self.assertEqual(response.status_code, 422, response.text)
+
+        def test_generation_entrypoint_chat_propagates_capability(self) -> None:
+            from app.ai.draft_contracts import AI_DRAFT_CONTRACTS_HEADER
+            from app.ai.tools.base import ToolContext
+
+            captured: list[frozenset[str]] = []
+            original_init = ToolContext.__init__
+
+            def spy_init(self, *args, **kwargs):
+                captured.append(frozenset(kwargs.get("generation_contracts") or ()))
+                return original_init(self, *args, **kwargs)
+
+            with patch.object(ToolContext, "__init__", spy_init):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "库存怎么样"},
+                    headers={AI_DRAFT_CONTRACTS_HEADER: "recipe_cook_operation.v1,recipe_cook_operation.v2"},
+                )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn(
+                frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+                captured,
+            )
+            self.assertEqual(response.headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
