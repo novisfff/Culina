@@ -376,6 +376,12 @@ function App() {
           ?? null
         )
       : null;
+    // Plan cook requires OCC base. If week/detail cache miss, open plan-detail by id
+    // so the detail query supplies updated_at before cook starts.
+    if (foodPlanItemId && !planItem?.updated_at) {
+      navigation.navigate({ workspace: 'eat', view: 'plan', foodPlanItemId });
+      return;
+    }
     if (related.length !== 1) {
       // Fall back to recipe-target so missing/ambiguous relation errors surface in EatWorkspace.
       navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId });

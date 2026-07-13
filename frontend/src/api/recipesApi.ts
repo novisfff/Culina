@@ -1,5 +1,6 @@
 import { request } from './request';
 import type {
+  CookRecipePreviewRequest,
   CookRecipePreviewResponse,
   CookRecipeRequest,
   CookRecipeResponse,
@@ -62,7 +63,7 @@ export const recipesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) =>
+  previewCookRecipe: (recipeId: string, payload: CookRecipePreviewRequest) =>
     request<CookRecipePreviewResponse>(`/api/recipes/${recipeId}/cook-preview`, {
       method: 'POST',
       body: JSON.stringify(payload),

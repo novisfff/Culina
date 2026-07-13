@@ -4,6 +4,7 @@ import type { EatTask } from '../../app/appNavigationModel';
 import {
   buildCookLaunchContext,
   buildPlanCookLaunchContext,
+  isCompletableCookLaunch,
   resolveEatTask,
   weekContaining,
   type ResolveEatTaskInput,
@@ -135,14 +136,13 @@ function resolveRecipeTargetForTest(
 
 describe('buildCookLaunchContext', () => {
   it('keeps plan source when foodPlanItemId is set but plan item is missing from cache', () => {
-    expect(
-      buildCookLaunchContext({
-        foodPlanItemId: 'plan-missing',
-        planItem: null,
-        fallbackDate: '2026-07-12',
-        fallbackMealType: 'lunch',
-      }),
-    ).toEqual({
+    const launch = buildCookLaunchContext({
+      foodPlanItemId: 'plan-missing',
+      planItem: null,
+      fallbackDate: '2026-07-12',
+      fallbackMealType: 'lunch',
+    });
+    expect(launch).toEqual({
       date: '2026-07-12',
       mealType: 'lunch',
       servings: 1,
@@ -152,6 +152,8 @@ describe('buildCookLaunchContext', () => {
         planItemBaseUpdatedAt: '',
       },
     });
+    // Incomplete OCC base: callers must resolve plan detail before submit.
+    expect(isCompletableCookLaunch(launch)).toBe(false);
   });
 
   it('uses plan item fields when available', () => {

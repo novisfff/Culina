@@ -428,6 +428,35 @@ describe('recipe workspace payload helpers', () => {
     expect(getRecipeDraftGenerationStepState('done', 3)).toBe('completed');
   });
 
+  it('refuses plan cook payload without planItemBaseUpdatedAt', () => {
+    expect(() =>
+      buildCookPayload({
+        servings: '2',
+        date: '2026-05-14',
+        mealType: 'dinner',
+        planItemId: 'plan-1',
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-request-missing-base',
+        planItemBaseUpdatedAt: '',
+      }),
+    ).toThrow(/计划版本|planItemBaseUpdatedAt|菜单版本/);
+    expect(() =>
+      buildCookPayload({
+        servings: '2',
+        date: '2026-05-14',
+        mealType: 'dinner',
+        planItemId: 'plan-1',
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-request-missing-base-2',
+        planItemBaseUpdatedAt: null,
+      }),
+    ).toThrow(/计划版本|planItemBaseUpdatedAt|菜单版本/);
+  });
+
   it('builds a cook completion payload without create_meal_log', () => {
     expect(
       buildCookPayload({

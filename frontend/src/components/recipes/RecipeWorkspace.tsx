@@ -5,6 +5,7 @@ import { queryKeys } from '../../api/queryKeys';
 import type {
   AiGeneratedRecipeDraft,
   CookRecipePreviewResponse,
+  CookRecipePreviewRequest,
   CookRecipeRequest,
   CookRecipeResponse,
   CreateRecipePayload,
@@ -232,7 +233,7 @@ type RecipeWorkspaceProps = {
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   deleteRecipe: (recipeId: string) => Promise<void>;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
-  previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
+  previewCookRecipe: (recipeId: string, payload: CookRecipePreviewRequest) => Promise<CookRecipePreviewResponse>;
   generateRecipeDraft: (payload: GenerateRecipeDraftPayload) => Promise<GenerateRecipeDraftResponse>;
   createShoppingItem: (payload: {
     title: string;

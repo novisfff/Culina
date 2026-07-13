@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type {
   CookRecipeRequest,
+  CookRecipePreviewRequest,
   CookRecipePreviewResponse,
   CookRecipeResponse,
   Food,
@@ -737,7 +738,7 @@ export function EatCookTaskBody(props: {
   isCookingRecipe?: boolean;
   isCreatingShopping?: boolean;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
-  previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
+  previewCookRecipe: (recipeId: string, payload: CookRecipePreviewRequest) => Promise<CookRecipePreviewResponse>;
   createShoppingItem: (payload: {
     title: string;
     quantity?: number | null;
@@ -1208,7 +1209,7 @@ export function buildEatTaskBodies(args: {
   isUpdatingRecipe?: boolean;
   isUpdatingMeal?: boolean;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
-  previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
+  previewCookRecipe: (recipeId: string, payload: CookRecipePreviewRequest) => Promise<CookRecipePreviewResponse>;
   updateFoodPlanItem: (
     itemId: string,
     payload: { plan_date?: string; meal_type?: MealType; note?: string },

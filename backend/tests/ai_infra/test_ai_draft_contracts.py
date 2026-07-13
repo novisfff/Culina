@@ -370,6 +370,28 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
                 )
             self.assertIn("库存并发校验", str(raised.exception))
 
+
+    def test_ai_plan_cook_execute_requires_plan_base_updated_at(self) -> None:
+        """Plan-source AI execute must hard-require OCC base, matching REST final contract."""
+        from app.ai.errors import AIConflictError
+        from app.services.ai_operations.recipe_cook import recipe_cook_command_from_ai_payload
+
+        with self.assertRaises(AIConflictError) as raised:
+            recipe_cook_command_from_ai_payload(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                completion_request_id="ai-plan-missing-base",
+                payload={
+                    "recipeId": "recipe-any",
+                    "servings": 2,
+                    "planItemId": "plan-item-1",
+                    "inventoryBoundaries": [],
+                    "previewItems": [],
+                    "shortages": [],
+                },
+            )
+        self.assertIn("planItemBaseUpdatedAt", str(raised.exception))
+
     def test_v2_rejects_create_meal_log_field(self) -> None:
         with self.SessionLocal() as db:
             self._seed_cook_recipe(db, recipe_id="recipe-v2-reject")

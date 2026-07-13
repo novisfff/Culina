@@ -143,6 +143,14 @@ def recipe_cook_command_from_ai_payload(
 
     plan_item_id = payload.get("planItemId") or payload.get("food_plan_item_id")
     plan_item_id = str(plan_item_id) if plan_item_id else None
+    plan_item_base_updated_at = _parse_optional_datetime(
+        payload.get("planItemBaseUpdatedAt")
+        if "planItemBaseUpdatedAt" in payload
+        else payload.get("plan_item_base_updated_at")
+    )
+    # Match REST final contract: plan source requires OCC base.
+    if plan_item_id and plan_item_base_updated_at is None:
+        raise AIConflictError("计划来源做菜草稿缺少 planItemBaseUpdatedAt，请重新生成后确认")
 
     boundaries = payload.get("inventoryBoundaries")
     if boundaries is None:
@@ -173,7 +181,7 @@ def recipe_cook_command_from_ai_payload(
         participant_user_ids=participants,
         notes=str(payload.get("notes") or ""),
         food_plan_item_id=plan_item_id,
-        food_plan_item_base_updated_at=_parse_optional_datetime(payload.get("planItemBaseUpdatedAt")),
+        food_plan_item_base_updated_at=plan_item_base_updated_at,
         result_note=str(payload.get("resultNote") or payload.get("result_note") or "").strip(),
         adjustments=str(payload.get("adjustments") or "").strip(),
         rating=payload.get("rating"),

@@ -636,6 +636,12 @@ export interface CookRecipeRequest {
   allow_partial_inventory_deduction?: boolean;
 }
 
+/** Preview-only: does not claim completion identity or plan OCC. */
+export interface CookRecipePreviewRequest {
+  servings: number;
+  allow_partial_inventory_deduction?: boolean;
+}
+
 export interface CookRecipeConsumedItem {
   ingredient_id: string;
   ingredient_name: string;
