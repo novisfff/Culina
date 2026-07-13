@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AiResultCard } from '../../api/types';
-import { ResultCard } from './AiResultCards';
+import { ResultCard, targetForAiEntity } from './AiResultCards';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,6 +14,7 @@ async function renderCard(
   onAddToPlan?: Parameters<typeof ResultCard>[0]['onAddToPlan'],
   onInventoryAction?: Parameters<typeof ResultCard>[0]['onInventoryAction'],
   onPromptAction?: (prompt: string) => void,
+  onNavigate?: Parameters<typeof ResultCard>[0]['onNavigate'],
 ) {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -25,6 +26,7 @@ async function renderCard(
         onAddToPlan={onAddToPlan}
         onInventoryAction={onInventoryAction}
         onPromptAction={onPromptAction}
+        onNavigate={onNavigate}
       />,
     );
   });
@@ -426,5 +428,59 @@ describe('AI query result cards', () => {
     expect(button?.textContent).toContain('加入购物清单');
     await act(async () => button?.click());
     expect(prompts).toEqual(['把缺少的食材加入购物清单']);
+  });
+
+  it('maps AI entities without setting a tab directly', () => {
+    expect(targetForAiEntity({ type: 'meal_log', id: 'meal-1' })).toEqual({
+      workspace: 'eat',
+      view: 'history',
+      mealLogId: 'meal-1',
+    });
+    expect(targetForAiEntity({ type: 'food', id: 'food-1' })).toEqual({
+      workspace: 'eat',
+      view: 'food',
+      foodId: 'food-1',
+    });
+    expect(targetForAiEntity({ type: 'recipe', id: 'recipe-1' })).toEqual({
+      workspace: 'eat',
+      view: 'recipe',
+      recipeId: 'recipe-1',
+    });
+    expect(targetForAiEntity({ type: 'meal_plan', id: 'plan-1' })).toEqual({
+      workspace: 'eat',
+      view: 'plan',
+      foodPlanItemId: 'plan-1',
+    });
+  });
+
+  it('navigates recommendation entities via semantic targets', async () => {
+    const targets: unknown[] = [];
+    const view = await renderCard({
+      id: 'recommendation-nav-card',
+      type: 'today_recommendation',
+      title: '今日吃什么',
+      data: {
+        recommendations: [
+          {
+            entityType: 'recipe',
+            entityId: 'recipe-1',
+            foodId: 'food-1',
+            recipeId: 'recipe-1',
+            name: '番茄鸡蛋面',
+            image: null,
+            reason: '适合今天。',
+            evidence: [],
+          },
+        ],
+        contextSummary: { inventoryCount: 1, expiringCount: 0, recentMealCount: 0, recipeCount: 1 },
+      },
+    }, undefined, undefined, undefined, (target) => targets.push(target));
+
+    const openButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('番茄鸡蛋面'));
+    expect(openButton).toBeDefined();
+    await act(async () => openButton?.click());
+    expect(targets).toEqual([
+      { workspace: 'eat', view: 'recipe', recipeId: 'recipe-1' },
+    ]);
   });
 });

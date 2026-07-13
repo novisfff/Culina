@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
-import type { TabKey } from '../../app/AppShell';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import {
@@ -89,7 +89,7 @@ export type HomeDashboardProps = {
   resolveAssetUrl: (url?: string) => string | undefined;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
-  onNavigate: (tab: TabKey) => void;
+  onNavigate: (target: AppNavigationTarget) => void;
   onOpenGlobalSearch: () => void;
   onNextDesktopRecommendations: () => void;
   onNextMobileRecommendation: () => void;
@@ -352,15 +352,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
             getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
             onClose={() => setDetailFood(null)}
             onEdit={() => {
-              onNavigate('foods');
+              onNavigate({ workspace: 'eat', view: 'food', foodId: detailFood.id });
               setDetailFood(null);
             }}
             onEditRecipe={() => {
-              onNavigate('foods');
+              if (detailFood.recipe_id) {
+                onNavigate({ workspace: 'eat', view: 'recipe', recipeId: detailFood.recipe_id });
+              } else {
+                onNavigate({ workspace: 'eat', view: 'food', foodId: detailFood.id });
+              }
               setDetailFood(null);
             }}
             onOpenLogs={() => {
-              onNavigate('logs');
+              onNavigate({ workspace: 'eat', view: 'history' });
               setDetailFood(null);
             }}
             onOpenPlanDialog={(food) => {

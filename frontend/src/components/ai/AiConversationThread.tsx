@@ -14,6 +14,7 @@ import type {
   Ingredient,
   UserSummary,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -628,6 +629,7 @@ export function MessageBubble({
   isPromptActionPending,
   onHumanInputResponse,
   onOpenRunDebug,
+  onNavigate,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -655,6 +657,7 @@ export function MessageBubble({
   isPromptActionPending?: boolean;
   onHumanInputResponse?: AiHumanInputResponseSubmit;
   onOpenRunDebug?: (runId: string) => void;
+  onNavigate?: (target: AppNavigationTarget) => void;
 }) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
@@ -760,6 +763,7 @@ export function MessageBubble({
                     onPromptAction={onPromptAction}
                     onProductLoopPrompt={onProductLoopPrompt}
                     isPromptActionPending={isPromptActionPending}
+                    onNavigate={onNavigate}
                   />
                 </div>
               );

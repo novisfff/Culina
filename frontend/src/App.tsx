@@ -4,7 +4,7 @@ import { api } from './api/client';
 import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
-import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
+import { AppNotificationCenter, AppShell } from './app/AppShell';
 import type { AppNavigationTarget, CookLaunchContext, PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
@@ -189,26 +189,6 @@ function primaryTabToTarget(
   }
 }
 
-/** Bridge Home/Family still speaking legacy TabKey into semantic targets (Task 10 finishes these). */
-function legacyTabToTarget(tab: TabKey): AppNavigationTarget {
-  switch (tab) {
-    case 'home':
-      return { workspace: 'home' };
-    case 'foods':
-      return { workspace: 'eat', view: 'discover' };
-    case 'recipes':
-      return { workspace: 'eat', view: 'discover', section: 'selfMade' };
-    case 'logs':
-      return { workspace: 'eat', view: 'history' };
-    case 'ingredients':
-      return { workspace: 'ingredients' };
-    case 'ai':
-      return { workspace: 'ai' };
-    case 'family':
-      return { workspace: 'family' };
-  }
-}
-
 function WorkspaceLoadingFallback() {
   return (
     <main className="page-stack">
@@ -371,10 +351,6 @@ function App() {
     );
   }, [navigation]);
 
-  const handleLegacyTabChange = useCallback((tab: TabKey) => {
-    navigation.navigate(legacyTabToTarget(tab));
-  }, [navigation]);
-
   const openFoodPlanWeek = useCallback((planDate: string) => {
     setSelectedRecipePlanDate(planDate);
     navigation.navigate({ workspace: 'eat', view: 'plan' });
@@ -382,8 +358,13 @@ function App() {
 
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
     const linkedFood = foods.find((food) => food.recipe_id === recipeId && food.type === 'selfMade');
+    // Prefer latest plan detail query when the cook originates from a plan item.
     const planItem = foodPlanItemId
-      ? foodPlanItems.find((item) => item.id === foodPlanItemId) ?? null
+      ? (
+          (foodPlanDetail && foodPlanDetail.id === foodPlanItemId ? foodPlanDetail : null)
+          ?? foodPlanItems.find((item) => item.id === foodPlanItemId)
+          ?? null
+        )
       : null;
     if (!linkedFood) {
       // Fall back to recipe-target so relation errors surface in EatWorkspace.
@@ -414,7 +395,7 @@ function App() {
       recipeId,
       launchContext,
     });
-  }, [foodPlanItems, foods, navigation]);
+  }, [foodPlanDetail, foodPlanItems, foods, navigation]);
 
   const resolvedEatTask = useMemo(
     () =>
@@ -895,9 +876,7 @@ function App() {
   } = useAppHomeHandlers({
     ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest,
-    setActiveTab: ((tab: TabKey) => {
-      navigation.navigate(legacyTabToTarget(tab));
-    }) as never,
+    navigate: navigation.navigate,
     setHomeRestockShoppingItemId,
     setHomeRestockForm,
     setHomeMealDetailId,
@@ -1131,7 +1110,7 @@ function App() {
             resolveAssetUrl={resolveDashboardAssetUrl}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-            onNavigate={handleLegacyTabChange}
+            onNavigate={navigation.navigate}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onNextDesktopRecommendations={showNextDesktopRecommendations}
             onNextMobileRecommendation={showNextMobileRecommendation}
@@ -1326,6 +1305,7 @@ function App() {
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
               isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
               onBackHome={() => navigation.navigate({ workspace: 'home' })}
+              onNavigate={navigation.navigate}
             />
           </Suspense>
         )}
@@ -1365,7 +1345,7 @@ function App() {
               familyImageControls={familyImageControls}
               resolveAssetUrl={resolveDashboardAssetUrl}
               onOverlayChange={setFamilyOverlayMode}
-              onNavigate={handleLegacyTabChange}
+              onNavigate={navigation.navigate}
               onMemberEdit={openMemberEdit}
               onInviteFormChange={setInviteForm}
               onProfileFormChange={setProfileForm}

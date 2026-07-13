@@ -11,6 +11,7 @@ import type {
   AiTodayRecommendationItem,
   UserSummary,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiMobileChrome } from './AiMobileChrome';
@@ -81,6 +82,7 @@ type Props = {
   onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
   onCancelSending: () => void;
   onOpenRunDebug?: (runId: string) => void;
+  onNavigate?: (target: AppNavigationTarget) => void;
 };
 
 function setPixelVariable(element: HTMLElement, name: string, value: number) {
@@ -265,6 +267,7 @@ export function AiMobilePage(props: Props) {
                 onProductLoopPrompt={props.onProductLoopPrompt}
                 isPromptActionPending={props.isSending}
                 onOpenRunDebug={props.onOpenRunDebug}
+                onNavigate={props.onNavigate}
               />
             ))}
           </>

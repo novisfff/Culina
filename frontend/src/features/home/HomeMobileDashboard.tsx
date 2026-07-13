@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { Food, FoodRecommendations, MealType } from '../../api/types';
-import type { TabKey } from '../../app/AppShell';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Badge, EmptyState } from '../../components/ui-kit';
@@ -128,7 +128,7 @@ export type HomeMobileDashboardProps = {
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
-  onNavigate: (tab: TabKey) => void;
+  onNavigate: (target: AppNavigationTarget) => void;
   onOpenGlobalSearch: () => void;
   onNextMobileRecommendation: () => void;
   onSelectedPlanDateChange: (date: string) => void;
@@ -185,7 +185,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
               <DashboardIcon name="search" />
             </button>
             {props.notificationCenter ?? (
-              <button type="button" onClick={() => props.onNavigate('ingredients')} aria-label="查看提醒">
+              <button type="button" onClick={() => props.onNavigate({ workspace: 'ingredients' })} aria-label="查看提醒">
                 <DashboardIcon name="bell" />
                 {props.inventoryAlerts.length > 0 && <i aria-hidden="true" />}
               </button>
@@ -215,11 +215,11 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
         </div>
 
         <div className="mobile-dashboard-actions">
-          <button className="mobile-dashboard-primary" type="button" onClick={() => props.onNavigate('ingredients')}>
+          <button className="mobile-dashboard-primary" type="button" onClick={() => props.onNavigate({ workspace: 'ingredients' })}>
             <DashboardIcon name="plus" />
             新增食材
           </button>
-          <button className="mobile-dashboard-secondary" type="button" onClick={() => props.onNavigate('logs')}>
+          <button className="mobile-dashboard-secondary" type="button" onClick={() => props.onNavigate({ workspace: 'eat', view: 'history' })}>
             <DashboardIcon name="receipt" />
             查看记录
           </button>

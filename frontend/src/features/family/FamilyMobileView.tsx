@@ -1,5 +1,6 @@
 import type { ActivityLog, Member, MembershipSummary, UserSummary } from '../../api/types';
 import type { ReactNode } from 'react';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar } from '../../components/ui-kit';
@@ -24,7 +25,7 @@ export function FamilyMobileView(props: {
   notificationCenter?: ReactNode;
   resolveAssetUrl: (url?: string) => string | undefined;
   onOverlayChange: (mode: FamilyOverlayMode) => void;
-  onNavigate: (tab: 'ingredients' | 'logs') => void;
+  onNavigate: (target: AppNavigationTarget) => void;
   onActivityViewerOpen: () => void;
   onMemberEdit: (member: Member) => void;
 }) {
@@ -103,7 +104,9 @@ export function FamilyMobileView(props: {
               } else if (item.label === '家庭资料') {
                 props.onOverlayChange(props.isOwner ? 'family' : 'profile');
               } else if (item.label === '待处理采购') {
-                props.onNavigate('ingredients');
+                props.onNavigate({ workspace: 'ingredients' });
+              } else if (item.label === '我的记录') {
+                props.onNavigate({ workspace: 'eat', view: 'history' });
               } else {
                 document.getElementById('mobile-family-activity')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
               }
@@ -257,7 +260,7 @@ export function FamilyMobileView(props: {
           </div>
         ) : (
           <div className="mobile-family-action-list">
-            <button type="button" onClick={() => props.onNavigate('ingredients')}>
+            <button type="button" onClick={() => props.onNavigate({ workspace: 'ingredients' })}>
               <span><DashboardIcon name="check" /></span>
               <strong>参与厨房协作</strong>
               <small>添加食材、更新采购、记录餐食和查看菜谱</small>

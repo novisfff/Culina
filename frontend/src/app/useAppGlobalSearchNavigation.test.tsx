@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FoodPlanItem } from '../api/types';
 import type { GlobalSearchSelection } from '../features/search/GlobalSearchOverlay';
-import type { TabKey } from './AppShell';
 import {
   useAppGlobalSearchNavigation,
   type IngredientNavigationRequest,
@@ -67,14 +66,12 @@ function NavigationHarness({
 }) {
   // Keep mock instances stable across re-renders so call history is preserved.
   const navigate = useRef(vi.fn()).current;
-  const setActiveTab = useRef(vi.fn<(tab: TabKey) => void>()).current;
   navigateMock = navigate;
-  setActiveTabMock = setActiveTab;
   const nav = useAppGlobalSearchNavigation({ navigate: navigate as never });
   const handlers = useAppHomeHandlers({
     ingredientNavigationRequestIdRef: nav.ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest: nav.setIngredientNavigationRequest,
-    setActiveTab: setActiveTab as never,
+    navigate: navigate as never,
     setHomeRestockShoppingItemId: vi.fn(),
     setHomeRestockForm: vi.fn(),
     setHomeMealDetailId: vi.fn(),
@@ -94,7 +91,6 @@ function NavigationHarness({
 
 let latest: { nav: NavApi; handlers: HandlerApi; navigate: ReturnType<typeof vi.fn> } | null = null;
 let navigateMock: ReturnType<typeof vi.fn> | null = null;
-let setActiveTabMock: ReturnType<typeof vi.fn> | null = null;
 
 function renderNavigation() {
   act(() => {
@@ -112,7 +108,6 @@ function renderNavigation() {
 beforeEach(() => {
   latest = null;
   navigateMock = null;
-  setActiveTabMock = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -127,7 +122,6 @@ afterEach(() => {
   container = null;
   latest = null;
   navigateMock = null;
-  setActiveTabMock = null;
 });
 
 describe('IngredientNavigationRequest contract', () => {

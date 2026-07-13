@@ -21,6 +21,7 @@ import type {
   FoodPlanItem,
   UserSummary,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import {
@@ -67,6 +68,7 @@ type AiWorkspaceProps = {
   onBackHome?: () => void;
   createFoodPlanItem?: (payload: CreateFoodPlanItemPayload) => Promise<FoodPlanItem>;
   isCreatingFoodPlanItem?: boolean;
+  onNavigate?: (target: AppNavigationTarget) => void;
 };
 export { ApprovalPanel } from './AiConversationThread';
 const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
@@ -167,6 +169,7 @@ export function AiWorkspace({
   onBackHome,
   createFoodPlanItem,
   isCreatingFoodPlanItem = false,
+  onNavigate,
 }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
@@ -1510,6 +1513,7 @@ export function AiWorkspace({
         })}
         onCancelSending={cancelStreamingChat}
         onOpenRunDebug={setDebugRunId}
+        onNavigate={onNavigate}
       />
       <div className="ai-desktop-view">
         <AiDesktopConversationHistory
@@ -1599,6 +1603,7 @@ export function AiWorkspace({
                     })}
                     isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
+                    onNavigate={onNavigate}
                   />
                 ))}
               </>

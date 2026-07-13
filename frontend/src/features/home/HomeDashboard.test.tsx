@@ -514,4 +514,21 @@ describe('HomeDashboard three-question desktop', () => {
     expect(desktop.querySelectorAll('[data-testid="home-action-group"]')).toHaveLength(3);
     expect(desktop.textContent).not.toContain('豆腐');
   });
+
+  it('emits semantic history/ingredients targets instead of legacy TabKey values', () => {
+    const onNavigate = vi.fn();
+    const view = renderDashboard({ onNavigate });
+    const logsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '查看记录');
+    const ingredientsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '新增食材');
+    expect(logsButton).toBeDefined();
+    expect(ingredientsButton).toBeDefined();
+    act(() => logsButton?.click());
+    act(() => ingredientsButton?.click());
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'history' });
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ingredients' });
+    expect(onNavigate).not.toHaveBeenCalledWith('logs');
+    expect(onNavigate).not.toHaveBeenCalledWith('ingredients');
+    expect(onNavigate).not.toHaveBeenCalledWith('foods');
+    expect(onNavigate).not.toHaveBeenCalledWith('recipes');
+  });
 });
