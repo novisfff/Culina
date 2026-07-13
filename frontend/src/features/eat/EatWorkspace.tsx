@@ -1,7 +1,7 @@
-import type { ReactNode, Ref } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import type { EatBaseView } from '../../app/appNavigationModel';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
-import { ActionButton, StateBlock, WorkspaceOverlayFrame } from '../../components/ui-kit';
+import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
 
 const EAT_TABS: ReadonlyArray<{ key: EatBaseView; label: string }> = [
@@ -61,26 +61,63 @@ type TaskShellProps = {
 
 /**
  * Shared task panel: one close path for drawer/back/Escape, blocked while completionPending.
- * Heading receives headingRef + tabIndex=-1; never focuses itself in an effect (Task 2 owns focus).
+ * Reuses overlay visual classes without WorkspaceOverlayFrame focus lifecycle — Task 2 owns
+ * heading focus via registerTaskHeading and restore-to-base. No auto-focus / restore here.
  */
 function EatTaskShell(props: TaskShellProps) {
   const pending = Boolean(props.completionPending);
+  const titleId = useId();
+  const onCloseRef = useRef(props.onClose);
+  const pendingRef = useRef(pending);
+
+  useEffect(() => {
+    onCloseRef.current = props.onClose;
+  }, [props.onClose]);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (pendingRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   return (
-    <WorkspaceOverlayFrame
-      onClose={props.onClose}
-      busy={pending}
-      closeOnBackdrop={!pending}
-      rootClassName="eat-task-overlay"
+    <div
+      className="workspace-overlay-root eat-task-overlay"
+      data-busy={pending ? 'true' : undefined}
     >
+      <div
+        className="workspace-overlay-backdrop"
+        onClick={() => {
+          if (pendingRef.current) return;
+          onCloseRef.current();
+        }}
+      />
       <section
         className="eat-task-panel workspace-modal workspace-overlay-panel workspace-modal-sheet"
         data-workspace-overlay-panel="true"
+        data-workspace-overlay-busy={pending ? 'true' : 'false'}
         role="dialog"
         aria-modal="true"
-        aria-label={props.title}
+        aria-labelledby={titleId}
       >
         <header className="eat-task-header">
-          <h2 ref={props.headingRef} className="eat-task-heading" tabIndex={-1}>
+          <h2 id={titleId} ref={props.headingRef} className="eat-task-heading" tabIndex={-1}>
             {props.title}
           </h2>
           <ActionButton
@@ -102,7 +139,7 @@ function EatTaskShell(props: TaskShellProps) {
           <footer className="eat-task-action-bar">{props.footerActions}</footer>
         ) : null}
       </section>
-    </WorkspaceOverlayFrame>
+    </div>
   );
 }
 
@@ -114,6 +151,7 @@ function RelationErrorTask(props: {
   onClose: () => void;
   completionPending?: boolean;
 }) {
+  const pending = Boolean(props.completionPending);
   return (
     <EatTaskShell
       title={props.title}
@@ -121,7 +159,14 @@ function RelationErrorTask(props: {
       onClose={props.onClose}
       completionPending={props.completionPending}
       footerActions={
-        <ActionButton tone="primary" type="button" onClick={props.onClose}>
+        <ActionButton
+          tone="primary"
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            if (!pending) props.onClose();
+          }}
+        >
           {props.returnLabel}
         </ActionButton>
       }

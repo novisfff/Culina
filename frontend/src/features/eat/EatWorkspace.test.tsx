@@ -149,7 +149,45 @@ describe('EatWorkspace', () => {
     expect(navigation.registerTaskHeading).toHaveBeenCalled();
     const heading = screen.getByRole('heading', { name: '这份做法与家常菜的关联需要修复' });
     expect(heading).toHaveAttribute('tabindex', '-1');
+    // Shell must not steal focus onto 关闭; Task 2 focuses the registered heading.
     expect(heading).not.toHaveFocus();
+    expect(screen.getByRole('button', { name: '关闭' })).not.toHaveFocus();
+  });
+
+  it('names the task dialog from the visible heading', () => {
+    const navigation = createNavigationService({
+      eat: {
+        baseView: 'discover',
+        discoverSection: 'all',
+        task: { kind: 'recipe-target', recipeId: 'recipe-1', mode: 'view', returnTo: 'discover' },
+      },
+    });
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          navigation,
+          resolvedTask: { kind: 'recipe-food-missing', recipe: makeRecipe() },
+        })}
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: '这份做法与家常菜的关联需要修复' });
+    expect(dialog).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: '这份做法与家常菜的关联需要修复' });
+    expect(dialog.getAttribute('aria-labelledby')).toBe(heading.id);
+    expect(dialog.getAttribute('aria-label')).toBeNull();
+  });
+
+  it('disables relation-error return while completion is pending', () => {
+    render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: { kind: 'recipe-food-missing', recipe: makeRecipe() },
+          completionPending: true,
+        })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: '返回发现' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '关闭' })).toBeDisabled();
   });
 
   it('blocks Escape and backdrop close while completion is pending', async () => {
