@@ -66,7 +66,7 @@ describe('MealEnrichmentModal', () => {
   it('wraps MealEnrichmentForm with the shared modal footer', () => {
     const { view } = renderModal();
 
-    expect(view.textContent).toContain('补充记录');
+    expect(view.textContent).toContain('补充这餐');
     expect(view.textContent).toContain('保存后，本次补充记录将会出现在记录时间线中');
     expect(view.querySelector('.workspace-overlay-root.home-dashboard-overlay-root')).not.toBeNull();
     expect(view.querySelector<HTMLButtonElement>('button.ui-form-actions-primary')?.getAttribute('form')).toBe(

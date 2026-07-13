@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FoodPlanItem, MealLog, Member } from '../../api/types';
-import { buildMealLogWorkspaceViewModel, filterMealLogs, getMealTone, getWeekRecordCount, groupMealsByDate } from './MealLogWorkspaceModel';
+import {
+  buildMealLogWorkspaceViewModel,
+  filterMealLogs,
+  getMealRecordPresentation,
+  getMealTone,
+  getWeekRecordCount,
+  groupMealsByDate,
+  selectInitialMeal,
+} from './MealLogWorkspaceModel';
 import { resolveMealSource } from './MealLogEnrichmentModel';
 
 function makeMealLog(id: string, overrides: Partial<MealLog> = {}): MealLog {
@@ -111,6 +119,40 @@ describe('MealLogWorkspaceModel', () => {
 
     expect(model.selectedSource?.status).toBe('planned');
     expect(model.selectedParticipantMembers.map((item) => item.display_name)).toEqual(['妈妈']);
-    expect(model.pendingMeals).toEqual([meal]);
+    expect(model.basicMeals).toEqual([meal]);
+  });
+
+  it('treats a minimal MealLog as a complete valid record', () => {
+    const meal = makeMealLog('meal-minimal', { photos: [], notes: '', mood: '', participant_user_ids: [] });
+    expect(getMealRecordPresentation(meal)).toEqual({
+      validity: 'valid',
+      enrichment: 'basic',
+      actionLabel: '补充这餐',
+    });
+  });
+
+  it('does not select a pending record ahead of a newer valid record', () => {
+    const olderWithNoPhoto = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
+    const newer = makeMealLog('new', { date: '2026-07-12', created_at: '2026-07-12T10:00:00Z' });
+    expect(selectInitialMeal([olderWithNoPhoto, newer])?.id).toBe('new');
+  });
+
+  it('falls back to the newest meal when no selection is provided', () => {
+    const olderWithNoPhoto = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
+    const newer = makeMealLog('new', {
+      date: '2026-07-12',
+      created_at: '2026-07-12T10:00:00Z',
+      notes: '有备注',
+    });
+    const model = buildMealLogWorkspaceViewModel({
+      recentMeals: [olderWithNoPhoto, newer],
+      foodPlanItems: [],
+      members: [],
+      selectedMealId: null,
+      searchQuery: '',
+      statusFilter: 'all',
+      mealFilter: 'all',
+    });
+    expect(model.selectedMeal?.id).toBe('new');
   });
 });
