@@ -1107,6 +1107,7 @@ export interface AiMealIdeaIngredient {
   available: boolean;
 }
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
+export type AiRecipeCookSchemaVersion = 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
 export interface AiEvidenceItem {

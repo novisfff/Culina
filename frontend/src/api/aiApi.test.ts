@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aiApi } from './aiApi';
+import { AI_DRAFT_CONTRACTS_HEADER, aiApi } from './aiApi';
 import type { AiChatResponse } from './types';
 
 function streamFrom(text: string) {
@@ -19,9 +19,158 @@ function sseBlock(event: string, data: unknown) {
   return `event: ${event}\n${dataLines}\n\n`;
 }
 
+const emptyChatResponse: AiChatResponse = {
+  conversation_id: 'conversation-1',
+  message: {
+    id: 'message-1',
+    conversation_id: 'conversation-1',
+    role: 'assistant',
+    content: '完成',
+    content_type: 'parts',
+    parts: [{ id: 'part-1', type: 'text', text: '完成' }],
+    run_id: 'run-1',
+    status: 'completed',
+    metadata: {},
+    created_at: '2026-05-30T00:00:00Z',
+  },
+  run: {
+    id: 'run-1',
+    agent_key: 'workspace_orchestrator',
+    intent: 'workspace_orchestrator',
+    status: 'completed',
+    model: 'fake',
+    created_at: '2026-05-30T00:00:00Z',
+  },
+  events: [],
+  included: { result_cards: [], drafts: [], approvals: [] },
+};
+
+function jsonResponse(body: unknown = {}) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function lastFetchHeaders(fetchSpy: { mock: { calls: unknown[][] } }) {
+  const init = fetchSpy.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+  return new Headers(init?.headers);
+}
+
+async function invokeAiMethod(method: typeof CAPABILITY_METHODS[number]) {
+  switch (method) {
+    case 'getAiConversations':
+      return aiApi.getAiConversations();
+    case 'updateAiConversationVisibility':
+      return aiApi.updateAiConversationVisibility('conversation-1', 'family');
+    case 'chatAi':
+      return aiApi.chatAi({ message: '你好' });
+    case 'retryAiRun':
+      return aiApi.retryAiRun('run-1');
+    case 'getAiMessages':
+      return aiApi.getAiMessages('conversation-1');
+    case 'recordAiRecommendationSelection':
+      return aiApi.recordAiRecommendationSelection('message-1', {
+        part_id: 'part-1',
+        card_id: 'card-1',
+        entity_id: 'entity-1',
+        food_plan_item_id: 'plan-1',
+      });
+    case 'createAiInventoryOperationDraft':
+      return aiApi.createAiInventoryOperationDraft('message-1', {
+        part_id: 'part-1',
+        card_id: 'card-1',
+        item_id: 'item-1',
+        action: 'consume',
+      });
+    case 'getPendingAiApprovals':
+      return aiApi.getPendingAiApprovals('conversation-1');
+    case 'decideAiApproval':
+      return aiApi.decideAiApproval('conversation-1', 'approval-1', {
+        decision: 'approved',
+        draft_version: 1,
+        values: { draft: {} },
+      });
+    case 'respondAiHumanInput':
+      return aiApi.respondAiHumanInput('conversation-1', 'human-input-1', {
+        selected_option_ids: ['option-1'],
+      });
+    default: {
+      const _exhaustive: never = method;
+      throw new Error(`Unhandled method ${_exhaustive}`);
+    }
+  }
+}
+
+async function invokeAiStream(method: typeof STREAM_METHODS[number]) {
+  switch (method) {
+    case 'streamChatAi':
+      return aiApi.streamChatAi({ message: '你好' });
+    case 'streamAiApprovalDecision':
+      return aiApi.streamAiApprovalDecision('conversation-1', 'approval-1', {
+        decision: 'approved',
+        draft_version: 1,
+        values: { draft: {} },
+      });
+    case 'streamAiHumanInputResponse':
+      return aiApi.streamAiHumanInputResponse('conversation-1', 'human-input-1', {
+        selected_option_ids: ['option-1'],
+      });
+    default: {
+      const _exhaustive: never = method;
+      throw new Error(`Unhandled stream method ${_exhaustive}`);
+    }
+  }
+}
+
+const CAPABILITY_METHODS = [
+  'getAiConversations',
+  'updateAiConversationVisibility',
+  'chatAi',
+  'retryAiRun',
+  'getAiMessages',
+  'recordAiRecommendationSelection',
+  'createAiInventoryOperationDraft',
+  'getPendingAiApprovals',
+  'decideAiApproval',
+  'respondAiHumanInput',
+] as const;
+
+const STREAM_METHODS = [
+  'streamChatAi',
+  'streamAiApprovalDecision',
+  'streamAiHumanInputResponse',
+] as const;
+
 describe('aiApi', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each(CAPABILITY_METHODS)('%s sends both recipe-cook capabilities', async (method) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(method === 'chatAi' || method === 'retryAiRun' || method === 'respondAiHumanInput' ? emptyChatResponse : method === 'getAiConversations' ? [] : method === 'getAiMessages' ? [] : method === 'getPendingAiApprovals' ? [] : method === 'updateAiConversationVisibility' ? {
+      id: 'conversation-1',
+      owner_user_id: 'user-1',
+      owner_display_name: '小林',
+      visibility: 'family',
+      is_owner: true,
+    } : method === 'recordAiRecommendationSelection' || method === 'createAiInventoryOperationDraft' ? emptyChatResponse.message : { status: 'ok' }));
+
+    await invokeAiMethod(method);
+
+    expect(lastFetchHeaders(fetchSpy).get(AI_DRAFT_CONTRACTS_HEADER))
+      .toBe('recipe_cook_operation.v1,recipe_cook_operation.v2');
+  });
+
+  it.each(STREAM_METHODS)('%s sends capability on every stream connection', async (method) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(streamFrom(sseBlock('response', emptyChatResponse)), { status: 200 }),
+    );
+
+    await invokeAiStream(method);
+
+    expect(lastFetchHeaders(fetchSpy).get(AI_DRAFT_CONTRACTS_HEADER))
+      .toBe('recipe_cook_operation.v1,recipe_cook_operation.v2');
   });
 
   it('parses streamed events with multi-line data fields', async () => {

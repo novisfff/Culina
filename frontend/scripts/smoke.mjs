@@ -887,6 +887,7 @@ async function stopPreviewProcess(child) {
 
 async function installApiMocks(context, unexpectedRequests, options = {}) {
   const requestedApiPaths = options.requestedApiPaths ?? null;
+  const requestedAiHeaders = options.requestedAiHeaders ?? null;
   const routeController = options.routeController ?? createRouteController();
 
   await context.route('https://fonts.googleapis.com/**', async (route) => {
@@ -906,6 +907,13 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
 
     if (url.pathname.startsWith('/api/') && requestedApiPaths) {
       requestedApiPaths.push(url.pathname);
+    }
+
+    if (url.pathname.startsWith('/api/ai/') && requestedAiHeaders) {
+      requestedAiHeaders.push({
+        path: url.pathname,
+        contracts: request.headers()['x-culina-ai-draft-contracts'] || '',
+      });
     }
 
     if (request.method() === 'OPTIONS') {
@@ -995,13 +1003,13 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
     await fulfillJson(route, { detail: `Unhandled smoke API: ${url.pathname}` }, 404);
   });
 
-  return { routeController, requestedApiPaths };
+  return { routeController, requestedApiPaths, requestedAiHeaders };
 }
 
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization,content-type',
+    'Access-Control-Allow-Headers': 'authorization,content-type,x-culina-ai-draft-contracts',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   };
 }
@@ -1021,9 +1029,10 @@ async function createPage(browser, viewport, authenticated = true, contextOption
   const pageErrors = [];
   const consoleErrors = [];
   const requestedApiPaths = mockOptions.requestedApiPaths ?? [];
+  const requestedAiHeaders = mockOptions.requestedAiHeaders ?? [];
   const routeController = mockOptions.routeController ?? createRouteController();
 
-  await installApiMocks(context, unexpectedRequests, { requestedApiPaths, routeController });
+  await installApiMocks(context, unexpectedRequests, { requestedApiPaths, requestedAiHeaders, routeController });
   if (authenticated) {
     await context.addInitScript(() => {
       localStorage.setItem('culina-access-token', 'smoke-token');
@@ -1047,6 +1056,7 @@ async function createPage(browser, viewport, authenticated = true, contextOption
     page,
     routeController,
     requestedApiPaths,
+    requestedAiHeaders,
     assertClean: () => {
       if (unexpectedRequests.length > 0) {
         throw new Error(`未 mock 的 API 请求：\n${unexpectedRequests.join('\n')}`);
@@ -2230,6 +2240,36 @@ async function runLegacyStorageRecoverySmoke(browser, baseUrl) {
   }
 }
 
+
+async function runCompatibleAiClientSmoke(browser, baseUrl) {
+  const requestedAiHeaders = [];
+  const { page, context, assertClean } = await createPage(
+    browser,
+    { width: 1180, height: 820 },
+    true,
+    {},
+    { requestedAiHeaders },
+  );
+  try {
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: 'AI' }).click();
+    await expectVisibleText(page, 'AI 厨房助手', 'compatible AI workspace');
+    await page.waitForTimeout(200);
+
+    const capabilityHits = requestedAiHeaders.filter((item) => item.contracts === 'recipe_cook_operation.v1,recipe_cook_operation.v2');
+    if (capabilityHits.length === 0) {
+      throw new Error(`AI capability header missing on /api/ai/* requests: ${JSON.stringify(requestedAiHeaders)}`);
+    }
+
+    // Fixture-level checks for v1/v2 approval semantics are covered by unit tests;
+    // smoke proves the production client always advertises both contracts.
+    console.log(`compatible AI client smoke: ${capabilityHits.length} capability-bearing AI request(s)`);
+    assertClean();
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   assertDistExists();
   const preview = await startPreview();
@@ -2379,8 +2419,9 @@ async function main() {
     await runTouchTabletLandscapeSmoke(browser, preview.url);
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
+    await runCompatibleAiClientSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, unified eat navigation (home food detail/search recipe/plan detail/mobile tabs/storage recovery), home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, compatible AI client capability header, desktop workspace tabs, unified eat navigation (home food detail/search recipe/plan detail/mobile tabs/storage recovery), home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

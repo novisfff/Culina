@@ -56,10 +56,14 @@ function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', o
   });
 }
 
-function recipeCookApproval(draftOverrides: Record<string, unknown> = {}, overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+function recipeCookApproval(
+  draftOverrides: Record<string, unknown> = {},
+  overrides: Partial<AiApprovalRequest> = {},
+  schemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' = 'recipe_cook_operation.v1',
+): AiApprovalRequest {
   const draft = {
     draftType: 'recipe_cook',
-    schemaVersion: 'recipe_cook_operation.v1',
+    schemaVersion,
     recipeId: 'recipe-tomato-egg',
     title: '番茄炒蛋',
     baseUpdatedAt: '2026-06-10T00:00:00Z',
@@ -80,7 +84,7 @@ function recipeCookApproval(draftOverrides: Record<string, unknown> = {}, overri
     mealType: 'dinner',
     participantUserIds: ['user-1'],
     notes: '少油',
-    createMealLog: true,
+    ...(schemaVersion === 'recipe_cook_operation.v1' ? { createMealLog: true } : {}),
     planItemId: 'plan-item-1',
     planItemBaseUpdatedAt: '2026-06-10T01:00:00Z',
     resultNote: '口味刚好',
@@ -110,14 +114,21 @@ function recipeCookApproval(draftOverrides: Record<string, unknown> = {}, overri
   return approval({
     approval_type: 'recipe.cook',
     title: '确认做菜执行',
-    approve_label: '确认执行',
+    approve_label: '确认做菜',
     reject_label: '暂不执行',
-    draft_schema_version: 'recipe_cook_operation.v1',
+    draft_schema_version: schemaVersion,
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
     initial_values: { draft },
     submitted_values: {},
     ...overrides,
   });
+}
+
+function makeRecipeCookApproval(
+  schemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2',
+  draftOverrides: Record<string, unknown> = {},
+) {
+  return recipeCookApproval(draftOverrides, {}, schemaVersion);
 }
 
 function mealPlanOperationApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
@@ -1282,7 +1293,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('库存扣减预览');
     expect(rendered.container.textContent).toContain('缺料与阻断');
     expect(rendered.container.textContent).toContain('餐食记录补充');
-    expect(rendered.container.textContent).toContain('同时记录餐食');
+    expect(rendered.container.textContent).toContain('完成后会记录这餐');
     expect(rendered.container.textContent).toContain('关联计划：2026-06-12 · 晚餐 · 番茄炒蛋 · 计划中');
     expect(rendered.container.textContent).toContain('需要 2 个');
     expect(rendered.container.textContent).toContain('批次 1：扣 2 个 · 冷藏 · 购于 2026-06-08 · 到期 2026-06-15');
@@ -1291,14 +1302,58 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('submits recipe cook approvals with the meal log dropdown value', async () => {
+  it('shows v1 createMealLog as read-only legacy meaning', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={makeRecipeCookApproval('recipe_cook_operation.v1', { createMealLog: true })} onDecision={() => undefined} />,
+    );
+
+    expect(rendered.container.textContent).toContain('完成后会记录这餐');
+    expect(rendered.container.textContent).not.toContain('只扣库存不记录');
+    expect(Array.from(rendered.container.querySelectorAll('.ai-resource-field-choice')).some((field) => field.textContent?.includes('餐食记录'))).toBe(false);
+    rendered.unmount();
+  });
+
+  it('never renders or submits createMealLog for v2', async () => {
+    const pending = makeRecipeCookApproval('recipe_cook_operation.v2', { createMealLog: false });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).not.toMatch(/createMealLog|只扣库存|不同步/);
+    expect(rendered.container.textContent).toContain('完成后会记录这餐');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+
+    expect(decideSpy).toHaveBeenCalledTimes(1);
+    const submittedDraft = decideSpy.mock.calls[0]?.[2]?.draft as Record<string, unknown>;
+    expect(submittedDraft).not.toHaveProperty('createMealLog');
+    expect(submittedDraft.schemaVersion).toBe('recipe_cook_operation.v2');
+    rendered.unmount();
+  });
+
+  it('marks v1 false as requiring regeneration instead of making it editable', async () => {
+    const pending = makeRecipeCookApproval('recipe_cook_operation.v1', { createMealLog: false });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('这份旧草稿需要刷新后重新确认');
+    expect(rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.disabled).toBe(true);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('submits recipe cook approvals with always-record semantics for v1 true', async () => {
     const pending = recipeCookApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
-    const mealLogField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-cook-draft-editor .ai-resource-field-choice'))
-      .find((field) => field.textContent?.includes('餐食记录'));
-    expect(mealLogField?.textContent).toContain('同时记录餐食');
-    await chooseSingleSelectOption(mealLogField, '只扣库存不记录');
 
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
@@ -1311,7 +1366,7 @@ describe('ApprovalPanel', () => {
       {
         draft: expect.objectContaining({
           draftType: 'recipe_cook',
-          createMealLog: false,
+          createMealLog: true,
           mealType: 'dinner',
           previewItems: [expect.objectContaining({ ingredient_name: '番茄' })],
         }),
