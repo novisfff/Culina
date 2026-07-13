@@ -1023,7 +1023,6 @@ export function buildCookPayload(args: {
     servings: Number(args.servings),
     date: args.date,
     meal_type: args.mealType,
-    create_meal_log: true,
     completion_request_id: args.completionRequestId,
     food_plan_item_id: args.planItemId ?? undefined,
     ...(args.planItemId && args.planItemBaseUpdatedAt

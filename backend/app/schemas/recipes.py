@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import date as date_type, datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.enums import Difficulty, MealType
 from app.schemas.media import MediaAssetOut
@@ -135,21 +135,37 @@ class UpdateRecipeRequest(CreateRecipeRequest):
     pass
 
 
-class CookRecipeRequest(BaseModel):
+class CookRecipePreviewRequest(BaseModel):
+    """Preview-only shape: does not claim a completion identity."""
+
+    servings: float = Field(gt=0)
+    allow_partial_inventory_deduction: bool = False
+
+
+class CookRecipeDraftFields(BaseModel):
+    """Shared cook fields for AI draft normalization (no completion claim)."""
+
     servings: float = Field(gt=0)
     date: date_type | None = None
     meal_type: MealType | None = None
     participant_user_ids: list[str] = Field(default_factory=list)
     notes: str = ""
-    create_meal_log: bool | None = Field(default=None)  # deprecated: ignored for REST completion semantics
-    completion_request_id: str | None = Field(default=None, min_length=1, max_length=120)
-    food_plan_item_id: str | None = None
-    food_plan_item_base_updated_at: datetime | None = None
-    recipe_plan_item_id: str | None = None
     result_note: str = ""
     adjustments: str = ""
     rating: int | None = Field(default=None, ge=1, le=5)
     allow_partial_inventory_deduction: bool = False
+
+
+class CookRecipeRequest(CookRecipeDraftFields):
+    completion_request_id: str = Field(min_length=1, max_length=120)
+    food_plan_item_id: str | None = None
+    food_plan_item_base_updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_plan_base_timestamp(self) -> Self:
+        if self.food_plan_item_id and self.food_plan_item_base_updated_at is None:
+            raise ValueError("计划来源完成请求必须提供 food_plan_item_base_updated_at")
+        return self
 
 
 class CookRecipeConsumedItemOut(BaseModel):
@@ -284,20 +300,3 @@ class UpdateFoodPlanItemRequest(BaseModel):
     status: str | None = None
 
 
-class RecipePlanItemOut(FoodPlanItemOut):
-    pass
-
-
-class CreateRecipePlanItemRequest(BaseModel):
-    recipe_id: str
-    plan_date: date_type
-    meal_type: MealType
-    note: str = ""
-
-
-class UpdateRecipePlanItemRequest(BaseModel):
-    recipe_id: str | None = None
-    plan_date: date_type | None = None
-    meal_type: MealType | None = None
-    note: str | None = None
-    status: str | None = None

@@ -627,8 +627,6 @@ export interface CookRecipeRequest {
   meal_type?: MealType;
   participant_user_ids?: string[];
   notes?: string;
-  /** Compatibility transport always true; callers must not set false. */
-  create_meal_log: true;
   completion_request_id: string;
   food_plan_item_id?: string;
   food_plan_item_base_updated_at?: string;
@@ -792,8 +790,6 @@ export interface FoodPlanItem {
   updated_by?: string | null;
 }
 
-export type RecipePlanItem = FoodPlanItem;
-
 export interface CreateFoodPlanItemPayload {
   food_id: string;
   plan_date: string;
@@ -803,21 +799,6 @@ export interface CreateFoodPlanItemPayload {
 
 export interface UpdateFoodPlanItemPayload {
   food_id?: string;
-  plan_date?: string;
-  meal_type?: MealType;
-  note?: string;
-  status?: 'planned' | 'cooked' | 'skipped';
-}
-
-export interface CreateRecipePlanItemPayload {
-  recipe_id: string;
-  plan_date: string;
-  meal_type: MealType;
-  note: string;
-}
-
-export interface UpdateRecipePlanItemPayload {
-  recipe_id?: string;
   plan_date?: string;
   meal_type?: MealType;
   note?: string;

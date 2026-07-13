@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.ai.draft_contracts import RECIPE_COOK_V1, require_recipe_cook_schema_version
+from app.ai.draft_contracts import require_recipe_cook_schema_version
 from app.ai.errors import AIConflictError
 from app.core.enums import MealType
 from app.models.domain import Recipe, RecipeCookLog
@@ -28,7 +28,6 @@ from app.services.ai_operations.common import assert_updated_at_matches
 
 logger = logging.getLogger(__name__)
 
-V1_FALSE_CONFLICT_MESSAGE = "做菜完成规则已更新，请刷新草稿并重新确认；完成后会自动记录餐食。"
 SHORTAGE_CONFLICT_MESSAGE = "当前库存不足，不能直接完成做菜，请刷新预览或先补采购"
 
 
@@ -142,7 +141,7 @@ def recipe_cook_command_from_ai_payload(
     if not participants:
         participants = (user_id,)
 
-    plan_item_id = payload.get("planItemId") or payload.get("food_plan_item_id") or payload.get("recipe_plan_item_id")
+    plan_item_id = payload.get("planItemId") or payload.get("food_plan_item_id")
     plan_item_id = str(plan_item_id) if plan_item_id else None
 
     boundaries = payload.get("inventoryBoundaries")
@@ -193,9 +192,6 @@ def execute_recipe_cook_draft(
     operation_idempotency_key: str,
 ) -> tuple[dict[str, Any], list[str]]:
     schema_version = require_recipe_cook_schema_version(payload)
-    if schema_version == RECIPE_COOK_V1 and payload.get("createMealLog") is not True:
-        logger.info("ai_recipe_cook event=v1_false_conflict")
-        raise AIConflictError(V1_FALSE_CONFLICT_MESSAGE)
 
     recipe = db.scalar(
         select(Recipe).where(Recipe.family_id == family_id, Recipe.id == str(payload.get("recipeId") or ""))

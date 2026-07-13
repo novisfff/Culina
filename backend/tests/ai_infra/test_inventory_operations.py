@@ -2402,11 +2402,11 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     payload={
+                        "schemaVersion": "recipe_cook_operation.v2",
                         "recipeId": recipe.id,
                         "servings": 1,
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "createMealLog": False,
                     },
                 )
 
@@ -2415,6 +2415,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(boundary["quantityTrackingMode"], "track_quantity")
             self.assertEqual(boundary["expectedIngredientRowVersion"], 1)
             self.assertEqual(boundary["batches"], [{"inventoryItemId": "inventory-tomato", "expectedRowVersion": 1}])
+            self.assertNotIn("createMealLog", draft)
 
             with self.SessionLocal() as db:
                 item = db.get(InventoryItem, "inventory-tomato")
@@ -2424,7 +2425,6 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
             with self.SessionLocal() as db:
                 with self.assertRaises(AIConflictError):
-                        draft["createMealLog"] = True
                         execute_recipe_cook_draft(
                             db,
                             family_id=self.family.id,
@@ -2507,11 +2507,11 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     payload={
+                        "schemaVersion": "recipe_cook_operation.v2",
                         "recipeId": recipe.id,
                         "servings": 1,
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "createMealLog": False,
                     },
                 )
 
@@ -2520,6 +2520,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(boundary["stateId"], "state-recipe-presence")
             self.assertEqual(boundary["expectedStateRowVersion"], 1)
             self.assertEqual(boundary["batches"], [])
+            self.assertNotIn("createMealLog", draft)
 
             with self.SessionLocal() as db:
                 state = db.get(IngredientInventoryState, "state-recipe-presence")
@@ -2529,7 +2530,6 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
             with self.SessionLocal() as db:
                 with self.assertRaises(AIConflictError):
-                        draft["createMealLog"] = True
                         execute_recipe_cook_draft(
                             db,
                             family_id=self.family.id,
@@ -2575,18 +2575,17 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     payload={
+                        "schemaVersion": "recipe_cook_operation.v2",
                         "recipeId": recipe.id,
                         "servings": 1,
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "createMealLog": False,
                     },
                 )
 
             editable = json.loads(json.dumps(original))
             editable["date"] = (date.today() + timedelta(days=1)).isoformat()
             editable["mealType"] = "lunch"
-            editable["createMealLog"] = True
             editable["notes"] = "少油"
             draft_operation_registry.validate_approval_value("recipe_cook", original, editable)
 
@@ -2650,11 +2649,11 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     payload={
+                        "schemaVersion": "recipe_cook_operation.v2",
                         "recipeId": recipe.id,
                         "servings": 1,
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "createMealLog": False,
                     },
                 )
 
@@ -2678,8 +2677,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     submitted["inventoryBoundaries"][0]["batches"][0]["expectedRowVersion"],
                     1,
                 )
+                self.assertNotIn("createMealLog", submitted)
                 with self.assertRaises(AIConflictError):
-                        submitted["createMealLog"] = True
                         execute_recipe_cook_draft(
                             db,
                             family_id=self.family.id,
@@ -2733,9 +2732,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     payload={
+                        "schemaVersion": "recipe_cook_operation.v2",
                         "recipeId": recipe.id,
                         "servings": 2,
-                        "createMealLog": False,
                     },
                 )
 
@@ -2747,7 +2746,6 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
                 with patch.object(type(db), "flush", flush_raising_stale):
                     with self.assertRaises(AIConflictError) as raised:
-                        payload["createMealLog"] = True
                         execute_recipe_cook_draft(
                             db,
                             family_id=self.family.id,

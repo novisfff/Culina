@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food, Ingredient, InventoryItem, MealLog, Recipe, RecipeFavorite, RecipePlanItem } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, MealLog, Recipe, RecipeFavorite, FoodPlanItem } from '../../api/types';
 import { buildRecipeCards, buildRecipeHomeViewModel, filterRecipeCards } from './workspaceModel';
 
 const tomato: Ingredient = {
@@ -177,7 +177,7 @@ const recipeFavorite: RecipeFavorite = {
   created_at: '2026-05-12T12:00:00Z',
 };
 
-const planItem: RecipePlanItem = {
+const planItem: FoodPlanItem = {
   id: 'plan-1',
   family_id: 'family-1',
   user_id: 'user-1',

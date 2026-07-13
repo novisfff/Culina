@@ -564,9 +564,10 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
         def test_plan_completion_updates_same_meal_id(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
             plan_payload = plan_response.json()
@@ -822,14 +823,16 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(second.meal_log_id, first.meal_log_id)
 
         def test_cook_recipe_deducts_inventory_and_creates_meal_log(self) -> None:
-            recipe = self.create_recipe(auto_create_food=False)
+            recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
-            plan_id = plan_response.json()["id"]
+            plan_payload = plan_response.json()
+            plan_id = plan_payload["id"]
             with self.SessionLocal() as db:
                 db.add_all(
                     [
@@ -875,8 +878,9 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     "meal_type": "dinner",
                     "participant_user_ids": [self.user.id],
                     "notes": "测试做菜",
-                    "create_meal_log": True,
-                    "recipe_plan_item_id": plan_id,
+                    "completion_request_id": "req-rest-cook-plan",
+                    "food_plan_item_id": plan_id,
+                    "food_plan_item_base_updated_at": plan_payload["updated_at"],
                 },
             )
             self.assertEqual(cook_response.status_code, 200, cook_response.text)
@@ -885,7 +889,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(len(payload["consumed_items"]), 2)
             self.assertIsNotNone(payload["meal_log_id"])
             self.assertIsNotNone(payload["cook_log_id"])
-            plan_items = self.client.get("/api/recipe-plan?date_from=2026-05-14&date_to=2026-05-14").json()
+            plan_items = self.client.get("/api/food-plan?date_from=2026-05-14&date_to=2026-05-14").json()
             self.assertEqual(plan_items[0]["status"], "cooked")
             self.assertEqual(plan_items[0]["meal_log_id"], payload["meal_log_id"])
             self.assertIsNotNone(plan_items[0]["completed_at"])
@@ -918,7 +922,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(len(meal_rows), 1)
                 self.assertEqual(meal_rows[0].highlight_summary, "完成 番茄炒蛋 并记录用餐")
 
-        def test_cook_recipe_create_meal_log_false_still_records_meal(self) -> None:
+        def test_cook_recipe_always_records_meal(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)
             recipe_id = recipe["id"]
             self._seed_full_inventory(
@@ -932,7 +936,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     "servings": 2,
                     "date": "2026-05-14",
                     "meal_type": "dinner",
-                    "create_meal_log": False,
+                    "completion_request_id": "req-rest-always-meal",
                 },
             )
             self.assertEqual(cook_response.status_code, 200, cook_response.text)
@@ -1014,7 +1018,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             preview_response = self.client.post(
                 f"/api/recipes/{recipe_id}/cook-preview",
-                json={"servings": 2, "create_meal_log": True},
+                json={"servings": 2},
             )
             self.assertEqual(preview_response.status_code, 200, preview_response.text)
             payload = preview_response.json()
@@ -1033,7 +1037,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             recipe = self.create_recipe(auto_create_food=False)
             response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2, "completion_request_id": "req-rest-shortage-no-inv"},
             )
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
@@ -1082,7 +1086,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook-preview",
-                json={"servings": 2, "create_meal_log": True, "allow_partial_inventory_deduction": True},
+                json={"servings": 2, "allow_partial_inventory_deduction": True},
             )
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
@@ -1146,8 +1150,8 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     "servings": 2,
                     "date": "2026-05-14",
                     "meal_type": "dinner",
-                    "create_meal_log": True,
                     "allow_partial_inventory_deduction": True,
+                    "completion_request_id": "req-rest-partial-cook",
                 },
             )
             self.assertEqual(response.status_code, 200, response.text)
@@ -1180,15 +1184,13 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                         "ingredient_name": "番茄",
                         "quantity": 2,
                         "unit": "个",
-                        "note": "",
-                    },
+                        "note": ""},
                     {
                         "ingredient_id": self.salt.id,
                         "ingredient_name": "盐",
                         "quantity": 5,
                         "unit": "g",
-                        "note": "调味",
-                    },
+                        "note": "调味"},
                 ],
             )
             today = date.today()
@@ -1229,7 +1231,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             preview_response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook-preview",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2},
             )
             self.assertEqual(preview_response.status_code, 200, preview_response.text)
             preview = preview_response.json()
@@ -1241,7 +1243,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             cook_response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2, "completion_request_id": "req-rest-not-tracked"},
             )
             self.assertEqual(cook_response.status_code, 200, cook_response.text)
             payload = cook_response.json()
@@ -1267,14 +1269,13 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                         "ingredient_name": "盐",
                         "quantity": 5,
                         "unit": "g",
-                        "note": "调味",
-                    }
+                        "note": "调味"}
                 ],
             )
 
             response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook-preview",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2},
             )
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
@@ -1291,8 +1292,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                         "ingredient_name": "盐",
                         "quantity": 5,
                         "unit": "g",
-                        "note": "调味",
-                    }
+                        "note": "调味"}
                 ],
             )
             today = date.today()
@@ -1316,7 +1316,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             response = self.client.post(
                 f"/api/recipes/{recipe['id']}/cook-preview",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2},
             )
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
@@ -1376,7 +1376,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     "servings": 2,
                     "date": "2026-05-14",
                     "meal_type": "dinner",
-                    "create_meal_log": False,
+                    "completion_request_id": "req-rest-row-version",
                 },
             )
             self.assertEqual(cook_response.status_code, 200, cook_response.text)
@@ -1452,7 +1452,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             preview = self.client.post(
                 f"/api/recipes/{recipe_id}/cook-preview",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2},
             )
             self.assertEqual(preview.status_code, 200, preview.text)
             preview_payload = preview.json()
@@ -1467,7 +1467,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
 
             cook = self.client.post(
                 f"/api/recipes/{recipe_id}/cook",
-                json={"servings": 2, "create_meal_log": False},
+                json={"servings": 2, "completion_request_id": "req-rest-expired-snoozed"},
             )
             self.assertEqual(cook.status_code, 200, cook.text)
             cook_payload = cook.json()
@@ -1543,7 +1543,7 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             with patch.object(Session, "commit", commit_raising_stale):
                 response = self.client.post(
                     f"/api/recipes/{recipe_id}/cook",
-                    json={"servings": 2, "create_meal_log": False},
+                    json={"servings": 2, "completion_request_id": "req-rest-stale-data"},
                 )
             self.assertEqual(response.status_code, 409, response.text)
             self.assertEqual(response.json()["detail"], STALE_INVENTORY_DETAIL)
@@ -1557,6 +1557,11 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(tomato.row_version, 1)
                 self.assertEqual(egg.row_version, 1)
 
+        def _linked_food_id(self, recipe_id: str) -> str:
+            foods = self.client.get("/api/foods").json()
+            linked = next(item for item in foods if item.get("recipe_id") == recipe_id)
+            return linked["id"]
+
         def _rest_cook_payload(self, **overrides) -> dict:
             payload = {
                 "servings": 2,
@@ -1564,12 +1569,13 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 "meal_type": "dinner",
                 "participant_user_ids": [self.user.id],
                 "notes": "rest cook",
+                "completion_request_id": "request-default",
             }
             payload.update(overrides)
             return payload
 
-        def test_successful_rest_cook_always_records_meal_for_create_meal_log_flags(self) -> None:
-            for index, flag_payload in enumerate(({}, {"create_meal_log": True}, {"create_meal_log": False})):
+        def test_successful_rest_cook_always_records_meal(self) -> None:
+            for index, flag_payload in enumerate(({}, {}, {})):
                 with self.subTest(flag_payload=flag_payload):
                     recipe = self.create_recipe(auto_create_food=False, title=f"番茄炒蛋-{index}")
                     recipe_id = recipe["id"]
@@ -1608,100 +1614,77 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(second_body["cook_log_id"], first_body["cook_log_id"])
             self.assertIs(second_body["replayed"], True)
 
-        def test_legacy_missing_completion_request_id_still_succeeds(self) -> None:
-            recipe = self.create_recipe(auto_create_food=False)
-            recipe_id = recipe["id"]
-            self._seed_full_inventory(
-                tomato_id="inventory-tomato-rest-legacy-id",
-                egg_id="inventory-egg-rest-legacy-id",
-            )
-            response = self.client.post(
-                f"/api/recipes/{recipe_id}/cook",
-                json=self._rest_cook_payload(),
-            )
-            self.assertEqual(response.status_code, 200, response.text)
-            body = response.json()
-            self.assertTrue(body["meal_log_id"])
-            self.assertTrue(body["cook_log_id"])
-            with self.SessionLocal() as db:
-                cook_log = db.get(RecipeCookLog, body["cook_log_id"])
-                assert cook_log is not None
-                self.assertIsNotNone(cook_log.completion_request_id)
-                self.assertTrue(str(cook_log.completion_request_id).startswith("legacy-cook"))
+        def test_final_cook_request_requires_completion_id(self) -> None:
+            from pydantic import ValidationError
+            from app.schemas.recipes import CookRecipeRequest
 
-        def test_rest_cook_prefers_food_plan_item_id_over_recipe_plan_item_alias(self) -> None:
+            with self.assertRaises(ValidationError):
+                CookRecipeRequest(servings=2)
+
+        def test_final_plan_cook_requires_base_updated_at(self) -> None:
+            from pydantic import ValidationError
+            from app.schemas.recipes import CookRecipeRequest
+
+            with self.assertRaises(ValidationError):
+                CookRecipeRequest(
+                    servings=2,
+                    completion_request_id="request-1",
+                    food_plan_item_id="plan-1",
+                )
+
+        def test_final_request_rejects_removed_aliases_as_ignored_or_invalid(self) -> None:
+            from app.schemas.recipes import CookRecipeRequest
+
+            # Removed fields are no longer model fields; model_validate drops unknown keys by default.
+            parsed = CookRecipeRequest.model_validate({
+                "servings": 2,
+                "completion_request_id": "request-1",
+                "create_meal_log": False,
+                "recipe_plan_item_id": "plan-1",
+            })
+            self.assertEqual(parsed.completion_request_id, "request-1")
+            self.assertIsNone(parsed.food_plan_item_id)
+            self.assertFalse(hasattr(parsed, "create_meal_log"))
+            self.assertFalse(hasattr(parsed, "recipe_plan_item_id"))
+
+        def test_rest_cook_food_plan_item_completes_plan(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]
-            preferred = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": "preferred"},
+            food_id = self._linked_food_id(recipe_id)
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": "preferred"},
             )
-            self.assertEqual(preferred.status_code, 201, preferred.text)
-            ignored = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-15", "meal_type": "dinner", "note": "ignored"},
-            )
-            self.assertEqual(ignored.status_code, 201, ignored.text)
-            preferred_id = preferred.json()["id"]
-            ignored_id = ignored.json()["id"]
-            base_updated_at = preferred.json()["updated_at"]
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan_id = plan_response.json()["id"]
+            base_updated_at = plan_response.json()["updated_at"]
             self._seed_full_inventory(
-                tomato_id="inventory-tomato-rest-alias",
-                egg_id="inventory-egg-rest-alias",
+                tomato_id="inventory-tomato-rest-plan",
+                egg_id="inventory-egg-rest-plan",
             )
             response = self.client.post(
                 f"/api/recipes/{recipe_id}/cook",
                 json=self._rest_cook_payload(
-                    completion_request_id="req-rest-alias",
-                    food_plan_item_id=preferred_id,
-                    recipe_plan_item_id=ignored_id,
+                    completion_request_id="req-rest-plan",
+                    food_plan_item_id=plan_id,
                     food_plan_item_base_updated_at=base_updated_at,
                 ),
             )
             self.assertEqual(response.status_code, 200, response.text)
             meal_log_id = response.json()["meal_log_id"]
             with self.SessionLocal() as db:
-                preferred_item = db.get(FoodPlanItem, preferred_id)
-                ignored_item = db.get(FoodPlanItem, ignored_id)
-                assert preferred_item is not None and ignored_item is not None
-                self.assertEqual(preferred_item.status, "cooked")
-                self.assertEqual(preferred_item.meal_log_id, meal_log_id)
-                self.assertEqual(ignored_item.status, "planned")
-                self.assertIsNone(ignored_item.meal_log_id)
-
-        def test_rest_cook_recipe_plan_item_alias_still_works(self) -> None:
-            recipe = self.create_recipe(auto_create_food=True)
-            recipe_id = recipe["id"]
-            plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
-            )
-            self.assertEqual(plan_response.status_code, 201, plan_response.text)
-            plan_id = plan_response.json()["id"]
-            self._seed_full_inventory(
-                tomato_id="inventory-tomato-rest-alias-only",
-                egg_id="inventory-egg-rest-alias-only",
-            )
-            response = self.client.post(
-                f"/api/recipes/{recipe_id}/cook",
-                json=self._rest_cook_payload(
-                    completion_request_id="req-rest-alias-only",
-                    recipe_plan_item_id=plan_id,
-                ),
-            )
-            self.assertEqual(response.status_code, 200, response.text)
-            with self.SessionLocal() as db:
                 plan_item = db.get(FoodPlanItem, plan_id)
                 assert plan_item is not None
                 self.assertEqual(plan_item.status, "cooked")
-                self.assertEqual(plan_item.meal_log_id, response.json()["meal_log_id"])
+                self.assertEqual(plan_item.meal_log_id, meal_log_id)
 
         def test_rest_cook_plan_base_timestamp_stale_maps_to_409(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
             plan_id = plan_response.json()["id"]
@@ -1723,9 +1706,10 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
         def test_rest_cook_already_completed_plan_maps_to_409(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
             plan_payload = plan_response.json()
@@ -1763,9 +1747,10 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
         def test_rest_cook_recipe_plan_mismatch_maps_to_404(self) -> None:
             recipe_a = self.create_recipe(auto_create_food=True, title="菜谱A")
             recipe_b = self.create_recipe(auto_create_food=True, title="菜谱B")
+            food_id = self._linked_food_id(recipe_a["id"])
             plan_response = self.client.post(
-                "/api/recipe-plan",
-                json={"recipe_id": recipe_a["id"], "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
             )
             self.assertEqual(plan_response.status_code, 201, plan_response.text)
             plan_id = plan_response.json()["id"]
@@ -1849,40 +1834,38 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertIsNone(body["meal_log_id"])
             self.assertIsNone(body["cook_log_id"])
 
-        def test_b1_compatibility_matrix_old_rest_and_extra_fields(self) -> None:
-            """B1 matrix: old REST true/false both record; extra fields parse; payload is replayable."""
-            # Compatible frontend may send create_meal_log plus forward-compatible extras.
-            for index, flag in enumerate((True, False)):
-                with self.subTest(create_meal_log=flag):
-                    recipe = self.create_recipe(auto_create_food=False, title=f"矩阵菜-{index}")
-                    recipe_id = recipe["id"]
-                    self._seed_full_inventory(
-                        tomato_id=f"inventory-tomato-matrix-{index}",
-                        egg_id=f"inventory-egg-matrix-{index}",
-                    )
-                    payload = self._rest_cook_payload(
-                        create_meal_log=flag,
-                        completion_request_id=f"matrix-request-{index}",
-                        future_client_field="forward-compatible",
-                        client_trace_id=f"trace-{index}",
-                    )
-                    # Schema ignores unknown extras (old backend fixture behavior).
-                    from app.schemas.recipes import CookRecipeRequest
+        def test_rest_cook_ignores_removed_fields_and_replays(self) -> None:
+            """Removed aliases are ignored; completion_request_id replay still works."""
+            recipe = self.create_recipe(auto_create_food=False, title="矩阵菜")
+            recipe_id = recipe["id"]
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-matrix",
+                egg_id="inventory-egg-matrix",
+            )
+            payload = self._rest_cook_payload(
+                create_meal_log=False,
+                recipe_plan_item_id="ignored-plan",
+                completion_request_id="matrix-request-1",
+                future_client_field="forward-compatible",
+                client_trace_id="trace-1",
+            )
+            from app.schemas.recipes import CookRecipeRequest
 
-                    parsed = CookRecipeRequest.model_validate(payload)
-                    self.assertEqual(parsed.create_meal_log, flag)
-                    self.assertEqual(parsed.completion_request_id, f"matrix-request-{index}")
+            parsed = CookRecipeRequest.model_validate(payload)
+            self.assertEqual(parsed.completion_request_id, "matrix-request-1")
+            self.assertFalse(hasattr(parsed, "create_meal_log"))
+            self.assertFalse(hasattr(parsed, "recipe_plan_item_id"))
 
-                    first = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
-                    self.assertEqual(first.status_code, 200, first.text)
-                    first_body = first.json()
-                    self.assertTrue(first_body["meal_log_id"])
-                    self.assertTrue(first_body["cook_log_id"])
-                    self.assertIs(first_body["replayed"], False)
+            first = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+            self.assertEqual(first.status_code, 200, first.text)
+            first_body = first.json()
+            self.assertTrue(first_body["meal_log_id"])
+            self.assertTrue(first_body["cook_log_id"])
+            self.assertIs(first_body["replayed"], False)
 
-                    second = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
-                    self.assertEqual(second.status_code, 200, second.text)
-                    second_body = second.json()
-                    self.assertEqual(second_body["meal_log_id"], first_body["meal_log_id"])
-                    self.assertEqual(second_body["cook_log_id"], first_body["cook_log_id"])
-                    self.assertIs(second_body["replayed"], True)
+            second = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+            self.assertEqual(second.status_code, 200, second.text)
+            second_body = second.json()
+            self.assertEqual(second_body["meal_log_id"], first_body["meal_log_id"])
+            self.assertEqual(second_body["cook_log_id"], first_body["cook_log_id"])
+            self.assertIs(second_body["replayed"], True)

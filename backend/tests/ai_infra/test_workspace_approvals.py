@@ -977,12 +977,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         "draft_type": "recipe_cook",
                         "payload": {
                             "draftType": "recipe_cook",
-                            "schemaVersion": "recipe_cook_operation.v1",
+                            "schemaVersion": "recipe_cook_operation.v2",
                             "recipeId": recipe.id,
                             "servings": 2,
                             "date": date.today().isoformat(),
                             "mealType": "dinner",
-                            "createMealLog": True,
                             "planItemId": plan_item.id,
                             "notes": "AI 做菜测试",
                             "resultNote": "顺利完成",
@@ -1044,7 +1043,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
 
                 executor = ToolExecutor(
                     build_workspace_tool_registry(),
-                    ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id=None, run_id=None),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id=None,
+                        run_id=None,
+                        generation_contracts=frozenset({"recipe_cook_operation.v2"}),
+                    ),
                     allowed_tools={"recipe.create_cook_draft"},
                     allowed_side_effects={"draft"},
                 )
@@ -1053,12 +1059,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     {
                         "draft": {
                             "draftType": "recipe_cook",
-                            "schemaVersion": "recipe_cook_operation.v1",
+                            "schemaVersion": "recipe_cook_operation.v2",
                             "recipeId": recipe.id,
                             "servings": 1,
                             "date": date.today().isoformat(),
                             "mealType": "dinner",
-                            "createMealLog": True,
                         }
                     },
                 )
@@ -1066,7 +1071,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 draft = result["draft"]
                 self.assertEqual(draft["recipeId"], recipe.id)
                 self.assertEqual(draft["title"], recipe.title)
-                self.assertEqual(draft["createMealLog"], True)
+                self.assertEqual(draft["schemaVersion"], "recipe_cook_operation.v2")
+                self.assertNotIn("createMealLog", draft)
                 self.assertEqual(draft["mealType"], "dinner")
                 self.assertEqual(draft["shortages"], [])
                 self.assertEqual(draft["previewItems"][0]["ingredient_id"], "ingredient-tomato")
@@ -1149,7 +1155,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 db.add(plan_item)
                 db.flush()
 
-                context = ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id=None, run_id=None)
+                context = ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    run_id=None,
+                    generation_contracts=frozenset({"recipe_cook_operation.v2"}),
+                )
                 preview = recipe_preview_cook(context, {"recipeId": recipe.id, "servings": 2, "planItemId": plan_item.id})
                 self.assertIsNone(preview["planItem"])
                 self.assertEqual(preview["planItemWarning"]["code"], "plan_item_recipe_mismatch")
@@ -1161,13 +1174,12 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         {
                             "draft": {
                                 "draftType": "recipe_cook",
-                                "schemaVersion": "recipe_cook_operation.v1",
+                                "schemaVersion": "recipe_cook_operation.v2",
                                 "recipeId": recipe.id,
                                 "title": recipe.title,
                                 "servings": 2,
                                 "date": date.today().isoformat(),
                                 "mealType": "dinner",
-                                "createMealLog": True,
                                 "planItemId": plan_item.id,
                                 "notes": "",
                                 "resultNote": "",
@@ -1680,14 +1692,13 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         draft_type="recipe_cook",
                         payload={
                             "draftType": "recipe_cook",
-                            "schemaVersion": "recipe_cook_operation.v1",
+                            "schemaVersion": "recipe_cook_operation.v2",
                             "recipeId": recipe.id,
                             "servings": 1,
                             "date": date.today().isoformat(),
                             "mealType": "dinner",
                             "participantUserIds": [self.user.id],
                             "notes": "AI 审计做菜",
-                            "createMealLog": True,
                             "resultNote": "完成",
                             "adjustments": "",
                         },
@@ -2078,13 +2089,12 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         "recipe_cook",
                         {
                             "draftType": "recipe_cook",
-                            "schemaVersion": "recipe_cook_operation.v1",
+                            "schemaVersion": "recipe_cook_operation.v2",
                             "recipeId": recipe.id,
                             "baseUpdatedAt": stale_base_updated_at,
                             "servings": 1,
                             "date": date.today().isoformat(),
                             "mealType": "dinner",
-                            "createMealLog": True,
                         },
                     ),
                 ]

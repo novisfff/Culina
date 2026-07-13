@@ -4,15 +4,12 @@ import type {
   CookRecipeRequest,
   CookRecipeResponse,
   CreateRecipePayload,
-  CreateRecipePlanItemPayload,
   Recipe,
   RecipeAvailabilitySummary,
   RecipeDiscovery,
   RecipeFavorite,
   RecipePayload,
-  RecipePlanItem,
   RecipeStats,
-  UpdateRecipePlanItemPayload,
 } from './types';
 
 export const recipesApi = {
@@ -77,22 +74,6 @@ export const recipesApi = {
     }),
   removeRecipeFavorite: (recipeId: string) =>
     request<void>(`/api/recipe-favorites/${recipeId}`, {
-      method: 'DELETE',
-    }),
-  getRecipePlan: (dateFrom: string, dateTo: string) =>
-    request<RecipePlanItem[]>(`/api/recipe-plan?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`),
-  createRecipePlanItem: (payload: CreateRecipePlanItemPayload) =>
-    request<RecipePlanItem>('/api/recipe-plan', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  updateRecipePlanItem: (itemId: string, payload: UpdateRecipePlanItemPayload) =>
-    request<RecipePlanItem>(`/api/recipe-plan/${itemId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-  deleteRecipePlanItem: (itemId: string) =>
-    request<void>(`/api/recipe-plan/${itemId}`, {
       method: 'DELETE',
     }),
 };

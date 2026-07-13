@@ -9,16 +9,37 @@ beforeEach(() => {
 });
 
 describe('useAppNavigationState', () => {
-  it('migrates a legacy recipe tab but persists no task', () => {
+  it('ignores legacy active-tab storage and starts from default navigation', () => {
     writeStringStorage('culina-active-tab', 'recipes');
     const { result } = renderHook(() => useAppNavigationState());
-    expect(result.current.state.eat).toMatchObject({ baseView: 'discover', discoverSection: 'selfMade', task: null });
+    expect(result.current.state).toMatchObject({
+      primaryTab: 'home',
+      eat: { baseView: 'discover', discoverSection: 'all', task: null },
+    });
     act(() => result.current.navigate({ workspace: 'eat', view: 'recipe', recipeId: 'recipe-1' }));
     expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).toEqual({
       version: 2,
       primaryTab: 'eat',
       eatBaseView: 'discover',
-      discoverSection: 'selfMade',
+      discoverSection: 'all',
+    });
+  });
+
+  it('restores navigation-v2 without reading legacy active-tab', () => {
+    writeStringStorage('culina-active-tab', 'foods');
+    writeStringStorage(
+      'culina-navigation-v2',
+      JSON.stringify({
+        version: 2,
+        primaryTab: 'eat',
+        eatBaseView: 'plan',
+        discoverSection: 'selfMade',
+      }),
+    );
+    const { result } = renderHook(() => useAppNavigationState());
+    expect(result.current.state).toMatchObject({
+      primaryTab: 'eat',
+      eat: { baseView: 'plan', discoverSection: 'selfMade', task: null },
     });
   });
 

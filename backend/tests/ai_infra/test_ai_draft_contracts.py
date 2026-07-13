@@ -45,42 +45,48 @@ from app.services.ai_operations.drafts import normalize_ai_draft_payload
 
 
 class AIDraftContractsTestCase(AIAgentInfraTestCase):
-    def test_b1_accepts_v1_and_v2_but_generates_v1(self) -> None:
+    def test_accepts_and_generates_v2_only(self) -> None:
         self.assertEqual(
             accepted_recipe_cook_versions(),
-            {"recipe_cook_operation.v1", "recipe_cook_operation.v2"},
+            {"recipe_cook_operation.v2"},
         )
-        self.assertEqual(generated_recipe_cook_version(), "recipe_cook_operation.v1")
+        self.assertEqual(generated_recipe_cook_version(), "recipe_cook_operation.v2")
 
-    def test_b1_deployment_gate_matrix_probe(self) -> None:
-        """B1 indivisible probe: accepted={v1,v2}, generated=v1, projection version present."""
+    def test_deployment_gate_matrix_probe(self) -> None:
+        """Probe: accepted={v2}, generated=v2, projection version present."""
         probe = recipe_cook_contracts_probe()
         self.assertEqual(
             set(probe["accepted_versions"]),
-            {"recipe_cook_operation.v1", "recipe_cook_operation.v2"},
+            {"recipe_cook_operation.v2"},
         )
-        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v1")
+        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v2")
         self.assertEqual(probe["projection_version"], 1)
 
     def test_capability_parser_accepts_known_tokens_only(self) -> None:
         capabilities = parse_draft_contract_capabilities(
             " recipe_cook_operation.v2,unknown.v9,recipe_cook_operation.v1 "
         )
+        # Historical v1 token may be present in header values but is not accepted for cook.
+        self.assertEqual(
+            capabilities.values,
+            frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+        )
         self.assertEqual(
             capabilities.recipe_cook_versions,
-            frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
+            frozenset({"recipe_cook_operation.v2"}),
         )
         self.assertEqual(parse_draft_contract_capabilities(None).values, frozenset())
         self.assertEqual(parse_draft_contract_capabilities("").values, frozenset())
 
-    def test_select_recipe_cook_generation_version_b1_allows_v1_without_header(self) -> None:
+    def test_select_recipe_cook_generation_version_rejects_v1_generation(self) -> None:
         empty = DraftContractCapabilities(values=frozenset())
-        self.assertEqual(
-            select_recipe_cook_generation_version(empty, generated_version=RECIPE_COOK_V1),
-            RECIPE_COOK_V1,
-        )
+        capable = DraftContractCapabilities(values=frozenset({RECIPE_COOK_V2}))
+        with self.assertRaises(ClientContractUpgradeRequired):
+            select_recipe_cook_generation_version(empty, generated_version=RECIPE_COOK_V1)
+        with self.assertRaises(ClientContractUpgradeRequired):
+            select_recipe_cook_generation_version(capable, generated_version=RECIPE_COOK_V1)
 
-    def test_select_recipe_cook_generation_version_rejects_future_v2_without_capability(self) -> None:
+    def test_select_recipe_cook_generation_version_requires_v2_capability(self) -> None:
         empty = DraftContractCapabilities(values=frozenset())
         with self.assertRaises(ClientContractUpgradeRequired) as raised:
             select_recipe_cook_generation_version(empty, generated_version=RECIPE_COOK_V2)
@@ -125,9 +131,9 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
         probe = recipe_cook_contracts_probe()
         self.assertEqual(
             probe["accepted_versions"],
-            ["recipe_cook_operation.v1", "recipe_cook_operation.v2"],
+            ["recipe_cook_operation.v2"],
         )
-        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v1")
+        self.assertEqual(probe["generated_version"], "recipe_cook_operation.v2")
         self.assertEqual(probe["projection_version"], 1)
 
     def test_ai_status_and_registry_expose_recipe_cook_contracts(self) -> None:
@@ -135,7 +141,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
         self.assertEqual(status.status_code, 200, status.text)
         self.assertEqual(
             status.json()["recipe_cook_contracts"]["generated_version"],
-            "recipe_cook_operation.v1",
+            "recipe_cook_operation.v2",
         )
         registry = self.client.get("/api/ai/registry")
         self.assertEqual(registry.status_code, 200, registry.text)
@@ -307,110 +313,31 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
         meal_logs = db.scalar(select(func.count()).select_from(MealLog)) or 0
         return int(cook_logs) + int(meal_logs)
 
-    def test_v1_true_executes_shared_completion(self) -> None:
+    def test_v1_schema_is_rejected_by_normalizer(self) -> None:
         with self.SessionLocal() as db:
-            recipe = self._seed_cook_recipe(db, recipe_id="recipe-v1-true")
+            self._seed_cook_recipe(db, recipe_id="recipe-v1-reject")
             db.commit()
 
         with self.SessionLocal() as db:
-            draft = normalize_recipe_cook_draft(
-                db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                payload={
-                    "schemaVersion": "recipe_cook_operation.v1",
-                    "recipeId": "recipe-v1-true",
-                    "servings": 1,
-                    "date": date.today().isoformat(),
-                    "mealType": "dinner",
-                    "createMealLog": True,
-                },
-            )
-            result, ids = execute_recipe_cook_draft(
-                db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                payload=draft,
-                operation_idempotency_key="approval-1:recipe.cook:v1",
-            )
-            db.commit()
-            self.assertTrue(result["meal_log_id"])
-            self.assertIn(result["cook_log_id"], ids)
-            cook_log = db.get(RecipeCookLog, result["cook_log_id"])
-            self.assertIsNotNone(cook_log)
-            self.assertEqual(cook_log.completion_request_id, "approval-1:recipe.cook:v1")
-            inventory = db.get(InventoryItem, "inventory-tomato")
-            # Recipe default servings=2 with cook servings=1 scales requested quantity.
-            self.assertGreater(inventory.consumed_quantity, Decimal("0"))
-            self.assertEqual(result["consumed_items"][0]["requested_quantity"], 0.5)
-
-    def test_v1_false_is_recoverable_and_has_no_side_effect(self) -> None:
-        with self.SessionLocal() as db:
-            self._seed_cook_recipe(db, recipe_id="recipe-v1-false")
-            db.commit()
-            before = self._count_side_effects(db)
-
-        with self.SessionLocal() as db:
-            draft = normalize_recipe_cook_draft(
-                db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                payload={
-                    "schemaVersion": "recipe_cook_operation.v1",
-                    "recipeId": "recipe-v1-false",
-                    "servings": 1,
-                    "date": date.today().isoformat(),
-                    "mealType": "dinner",
-                    "createMealLog": False,
-                },
-            )
-            with self.assertRaises(AIConflictError) as raised:
-                execute_recipe_cook_draft(
+            with self.assertRaises(ValueError) as raised:
+                normalize_recipe_cook_draft(
                     db,
                     family_id=self.family.id,
                     user_id=self.user.id,
-                    payload=draft,
-                    operation_idempotency_key="approval-2:recipe.cook:v1",
+                    payload={
+                        "schemaVersion": "recipe_cook_operation.v1",
+                        "recipeId": "recipe-v1-reject",
+                        "servings": 1,
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "createMealLog": True,
+                    },
                 )
-            self.assertIn("做菜完成规则已更新", str(raised.exception))
-            db.rollback()
-            self.assertEqual(self._count_side_effects(db), before)
-            inventory = db.get(InventoryItem, "inventory-tomato")
-            self.assertEqual(inventory.consumed_quantity, Decimal("0"))
-
-    def test_v1_omitted_create_meal_log_defaults_true_and_executes(self) -> None:
-        with self.SessionLocal() as db:
-            self._seed_cook_recipe(db, recipe_id="recipe-v1-omit")
-            db.commit()
-
-        with self.SessionLocal() as db:
-            draft = normalize_recipe_cook_draft(
-                db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                payload={
-                    "schemaVersion": "recipe_cook_operation.v1",
-                    "recipeId": "recipe-v1-omit",
-                    "servings": 1,
-                    "date": date.today().isoformat(),
-                    "mealType": "dinner",
-                },
-            )
-            self.assertIs(draft.get("createMealLog"), True)
-            result, ids = execute_recipe_cook_draft(
-                db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                payload=draft,
-                operation_idempotency_key="approval-omit:recipe.cook:v1",
-            )
-            db.commit()
-            self.assertTrue(result["meal_log_id"])
-            self.assertIn(result["cook_log_id"], ids)
+            self.assertIn("不支持的做菜草稿版本", str(raised.exception))
 
     def test_ai_execute_rejects_missing_inventory_boundary_versions(self) -> None:
         with self.SessionLocal() as db:
-            self._seed_cook_recipe(db, recipe_id="recipe-v1-missing-boundary")
+            self._seed_cook_recipe(db, recipe_id="recipe-v2-missing-boundary")
             db.commit()
 
         with self.SessionLocal() as db:
@@ -419,12 +346,11 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
                 family_id=self.family.id,
                 user_id=self.user.id,
                 payload={
-                    "schemaVersion": "recipe_cook_operation.v1",
-                    "recipeId": "recipe-v1-missing-boundary",
+                    "schemaVersion": "recipe_cook_operation.v2",
+                    "recipeId": "recipe-v2-missing-boundary",
                     "servings": 1,
                     "date": date.today().isoformat(),
                     "mealType": "dinner",
-                    "createMealLog": True,
                 },
             )
             # Strip OCC versions after normalize to simulate a tampered draft.
@@ -450,7 +376,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             db.commit()
 
         with self.SessionLocal() as db:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as raised:
                 normalize_recipe_cook_draft(
                     db,
                     family_id=self.family.id,
@@ -464,6 +390,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
                         "createMealLog": True,
                     },
                 )
+            self.assertIn("createMealLog", str(raised.exception))
 
     def test_v2_normalizes_and_executes_without_create_meal_log(self) -> None:
         with self.SessionLocal() as db:
@@ -536,12 +463,11 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
 
             draft_payload = {
                 "draftType": "recipe_cook",
-                "schemaVersion": "recipe_cook_operation.v1",
+                "schemaVersion": "recipe_cook_operation.v2",
                 "recipeId": recipe.id,
                 "servings": 1,
                 "date": date.today().isoformat(),
                 "mealType": "dinner",
-                "createMealLog": True,
                 "planItemId": plan_item.id,
             }
             service, draft, approval = self._create_ai_approval_for_test(
@@ -598,12 +524,11 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
                             "domain": "recipe_cook",
                             "operation": {
                                 "operationId": "cook-step-1",
-                                "schemaVersion": "recipe_cook_operation.v1",
+                                "schemaVersion": "recipe_cook_operation.v2",
                                 "recipeId": recipe.id,
                                 "servings": 1,
                                 "date": date.today().isoformat(),
                                 "mealType": "dinner",
-                                "createMealLog": True,
                             },
                         }
                     ],
@@ -660,12 +585,11 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
                             "stepId": "cook-step",
                             "domain": "recipe_cook",
                             "operation": {
-                                "schemaVersion": "recipe_cook_operation.v1",
+                                "schemaVersion": "recipe_cook_operation.v2",
                                 "recipeId": recipe.id,
                                 "servings": 1,
                                 "date": date.today().isoformat(),
                                 "mealType": "dinner",
-                                "createMealLog": True,
                             },
                         }
                     ],

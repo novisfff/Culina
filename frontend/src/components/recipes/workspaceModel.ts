@@ -1,4 +1,4 @@
-import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeFavorite, RecipeIngredient, RecipePlanItem } from '../../api/types';
+import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeFavorite, RecipeIngredient, FoodPlanItem } from '../../api/types';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';
@@ -65,7 +65,7 @@ export type RecipeDiscoverySection = {
 export type RecipePlanDayViewModel = {
   date: string;
   label: string;
-  items: RecipePlanItem[];
+  items: FoodPlanItem[];
 };
 
 export type RecipeHomeViewModel = {
@@ -336,7 +336,7 @@ export function filterRecipeCards(
 export function buildRecipeHomeViewModel(
   cards: RecipeCardViewModel[],
   favorites: RecipeFavorite[],
-  planItems: RecipePlanItem[],
+  planItems: FoodPlanItem[],
   mealLogs: MealLog[],
   foods: Food[],
   dateKey = todayKey()

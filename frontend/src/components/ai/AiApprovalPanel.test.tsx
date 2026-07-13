@@ -59,7 +59,7 @@ function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', o
 function recipeCookApproval(
   draftOverrides: Record<string, unknown> = {},
   overrides: Partial<AiApprovalRequest> = {},
-  schemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' = 'recipe_cook_operation.v1',
+  schemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' = 'recipe_cook_operation.v2',
 ): AiApprovalRequest {
   const draft = {
     draftType: 'recipe_cook',
@@ -1302,14 +1302,14 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('shows v1 createMealLog as read-only legacy meaning', async () => {
+  it('shows v1 createMealLog as requiring regeneration', async () => {
     const rendered = await renderWithQuery(
       <ApprovalPanel approval={makeRecipeCookApproval('recipe_cook_operation.v1', { createMealLog: true })} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('完成后会记录这餐');
-    expect(rendered.container.textContent).not.toContain('只扣库存不记录');
-    expect(Array.from(rendered.container.querySelectorAll('.ai-resource-field-choice')).some((field) => field.textContent?.includes('餐食记录'))).toBe(false);
+    expect(rendered.container.textContent).toContain('这份旧草稿需要刷新后重新确认');
+    expect(rendered.container.textContent).toContain('旧草稿需要刷新后重新确认');
+    expect(rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.disabled).toBe(true);
     rendered.unmount();
   });
 
@@ -1350,8 +1350,8 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('submits recipe cook approvals with always-record semantics for v1 true', async () => {
-    const pending = recipeCookApproval();
+  it('submits recipe cook approvals with always-record semantics for v2', async () => {
+    const pending = makeRecipeCookApproval('recipe_cook_operation.v2');
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
@@ -1366,13 +1366,15 @@ describe('ApprovalPanel', () => {
       {
         draft: expect.objectContaining({
           draftType: 'recipe_cook',
-          createMealLog: true,
+          schemaVersion: 'recipe_cook_operation.v2',
           mealType: 'dinner',
           previewItems: [expect.objectContaining({ ingredient_name: '番茄' })],
         }),
       },
       '',
     );
+    const submittedDraft = decideSpy.mock.calls[0]?.[2]?.draft as Record<string, unknown>;
+    expect(submittedDraft).not.toHaveProperty('createMealLog');
     rendered.unmount();
   });
 

@@ -16,12 +16,11 @@ import type {
   Ingredient,
   InventoryItem,
   MealLog,
-  MealType,
   Recipe,
   RecipeDiscovery,
   RecipeFavorite,
   RecipeIngredient,
-  RecipePlanItem,
+  FoodPlanItem,
   RecipePayload,
   RecipeScene,
   RecipeStats,
@@ -35,7 +34,6 @@ import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, to
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
-import { useRecipeResourceSearch } from '../../hooks/useRecipeResourceSearch';
 import {
   ActionButton,
   Badge,
@@ -68,7 +66,6 @@ import {
   QUICK_FILTERS,
   RECIPE_STEP_ICON_OPTIONS,
   SHOPPING_UNIT_OPTIONS,
-  SHOW_RECIPE_PLAN_MANAGEMENT,
   SORT_OPTIONS,
 } from './RecipeWorkspaceOptions';
 import {
@@ -83,11 +80,9 @@ import { RecipeEditorView } from './RecipeEditorView';
 import { RecipeIngredientResolutionDialog } from './RecipeIngredientResolutionDialog';
 import { RecipeLibraryView } from './RecipeLibraryView';
 import { RecipeTaskSurface } from './RecipeTaskSurface';
-import { RecipePlanDetailDialog, RecipePlanDialog } from './RecipePlanDialogs';
 import { RecipeSceneManagerDialog } from './RecipeSceneManagerDialog';
 import { useRecipeCookState, type RecipeCookReturnTarget } from './useRecipeCookState';
 import { useRecipeEditorState } from './useRecipeEditorState';
-import { useRecipePlanState } from './useRecipePlanState';
 import { useRecipeSceneState } from './useRecipeSceneState';
 import { useRecipeShoppingState } from './useRecipeShoppingState';
 import { useRecipeWorkspaceData } from './useRecipeWorkspaceData';
@@ -215,7 +210,7 @@ type RecipeWorkspaceProps = {
   recipeFavorites: RecipeFavorite[];
   recipeDiscovery: RecipeDiscovery | null;
   recipeStats: RecipeStats | null;
-  recipePlanItems: RecipePlanItem[];
+  recipePlanItems: FoodPlanItem[];
   recipeScenes: RecipeScene[];
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
@@ -250,9 +245,6 @@ type RecipeWorkspaceProps = {
   }) => Promise<ShoppingListItem>;
   addRecipeFavorite: (recipeId: string) => Promise<RecipeFavorite>;
   removeRecipeFavorite: (recipeId: string) => Promise<void>;
-  createRecipePlanItem: (payload: { recipe_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<RecipePlanItem>;
-  updateRecipePlanItem: (itemId: string, payload: { recipe_id?: string; plan_date?: string; meal_type?: MealType; note?: string }) => Promise<RecipePlanItem>;
-  deleteRecipePlanItem: (itemId: string) => Promise<void>;
   createRecipeScene: (payload: {
     name: string;
     description: string;
@@ -630,47 +622,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     props.onMobileLibraryRedirect?.();
   }, [props.onMobileLibraryRedirect, shouldRedirectMobileLibrary]);
 
-  const {
-    planForm,
-    setPlanForm,
-    planDialogCard,
-    isPlanDialogOpen,
-    planRecipeSearch,
-    setPlanRecipeSearch,
-    isPlanRecipePickerOpen,
-    setIsPlanRecipePickerOpen,
-    expandedPlanDates,
-    activePlanDetailItem,
-    activePlanDetailCard,
-    planDetailForm,
-    setPlanDetailForm,
-    openPlanDialog,
-    closePlanDialog,
-    openPlanDetail,
-    closePlanDetail,
-    togglePlanDay,
-    startPlanDetailCook,
-    selectPlanRecipe,
-    submitPlanItem,
-    updatePlanDate,
-    updatePlanMealType,
-    deletePlanItem,
-    submitPlanDetail,
-    deletePlanDetailItem,
-  } = useRecipePlanState({
-    recipePlanWeekRange: props.recipePlanWeekRange,
-    recipePlanItems: props.recipePlanItems,
-    cards,
-    showRecipeNotice,
-    createRecipePlanItem: props.createRecipePlanItem,
-    updateRecipePlanItem: props.updateRecipePlanItem,
-    deleteRecipePlanItem: props.deleteRecipePlanItem,
-    onStartCookFromPlan: (item) => {
-      const card = cards.find((entry) => entry.recipe.id === item.recipe_id);
-      if (!card) return;
-      openCook(card, item.id);
-    },
-  });
+  // Plan management UI is retired. Keep inert stubs for library callbacks still gated by SHOW_RECIPE_PLAN_MANAGEMENT=false.
+  const expandedPlanDates = new Set<string>();
+  const openPlanDialog = (_card?: unknown) => {};
+  const openPlanDetail = (_item?: unknown) => {};
+  const togglePlanDay = (_date: string) => {};
+  const startPlanDetailCook = (_item?: unknown) => {};
+
   const {
     cookTimerMinuteWheelRef,
     cookTimerSecondWheelRef,
@@ -743,22 +701,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     isCookingRecipe: props.isCookingRecipe,
     showRecipeNotice,
   });
-  const planRecipeFallbackRecipes = useMemo(() => cards.map((card) => card.recipe), [cards]);
-  const planRecipeSearchResults = useRecipeResourceSearch(planRecipeSearch, {
-    enabled: isPlanDialogOpen && isPlanRecipePickerOpen,
-    fallbackRecipes: planRecipeFallbackRecipes,
-  });
-  const planRecipeOptions = useMemo(() => {
-    const seen = new Set<string>();
-    return planRecipeSearchResults.recipes
-      .map((recipe) => cardByRecipeId.get(recipe.id) ?? null)
-      .filter((card): card is RecipeCardViewModel => {
-        if (!card || seen.has(card.recipe.id)) return false;
-        seen.add(card.recipe.id);
-        return true;
-      });
-  }, [cardByRecipeId, planRecipeSearchResults.recipes]);
-
   function updateCategoryScrollState() {
     const node = categoryScrollRef.current;
     if (!node) return;
@@ -1662,48 +1604,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         />
       )}
 
-      {SHOW_RECIPE_PLAN_MANAGEMENT && isPlanDialogOpen && (
-        <RecipePlanDialog
-          card={planDialogCard}
-          form={planForm}
-          recipeOptions={planRecipeOptions}
-          recipeSearch={planRecipeSearch}
-          isRecipePickerOpen={isPlanRecipePickerOpen}
-          isRecipeSearchLoading={planRecipeSearchResults.isSearching}
-          isRecipeSearchLoadingMore={planRecipeSearchResults.isFetchingNextPage}
-          hasMoreRecipeOptions={planRecipeSearchResults.hasMore}
-          weekRange={props.recipePlanWeekRange}
-          isUpdatingPlan={props.isUpdatingPlan}
-          hasRecipes={cards.length > 0}
-          onClose={closePlanDialog}
-          onSubmit={submitPlanItem}
-          onChangeForm={setPlanForm}
-          onChangeRecipeSearch={setPlanRecipeSearch}
-          onSetRecipePickerOpen={setIsPlanRecipePickerOpen}
-          onLoadMoreRecipeOptions={() => {
-            if (planRecipeSearchResults.hasMore && !planRecipeSearchResults.isFetchingNextPage) {
-              void planRecipeSearchResults.fetchNextPage();
-            }
-          }}
-          onSelectRecipe={selectPlanRecipe}
-        />
-      )}
 
-      {SHOW_RECIPE_PLAN_MANAGEMENT && activePlanDetailItem && (
-        <RecipePlanDetailDialog
-          item={activePlanDetailItem}
-          card={activePlanDetailCard}
-          form={planDetailForm}
-          weekRange={props.recipePlanWeekRange}
-          isUpdatingPlan={props.isUpdatingPlan}
-          isCookingRecipe={props.isCookingRecipe}
-          onClose={closePlanDetail}
-          onSubmit={submitPlanDetail}
-          onChangeForm={setPlanDetailForm}
-          onStartCook={startPlanDetailCook}
-          onDelete={(item) => void deletePlanDetailItem(item)}
-        />
-      )}
 
       {shoppingDialogCard && (
         <RecipeShoppingDialog

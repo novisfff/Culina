@@ -424,17 +424,11 @@ function resolveRecipeCookSchemaVersion(
   return 'unknown';
 }
 
-function recipeCookMealLogSummary(
-  schemaVersion: RecipeCookSchemaVersion,
-  draft: Record<string, unknown>,
-) {
+function recipeCookMealLogSummary(schemaVersion: RecipeCookSchemaVersion) {
   if (schemaVersion === 'recipe_cook_operation.v2') {
     return '完成后会记录这餐';
   }
-  if (schemaVersion === 'recipe_cook_operation.v1') {
-    return draft.createMealLog === true ? '完成后会记录这餐' : '旧草稿不记录，需要刷新';
-  }
-  return '未知版本';
+  return '旧草稿需要刷新后重新确认';
 }
 
 function recipeCookSummaryItems(
@@ -450,7 +444,7 @@ function recipeCookSummaryItems(
     { label: '份数', value: `${formatServingCount(draft.servings)} 份` },
     { label: '餐别', value: MEAL_TYPE_OPTIONS.find((option) => option.value === mealType)?.label || mealType },
     { label: '库存扣减', value: previewItems.length > 0 ? `${previewItems.length} 种食材` : '无扣减项' },
-    { label: '餐食记录', value: recipeCookMealLogSummary(schemaVersion, draft) },
+    { label: '餐食记录', value: recipeCookMealLogSummary(schemaVersion) },
     { label: '关联计划', value: recipeCookLinkedPlanSummary(linkedPlanItem) },
     { label: '缺料', value: shortages.length > 0 ? `${shortages.length} 项需补齐` : '库存充足' },
   ];
@@ -460,11 +454,8 @@ function validateRecipeCookDraftForSubmit(
   draft: Record<string, unknown>,
   schemaVersion: RecipeCookSchemaVersion,
 ) {
-  if (schemaVersion === 'recipe_cook_operation.v1' && draft.createMealLog !== true) {
+  if (schemaVersion !== 'recipe_cook_operation.v2') {
     return '这份旧草稿需要刷新后重新确认';
-  }
-  if (schemaVersion === 'unknown') {
-    return '这份做菜草稿版本不受支持，请刷新后重新确认';
   }
   const servings = draft.servings;
   if (typeof servings !== 'number' || !Number.isFinite(servings) || servings <= 0) {
@@ -491,19 +482,11 @@ function validateRecipeCookDraftForSubmit(
   return '';
 }
 
-function buildRecipeCookSubmitDraft(
-  draft: Record<string, unknown>,
-  schemaVersion: RecipeCookSchemaVersion,
-) {
+function buildRecipeCookSubmitDraft(draft: Record<string, unknown>) {
   const nextDraft = cloneDraftRecord(draft);
-  if (schemaVersion === 'recipe_cook_operation.v2') {
-    delete nextDraft.createMealLog;
-    delete nextDraft.create_meal_log;
-    nextDraft.schemaVersion = 'recipe_cook_operation.v2';
-  } else if (schemaVersion === 'recipe_cook_operation.v1') {
-    nextDraft.schemaVersion = 'recipe_cook_operation.v1';
-    nextDraft.createMealLog = true;
-  }
+  delete nextDraft.createMealLog;
+  delete nextDraft.create_meal_log;
+  nextDraft.schemaVersion = 'recipe_cook_operation.v2';
   return nextDraft;
 }
 
@@ -1158,10 +1141,7 @@ export function ApprovalPanel({
     : 'unknown';
   const recipeCookRequiresRegeneration =
     draftType === 'recipe_cook'
-    && (
-      recipeCookSchemaVersion === 'unknown'
-      || (recipeCookSchemaVersion === 'recipe_cook_operation.v1' && structuredDraft.createMealLog !== true)
-    );
+    && recipeCookSchemaVersion !== 'recipe_cook_operation.v2';
   const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
   const inventoryOperationDraft = useMemo(
     () => inventoryOperationDraftFromRecord(structuredDraft),
@@ -1313,7 +1293,7 @@ export function ApprovalPanel({
 	          values = { draft: normalizeFoodProfilePayload(structuredDraft) };
 	        }
 	      } else if (draftType === 'recipe_cook') {
-	        values = { draft: buildRecipeCookSubmitDraft(structuredDraft, recipeCookSchemaVersion) };
+	        values = { draft: buildRecipeCookSubmitDraft(structuredDraft) };
 	      } else {
 	        values = { draft: structuredDraft };
 	      }
@@ -2607,12 +2587,10 @@ export function ApprovalPanel({
         ? (structuredDraft.before as Record<string, unknown>).linkedPlanItem as Record<string, unknown> | undefined
         : undefined;
       const summaryItems = recipeCookSummaryItems(structuredDraft, previewItems, shortages, linkedPlanItem, recipeCookSchemaVersion);
-      const mealLogCopy = recipeCookMealLogSummary(recipeCookSchemaVersion, structuredDraft);
+      const mealLogCopy = recipeCookMealLogSummary(recipeCookSchemaVersion);
       const executionCopy = recipeCookSchemaVersion === 'recipe_cook_operation.v2'
         ? '确认后会按预览扣减库存，并同时写入餐食记录。'
-        : recipeCookSchemaVersion === 'recipe_cook_operation.v1' && structuredDraft.createMealLog === true
-          ? '确认后会按预览扣减库存，并同时写入餐食记录。'
-          : '这份旧草稿不会自动记录餐食；请刷新后重新确认。';
+        : '这份旧草稿需要刷新后重新确认；当前不会执行扣库存或写入餐食记录。';
       if (currentApproval.status !== 'pending') {
         return (
           <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-cook-draft-editor">
@@ -2673,7 +2651,7 @@ export function ApprovalPanel({
               <div className="ai-recipe-danger-impact" role="status">
                 <strong>这份旧草稿需要刷新后重新确认</strong>
                 <p className="ai-approval-compare-copy">
-                  旧版做菜草稿不能改成“不记录餐食”。请刷新会话并重新生成草稿后再确认。
+                  仅支持始终记录餐食的 v2 做菜草稿。请刷新会话并重新生成草稿后再确认。
                 </p>
               </div>
             </section>
@@ -2705,12 +2683,12 @@ export function ApprovalPanel({
                   icon="meal"
                   onChange={(mealType) => updateDraft({ mealType })}
                 />
-                {recipeCookSchemaVersion === 'recipe_cook_operation.v1' && structuredDraft.createMealLog === true ? (
+                {recipeCookSchemaVersion === 'recipe_cook_operation.v2' ? (
                   <div className="ai-resource-field">
                     <span>餐食记录</span>
                     <p className="ai-recipe-summary-note">完成后会记录这餐</p>
                   </div>
-                ) : recipeCookSchemaVersion === 'recipe_cook_operation.v2' ? null : (
+                ) : (
                   <div className="ai-resource-field">
                     <span>餐食记录</span>
                     <p className="ai-recipe-summary-note">{mealLogCopy}</p>
@@ -2792,7 +2770,7 @@ export function ApprovalPanel({
               <div className="ai-recipe-draft-section-head">
                 <strong>餐食记录补充</strong>
                 <span>
-                  {recipeCookSchemaVersion === 'recipe_cook_operation.v2' || (recipeCookSchemaVersion === 'recipe_cook_operation.v1' && structuredDraft.createMealLog === true)
+                  {recipeCookSchemaVersion === 'recipe_cook_operation.v2'
                     ? '完成后会自动写入餐食记录；这里补充备注与结果说明。'
                     : '这份旧草稿需要刷新后重新确认，当前不会写入餐食记录。'}
                 </span>

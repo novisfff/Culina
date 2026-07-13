@@ -24,7 +24,7 @@ draft_types:
 - recipe_cook
 draft_contract:
   recipe_cook:
-    schema_version: recipe_cook_operation.v1
+    schema_version: recipe_cook_operation.v2
     approval_config_key: recipe_cook
     commit_handler_key: recipe_cook
 route_hints:

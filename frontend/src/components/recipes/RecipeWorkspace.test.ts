@@ -428,7 +428,7 @@ describe('recipe workspace payload helpers', () => {
     expect(getRecipeDraftGenerationStepState('done', 3)).toBe('completed');
   });
 
-  it('builds a compatible always-record completion payload', () => {
+  it('builds a cook completion payload without create_meal_log', () => {
     expect(
       buildCookPayload({
         servings: '3',
@@ -445,7 +445,6 @@ describe('recipe workspace payload helpers', () => {
       servings: 3,
       date: '2026-05-14',
       meal_type: 'dinner',
-      create_meal_log: true,
       completion_request_id: 'cook-request-1',
       food_plan_item_id: 'plan-1',
       food_plan_item_base_updated_at: '2026-07-12T10:00:00Z',
@@ -467,23 +466,22 @@ describe('recipe workspace payload helpers', () => {
       })
     ).toMatchObject({
       servings: 1,
-      create_meal_log: true,
       completion_request_id: 'cook-direct-1',
       food_plan_item_id: undefined,
       rating: null,
     });
-    expect(
-      buildCookPayload({
-        servings: '1',
-        date: '2026-05-15',
-        mealType: 'lunch',
-        planItemId: null,
-        resultNote: '',
-        adjustments: '',
-        rating: '',
-        completionRequestId: 'cook-direct-1',
-      })
-    ).not.toHaveProperty('recipe_plan_item_id');
+    const directPayload = buildCookPayload({
+      servings: '1',
+      date: '2026-05-15',
+      mealType: 'lunch',
+      planItemId: null,
+      resultNote: '',
+      adjustments: '',
+      rating: '',
+      completionRequestId: 'cook-direct-1',
+    });
+    expect(directPayload).not.toHaveProperty('recipe_plan_item_id');
+    expect(directPayload).not.toHaveProperty('create_meal_log');
 
     expect(
       buildCookPayload({
@@ -499,9 +497,21 @@ describe('recipe workspace payload helpers', () => {
       })
     ).toMatchObject({
       servings: 2,
-      create_meal_log: true,
       allow_partial_inventory_deduction: true,
     });
+    expect(
+      buildCookPayload({
+        servings: '2',
+        date: '2026-05-16',
+        mealType: 'dinner',
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-partial-1',
+        allowPartialInventoryDeduction: true,
+      })
+    ).not.toHaveProperty('create_meal_log');
   });
 
   it('sanitizes persisted cook sessions with safe defaults and clamped step index', () => {

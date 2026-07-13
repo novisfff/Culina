@@ -780,7 +780,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(skills["recipe_cook"]["tool_budget"], {"max_tool_calls": 12, "max_same_read_calls": 2})
             self.assertIn("recipe_cook", skills["recipe_cook"]["route_hints"])
             self.assertIn("cook_recipe", skills["recipe_cook"]["route_hints"])
-            self.assertEqual(skills["recipe_cook"]["draft_contract"]["recipe_cook"]["schemaVersion"], "recipe_cook_operation.v1")
+            self.assertEqual(skills["recipe_cook"]["draft_contract"]["recipe_cook"]["schemaVersion"], "recipe_cook_operation.v2")
             self.assertEqual(skills["shopping_list"]["tool_budget"], {"max_tool_calls": 24, "max_same_read_calls": 2})
             self.assertEqual(skills["shopping_list"]["draft_contract"]["shopping_list"]["approvalConfigKey"], "shopping_list")
             self.assertIn(
