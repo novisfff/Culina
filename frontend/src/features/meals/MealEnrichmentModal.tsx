@@ -35,8 +35,8 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
-        title="补充记录"
-        description="为这次待补充记录添加评价、家人、照片和评论"
+        title="补充这餐"
+        description="为这次记录添加评价、家人、照片和评论"
         className="meal-log-modal meal-log-enrich-modal"
         closeAriaLabel="关闭"
         onClose={closeIfAllowed}

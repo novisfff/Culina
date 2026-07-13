@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FoodPlanItem } from '../api/types';
 import type { GlobalSearchSelection } from '../features/search/GlobalSearchOverlay';
-import type { TabKey } from './AppShell';
 import {
   useAppGlobalSearchNavigation,
   type IngredientNavigationRequest,
@@ -37,41 +36,42 @@ const planItemFixture: FoodPlanItem = {
   updated_at: '2026-06-01T00:00:00.000Z',
 };
 
-const mealPlanSelection: GlobalSearchSelection = {
-  entityType: 'meal_plan',
-  entityId: planItemFixture.id,
-  item: {
-    entity_type: 'meal_plan',
-    entity_id: planItemFixture.id,
-    score: 1,
-    keyword_score: 1,
-    semantic_score: 0,
-    business_score: 0,
-    match_reason: [],
-    entity: planItemFixture,
-  },
-};
+function makeSearchSelection(
+  entityType: GlobalSearchSelection['entityType'],
+  entityId: string,
+  entity?: GlobalSearchSelection['item']['entity'],
+): GlobalSearchSelection {
+  return {
+    entityType,
+    entityId,
+    item: {
+      entity_type: entityType,
+      entity_id: entityId,
+      score: 1,
+      keyword_score: 1,
+      semantic_score: 0,
+      business_score: 0,
+      match_reason: [],
+      entity: entity ?? ({ id: entityId } as never),
+    },
+  };
+}
+
+const mealPlanSelection = makeSearchSelection('meal_plan', planItemFixture.id, planItemFixture);
 
 function NavigationHarness({
   onReady,
 }: {
-  onReady: (api: { nav: NavApi; handlers: HandlerApi; activeTab: TabKey }) => void;
+  onReady: (api: { nav: NavApi; handlers: HandlerApi; navigate: ReturnType<typeof vi.fn> }) => void;
 }) {
   // Keep mock instances stable across re-renders so call history is preserved.
-  const setActiveTab = useRef(vi.fn<(tab: TabKey) => void>()).current;
-  const setSelectedRecipePlanDate = useRef(vi.fn<(date: string) => void>()).current;
-  setActiveTabMock = setActiveTab;
-  setSelectedRecipePlanDateMock = setSelectedRecipePlanDate;
-  const nav = useAppGlobalSearchNavigation({
-    foods: [],
-    isPhoneViewport: false,
-    setActiveTab: setActiveTab as never,
-    setSelectedRecipePlanDate: setSelectedRecipePlanDate as never,
-  });
+  const navigate = useRef(vi.fn()).current;
+  navigateMock = navigate;
+  const nav = useAppGlobalSearchNavigation({ navigate: navigate as never });
   const handlers = useAppHomeHandlers({
     ingredientNavigationRequestIdRef: nav.ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest: nav.setIngredientNavigationRequest,
-    setActiveTab: setActiveTab as never,
+    navigate: navigate as never,
     setHomeRestockShoppingItemId: vi.fn(),
     setHomeRestockForm: vi.fn(),
     setHomeMealDetailId: vi.fn(),
@@ -82,24 +82,22 @@ function NavigationHarness({
     onReady({
       nav,
       handlers,
-      activeTab: 'home',
+      navigate,
     });
   });
 
-  // expose setActiveTab calls via data attribute for inspection
-  return <div data-tab-calls={String(setActiveTab.mock.calls.length)} />;
+  return <div data-nav-calls={String(navigate.mock.calls.length)} />;
 }
 
-let latest: { nav: NavApi; handlers: HandlerApi } | null = null;
-let setActiveTabMock: ReturnType<typeof vi.fn> | null = null;
-let setSelectedRecipePlanDateMock: ReturnType<typeof vi.fn> | null = null;
+let latest: { nav: NavApi; handlers: HandlerApi; navigate: ReturnType<typeof vi.fn> } | null = null;
+let navigateMock: ReturnType<typeof vi.fn> | null = null;
 
 function renderNavigation() {
   act(() => {
     root?.render(
       <NavigationHarness
         onReady={(api) => {
-          latest = { nav: api.nav, handlers: api.handlers };
+          latest = api;
         }}
       />,
     );
@@ -109,8 +107,7 @@ function renderNavigation() {
 
 beforeEach(() => {
   latest = null;
-  setActiveTabMock = null;
-  setSelectedRecipePlanDateMock = null;
+  navigateMock = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -124,8 +121,7 @@ afterEach(() => {
   container?.remove();
   container = null;
   latest = null;
-  setActiveTabMock = null;
-  setSelectedRecipePlanDateMock = null;
+  navigateMock = null;
 });
 
 describe('IngredientNavigationRequest contract', () => {
@@ -266,27 +262,68 @@ describe('Ingredient navigation consumption contract', () => {
   });
 });
 
-describe('Food plan navigation protocol', () => {
-  it('keeps global-search plan results as item targets', () => {
+describe('Semantic global search targets', () => {
+  it('opens a Recipe through recipe-target without accepting viewport state', () => {
     const api = renderNavigation();
-    act(() => api!.nav.handleGlobalSearchSelect(mealPlanSelection));
-    expect(latest!.nav.foodPlanNavigationRequest).toEqual({
-      target: 'item',
-      itemId: mealPlanSelection.entityId,
-      planDate: planItemFixture.plan_date,
-      requestId: 1,
+    act(() => api!.nav.handleGlobalSearchSelect(makeSearchSelection('recipe', 'recipe-1')));
+    expect(navigateMock).toHaveBeenCalledWith({
+      workspace: 'eat',
+      view: 'recipe',
+      recipeId: 'recipe-1',
+    });
+    expect(api!.nav).not.toHaveProperty('foodNavigationRequest');
+    expect(api!.nav).not.toHaveProperty('recipeNavigationRequest');
+  });
+
+  it('opens a Food through food-target without request IDs', () => {
+    const api = renderNavigation();
+    act(() => api!.nav.handleGlobalSearchSelect(makeSearchSelection('food', 'food-1')));
+    expect(navigateMock).toHaveBeenCalledWith({
+      workspace: 'eat',
+      view: 'food',
+      foodId: 'food-1',
     });
   });
 
-  it('opens the selected natural week without inventing an item id', () => {
+  it('opens an unloaded plan by ID without trusting the search snapshot date', () => {
     const api = renderNavigation();
-    act(() => api!.nav.openFoodPlanWeek('2026-07-15'));
-    expect(setSelectedRecipePlanDateMock).toHaveBeenCalledWith('2026-07-15');
-    expect(setActiveTabMock).toHaveBeenCalledWith('foods');
-    expect(latest!.nav.foodPlanNavigationRequest).toEqual({
-      target: 'week',
-      planDate: '2026-07-15',
-      requestId: 1,
+    act(() =>
+      api!.nav.handleGlobalSearchSelect(
+        makeSearchSelection('meal_plan', 'plan-outside-week', {
+          ...planItemFixture,
+          id: 'plan-outside-week',
+          plan_date: '2099-01-01',
+        }),
+      ),
+    );
+    expect(navigateMock).toHaveBeenCalledWith({
+      workspace: 'eat',
+      view: 'plan',
+      foodPlanItemId: 'plan-outside-week',
+    });
+    // Must not branch on plan_date from the search snapshot.
+    expect(navigateMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ planDate: expect.anything() }),
+    );
+  });
+
+  it('keeps Ingredient detail as a discriminated IngredientWorkspace request', () => {
+    const api = renderNavigation();
+    act(() => api!.nav.handleGlobalSearchSelect(makeSearchSelection('ingredient', 'ingredient-1')));
+    expect(latest!.nav.ingredientNavigationRequest).toMatchObject({
+      target: 'detail',
+      ingredientId: 'ingredient-1',
+    });
+    expect(navigateMock).toHaveBeenCalledWith({ workspace: 'ingredients' });
+  });
+
+  it('keeps meal_plan search results as plan item targets by entity id only', () => {
+    const api = renderNavigation();
+    act(() => api!.nav.handleGlobalSearchSelect(mealPlanSelection));
+    expect(navigateMock).toHaveBeenCalledWith({
+      workspace: 'eat',
+      view: 'plan',
+      foodPlanItemId: mealPlanSelection.entityId,
     });
   });
 });

@@ -54,4 +54,9 @@ describe('queryKeys', () => {
     expect(queryKeys.activityHighlightList(3)).not.toEqual(queryKeys.activityHighlightList(5));
     expect(queryKeys.activityHighlightList(5)).not.toEqual(queryKeys.activityLogs);
   });
+
+  it('nests food plan detail under the FoodPlan root', () => {
+    expect(queryKeys.foodPlanDetail('plan-1')).toEqual(['food-plan', 'detail', 'plan-1']);
+    expect(queryKeys.foodPlanDetail('plan-1')[0]).toBe(queryKeys.foodPlanRoot[0]);
+  });
 });

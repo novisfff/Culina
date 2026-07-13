@@ -15,37 +15,50 @@ import type {
   RecipeStats,
   ShoppingListItem,
 } from '../api/types';
-import type { TabKey } from './AppShell';
+import {
+  deriveAppQueryScope,
+  type AppNavigationState,
+} from './appNavigationModel';
 
 type WeekRange = {
   start: string;
   end: string;
 };
 
-function matchesTabWindow(activeTab: TabKey, tabs: TabKey[]) {
-  return tabs.includes(activeTab);
-}
-
 export function useAppWorkspaceQueries(args: {
-  activeTab: TabKey;
+  navigationState: AppNavigationState;
   isAuthenticated: boolean;
   foodPlanWeekRange: WeekRange;
 }) {
-  const needsMembers = matchesTabWindow(args.activeTab, ['home', 'family', 'logs']);
-  const needsIngredients = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients']);
-  const needsInventory = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients']);
-  const needsShopping = matchesTabWindow(args.activeTab, ['home', 'recipes', 'ingredients']);
-  const needsInventoryOperations = matchesTabWindow(args.activeTab, ['ingredients']);
-  const needsRecipes = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients', 'family']);
-  const needsRecipeInsights = args.activeTab === 'recipes';
-  const needsFoodPlan = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs']);
-  const needsFoodScenes = matchesTabWindow(args.activeTab, ['foods', 'recipes']);
-  const needsFoods = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
-  const needsFoodRecommendations = matchesTabWindow(args.activeTab, ['home', 'foods']);
-  const needsMealLogs = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
-  const needsActivityHighlights = args.activeTab === 'home';
-  const needsActivityLogs = args.activeTab === 'family';
-  const needsAiConversations = args.activeTab === 'ai';
+  const scope = deriveAppQueryScope(args.navigationState);
+  const {
+    needsMembers,
+    needsIngredients,
+    needsInventory,
+    needsShopping,
+    needsRecipes,
+    needsRecipeInsights,
+    needsFoodPlan,
+    needsFoodPlanDetail,
+    needsFoodScenes,
+    needsFoods,
+    needsFoodRecommendations,
+    needsMealLogs,
+    needsActivityLogs,
+    needsAiConversations,
+  } = scope;
+
+  // Local-only windows not modeled on AppQueryScope.
+  const needsActivityHighlights = args.navigationState.primaryTab === 'home';
+  const needsInventoryOperations = args.navigationState.primaryTab === 'ingredients';
+
+  const planDetailId =
+    args.navigationState.eat.task?.kind === 'plan-detail'
+      ? args.navigationState.eat.task.foodPlanItemId
+      : args.navigationState.eat.task?.kind === 'meal-create' &&
+          args.navigationState.eat.task.source.kind === 'plan'
+        ? args.navigationState.eat.task.source.foodPlanItemId
+        : null;
 
   const familyQuery = useQuery({
     queryKey: queryKeys.family,
@@ -108,6 +121,11 @@ export function useAppWorkspaceQueries(args: {
     enabled: args.isAuthenticated && needsFoodPlan,
     placeholderData: keepPreviousData,
   });
+  const foodPlanDetailQuery = useQuery({
+    queryKey: queryKeys.foodPlanDetail(planDetailId ?? ''),
+    queryFn: () => api.getFoodPlanItem(planDetailId as string),
+    enabled: args.isAuthenticated && needsFoodPlanDetail && Boolean(planDetailId),
+  });
   const foodScenesQuery = useQuery({
     queryKey: queryKeys.foodScenes,
     queryFn: api.getFoodScenes,
@@ -145,6 +163,8 @@ export function useAppWorkspaceQueries(args: {
     refetchInterval: args.isAuthenticated && needsAiConversations ? 2000 : false,
   });
 
+  // foodPlanDetailQuery is intentionally excluded from isBootLoading — it is a
+  // local task loading state, not a global application blank screen.
   const isBootLoading =
     familyQuery.isLoading ||
     (needsMembers && membersQuery.isLoading) ||
@@ -152,7 +172,8 @@ export function useAppWorkspaceQueries(args: {
     (needsInventory && (inventoryQuery.isLoading || inventoryStatesQuery.isLoading)) ||
     (needsShopping && shoppingQuery.isLoading) ||
     (needsRecipes && recipesQuery.isLoading) ||
-    (needsRecipeInsights && (recipeDiscoveryQuery.isLoading || recipeStatsQuery.isLoading || recipeFavoritesQuery.isLoading)) ||
+    (needsRecipeInsights &&
+      (recipeDiscoveryQuery.isLoading || recipeStatsQuery.isLoading || recipeFavoritesQuery.isLoading)) ||
     (needsFoodPlan && foodPlanQuery.isLoading && !foodPlanQuery.data) ||
     (needsFoodScenes && foodScenesQuery.isLoading) ||
     (needsFoods && foodsQuery.isLoading) ||
@@ -173,6 +194,7 @@ export function useAppWorkspaceQueries(args: {
     recipeStatsQuery,
     recipeFavoritesQuery,
     foodPlanQuery,
+    foodPlanDetailQuery,
     foodScenesQuery,
     foodsQuery,
     foodRecommendationsQuery,
@@ -192,6 +214,7 @@ export function useAppWorkspaceQueries(args: {
     recipeStats: recipeStatsQuery.data ?? (null as RecipeStats | null),
     recipeFavorites: recipeFavoritesQuery.data ?? [],
     foodPlanItems: foodPlanQuery.data ?? ([] as FoodPlanItem[]),
+    foodPlanDetail: foodPlanDetailQuery.data ?? (null as FoodPlanItem | null),
     foodScenes: foodScenesQuery.data ?? ([] as FoodScene[]),
     foods: foodsQuery.data ?? ([] as Food[]),
     foodRecommendations: foodRecommendationsQuery.data ?? (null as FoodRecommendations | null),

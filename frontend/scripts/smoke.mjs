@@ -690,6 +690,24 @@ async function fulfillActivityRoute(route, url, routeController) {
   return false;
 }
 
+const planItemOutsideWeek = {
+  id: 'plan-outside-week',
+  family_id: family.id,
+  user_id: user.id,
+  food_id: food.id,
+  food_name: food.name,
+  food_type: food.type,
+  recipe_id: recipe.id,
+  recipe_title: recipe.title,
+  plan_date: '2026-06-15',
+  meal_type: 'dinner',
+  note: 'smoke non-current-week plan',
+  status: 'planned',
+  meal_log_id: null,
+  created_at: now,
+  updated_at: now,
+};
+
 const fixtures = {
   '/api/auth/me': authResponse,
   '/api/family': family,
@@ -715,6 +733,7 @@ const fixtures = {
   '/api/recipe-favorites': [],
   '/api/recipe-plan': [],
   '/api/food-plan': [],
+  [`/api/food-plan/${planItemOutsideWeek.id}`]: planItemOutsideWeek,
   '/api/food-scenes': [],
   '/api/foods': recommendationFoods,
   '/api/foods/recommendations': {
@@ -734,6 +753,22 @@ const fixtures = {
   },
   '/api/media/ai-render/active': [],
   '/api/search/index-jobs/active': [],
+  '/api/search': {
+    query: '',
+    total: 1,
+    items: [
+      {
+        entity_type: 'recipe',
+        entity_id: recipe.id,
+        score: 1,
+        keyword_score: 1,
+        semantic_score: 0,
+        business_score: 0,
+        match_reason: ['title'],
+        entity: recipe,
+      },
+    ],
+  },
 };
 
 function assertDistExists() {
@@ -906,6 +941,50 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
       return;
     }
 
+    if (request.method() === 'GET' && url.pathname.startsWith('/api/food-plan/')) {
+      const itemId = url.pathname.slice('/api/food-plan/'.length);
+      const detail = fixtures[`/api/food-plan/${itemId}`];
+      if (detail !== undefined) {
+        await fulfillJson(route, detail);
+        return;
+      }
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/search') {
+      const q = (url.searchParams.get('q') || '').trim();
+      if (!q) {
+        await fulfillJson(route, { query: q, total: 0, items: [] });
+        return;
+      }
+      await fulfillJson(route, {
+        query: q,
+        total: 2,
+        items: [
+          {
+            entity_type: 'recipe',
+            entity_id: recipe.id,
+            score: 1,
+            keyword_score: 1,
+            semantic_score: 0,
+            business_score: 0,
+            match_reason: ['title'],
+            entity: recipe,
+          },
+          {
+            entity_type: 'meal_plan',
+            entity_id: planItemOutsideWeek.id,
+            score: 0.8,
+            keyword_score: 0.8,
+            semantic_score: 0,
+            business_score: 0,
+            match_reason: ['plan'],
+            entity: planItemOutsideWeek,
+          },
+        ],
+      });
+      return;
+    }
+
     const fixture = fixtures[url.pathname];
     if (fixture !== undefined) {
       await fulfillJson(route, fixture);
@@ -948,7 +1027,10 @@ async function createPage(browser, viewport, authenticated = true, contextOption
   if (authenticated) {
     await context.addInitScript(() => {
       localStorage.setItem('culina-access-token', 'smoke-token');
-      localStorage.setItem('culina-active-tab-v4', 'home');
+      localStorage.setItem(
+        'culina-navigation-v2',
+        JSON.stringify({ version: 2, primaryTab: 'home', eatBaseView: 'discover', discoverSection: 'all' }),
+      );
     });
   }
 
@@ -1401,14 +1483,24 @@ async function runDesktopSmoke(browser, baseUrl) {
     throw new Error('首页未请求 /api/activity-highlights');
   }
 
-  await page.getByRole('button', { name: '食物' }).first().click();
-  await expectVisibleText(page, '食物库', '食物工作台');
+  // desktop: 首页 → 推荐 Food → 吃什么/发现/Food detail
+  await page.locator('.dashboard-food-card').first().click();
+  await expectVisible(page.locator('.food-detail-drawer'), '桌面首页推荐 Food 详情');
+  await page.getByLabel('关闭弹窗').last().click();
+  await page.locator('.food-detail-drawer').waitFor({ state: 'detached', timeout: 10_000 });
+
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.getByRole('tab', { name: '发现' }), '吃什么/发现');
+  await expectVisibleText(page, '食物库', '发现工作台食物库');
 
   await page.getByRole('button', { name: '食材' }).first().click();
   await expectVisibleText(page, '管理家庭食材档案、库存状态以及采购清单。', '食材工作台');
 
-  await page.getByRole('button', { name: '菜谱' }).first().click();
-  await expectVisibleText(page, '菜谱', '菜谱工作台');
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await page.getByRole('tab', { name: '菜单' }).click();
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), '吃什么/菜单');
+  await page.getByRole('tab', { name: '吃过的' }).click();
+  await expectVisible(page.getByRole('tab', { name: '吃过的' }), '吃什么/吃过的');
   await expectNoHorizontalOverflow(page, '桌面工作台切换');
   assertClean();
   await context.close();
@@ -1524,7 +1616,7 @@ async function runTabletLandscapeSmoke(browser, baseUrl) {
     );
   }
 
-  await page.getByRole('button', { name: '我的家庭' }).first().click();
+  await page.getByRole('button', { name: '家庭' }).first().click();
   await expectVisible(page.getByRole('heading', { name: '我的家庭' }), '1112x834 家庭页标题');
   await expectNoHorizontalOverflow(page, '1112x834 家庭页');
   await expectButtonsOnOneLine(page, '.family-hero-actions > button', '1112x834 家庭页头部');
@@ -1579,7 +1671,8 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     );
   }
 
-  await page.getByRole('button', { name: '食物' }).first().click();
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.getByRole('tab', { name: '发现' }), '1180x820 发现');
   await expectVisibleText(page, '食物库', '1180x820 食物页');
   await expectNoHorizontalOverflow(page, '1180x820 食物页');
   const foodLayout = await page.evaluate(() => {
@@ -1611,61 +1704,9 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     );
   }
 
-  await page.getByRole('button', { name: '菜谱' }).first().click();
-  await expectVisible(page.getByRole('heading', { name: '菜谱' }), '1180x820 菜谱页');
-  await expectNoHorizontalOverflow(page, '1180x820 菜谱页');
-  const recipeLayout = await page.evaluate(() => {
-    const columnCount = (selector) => {
-      const element = document.querySelector(selector);
-      return element ? getComputedStyle(element).gridTemplateColumns.split(' ').length : 0;
-    };
-    const favoritePanel = document.querySelector('.recipe-inspiration-favorites');
-    const sideFavoritePanel = document.querySelector('.recipe-favorite-side-panel');
-    const searchRow = document.querySelector('.recipe-search-row');
-    const searchControls = searchRow ? Array.from(searchRow.children) : [];
-    const searchRowRect = searchRow ? searchRow.getBoundingClientRect() : null;
-    const searchControlRects = searchControls.map((element) => element.getBoundingClientRect());
-    const filterLabels = searchControls
-      .slice(1)
-      .map((element) => element.textContent?.replace(/\s+/g, ' ').trim() ?? '');
-    return {
-      inspirationColumns: columnCount('.recipe-inspiration-grid'),
-      discoveryColumns: columnCount('.recipe-discovery-layout'),
-      cardColumns: columnCount('.recipe-discovery-card-grid'),
-      favoriteColumns: columnCount('.recipe-inspiration-favorite-list'),
-      favoriteDisplay: favoritePanel ? getComputedStyle(favoritePanel).display : 'missing',
-      sideFavoriteDisplay: sideFavoritePanel ? getComputedStyle(sideFavoritePanel).display : 'missing',
-      searchColumns: columnCount('.recipe-search-row'),
-      searchRowTops: searchControls.map((element) => Math.round(element.getBoundingClientRect().top)),
-      searchRowOverflow: searchRow ? searchRow.scrollWidth - searchRow.clientWidth : Number.POSITIVE_INFINITY,
-      searchControlRightOverflow:
-        searchRowRect && searchControlRects.length > 0
-          ? Math.max(...searchControlRects.map((rect) => rect.right - searchRowRect.right))
-          : Number.POSITIVE_INFINITY,
-      filterLabels,
-    };
-  });
-  const recipeSearchTopSpread =
-    recipeLayout.searchRowTops.length > 0
-      ? Math.max(...recipeLayout.searchRowTops) - Math.min(...recipeLayout.searchRowTops)
-      : Number.POSITIVE_INFINITY;
-  if (
-    recipeLayout.inspirationColumns !== 2 ||
-    recipeLayout.discoveryColumns !== 1 ||
-    recipeLayout.cardColumns !== 3 ||
-    recipeLayout.favoriteColumns !== 2 ||
-    recipeLayout.favoriteDisplay === 'none' ||
-    recipeLayout.sideFavoriteDisplay !== 'none' ||
-    recipeLayout.searchColumns !== 3 ||
-    recipeSearchTopSpread > 2 ||
-    recipeLayout.searchRowOverflow > 1 ||
-    recipeLayout.searchControlRightOverflow > 1 ||
-    recipeLayout.filterLabels.some((label) => label.includes('难度:') || label.includes('排序:'))
-  ) {
-    throw new Error(
-      `1180x820 菜谱页布局异常：概览区 ${recipeLayout.inspirationColumns} 列，内容区 ${recipeLayout.discoveryColumns} 列，卡片区 ${recipeLayout.cardColumns} 列，收藏 ${recipeLayout.favoriteColumns} 列/${recipeLayout.favoriteDisplay}，侧栏收藏 ${recipeLayout.sideFavoriteDisplay}，筛选 ${recipeLayout.searchColumns} 列/${recipeLayout.searchRowTops.join(',')}，溢出 ${recipeLayout.searchRowOverflow}/${recipeLayout.searchControlRightOverflow}，标签 ${recipeLayout.filterLabels.join('|')}`
-    );
-  }
+  await page.getByRole('tab', { name: '菜单' }).click();
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), '1180x820 菜单');
+  await expectNoHorizontalOverflow(page, '1180x820 菜单页');
 
   await page.getByRole('button', { name: '食材' }).first().click();
   await expectVisibleText(page, '管理家庭食材档案、库存状态以及采购清单。', '1180x820 食材页');
@@ -1702,8 +1743,9 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     throw new Error(`1180x820 食材库存卡片未保持三列：${inventoryColumns} 列`);
   }
 
-  await page.getByRole('button', { name: '记录' }).first().click();
-  await expectVisible(page.getByRole('heading', { name: '餐食记录中心' }), '1180x820 餐食记录页');
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await page.getByRole('tab', { name: '吃过的' }).click();
+  await expectVisible(page.getByRole('tab', { name: '吃过的' }), '1180x820 吃过的');
   await expectNoHorizontalOverflow(page, '1180x820 餐食记录页');
   const mealLogMetricLayout = await page.evaluate(() => {
     const grid = document.querySelector('.meal-log-command-grid');
@@ -1918,8 +1960,8 @@ async function runHomeHighlightStaleCacheSmoke(browser, baseUrl) {
     { timeout: 10_000 }
   );
   // Leave Home (disables the query) then return so React Query refetches stale cache.
-  await page.getByRole('button', { name: '食物' }).first().click();
-  await expectVisibleText(page, '食物库', 'stale 场景离开首页');
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.getByRole('tab', { name: '发现' }), 'stale 场景离开首页');
   await page.getByRole('button', { name: '首页' }).first().click();
   await failedRefetch;
   await expectVisible(desktop.getByTestId('home-highlight-row').first(), 'stale 场景返回首页');
@@ -1988,10 +2030,13 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await homeSurfaceLocator(page, viewport).getByRole('button', { name: '完整周菜单', exact: true }).click();
 
-  if (isPhoneViewport) {
-    await expectVisible(page.getByLabel('手机周菜单'), `${label} 手机周菜单`);
-  } else {
-    await expectVisible(page.getByTestId('food-plan-week-section'), `${label} 桌面周菜单`);
+  // Unified Eat plan surface (Task 9/10) replaces the legacy foods-tab week page.
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} 菜单 tab`);
+  await expectVisible(
+    page.getByTestId('food-plan-week-section').or(page.getByLabel('菜单')).first(),
+    `${label} 周菜单`,
+  );
+  if (!isPhoneViewport) {
     const focused = await page.evaluate(() => {
       const week = document.querySelector('[data-testid="food-plan-week-section"]');
       if (!week) return false;
@@ -2009,6 +2054,180 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   }
   assertClean();
   await context.close();
+}
+
+async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
+  const label = 'PR A 统一吃什么导航';
+  const requestedApiPaths = [];
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1440, height: 960 },
+    true,
+    {},
+    { requestedApiPaths },
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+
+  // desktop: 首页 → 推荐 Food → 吃什么/发现/Food detail (also covered in desktop smoke)
+  await page.locator('.dashboard-food-card').first().click();
+  await expectVisible(page.locator('.food-detail-drawer'), `${label} 首页推荐 Food detail`);
+  await page.getByLabel('关闭弹窗').last().click();
+  await page.locator('.food-detail-drawer').waitFor({ state: 'detached', timeout: 10_000 });
+
+  // desktop: 搜索 Recipe → recipe-target with real recipe detail content
+  await page.locator('.dashboard-page').getByRole('button', { name: '全局搜索' }).click();
+  await expectVisible(page.getByRole('dialog', { name: '全局搜索' }), `${label} 搜索弹层`);
+  await page.getByLabel('搜索食材、食物、菜谱、餐食计划').fill('番茄');
+  await page.waitForTimeout(350);
+  const recipeResult = page.locator('.global-search-result-list button, .global-search-result-list [role="button"]').filter({ hasText: '番茄炒蛋' }).first();
+  await expectVisible(recipeResult, `${label} 搜索 Recipe 结果`);
+  await recipeResult.click();
+  await expectVisible(
+    page.getByTestId('eat-recipe-task-body').or(
+      page.locator('.recipe-task-surface, .recipe-detail-subpage, .eat-recipe-task-title').filter({ hasText: /番茄炒蛋|做法|菜谱/ }),
+    ).first(),
+    `${label} recipe-target 任务真实内容`,
+  );
+  await expectVisible(page.getByText('番茄炒蛋').first(), `${label} recipe title`);
+  // Prefer real detail chrome over empty shell placeholder
+  const recipePlaceholder = await page.getByText('做法任务内容将由上层装配').count();
+  if (recipePlaceholder > 0) {
+    throw new Error(`${label} recipe-target 仍是占位内容`);
+  }
+
+  // plan search: non-current-week result → detail fetch
+  // reopen search from home after closing the eat task
+  await page.getByRole('button', { name: '首页' }).first().click();
+  await page.locator('.dashboard-page').getByRole('button', { name: '全局搜索' }).click();
+  await expectVisible(page.getByRole('dialog', { name: '全局搜索' }), `${label} 再次打开搜索`);
+  await page.getByLabel('搜索食材、食物、菜谱、餐食计划').fill('菜单');
+  await page.waitForTimeout(500);
+  const planResult = page.locator('.global-search-result.global-search-result-meal_plan').first();
+  await expectVisible(planResult, `${label} 非当周 plan 搜索结果`);
+  await planResult.click();
+  await page.waitForTimeout(500);
+  if (!requestedApiPaths.some((path) => path.startsWith('/api/food-plan/'))) {
+    throw new Error(`${label} 非当周 plan 搜索未触发 GET /api/food-plan/{id}: ${requestedApiPaths.join(',')}`);
+  }
+
+  // plan search selection focuses the plan surface / week containing fixture plan_date 2026-06-15
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} plan 搜索后菜单 tab`);
+  const planTabSelected = await page.getByRole('tab', { name: '菜单' }).getAttribute('aria-selected');
+  if (planTabSelected !== 'true') {
+    throw new Error(`${label} plan 搜索后菜单 tab 未选中 (aria-selected=${planTabSelected})`);
+  }
+  await expectVisible(
+    page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal').or(
+      page.locator('.eat-task-heading').filter({ hasText: /番茄|菜单项|smoke non-current-week/ }),
+    ).first(),
+    `${label} plan 详情任务`,
+  );
+  const planPlaceholder = await page.getByText('菜单项任务内容将由上层装配').count();
+  if (planPlaceholder > 0) {
+    throw new Error(`${label} plan 详情仍是占位内容`);
+  }
+  // week range for 2026-06-15 is Mon 06/15 – Sun 06/21; surface shows MM/DD - MM/DD
+  await page.waitForFunction(() => {
+    const head = document.querySelector('.food-sidebar-section-head span');
+    const text = `${head?.textContent || ''} ${document.body.innerText || ''}`;
+    return (
+      text.includes('06/15')
+      || text.includes('06/16')
+      || text.includes('06/17')
+      || text.includes('06/18')
+      || text.includes('06/19')
+      || text.includes('06/20')
+      || text.includes('06/21')
+      || text.includes('6月15')
+      || text.includes('2026-06-15')
+    );
+  }, undefined, { timeout: 10_000 }).catch(() => {
+    throw new Error(`${label} plan 搜索后未聚焦 fixture 周(2026-06-15)`);
+  });
+  await expectVisible(
+    page.getByTestId('food-plan-week-section').or(page.getByLabel('菜单')).first(),
+    `${label} 菜单周表面`,
+  );
+
+  assertClean();
+  await context.close();
+}
+
+async function runMobileEatTabsSmoke(browser, baseUrl) {
+  const label = 'mobile 吃什么 tabs';
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 375, height: 812 },
+    true,
+    { isMobile: true, hasTouch: true },
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.getByRole('tab', { name: '发现' }), `${label} 发现`);
+  await page.getByRole('tab', { name: '菜单' }).click();
+  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} 菜单`);
+  await page.getByRole('tab', { name: '吃过的' }).click();
+  await expectVisible(page.getByRole('tab', { name: '吃过的' }), `${label} 吃过的`);
+  await expectNoHorizontalOverflow(page, label);
+  assertClean();
+  await context.close();
+}
+
+async function runLegacyStorageRecoverySmoke(browser, baseUrl) {
+  const cases = [
+    { key: 'foods', label: 'legacy foods' },
+    { key: 'recipes', label: 'legacy recipes' },
+    { key: 'logs', label: 'legacy logs' },
+    { key: 'unknown-tab', label: 'unknown tab' },
+    { key: '__corrupt__', label: 'corrupt storage', corrupt: true },
+  ];
+  for (const entry of cases) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    const unexpectedRequests = [];
+    const pageErrors = [];
+    const consoleErrors = [];
+    await installApiMocks(context, unexpectedRequests, {});
+    await context.addInitScript(({ key, corrupt }) => {
+      localStorage.setItem('culina-access-token', 'smoke-token');
+      if (corrupt) {
+        localStorage.setItem('culina-navigation-v2', '{not-json');
+        localStorage.setItem('culina-active-tab', 'foods');
+      } else if (key === 'unknown-tab') {
+        localStorage.setItem('culina-active-tab', 'unknown-tab');
+      } else {
+        localStorage.setItem('culina-active-tab', key);
+      }
+    }, entry);
+    const page = await context.newPage();
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await expectVisible(page.locator('.app-frame'), `storage ${entry.label} app frame`);
+    const primaryVisible = await page.evaluate(() => {
+      const frame = document.querySelector('.app-frame');
+      return frame ? getComputedStyle(frame).display !== 'none' : false;
+    });
+    if (!primaryVisible) {
+      throw new Error(`storage ${entry.label} 未恢复到可见工作区`);
+    }
+    // Legacy foods/recipes/logs should land in eat workspace safely.
+    if (['foods', 'recipes', 'logs'].includes(entry.key)) {
+      await expectVisible(page.getByRole('button', { name: '吃什么' }).first(), `storage ${entry.label} eat nav`);
+    }
+    if (unexpectedRequests.length > 0) {
+      throw new Error(`storage ${entry.label} 未 mock 的 API 请求：\n${unexpectedRequests.join('\n')}`);
+    }
+    if (pageErrors.length > 0) {
+      throw new Error(`storage ${entry.label} 页面运行错误：\n${pageErrors.join('\n')}`);
+    }
+    const relevantConsoleErrors = consoleErrors.filter((message) => !message.includes('Failed to load resource'));
+    if (relevantConsoleErrors.length > 0) {
+      throw new Error(`storage ${entry.label} console error：\n${relevantConsoleErrors.join('\n')}`);
+    }
+    await context.close();
+  }
 }
 
 async function main() {
@@ -2036,6 +2255,9 @@ async function main() {
     }
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
+    await runUnifiedEatNavigationSmoke(browser, preview.url);
+    await runMobileEatTabsSmoke(browser, preview.url);
+    await runLegacyStorageRecoverySmoke(browser, preview.url);
     await runHomeActionCenterSmoke(browser, preview.url);
     await runHomeHighlightLoadingSmoke(browser, preview.url);
     await runHomeHighlightErrorSmoke(browser, preview.url);
@@ -2158,7 +2380,7 @@ async function main() {
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, desktop workspace tabs, unified eat navigation (home food detail/search recipe/plan detail/mobile tabs/storage recovery), home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

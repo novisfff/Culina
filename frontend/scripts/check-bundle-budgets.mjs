@@ -12,7 +12,9 @@ const trackedBundles = [
   { label: 'ai-workspace', prefix: 'AiWorkspace-', suffix: '.js', gzipBudget: 10.5 * 1024 },
   { label: 'family-settings', prefix: 'FamilySettings-', suffix: '.js', gzipBudget: 7 * 1024 },
   { label: 'food-workspace', prefix: 'FoodWorkspace-', suffix: '.js', gzipBudget: 26 * 1024 },
-  { label: 'recipe-workspace', prefix: 'RecipeWorkspace-', suffix: '.js', gzipBudget: 36 * 1024 },
+  // RecipeWorkspace is no longer a lazy primary chunk after unified Eat navigation (Task 9/10).
+  // Keep a soft check if a RecipeWorkspace chunk reappears; do not fail when it is absent.
+  { label: 'recipe-workspace', prefix: 'RecipeWorkspace-', suffix: '.js', gzipBudget: 36 * 1024, optional: true },
   { label: 'ingredient-workspace', prefix: 'IngredientWorkspace-', suffix: '.js', gzipBudget: 37 * 1024 },
 ];
 
@@ -69,6 +71,10 @@ console.log('Bundle gzip budgets:');
 for (const bundle of trackedBundles) {
   const matchedFile = findBundleFile(bundle.prefix, bundle.suffix, assetFiles);
   if (!matchedFile) {
+    if (bundle.optional) {
+      console.log(`- ${bundle.label}: (absent; optional after unified Eat navigation)`);
+      continue;
+    }
     violations.push(`${bundle.label}: missing output matching ${bundle.prefix}*${bundle.suffix}`);
     continue;
   }

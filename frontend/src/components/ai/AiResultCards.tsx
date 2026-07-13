@@ -2,12 +2,14 @@ import type {
   AiGeneratedRecipeDraft,
   AiInventoryOperationAction,
   AiInventoryResultItem,
+  AiOperationResultEntity,
   AiProductLoopPrompt,
   AiResultCard,
   AiTodayRecommendationItem,
   AiUiActionsCardData,
   MediaAsset,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -25,7 +27,37 @@ import {
   operationResultOperationLabel,
   recommendationItems,
   recommendationMeta,
+  targetForAiEntity,
 } from './AiResultCardModel';
+
+export { targetForAiEntity } from './AiResultCardModel';
+
+type NavigateTarget = (target: AppNavigationTarget) => void;
+
+function entityTypeFromOperationEntity(entity: AiOperationResultEntity): string | null {
+  const candidates = [entity.operation, entity.label]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .map((value) => value.trim().toLowerCase());
+  for (const value of candidates) {
+    if (value.includes('meal_log') || value.includes('meal-log') || value === '餐食记录') return 'meal_log';
+    if (value.includes('meal_plan') || value.includes('food_plan') || value === '菜单计划') return 'meal_plan';
+    if (value.includes('food_profile') || value === 'food' || value === '食物') return 'food';
+    if (value.includes('recipe') || value === '菜谱') return 'recipe';
+  }
+  return null;
+}
+
+function navigateTargetForOperationEntity(entity: AiOperationResultEntity): AppNavigationTarget | null {
+  // Prefer explicit entityType when present on extended payloads.
+  const extended = entity as AiOperationResultEntity & { entityType?: string | null; entity_type?: string | null };
+  const explicit = extended.entityType ?? extended.entity_type;
+  if (explicit) {
+    return targetForAiEntity({ type: explicit, id: entity.id });
+  }
+  const inferred = entityTypeFromOperationEntity(entity);
+  if (!inferred) return null;
+  return targetForAiEntity({ type: inferred, id: entity.id });
+}
 
 export function ResultImage({ asset, alt }: { asset?: MediaAsset | null; alt: string }) {
   const imageSrc = resolveMediaUrl(asset, 'thumb');
@@ -125,9 +157,11 @@ function InventoryCard({
 function RecommendationCard({
   card,
   onAddToPlan,
+  onNavigate,
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
+  onNavigate?: NavigateTarget;
 }) {
   const recommendations = recommendationItems(card);
   const context = card.data.contextSummary;
@@ -154,12 +188,29 @@ function RecommendationCard({
         <div className="ai-query-item-grid ai-query-recommendation-list">
           {recommendations.map((item) => {
             const evidence = evidenceText(item);
+            const entityTarget = targetForAiEntity({
+              type: item.entityType,
+              id: item.entityId,
+            });
+            const planTarget = item.planSelection
+              ? targetForAiEntity({ type: 'meal_plan', id: item.planSelection.foodPlanItemId })
+              : null;
             return (
               <section className="ai-query-item ai-query-recommendation" key={`${item.entityType}-${item.entityId}`}>
                 <ResultImage asset={item.image} alt={item.name} />
                 <div className="ai-query-item-copy">
                   <div className="ai-query-item-title">
-                    <strong>{item.name}</strong>
+                    {entityTarget && onNavigate ? (
+                      <button
+                        type="button"
+                        className="ai-entity-open-button"
+                        onClick={() => onNavigate(entityTarget)}
+                      >
+                        <strong>{item.name}</strong>
+                      </button>
+                    ) : (
+                      <strong>{item.name}</strong>
+                    )}
                     <span className="ai-query-kind">{item.entityType === 'recipe' ? '菜谱' : '食物'}</span>
                   </div>
                   {recommendationMeta(item) && <p>{recommendationMeta(item)}</p>}
@@ -172,7 +223,15 @@ function RecommendationCard({
                 </div>
                 <div className="ai-query-item-action">
                   {item.planSelection ? (
-                    <div className="ai-query-plan-added" aria-label="已加入菜单计划">
+                    <button
+                      type="button"
+                      className="ai-query-plan-added"
+                      aria-label="已加入菜单计划"
+                      disabled={!planTarget || !onNavigate}
+                      onClick={() => {
+                        if (planTarget) onNavigate?.(planTarget);
+                      }}
+                    >
                       <strong>
                         <svg className="added-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', display: 'inline-block', verticalAlign: 'middle' }}>
                           <polyline points="20 6 9 17 4 12"></polyline>
@@ -180,7 +239,7 @@ function RecommendationCard({
                         已加入菜单
                       </strong>
                       <span>{item.planSelection.planDate} · {MEAL_TYPE_LABELS[item.planSelection.mealType]}</span>
-                    </div>
+                    </button>
                   ) : (
                     <button
                       className="solid-button"
@@ -251,7 +310,13 @@ function ClarificationCard({ card }: { card: AiResultCard }) {
   );
 }
 
-function OperationResultCard({ card }: { card: AiResultCard }) {
+function OperationResultCard({
+  card,
+  onNavigate,
+}: {
+  card: AiResultCard;
+  onNavigate?: NavigateTarget;
+}) {
   const entities = operationResultEntities(card);
   const actionSummary = typeof card.data.actionSummary === 'string' ? card.data.actionSummary.trim() : '';
   const entityCountLabel = typeof card.data.entityCountLabel === 'string' ? card.data.entityCountLabel : `${entities.length} 个实体`;
@@ -281,14 +346,30 @@ function OperationResultCard({ card }: { card: AiResultCard }) {
       {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
       {entities.length > 0 && (
         <div className="ai-query-recommendation-list" aria-label="已执行实体">
-          {entities.map((item) => (
-            <section key={item.id} className="ai-recommendation-item">
-              <strong>{operationResultEntityLabel(item)}</strong>
-              <p>
-                {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
-              </p>
-            </section>
-          ))}
+          {entities.map((item) => {
+            const target = navigateTargetForOperationEntity(item);
+            const canOpen = Boolean(target && onNavigate);
+            return (
+              <section key={item.id} className="ai-recommendation-item">
+                {canOpen ? (
+                  <button
+                    type="button"
+                    className="ai-entity-open-button"
+                    onClick={() => {
+                      if (target) onNavigate?.(target);
+                    }}
+                  >
+                    <strong>{operationResultEntityLabel(item)}</strong>
+                  </button>
+                ) : (
+                  <strong>{operationResultEntityLabel(item)}</strong>
+                )}
+                <p>
+                  {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
+                </p>
+              </section>
+            );
+          })}
         </div>
       )}
       {destinationText && (
@@ -386,6 +467,7 @@ export function ResultCard({
   onPromptAction,
   isPromptActionPending,
   onProductLoopPrompt,
+  onNavigate,
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
@@ -394,6 +476,7 @@ export function ResultCard({
   onPromptAction?: (prompt: string) => void;
   isPromptActionPending?: boolean;
   onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
+  onNavigate?: NavigateTarget;
 }) {
   if (card.type === 'inventory_summary') {
     return (
@@ -404,9 +487,11 @@ export function ResultCard({
       />
     );
   }
-  if (card.type === 'today_recommendation') return <RecommendationCard card={card} onAddToPlan={onAddToPlan} />;
+  if (card.type === 'today_recommendation') {
+    return <RecommendationCard card={card} onAddToPlan={onAddToPlan} onNavigate={onNavigate} />;
+  }
   if ((card.type as string) === 'clarification_request') return <ClarificationCard card={card} />;
-  if (card.type === 'operation_result') return <OperationResultCard card={card} />;
+  if (card.type === 'operation_result') return <OperationResultCard card={card} onNavigate={onNavigate} />;
   if (card.type === 'ui_actions') return <UiActionsCard card={card} />;
   if (card.type === 'recipe_shortage') {
     return (

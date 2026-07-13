@@ -27,6 +27,7 @@ export const foodsApi = {
     if (q.trim()) search.set('q', q.trim());
     return request<FoodPlanItem[]>(`/api/food-plan?${search.toString()}`);
   },
+  getFoodPlanItem: (itemId: string) => request<FoodPlanItem>(`/api/food-plan/${itemId}`),
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) =>
     request<FoodPlanItem>('/api/food-plan', {
       method: 'POST',

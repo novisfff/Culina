@@ -14,18 +14,20 @@ import {
   getMealIconName,
   getMealLogStatus,
   getMealLogStatusLabel,
+  getMealRecordPresentation,
   getMealTone,
   type MealLogMealFilter,
   type MealLogStatusFilter,
 } from './MealLogWorkspaceModel';
 
 type Props = {
-  pendingMeals: MealLog[];
+  basicMeals: MealLog[];
   selectedMeal: MealLog | null;
   mealSources: Map<string, MealSource>;
   todayMealCount: number;
   enrichedCount: number;
   weekRecordCount: number;
+  totalRecordCount: number;
   groupedMeals: Array<{ date: string; meals: MealLog[] }>;
   searchQuery: string;
   statusFilter: MealLogStatusFilter;
@@ -41,10 +43,10 @@ type Props = {
 
 export function MealLogMobileView(props: Props) {
   const mobileStats = [
-    { label: '今日已记录', value: props.todayMealCount, detail: '来自计划记录', tone: 'orange', icon: 'today' as const },
-    { label: '待补充', value: props.pendingMeals.length, detail: '需要补充评价/家人/照片/评论', tone: 'amber', icon: 'pending' as const },
-    { label: '已补充', value: props.enrichedCount, detail: '已有评价、照片或评论', tone: 'green', icon: 'done' as const },
-    { label: '本周记录', value: props.weekRecordCount, detail: `较上周 ↑ ${Math.min(props.weekRecordCount, 4)}`, tone: 'blue', icon: 'trend' as const },
+    { label: '今日已记录', value: props.todayMealCount, detail: '来自计划与手动记录', tone: 'orange', icon: 'today' as const },
+    { label: '基础记录', value: props.basicMeals.length, detail: '可补充评价、家人、照片或评论', tone: 'amber', icon: 'pending' as const },
+    { label: '已丰富', value: props.enrichedCount, detail: '已有评价、照片或评论', tone: 'green', icon: 'done' as const },
+    { label: '本周记录', value: props.weekRecordCount, detail: `共 ${props.totalRecordCount} 条历史`, tone: 'blue', icon: 'trend' as const },
   ];
 
   return (
@@ -69,7 +71,7 @@ export function MealLogMobileView(props: Props) {
 
       <header className="mobile-log-hero">
         <h1>记录</h1>
-        <p>补充照片、评价和家人反馈，回看每一餐实际吃了什么。</p>
+        <p>回看每一餐实际吃了什么，需要时再补充照片、评价和家人反馈。</p>
       </header>
 
       <section className="mobile-log-stat-grid" aria-label="记录概览">
@@ -127,6 +129,7 @@ export function MealLogMobileView(props: Props) {
                   const source = props.mealSources.get(meal.id);
                   const mealStatus = getMealLogStatus(meal);
                   const mealStatusLabel = getMealLogStatusLabel(meal);
+                  const presentation = getMealRecordPresentation(meal);
                   const isEnriched = mealStatus === 'done';
                   return (
                     <button
@@ -154,9 +157,10 @@ export function MealLogMobileView(props: Props) {
                           </span>
                         </small>
                       </span>
-                      <StatusBadge tone={isEnriched ? 'success' : 'warning'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
+                      <StatusBadge tone={isEnriched ? 'success' : 'neutral'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
                         {mealStatusLabel}
                       </StatusBadge>
+                      <span className="sr-only">{presentation.actionLabel}</span>
                     </button>
                   );
                 })}

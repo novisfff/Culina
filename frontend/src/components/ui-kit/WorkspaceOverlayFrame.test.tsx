@@ -174,6 +174,124 @@ describe('WorkspaceOverlayFrame', () => {
     expect(busy.onClose).not.toHaveBeenCalled();
   });
 
+  it('closes only the topmost nested overlay on Escape', () => {
+    const outerOnClose = vi.fn();
+    const innerOnClose = vi.fn();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <WorkspaceOverlayFrame labelledBy="outer-title" onClose={outerOnClose}>
+          <WorkspaceModal
+            title="外层弹窗"
+            titleId="outer-title"
+            description="外层"
+            closeLabel="关闭外层"
+            closeAriaLabel="关闭外层弹窗"
+            onClose={outerOnClose}
+          >
+            <button type="button" id="outer-action">
+              外层按钮
+            </button>
+            <WorkspaceOverlayFrame labelledBy="inner-title" onClose={innerOnClose}>
+              <WorkspaceModal
+                title="内层弹窗"
+                titleId="inner-title"
+                description="内层"
+                closeLabel="关闭内层"
+                closeAriaLabel="关闭内层弹窗"
+                onClose={innerOnClose}
+              >
+                <button type="button" id="inner-action">
+                  内层按钮
+                </button>
+              </WorkspaceModal>
+            </WorkspaceOverlayFrame>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(innerOnClose).toHaveBeenCalledTimes(1);
+    expect(outerOnClose).not.toHaveBeenCalled();
+
+    // Simulate the parent closing the inner overlay after the first Escape.
+    act(() => {
+      root?.render(
+        <WorkspaceOverlayFrame labelledBy="outer-title" onClose={outerOnClose}>
+          <WorkspaceModal
+            title="外层弹窗"
+            titleId="outer-title"
+            description="外层"
+            closeLabel="关闭外层"
+            closeAriaLabel="关闭外层弹窗"
+            onClose={outerOnClose}
+          >
+            <button type="button" id="outer-action">
+              外层按钮
+            </button>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(outerOnClose).toHaveBeenCalledTimes(1);
+    expect(innerOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks Escape when the topmost nested overlay is busy', () => {
+    const outerOnClose = vi.fn();
+    const innerOnClose = vi.fn();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <WorkspaceOverlayFrame labelledBy="outer-title" onClose={outerOnClose}>
+          <WorkspaceModal
+            title="外层弹窗"
+            titleId="outer-title"
+            description="外层"
+            closeLabel="关闭外层"
+            closeAriaLabel="关闭外层弹窗"
+            onClose={outerOnClose}
+          >
+            <WorkspaceOverlayFrame labelledBy="inner-title" onClose={innerOnClose} busy>
+              <WorkspaceModal
+                title="内层弹窗"
+                titleId="inner-title"
+                description="内层"
+                closeLabel="关闭内层"
+                closeAriaLabel="关闭内层弹窗"
+                onClose={innerOnClose}
+                busy
+              >
+                <button type="button" id="inner-action">
+                  内层按钮
+                </button>
+              </WorkspaceModal>
+            </WorkspaceOverlayFrame>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(innerOnClose).not.toHaveBeenCalled();
+    expect(outerOnClose).not.toHaveBeenCalled();
+  });
+
   it('prevents backdrop close and drag close while busy', () => {
     const { onClose, view } = renderOverlay({ busy: true });
 

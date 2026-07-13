@@ -78,12 +78,11 @@ import {
 import { RecipeDraftDialog } from './RecipeDraftDialog';
 import { RecipeShoppingDialog } from './RecipeShoppingDialog';
 import { RecipeCookFinishDialog } from './RecipeCookFinishDialog';
-import { RecipeCookView } from './RecipeCookView';
 import { RecipeDetailDrawer } from './RecipeDetailDrawer';
-import { RecipeDetailView } from './RecipeDetailView';
 import { RecipeEditorView } from './RecipeEditorView';
 import { RecipeIngredientResolutionDialog } from './RecipeIngredientResolutionDialog';
 import { RecipeLibraryView } from './RecipeLibraryView';
+import { RecipeTaskSurface } from './RecipeTaskSurface';
 import { RecipePlanDetailDialog, RecipePlanDialog } from './RecipePlanDialogs';
 import { RecipeSceneManagerDialog } from './RecipeSceneManagerDialog';
 import { useRecipeCookState, type RecipeCookReturnTarget } from './useRecipeCookState';
@@ -1323,129 +1322,232 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         />
       )}
       {view === 'create' || view === 'edit' ? (
-        <RecipeEditorView
-          isEditing={isEditing}
-          isRecipeAiApplied={isRecipeAiApplied}
-          selectedRecipeId={selectedRecipeId}
-          form={form}
-          setForm={setForm}
-          ingredientRows={ingredientRows}
-          ingredients={props.ingredients}
-          sceneTagDraft={sceneTagDraft}
-          setSceneTagDraft={setSceneTagDraft}
-          sceneSelectOptions={sceneSelectOptions}
-          editorSceneTags={editorSceneTags}
-          visibleStepTips={visibleStepTips}
-          editorCoverUrl={editorCoverUrl}
-          editorCoverAsset={editorCoverAsset}
-          editorIngredientCount={editorIngredientCount}
-          editorStepCount={editorStepCount}
-          editorCompletionItems={editorCompletionItems}
-          editorCompletionPercent={editorCompletionPercent}
-          recipeDraftError={recipeDraftError}
-          isRecipeDraftBusy={isRecipeDraftBusy}
-          recipeImageState={recipeImageState}
-          recipeDraftButtonLabel={recipeDraftButtonLabel}
-          submitDisabled={submitDisabled}
-          isCreatingRecipe={props.isCreatingRecipe}
-          isUpdatingRecipe={props.isUpdatingRecipe}
-          isDeletingRecipe={props.isDeletingRecipe}
-          backLabel={isEditing ? undefined : libraryBackLabel}
-          onBack={() => setView(isEditing ? 'detail' : 'library')}
-          onSubmit={submitRecipe}
-          onDelete={deleteSelectedRecipe}
-          onOpenDraftDialog={() => setIsRecipeDraftDialogOpen(true)}
-          updateIngredientRow={updateIngredientRow}
-          selectIngredientRow={selectIngredientRow}
-          updateIngredientNote={updateIngredientNote}
-          updateIngredientRequirement={updateIngredientRequirement}
-          addIngredientRow={addIngredientRow}
-          removeIngredientRow={removeIngredientRow}
-          updateStepDraft={updateStepDraft}
-          getStepKeyPointValues={getStepKeyPointValues}
-          getStepKeyPointRowCount={getStepKeyPointRowCount}
-          addStepTip={addStepTip}
-          addStepKeyPoint={addStepKeyPoint}
-          updateStepKeyPoint={updateStepKeyPoint}
-          removeStepKeyPoint={removeStepKeyPoint}
-          commitSceneTagDraft={commitSceneTagDraft}
-          handleRecipeImageUpload={handleRecipeImageUpload}
-          handleRecipeImageGenerate={handleRecipeImageGenerate}
-          resetRecipeImageInput={resetRecipeImageInput}
-        />
+        selectedCard && view === 'edit' ? (
+          <RecipeTaskSurface
+            mode="edit"
+            recipe={selectedCard.recipe}
+            food={selectedCard.linkedFood}
+            relationWritable={Boolean(selectedCard.linkedFood)}
+            onSaved={() => setView('detail')}
+            onClose={() => setView(isEditing ? 'detail' : 'library')}
+            editor={{
+              isEditing,
+              isRecipeAiApplied,
+              selectedRecipeId,
+              form,
+              setForm,
+              ingredientRows,
+              ingredients: props.ingredients,
+              sceneTagDraft,
+              setSceneTagDraft,
+              sceneSelectOptions,
+              editorSceneTags,
+              visibleStepTips,
+              editorCoverUrl,
+              editorCoverAsset,
+              editorIngredientCount,
+              editorStepCount,
+              editorCompletionItems,
+              editorCompletionPercent,
+              recipeDraftError,
+              isRecipeDraftBusy,
+              recipeImageState,
+              recipeDraftButtonLabel,
+              submitDisabled,
+              isCreatingRecipe: props.isCreatingRecipe,
+              isUpdatingRecipe: props.isUpdatingRecipe,
+              isDeletingRecipe: props.isDeletingRecipe,
+              backLabel: isEditing ? undefined : libraryBackLabel,
+              onBack: () => setView(isEditing ? 'detail' : 'library'),
+              onSubmit: submitRecipe,
+              onDelete: deleteSelectedRecipe,
+              onOpenDraftDialog: () => setIsRecipeDraftDialogOpen(true),
+              updateIngredientRow,
+              selectIngredientRow,
+              updateIngredientNote,
+              updateIngredientRequirement,
+              addIngredientRow,
+              removeIngredientRow,
+              updateStepDraft,
+              getStepKeyPointValues,
+              getStepKeyPointRowCount,
+              addStepTip,
+              addStepKeyPoint,
+              updateStepKeyPoint,
+              removeStepKeyPoint,
+              commitSceneTagDraft,
+              handleRecipeImageUpload,
+              handleRecipeImageGenerate,
+              resetRecipeImageInput,
+            }}
+            detailFallback={{
+              selectedCard,
+              selectedReadyCount,
+              selectedIngredientCount,
+              selectedShortageCount,
+              isSelectedFavorite,
+              selectedRecentCookLog,
+              selectedRecipePlanItems,
+              isUpdatingFavorite: props.isUpdatingFavorite,
+              isCreatingShopping: props.isCreatingShopping,
+              isDeletingRecipe: props.isDeletingRecipe,
+              backLabel: libraryBackLabel,
+              onBack: () => setView('library'),
+              onCook: openCook,
+              onPlan: openPlanDialog,
+              onShopping: (card) => openShoppingDialog(card, closeCookDialog),
+              onToggleFavorite: toggleRecipeFavorite,
+              onEdit: handleOpenEdit,
+              onDelete: deleteSelectedRecipe,
+            }}
+          />
+        ) : (
+          <RecipeEditorView
+            isEditing={isEditing}
+            isRecipeAiApplied={isRecipeAiApplied}
+            selectedRecipeId={selectedRecipeId}
+            form={form}
+            setForm={setForm}
+            ingredientRows={ingredientRows}
+            ingredients={props.ingredients}
+            sceneTagDraft={sceneTagDraft}
+            setSceneTagDraft={setSceneTagDraft}
+            sceneSelectOptions={sceneSelectOptions}
+            editorSceneTags={editorSceneTags}
+            visibleStepTips={visibleStepTips}
+            editorCoverUrl={editorCoverUrl}
+            editorCoverAsset={editorCoverAsset}
+            editorIngredientCount={editorIngredientCount}
+            editorStepCount={editorStepCount}
+            editorCompletionItems={editorCompletionItems}
+            editorCompletionPercent={editorCompletionPercent}
+            recipeDraftError={recipeDraftError}
+            isRecipeDraftBusy={isRecipeDraftBusy}
+            recipeImageState={recipeImageState}
+            recipeDraftButtonLabel={recipeDraftButtonLabel}
+            submitDisabled={submitDisabled}
+            isCreatingRecipe={props.isCreatingRecipe}
+            isUpdatingRecipe={props.isUpdatingRecipe}
+            isDeletingRecipe={props.isDeletingRecipe}
+            backLabel={isEditing ? undefined : libraryBackLabel}
+            onBack={() => setView(isEditing ? 'detail' : 'library')}
+            onSubmit={submitRecipe}
+            onDelete={deleteSelectedRecipe}
+            onOpenDraftDialog={() => setIsRecipeDraftDialogOpen(true)}
+            updateIngredientRow={updateIngredientRow}
+            selectIngredientRow={selectIngredientRow}
+            updateIngredientNote={updateIngredientNote}
+            updateIngredientRequirement={updateIngredientRequirement}
+            addIngredientRow={addIngredientRow}
+            removeIngredientRow={removeIngredientRow}
+            updateStepDraft={updateStepDraft}
+            getStepKeyPointValues={getStepKeyPointValues}
+            getStepKeyPointRowCount={getStepKeyPointRowCount}
+            addStepTip={addStepTip}
+            addStepKeyPoint={addStepKeyPoint}
+            updateStepKeyPoint={updateStepKeyPoint}
+            removeStepKeyPoint={removeStepKeyPoint}
+            commitSceneTagDraft={commitSceneTagDraft}
+            handleRecipeImageUpload={handleRecipeImageUpload}
+            handleRecipeImageGenerate={handleRecipeImageGenerate}
+            resetRecipeImageInput={resetRecipeImageInput}
+          />
+        )
       ) : view === 'cook' && activeCookCard && cookSession ? (
-        <RecipeCookView
-          activeCookCard={activeCookCard}
-          cookSession={cookSession}
-          cookSteps={cookSteps}
-          currentCookStep={currentCookStep}
-          currentStepSuggestedSeconds={currentStepSuggestedSeconds}
-          cookTimerDisplaySeconds={cookTimerDisplaySeconds}
-          cookTimerDurationSeconds={cookTimerDurationSeconds}
-          cookTimerProgress={cookTimerProgress}
-          cookProgressPercent={cookProgressPercent}
-          wasCookSessionRestored={wasCookSessionRestored}
-          cookPreview={cookPreview}
-          isCreatingShopping={props.isCreatingShopping}
-          isCookTimerCustomOpen={isCookTimerCustomOpen}
-          cookTimerJustStarted={cookTimerJustStarted}
-          cookTimerPicker={cookTimerPicker}
-          cookTimerMinuteWheelRef={cookTimerMinuteWheelRef}
-          cookTimerSecondWheelRef={cookTimerSecondWheelRef}
-          setCookTimerPicker={setCookTimerPicker}
-          setIsCookTimerCustomOpen={setIsCookTimerCustomOpen}
-          exitCookMode={exitCookMode}
-          cookBackLabel={cookReturnTarget ? RECIPE_COOK_RETURN_LABELS[cookReturnTarget] : undefined}
-          cookBackTarget={cookReturnTarget ? 'source' : undefined}
-          cookExitTarget={cookReturnTarget ? 'source' : undefined}
-          jumpToCookStep={jumpToCookStep}
-          moveCookStep={moveCookStep}
-          completeCurrentCookStepAndContinue={completeCurrentCookStepAndContinue}
-          resetActiveCookSession={resetActiveCookSession}
-          openCookFinishDialog={() => setIsCookFinishOpen(true)}
-          openShoppingDialog={(card) => openShoppingDialog(card, closeCookDialog)}
-          confirmCustomCookTimer={confirmCustomCookTimer}
-          openCustomCookTimer={openCustomCookTimer}
-          selectCookTimerDuration={selectCookTimerDuration}
-          resetCookTimer={resetCookTimer}
-          toggleCookTimer={toggleCookTimer}
-          addCookTimerSeconds={addCookTimerSeconds}
-          toggleCookIngredient={toggleCookIngredient}
-          timers={timers}
-          activeTimerId={activeTimerId}
-          addTimer={addTimer}
-          startTimerById={startTimerById}
-          pauseTimerById={pauseTimerById}
-          resetTimerById={resetTimerById}
-	          addTimerSecondsById={addTimerSecondsById}
-	          setTimerById={setTimerById}
-	          setCookAssistantMessages={setCookAssistantMessages}
-	          deleteTimer={deleteTimer}
-          selectTimer={selectTimer}
-          toggleTimerById={toggleTimerById}
+        <RecipeTaskSurface
+          mode="cook"
+          recipe={activeCookCard.recipe}
+          food={activeCookCard.linkedFood ?? ({ id: activeCookCard.recipe.id, name: activeCookCard.recipe.title } as Food)}
+          launchContext={{
+            date: todayKey(),
+            mealType: 'dinner',
+            servings: activeCookCard.recipe.servings,
+            source: { kind: 'direct' },
+          }}
+          onCompleted={() => undefined}
+          onClose={() => exitCookMode()}
+          cook={{
+            activeCookCard,
+            cookSession,
+            cookSteps,
+            currentCookStep,
+            currentStepSuggestedSeconds,
+            cookTimerDisplaySeconds,
+            cookTimerDurationSeconds,
+            cookTimerProgress,
+            cookProgressPercent,
+            wasCookSessionRestored,
+            cookPreview,
+            isCreatingShopping: props.isCreatingShopping,
+            isCookTimerCustomOpen,
+            cookTimerJustStarted,
+            cookTimerPicker,
+            cookTimerMinuteWheelRef,
+            cookTimerSecondWheelRef,
+            setCookTimerPicker,
+            setIsCookTimerCustomOpen,
+            exitCookMode,
+            cookBackLabel: cookReturnTarget ? RECIPE_COOK_RETURN_LABELS[cookReturnTarget] : undefined,
+            cookBackTarget: cookReturnTarget ? 'source' : undefined,
+            cookExitTarget: cookReturnTarget ? 'source' : undefined,
+            jumpToCookStep,
+            moveCookStep,
+            completeCurrentCookStepAndContinue,
+            resetActiveCookSession,
+            openCookFinishDialog: () => setIsCookFinishOpen(true),
+            openShoppingDialog: (card) => openShoppingDialog(card, closeCookDialog),
+            confirmCustomCookTimer,
+            openCustomCookTimer,
+            selectCookTimerDuration,
+            resetCookTimer,
+            toggleCookTimer,
+            addCookTimerSeconds,
+            toggleCookIngredient,
+            timers,
+            activeTimerId,
+            addTimer,
+            startTimerById,
+            pauseTimerById,
+            resetTimerById,
+            addTimerSecondsById,
+            setTimerById,
+            setCookAssistantMessages,
+            deleteTimer,
+            selectTimer,
+            toggleTimerById,
+          }}
         />
       ) : view === 'detail' && selectedCard && !isRecipeDetailDrawerMode ? (
-        <RecipeDetailView
-          selectedCard={selectedCard}
-          selectedReadyCount={selectedReadyCount}
-          selectedIngredientCount={selectedIngredientCount}
-          selectedShortageCount={selectedShortageCount}
-          isSelectedFavorite={isSelectedFavorite}
-          selectedRecentCookLog={selectedRecentCookLog}
-          selectedRecipePlanItems={selectedRecipePlanItems}
-          isUpdatingFavorite={props.isUpdatingFavorite}
-          isCreatingShopping={props.isCreatingShopping}
-          isDeletingRecipe={props.isDeletingRecipe}
-          backLabel={libraryBackLabel}
-          onBack={() => setView('library')}
-          onCook={openCook}
-          onPlan={openPlanDialog}
-          onShopping={(card) => openShoppingDialog(card, closeCookDialog)}
-          onToggleFavorite={toggleRecipeFavorite}
-          onEdit={handleOpenEdit}
-          onDelete={deleteSelectedRecipe}
+        <RecipeTaskSurface
+          mode="view"
+          recipe={selectedCard.recipe}
+          food={selectedCard.linkedFood}
+          relationWritable={Boolean(selectedCard.linkedFood)}
+          onEdit={() => handleOpenEdit(selectedCard)}
+          onCook={() => openCook(selectedCard)}
+          onClose={() => setView('library')}
+          detail={{
+            selectedCard,
+            selectedReadyCount,
+            selectedIngredientCount,
+            selectedShortageCount,
+            isSelectedFavorite,
+            selectedRecentCookLog,
+            selectedRecipePlanItems,
+            isUpdatingFavorite: props.isUpdatingFavorite,
+            isCreatingShopping: props.isCreatingShopping,
+            isDeletingRecipe: props.isDeletingRecipe,
+            backLabel: libraryBackLabel,
+            onBack: () => setView('library'),
+            onCook: openCook,
+            onPlan: openPlanDialog,
+            onShopping: (card) => openShoppingDialog(card, closeCookDialog),
+            onToggleFavorite: toggleRecipeFavorite,
+            onEdit: handleOpenEdit,
+            onDelete: deleteSelectedRecipe,
+          }}
         />
-      ) : shouldRedirectMobileLibrary ? null : (
+            ) : shouldRedirectMobileLibrary ? null : (
         <RecipeLibraryView
           recipes={props.recipes}
           search={search}

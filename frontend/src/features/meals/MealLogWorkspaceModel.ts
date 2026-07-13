@@ -6,10 +6,16 @@ import { buildMealTitle, getMealRatingSummary, isMealLogEnriched, resolveMealSou
 export type MealLogStatusFilter = 'all' | 'pending' | 'done';
 export type MealLogMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
+export type MealRecordPresentation = {
+  validity: 'valid';
+  enrichment: 'basic' | 'enriched';
+  actionLabel: '补充这餐' | '查看这餐';
+};
+
 export const STATUS_FILTERS: Array<{ key: MealLogStatusFilter; label: string }> = [
   { key: 'all', label: '全部' },
-  { key: 'pending', label: '待补充' },
-  { key: 'done', label: '已补充' },
+  { key: 'pending', label: '基础记录' },
+  { key: 'done', label: '已丰富' },
 ];
 
 export const MEAL_FILTERS: Array<{ key: MealLogMealFilter; label: string }> = [
@@ -20,14 +26,37 @@ export const MEAL_FILTERS: Array<{ key: MealLogMealFilter; label: string }> = [
   { key: 'snack', label: '加餐' },
 ];
 
+export function getMealRecordPresentation(meal: MealLog): MealRecordPresentation {
+  const hasEnrichment = Boolean(
+    meal.photos.length ||
+      meal.notes.trim() ||
+      meal.mood.trim() ||
+      meal.food_entries.some((entry) => entry.rating != null),
+  );
+  return {
+    validity: 'valid',
+    enrichment: hasEnrichment ? 'enriched' : 'basic',
+    actionLabel: hasEnrichment ? '查看这餐' : '补充这餐',
+  };
+}
+
 export function getMealLogStatus(meal: MealLog) {
-  if (isMealLogEnriched(meal)) return 'done';
-  return 'pending';
+  return getMealRecordPresentation(meal).enrichment === 'enriched' ? 'done' : 'pending';
 }
 
 export function getMealLogStatusLabel(meal: MealLog) {
-  const status = getMealLogStatus(meal);
-  return status === 'done' ? '已补充' : '待补充';
+  return getMealRecordPresentation(meal).enrichment === 'enriched' ? '已丰富' : '基础记录';
+}
+
+/** Prefer newest date, then newest created_at. Never prioritizes basic over enriched. */
+export function selectInitialMeal(meals: MealLog[]): MealLog | null {
+  if (meals.length === 0) return null;
+  return [...meals].sort((left, right) => {
+    if (left.date !== right.date) {
+      return right.date.localeCompare(left.date);
+    }
+    return right.created_at.localeCompare(left.created_at);
+  })[0] ?? null;
 }
 
 export function getMealIconName(mealType: MealLogMealFilter) {
@@ -116,11 +145,18 @@ export function buildMealLogWorkspaceViewModel(args: {
   mealFilter: MealLogMealFilter;
 }) {
   const mealSources = buildMealSources(args.recentMeals, args.foodPlanItems);
-  const pendingMeals = args.recentMeals.filter((meal) => !isMealLogEnriched(meal)).slice(0, 5);
+  const basicMeals = args.recentMeals
+    .filter((meal) => getMealRecordPresentation(meal).enrichment === 'basic')
+    .slice(0, 5);
   const todayMeals = args.recentMeals.filter((meal) => meal.date === todayKey());
-  const enrichedCount = args.recentMeals.filter(isMealLogEnriched).length;
+  const enrichedCount = args.recentMeals.filter(
+    (meal) => getMealRecordPresentation(meal).enrichment === 'enriched',
+  ).length;
   const weekRecordCount = getWeekRecordCount(args.recentMeals);
-  const selectedMeal = args.recentMeals.find((meal) => meal.id === args.selectedMealId) ?? pendingMeals[0] ?? args.recentMeals[0] ?? null;
+  const selectedMeal =
+    args.recentMeals.find((meal) => meal.id === args.selectedMealId) ??
+    selectInitialMeal(args.recentMeals) ??
+    null;
   const selectedSource = selectedMeal ? (mealSources.get(selectedMeal.id) ?? null) : null;
   const selectedParticipantMembers = selectedMeal ? getParticipantMembers(selectedMeal, args.members) : [];
   const filteredMeals = filterMealLogs({
@@ -133,7 +169,9 @@ export function buildMealLogWorkspaceViewModel(args: {
 
   return {
     mealSources,
-    pendingMeals,
+    basicMeals,
+    /** @deprecated alias for basicMeals — kept for temporary call sites during surface extraction */
+    pendingMeals: basicMeals,
     todayMeals,
     enrichedCount,
     weekRecordCount,

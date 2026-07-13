@@ -4,13 +4,23 @@ import { api } from './api/client';
 import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
-import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
+import { AppNotificationCenter, AppShell } from './app/AppShell';
+import type { AppNavigationTarget, PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
+import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
+import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
+import { EatWorkspace } from './features/eat/EatWorkspace';
+import {
+  relatedSelfMadeFoods,
+  buildCookLaunchContext,
+  resolveEatTask,
+  type QuerySettleStatus,
+} from './features/eat/EatWorkspaceViewModel';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -30,8 +40,6 @@ import {
   EmptyState,
 } from './components/ui-kit';
 import {
-  FOOD_TYPE_LABELS,
-  getFoodCover,
   todayKey,
 } from './lib/ui';
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
@@ -72,9 +80,6 @@ const FoodWorkspace = lazy(() =>
 );
 const IngredientWorkspace = lazy(() =>
   import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
-);
-const RecipeWorkspace = lazy(() =>
-  import('./components/recipes/RecipeWorkspace').then((module) => ({ default: module.RecipeWorkspace }))
 );
 const HomeDashboardDialogs = lazy(() =>
   import('./features/home/HomeDashboardDialogs').then((module) => ({ default: module.HomeDashboardDialogs }))
@@ -153,6 +158,43 @@ function useIsPhoneViewport() {
   return isPhoneViewport;
 }
 
+
+function querySettleStatus(query: {
+  isPending?: boolean;
+  isLoading?: boolean;
+  isError?: boolean;
+  isSuccess?: boolean;
+  fetchStatus?: string;
+  data?: unknown;
+}): QuerySettleStatus {
+  if (query.isError) return 'error';
+  if (query.isSuccess || query.data !== undefined) return 'success';
+  if (query.isPending || query.isLoading) return 'pending';
+  return 'idle';
+}
+
+function primaryTabToTarget(
+  tab: PrimaryTabKey,
+  currentEatBaseView: 'discover' | 'plan' | 'history',
+  alreadyOnEat: boolean,
+): AppNavigationTarget {
+  switch (tab) {
+    case 'home':
+      return { workspace: 'home' };
+    case 'eat':
+      if (alreadyOnEat) {
+        return { workspace: 'eat', view: currentEatBaseView };
+      }
+      return { workspace: 'eat', view: 'discover' };
+    case 'ingredients':
+      return { workspace: 'ingredients' };
+    case 'ai':
+      return { workspace: 'ai' };
+    case 'family':
+      return { workspace: 'family' };
+  }
+}
+
 function WorkspaceLoadingFallback() {
   return (
     <main className="page-stack">
@@ -166,32 +208,23 @@ function WorkspaceLoadingFallback() {
 function App() {
   const { isAuthenticated, isLoading: authLoading, user, membership, logout } = useAuth();
   const isPhoneViewport = useIsPhoneViewport();
+  const navigation = useAppNavigationState();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
   const foodPlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
-  const [activeTab, setActiveTab] = useState<TabKey>(() => {
-    const cached = readStringStorage('culina-active-tab', '');
-    return (cached as TabKey) || 'home';
-  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
   const [hasBooted, setHasBooted] = useState(false);
-  const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
-  const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
-  const [pendingRecipeCookReturnTarget, setPendingRecipeCookReturnTarget] = useState<TabKey | null>(null);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const { notice, showNotice, clearNotice } = useNotice();
   const queryClient = useQueryClient();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
   useEffect(() => {
-    writeStringStorage('culina-active-tab', activeTab);
     resetPageScroll();
-  }, [activeTab]);
+  }, [navigation.state.primaryTab, navigation.state.eat.baseView, navigation.state.eat.task?.kind]);
 
   useEffect(() => {
     writeStringStorage(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
-
-
 
   const {
     familyQuery,
@@ -201,10 +234,9 @@ function App() {
     inventoryStatesQuery,
     shoppingQuery,
     inventoryOperationsQuery,
-    recipeDiscoveryQuery,
-    recipeStatsQuery,
-    recipeFavoritesQuery,
+    recipesQuery,
     foodPlanQuery,
+    foodPlanDetailQuery,
     foodScenesQuery,
     foodsQuery,
     mealLogsQuery,
@@ -219,10 +251,8 @@ function App() {
     shoppingItems,
     inventoryOperations,
     recipes,
-    recipeDiscovery,
-    recipeStats,
-    recipeFavorites,
     foodPlanItems,
+    foodPlanDetail,
     foodScenes,
     foods,
     foodRecommendations,
@@ -230,7 +260,7 @@ function App() {
     aiConversations,
     family,
   } = useAppWorkspaceQueries({
-    activeTab,
+    navigationState: navigation.state,
     isAuthenticated,
     foodPlanWeekRange,
   });
@@ -314,36 +344,92 @@ function App() {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
-    foodNavigationRequest,
-    setFoodNavigationRequest,
-    foodNavigationRequestIdRef,
-    foodPlanNavigationRequest,
-    recipeNavigationRequest,
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
-    openFoodPlanWeek,
   } = useAppGlobalSearchNavigation({
-    foods,
-    isPhoneViewport,
-    setActiveTab,
-    setSelectedRecipePlanDate,
+    navigate: navigation.navigate,
   });
 
-  const handleTabChange = useCallback((tab: TabKey) => {
-    setActiveTab(isPhoneViewport && tab === 'recipes' ? 'foods' : tab);
-  }, [isPhoneViewport]);
+  const handlePrimaryTabChange = useCallback((tab: PrimaryTabKey) => {
+    navigation.navigate(
+      primaryTabToTarget(tab, navigation.state.eat.baseView, navigation.state.primaryTab === 'eat'),
+    );
+  }, [navigation]);
 
-  const handleMobileRecipeLibraryRedirect = useCallback(() => {
-    setActiveTab('foods');
-  }, []);
+  const openFoodPlanWeek = useCallback((planDate: string) => {
+    setSelectedRecipePlanDate(planDate);
+    navigation.navigate({ workspace: 'eat', view: 'plan' });
+  }, [navigation]);
 
+  // FoodWorkspace / plan surface still use the legacy (recipeId, foodPlanItemId?) signature.
+  // Exact-one selfMade relation: 0 or >1 matches → recipe-target (never arbitrary find()).
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
-    setPendingRecipeCookId(recipeId);
-    setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
-    setPendingRecipeCookReturnTarget(activeTab);
-    setActiveTab('recipes');
-  }, [activeTab]);
+    const related = relatedSelfMadeFoods(foods, recipeId);
+    // Prefer latest plan detail query when the cook originates from a plan item.
+    const planItem = foodPlanItemId
+      ? (
+          (foodPlanDetail && foodPlanDetail.id === foodPlanItemId ? foodPlanDetail : null)
+          ?? foodPlanItems.find((item) => item.id === foodPlanItemId)
+          ?? null
+        )
+      : null;
+    if (related.length !== 1) {
+      // Fall back to recipe-target so missing/ambiguous relation errors surface in EatWorkspace.
+      navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId });
+      return;
+    }
+    const linkedFood = related[0];
+    const launchContext = buildCookLaunchContext({ foodPlanItemId, planItem });
+    navigation.navigate({
+      workspace: 'eat',
+      view: 'cook',
+      foodId: linkedFood.id,
+      recipeId,
+      launchContext,
+    });
+  }, [foodPlanDetail, foodPlanItems, foods, navigation]);
+
+  const startCookWithFood = useCallback((foodId: string, recipeId: string) => {
+    navigation.navigate({
+      workspace: 'eat',
+      view: 'cook',
+      foodId,
+      recipeId,
+      launchContext: {
+        date: todayKey(),
+        mealType: 'dinner',
+        servings: 1,
+        source: { kind: 'direct' },
+      },
+    });
+  }, [navigation]);
+
+  const resolvedEatTask = useMemo(
+    () =>
+      resolveEatTask({
+        task: navigation.state.eat.task,
+        recipes,
+        foods,
+        recipesStatus: querySettleStatus(recipesQuery),
+        foodsStatus: querySettleStatus(foodsQuery),
+        planDetail: foodPlanDetail,
+        planDetailStatus: querySettleStatus(foodPlanDetailQuery),
+        mealLogs,
+        mealLogsStatus: querySettleStatus(mealLogsQuery),
+      }),
+    [
+      foodPlanDetail,
+      foodPlanDetailQuery,
+      foods,
+      foodsQuery,
+      mealLogs,
+      mealLogsQuery,
+      navigation.state.eat.task,
+      recipes,
+      recipesQuery,
+    ],
+  );
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
@@ -627,6 +713,52 @@ function App() {
     isOwner: membership?.role === 'Owner',
     showNotice,
   });
+
+  const {
+    openIngredientsCatalog,
+    openIngredientDetail,
+    openIngredientShopping,
+    openIngredientPriority,
+    openHomeRestock,
+    closeHomeRestock,
+    closeHomeMealDetail,
+    updateHomeRestockForm,
+    startRecommendedRecipe,
+    startPlanRecipe: startPlanRecipeRaw,
+  } = useAppHomeHandlers({
+    ingredientNavigationRequestIdRef,
+    setIngredientNavigationRequest,
+    navigate: navigation.navigate,
+    setHomeRestockShoppingItemId,
+    setHomeRestockForm,
+    setHomeMealDetailId,
+    ingredients,
+    openShoppingIntake,
+  });
+
+  // Prefer latest foodPlanDetail.updated_at when cook originates from an open plan item.
+  const startPlanRecipe = useCallback(
+    (input: Parameters<typeof startPlanRecipeRaw>[0]) => {
+      const latest =
+        foodPlanDetail && foodPlanDetail.id === input.foodPlanItemId ? foodPlanDetail : null;
+      startPlanRecipeRaw({
+        ...input,
+        planDate: latest?.plan_date ?? input.planDate,
+        mealType: latest?.meal_type ?? input.mealType,
+        planItemBaseUpdatedAt: latest?.updated_at ?? input.planItemBaseUpdatedAt,
+      });
+    },
+    [foodPlanDetail, startPlanRecipeRaw],
+  );
+
+  // Plan-detail task (including global search) focuses the week after detail fetch.
+  useEffect(() => {
+    const task = navigation.state.eat.task;
+    if (task?.kind !== 'plan-detail' || !foodPlanDetail) return;
+    if (foodPlanDetail.id !== task.foodPlanItemId) return;
+    setSelectedRecipePlanDate(foodPlanDetail.plan_date);
+  }, [foodPlanDetail, navigation.state.eat.task]);
+
   if (!isAuthenticated) {
     return <LoginScreen />;
   }
@@ -759,7 +891,7 @@ function App() {
 
   function openFamilyActivity() {
     setFamilyOverlayMode('activity');
-    setActiveTab('family');
+    navigation.navigate({ workspace: 'family' });
   }
 
   const selectedPlanSummary = selectedDashboardPlanDay
@@ -786,25 +918,6 @@ function App() {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
   }
 
-  const {
-    openIngredientsCatalog,
-    openIngredientDetail,
-    openIngredientShopping,
-    openIngredientPriority,
-    openHomeRestock,
-    closeHomeRestock,
-    closeHomeMealDetail,
-    updateHomeRestockForm,
-  } = useAppHomeHandlers({
-    ingredientNavigationRequestIdRef,
-    setIngredientNavigationRequest,
-    setActiveTab,
-    setHomeRestockShoppingItemId,
-    setHomeRestockForm,
-    setHomeMealDetailId,
-    ingredients,
-    openShoppingIntake,
-  });
   void openIngredientsCatalog;
   void openIngredientDetail;
   void closeHomeRestock;
@@ -890,7 +1003,7 @@ function App() {
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
-    startRecipeCook,
+    startPlanRecipe,
     openMealLogEnrichment: setHomeMealEnrichmentRequest,
   });
 
@@ -966,7 +1079,7 @@ function App() {
 
   return (
     <AppShell
-      activeTab={activeTab}
+      activeTab={navigation.state.primaryTab}
       sidebarCollapsed={sidebarCollapsed}
       familyName={sidebarFamilyName}
       familyMotto={sidebarMotto}
@@ -984,13 +1097,13 @@ function App() {
       onDismissImageJob={aiImageJobMonitor.dismissJob}
       onRetryImageJob={aiImageJobMonitor.retryJob}
       retryingImageJobId={aiImageJobMonitor.retryingJobId}
-      onTabChange={handleTabChange}
+      onTabChange={handlePrimaryTabChange}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
       onLogout={() => void logout()}
     >
 
-          {activeTab === 'home' && (
+          {navigation.state.primaryTab === 'home' && (
           <HomeDashboard
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
@@ -1032,11 +1145,12 @@ function App() {
             resolveAssetUrl={resolveDashboardAssetUrl}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-            onNavigate={handleTabChange}
+            onNavigate={navigation.navigate}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onNextDesktopRecommendations={showNextDesktopRecommendations}
             onNextMobileRecommendation={showNextMobileRecommendation}
-            onStartRecipe={startRecipeCook}
+            onStartRecommendedRecipe={startRecommendedRecipe}
+            onStartPlanRecipe={startPlanRecipe}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
@@ -1056,140 +1170,176 @@ function App() {
           />
         )}
 
-        {activeTab === 'foods' && (
+        {navigation.state.primaryTab === 'eat' ? (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
-            <FoodWorkspace
-              recipes={recipes}
-              ingredients={ingredients}
-              foods={foods}
-              inventoryItems={inventoryItems}
-              mealLogs={mealLogs}
-              foodRecommendations={foodRecommendations}
-              foodScenes={foodScenes}
-              foodPlanItems={foodPlanItems}
-              foodPlanWeekRange={foodPlanWeekRange}
-              isPhoneViewport={isPhoneViewport}
-              notificationCenter={mobileNotificationCenter}
-              navigationRequest={foodNavigationRequest}
-              foodPlanNavigationRequest={foodPlanNavigationRequest}
-              createFood={(payload) => createFoodMutation.mutateAsync(payload)}
-              updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
-              updateFoodFavorite={(foodId, favorite, expectedRowVersion) =>
-                toggleFavoriteMutation.mutateAsync({ foodId, favorite, expectedRowVersion })
+            <EatWorkspace
+              navigation={navigation}
+              resolvedTask={resolvedEatTask}
+              completionPending={
+                cookRecipeMutation.isPending
+                || quickAddMealMutation.isPending
+                || updateFoodPlanItemMutation.isPending
+                || deleteFoodPlanItemMutation.isPending
               }
-              createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
-              updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
-              quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
-              createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
-              createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-              updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
-              deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
-              createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
-              updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
-              deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-              onStartRecipe={startRecipeCook}
-              onOpenLogs={() => setActiveTab('logs')}
-              onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-              onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-              onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
-              isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
-              isCreatingRecipe={createRecipeMutation.isPending}
-              isUpdatingRecipe={updateRecipeMutation.isPending}
-              isUpdatingFavorite={toggleFavoriteMutation.isPending}
-              isQuickAdding={quickAddMealMutation.isPending}
-              isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-              isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
+              {...buildEatTaskBodies({
+                resolvedTask: resolvedEatTask,
+                recipes,
+                foods,
+                ingredients,
+                inventoryItems,
+                mealLogs,
+                foodPlanItems,
+                members,
+                isQuickAdding: quickAddMealMutation.isPending,
+                isUpdatingPlan:
+                  createFoodPlanItemMutation.isPending
+                  || updateFoodPlanItemMutation.isPending
+                  || deleteFoodPlanItemMutation.isPending,
+                isCookingRecipe: cookRecipeMutation.isPending,
+                isCreatingShopping: createShoppingMutation.isPending,
+                isSavingFood: updateFoodMutation.isPending,
+                isUpdatingRecipe: updateRecipeMutation.isPending,
+                isUpdatingMeal: updateMealMutation.isPending,
+                cookRecipe: (recipeId, payload) =>
+                  cookRecipeMutation.mutateAsync({ recipeId, payload }),
+                previewCookRecipe: (recipeId, payload) =>
+                  previewCookRecipeMutation.mutateAsync({ recipeId, payload }),
+                updateFoodPlanItem: (itemId, payload) =>
+                  updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
+                deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
+                createFoodPlanItem: (payload) => createFoodPlanItemMutation.mutateAsync(payload),
+                updateFood: (foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload }),
+                updateRecipe: (recipeId, payload) =>
+                  updateRecipeMutation.mutateAsync({ recipeId, payload }),
+                updateMealLog: (mealLogId, payload) =>
+                  updateMealMutation.mutateAsync({ mealLogId, payload }),
+                createShoppingItem: (payload) => createShoppingMutation.mutateAsync(payload),
+                quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
+                onClose: navigation.closeTask,
+                onOpenLogs: () => navigation.navigate({ workspace: 'eat', view: 'history' }),
+                onNavigateRecipe: (recipeId, mode = 'view') =>
+                  navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId, mode }),
+                onStartCook: startRecipeCook,
+                onStartCookWithFood: startCookWithFood,
+                onQuickAdd: (food, mealType) => {
+                  navigation.navigate({
+                    workspace: 'eat',
+                    view: 'meal-create',
+                    source: { kind: 'direct' },
+                    foodId: food.id,
+                    date: todayKey(),
+                    mealType,
+                  });
+                },
+                onCookCompleted: () => {
+                  navigation.navigate({ workspace: 'eat', view: 'history' });
+                },
+              })}
+              discoverContent={
+                <FoodWorkspace
+                  surface="discover"
+                  recipes={recipes}
+                  ingredients={ingredients}
+                  foods={foods}
+                  inventoryItems={inventoryItems}
+                  mealLogs={mealLogs}
+                  foodRecommendations={foodRecommendations}
+                  foodScenes={foodScenes}
+                  foodPlanItems={foodPlanItems}
+                  foodPlanWeekRange={foodPlanWeekRange}
+                  isPhoneViewport={isPhoneViewport}
+                  notificationCenter={mobileNotificationCenter}
+                  createFood={(payload) => createFoodMutation.mutateAsync(payload)}
+                  updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
+                  updateFoodFavorite={(foodId, favorite, expectedRowVersion) =>
+                    toggleFavoriteMutation.mutateAsync({ foodId, favorite, expectedRowVersion })
+                  }
+                  createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
+                  updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
+                  quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+                  createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
+                  createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
+                  updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
+                  deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
+                  createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+                  updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+                  deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
+                  onStartRecipe={startRecipeCook}
+                  onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
+                  onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+                  onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
+                  onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                  isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+                  isCreatingRecipe={createRecipeMutation.isPending}
+                  isUpdatingRecipe={updateRecipeMutation.isPending}
+                  isUpdatingFavorite={toggleFavoriteMutation.isPending}
+                  isQuickAdding={quickAddMealMutation.isPending}
+                  isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
+                  isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
+                />
+              }
+              planContent={
+                <FoodWorkspace
+                  surface="plan"
+                  recipes={recipes}
+                  ingredients={ingredients}
+                  foods={foods}
+                  inventoryItems={inventoryItems}
+                  mealLogs={mealLogs}
+                  foodRecommendations={foodRecommendations}
+                  foodScenes={foodScenes}
+                  foodPlanItems={foodPlanItems}
+                  foodPlanWeekRange={foodPlanWeekRange}
+                  isPhoneViewport={isPhoneViewport}
+                  notificationCenter={mobileNotificationCenter}
+                  createFood={(payload) => createFoodMutation.mutateAsync(payload)}
+                  updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
+                  updateFoodFavorite={(foodId, favorite, expectedRowVersion) =>
+                    toggleFavoriteMutation.mutateAsync({ foodId, favorite, expectedRowVersion })
+                  }
+                  createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
+                  updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
+                  quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+                  createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
+                  createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
+                  updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
+                  deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
+                  createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+                  updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+                  deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
+                  onStartRecipe={startRecipeCook}
+                  onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
+                  onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+                  onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
+                  onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                  isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+                  isCreatingRecipe={createRecipeMutation.isPending}
+                  isUpdatingRecipe={updateRecipeMutation.isPending}
+                  isUpdatingFavorite={toggleFavoriteMutation.isPending}
+                  isQuickAdding={quickAddMealMutation.isPending}
+                  isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
+                  isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
+                />
+              }
+              historyContent={
+                <MealLogWorkspace
+                  foodPlanItems={foodPlanItems}
+                  members={members}
+                  recentMeals={recentMeals}
+                  isUpdatingMeal={updateMealMutation.isPending}
+                  notificationCenter={mobileNotificationCenter}
+                  focusMealLogId={
+                    resolvedEatTask.kind === 'meal' ? resolvedEatTask.mealLog.id : null
+                  }
+                  updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
+                  onBackHome={() => navigation.navigate({ workspace: 'home' })}
+                />
+              }
             />
           </Suspense>
-        )}
+        ) : null}
 
-        {activeTab === 'recipes' && (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
-            <main className="page-stack">
-              <RecipeWorkspace
-                recipes={recipes}
-                ingredients={ingredients}
-                inventoryItems={inventoryItems}
-                mealLogs={mealLogs}
-                foods={foods}
-                shoppingItems={shoppingItems}
-                recipeFavorites={recipeFavorites}
-                recipeDiscovery={recipeDiscovery}
-                recipeStats={recipeStats}
-                recipePlanItems={[]}
-                recipeScenes={foodScenes}
-                recipePlanWeekRange={foodPlanWeekRange}
-                startRecipeId={pendingRecipeCookId}
-                startFoodPlanItemId={pendingFoodPlanCookItemId}
-                startRecipeReturnTarget={
-                  pendingRecipeCookReturnTarget === 'home' ||
-                  pendingRecipeCookReturnTarget === 'foods' ||
-                  pendingRecipeCookReturnTarget === 'recipes'
-                    ? pendingRecipeCookReturnTarget
-                    : null
-                }
-                navigationRequest={recipeNavigationRequest}
-                notificationCenter={mobileNotificationCenter}
-                onMobileLibraryRedirect={isPhoneViewport ? handleMobileRecipeLibraryRedirect : undefined}
-                onStartRecipeHandled={() => {
-                  setPendingRecipeCookId(null);
-                  setPendingFoodPlanCookItemId(null);
-                  setPendingRecipeCookReturnTarget(null);
-                }}
-                onCookReturnToSource={(target) => {
-                  setPendingRecipeCookId(null);
-                  setPendingFoodPlanCookItemId(null);
-                  setPendingRecipeCookReturnTarget(null);
-                  setActiveTab(target);
-                }}
-                onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-                onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-                onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
-                createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
-                createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
-                updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
-                deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
-                cookRecipe={(recipeId, payload) => cookRecipeMutation.mutateAsync({ recipeId, payload })}
-                previewCookRecipe={(recipeId, payload) => previewCookRecipeMutation.mutateAsync({ recipeId, payload })}
-                generateRecipeDraft={(payload) => api.generateRecipeDraft(payload)}
-                createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
-                addRecipeFavorite={(recipeId) => addRecipeFavoriteMutation.mutateAsync(recipeId)}
-                removeRecipeFavorite={(recipeId) => removeRecipeFavoriteMutation.mutateAsync(recipeId)}
-                createRecipePlanItem={async () => {
-                  throw new Error('菜单计划已迁移到食物页');
-                }}
-                updateRecipePlanItem={async () => {
-                  throw new Error('菜单计划已迁移到食物页');
-                }}
-                deleteRecipePlanItem={async () => {
-                  throw new Error('菜单计划已迁移到食物页');
-                }}
-                createRecipeScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
-                updateRecipeScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
-                deleteRecipeScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-                isCreatingRecipe={createRecipeMutation.isPending}
-                isUpdatingRecipe={updateRecipeMutation.isPending}
-                isDeletingRecipe={deleteRecipeMutation.isPending}
-                isCreatingIngredient={createIngredientMutation.isPending}
-                isCookingRecipe={cookRecipeMutation.isPending}
-                isCreatingShopping={createShoppingMutation.isPending}
-                isUpdatingFavorite={addRecipeFavoriteMutation.isPending || removeRecipeFavoriteMutation.isPending}
-                isUpdatingPlan={
-                  createFoodPlanItemMutation.isPending ||
-                  updateFoodPlanItemMutation.isPending ||
-                  deleteFoodPlanItemMutation.isPending
-                }
-                isUpdatingScene={
-                  createFoodSceneMutation.isPending ||
-                  updateFoodSceneMutation.isPending ||
-                  deleteFoodSceneMutation.isPending
-                }
-              />
-            </main>
-          </Suspense>
-        )}
-
-        {activeTab === 'ingredients' && (
+        {navigation.state.primaryTab === 'ingredients' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <IngredientWorkspace
               ingredients={ingredients}
@@ -1245,19 +1395,7 @@ function App() {
           </Suspense>
         )}
 
-        {activeTab === 'logs' && (
-          <MealLogWorkspace
-            foodPlanItems={foodPlanItems}
-            members={members}
-            recentMeals={recentMeals}
-            isUpdatingMeal={updateMealMutation.isPending}
-            notificationCenter={mobileNotificationCenter}
-            updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
-            onBackHome={() => setActiveTab('home')}
-          />
-        )}
-
-        {activeTab === 'ai' && (
+        {navigation.state.primaryTab === 'ai' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <AiWorkspace
               conversations={aiConversations}
@@ -1265,12 +1403,13 @@ function App() {
               currentUser={user}
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
               isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
-              onBackHome={() => setActiveTab('home')}
+              onBackHome={() => navigation.navigate({ workspace: 'home' })}
+              onNavigate={navigation.navigate}
             />
           </Suspense>
         )}
 
-        {activeTab === 'family' && (
+        {navigation.state.primaryTab === 'family' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <FamilySettings
               family={family}
@@ -1305,7 +1444,7 @@ function App() {
               familyImageControls={familyImageControls}
               resolveAssetUrl={resolveDashboardAssetUrl}
               onOverlayChange={setFamilyOverlayMode}
-              onNavigate={handleTabChange}
+              onNavigate={navigation.navigate}
               onMemberEdit={openMemberEdit}
               onInviteFormChange={setInviteForm}
               onProfileFormChange={setProfileForm}

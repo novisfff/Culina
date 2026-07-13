@@ -1,0 +1,309 @@
+import type { Food, FoodPlanItem, MealLog, MealType, Recipe } from '../../api/types';
+import type { CookLaunchContext, EatTask } from '../../app/appNavigationModel';
+import { getWeekRange } from '../../lib/date';
+import { todayKey } from '../../lib/ui';
+
+export type QuerySettleStatus = 'idle' | 'pending' | 'success' | 'error';
+
+export type ResolvedEatTask =
+  | { kind: 'none' }
+  | { kind: 'loading'; label: string }
+  | { kind: 'load-error'; label: string; retryable: true }
+  | { kind: 'food'; food: Food }
+  | { kind: 'food-not-found'; foodId: string }
+  | { kind: 'ready-recipe'; foodId: string; recipeId: string; mode: 'view' | 'edit' }
+  | { kind: 'recipe-not-found'; recipeId: string }
+  | { kind: 'recipe-food-missing'; recipe: Recipe }
+  | { kind: 'recipe-food-ambiguous'; recipe: Recipe; foodIds: string[] }
+  | { kind: 'plan'; item: FoodPlanItem; week: { start: string; end: string } }
+  | { kind: 'plan-not-found'; foodPlanItemId: string }
+  | { kind: 'cook'; food: Food; recipe: Recipe; launchContext: CookLaunchContext }
+  | { kind: 'meal-create'; task: Extract<EatTask, { kind: 'meal-create' }>; planItem: FoodPlanItem | null }
+  | { kind: 'meal'; mealLog: MealLog }
+  | { kind: 'meal-not-found'; mealLogId: string };
+
+export type ResolveEatTaskInput = {
+  task: EatTask | null;
+  recipes: Recipe[];
+  foods: Food[];
+  recipesStatus: QuerySettleStatus;
+  foodsStatus: QuerySettleStatus;
+  planDetail: FoodPlanItem | null;
+  planDetailStatus: QuerySettleStatus;
+  mealLogs: MealLog[];
+  mealLogsStatus: QuerySettleStatus;
+};
+
+/** Monday–Sunday week range containing the given plan date (YYYY-MM-DD). */
+export function weekContaining(date: string): { start: string; end: string } {
+  return getWeekRange(date);
+}
+
+function isSettled(status: QuerySettleStatus): boolean {
+  return status === 'success' || status === 'error' || status === 'idle';
+}
+
+function loading(label: string): ResolvedEatTask {
+  return { kind: 'loading', label };
+}
+
+function loadError(label: string): ResolvedEatTask {
+  return { kind: 'load-error', label, retryable: true };
+}
+
+/** True when a settled query failed and there is no usable entity data to fall back on. */
+function isFailedWithoutData(status: QuerySettleStatus, hasData: boolean): boolean {
+  return status === 'error' && !hasData;
+}
+
+/** selfMade foods linked to a recipe; cook/view require exactly one match. */
+export function relatedSelfMadeFoods(foods: Food[], recipeId: string): Food[] {
+  return foods.filter((food) => food.type === 'selfMade' && food.recipe_id === recipeId);
+}
+
+/**
+ * Build cook launch context. When foodPlanItemId is provided, always keep plan
+ * source even if the full plan item is missing from the week cache.
+ */
+export function buildCookLaunchContext(args: {
+  foodPlanItemId?: string;
+  planItem?: FoodPlanItem | null;
+  fallbackDate?: string;
+  fallbackMealType?: MealType;
+}): CookLaunchContext {
+  const fallbackDate = args.fallbackDate ?? todayKey();
+  const fallbackMealType = args.fallbackMealType ?? 'dinner';
+  if (args.foodPlanItemId) {
+    return {
+      date: args.planItem?.plan_date ?? fallbackDate,
+      mealType: args.planItem?.meal_type ?? fallbackMealType,
+      servings: 1,
+      source: {
+        kind: 'plan',
+        foodPlanItemId: args.foodPlanItemId,
+        planItemBaseUpdatedAt: args.planItem?.updated_at ?? '',
+      },
+    };
+  }
+  return {
+    date: fallbackDate,
+    mealType: fallbackMealType,
+    servings: 1,
+    source: { kind: 'direct' },
+  };
+}
+
+function resolveRecipeRelation(
+  recipeId: string,
+  mode: 'view' | 'edit',
+  recipes: Recipe[],
+  foods: Food[],
+): ResolvedEatTask {
+  const recipe = recipes.find((item) => item.id === recipeId);
+  if (!recipe) {
+    return { kind: 'recipe-not-found', recipeId };
+  }
+
+  const related = relatedSelfMadeFoods(foods, recipeId);
+  if (related.length === 0) {
+    return { kind: 'recipe-food-missing', recipe };
+  }
+  if (related.length > 1) {
+    return {
+      kind: 'recipe-food-ambiguous',
+      recipe,
+      foodIds: related.map((food) => food.id),
+    };
+  }
+
+  return {
+    kind: 'ready-recipe',
+    foodId: related[0].id,
+    recipeId: recipe.id,
+    mode,
+  };
+}
+
+function resolveFoodDetail(task: Extract<EatTask, { kind: 'food-detail' }>, input: ResolveEatTaskInput): ResolvedEatTask {
+  if (!isSettled(input.foodsStatus)) {
+    return loading('正在加载食物');
+  }
+  const food = input.foods.find((item) => item.id === task.foodId);
+  if (food) {
+    return { kind: 'food', food };
+  }
+  if (isFailedWithoutData(input.foodsStatus, input.foods.length > 0)) {
+    return loadError('食物加载失败');
+  }
+  return { kind: 'food-not-found', foodId: task.foodId };
+}
+
+function resolveRecipeTarget(
+  task: Extract<EatTask, { kind: 'recipe-target' }>,
+  input: ResolveEatTaskInput,
+): ResolvedEatTask {
+  if (!isSettled(input.recipesStatus) || !isSettled(input.foodsStatus)) {
+    return loading('正在解析做法');
+  }
+  if (
+    isFailedWithoutData(input.recipesStatus, input.recipes.length > 0)
+    || isFailedWithoutData(input.foodsStatus, input.foods.length > 0)
+  ) {
+    return loadError('做法加载失败');
+  }
+  return resolveRecipeRelation(task.recipeId, task.mode, input.recipes, input.foods);
+}
+
+function resolvePairedRecipe(
+  task: Extract<EatTask, { kind: 'recipe' }>,
+  input: ResolveEatTaskInput,
+): ResolvedEatTask {
+  if (!isSettled(input.recipesStatus) || !isSettled(input.foodsStatus)) {
+    return loading('正在加载做法');
+  }
+  if (
+    isFailedWithoutData(input.recipesStatus, input.recipes.length > 0)
+    || isFailedWithoutData(input.foodsStatus, input.foods.length > 0)
+  ) {
+    return loadError('做法加载失败');
+  }
+
+  const recipe = input.recipes.find((item) => item.id === task.recipeId);
+  if (!recipe) {
+    return { kind: 'recipe-not-found', recipeId: task.recipeId };
+  }
+
+  const food = input.foods.find((item) => item.id === task.foodId);
+  if (!food) {
+    // Paired recipe IDs already claim a food; treat missing as relation gap.
+    return { kind: 'recipe-food-missing', recipe };
+  }
+
+  return {
+    kind: 'ready-recipe',
+    foodId: food.id,
+    recipeId: recipe.id,
+    mode: task.mode,
+  };
+}
+
+function resolvePlanDetail(
+  task: Extract<EatTask, { kind: 'plan-detail' }>,
+  input: ResolveEatTaskInput,
+): ResolvedEatTask {
+  if (!isSettled(input.planDetailStatus)) {
+    return loading('正在加载菜单项');
+  }
+  if (input.planDetail && input.planDetail.id === task.foodPlanItemId) {
+    return {
+      kind: 'plan',
+      item: input.planDetail,
+      week: weekContaining(input.planDetail.plan_date),
+    };
+  }
+  if (input.planDetailStatus === 'error') {
+    return loadError('菜单项加载失败');
+  }
+  return { kind: 'plan-not-found', foodPlanItemId: task.foodPlanItemId };
+}
+
+function resolveCook(task: Extract<EatTask, { kind: 'cook' }>, input: ResolveEatTaskInput): ResolvedEatTask {
+  if (!isSettled(input.recipesStatus) || !isSettled(input.foodsStatus)) {
+    return loading('正在准备烹饪');
+  }
+  if (
+    isFailedWithoutData(input.recipesStatus, input.recipes.length > 0)
+    || isFailedWithoutData(input.foodsStatus, input.foods.length > 0)
+  ) {
+    return loadError('烹饪准备失败');
+  }
+
+  const recipe = input.recipes.find((item) => item.id === task.recipeId);
+  if (!recipe) {
+    return { kind: 'recipe-not-found', recipeId: task.recipeId };
+  }
+
+  const food = input.foods.find((item) => item.id === task.foodId);
+  if (!food) {
+    return { kind: 'recipe-food-missing', recipe };
+  }
+
+  return {
+    kind: 'cook',
+    food,
+    recipe,
+    launchContext: task.launchContext,
+  };
+}
+
+function resolveMealCreate(
+  task: Extract<EatTask, { kind: 'meal-create' }>,
+  input: ResolveEatTaskInput,
+): ResolvedEatTask {
+  if (task.source.kind === 'direct') {
+    return { kind: 'meal-create', task, planItem: null };
+  }
+
+  if (!isSettled(input.planDetailStatus)) {
+    return loading('正在加载菜单项');
+  }
+
+  if (input.planDetail && input.planDetail.id === task.source.foodPlanItemId) {
+    return { kind: 'meal-create', task, planItem: input.planDetail };
+  }
+  if (input.planDetailStatus === 'error') {
+    return loadError('菜单项加载失败');
+  }
+  return { kind: 'plan-not-found', foodPlanItemId: task.source.foodPlanItemId };
+}
+
+function resolveMealDetail(
+  task: Extract<EatTask, { kind: 'meal-detail' }>,
+  input: ResolveEatTaskInput,
+): ResolvedEatTask {
+  if (!isSettled(input.mealLogsStatus)) {
+    return loading('正在加载这餐记录');
+  }
+  const mealLog = input.mealLogs.find((item) => item.id === task.mealLogId);
+  if (mealLog) {
+    return { kind: 'meal', mealLog };
+  }
+  if (isFailedWithoutData(input.mealLogsStatus, input.mealLogs.length > 0)) {
+    return loadError('这餐记录加载失败');
+  }
+  return { kind: 'meal-not-found', mealLogId: task.mealLogId };
+}
+
+/**
+ * Resolve an ID-only eat task against query state.
+ *
+ * Never mutates navigation state, never auto-creates foods for recipes, and
+ * never picks the first related food when the relation count is not exactly one.
+ */
+export function resolveEatTask(input: ResolveEatTaskInput): ResolvedEatTask {
+  const { task } = input;
+  if (!task) {
+    return { kind: 'none' };
+  }
+
+  switch (task.kind) {
+    case 'food-detail':
+      return resolveFoodDetail(task, input);
+    case 'recipe-target':
+      return resolveRecipeTarget(task, input);
+    case 'recipe':
+      return resolvePairedRecipe(task, input);
+    case 'plan-detail':
+      return resolvePlanDetail(task, input);
+    case 'cook':
+      return resolveCook(task, input);
+    case 'meal-create':
+      return resolveMealCreate(task, input);
+    case 'meal-detail':
+      return resolveMealDetail(task, input);
+    default: {
+      const _exhaustive: never = task;
+      return _exhaustive;
+    }
+  }
+}

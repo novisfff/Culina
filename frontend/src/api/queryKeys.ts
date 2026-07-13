@@ -1,4 +1,5 @@
 const inventoryOverviewRoot = ['inventory', 'overview'] as const;
+const foodPlanRoot = ['food-plan'] as const;
 
 export const queryKeys = {
   authMe: ['auth', 'me'] as const,
@@ -25,8 +26,9 @@ export const queryKeys = {
   recipeDiscovery: ['recipe-discovery'] as const,
   recipeStats: ['recipe-stats'] as const,
   recipeFavorites: ['recipe-favorites'] as const,
-  foodPlanRoot: ['food-plan'] as const,
+  foodPlanRoot,
   foodPlan: (start: string, end: string, query = '') => ['food-plan', start, end, query.trim()] as const,
+  foodPlanDetail: (itemId: string) => [...foodPlanRoot, 'detail', itemId] as const,
   foodScenes: ['food-scenes'] as const,
   foods: ['foods'] as const,
   foodSearch: (query: string) => ['foods', 'search', query.trim()] as const,

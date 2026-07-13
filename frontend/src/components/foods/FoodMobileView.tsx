@@ -124,11 +124,6 @@ export function FoodMobileView(props: {
         </div>
       </div>
 
-      <header className="mobile-food-hero">
-        <h1>食物</h1>
-        <p>从常吃、临期、外卖和记录里快速选一份今天想吃的。</p>
-      </header>
-
       <section className="mobile-dashboard-panel mobile-dashboard-recommend">
         <div className="mobile-dashboard-section-head">
           <h2>今天吃什么 <span>✦</span></h2>

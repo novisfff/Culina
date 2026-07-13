@@ -243,7 +243,7 @@ function createActions(overrides: {
     closeHomePlanDetail: vi.fn(),
     closeHomePlanAddDialog: vi.fn(),
     setIsHomePlanDetailEditing: vi.fn(),
-    startRecipeCook: vi.fn(),
+    startPlanRecipe: vi.fn(),
     openMealLogEnrichment: vi.fn(),
   });
 

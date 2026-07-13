@@ -1,7 +1,6 @@
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Food, FoodPlanItem } from '../api/types';
+import { useCallback, useRef, useState } from 'react';
 import type { GlobalSearchSelection } from '../features/search/GlobalSearchOverlay';
-import type { TabKey } from './AppShell';
+import type { AppNavigationService } from './useAppNavigationState';
 
 export type IngredientNavigationRequest =
   | { target: 'catalog'; requestId: number }
@@ -9,6 +8,7 @@ export type IngredientNavigationRequest =
   | { target: 'shopping'; ingredientId: string; requestId: number }
   | { target: 'priority'; requestId: number };
 
+/** @deprecated Eating detail opens via AppNavigationTarget; retained for FoodWorkspace embedded requests. */
 export type FoodNavigationRequest = {
   foodId: string;
   requestId: number;
@@ -16,11 +16,13 @@ export type FoodNavigationRequest = {
   quickMealAction?: 'eat' | 'cook';
 };
 
+/** @deprecated Recipe targets open via AppNavigationTarget; retained for RecipeWorkspace embedded requests. */
 export type RecipeNavigationRequest = {
   recipeId: string;
   requestId: number;
 };
 
+/** Food plan item/week requests still consumed by FoodWorkspace plan surface adapters. */
 export type FoodPlanNavigationRequest =
   | {
       target: 'item';
@@ -35,108 +37,57 @@ export type FoodPlanNavigationRequest =
     };
 
 type UseAppGlobalSearchNavigationArgs = {
-  foods: Food[];
-  isPhoneViewport: boolean;
-  setActiveTab: Dispatch<SetStateAction<TabKey>>;
-  setSelectedRecipePlanDate: Dispatch<SetStateAction<string>>;
+  navigate: AppNavigationService['navigate'];
 };
 
+/**
+ * Global search → semantic AppNavigationTarget for eating entities.
+ * Ingredient detail still uses the discriminated IngredientWorkspace request boundary in PR A.
+ */
 export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationArgs) {
-  const { foods, isPhoneViewport, setActiveTab, setSelectedRecipePlanDate } = args;
-  const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
-  const [foodNavigationRequest, setFoodNavigationRequest] = useState<FoodNavigationRequest | null>(null);
-  const [foodPlanNavigationRequest, setFoodPlanNavigationRequest] = useState<FoodPlanNavigationRequest | null>(null);
-  const [recipeNavigationRequest, setRecipeNavigationRequest] = useState<RecipeNavigationRequest | null>(null);
+  const [ingredientNavigationRequest, setIngredientNavigationRequest] =
+    useState<IngredientNavigationRequest | null>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const ingredientNavigationRequestIdRef = useRef(0);
-  const foodNavigationRequestIdRef = useRef(0);
-  const foodPlanNavigationRequestIdRef = useRef(0);
-  const recipeNavigationRequestIdRef = useRef(0);
 
-  const openRecipeTarget = useCallback((recipeId: string) => {
-    if (isPhoneViewport) {
-      const linkedFood = foods.find((food) => food.recipe_id === recipeId);
-      if (linkedFood) {
-        foodNavigationRequestIdRef.current += 1;
-        setFoodNavigationRequest({
-          foodId: linkedFood.id,
-          requestId: foodNavigationRequestIdRef.current,
+  const handleGlobalSearchSelect = useCallback(
+    (selection: GlobalSearchSelection) => {
+      setGlobalSearchOpen(false);
+      if (selection.entityType === 'ingredient') {
+        ingredientNavigationRequestIdRef.current += 1;
+        setIngredientNavigationRequest({
+          target: 'detail',
+          ingredientId: selection.entityId,
+          requestId: ingredientNavigationRequestIdRef.current,
+        });
+        args.navigate({ workspace: 'ingredients' });
+        return;
+      }
+      if (selection.entityType === 'food') {
+        args.navigate({ workspace: 'eat', view: 'food', foodId: selection.entityId });
+        return;
+      }
+      if (selection.entityType === 'recipe') {
+        args.navigate({ workspace: 'eat', view: 'recipe', recipeId: selection.entityId });
+        return;
+      }
+      if (selection.entityType === 'meal_plan') {
+        args.navigate({
+          workspace: 'eat',
+          view: 'plan',
+          foodPlanItemId: selection.entityId,
         });
       }
-      setActiveTab('foods');
-      return;
-    }
-
-    recipeNavigationRequestIdRef.current += 1;
-    setRecipeNavigationRequest({
-      recipeId,
-      requestId: recipeNavigationRequestIdRef.current,
-    });
-    setActiveTab('recipes');
-  }, [foods, isPhoneViewport, setActiveTab]);
-
-  const handleGlobalSearchSelect = useCallback((selection: GlobalSearchSelection) => {
-    setGlobalSearchOpen(false);
-    if (selection.entityType === 'ingredient') {
-      ingredientNavigationRequestIdRef.current += 1;
-      setIngredientNavigationRequest({
-        target: 'detail',
-        ingredientId: selection.entityId,
-        requestId: ingredientNavigationRequestIdRef.current,
-      });
-      setActiveTab('ingredients');
-      return;
-    }
-    if (selection.entityType === 'food') {
-      foodNavigationRequestIdRef.current += 1;
-      setFoodNavigationRequest({
-        foodId: selection.entityId,
-        requestId: foodNavigationRequestIdRef.current,
-      });
-      setActiveTab('foods');
-      return;
-    }
-    if (selection.entityType === 'meal_plan') {
-      const planItem = selection.item.entity as FoodPlanItem;
-      foodPlanNavigationRequestIdRef.current += 1;
-      if (planItem.plan_date) {
-        setSelectedRecipePlanDate(planItem.plan_date);
-      }
-      setFoodPlanNavigationRequest({
-        target: 'item',
-        itemId: selection.entityId,
-        planDate: planItem.plan_date,
-        requestId: foodPlanNavigationRequestIdRef.current,
-      });
-      setActiveTab('foods');
-      return;
-    }
-    openRecipeTarget(selection.entityId);
-  }, [openRecipeTarget, setActiveTab, setSelectedRecipePlanDate]);
-
-  const openFoodPlanWeek = useCallback((planDate: string) => {
-    foodPlanNavigationRequestIdRef.current += 1;
-    setSelectedRecipePlanDate(planDate);
-    setFoodPlanNavigationRequest({
-      target: 'week',
-      planDate,
-      requestId: foodPlanNavigationRequestIdRef.current,
-    });
-    setActiveTab('foods');
-  }, [setActiveTab, setSelectedRecipePlanDate]);
+    },
+    [args.navigate],
+  );
 
   return {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
-    foodNavigationRequest,
-    setFoodNavigationRequest,
-    foodNavigationRequestIdRef,
-    foodPlanNavigationRequest,
-    recipeNavigationRequest,
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
-    openFoodPlanWeek,
   };
 }

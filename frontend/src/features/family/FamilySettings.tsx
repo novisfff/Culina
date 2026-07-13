@@ -1,5 +1,6 @@
 import type { FormEventHandler, ReactNode } from 'react';
 import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar, Badge, StateBlock, StatusBadge } from '../../components/ui-kit';
@@ -72,7 +73,7 @@ export type FamilySettingsProps = {
   familyImageControls: ImageComposerControls;
   resolveAssetUrl: (url?: string) => string | undefined;
   onOverlayChange: (mode: FamilyOverlayMode) => void;
-  onNavigate: (tab: 'ingredients' | 'logs') => void;
+  onNavigate: (target: AppNavigationTarget) => void;
   onMemberEdit: (member: Member) => void;
   onInviteFormChange: (form: InviteFormState) => void;
   onProfileFormChange: (form: ProfileFormState) => void;

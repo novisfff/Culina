@@ -6,7 +6,42 @@ import type {
   AiTodayRecommendationItem,
   MealType,
 } from '../../api/types';
+import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+
+export type AiNavigableEntityType =
+  | 'food'
+  | 'recipe'
+  | 'meal_plan'
+  | 'meal_log'
+  | 'food_plan'
+  | 'food_profile';
+
+export type AiNavigableEntity = {
+  type: AiNavigableEntityType | string;
+  id: string;
+};
+
+/**
+ * Map AI result entities onto semantic AppNavigationTarget values.
+ * No tab setters — callers must navigate(target).
+ */
+export function targetForAiEntity(entity: AiNavigableEntity): AppNavigationTarget | null {
+  switch (entity.type) {
+    case 'food':
+    case 'food_profile':
+      return { workspace: 'eat', view: 'food', foodId: entity.id };
+    case 'recipe':
+      return { workspace: 'eat', view: 'recipe', recipeId: entity.id };
+    case 'meal_plan':
+    case 'food_plan':
+      return { workspace: 'eat', view: 'plan', foodPlanItemId: entity.id };
+    case 'meal_log':
+      return { workspace: 'eat', view: 'history', mealLogId: entity.id };
+    default:
+      return null;
+  }
+}
 
 export const AI_RESULT_PLACEHOLDER = '/assets/ai-food-ingredient-placeholder.png';
 

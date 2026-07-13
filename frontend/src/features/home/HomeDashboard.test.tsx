@@ -262,7 +262,8 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     onOpenGlobalSearch: vi.fn(),
     onNextDesktopRecommendations: vi.fn(),
     onNextMobileRecommendation: vi.fn(),
-    onStartRecipe: vi.fn(),
+    onStartRecommendedRecipe: vi.fn(),
+    onStartPlanRecipe: vi.fn(),
     onSelectedPlanDateChange: vi.fn(),
     onHomePlanAddDialogOpen: vi.fn(),
     onHomePlanAddEmptyDialogOpen: vi.fn(),
@@ -559,5 +560,133 @@ describe('HomeDashboard three-question desktop', () => {
     const desktop = desktopSurface(view);
     expect(desktop.querySelectorAll('[data-testid="home-action-group"]')).toHaveLength(3);
     expect(desktop.textContent).not.toContain('豆腐');
+  });
+
+  it('emits semantic history/ingredients targets instead of legacy TabKey values', () => {
+    const onNavigate = vi.fn();
+    const view = renderDashboard({ onNavigate });
+    const logsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '查看记录');
+    const ingredientsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '新增食材');
+    expect(logsButton).toBeDefined();
+    expect(ingredientsButton).toBeDefined();
+    act(() => logsButton?.click());
+    act(() => ingredientsButton?.click());
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'history' });
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ingredients' });
+    expect(onNavigate).not.toHaveBeenCalledWith('logs');
+    expect(onNavigate).not.toHaveBeenCalledWith('ingredients');
+    expect(onNavigate).not.toHaveBeenCalledWith('foods');
+    expect(onNavigate).not.toHaveBeenCalledWith('recipes');
+  });
+
+  it('starts direct cook from food detail with complete recommendation launch context', () => {
+    const onStartRecommendedRecipe = vi.fn();
+    const onStartPlanRecipe = vi.fn();
+    const food = {
+      ...makeFood(0),
+      recipe_id: 'recipe-direct-1',
+    };
+    const view = renderDashboard({
+      desktopRecommendations: [
+        {
+          recommendation: {
+            food,
+            score: 0.95,
+            reasons: ['今日推荐'],
+            primary_action: 'cook_recipe',
+          },
+          coverUrl: undefined,
+        },
+      ],
+      recommendationCount: 1,
+      foodRecommendations: {
+        target_meal_type: 'lunch',
+        target_date: '2026-07-14',
+        items: [
+          {
+            food,
+            score: 0.95,
+            reasons: ['今日推荐'],
+            primary_action: 'cook_recipe',
+          },
+        ],
+      },
+      onStartRecommendedRecipe,
+      onStartPlanRecipe,
+    });
+    const desktop = desktopSurface(view);
+    const card = desktop.querySelector('[data-testid="home-recommendation-card"]') as HTMLElement | null;
+    expect(card).not.toBeNull();
+    act(() => card?.click());
+    const startCook = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('开始做'));
+    expect(startCook).toBeDefined();
+    act(() => startCook?.click());
+    expect(onStartRecommendedRecipe).toHaveBeenCalledWith({
+      foodId: food.id,
+      recipeId: 'recipe-direct-1',
+      date: '2026-07-14',
+      mealType: 'lunch',
+      servings: 1,
+    });
+    expect(onStartPlanRecipe).not.toHaveBeenCalled();
+  });
+
+  it('starts direct cook from quick-meal dialog without creating a plan item', async () => {
+    const onStartRecommendedRecipe = vi.fn();
+    const onStartPlanRecipe = vi.fn();
+    const createFoodPlanItem = vi.fn(async () => {
+      throw new Error('quick-meal cook should not create a plan item');
+    });
+    const food = {
+      ...makeFood(0),
+      recipe_id: 'recipe-plan-1',
+    };
+    const view = renderDashboard({
+      desktopRecommendations: [
+        {
+          recommendation: {
+            food,
+            score: 0.9,
+            reasons: ['可做'],
+            primary_action: 'cook_recipe',
+          },
+          coverUrl: undefined,
+        },
+      ],
+      recommendationCount: 1,
+      foodRecommendations: {
+        target_meal_type: 'dinner',
+        target_date: '2026-07-14',
+        items: [
+          {
+            food,
+            score: 0.9,
+            reasons: ['可做'],
+            primary_action: 'cook_recipe',
+          },
+        ],
+      },
+      createFoodPlanItem,
+      onStartRecommendedRecipe,
+      onStartPlanRecipe,
+    });
+    const desktop = desktopSurface(view);
+    const startButton = Array.from(desktop.querySelectorAll('button')).find((button) => button.textContent?.includes('开始做'));
+    expect(startButton).toBeDefined();
+    act(() => startButton?.click());
+    const form = view.querySelector('form');
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(createFoodPlanItem).not.toHaveBeenCalled();
+    expect(onStartPlanRecipe).not.toHaveBeenCalled();
+    expect(onStartRecommendedRecipe).toHaveBeenCalledWith({
+      foodId: 'food-0',
+      recipeId: 'recipe-plan-1',
+      date: expect.any(String),
+      mealType: expect.any(String),
+      servings: 1,
+    });
   });
 });

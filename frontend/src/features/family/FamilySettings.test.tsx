@@ -311,4 +311,38 @@ describe('FamilySettings activity overlay control', () => {
     act(() => retry.click());
     expect(refetch).toHaveBeenCalledTimes(1);
   });
+
+  it('navigates member history and shopping with semantic targets', () => {
+    const onNavigate = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      isOwner: false,
+      onNavigate,
+      familyStatCards: [
+        {
+          label: '我的记录',
+          value: 2,
+          unit: '次',
+          detail: '今日参与协作',
+          icon: 'edit',
+          tone: 'orange',
+        },
+        {
+          label: '待处理采购',
+          value: 1,
+          unit: '项',
+          detail: '等待家人确认',
+          icon: 'mail',
+          tone: 'orange',
+        },
+      ],
+    });
+
+    const historyStat = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('我的记录'));
+    expect(historyStat).toBeDefined();
+    act(() => historyStat?.click());
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'history' });
+    expect(onNavigate).not.toHaveBeenCalledWith('logs');
+  });
 });

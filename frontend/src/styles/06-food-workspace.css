@@ -118,6 +118,11 @@
   height: 18px;
 }
 
+/* Keep discover surface out of the height chain; children stay food-workspace grid items. */
+.eat-discover-surface {
+  display: contents;
+}
+
 .food-desktop-view {
   display: grid;
   gap: 16px;
