@@ -19,12 +19,16 @@ from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMeal
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
-from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.inventory_versions import (
     STALE_INVENTORY_DETAIL,
     InventoryConflictError,
     conflict_detail,
     require_expected_version,
+)
+from app.services.meal_log_references import (
+    MealLogReferenceError,
+    lock_and_validate_meal_log_references,
+    meal_log_reference_error_detail,
 )
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
@@ -59,15 +63,13 @@ def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stoc
     return statement
 
 
-def _require_food_locked_for_stock(db, *, family_id: str, food_id: str) -> Food:
-    try:
-        return lock_inventory_targets(
-            db,
-            family_id=family_id,
-            food_ids=[food_id],
-        ).foods[food_id]
-    except (InventoryTargetNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found") from exc
+def _raise_meal_log_reference_error(exc: MealLogReferenceError) -> None:
+    status_code = (
+        status.HTTP_404_NOT_FOUND
+        if exc.code in {"meal_log_food_not_found", "meal_log_participant_not_found"}
+        else status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    raise HTTPException(status_code=status_code, detail=meal_log_reference_error_detail(exc)) from exc
 
 
 def _select_plan_item_for_quick_add(
@@ -142,12 +144,23 @@ def create_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
+    try:
+        references = lock_and_validate_meal_log_references(
+            db,
+            family_id=membership.family_id,
+            actor_user_id=user.id,
+            food_ids=[entry.food_id for entry in payload.food_entries],
+            participant_user_ids=payload.participant_user_ids,
+        )
+    except MealLogReferenceError as exc:
+        _raise_meal_log_reference_error(exc)
+
     meal_log = MealLog(
         id=create_id("meal"),
         family_id=membership.family_id,
         date=payload.date,
         meal_type=payload.meal_type,
-        participant_user_ids=payload.participant_user_ids,
+        participant_user_ids=list(references.participant_user_ids),
         notes=payload.notes,
         mood=payload.mood,
         created_by=user.id,
@@ -225,8 +238,23 @@ def update_meal_log(
     if meal_log is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found")
 
-    if payload.participant_user_ids is not None:
-        meal_log.participant_user_ids = payload.participant_user_ids
+    if payload.participant_user_ids is not None or payload.food_entry_ratings is not None:
+        try:
+            references = lock_and_validate_meal_log_references(
+                db,
+                family_id=membership.family_id,
+                actor_user_id=user.id,
+                food_ids=[entry.food_id for entry in meal_log.food_entries],
+                participant_user_ids=(
+                    payload.participant_user_ids
+                    if payload.participant_user_ids is not None
+                    else meal_log.participant_user_ids
+                ),
+            )
+        except MealLogReferenceError as exc:
+            _raise_meal_log_reference_error(exc)
+        if payload.participant_user_ids is not None:
+            meal_log.participant_user_ids = list(references.participant_user_ids)
     if payload.notes is not None:
         meal_log.notes = payload.notes
     if payload.mood is not None:
@@ -282,22 +310,17 @@ def quick_add_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    if payload.deduct_food_stock:
-        food = _require_food_locked_for_stock(
+    try:
+        references = lock_and_validate_meal_log_references(
             db,
             family_id=membership.family_id,
-            food_id=payload.food_id,
+            actor_user_id=user.id,
+            food_ids=[payload.food_id],
+            participant_user_ids=[user.id],
         )
-    else:
-        food = db.scalar(
-            _select_food_for_quick_add(
-                food_id=payload.food_id,
-                family_id=membership.family_id,
-                deduct_food_stock=False,
-            )
-        )
-        if food is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    except MealLogReferenceError as exc:
+        _raise_meal_log_reference_error(exc)
+    food = references.foods_by_id[payload.food_id]
 
     plan_item: FoodPlanItem | None = None
     if payload.food_plan_item_id:
@@ -345,7 +368,7 @@ def quick_add_meal_log(
             family_id=membership.family_id,
             date=payload.date,
             meal_type=payload.meal_type,
-            participant_user_ids=[user.id],
+            participant_user_ids=list(references.participant_user_ids),
             notes="",
             mood="",
             created_by=user.id,

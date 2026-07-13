@@ -419,29 +419,6 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             ])
 
         def test_meal_log_create_and_update_highlight_matrix(self) -> None:
-            create_response = self.client.post(
-                "/api/meal-logs",
-                json={
-                    "date": "2026-05-16",
-                    "meal_type": "dinner",
-                    "food_entries": [],
-                    "participant_user_ids": [self.user.id],
-                    "notes": "家庭聚餐",
-                    "mood": "开心",
-                    "media_ids": [],
-                },
-            )
-            self.assertEqual(create_response.status_code, 201, create_response.text)
-            meal = create_response.json()
-            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
-
-            update_response = self.client.patch(
-                f"/api/meal-logs/{meal['id']}",
-                json={"notes": "补充备注", "mood": "满足"},
-            )
-            self.assertEqual(update_response.status_code, 200, update_response.text)
-            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
-
             food_response = self.client.post(
                 "/api/foods",
                 json={
@@ -463,6 +440,30 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             )
             self.assertEqual(food_response.status_code, 201, food_response.text)
             food = food_response.json()
+
+            create_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-16",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food["id"], "servings": 1, "note": "家庭聚餐"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "家庭聚餐",
+                    "mood": "开心",
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(create_response.status_code, 201, create_response.text)
+            meal = create_response.json()
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
+
+            update_response = self.client.patch(
+                f"/api/meal-logs/{meal['id']}",
+                json={"notes": "补充备注", "mood": "满足"},
+            )
+            self.assertEqual(update_response.status_code, 200, update_response.text)
+            self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
+
             quick_add = self.client.post(
                 "/api/meal-logs/quick-add",
                 json={

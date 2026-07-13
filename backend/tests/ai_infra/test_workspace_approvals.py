@@ -2217,6 +2217,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(approval.request_payload["approveLabel"], "应用计划变更")
 
         def test_meal_log_update_details_operation_updates_existing_log(self) -> None:
+            friend, _ = self.create_family_member(user_id="user-friend")
             with self.SessionLocal() as db:
                 food = db.scalar(select(Food).where(Food.id == "food-tomato"))
                 assert food is not None
@@ -2277,7 +2278,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                             "targetId": meal_log.id,
                             "baseUpdatedAt": meal_log.updated_at.isoformat(),
                             "payload": {
-                                "participantUserIds": [self.user.id, "user-friend"],
+                                "participantUserIds": [self.user.id, friend.id],
                                 "notes": "补充后的备注",
                                 "mood": "满足",
                                 "mediaIds": [],
@@ -2298,7 +2299,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 db.refresh(meal_log)
                 self.assertEqual(meal_log.notes, "补充后的备注")
                 self.assertEqual(meal_log.mood, "满足")
-                self.assertEqual(meal_log.participant_user_ids, [self.user.id, "user-friend"])
+                self.assertEqual(sorted(meal_log.participant_user_ids), sorted([self.user.id, friend.id]))
 
         def test_meal_log_rate_food_operation_updates_entry_rating(self) -> None:
             with self.SessionLocal() as db:
