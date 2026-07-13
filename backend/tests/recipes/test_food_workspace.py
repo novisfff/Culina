@@ -1,12 +1,77 @@
 from ._support import *
 
-from app.core.enums import ActivityHighlightKind, InventoryConfirmationSource
+from app.core.deps import get_current_auth
+from app.core.enums import ActivityHighlightKind, InventoryConfirmationSource, MembershipStatus, UserRole
 from app.core.utils import utcnow
-from app.models.domain import ActivityLog, FoodPlanItem
+from app.main import app
+from app.models.domain import ActivityLog, FoodPlanItem, Membership, User
 from tests._transaction_failure import fail_next_commit
 
 
 class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
+        def _create_food_for_plan(self, *, name: str = "计划详情食物") -> dict:
+            response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": name,
+                    "type": "instant",
+                    "category": "速食",
+                    "flavor_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                    "source_name": "",
+                    "purchase_source": "",
+                    "scene": "",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_quantity": None,
+                    "stock_unit": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            return response.json()
+
+        def _create_plan_item(self, *, food_id: str, plan_date: str = "2026-05-20") -> dict:
+            response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": plan_date, "meal_type": "dinner", "note": "详情"},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            return response.json()
+
+        def _authenticate_as(self, user_id: str, membership_id: str) -> None:
+            def override_auth():
+                with self.SessionLocal() as db:
+                    user = db.get(User, user_id)
+                    membership = db.get(Membership, membership_id)
+                    assert user is not None and membership is not None
+                    return user, membership
+
+            app.dependency_overrides[get_current_auth] = override_auth
+
+        def _create_family_member(self, *, user_id: str = "user-plan-other") -> tuple[User, Membership]:
+            with self.SessionLocal() as db:
+                user = User(
+                    id=user_id,
+                    username=f"{user_id}-login",
+                    display_name="其他成员",
+                    avatar_seed="",
+                    is_active=True,
+                )
+                membership = Membership(
+                    id=f"membership-{user_id}",
+                    family_id=self.family.id,
+                    user_id=user.id,
+                    role=UserRole.MEMBER,
+                    status=MembershipStatus.ACTIVE,
+                )
+                db.add_all([user, membership])
+                db.commit()
+                db.refresh(user)
+                db.refresh(membership)
+                return user, membership
+
         def assert_highlight_kinds(
             self,
             expected: list[ActivityHighlightKind],
@@ -181,6 +246,34 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(second_add.status_code, 201, second_add.text)
             self.assertEqual(second_add.json()["id"], first_add.json()["id"])
             self.assertEqual(len(second_add.json()["food_entries"]), 2)
+
+        def test_get_food_plan_item_by_id_is_scoped_to_current_user(self) -> None:
+            food = self._create_food_for_plan(name="本人计划食物")
+            plan = self._create_plan_item(food_id=food["id"])
+
+            response = self.client.get(f"/api/food-plan/{plan['id']}")
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["id"], plan["id"])
+            self.assertEqual(payload["food_id"], food["id"])
+            self.assertEqual(payload["user_id"], self.user.id)
+            self.assertTrue(payload["updated_at"])
+
+        def test_get_food_plan_item_hides_other_user(self) -> None:
+            food = self._create_food_for_plan(name="他人不可见计划")
+            plan = self._create_plan_item(food_id=food["id"])
+
+            other_user, other_membership = self._create_family_member()
+            self._authenticate_as(other_user.id, other_membership.id)
+
+            response = self.client.get(f"/api/food-plan/{plan['id']}")
+            self.assertEqual(response.status_code, 404, response.text)
+            self.assertEqual(response.json()["detail"], "Food plan item not found")
+
+        def test_get_food_plan_item_missing_returns_404(self) -> None:
+            response = self.client.get("/api/food-plan/food-plan-missing")
+            self.assertEqual(response.status_code, 404, response.text)
+            self.assertEqual(response.json()["detail"], "Food plan item not found")
 
         def test_food_plan_supports_non_recipe_food_and_quick_add_completion(self) -> None:
             food_response = self.client.post(

@@ -220,6 +220,15 @@ describe('cacheInvalidation', () => {
     });
   });
 
+  it('covers food plan detail under foodPlanRoot invalidation', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterFoodPlanChanged(queryClient);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.foodPlanRoot,
+    });
+    expect(queryKeys.foodPlanDetail('plan-1').slice(0, 1)).toEqual(queryKeys.foodPlanRoot);
+  });
+
   it('invalidates the activity-highlight prefix after member changes', async () => {
     const queryClient = fakeQueryClient();
     await invalidateAfterMemberChanged(queryClient);

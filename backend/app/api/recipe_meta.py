@@ -384,6 +384,22 @@ def list_food_plan(
     return [serialize_food_plan_item(item) for item in items]
 
 
+@router.get("/api/food-plan/{item_id}", response_model=FoodPlanItemOut)
+def get_food_plan_item(
+    item_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    item = _load_plan_item(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        item_id=item_id,
+    )
+    return serialize_food_plan_item(item)
+
+
 @router.post("/api/food-plan", response_model=FoodPlanItemOut, status_code=status.HTTP_201_CREATED)
 def create_food_plan_item(
     payload: CreateFoodPlanItemRequest,
