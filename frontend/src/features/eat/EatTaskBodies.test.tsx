@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   Food,
   FoodPlanItem,
@@ -15,10 +15,35 @@ import type {
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import {
   EatCookTaskBody,
+  EatFoodTaskBody,
   EatMealCreateTaskBody,
   EatRecipeTaskBody,
   buildEatTaskBodies,
 } from './EatTaskBodies';
+
+const imageComposerSpies = vi.hoisted(() => ({
+  upload: vi.fn(async () => undefined),
+  generate: vi.fn(async () => undefined),
+  reset: vi.fn(),
+}));
+
+vi.mock('../../hooks/useImageComposer', async () => {
+  const actual = await vi.importActual<typeof import('../../hooks/useImageComposer')>(
+    '../../hooks/useImageComposer',
+  );
+  return {
+    ...actual,
+    useImageComposer: () => ({
+      state: actual.IDLE_IMAGE_GENERATION_STATE,
+      setState: vi.fn(),
+      upload: imageComposerSpies.upload,
+      uploadDirect: vi.fn(async () => undefined),
+      generateWithResult: vi.fn(async () => ({})),
+      generate: imageComposerSpies.generate,
+      reset: imageComposerSpies.reset,
+    }),
+  };
+});
 
 function renderWithQuery(ui: ReactElement) {
   const client = new QueryClient({
@@ -104,6 +129,12 @@ function makeReadyFood(overrides: Partial<Food> = {}): Food {
     ...overrides,
   });
 }
+
+beforeEach(() => {
+  imageComposerSpies.upload.mockClear();
+  imageComposerSpies.generate.mockClear();
+  imageComposerSpies.reset.mockClear();
+});
 
 describe('buildEatTaskBodies plan complete', () => {
   it('includes food_plan_item_id when completing a plan item', async () => {
@@ -253,6 +284,53 @@ describe('EatCookTaskBody finish dialog', () => {
   });
 });
 
+describe('EatFoodTaskBody image and scene tag actions', () => {
+  it('wires image composer and scene tag create actions in the food editor', async () => {
+    const food = makeReadyFood({
+      scene_tags: ['家常'],
+    });
+    renderWithQuery(
+      <EatFoodTaskBody
+        food={food}
+        recipes={[]}
+        ingredients={[]}
+        inventoryItems={[]}
+        mealLogs={[]}
+        foods={[food, makeReadyFood({ id: 'food-2', name: 'Soup', scene_tags: ['轻食', '家常'] })]}
+        updateFood={vi.fn(async () => undefined)}
+        createFoodPlanItem={vi.fn(async () => undefined)}
+        onClose={vi.fn()}
+        onEditRecipe={vi.fn()}
+        onOpenLogs={vi.fn()}
+        onStartCook={vi.fn()}
+        onQuickAdd={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getAllByRole('button', { name: '更新库存' })[0]);
+    expect(await screen.findByText('编辑食物')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '基于信息生成主图' }));
+    await waitFor(() => {
+      expect(imageComposerSpies.generate).toHaveBeenCalledWith('text');
+    });
+
+    const fileInput = document.querySelector<HTMLInputElement>('.image-composer input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    const file = new File(['image'], 'cover.png', { type: 'image/png' });
+    fireEvent.change(fileInput!, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(imageComposerSpies.upload).toHaveBeenCalled();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '添加标签' }));
+    const createInput = await screen.findByPlaceholderText('创建新标签，例如：周末轻食');
+    await userEvent.type(createInput, '周末轻食');
+    await userEvent.click(screen.getByRole('button', { name: '创建并添加' }));
+    expect(screen.getByText('周末轻食')).toBeInTheDocument();
+  });
+});
+
 describe('EatRecipeTaskBody mode edit', () => {
   it('renders the editor path when mode is edit', async () => {
     const recipe = makeRecipe();
@@ -278,5 +356,43 @@ describe('EatRecipeTaskBody mode edit', () => {
       expect(screen.getByTestId('eat-recipe-task-body')).toHaveAttribute('data-mode', 'edit');
     });
     expect(screen.getByRole('button', { name: /保存做法|保存/i })).toBeInTheDocument();
+  });
+
+  it('wires recipe image upload and generate through the image composer', async () => {
+    const recipe = makeRecipe();
+    const food = makeFood();
+    renderWithQuery(
+      <EatRecipeTaskBody
+        foodId={food.id}
+        recipeId={recipe.id}
+        mode="edit"
+        recipes={[recipe]}
+        foods={[food]}
+        ingredients={[]}
+        inventoryItems={[]}
+        mealLogs={[]}
+        updateRecipe={vi.fn(async () => undefined)}
+        onClose={vi.fn()}
+        onCook={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('eat-recipe-task-body')).toHaveAttribute('data-mode', 'edit');
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '基于信息生成主图' }));
+    await waitFor(() => {
+      expect(imageComposerSpies.generate).toHaveBeenCalledWith('text');
+    });
+
+    const fileInput = document.querySelector<HTMLInputElement>('.image-composer input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    const file = new File(['image'], 'recipe.png', { type: 'image/png' });
+    fireEvent.change(fileInput!, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(imageComposerSpies.upload).toHaveBeenCalled();
+    });
   });
 });

@@ -19,6 +19,32 @@ export type WorkspaceOverlayFrameProps = {
   backdropClassName?: string;
 };
 
+/** Mounted overlay roots; topmost is resolved by DOM nesting + mount order. */
+const overlayStack: HTMLElement[] = [];
+
+/**
+ * Resolve the active overlay for Escape.
+ * Nested overlays: the deepest descendant wins (child effects register before parents).
+ * Sibling overlays: the later-mounted root wins.
+ */
+function getTopmostOverlay(): HTMLElement | undefined {
+  let top: HTMLElement | undefined;
+  for (const node of overlayStack) {
+    if (!top) {
+      top = node;
+      continue;
+    }
+    if (top.contains(node)) {
+      top = node;
+    } else if (node.contains(top)) {
+      // Keep the deeper overlay already chosen.
+    } else {
+      top = node;
+    }
+  }
+  return top;
+}
+
 function getFocusableElements(root: HTMLElement): HTMLElement[] {
   const selector = [
     'a[href]',
@@ -74,6 +100,8 @@ export function WorkspaceOverlayFrame({
     const root = rootRef.current;
     if (!root) return;
 
+    overlayStack.push(root);
+
     // Mark siblings inert so background content is removed from normal tab order.
     const inerted: HTMLElement[] = [];
     const parent = root.parentElement;
@@ -119,6 +147,8 @@ export function WorkspaceOverlayFrame({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      // Only the topmost overlay (deepest nested, else latest sibling) should respond.
+      if (getTopmostOverlay() !== root) return;
       if (busyRef.current) {
         event.preventDefault();
         event.stopPropagation();
@@ -134,6 +164,10 @@ export function WorkspaceOverlayFrame({
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
+      const stackIndex = overlayStack.lastIndexOf(root);
+      if (stackIndex >= 0) {
+        overlayStack.splice(stackIndex, 1);
+      }
       for (const node of inerted) {
         node.removeAttribute('inert');
       }

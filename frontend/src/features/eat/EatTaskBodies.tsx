@@ -44,6 +44,7 @@ import {
   buildFoodPayloadFromForm,
   foodToForm,
   getFoodFormCompletionItems,
+  getFoodImagePayload,
   type FoodFormState,
 } from '../../components/foods/FoodWorkspaceModel';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
@@ -53,6 +54,7 @@ import { RecipeEditorView } from '../../components/recipes/RecipeEditorView';
 import { RecipeShoppingDialog } from '../../components/recipes/RecipeShoppingDialog';
 import { RecipeTaskSurface } from '../../components/recipes/RecipeTaskSurface';
 import {
+  buildRecipeImagePayload,
   buildRecipePayload,
   getRecipeDraftGenerationButtonLabel,
   resolveIngredientImageUrl,
@@ -69,7 +71,7 @@ import {
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
-import { IDLE_IMAGE_GENERATION_STATE } from '../../hooks/useImageComposer';
+import { useImageComposer } from '../../hooks/useImageComposer';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
@@ -144,12 +146,34 @@ export function EatFoodTaskBody(props: {
   });
   const [planFoodSearch, setPlanFoodSearch] = useState(props.food.name);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSceneTagPickerOpen, setIsSceneTagPickerOpen] = useState(false);
+  const [newSceneTagName, setNewSceneTagName] = useState('');
 
   useEffect(() => {
     setForm(foodToForm(props.food));
     setIsEditing(false);
     setSaveError(null);
+    setIsSceneTagPickerOpen(false);
+    setNewSceneTagName('');
   }, [props.food.id, props.food.updated_at]);
+
+  const imageComposer = useImageComposer({
+    value: form.images,
+    payload: getFoodImagePayload(form, props.recipes),
+    onChange: (images) => setForm((current) => ({ ...current, images })),
+    uploadErrorMessage: '图片上传成功，但生成主图失败。',
+    generateErrorMessage: '生成主图失败，请稍后再试。',
+  });
+
+  const sceneTags = splitTags(form.sceneTags);
+  const availableSceneTagOptions = useMemo(() => {
+    const names = new Set<string>();
+    props.foods.forEach((food) => getFoodSceneTags(food).forEach((tag) => names.add(tag)));
+    sceneTags.forEach((tag) => names.add(tag));
+    return Array.from(names)
+      .filter((tag) => !sceneTags.includes(tag))
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+  }, [props.foods, sceneTags]);
 
   const usage = getMealUsage(props.food, props.mealLogs);
   const expiry = describeExpiry(props.food);
@@ -280,7 +304,7 @@ export function EatFoodTaskBody(props: {
           >
             <FoodEditorForm
               embedded
-              availableSceneTagOptions={[]}
+              availableSceneTagOptions={availableSceneTagOptions}
               canSubmit={!props.isSavingFood && Boolean(form.name.trim() || isSelfMade)}
               completionItems={completionItems}
               completionPercent={completionPercent}
@@ -293,13 +317,13 @@ export function EatFoodTaskBody(props: {
               editorRecipeCover={recipe?.images[0]?.url}
               editorRecipeMeta={recipe ? `${recipe.ingredient_items.length} 项用料 · ${recipe.steps.length} 步` : '未绑定做法'}
               form={form}
-              imageState={IDLE_IMAGE_GENERATION_STATE}
+              imageState={imageComposer.state}
               isSavingFood={props.isSavingFood}
-              isSceneTagPickerOpen={false}
+              isSceneTagPickerOpen={isSceneTagPickerOpen}
               isSelfMade={isSelfMade}
               isUpdatingScene={false}
-              newSceneTagName=""
-              sceneTags={splitTags(form.sceneTags)}
+              newSceneTagName={newSceneTagName}
+              sceneTags={sceneTags}
               submitLabel="保存"
               view="edit"
               onAddSceneTag={(tag) =>
@@ -311,9 +335,20 @@ export function EatFoodTaskBody(props: {
               onBack={() => {
                 if (!props.isSavingFood) setIsEditing(false);
               }}
-              onCreateAndAddSceneTag={() => undefined}
+              onCreateAndAddSceneTag={() => {
+                const name = newSceneTagName.trim();
+                if (!name) return;
+                setForm((current) => ({
+                  ...current,
+                  sceneTags: [...new Set([...splitTags(current.sceneTags), name])].join('、'),
+                }));
+                setNewSceneTagName('');
+                setIsSceneTagPickerOpen(false);
+              }}
               onFormChange={setForm}
-              onGenerateImage={() => undefined}
+              onGenerateImage={(mode) => {
+                void imageComposer.generate(mode);
+              }}
               onEditRecipe={() => {
                 setIsEditing(false);
                 props.onEditRecipe(props.food);
@@ -324,8 +359,8 @@ export function EatFoodTaskBody(props: {
                   sceneTags: splitTags(current.sceneTags).filter((item) => item !== tag).join('、'),
                 }))
               }
-              onResetImage={() => undefined}
-              onSceneTagPickerToggle={() => undefined}
+              onResetImage={() => imageComposer.reset()}
+              onSceneTagPickerToggle={() => setIsSceneTagPickerOpen((current) => !current)}
               onSubmit={(event) => {
                 void handleSubmitFood(event);
               }}
@@ -337,9 +372,11 @@ export function EatFoodTaskBody(props: {
                     : current.suitableMealTypes.filter((item) => item !== mealType),
                 }))
               }
-              onUploadImage={() => undefined}
+              onUploadImage={(files) => {
+                void imageComposer.upload(files);
+              }}
               resolveAssetUrl={resolveUrl}
-              setNewSceneTagName={() => undefined}
+              setNewSceneTagName={setNewSceneTagName}
             />
             {saveError ? <p className="subtle" role="alert">{saveError}</p> : null}
           </WorkspaceModal>
@@ -466,6 +503,121 @@ export function EatPlanTaskBody(props: {
   );
 }
 
+function EatRecipeEditTaskBody(props: {
+  foodId: string;
+  recipeId: string;
+  selectedCard: NonNullable<ReturnType<typeof buildRecipeCards>[number]>;
+  editor: ReturnType<typeof useRecipeEditorState>;
+  ingredients: Ingredient[];
+  isUpdatingRecipe?: boolean;
+  updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<unknown>;
+  saveError: string | null;
+  setSaveError: (value: string | null) => void;
+  onClose: () => void;
+}) {
+  const { editor, selectedCard } = props;
+  const recipeImageComposer = useImageComposer({
+    value: editor.form.images,
+    payload: buildRecipeImagePayload(editor.form, editor.ingredientRows, props.ingredients),
+    onChange: (images) => editor.setForm((current) => ({ ...current, images })),
+    uploadErrorMessage: '参考图上传或 AI 主图生成失败',
+    generateErrorMessage: 'AI 主图生成失败',
+  });
+
+  const editorIngredientCount = editor.ingredientRows.filter(
+    (item) => item.ingredient_id || item.ingredient_name.trim(),
+  ).length;
+  const editorStepCount = editor.form.steps.filter((step) => step.text.trim()).length;
+  const editorSceneTags = splitTags(editor.form.sceneTags);
+  const editorCoverAsset = getImagePreview(editor.form.images) ?? selectedCard.recipe.images[0];
+  const editorCoverUrl = editorCoverAsset?.url ? resolveUrl(editorCoverAsset.url) : undefined;
+  const editorCompletionItems = [
+    { label: '已填写基础信息', done: Boolean(editor.form.title.trim() && Number(editor.form.servings) > 0) },
+    { label: '已添加原料', done: editorIngredientCount > 0 },
+    { label: '已添加步骤', done: editorStepCount > 0 },
+    { label: '已设置封面', done: Boolean(editorCoverAsset) },
+  ];
+  const editorCompletionPercent = Math.round(
+    (editorCompletionItems.filter((item) => item.done).length / editorCompletionItems.length) * 100,
+  );
+
+  return (
+    <div className="eat-recipe-task-body" data-testid="eat-recipe-task-body" data-mode="edit">
+      <RecipeEditorView
+        isEditing
+        isRecipeAiApplied={false}
+        selectedRecipeId={props.recipeId}
+        form={editor.form}
+        setForm={editor.setForm}
+        ingredientRows={editor.ingredientRows}
+        ingredients={props.ingredients}
+        sceneTagDraft={editor.sceneTagDraft}
+        setSceneTagDraft={editor.setSceneTagDraft}
+        sceneSelectOptions={editorSceneTags}
+        editorSceneTags={editorSceneTags}
+        visibleStepTips={editor.visibleStepTips}
+        editorCoverUrl={editorCoverUrl}
+        editorCoverAsset={editorCoverAsset}
+        editorIngredientCount={editorIngredientCount}
+        editorStepCount={editorStepCount}
+        editorCompletionItems={editorCompletionItems}
+        editorCompletionPercent={editorCompletionPercent}
+        recipeDraftError={props.saveError}
+        isRecipeDraftBusy={false}
+        recipeImageState={recipeImageComposer.state}
+        recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel('idle')}
+        submitDisabled={Boolean(props.isUpdatingRecipe)}
+        isUpdatingRecipe={props.isUpdatingRecipe}
+        showAiDraftAction={false}
+        showDeleteAction={false}
+        compactHeader
+        entityLabel="做法"
+        submitLabel="保存做法"
+        backLabel="关闭"
+        onBack={props.onClose}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const payload = buildRecipePayload(
+            editor.form,
+            editor.ingredientRows,
+            props.ingredients,
+            getPendingImageJobId(editor.form.images),
+          );
+          void props
+            .updateRecipe(props.recipeId, payload)
+            .then(() => props.onClose())
+            .catch((reason) => {
+              props.setSaveError(resolveErrorMessage(reason, '保存做法失败'));
+            });
+        }}
+        onDelete={async () => undefined}
+        onOpenDraftDialog={() => undefined}
+        updateIngredientRow={editor.updateIngredientRow}
+        selectIngredientRow={editor.selectIngredientRow}
+        updateIngredientNote={editor.updateIngredientNote}
+        updateIngredientRequirement={editor.updateIngredientRequirement}
+        addIngredientRow={editor.addIngredientRow}
+        removeIngredientRow={editor.removeIngredientRow}
+        updateStepDraft={editor.updateStepDraft}
+        getStepKeyPointValues={editor.getStepKeyPointValues}
+        getStepKeyPointRowCount={editor.getStepKeyPointRowCount}
+        addStepTip={editor.addStepTip}
+        addStepKeyPoint={editor.addStepKeyPoint}
+        updateStepKeyPoint={editor.updateStepKeyPoint}
+        removeStepKeyPoint={editor.removeStepKeyPoint}
+        commitSceneTagDraft={editor.commitSceneTagDraft}
+        handleRecipeImageUpload={async (files) => {
+          await recipeImageComposer.upload(files);
+        }}
+        handleRecipeImageGenerate={async (mode) => {
+          await recipeImageComposer.generate(mode);
+        }}
+        resetRecipeImageInput={() => recipeImageComposer.reset()}
+      />
+    </div>
+  );
+}
+
 export function EatRecipeTaskBody(props: {
   foodId: string;
   recipeId: string;
@@ -512,96 +664,19 @@ export function EatRecipeTaskBody(props: {
   }
 
   if (props.mode === 'edit') {
-    const editorIngredientCount = editor.ingredientRows.filter(
-      (item) => item.ingredient_id || item.ingredient_name.trim(),
-    ).length;
-    const editorStepCount = editor.form.steps.filter((step) => step.text.trim()).length;
-    const editorSceneTags = splitTags(editor.form.sceneTags);
-    const editorCoverAsset = getImagePreview(editor.form.images) ?? selectedCard.recipe.images[0];
-    const editorCoverUrl = editorCoverAsset?.url ? resolveUrl(editorCoverAsset.url) : undefined;
-    const editorCompletionItems = [
-      { label: '已填写基础信息', done: Boolean(editor.form.title.trim() && Number(editor.form.servings) > 0) },
-      { label: '已添加原料', done: editorIngredientCount > 0 },
-      { label: '已添加步骤', done: editorStepCount > 0 },
-      { label: '已设置封面', done: Boolean(editorCoverAsset) },
-    ];
-    const editorCompletionPercent = Math.round(
-      (editorCompletionItems.filter((item) => item.done).length / editorCompletionItems.length) * 100,
-    );
-
     return (
-      <div className="eat-recipe-task-body" data-testid="eat-recipe-task-body" data-mode="edit">
-        <RecipeEditorView
-          isEditing
-          isRecipeAiApplied={false}
-          selectedRecipeId={props.recipeId}
-          form={editor.form}
-          setForm={editor.setForm}
-          ingredientRows={editor.ingredientRows}
-          ingredients={props.ingredients}
-          sceneTagDraft={editor.sceneTagDraft}
-          setSceneTagDraft={editor.setSceneTagDraft}
-          sceneSelectOptions={editorSceneTags}
-          editorSceneTags={editorSceneTags}
-          visibleStepTips={editor.visibleStepTips}
-          editorCoverUrl={editorCoverUrl}
-          editorCoverAsset={editorCoverAsset}
-          editorIngredientCount={editorIngredientCount}
-          editorStepCount={editorStepCount}
-          editorCompletionItems={editorCompletionItems}
-          editorCompletionPercent={editorCompletionPercent}
-          recipeDraftError={saveError}
-          isRecipeDraftBusy={false}
-          recipeImageState={{
-            isGenerating: false,
-            errorMessage: null,
-          }}
-          recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel('idle')}
-          submitDisabled={Boolean(props.isUpdatingRecipe)}
-          isUpdatingRecipe={props.isUpdatingRecipe}
-          showAiDraftAction={false}
-          showDeleteAction={false}
-          compactHeader
-          entityLabel="做法"
-          submitLabel="保存做法"
-          backLabel="关闭"
-          onBack={props.onClose}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const payload = buildRecipePayload(
-              editor.form,
-              editor.ingredientRows,
-              props.ingredients,
-              getPendingImageJobId(editor.form.images),
-            );
-            void props
-              .updateRecipe(props.recipeId, payload)
-              .then(() => props.onClose())
-              .catch((reason) => {
-                setSaveError(resolveErrorMessage(reason, '保存做法失败'));
-              });
-          }}
-          onDelete={async () => undefined}
-          onOpenDraftDialog={() => undefined}
-          updateIngredientRow={editor.updateIngredientRow}
-          selectIngredientRow={editor.selectIngredientRow}
-          updateIngredientNote={editor.updateIngredientNote}
-          updateIngredientRequirement={editor.updateIngredientRequirement}
-          addIngredientRow={editor.addIngredientRow}
-          removeIngredientRow={editor.removeIngredientRow}
-          updateStepDraft={editor.updateStepDraft}
-          getStepKeyPointValues={editor.getStepKeyPointValues}
-          getStepKeyPointRowCount={editor.getStepKeyPointRowCount}
-          addStepTip={editor.addStepTip}
-          addStepKeyPoint={editor.addStepKeyPoint}
-          updateStepKeyPoint={editor.updateStepKeyPoint}
-          removeStepKeyPoint={editor.removeStepKeyPoint}
-          commitSceneTagDraft={editor.commitSceneTagDraft}
-          handleRecipeImageUpload={async () => undefined}
-          handleRecipeImageGenerate={async () => undefined}
-          resetRecipeImageInput={() => undefined}
-        />
-      </div>
+      <EatRecipeEditTaskBody
+        foodId={props.foodId}
+        recipeId={props.recipeId}
+        selectedCard={selectedCard}
+        editor={editor}
+        ingredients={props.ingredients}
+        isUpdatingRecipe={props.isUpdatingRecipe}
+        updateRecipe={props.updateRecipe}
+        saveError={saveError}
+        setSaveError={setSaveError}
+        onClose={props.onClose}
+      />
     );
   }
 
