@@ -4949,7 +4949,7 @@
 .food-plan-detail-hero .recipe-plan-detail-cover,
 .food-plan-detail-hero .recipe-plan-detail-cover .media-with-placeholder,
 .food-plan-detail-hero .recipe-plan-detail-cover img,
-.food-plan-detail-cover-placeholder {
+.food-plan-detail-cover-fallback {
   position: absolute;
   inset: 0;
   display: block;
@@ -4967,7 +4967,7 @@
   transform: scale(1.015);
 }
 
-.food-plan-detail-cover-placeholder {
+.food-plan-detail-cover-fallback {
   display: grid;
   place-content: center;
   align-items: center;
@@ -4977,7 +4977,7 @@
     var(--surface-muted, #f6f0ea);
 }
 
-.food-plan-detail-cover-placeholder svg {
+.food-plan-detail-cover-fallback svg {
   width: 56px;
   height: 56px;
   opacity: 0.72;
@@ -5116,7 +5116,7 @@
     font-size: 1.25rem;
   }
 
-  .food-plan-detail-cover-placeholder svg {
+  .food-plan-detail-cover-fallback svg {
     width: 44px;
     height: 44px;
   }

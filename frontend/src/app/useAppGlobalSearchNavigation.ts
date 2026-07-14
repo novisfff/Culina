@@ -47,8 +47,21 @@ type UseAppGlobalSearchNavigationArgs = {
 export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationArgs) {
   const [ingredientNavigationRequest, setIngredientNavigationRequest] =
     useState<IngredientNavigationRequest | null>(null);
+  const [foodPlanNavigationRequest, setFoodPlanNavigationRequest] =
+    useState<FoodPlanNavigationRequest | null>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const ingredientNavigationRequestIdRef = useRef(0);
+  const foodPlanNavigationRequestIdRef = useRef(0);
+
+  const openFoodPlanWeek = useCallback((planDate: string) => {
+    foodPlanNavigationRequestIdRef.current += 1;
+    setFoodPlanNavigationRequest({
+      target: 'week',
+      planDate,
+      requestId: foodPlanNavigationRequestIdRef.current,
+    });
+    args.navigate({ workspace: 'eat', view: 'plan' });
+  }, [args.navigate]);
 
   const handleGlobalSearchSelect = useCallback(
     (selection: GlobalSearchSelection) => {
@@ -86,6 +99,8 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
+    foodPlanNavigationRequest,
+    openFoodPlanWeek,
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,

@@ -144,7 +144,7 @@ export function FoodPlanDetailModal(props: Props) {
                   loading="eager"
                 />
               ) : (
-                <div className="food-plan-detail-cover-placeholder" aria-hidden="true">
+                <div className="food-plan-detail-cover-fallback" aria-hidden="true">
                   <FoodUiIcon name={props.item.recipe_id ? 'cloche' : 'bowl'} />
                 </div>
               )}

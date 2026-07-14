@@ -641,9 +641,7 @@ describe('InventoryReconciliationDialog', () => {
       ...presenceGroup,
       ingredient_id: `ing-${index}`,
       ingredient_name: `食材 ${index}`,
-      state: presenceGroup.state
-        ? { ...presenceGroup.state, id: `state-${index}`, ingredient_id: `ing-${index}` }
-        : null,
+      state: { ...presenceGroup.state, id: `state-${index}`, ingredient_id: `ing-${index}` },
     }));
 
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;

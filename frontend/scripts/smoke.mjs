@@ -1119,7 +1119,8 @@ async function assertHomeLayoutMeasurements(page, viewport, label) {
   const layout = await page.evaluate((phone) => {
     const root = document.documentElement;
     const surface = document.querySelector(phone ? '.mobile-dashboard-page' : '.dashboard-page');
-    const calendar = surface?.querySelector('[data-testid="mobile-home-calendar-scroll"]') ?? null;
+    const calendar = surface?.querySelector('[data-testid="mobile-home-calendar-days"]') ?? null;
+    const calendarButtons = Array.from(calendar?.querySelectorAll('button[aria-label^="选择 "]') ?? []);
     const meta = surface?.querySelector('.mobile-dashboard-meta-row') ?? null;
     const lower = surface?.querySelector('[data-testid="home-lower-grid"]') ?? null;
     const question2 = surface?.querySelector('[data-testid="mobile-home-question"][data-question="2"]') ?? null;
@@ -1130,7 +1131,15 @@ async function assertHomeLayoutMeasurements(page, viewport, label) {
       [...new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().left)))];
     return {
       rootFits: root.scrollWidth <= root.clientWidth + 1,
-      calendarScrolls: calendar ? calendar.scrollWidth > calendar.clientWidth : null,
+      calendarFits: calendar
+        ? calendar.scrollWidth <= calendar.clientWidth + 1 &&
+          calendarButtons.length === 7 &&
+          calendarButtons.every((button) => {
+            const calendarRect = calendar.getBoundingClientRect();
+            const buttonRect = button.getBoundingClientRect();
+            return buttonRect.left >= calendarRect.left - 1 && buttonRect.right <= calendarRect.right + 1;
+          })
+        : null,
       metaScrollable: meta ? getComputedStyle(meta).overflowX === 'auto' : null,
       lowerColumns: lower ? getComputedStyle(lower).gridTemplateColumns : '',
       questionStack:
@@ -1153,8 +1162,8 @@ async function assertHomeLayoutMeasurements(page, viewport, label) {
   }
 
   if (isPhoneViewport) {
-    if (layout.calendarScrolls !== true) {
-      throw new Error(`${label} 手机紧凑日历没有形成受控横滑`);
+    if (layout.calendarFits !== true) {
+      throw new Error(`${label} 手机七天日历没有完整收进网格`);
     }
     if (layout.metaScrollable !== true) {
       throw new Error(`${label} 手机 Hero meta chips 没有保持受控横滑`);
@@ -1402,10 +1411,10 @@ async function runInventoryReconciliationSmoke(browser, baseUrl, viewport, label
         ok: true,
         overflow: Math.max(0, modal.scrollWidth - modal.clientWidth),
         keys,
-        hasExpiredBadge: Boolean(egg && (egg.textContent || '').includes('含过期批次')),
+        hasExpiredNotice: Boolean(egg && (egg.textContent || '').includes('过期批次待处理')),
         hasExactActions: Boolean(
           modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:confirm_all"]') &&
-            modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:adjust_batches"]')
+            modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:correct_total"]')
         ),
         hasPresenceLow: Array.from(
           modal.querySelectorAll('[aria-label="盐 有无状态"] [role="radio"]')
@@ -1429,9 +1438,11 @@ async function runInventoryReconciliationSmoke(browser, baseUrl, viewport, label
         throw new Error(`${label} 缺少 adapter ${key}; got ${snapshot.keys.join(',')}`);
       }
     }
-    if (!snapshot.hasExpiredBadge) throw new Error(`${label} 过期批次标记未出现`);
+    if (!snapshot.hasExpiredNotice) throw new Error(`${label} 过期批次处理提示未出现`);
     if (!snapshot.hasExactActions || !snapshot.hasPresenceLow || !snapshot.hasFoodConfirm) {
-      throw new Error(`${label} 盘点动作控件不完整`);
+      throw new Error(
+        `${label} 盘点动作控件不完整：exact=${snapshot.hasExactActions} presence=${snapshot.hasPresenceLow} food=${snapshot.hasFoodConfirm}`
+      );
     }
     for (const scope of ['建议确认', '冷藏', '冷冻', '常温', '全部']) {
       if (!snapshot.scopeLabels.some((entry) => entry.includes(scope))) {
@@ -1832,10 +1843,13 @@ async function runHomeActionCenterSmoke(browser, baseUrl) {
     .filter({ hasText: '番茄' })
     .locator('[data-testid="home-action-primary"]');
   await primary.click();
-  await expectVisible(page.locator('.inventory-action-modal'), '库存处理弹窗');
+  const inventoryActionDialog = page.locator(
+    '.home-dashboard-overlay-root [aria-labelledby="inventory-action-dialog-title"]'
+  );
+  await expectVisible(inventoryActionDialog, '库存处理弹窗');
   await expectVisibleText(page, '已过期批次', '库存处理弹窗批次分区');
   await page.getByLabel('关闭').last().click();
-  await page.locator('.inventory-action-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  await inventoryActionDialog.waitFor({ state: 'detached', timeout: 10_000 });
   assertClean();
   await context.close();
 }
@@ -1850,21 +1864,24 @@ async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label
     .filter({ hasText: '番茄' })
     .locator('[data-testid="home-action-primary"]');
   await primary.click();
-  await expectVisible(page.locator('.inventory-action-modal'), `${label} 库存处理弹窗`);
+  const inventoryActionDialog = page.locator(
+    '.home-dashboard-overlay-root [aria-labelledby="inventory-action-dialog-title"]'
+  );
+  await expectVisible(inventoryActionDialog, `${label} 库存处理弹窗`);
   await page.waitForTimeout(320);
 
   const geometry = await page.evaluate(() => {
-    const modal = document.querySelector('.inventory-action-modal');
+    const modal = document.querySelector(
+      '.home-dashboard-overlay-root [aria-labelledby="inventory-action-dialog-title"]'
+    );
     const body = modal?.querySelector('.workspace-overlay-body');
-    const scroll = modal?.querySelector('.inventory-action-scroll');
     const footer = modal?.querySelector('.workspace-overlay-footer');
     const primaryButton = footer?.querySelector('button:not([disabled])');
-    if (!modal || !body || !scroll || !footer || !primaryButton) {
+    if (!modal || !body || !footer || !primaryButton) {
       return { ok: false, reason: 'missing-element' };
     }
     const modalRect = modal.getBoundingClientRect();
     const bodyStyle = getComputedStyle(body);
-    const scrollStyle = getComputedStyle(scroll);
     const footerRect = footer.getBoundingClientRect();
     const primaryRect = primaryButton.getBoundingClientRect();
     return {
@@ -1873,15 +1890,13 @@ async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label
         footerRect.bottom <= window.innerHeight + 1 &&
         primaryRect.bottom <= window.innerHeight + 1 &&
         primaryRect.top >= footerRect.top - 1 &&
-        bodyStyle.overflowY === 'hidden' &&
-        ['auto', 'scroll'].includes(scrollStyle.overflowY),
+        ['auto', 'scroll'].includes(bodyStyle.overflowY),
       modalBottom: Math.round(modalRect.bottom),
       footerBottom: Math.round(footerRect.bottom),
       primaryTop: Math.round(primaryRect.top),
       primaryBottom: Math.round(primaryRect.bottom),
       viewportHeight: window.innerHeight,
       bodyOverflowY: bodyStyle.overflowY,
-      scrollOverflowY: scrollStyle.overflowY,
     };
   });
   if (!geometry.ok) {
@@ -1895,7 +1910,7 @@ async function runInventoryActionViewportSmoke(browser, baseUrl, viewport, label
   }
 
   await page.getByLabel('关闭').last().click();
-  await page.locator('.inventory-action-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  await inventoryActionDialog.waitFor({ state: 'detached', timeout: 10_000 });
   assertClean();
   await context.close();
 }
@@ -2033,14 +2048,17 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   const isPhoneViewport = isPhoneViewportSize(viewport);
   const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-  await homeSurfaceLocator(page, viewport).getByRole('button', { name: '完整周菜单', exact: true }).click();
+  const homeSurface = homeSurfaceLocator(page, viewport);
+  if (isPhoneViewport) {
+    await homeSurface.getByRole('button', { name: '展开当天安排', exact: true }).click();
+  }
+  await homeSurface.getByRole('button', { name: '完整周菜单', exact: true }).click();
 
-  // The compact menu plan remains inside the discovery workspace.
-  await expectVisible(
-    page.getByTestId('food-plan-week-section').or(page.getByLabel('菜单')).first(),
-    `${label} 周菜单`,
-  );
-  if (!isPhoneViewport) {
+  if (isPhoneViewport) {
+    await expectVisible(page.getByLabel('手机周菜单', { exact: true }), `${label} 周菜单`);
+  } else {
+    // Desktop focuses the compact menu plan inside the discovery workspace.
+    await expectVisible(page.getByTestId('food-plan-week-section'), `${label} 周菜单`);
     const focused = await page.evaluate(() => {
       const week = document.querySelector('[data-testid="food-plan-week-section"]');
       if (!week) return false;

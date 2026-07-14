@@ -160,7 +160,7 @@ describe('FoodPlanDetailModal', () => {
     const { view } = renderModal({ food: buildFood() });
 
     expect(view.querySelector('.food-plan-detail-hero')).not.toBeNull();
-    const placeholder = view.querySelector('.food-plan-detail-cover-placeholder');
+    const placeholder = view.querySelector('.food-plan-detail-cover-fallback');
     expect(placeholder).not.toBeNull();
     expect(placeholder?.querySelector('strong')).toBeNull();
     expect(view.textContent).toContain('适合餐次');

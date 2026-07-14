@@ -231,6 +231,24 @@ describe('IngredientNavigationRequest contract', () => {
   });
 });
 
+describe('FoodPlanNavigationRequest contract', () => {
+  it('creates a consumable week request before navigating to the eating workspace', () => {
+    const api = renderNavigation();
+    expect(api).not.toBeNull();
+
+    act(() => {
+      api!.nav.openFoodPlanWeek('2026-07-15');
+    });
+
+    expect(latest!.nav.foodPlanNavigationRequest).toEqual({
+      target: 'week',
+      planDate: '2026-07-15',
+      requestId: expect.any(Number),
+    });
+    expect(latest!.navigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'plan' });
+  });
+});
+
 describe('Ingredient navigation consumption contract', () => {
   it('requires a real ingredient ID for shopping and none for priority', () => {
     const shopping: IngredientNavigationRequest = {

@@ -353,6 +353,8 @@ function App() {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
+    foodPlanNavigationRequest,
+    openFoodPlanWeek: requestFoodPlanWeek,
     globalSearchOpen,
     setGlobalSearchOpen,
     handleGlobalSearchSelect,
@@ -368,8 +370,8 @@ function App() {
 
   const openFoodPlanWeek = useCallback((planDate: string) => {
     setSelectedRecipePlanDate(planDate);
-    navigation.navigate({ workspace: 'eat', view: 'plan' });
-  }, [navigation]);
+    requestFoodPlanWeek(planDate);
+  }, [requestFoodPlanWeek]);
 
   // FoodWorkspace / plan surface still use the legacy (recipeId, foodPlanItemId?) signature.
   // Exact-one selfMade relation: 0 or >1 matches → recipe-target (never arbitrary find()).
@@ -1323,6 +1325,7 @@ function App() {
                   foodScenes={foodScenes}
                   foodPlanItems={foodPlanItems}
                   foodPlanWeekRange={foodPlanWeekRange}
+                  foodPlanNavigationRequest={foodPlanNavigationRequest}
                   isPhoneViewport={isPhoneViewport}
                   notificationCenter={mobileNotificationCenter}
                   createFood={(payload) => createFoodMutation.mutateAsync(payload)}

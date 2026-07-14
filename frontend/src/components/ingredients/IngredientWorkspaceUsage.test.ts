@@ -207,6 +207,7 @@ describe('IngredientWorkspace free-text shopping contract', () => {
   it('starts blank shopping forms as free_text and never auto-binds by title', () => {
     const formsSource = readFileSync(resolve(__dirname, 'ingredientWorkspaceForms.ts'), 'utf8');
     const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const submissionSource = readFileSync(resolve(__dirname, 'shoppingFormSubmission.ts'), 'utf8');
     const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
 
     expect(formsSource).toContain("export type ShoppingTargetType = 'ingredient' | 'food' | 'free_text'");
@@ -215,11 +216,12 @@ describe('IngredientWorkspace free-text shopping contract', () => {
     expect(formsSource).toContain("return item.ingredient_id ? 'ingredient' : 'free_text'");
     expect(formsSource).not.toContain("const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient'");
 
-    expect(actionSource).toContain('// Explicit binding only');
-    expect(actionSource).not.toContain("args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim())");
-    expect(actionSource).not.toContain("title: '先选择采购对象', message: '采购清单只能从已有食材或成品速食档案创建。'");
-    expect(actionSource).toContain("ingredient_id: selectedShoppingIngredient?.id ?? null");
-    expect(actionSource).toContain("food_id: selectedShoppingFood?.id ?? null");
+    expect(actionSource).toContain('resolveShoppingFormSubmission');
+    expect(submissionSource).toContain("args.form.targetType === 'ingredient' && args.form.ingredientId");
+    expect(submissionSource).toContain("args.form.targetType === 'food' && args.form.foodId");
+    expect(submissionSource).not.toContain("args.ingredients.find((item) => item.name === title)");
+    expect(submissionSource).toContain('ingredient_id: selectedIngredient?.id ?? null');
+    expect(submissionSource).toContain('food_id: selectedFood?.id ?? null');
 
     expect(overlayStateSource).toContain('// Only resolve bound targets by stable IDs');
     expect(overlayStateSource).not.toContain(
