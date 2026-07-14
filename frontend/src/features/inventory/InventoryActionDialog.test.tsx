@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -200,6 +202,51 @@ function clickButton(view: HTMLElement, label: string) {
 }
 
 describe('InventoryActionDialog', () => {
+  it('keeps mobile batch rows compact without turning correction into a text link', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/10-inventory-actions.css'), 'utf8');
+    const mobileStyles = styles.slice(styles.indexOf('@media (max-width: 767px)'));
+
+    expect(mobileStyles).toContain(`.inventory-action-batch-list {
+    gap: 6px;
+  }`);
+    expect(mobileStyles).toContain(`.inventory-action-batch-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 8px;
+    padding: 10px;
+    align-items: center;
+  }`);
+    expect(mobileStyles).toContain(`.inventory-action-correct-button {
+    align-self: center;`);
+  });
+
+  it('uses the shared modal, footer, action button, and status badge foundations', () => {
+    const { view } = renderDialog();
+
+    const modal = view.querySelector('.workspace-modal');
+    expect(modal).not.toBeNull();
+    expect(modal?.classList.contains('inventory-action-modal')).toBe(false);
+    expect(modal?.querySelector(':scope > .workspace-overlay-body > .inventory-action-scroll')).toBeNull();
+    expect(modal?.querySelector(':scope > .workspace-overlay-footer .inventory-action-footer-summary')).toBeNull();
+    expect(modal?.querySelector(':scope > .workspace-overlay-footer > .workspace-overlay-footer-info')).not.toBeNull();
+
+    const intentGroup = view.querySelector('[role="radiogroup"][aria-label="库存处理方式"]');
+    const intentButton = [...(intentGroup?.querySelectorAll('button') ?? [])].find((node) =>
+      node.textContent?.includes('暂时保留'),
+    );
+    const disposeOption = [...(intentGroup?.querySelectorAll('button') ?? [])].find((node) =>
+      node.textContent?.trim() === '销毁',
+    );
+    const correctButton = [...view.querySelectorAll('button')].find((node) =>
+      node.textContent?.includes('修正日期'),
+    );
+    expect(intentGroup).not.toBeNull();
+    expect(intentButton?.classList.contains('ui-option-chip')).toBe(true);
+    expect(disposeOption?.getAttribute('aria-checked')).toBe('true');
+    expect(correctButton?.classList.contains('ghost-button')).toBe(true);
+    expect(view.querySelector('.ui-status-badge.tone-danger')).not.toBeNull();
+    expect(view.querySelector<HTMLInputElement>('input.inventory-action-checkbox')?.ariaLabel).toContain('选择');
+  });
+
   it('separates expired and upcoming batches and defaults to expired selection', () => {
     const { view } = renderDialog();
 
@@ -216,7 +263,7 @@ describe('InventoryActionDialog', () => {
   it('resets selection when switching disposal, temporary retention, and future snooze', () => {
     const { view } = renderDialog();
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '销毁');
     expect(selectedIds(view)).toEqual(['expired-a', 'expired-b']);
 
     clickButton(view, '暂时保留');
@@ -225,14 +272,14 @@ describe('InventoryActionDialog', () => {
     clickButton(view, '稍后提醒');
     expect(selectedIds(view)).toEqual(['upcoming-a', 'upcoming-b']);
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '销毁');
     expect(selectedIds(view)).toEqual(['expired-a', 'expired-b']);
   });
 
   it('blocks selecting unexpired rows for disposal and temporary retention', () => {
     const { view } = renderDialog();
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '销毁');
     const upcomingCheckbox = view.querySelector<HTMLInputElement>('input[value="upcoming-a"]');
     expect(upcomingCheckbox?.disabled).toBe(true);
 
@@ -252,7 +299,7 @@ describe('InventoryActionDialog', () => {
     const { view } = renderDialog({ onCorrectExpiry });
 
     const correctButtons = [...view.querySelectorAll('button')].filter((node) =>
-      node.textContent?.includes('日期录错了'),
+      node.textContent?.includes('修正日期'),
     );
     expect(correctButtons).toHaveLength(4);
     act(() => correctButtons[0]?.click());
@@ -281,12 +328,11 @@ describe('InventoryActionDialog', () => {
     const { view } = renderDialog({ onDispose });
 
     clickButton(view, '销毁所选批次');
-    clickButton(view, '销毁所选批次');
 
     expect(view.textContent).toContain('确认销毁');
     expect(view.textContent).toContain('番茄');
     expect(view.textContent).toMatch(/2\s*个批次|2\s*批/);
-    const footer = view.querySelector('.inventory-action-footer-summary');
+    const footer = view.querySelector('.workspace-overlay-footer-info');
     expect(footer?.textContent).toContain('3 盒');
     expect(footer?.textContent).not.toContain('500 克');
     expect(view.querySelector('.inventory-action-batch-section')?.textContent).not.toContain('即将到期批次');
@@ -409,7 +455,6 @@ describe('InventoryActionDialog', () => {
     expect(view.querySelector('.workspace-overlay-root')).not.toBeNull();
 
     clickButton(view, '销毁所选批次');
-    clickButton(view, '销毁所选批次');
     await act(async () => {
       clickButton(view, '确认销毁');
     });
@@ -422,6 +467,7 @@ describe('InventoryActionDialog', () => {
   it('disables close and duplicate submission while busy without trapping focus', () => {
     const { onClose, view } = renderDialog({ busy: true });
 
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在处理库存');
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
     act(() => view.querySelector<HTMLButtonElement>('button.ui-form-actions-secondary')?.click());
@@ -480,13 +526,6 @@ describe('InventoryActionDialog', () => {
     expect(disposeButton).toBeTruthy();
     await act(async () => {
       disposeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    // First click focuses dispose; second click enters confirmation.
-    const focusedDispose = Array.from(container?.querySelectorAll('button') ?? []).find((button) =>
-      button.textContent?.includes('标记为没有'),
-    );
-    await act(async () => {
-      focusedDispose?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(container?.textContent).toContain('将把盐标记为已经没有');
   });

@@ -398,6 +398,8 @@ def test_refrigerated_read_scope_matrix(recon_api_context: ReconApiContext) -> N
     assert recon_api_context.batch_room_id not in batch_ids
     assert egg_group["pending_shopping_item_id"] == recon_api_context.pending_egg_shopping_id
     assert egg_group["ingredient_row_version"] >= 1
+    assert egg_group["default_unit"] == "个"
+    assert egg_group["unit_conversions"] == []
 
     food_group = next(g for g in groups if g["kind"] == "food")
     assert food_group["food_id"] == recon_api_context.food_id

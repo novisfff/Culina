@@ -77,7 +77,9 @@ export function FoodMobileView(props: {
   onHandleRecommendationPrimaryAction: (item: MobileRecommendationItem) => void;
   onHandleFoodCardPrimaryAction: (food: Food, mealType: MealType) => void;
   onToggleFavorite: (food: Food) => void;
+  onOpenShopping: (food: Food) => void;
   onOpenCreate: () => void;
+  onOpenLogs?: () => void;
   onClearFoodFilters: () => void;
   filterTabs: MobileFilterTab[];
 }) {
@@ -123,6 +125,23 @@ export function FoodMobileView(props: {
           )}
         </div>
       </div>
+
+      <section className="mobile-food-command-panel" aria-label="吃什么快捷操作">
+        <div className="mobile-food-command-copy">
+          <h1>吃什么</h1>
+          <p>从家常菜、外卖和成品里选一份，轻松安排今天这一餐。</p>
+        </div>
+        <div className="mobile-food-command-actions">
+          <button className="mobile-food-command-primary" type="button" onClick={props.onOpenCreate}>
+            <FoodUiIcon name="plus" />
+            新增外卖/成品
+          </button>
+          <button className="mobile-food-command-secondary" type="button" onClick={() => props.onOpenLogs?.()}>
+            <FoodUiIcon name="receipt" />
+            吃过的
+          </button>
+        </div>
+      </section>
 
       <section className="mobile-dashboard-panel mobile-dashboard-recommend">
         <div className="mobile-dashboard-section-head">
@@ -289,14 +308,25 @@ export function FoodMobileView(props: {
                       : tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
                     return (
                       <article key={food.id} className="mobile-food-library-card">
-                        <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
-                          <MediaWithPlaceholder
-                            src={cover}
-                            srcSet={buildMediaSrcSet(coverAsset)}
-                            sizes={buildMediaSizes('card')}
-                            alt={food.name}
-                          />
-                        </button>
+                        <div className="mobile-food-library-media">
+                          <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
+                            <MediaWithPlaceholder
+                              src={cover}
+                              srcSet={buildMediaSrcSet(coverAsset)}
+                              sizes={buildMediaSizes('card')}
+                              alt={food.name}
+                            />
+                          </button>
+                          <button
+                            className={food.favorite ? 'food-favorite-chip mobile-food-favorite active' : 'food-favorite-chip mobile-food-favorite'}
+                            type="button"
+                            aria-label={`${food.favorite ? '取消收藏' : '收藏'}：${food.name}`}
+                            disabled={props.isUpdatingFavorite}
+                            onClick={() => props.onToggleFavorite(food)}
+                          >
+                            <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
+                          </button>
+                        </div>
                         <div className="mobile-food-library-body">
                           <h3>{food.name}</h3>
                           <p>{cookingSummary ? ['家常菜谱', usageCount > 0 ? '最近做过' : cookingSummary.availabilityDetail].join(' · ') : [FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近吃过' : '未记录'].join(' · ')}</p>
@@ -314,15 +344,17 @@ export function FoodMobileView(props: {
                             >
                               {props.getFoodCardPrimaryActionLabel(food)}
                             </button>
-                            <button
-                              className={food.favorite ? 'active' : undefined}
-                              type="button"
-                              aria-label={`收藏：${food.name}`}
-                              disabled={props.isUpdatingFavorite}
-                              onClick={() => props.onToggleFavorite(food)}
-                            >
-                              <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
-                            </button>
+                            {(['readyMade', 'instant', 'packaged'].includes(food.type) || (food.type === 'selfMade' && Boolean(food.recipe_id))) ? (
+                              <button
+                                className="mobile-food-shopping-action"
+                                type="button"
+                                aria-label={`加入采购：${food.name}`}
+                                title="加入采购"
+                                onClick={() => props.onOpenShopping(food)}
+                              >
+                                <FoodUiIcon name="clipboard" />
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       </article>

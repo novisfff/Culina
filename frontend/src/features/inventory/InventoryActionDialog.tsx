@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { VersionedInventoryItemRef } from '../../api/types';
-import { FormActions, OptionChipGroup, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
+import {
+  ActionButton,
+  FormActions,
+  OperationLoadingOverlay,
+  OptionChipGroup,
+  StatusBadge,
+  WorkspaceModal,
+  WorkspaceOverlayFrame,
+} from '../../components/ui-kit';
 import { addCalendarDaysToDateKey } from '../../lib/date';
 import { formatDate, formatDateTime } from '../../lib/ui';
 import type { ExpiryInventoryActionGroup, InventoryActionBatch } from './inventoryActionModel';
@@ -35,6 +43,7 @@ export type InventoryActionDialogProps = {
 
 type SelectionAudience = 'expired' | 'upcoming' | 'all';
 type SnoozePreset = 'tomorrow' | 'three_days' | 'custom';
+type HandlingIntent = 'dispose' | 'retain' | 'snooze';
 
 function formatQuantityValue(value: number) {
   return String(Number(value.toFixed(2))).replace(/\.0+$/, '');
@@ -209,14 +218,15 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     setLocalError(null);
   }
 
-  function handleDisposeIntent() {
+  function selectDisposeIntent() {
     if (busy) return;
-    if (mode.kind === 'review' && mode.focus === 'dispose') {
-      setMode({ kind: 'dispose_confirm' });
-      return;
-    }
     applyAudienceSelection('expired');
     setMode({ kind: 'review', focus: 'dispose' });
+  }
+
+  function enterDisposeConfirmation() {
+    if (busy) return;
+    setMode({ kind: 'dispose_confirm' });
   }
 
   function enterRetainExpired() {
@@ -347,9 +357,21 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
           : group.detail;
 
   const errorText = localError ?? props.errorMessage ?? null;
+  const handlingIntent: HandlingIntent = mode.kind === 'snooze'
+    ? mode.audience === 'expired' ? 'retain' : 'snooze'
+    : hasExpired ? 'dispose' : 'snooze';
+  const handlingOptions: Array<{ value: HandlingIntent; label: string }> = [
+    ...(hasExpired
+      ? [
+          { value: 'dispose' as const, label: isPresenceGroup(group) ? '记为没有' : '销毁' },
+          { value: 'retain' as const, label: '暂时保留' },
+        ]
+      : []),
+    ...(hasUpcoming ? [{ value: 'snooze' as const, label: '稍后提醒' }] : []),
+  ];
 
   const footerInfo = (
-    <div className="inventory-action-footer-summary">
+    <>
       <span>已选择</span>
       <strong>
         {isPresenceGroup(group) ? (
@@ -372,7 +394,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
       ) : (
         <p>{group.ingredientName}</p>
       )}
-    </div>
+    </>
   );
 
   let footerActions: ReactNode;
@@ -380,7 +402,6 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   if (mode.kind === 'dispose_confirm') {
     footerActions = (
       <FormActions
-        className="inventory-action-actions"
         primaryLabel={isPresenceGroup(group) ? '确认没有了' : '确认销毁'}
         primaryTone="danger"
         isSubmitting={busy}
@@ -397,7 +418,6 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   } else if (mode.kind === 'snooze') {
     footerActions = (
       <FormActions
-        className="inventory-action-actions"
         primaryLabel={mode.audience === 'expired' ? '确认暂时保留' : '确认稍后提醒'}
         isSubmitting={busy}
         primaryDisabled={busy || selectedValidCount === 0}
@@ -416,7 +436,6 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   } else if (mode.kind === 'correct_date') {
     footerActions = (
       <FormActions
-        className="inventory-action-actions"
         primaryLabel="保存更正"
         isSubmitting={busy}
         primaryDisabled={busy}
@@ -432,14 +451,13 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   } else {
     footerActions = (
       <FormActions
-        className="inventory-action-actions"
         primaryLabel={hasExpired ? (isPresenceGroup(group) ? '标记为没有' : '销毁所选批次') : '关闭'}
         primaryTone={hasExpired ? 'danger' : 'primary'}
         isSubmitting={busy}
         primaryDisabled={busy || (hasExpired && selectedValidCount === 0)}
         onPrimary={() => {
           if (hasExpired) {
-            handleDisposeIntent();
+            enterDisposeConfirmation();
             return;
           }
           closeIfAllowed();
@@ -452,21 +470,33 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   return (
     <WorkspaceOverlayFrame
-      rootClassName={['inventory-action-overlay-root', props.overlayRootClassName].filter(Boolean).join(' ')}
+      rootClassName={props.overlayRootClassName}
       closeOnBackdrop={!busy}
+      busy={busy}
+      labelledBy="inventory-action-dialog-title"
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
         title={title}
+        titleId="inventory-action-dialog-title"
         description={description}
         closeLabel="关闭"
         closeAriaLabel="关闭"
-        className="workspace-modal-wide inventory-action-modal"
+        className="workspace-modal-wide"
+        busy={busy}
         onClose={closeIfAllowed}
         footerInfo={footerInfo}
         footerActions={footerActions}
       >
-        <div className="inventory-action-scroll">
+        <div
+          className={[
+            'inventory-action-content',
+            'ui-operation-loading-host',
+            busy ? 'is-busy' : '',
+          ].filter(Boolean).join(' ')}
+          aria-busy={busy}
+        >
+          <OperationLoadingOverlay active={busy} title="正在处理库存" />
           {conflictState === 'review_again' ? (
             <div className="inventory-action-conflict" role="status">
               <strong>需要重新确认</strong>
@@ -482,7 +512,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
           {showsBatchList ? (
             <>
-              <section className="inventory-action-summary-card">
+              <section className="card inventory-action-summary-card">
                 <div className="inventory-action-summary-copy">
                   <p className="eyebrow">处理中的食材</p>
                   <h4>{group.ingredientName}</h4>
@@ -508,57 +538,38 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
               </section>
 
               {mode.kind === 'review' || mode.kind === 'snooze' ? (
-                <section className="inventory-action-intent-row" aria-label="处理动作">
-                  {hasExpired ? (
-                    <>
-                      <button
-                        type="button"
-                        className={[
-                          'inventory-action-intent',
-                          mode.kind === 'review' && mode.focus === 'dispose' ? 'is-active' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        disabled={busy}
-                        onClick={handleDisposeIntent}
-                      >
-                        {isPresenceGroup(group) ? '标记为没有' : '销毁所选批次'}
-                      </button>
-                      <button
-                        type="button"
-                        className={[
-                          'inventory-action-intent',
-                          mode.kind === 'snooze' && mode.audience === 'expired' ? 'is-active' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        disabled={busy}
-                        onClick={enterRetainExpired}
-                      >
-                        暂时保留
-                      </button>
-                    </>
-                  ) : null}
-                  {hasUpcoming ? (
-                    <button
-                      type="button"
-                      className={[
-                        'inventory-action-intent',
-                        mode.kind === 'snooze' && mode.audience === 'upcoming' ? 'is-active' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      disabled={busy}
-                      onClick={enterSnoozeUpcoming}
-                    >
-                      稍后提醒
-                    </button>
-                  ) : null}
+                <section className="inventory-action-intent-panel" aria-labelledby="inventory-action-intent-title">
+                  <div className="inventory-action-intent-copy">
+                    <span id="inventory-action-intent-title">处理方式</span>
+                    <p>
+                      {hasExpired
+                        ? '销毁不能继续使用的批次，仍可使用的可以暂时保留。'
+                        : '设置下一次提醒，不会修改原到期日。'}
+                    </p>
+                  </div>
+                  <OptionChipGroup
+                    ariaLabel="库存处理方式"
+                    value={handlingIntent}
+                    size="medium"
+                    className="inventory-action-intent-options"
+                    options={handlingOptions}
+                    onChange={(value) => {
+                      if (value === 'dispose') {
+                        selectDisposeIntent();
+                        return;
+                      }
+                      if (value === 'retain') {
+                        enterRetainExpired();
+                        return;
+                      }
+                      enterSnoozeUpcoming();
+                    }}
+                  />
                 </section>
               ) : null}
 
               {mode.kind === 'snooze' ? (
-                <section className="inventory-action-snooze-panel">
+                <section className="card inventory-action-snooze-panel">
                   <div className="inventory-action-field-head">
                     <span>再次提醒日期</span>
                     <p className="subtle">
@@ -678,7 +689,7 @@ function BatchSection(props: {
   onCorrect: (inventoryItemId: string) => void;
 }) {
   return (
-    <section className="inventory-action-batch-section">
+    <section className="card inventory-action-batch-section">
       <div className="inventory-action-field-head inventory-action-batch-section-head">
         <span>{props.title}</span>
         <em>{props.count}{props.batches.some((b) => b.presenceOnly) ? " 项" : " 批"}</em>
@@ -706,7 +717,9 @@ function BatchSection(props: {
               <label className="inventory-action-batch-main">
                 <input
                   type="checkbox"
+                  className="inventory-action-checkbox"
                   value={batch.inventoryItemId}
+                  aria-label={`选择 ${quantityLabel || '数量未登记'}，${batch.storageLocation || '未标注位置'}，${batchStatusCopy(batch)}`}
                   checked={checked && selectable}
                   disabled={props.busy || !selectable}
                   onChange={() => props.onToggle(batch.inventoryItemId)}
@@ -715,15 +728,12 @@ function BatchSection(props: {
                   <div className="inventory-action-batch-title-row">
                     <strong>{quantityLabel || '数量未登记'}</strong>
                     <span className="inventory-action-batch-location">{batch.storageLocation || '未标注位置'}</span>
-                    <span
-                      className={
-                        isExpiredBatch(batch)
-                          ? 'inventory-action-status is-danger'
-                          : 'inventory-action-status is-warning'
-                      }
+                    <StatusBadge
+                      tone={isExpiredBatch(batch) ? 'danger' : 'warning'}
+                      size="compact"
                     >
                       {batchStatusCopy(batch)}
-                    </span>
+                    </StatusBadge>
                   </div>
                   <div className="inventory-action-batch-meta">
                     {batch.purchaseDate ? (
@@ -743,14 +753,16 @@ function BatchSection(props: {
                 </div>
               </label>
               {props.showCorrect ? (
-                <button
+                <ActionButton
+                  tone="secondary"
+                  size="compact"
                   type="button"
                   className="inventory-action-correct-button"
                   disabled={props.busy}
                   onClick={() => props.onCorrect(batch.inventoryItemId)}
                 >
-                  日期录错了
-                </button>
+                  修正日期
+                </ActionButton>
               ) : null}
             </article>
           );
@@ -777,8 +789,8 @@ function CorrectDatePanel(props: {
   }
 
   return (
-    <section className="inventory-action-correct-panel">
-      <div className="inventory-action-summary-card">
+    <section className="card inventory-action-correct-panel">
+      <div className="card inventory-action-summary-card">
         <div>
           <p className="eyebrow">单批更正</p>
           <h4>{props.group.ingredientName}</h4>

@@ -62,12 +62,18 @@ const mealPlanSelection = makeSearchSelection('meal_plan', planItemFixture.id, p
 function NavigationHarness({
   onReady,
 }: {
-  onReady: (api: { nav: NavApi; handlers: HandlerApi; navigate: ReturnType<typeof vi.fn> }) => void;
+  onReady: (api: {
+    nav: NavApi;
+    handlers: HandlerApi;
+    navigate: ReturnType<typeof vi.fn>;
+    openIngredientShoppingDialog: ReturnType<typeof vi.fn>;
+  }) => void;
 }) {
   // Keep mock instances stable across re-renders so call history is preserved.
   const navigate = useRef(vi.fn()).current;
   navigateMock = navigate;
   const nav = useAppGlobalSearchNavigation({ navigate: navigate as never });
+  const openIngredientShoppingDialog = useRef(vi.fn()).current;
   const handlers = useAppHomeHandlers({
     ingredientNavigationRequestIdRef: nav.ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest: nav.setIngredientNavigationRequest,
@@ -76,6 +82,7 @@ function NavigationHarness({
     setHomeRestockForm: vi.fn(),
     setHomeMealDetailId: vi.fn(),
     ingredients: [],
+    openIngredientShoppingDialog,
   });
 
   useEffect(() => {
@@ -83,13 +90,19 @@ function NavigationHarness({
       nav,
       handlers,
       navigate,
+      openIngredientShoppingDialog,
     });
   });
 
   return <div data-nav-calls={String(navigate.mock.calls.length)} />;
 }
 
-let latest: { nav: NavApi; handlers: HandlerApi; navigate: ReturnType<typeof vi.fn> } | null = null;
+let latest: {
+  nav: NavApi;
+  handlers: HandlerApi;
+  navigate: ReturnType<typeof vi.fn>;
+  openIngredientShoppingDialog: ReturnType<typeof vi.fn>;
+} | null = null;
 let navigateMock: ReturnType<typeof vi.fn> | null = null;
 
 function renderNavigation() {
@@ -125,7 +138,7 @@ afterEach(() => {
 });
 
 describe('IngredientNavigationRequest contract', () => {
-  it('produces a shopping navigation request for low-stock primary action', () => {
+  it('opens the shared shopping dialog in place for low-stock primary action', () => {
     const api = renderNavigation();
     expect(api).not.toBeNull();
 
@@ -133,13 +146,9 @@ describe('IngredientNavigationRequest contract', () => {
       api!.handlers.openIngredientShopping('ingredient-egg');
     });
 
-    const request = latest!.nav.ingredientNavigationRequest;
-    expect(request).toEqual({
-      target: 'shopping',
-      ingredientId: 'ingredient-egg',
-      requestId: expect.any(Number),
-    });
-    expect(request && 'ingredientId' in request ? request.ingredientId : null).toBe('ingredient-egg');
+    expect(latest!.openIngredientShoppingDialog).toHaveBeenCalledWith('ingredient-egg');
+    expect(latest!.navigate).not.toHaveBeenCalled();
+    expect(latest!.nav.ingredientNavigationRequest).toBeNull();
   });
 
   it('produces a priority navigation request for 查看全部 without a synthetic search string', () => {

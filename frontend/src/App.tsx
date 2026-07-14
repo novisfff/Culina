@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client';
 import { isApiError } from './api/request';
@@ -14,7 +14,6 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
-import { ActiveCookResumeCard } from './features/eat/ActiveCookResumeCard';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
   relatedSelfMadeFoods,
@@ -72,6 +71,12 @@ import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
 import { GlobalSearchOverlay } from './features/search/GlobalSearchOverlay';
+import { IngredientShoppingDialog } from './components/ingredients/IngredientShoppingDialog';
+import {
+  buildShoppingForm,
+  type ShoppingDialogFormState,
+} from './components/ingredients/ingredientWorkspaceForms';
+import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -215,6 +220,9 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
   const [hasBooted, setHasBooted] = useState(false);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
+  const [homeShoppingDialogOpen, setHomeShoppingDialogOpen] = useState(false);
+  const [homeShoppingForm, setHomeShoppingForm] = useState<ShoppingDialogFormState>(() => buildShoppingForm());
+  const [cookResumePromptOpen, setCookResumePromptOpen] = useState(false);
   const { notice, showNotice, clearNotice } = useNotice();
   const queryClient = useQueryClient();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
@@ -530,6 +538,51 @@ function App() {
     showNotice,
   });
 
+  const openHomeIngredientShoppingDialog = useCallback((ingredientId: string) => {
+    const ingredient = ingredients.find((item) => item.id === ingredientId);
+    if (!ingredient) {
+      showNotice({
+        tone: 'warning',
+        title: '食材暂不可用',
+        message: '没有找到对应食材，请刷新后再试。',
+      });
+      return;
+    }
+    setHomeShoppingForm(buildShoppingForm(ingredient, '库存不足'));
+    setHomeShoppingDialogOpen(true);
+  }, [ingredients, showNotice]);
+
+  async function submitHomeShopping(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const resolution = resolveShoppingFormSubmission({
+      form: homeShoppingForm,
+      ingredients,
+      foods,
+    });
+    if (!resolution.ok) {
+      showNotice({
+        tone: 'warning',
+        title: resolution.title,
+        message: resolution.message,
+      });
+      return;
+    }
+    try {
+      await createShoppingMutation.mutateAsync(resolution.payload);
+      setHomeShoppingForm(buildShoppingForm());
+      setHomeShoppingDialogOpen(false);
+    } catch (reason) {
+      showNotice({
+        tone: 'danger',
+        title: '加入购物清单失败',
+        message:
+          reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : '加入购物清单失败',
+      });
+    }
+  }
+
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
     const scope = args?.scope ?? 'suggested';
     void reconciliationActions.openReconciliation(scope, storageLocationForScope(scope));
@@ -748,6 +801,7 @@ function App() {
     setHomeMealDetailId,
     ingredients,
     openShoppingIntake,
+    openIngredientShoppingDialog: openHomeIngredientShoppingDialog,
   });
 
   // Prefer latest foodPlanDetail.updated_at when cook originates from an open plan item.
@@ -987,7 +1041,6 @@ function App() {
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,
     submitHomePlanDetail,
-    supplementHomePlanDetailRecord,
     deleteHomePlanDetail,
     submitHomePlanAdd,
   } = useHomeDashboardActions({
@@ -1195,26 +1248,7 @@ function App() {
                 || updateFoodPlanItemMutation.isPending
                 || deleteFoodPlanItemMutation.isPending
               }
-              activeCookResumeContent={
-                user?.id && membership?.family_id ? (
-                  <ActiveCookResumeCard
-                    scope={{ userId: user.id, familyId: membership.family_id }}
-                    recipes={recipes}
-                    foods={foods}
-                    foodPlanItems={foodPlanItems}
-                    onResume={({ food, recipe, launchContext }) => {
-                      navigation.navigate({
-                        workspace: 'eat',
-                        view: 'cook',
-                        foodId: food.id,
-                        recipeId: recipe.id,
-                        launchContext,
-                      });
-                    }}
-                    onNotice={showNotice}
-                  />
-                ) : null
-              }
+              cookResumePromptOpen={cookResumePromptOpen}
               {...buildEatTaskBodies({
                 resolvedTask: resolvedEatTask,
                 recipes,
@@ -1275,15 +1309,16 @@ function App() {
                 onViewMealLog: (mealLogId) => {
                   navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
                 },
+                onCookResumePromptChange: setCookResumePromptOpen,
               })}
               discoverContent={
                 <FoodWorkspace
-                  surface="discover"
                   recipes={recipes}
                   ingredients={ingredients}
                   foods={foods}
                   inventoryItems={inventoryItems}
                   mealLogs={mealLogs}
+                  members={members}
                   foodRecommendations={foodRecommendations}
                   foodScenes={foodScenes}
                   foodPlanItems={foodPlanItems}
@@ -1298,7 +1333,11 @@ function App() {
                   createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
                   updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
                   quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+                  updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
+                  shoppingItems={shoppingItems}
                   createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
+                  updateShoppingItem={(itemId, payload) => updateShoppingMutation.mutateAsync({ itemId, payload })}
+                  isCreatingShopping={createShoppingMutation.isPending}
                   createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
                   updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
                   deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
@@ -1318,50 +1357,7 @@ function App() {
                   isQuickAdding={quickAddMealMutation.isPending}
                   isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
                   isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
-                />
-              }
-              planContent={
-                <FoodWorkspace
-                  surface="plan"
-                  recipes={recipes}
-                  ingredients={ingredients}
-                  foods={foods}
-                  inventoryItems={inventoryItems}
-                  mealLogs={mealLogs}
-                  foodRecommendations={foodRecommendations}
-                  foodScenes={foodScenes}
-                  foodPlanItems={foodPlanItems}
-                  foodPlanWeekRange={foodPlanWeekRange}
-                  isPhoneViewport={isPhoneViewport}
-                  notificationCenter={mobileNotificationCenter}
-                  createFood={(payload) => createFoodMutation.mutateAsync(payload)}
-                  updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
-                  updateFoodFavorite={(foodId, favorite, expectedRowVersion) =>
-                    toggleFavoriteMutation.mutateAsync({ foodId, favorite, expectedRowVersion })
-                  }
-                  createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
-                  updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
-                  quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
-                  createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
-                  createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-                  updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
-                  deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
-                  createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
-                  updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
-                  deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-                  onStartRecipe={startRecipeCook}
-                  navigate={navigation.navigate}
-                  onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
-                  onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-                  onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-                  onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
-                  isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
-                  isCreatingRecipe={createRecipeMutation.isPending}
-                  isUpdatingRecipe={updateRecipeMutation.isPending}
-                  isUpdatingFavorite={toggleFavoriteMutation.isPending}
-                  isQuickAdding={quickAddMealMutation.isPending}
-                  isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-                  isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
+                  isUpdatingMeal={updateMealMutation.isPending}
                 />
               }
               historyContent={
@@ -1376,6 +1372,7 @@ function App() {
                   }
                   updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
                   onBackHome={() => navigation.navigate({ workspace: 'home' })}
+                  onBackToEat={() => navigation.navigate({ workspace: 'eat', view: 'discover' })}
                 />
               }
             />
@@ -1509,6 +1506,21 @@ function App() {
           onSelect={handleGlobalSearchSelect}
         />
 
+        <IngredientShoppingDialog
+          open={homeShoppingDialogOpen}
+          closeOverlay={() => {
+            if (!createShoppingMutation.isPending) {
+              setHomeShoppingDialogOpen(false);
+            }
+          }}
+          ingredients={ingredients}
+          foods={foods}
+          shoppingForm={homeShoppingForm}
+          setShoppingForm={setHomeShoppingForm}
+          submitShopping={submitHomeShopping}
+          isCreatingShopping={createShoppingMutation.isPending}
+        />
+
         <Suspense fallback={null}>
           <HomeDashboardDialogs
             recipes={recipes}
@@ -1522,12 +1534,10 @@ function App() {
             resetHomePlanDetailForm={resetHomePlanDetailForm}
             submitHomePlanDetail={submitHomePlanDetail}
             startHomePlanDetailCook={startHomePlanDetailCook}
-            supplementHomePlanDetailRecord={supplementHomePlanDetailRecord}
             deleteHomePlanDetail={deleteHomePlanDetail}
             closeHomePlanDetail={closeHomePlanDetail}
             isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
             isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
-            isSupplementingHomePlanDetail={quickAddMealMutation.isPending}
             homeMealEnrichmentMeal={homeMealEnrichmentMeal}
             homeMealEnrichmentSource={homeMealEnrichmentSource}
             homeMealEnrichmentMembers={members}
@@ -1654,6 +1664,7 @@ function App() {
                     reconciliationState.closeReconciliation({
                       familyId: family?.id ?? '',
                       userId: user?.id ?? '',
+                      force: reconciliationState.loading,
                     });
                   },
                   onChangeScope: (scope) => {

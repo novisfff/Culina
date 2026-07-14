@@ -78,6 +78,31 @@ describe('ConfirmDialog', () => {
     expect(view.textContent).not.toContain('确认删除。');
   });
 
+  it('keeps the close action separate from the secondary business action', () => {
+    const onClose = vi.fn();
+    const onCancel = vi.fn();
+    const view = renderDialog(
+      <ConfirmDialog
+        open
+        title="继续做菜"
+        description="还有一份未完成的做菜进度。"
+        confirmLabel="继续做菜"
+        cancelLabel="放弃"
+        closeLabel="暂时关闭"
+        onConfirm={vi.fn()}
+        onCancel={onCancel}
+        onClose={onClose}
+      />,
+    );
+
+    act(() => findButton(view, '暂时关闭')?.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+
+    act(() => findButton(view, '放弃')?.click());
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it('passes through custom classes without adding unused internal chrome classes', () => {
     const view = renderDialog(
       <ConfirmDialog

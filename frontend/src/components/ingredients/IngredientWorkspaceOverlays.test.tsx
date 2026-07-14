@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/request';
 import type {
   CorrectInventoryExpiryDateRequest,
   DisposeExpiredInventoryRequest,
   Food,
+  Ingredient,
   ShoppingListItem,
   SnoozeExpiryAlertsRequest,
   VersionedInventoryItemRef,
@@ -123,6 +125,25 @@ const emptyShoppingForm: ShoppingDialogFormState = {
   reason: '',
 };
 
+const chickenIngredient = {
+  id: 'ingredient-chicken',
+  family_id: 'family-1',
+  name: '鸡',
+  category: '禽肉',
+  default_unit: '克',
+  quantity_tracking_mode: 'track_quantity',
+  default_storage: '冷藏',
+  default_expiry_mode: 'days',
+  default_expiry_days: 3,
+  default_low_stock_threshold: 500,
+  unit_conversions: [],
+  notes: '',
+  image: null,
+  created_at: '2026-07-01T00:00:00Z',
+  updated_at: '2026-07-01T00:00:00Z',
+  row_version: 1,
+} as Ingredient;
+
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
@@ -181,6 +202,50 @@ function clickButton(view: HTMLElement, label: string) {
 }
 
 describe('IngredientWorkspaceOverlays inventory action dialog', () => {
+  it('switches a bound ingredient to other purchase in place with a standard button', () => {
+    function ShoppingHarness() {
+      const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>({
+        targetType: 'ingredient',
+        ingredientId: chickenIngredient.id,
+        foodId: '',
+        title: chickenIngredient.name,
+        quantity: '1',
+        unit: '克',
+        reason: '库存不足',
+      });
+      return (
+        <IngredientWorkspaceOverlays
+          {...baseOverlayProps({
+            overlayMode: 'shopping',
+            ingredients: [chickenIngredient],
+            shoppingForm,
+            setShoppingForm,
+          })}
+        />
+      );
+    }
+
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <ShoppingHarness />
+        </QueryClientProvider>,
+      );
+    });
+
+    const switchButton = clickButton(container, '改为其他采购');
+    expect(switchButton.classList.contains('ghost-button')).toBe(true);
+    expect(container.querySelector('.shopping-quick-name-field')).not.toBeNull();
+    expect(container.textContent).toContain('当前为其他采购');
+    expect(container.querySelector('.ingredients-restock-identity-card')).toBeNull();
+  });
+
   it('renders InventoryActionDialog with versioned batch rows for an expiry group', () => {
     const { view } = renderOverlays();
 
@@ -189,7 +254,7 @@ describe('IngredientWorkspaceOverlays inventory action dialog', () => {
     expect(view.textContent).toContain('即将到期批次');
     expect(view.querySelector('input[value="inventory-expired-1"]')).not.toBeNull();
     expect(view.querySelector('input[value="inventory-upcoming-1"]')).not.toBeNull();
-    expect(view.querySelector('.inventory-action-modal')).not.toBeNull();
+    expect(view.querySelector('.workspace-modal.workspace-modal-wide')).not.toBeNull();
     expect(view.querySelector('.destroy-expired-row')).toBeNull();
   });
 
@@ -230,14 +295,13 @@ describe('IngredientWorkspaceOverlays inventory action dialog', () => {
     expect(view.textContent).toContain('家人刚刚改动了这批库存');
 
     clickButton(view, '销毁所选批次');
-    clickButton(view, '销毁所选批次');
     await act(async () => {
       clickButton(view, '确认销毁');
     });
 
     expect(disposeSelectedInventoryBatches).toHaveBeenCalledWith(versionedItems);
     expect(closeOverlay).not.toHaveBeenCalled();
-    expect(view.querySelector('.inventory-action-modal')).not.toBeNull();
+    expect(view.querySelector('.workspace-modal.workspace-modal-wide')).not.toBeNull();
   });
 });
 

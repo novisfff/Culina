@@ -14,9 +14,16 @@ import type {
 } from '../../api/types';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import {
+  buildCookSessionV3Key,
+  buildDefaultCookSessionV3,
+  readCookSessionV3,
+  saveCookSessionV3,
+} from '../../components/recipes/recipeCookSessionStorage';
+import {
   EatCookTaskBody,
   EatFoodTaskBody,
   EatMealCreateTaskBody,
+  EatPlanTaskBody,
   EatRecipeTaskBody,
   buildEatTaskBodies,
 } from './EatTaskBodies';
@@ -131,15 +138,92 @@ function makeReadyFood(overrides: Partial<Food> = {}): Food {
 }
 
 beforeEach(() => {
+  Object.defineProperty(window, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+  localStorage.clear();
   imageComposerSpies.upload.mockClear();
   imageComposerSpies.generate.mockClear();
   imageComposerSpies.reset.mockClear();
 });
 
+describe('EatCookTaskBody resume prompt', () => {
+  it('reports a matching saved task while keeping the resume dialog open', async () => {
+    const recipe = makeRecipe({ id: 'recipe-saved', title: 'Saved cook' });
+    const food = makeFood({ id: 'food-saved', recipe_id: recipe.id });
+    const scope = { userId: 'user-1', familyId: 'family-1' };
+    saveCookSessionV3({
+      scope,
+      recipeId: recipe.id,
+      session: buildDefaultCookSessionV3(recipe, {
+        source: 'direct',
+        planItemId: null,
+        completionRequestId: 'saved-cook',
+        date: '2026-07-14',
+        mealType: 'dinner',
+      }),
+    });
+    const onResumePromptChange = vi.fn();
+
+    renderWithQuery(
+      <EatCookTaskBody
+        food={food}
+        recipe={recipe}
+        launchContext={{
+          date: '2026-07-14',
+          mealType: 'dinner',
+          servings: 2,
+          source: { kind: 'direct' },
+        }}
+        recipes={[recipe]}
+        foods={[food]}
+        ingredients={[]}
+        inventoryItems={[]}
+        mealLogs={[]}
+        cookRecipe={vi.fn(async () => ({}) as never)}
+        previewCookRecipe={vi.fn(async () => ({ preview_items: [], shortages: [] }) as never)}
+        createShoppingItem={vi.fn(async () => ({}) as never)}
+        onClose={vi.fn()}
+        onCompleted={vi.fn()}
+        onResumePromptChange={onResumePromptChange}
+        sessionScope={scope}
+      />,
+    );
+
+    expect(await screen.findByRole('dialog', { name: '继续上次的做菜进度？' })).toBeInTheDocument();
+    await waitFor(() => expect(onResumePromptChange).toHaveBeenLastCalledWith(true));
+  });
+});
+
 describe('buildEatTaskBodies plan complete', () => {
-  it('includes food_plan_item_id when completing a plan item', async () => {
-    const quickAddMeal = vi.fn(async () => undefined);
+  it('records the plan item and opens enrichment with the created meal', async () => {
     const planItem = makePlanItem({ recipe_id: null });
+    const createdMeal: MealLog = {
+      id: 'meal-1',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [
+        {
+          id: 'entry-1',
+          food_id: planItem.food_id,
+          food_name: planItem.food_name,
+          servings: 1,
+          note: '来自菜单记录',
+          rating: null,
+        },
+      ],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    };
+    const quickAddMeal = vi.fn(async () => createdMeal);
     const bodies = buildEatTaskBodies({
       resolvedTask: {
         kind: 'plan',
@@ -173,7 +257,7 @@ describe('buildEatTaskBodies plan complete', () => {
     });
 
     render(<>{bodies.planTaskContent}</>);
-    await userEvent.click(screen.getByRole('button', { name: '记到今天' }));
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
     await waitFor(() => {
       expect(quickAddMeal).toHaveBeenCalled();
     });
@@ -183,6 +267,119 @@ describe('buildEatTaskBodies plan complete', () => {
         food_plan_item_id: planItem.id,
       }),
     );
+    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+  });
+});
+
+describe('EatPlanTaskBody record failure', () => {
+  it('keeps the plan detail open and shows the recording error', async () => {
+    const planItem = makePlanItem({ recipe_id: null });
+    render(
+      <EatPlanTaskBody
+        item={planItem}
+        food={makeFood({ recipe_id: null })}
+        recipes={[]}
+        members={[]}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onComplete={vi.fn(async () => {
+          throw new Error('网络暂时不可用');
+        })}
+        updateMealLog={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
+    expect(screen.getByText('菜单计划详情')).toBeInTheDocument();
+    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+  });
+
+  it('clears recorded meal state when switching directly to another plan item', async () => {
+    const firstItem = makePlanItem({ id: 'plan-1', recipe_id: null, food_name: 'First meal' });
+    const secondItem = makePlanItem({ id: 'plan-2', recipe_id: null, food_name: 'Second meal' });
+    const createdMeal: MealLog = {
+      id: 'meal-first',
+      family_id: 'family-1',
+      date: firstItem.plan_date,
+      meal_type: firstItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      created_at: '2026-07-15T00:00:00Z',
+      updated_at: '2026-07-15T00:00:00Z',
+    };
+    const onComplete = vi.fn(async () => createdMeal);
+    const renderBody = (item: FoodPlanItem) => (
+      <EatPlanTaskBody
+        item={item}
+        food={makeFood({ id: item.food_id, name: item.food_name, recipe_id: null })}
+        recipes={[]}
+        members={[]}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onComplete={onComplete}
+        updateMealLog={vi.fn()}
+      />
+    );
+    const view = render(renderBody(firstItem));
+
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+
+    view.rerender(renderBody(secondItem));
+
+    await waitFor(() => expect(screen.queryByText('补充这餐')).not.toBeInTheDocument());
+    expect(screen.getByText('Second meal')).toBeInTheDocument();
+  });
+
+  it('ignores a previous plan recording result that settles after switching items', async () => {
+    const firstItem = makePlanItem({ id: 'plan-1', recipe_id: null, food_name: 'First meal' });
+    const secondItem = makePlanItem({ id: 'plan-2', recipe_id: null, food_name: 'Second meal' });
+    let resolveCreatedMeal: (meal: MealLog) => void = () => undefined;
+    const pendingMeal = new Promise<MealLog>((resolve) => {
+      resolveCreatedMeal = resolve;
+    });
+    const renderBody = (item: FoodPlanItem) => (
+      <EatPlanTaskBody
+        item={item}
+        food={makeFood({ id: item.food_id, name: item.food_name, recipe_id: null })}
+        recipes={[]}
+        members={[]}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onComplete={vi.fn(() => pendingMeal)}
+        updateMealLog={vi.fn()}
+      />
+    );
+    const view = render(renderBody(firstItem));
+
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    view.rerender(renderBody(secondItem));
+    resolveCreatedMeal({
+      id: 'meal-first',
+      family_id: 'family-1',
+      date: firstItem.plan_date,
+      meal_type: firstItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      created_at: '2026-07-15T00:00:00Z',
+      updated_at: '2026-07-15T00:00:00Z',
+    });
+
+    await waitFor(() => expect(screen.getByText('Second meal')).toBeInTheDocument());
+    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
   });
 });
 
@@ -240,6 +437,54 @@ describe('EatMealCreateTaskBody', () => {
 });
 
 describe('EatCookTaskBody finish dialog', () => {
+  it('pauses running timers and saves the exact task before returning to the food page', async () => {
+    const recipe = makeRecipe();
+    const food = makeFood();
+    const scope = { userId: 'user-1', familyId: 'family-1' };
+    const launchContext: CookLaunchContext = {
+      date: '2026-07-12',
+      mealType: 'dinner',
+      servings: 1,
+      source: { kind: 'direct' },
+    };
+    const onClose = vi.fn();
+
+    renderWithQuery(
+      <EatCookTaskBody
+        food={food}
+        recipe={recipe}
+        launchContext={launchContext}
+        recipes={[recipe]}
+        foods={[food]}
+        ingredients={[]}
+        inventoryItems={[]}
+        mealLogs={[]}
+        cookRecipe={vi.fn(async () => ({}) as never)}
+        previewCookRecipe={vi.fn(async () => ({ preview_items: [], shortages: [] }) as never)}
+        createShoppingItem={vi.fn(async () => ({}) as never)}
+        onClose={onClose}
+        onCompleted={vi.fn()}
+        sessionScope={scope}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: '开始' }));
+    await userEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await userEvent.click(await screen.findByRole('button', { name: '暂停并退出' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    const key = buildCookSessionV3Key(scope, recipe.id, {
+      kind: 'direct',
+      date: launchContext.date,
+      mealType: launchContext.mealType,
+    });
+    const saved = readCookSessionV3(localStorage, key);
+    expect(saved.kind).toBe('ready');
+    if (saved.kind === 'ready') {
+      expect(saved.bundle.session.timers.every((timer) => !timer.running)).toBe(true);
+    }
+  });
+
   it('mounts RecipeCookFinishDialog when finish is opened', async () => {
     const recipe = makeRecipe();
     const food = makeFood();

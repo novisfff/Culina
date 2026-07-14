@@ -2,6 +2,8 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   InventoryOperationDetail,
@@ -245,7 +247,7 @@ describe('InventoryOperationHistoryDialog', () => {
     act(() => root?.unmount());
     container?.remove();
     renderDialog({ loading: false, operations: [], selectedOperationId: null, detail: null });
-    expect(container!.textContent).toContain('还没有可查看的操作');
+    expect(container!.textContent).toContain('暂无库存操作记录');
 
     act(() => root?.unmount());
     container?.remove();
@@ -255,5 +257,44 @@ describe('InventoryOperationHistoryDialog', () => {
     });
     expect(container!.textContent).toContain('读取操作历史失败');
     expect(container!.textContent).toContain('详情加载失败');
+  });
+
+  it('uses a compact focused empty state without redundant footer metadata', () => {
+    renderDialog({
+      loading: false,
+      operations: [],
+      selectedOperationId: null,
+      detail: null,
+    });
+
+    const modal = container!.querySelector('.inventory-operation-history-modal');
+    expect(modal).toHaveClass('is-compact', 'is-empty');
+    expect(container!.querySelector('.inventory-operation-history-empty')).not.toBeNull();
+    expect(container!.textContent).toContain('暂无库存操作记录');
+    expect(container!.querySelector('.workspace-overlay-footer-info')).toBeNull();
+    expect(container!.textContent).not.toContain('仅可查看历史详情');
+
+    const styles = readFileSync(
+      resolve(__dirname, '../../styles/11-inventory-maintenance.css'),
+      'utf8',
+    );
+    expect(styles).toMatch(
+      /\.inventory-operation-history-modal\.workspace-modal\.is-compact \{[^}]*width: min\(680px, calc\(100vw - 48px\)\);/s,
+    );
+    expect(styles).toMatch(
+      /\.inventory-operation-history-empty\.ui-state-block \{[^}]*min-height: 180px;[^}]*text-align: center;/s,
+    );
+    expect(styles).toMatch(
+      /\.inventory-operation-history-modal > \.workspace-overlay-footer \{[^}]*margin-inline: -20px;[^}]*margin-bottom: 0;[^}]*padding: 12px 20px 14px;/s,
+    );
+  });
+
+  it('shows operation progress while reverting a history entry', () => {
+    renderDialog({ busy: true });
+
+    const progress = container!.querySelector('.ui-operation-loading-overlay');
+    expect(progress?.textContent).toContain('正在撤销库存操作');
+    expect(progress?.getAttribute('aria-busy')).toBe('true');
+    expect(container!.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
   });
 });

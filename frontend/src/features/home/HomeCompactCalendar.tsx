@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useId, useState } from 'react';
 import { DashboardIcon } from '../../app/shellIcons';
 import type { FoodPlanItem, MealType } from '../../api/types';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
@@ -16,13 +16,13 @@ export function HomeCompactCalendar(props: {
   onAddMeal: (planDate: string, mealType: MealType) => void;
   onOpenPlanDetail: (item: FoodPlanItem) => void;
   onOpenMealPlans: (planDate: string, mealType: MealType, items: FoodPlanItem[]) => void;
+  resolvePlanItemCoverUrl?: (item: FoodPlanItem) => string | undefined;
   mobile?: boolean;
 }) {
-  const selectedDayButtonRef = useRef<HTMLButtonElement | null>(null);
-  const focusedMealSlotRef = useRef<HTMLElement | null>(null);
+  const [isMobileDetailExpanded, setIsMobileDetailExpanded] = useState(false);
+  const mobileDetailId = useId();
   const selectedDay = props.days.find((day) => day.date === props.selectedDate);
-  const focusedMealType =
-    selectedDay?.mealItems.find((meal) => meal.items.length > 0)?.mealType ?? selectedDay?.mealItems[0]?.mealType;
+  const isCurrentWeek = props.days.some((day) => day.isToday);
   const selectedDateLabel = selectedDay
     ? selectedDay.dayLabel.endsWith(selectedDay.weekday)
       ? selectedDay.dayLabel.slice(0, -selectedDay.weekday.length)
@@ -32,20 +32,12 @@ export function HomeCompactCalendar(props: {
     props.days.length > 0
       ? formatDashboardPlanRange({ start: props.days[0].date, end: props.days[props.days.length - 1].date })
       : '';
-
-  useEffect(() => {
-    if (!props.mobile) {
-      return;
-    }
-    selectedDayButtonRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
-  }, [props.mobile, props.selectedDate]);
-
-  useEffect(() => {
-    if (!props.mobile) {
-      return;
-    }
-    focusedMealSlotRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'start' });
-  }, [focusedMealType, props.mobile, props.selectedDate]);
+  const selectedDayTitle = selectedDay
+    ? `${selectedDay.isToday ? '今天' : `周${selectedDay.weekday}`} · ${selectedDateLabel}`
+    : '已选日期';
+  const selectedDayPlanSummary = selectedDay?.totalCount
+    ? `已安排 ${selectedDay.plannedMealCount} 个餐次 · 共 ${selectedDay.totalCount} 项`
+    : '当天还没有安排';
 
   return (
     <section className="home-compact-calendar" aria-label="七天菜单">
@@ -60,21 +52,39 @@ export function HomeCompactCalendar(props: {
           </div>
         </div>
         {weekDateRange && <span className="home-compact-week-range">{weekDateRange}</span>}
-        <div className="home-compact-week-controls">
-          <button type="button" aria-label="上一周" onClick={props.onPreviousWeek}>
-            <DashboardIcon name="arrow-left" />
-          </button>
-          <button className="home-compact-current-week" type="button" onClick={props.onCurrentWeek}>
-            本周
-          </button>
-          <button type="button" aria-label="下一周" onClick={props.onNextWeek}>
-            <DashboardIcon name="arrow-right" />
-          </button>
-        </div>
+        {props.mobile ? (
+          <>
+            <div className="home-compact-week-controls is-mobile-controls">
+              <button type="button" aria-label="上一周" onClick={props.onPreviousWeek}>
+                <DashboardIcon name="arrow-left" />
+              </button>
+              <button type="button" aria-label="下一周" onClick={props.onNextWeek}>
+                <DashboardIcon name="arrow-right" />
+              </button>
+            </div>
+            {!isCurrentWeek && (
+              <button className="home-compact-mobile-current-week" type="button" onClick={props.onCurrentWeek}>
+                回到本周
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="home-compact-week-controls">
+            <button type="button" aria-label="上一周" onClick={props.onPreviousWeek}>
+              <DashboardIcon name="arrow-left" />
+            </button>
+            <button className="home-compact-current-week" type="button" onClick={props.onCurrentWeek}>
+              本周
+            </button>
+            <button type="button" aria-label="下一周" onClick={props.onNextWeek}>
+              <DashboardIcon name="arrow-right" />
+            </button>
+          </div>
+        )}
       </header>
       <div
-        className={props.mobile ? 'home-compact-days is-mobile-scroll' : 'home-compact-days'}
-        data-testid={props.mobile ? 'mobile-home-calendar-scroll' : undefined}
+        className={props.mobile ? 'home-compact-days is-mobile-grid' : 'home-compact-days'}
+        data-testid={props.mobile ? 'mobile-home-calendar-days' : undefined}
       >
         {props.days.map((day) => {
           const dateLabel = day.dayLabel.endsWith(day.weekday)
@@ -83,7 +93,6 @@ export function HomeCompactCalendar(props: {
           return (
             <button
               key={day.date}
-              ref={day.date === props.selectedDate ? selectedDayButtonRef : undefined}
               type="button"
               aria-label={`选择 ${day.date}，${day.totalCount} 项菜单`}
               aria-pressed={day.date === props.selectedDate}
@@ -98,7 +107,13 @@ export function HomeCompactCalendar(props: {
             >
               <span className="home-compact-day-date">
                 <span className="home-compact-day-weekday">{day.isToday ? '今天' : `周${day.weekday}`}</span>
-                <strong>{dateLabel}</strong>
+                <strong>
+                  {props.mobile ? (
+                    <span className="home-compact-mobile-day-number">{Number.parseInt(day.date.slice(-2), 10)}</span>
+                  ) : (
+                    dateLabel
+                  )}
+                </strong>
               </span>
               <span className="home-compact-day-status">
                 <i aria-hidden="true" />
@@ -108,35 +123,62 @@ export function HomeCompactCalendar(props: {
           );
         })}
       </div>
-      <div className="home-compact-day-detail">
-        <div className="home-compact-day-detail-head">
-          <div className="home-compact-day-summary-copy">
-            <span>{selectedDay?.isToday ? '今天' : selectedDay ? `周${selectedDay.weekday}` : '已选日期'}</span>
-            <strong>{selectedDateLabel}</strong>
-            <small>
-              {selectedDay?.totalCount
-                ? `${selectedDay.plannedMealCount} 个餐次 · ${selectedDay.totalCount} 项`
-                : '当天还没有安排'}
-            </small>
-          </div>
-          <button
-            className="home-compact-full-week-button"
-            type="button"
-            aria-label="完整周菜单"
-            onClick={() => props.onOpenFullWeek(props.selectedDate)}
-          >
-            <span>完整周菜单</span>
+      {props.mobile && (
+        <button
+          className="home-compact-day-toggle"
+          type="button"
+          aria-label={isMobileDetailExpanded ? '收起当天安排' : '展开当天安排'}
+          aria-expanded={isMobileDetailExpanded}
+          aria-controls={mobileDetailId}
+          onClick={() => setIsMobileDetailExpanded((expanded) => !expanded)}
+        >
+          <span className="home-compact-day-toggle-copy">
+            <strong>{selectedDayTitle}</strong>
+            <small>{selectedDayPlanSummary}</small>
+          </span>
+          <span className="home-compact-day-toggle-action">
+            <span>{isMobileDetailExpanded ? '收起' : '展开安排'}</span>
             <DashboardIcon name="arrow-right" />
-          </button>
-        </div>
-        <div className="home-compact-meal-grid" aria-label={`${selectedDateLabel}餐次安排`}>
+          </span>
+        </button>
+      )}
+      <div
+        id={props.mobile ? mobileDetailId : undefined}
+        className={props.mobile ? 'home-compact-day-detail is-mobile-collapsible' : 'home-compact-day-detail'}
+        hidden={Boolean(props.mobile && !isMobileDetailExpanded)}
+      >
+        {!props.mobile && (
+          <div className="home-compact-day-detail-head">
+            <div className="home-compact-day-summary-copy">
+              <span>{selectedDay?.isToday ? '今天' : selectedDay ? `周${selectedDay.weekday}` : '已选日期'}</span>
+              <strong>{selectedDateLabel}</strong>
+              <small>
+                {selectedDay?.totalCount
+                  ? `${selectedDay.plannedMealCount} 个餐次 · ${selectedDay.totalCount} 项`
+                  : '当天还没有安排'}
+              </small>
+            </div>
+            <button
+              className="home-compact-full-week-button"
+              type="button"
+              aria-label="完整周菜单"
+              onClick={() => props.onOpenFullWeek(props.selectedDate)}
+            >
+              <span>完整周菜单</span>
+              <DashboardIcon name="arrow-right" />
+            </button>
+          </div>
+        )}
+        <div
+          className={props.mobile ? 'home-compact-meal-grid is-mobile-list' : 'home-compact-meal-grid'}
+          aria-label={`${selectedDateLabel}餐次安排`}
+        >
           {selectedDay?.mealItems.map((meal) => {
             const visibleItems = meal.items.slice(0, props.mobile ? 1 : 2);
             const hiddenItemCount = meal.items.length - visibleItems.length;
             return (
               <section
                 key={meal.mealType}
-                ref={meal.mealType === focusedMealType ? focusedMealSlotRef : undefined}
                 className={meal.items.length > 0 ? 'home-compact-meal-slot has-items' : 'home-compact-meal-slot'}
               >
                 <div className="home-compact-meal-slot-head">
@@ -146,15 +188,31 @@ export function HomeCompactCalendar(props: {
                 <div className="home-compact-meal-items">
                   {visibleItems.map((item) => {
                     const title = item.recipe_title || item.food_name || '未命名餐食';
+                    const coverUrl = props.mobile ? props.resolvePlanItemCoverUrl?.(item) : undefined;
                     return (
                       <button
                         key={item.id}
-                        className={item.status === 'cooked' ? 'home-compact-meal-item is-cooked' : 'home-compact-meal-item'}
+                        className={[
+                          'home-compact-meal-item',
+                          item.status === 'cooked' ? 'is-cooked' : '',
+                          coverUrl ? 'has-image' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
                         type="button"
                         title={title}
                         onClick={() => props.onOpenPlanDetail(item)}
                       >
-                        {title}
+                        {coverUrl && (
+                          <img
+                            className="home-compact-meal-item-image"
+                            src={coverUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        )}
+                        <span className="home-compact-meal-item-label">{title}</span>
                       </button>
                     );
                   })}
@@ -182,6 +240,17 @@ export function HomeCompactCalendar(props: {
             );
           })}
         </div>
+        {props.mobile && (
+          <button
+            className="home-compact-full-week-button is-mobile-button"
+            type="button"
+            aria-label="完整周菜单"
+            onClick={() => props.onOpenFullWeek(props.selectedDate)}
+          >
+            <span>完整周菜单</span>
+            <DashboardIcon name="arrow-right" />
+          </button>
+        )}
       </div>
     </section>
   );

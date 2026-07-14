@@ -50,6 +50,7 @@ type UseAppHomeHandlersArgs = {
   setHomeRestockForm: Dispatch<SetStateAction<HomeRestockFormState | null>>;
   setHomeMealDetailId: Dispatch<SetStateAction<string | null>>;
   ingredients: Parameters<typeof buildHomeRestockForm>[1];
+  openIngredientShoppingDialog: (ingredientId: string) => void;
   /** Shared atomic shopping intake. Preferred over the legacy restock form. */
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
 };
@@ -146,12 +147,7 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
   }
 
   function openIngredientShopping(ingredientId: string) {
-    args.setIngredientNavigationRequest({
-      target: 'shopping',
-      ingredientId,
-      requestId: nextIngredientRequestId(),
-    });
-    args.navigate(homeTargets.ingredients());
+    args.openIngredientShoppingDialog(ingredientId);
   }
 
   function openIngredientPriority() {

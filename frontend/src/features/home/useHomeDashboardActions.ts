@@ -138,8 +138,8 @@ export function useHomeDashboardActions(input: {
   openMealLogEnrichment: (request: HomeMealEnrichmentOpenRequest) => void;
 }) {
   async function startHomePlanDetailCook(item: FoodPlanItem) {
-    input.closeHomePlanDetail();
     if (item.recipe_id) {
+      input.closeHomePlanDetail();
       input.startPlanRecipe({
         foodId: item.food_id,
         recipeId: item.recipe_id,
@@ -152,7 +152,7 @@ export function useHomeDashboardActions(input: {
       return;
     }
     try {
-      await input.quickAddMeal({
+      const createdMeal = await input.quickAddMeal({
         food_id: item.food_id,
         date: item.plan_date,
         meal_type: item.meal_type,
@@ -160,6 +160,8 @@ export function useHomeDashboardActions(input: {
         note: item.note || '来自菜单计划',
         food_plan_item_id: item.id,
       });
+      input.closeHomePlanDetail();
+      input.openMealLogEnrichment({ mealLog: createdMeal, planItem: item });
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
@@ -167,42 +169,6 @@ export function useHomeDashboardActions(input: {
         message: messageOf(reason, '完成菜单计划失败'),
       });
     }
-  }
-
-  async function supplementHomePlanDetailRecord(item: FoodPlanItem) {
-    input.closeHomePlanDetail();
-    if (item.meal_log_id) {
-      input.openMealLogEnrichment({ mealLogId: item.meal_log_id, planItem: item });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    input.openMealLogEnrichment({
-      mealLog: {
-        id: `draft-${item.id}`,
-        family_id: item.family_id,
-        date: item.plan_date,
-        meal_type: item.meal_type,
-        food_entries: [
-          {
-            id: `draft-entry-${item.id}`,
-            food_id: item.food_id,
-            food_name: item.food_name,
-            servings: 1,
-            note: item.note || '来自菜单计划',
-            rating: null,
-          },
-        ],
-        participant_user_ids: [],
-        notes: '',
-        mood: '',
-        photos: [],
-        deduction_suggestions: [],
-        created_at: now,
-        updated_at: now,
-      },
-      planItem: item,
-    });
   }
 
   async function handleInventoryActionConflict(args: {
@@ -480,7 +446,6 @@ export function useHomeDashboardActions(input: {
 
   return {
     startHomePlanDetailCook,
-    supplementHomePlanDetailRecord,
     disposeSelectedInventoryBatches,
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,

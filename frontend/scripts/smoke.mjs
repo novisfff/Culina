@@ -1492,24 +1492,22 @@ async function runDesktopSmoke(browser, baseUrl) {
     throw new Error('首页未请求 /api/activity-highlights');
   }
 
-  // desktop: 首页 → 推荐 Food → 吃什么/发现/Food detail
+  // desktop: 首页 → 推荐 Food → 吃什么/Food detail
   await page.locator('.dashboard-food-card').first().click();
   await expectVisible(page.locator('.food-detail-drawer'), '桌面首页推荐 Food 详情');
   await page.getByLabel('关闭弹窗').last().click();
   await page.locator('.food-detail-drawer').waitFor({ state: 'detached', timeout: 10_000 });
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await expectVisible(page.getByRole('tab', { name: '发现' }), '吃什么/发现');
+  await expectVisible(page.locator('.food-workspace .page-header h2'), '吃什么页头');
   await expectVisibleText(page, '食物库', '发现工作台食物库');
 
   await page.getByRole('button', { name: '食材' }).first().click();
   await expectVisibleText(page, '管理家庭食材档案、库存状态以及采购清单。', '食材工作台');
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await page.getByRole('tab', { name: '菜单' }).click();
-  await expectVisible(page.getByRole('tab', { name: '菜单' }), '吃什么/菜单');
-  await page.getByRole('tab', { name: '吃过的' }).click();
-  await expectVisible(page.getByRole('tab', { name: '吃过的' }), '吃什么/吃过的');
+  await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
+  await expectVisibleText(page, '餐食记录', '吃什么/吃过的');
   await expectNoHorizontalOverflow(page, '桌面工作台切换');
   assertClean();
   await context.close();
@@ -1681,7 +1679,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   }
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await expectVisible(page.getByRole('tab', { name: '发现' }), '1180x820 发现');
+  await expectVisible(page.locator('.food-workspace .page-header h2'), '1180x820 吃什么页头');
   await expectVisibleText(page, '食物库', '1180x820 食物页');
   await expectNoHorizontalOverflow(page, '1180x820 食物页');
   const foodLayout = await page.evaluate(() => {
@@ -1713,9 +1711,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     );
   }
 
-  await page.getByRole('tab', { name: '菜单' }).click();
-  await expectVisible(page.getByRole('tab', { name: '菜单' }), '1180x820 菜单');
-  await expectNoHorizontalOverflow(page, '1180x820 菜单页');
+  await expectNoHorizontalOverflow(page, '1180x820 食物页');
 
   await page.getByRole('button', { name: '食材' }).first().click();
   await expectVisibleText(page, '管理家庭食材档案、库存状态以及采购清单。', '1180x820 食材页');
@@ -1753,8 +1749,8 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   }
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await page.getByRole('tab', { name: '吃过的' }).click();
-  await expectVisible(page.getByRole('tab', { name: '吃过的' }), '1180x820 吃过的');
+  await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
+  await expectVisibleText(page, '餐食记录', '1180x820 吃过的');
   await expectNoHorizontalOverflow(page, '1180x820 餐食记录页');
   const mealLogMetricLayout = await page.evaluate(() => {
     const grid = document.querySelector('.meal-log-command-grid');
@@ -1970,7 +1966,7 @@ async function runHomeHighlightStaleCacheSmoke(browser, baseUrl) {
   );
   // Leave Home (disables the query) then return so React Query refetches stale cache.
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await expectVisible(page.getByRole('tab', { name: '发现' }), 'stale 场景离开首页');
+  await expectVisible(page.locator('.food-workspace .page-header h2'), 'stale 场景离开首页');
   await page.getByRole('button', { name: '首页' }).first().click();
   await failedRefetch;
   await expectVisible(desktop.getByTestId('home-highlight-row').first(), 'stale 场景返回首页');
@@ -2039,8 +2035,7 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await homeSurfaceLocator(page, viewport).getByRole('button', { name: '完整周菜单', exact: true }).click();
 
-  // Unified Eat plan surface (Task 9/10) replaces the legacy foods-tab week page.
-  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} 菜单 tab`);
+  // The compact menu plan remains inside the discovery workspace.
   await expectVisible(
     page.getByTestId('food-plan-week-section').or(page.getByLabel('菜单')).first(),
     `${label} 周菜单`,
@@ -2119,12 +2114,7 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
     throw new Error(`${label} 非当周 plan 搜索未触发 GET /api/food-plan/{id}: ${requestedApiPaths.join(',')}`);
   }
 
-  // plan search selection focuses the plan surface / week containing fixture plan_date 2026-06-15
-  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} plan 搜索后菜单 tab`);
-  const planTabSelected = await page.getByRole('tab', { name: '菜单' }).getAttribute('aria-selected');
-  if (planTabSelected !== 'true') {
-    throw new Error(`${label} plan 搜索后菜单 tab 未选中 (aria-selected=${planTabSelected})`);
-  }
+  // Plan search selection opens the detail task over the discovery workspace.
   await expectVisible(
     page.locator('.food-plan-detail-modal, .recipe-plan-detail-modal').or(
       page.locator('.eat-task-heading').filter({ hasText: /番茄|菜单项|smoke non-current-week/ }),
@@ -2163,7 +2153,7 @@ async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
 }
 
 async function runMobileEatTabsSmoke(browser, baseUrl) {
-  const label = 'mobile 吃什么 tabs';
+  const label = 'mobile 吃什么';
   const { context, page, assertClean } = await createPage(
     browser,
     { width: 375, height: 812 },
@@ -2172,11 +2162,9 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   );
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: '吃什么' }).first().click();
-  await expectVisible(page.getByRole('tab', { name: '发现' }), `${label} 发现`);
-  await page.getByRole('tab', { name: '菜单' }).click();
-  await expectVisible(page.getByRole('tab', { name: '菜单' }), `${label} 菜单`);
-  await page.getByRole('tab', { name: '吃过的' }).click();
-  await expectVisible(page.getByRole('tab', { name: '吃过的' }), `${label} 吃过的`);
+  await expectVisible(page.locator('.food-mobile-view'), `${label} 发现`);
+  await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
+  await expectVisibleText(page, '餐食记录', `${label} 吃过的`);
   await expectNoHorizontalOverflow(page, label);
   assertClean();
   await context.close();

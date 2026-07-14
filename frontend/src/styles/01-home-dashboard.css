@@ -2022,6 +2022,14 @@
 }
 
 /* Three-question desktop home */
+.home-question-one,
+.home-question-panel,
+.home-compact-calendar {
+  --home-ink: #241714;
+  --home-muted: #776a61;
+  --home-faint: #a2948a;
+}
+
 .home-question-one {
   display: grid;
   gap: 12px;
@@ -2043,7 +2051,7 @@
 
 .home-question-head h2 {
   margin: 0;
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 1.125rem;
   font-weight: 700;
   line-height: 1.35;
@@ -2073,10 +2081,10 @@
   align-items: center;
   gap: 6px;
   padding: 0 12px;
-  border: 1px solid rgba(92, 67, 48, 0.1);
+  border: 1px solid var(--line-soft);
   border-radius: 12px;
   color: var(--text-soft);
-  background: #fffdfa;
+  background: var(--surface-2);
   box-shadow: none;
   white-space: nowrap;
 }
@@ -2137,7 +2145,7 @@
 }
 
 .home-action-row.tone-expired {
-  background: #fffafa;
+  background: rgba(253, 235, 232, 0.5);
   border-color: rgba(217, 75, 61, 0.16);
 }
 
@@ -2146,7 +2154,7 @@
 }
 
 .home-action-row.tone-soon {
-  background: #fffdf7;
+  background: rgba(253, 244, 219, 0.52);
   border-color: rgba(230, 154, 46, 0.14);
 }
 
@@ -2156,7 +2164,7 @@
 
 .home-action-row.tone-low-stock,
 .home-action-row.tone-shopping {
-  background: #fffdf8;
+  background: rgba(255, 248, 220, 0.58);
   border-color: rgba(196, 149, 36, 0.15);
 }
 
@@ -2166,12 +2174,12 @@
 }
 
 .home-action-row.tone-later {
-  background: #fbfdfb;
+  background: rgba(235, 245, 233, 0.5);
   border-color: rgba(79, 154, 88, 0.12);
 }
 
 .home-action-row.tone-later::before {
-  background: color-mix(in srgb, var(--success, #4f9a58) 68%, transparent);
+  background: color-mix(in srgb, var(--success) 68%, transparent);
 }
 
 .home-action-row-copy {
@@ -2206,7 +2214,7 @@
 }
 
 .home-action-row-copy strong {
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 0.9375rem;
   font-weight: 700;
   line-height: 1.25;
@@ -2217,7 +2225,7 @@
 
 .home-action-row-copy p {
   margin: 0;
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.8125rem;
   line-height: 1.35;
   overflow: hidden;
@@ -2253,9 +2261,9 @@
   gap: 6px;
   margin-top: -2px;
   border: 0;
-  border-top: 1px solid rgba(92, 67, 48, 0.08);
+  border-top: 1px solid var(--line-soft);
   border-radius: 0;
-  color: var(--text-soft);
+  color: var(--home-muted);
   background: transparent;
 }
 
@@ -2302,8 +2310,8 @@
 }
 
 .home-highlight-row.tone-meal_plan .home-highlight-icon {
-  color: #7164bd;
-  background: var(--plan-soft);
+  color: var(--plan, #7164bd);
+  background: var(--plan-soft, #f0eeff);
 }
 
 .home-highlight-row.tone-family .home-highlight-icon {
@@ -2324,7 +2332,7 @@
 }
 
 .home-highlight-copy strong {
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 0.875rem;
   font-weight: 700;
   line-height: 1.3;
@@ -2332,7 +2340,7 @@
 
 .home-highlight-copy p {
   margin: 0;
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.8125rem;
   line-height: 1.35;
   overflow: hidden;
@@ -2341,7 +2349,7 @@
 }
 
 .home-highlight-row time {
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.75rem;
   white-space: nowrap;
 }
@@ -2433,7 +2441,7 @@
 
 .home-compact-calendar-title h3 {
   margin: 0;
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.35;
@@ -2441,7 +2449,7 @@
 
 .home-compact-calendar-title p {
   margin: 0;
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.75rem;
   line-height: 1.4;
 }
@@ -2458,7 +2466,7 @@
 
 .home-compact-week-range {
   margin-left: auto;
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.35;
@@ -2486,7 +2494,7 @@
   padding: 0 10px;
   border: 0;
   border-radius: 10px;
-  color: var(--text);
+  color: var(--home-ink);
   background: transparent;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -2510,7 +2518,7 @@
 
 .home-compact-week-controls .home-compact-current-week {
   min-width: 58px;
-  color: var(--text-soft);
+  color: var(--home-muted);
   background: #fff;
 }
 
@@ -2524,7 +2532,7 @@
   padding: 10px 12px;
   border: 1px solid rgba(92, 67, 48, 0.09);
   border-radius: 14px;
-  color: var(--text);
+  color: var(--home-ink);
   background: #fffdfa;
   text-align: left;
   box-shadow: 0 2px 8px rgba(74, 54, 40, 0.025);
@@ -2546,7 +2554,7 @@
 }
 
 .home-compact-days > button .home-compact-day-weekday {
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.3;
@@ -2564,7 +2572,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.3;
@@ -2644,7 +2652,7 @@
 }
 
 .home-compact-day-summary-copy strong {
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 0.875rem;
   font-weight: 700;
   line-height: 1.35;
@@ -2652,7 +2660,7 @@
 }
 
 .home-compact-day-summary-copy small {
-  color: var(--text-soft);
+  color: var(--home-muted);
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.4;
@@ -2668,7 +2676,7 @@
   padding: 0 8px;
   border: 0;
   border-radius: 10px;
-  color: var(--text-soft);
+  color: var(--home-muted);
   background: transparent;
   font-size: 0.75rem;
   font-weight: 600;
@@ -2725,14 +2733,14 @@
 }
 
 .home-compact-meal-slot-head strong {
-  color: var(--text);
+  color: var(--home-ink);
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.3;
 }
 
 .home-compact-meal-slot-head span {
-  color: var(--text-faint);
+  color: var(--home-faint);
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.3;
@@ -2758,10 +2766,17 @@
 .home-compact-meal-item {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 8px;
-  color: var(--text);
+  color: var(--home-ink);
   text-align: left;
+}
+
+.home-compact-meal-item-label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

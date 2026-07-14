@@ -15,6 +15,7 @@ from app.core.enums import (
     InventoryStatus,
 )
 from app.schemas.inventory_states import IngredientInventoryStateOut
+from app.schemas.ingredients import IngredientUnitConversion
 
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -251,6 +252,8 @@ class ExactIngredientReconciliationGroupOut(BaseModel):
     ingredient_id: str
     ingredient_name: str
     ingredient_row_version: int
+    default_unit: str
+    unit_conversions: list[IngredientUnitConversion] = Field(default_factory=list)
     confirmation_status: ConfirmationStatus
     last_confirmed_at: datetime | None
     batches: list[ReconciliationBatchOut]

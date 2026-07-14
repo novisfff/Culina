@@ -32,6 +32,7 @@ export function useFoodPlanState(input: {
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
+  onMealRecorded?: (meal: MealLog, planItem: FoodPlanItem) => void;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
 }) {
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
@@ -201,7 +202,7 @@ export function useFoodPlanState(input: {
       return;
     }
     try {
-      await input.quickAddMeal({
+      const createdMeal = await input.quickAddMeal({
         food_id: item.food_id,
         date: item.plan_date,
         meal_type: item.meal_type,
@@ -211,6 +212,7 @@ export function useFoodPlanState(input: {
       });
       input.setFeedback(`${item.food_name} 已完成菜单计划`);
       closePlanDetail();
+      input.onMealRecorded?.(createdMeal, item);
     } catch (reason) {
       input.showNotice({
         tone: 'danger',

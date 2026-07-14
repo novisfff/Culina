@@ -23,7 +23,7 @@ type UseRecipeShoppingStateArgs = {
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;
-  }) => Promise<ShoppingListItem>;
+  }) => Promise<unknown>;
   showRecipeNotice: (notice: RecipeNotice) => void;
 };
 
@@ -38,10 +38,20 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
   });
   const [isShoppingIngredientPickerOpen, setIsShoppingIngredientPickerOpen] = useState(false);
 
-  function openShoppingDialog(card: RecipeCardViewModel, closeCookDialog: () => void) {
+  function openShoppingDialog(
+    card: RecipeCardViewModel,
+    closeCookDialog: () => void,
+    mode: 'shortages' | 'all' = 'shortages',
+  ) {
     closeCookDialog();
     setShoppingDialogCard(card);
-    setShoppingDrafts(buildShoppingDraftsFromShortages(card));
+    setShoppingDrafts(
+      mode === 'all'
+        ? card.recipe.ingredient_items
+            .filter((item) => Boolean(item.ingredient_id))
+            .map((item) => buildShoppingDraftFromRecipeIngredient(card.recipe.title, item))
+        : buildShoppingDraftsFromShortages(card),
+    );
     setShoppingCustomForm({ ingredientId: null, title: '', quantity: '1', unit: '个' });
   }
 

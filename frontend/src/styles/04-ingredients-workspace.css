@@ -5356,6 +5356,21 @@
   white-space: nowrap;
 }
 
+.ingredients-restock-identity-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ingredients-shopping-switch-target {
+  min-height: 40px;
+  padding-inline: 12px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
 .ingredients-restock-identity-switch {
   justify-self: start;
 }

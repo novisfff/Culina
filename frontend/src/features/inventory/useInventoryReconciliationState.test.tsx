@@ -375,12 +375,17 @@ describe('useInventoryReconciliationState', () => {
 
   it('does not close while busy', () => {
     const state = renderHook();
+    const eggs = makeExactGroup();
     act(() => {
       state.beginOpen({
         familyId: FAMILY_ID,
         userId: USER_ID,
         scope: 'all',
         now: NOW,
+      });
+      latest!.applyLoadedGroups({
+        response: makeResponse([eggs]),
+        scope: 'all',
       });
       latest!.setBusy(true);
     });
@@ -390,6 +395,57 @@ describe('useInventoryReconciliationState', () => {
     });
     expect(closed).toBe(false);
     expect(latest!.open).toBe(true);
+  });
+
+  it('allows closing while the read-only checklist is still loading', () => {
+    const state = renderHook();
+    act(() => {
+      state.beginOpen({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'suggested',
+        now: NOW,
+      });
+      // A stale external write flag must not trap the read-only loading screen.
+      latest!.setBusy(true);
+    });
+
+    let closed = false;
+    act(() => {
+      closed = latest!.closeReconciliation({ familyId: FAMILY_ID, userId: USER_ID, now: NOW });
+    });
+
+    expect(closed).toBe(true);
+    expect(latest!.open).toBe(false);
+    expect(latest!.loading).toBe(false);
+  });
+
+  it('force-closes a loading session even if a stale busy flag outlives the loading render', () => {
+    const state = renderHook();
+    act(() => {
+      state.beginOpen({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'suggested',
+        now: NOW,
+      });
+      latest!.setBusy(true);
+      latest!.setLoading(false);
+    });
+
+    let closed = false;
+    act(() => {
+      closed = latest!.closeReconciliation({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        now: NOW,
+        force: true,
+      });
+    });
+
+    expect(closed).toBe(true);
+    expect(latest!.open).toBe(false);
+    expect(latest!.busy).toBe(false);
   });
 
   it('goToReview preserves fieldErrors after failed recovery path', () => {

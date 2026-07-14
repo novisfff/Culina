@@ -24,7 +24,7 @@ import type {
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
 import type { HomeActionCompletionSummary, HomePlanAddFormState } from './useHomeDashboardState';
-import { Avatar, Badge, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
+import { Avatar, Badge, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
 import {
   FOOD_TYPE_LABELS,
@@ -53,12 +53,10 @@ type Props = {
   resetHomePlanDetailForm: (item?: FoodPlanItem | null) => void;
   submitHomePlanDetail: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   startHomePlanDetailCook: (item: FoodPlanItem) => Promise<void>;
-  supplementHomePlanDetailRecord: (item: FoodPlanItem) => Promise<void>;
   deleteHomePlanDetail: (item: FoodPlanItem) => Promise<void>;
   closeHomePlanDetail: () => void;
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
-  isSupplementingHomePlanDetail: boolean;
   homeMealEnrichmentMeal: MealLog | null;
   homeMealEnrichmentSource: MealSource | null;
   homeMealEnrichmentMembers: Member[];
@@ -138,14 +136,12 @@ export function HomeDashboardDialogs(props: Props) {
           isEditing={props.isHomePlanDetailEditing}
           isUpdatingPlan={props.isUpdatingHomePlanDetail}
           isCompleting={props.isCompletingHomePlanDetail}
-          isSupplementing={props.isSupplementingHomePlanDetail}
           onClose={props.closeHomePlanDetail}
           onChangeForm={props.setHomePlanDetailForm}
           onEditingChange={props.setIsHomePlanDetailEditing}
           onResetEdit={() => props.resetHomePlanDetailForm(homePlanDetailItem)}
           onSubmit={(event) => void props.submitHomePlanDetail(event)}
           onComplete={() => void props.startHomePlanDetailCook(homePlanDetailItem)}
-          onSupplementRecord={() => void props.supplementHomePlanDetailRecord(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
           overlayRootClassName="home-dashboard-overlay-root"
@@ -157,12 +153,14 @@ export function HomeDashboardDialogs(props: Props) {
           rootClassName="home-dashboard-overlay-root"
           onClose={closeHomePlanAddDialogIfAllowed}
           closeOnBackdrop={!props.isCreatingFoodPlanItem}
+          busy={props.isCreatingFoodPlanItem}
         >
           <WorkspaceModal
             title="加食物到菜单"
             description="选择日期和餐次后加入当前周菜单。"
             eyebrow="菜单计划"
             onClose={closeHomePlanAddDialogIfAllowed}
+            busy={props.isCreatingFoodPlanItem}
             className="recipe-plan-modal food-plan-modal home-plan-add-modal"
             footerActions={
               <FormActions
@@ -177,7 +175,20 @@ export function HomeDashboardDialogs(props: Props) {
               />
             }
           >
-            <form id={homePlanAddFormId} className="recipe-plan-dialog-form" onSubmit={(event) => void props.submitHomePlanAdd(event)}>
+            <form
+              id={homePlanAddFormId}
+              className={[
+                'recipe-plan-dialog-form',
+                'ui-operation-loading-host',
+                props.isCreatingFoodPlanItem ? 'is-busy' : '',
+              ].filter(Boolean).join(' ')}
+              aria-busy={props.isCreatingFoodPlanItem}
+              onSubmit={(event) => void props.submitHomePlanAdd(event)}
+            >
+              <OperationLoadingOverlay
+                active={props.isCreatingFoodPlanItem}
+                title="正在加入菜单"
+              />
               {props.homePlanAddFood ? (
                 <FoodPlanSelectedHero
                   food={props.homePlanAddFood}

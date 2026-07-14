@@ -3937,6 +3937,74 @@
     background: #de7336;
   }
 
+  .mobile-food-command-panel {
+    display: grid;
+    gap: 12px;
+    padding: 8px 14px 2px;
+  }
+
+  .mobile-food-command-copy {
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobile-food-command-copy h1,
+  .mobile-food-command-copy p {
+    margin: 0;
+  }
+
+  .mobile-food-command-copy h1 {
+    color: #241714;
+    font-size: 2.1rem;
+    font-weight: 950;
+    line-height: 1.05;
+  }
+
+  .mobile-food-command-copy p {
+    color: #6f6258;
+    font-size: 0.96rem;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+
+  .mobile-food-command-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .mobile-food-command-actions button {
+    min-width: 0;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 12px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mobile-food-command-actions svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-food-command-primary {
+    border: 1px solid transparent;
+    background: var(--brand-button-bg);
+    color: #fff;
+    box-shadow: var(--brand-button-shadow);
+  }
+
+  .mobile-food-command-secondary {
+    border: 1px solid var(--line-soft);
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--text-soft);
+  }
+
   .mobile-food-hero {
     display: grid;
     gap: 10px;
@@ -4119,9 +4187,9 @@
   }
 
   .mobile-food-card-actions button.active {
-    border-color: rgba(240, 90, 77, 0.2);
-    background: rgba(255, 246, 243, 0.96);
-    color: #f05a4d;
+    border-color: rgba(210, 107, 51, 0.22);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
   }
 
   .mobile-food-scene-scroller {
@@ -4323,6 +4391,10 @@
     box-shadow: 0 4px 12px rgba(75, 52, 34, 0.04);
   }
 
+  .mobile-food-library-media {
+    position: relative;
+  }
+
   .mobile-food-library-cover {
     width: 100%;
     aspect-ratio: 1.46 / 1;
@@ -4338,6 +4410,21 @@
     font: inherit;
     font-size: 1.24rem;
     font-weight: 950;
+  }
+
+  .mobile-food-library-card .mobile-food-favorite {
+    top: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 14px;
+  }
+
+  .mobile-food-library-card .mobile-food-favorite svg {
+    width: 20px;
+    height: 20px;
   }
 
   .mobile-food-library-cover .media-with-placeholder {
@@ -4369,8 +4456,12 @@
   }
 
   .mobile-food-library-card .mobile-food-card-actions {
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 7px;
+  }
+
+  .mobile-food-library-card .mobile-food-card-actions:has(.mobile-food-shopping-action) {
+    grid-template-columns: minmax(0, 1fr) 40px;
   }
 
   .mobile-food-library-card .mobile-food-card-actions button {
@@ -4579,6 +4670,10 @@
     box-shadow: 0 2px 8px rgba(75, 52, 34, 0.02);
     position: relative;
     z-index: 30;
+  }
+
+  .recipe-workspace-cook-mode .recipe-cook-header-status {
+    display: none;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-header .workspace-back-link {
@@ -5437,8 +5532,7 @@
     overflow-x: clip;
   }
 
-  .mobile-dashboard-meta-row,
-  .home-compact-days.is-mobile-scroll {
+  .mobile-dashboard-meta-row {
     gap: 8px;
     padding: 2px 16px 4px 1px;
     display: flex;
@@ -5450,35 +5544,60 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  .home-compact-days.is-mobile-scroll::-webkit-scrollbar,
-  .home-compact-meal-grid::-webkit-scrollbar {
-    display: none;
-  }
-
-  .home-compact-days.is-mobile-scroll > button {
-    flex: 0 0 96px;
-    min-width: 96px;
-    min-height: 84px;
-    gap: 5px;
-    padding: 9px 10px;
-    scroll-snap-align: start;
-  }
-
-  .home-compact-days.is-mobile-scroll .home-compact-day-date {
+  .home-compact-days.is-mobile-grid {
     display: grid;
-    justify-content: start;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 2px;
   }
 
-  .home-compact-days.is-mobile-scroll .home-compact-day-weekday,
-  .home-compact-days.is-mobile-scroll .home-compact-day-date strong,
-  .home-compact-days.is-mobile-scroll .home-compact-day-status {
+  .home-compact-days.is-mobile-grid > button {
+    min-width: 0;
+    min-height: 60px;
+    gap: 3px;
+    align-content: center;
+    justify-items: center;
+    padding: 4px 2px;
+    border-radius: 12px;
+    text-align: center;
+  }
+
+  .home-compact-days.is-mobile-grid .home-compact-day-date {
+    display: grid;
+    justify-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .home-compact-days.is-mobile-grid .home-compact-day-weekday,
+  .home-compact-days.is-mobile-grid .home-compact-day-date strong {
     white-space: nowrap;
   }
 
+  .home-compact-days.is-mobile-grid .home-compact-day-weekday {
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-days.is-mobile-grid .home-compact-day-date strong {
+    font-size: 0.9375rem;
+  }
+
+  .home-compact-days.is-mobile-grid .home-compact-day-status {
+    min-height: 6px;
+    gap: 0;
+    font-size: 0;
+    line-height: 0;
+  }
+
+  .home-compact-days.is-mobile-grid .home-compact-day-status i {
+    width: 5px;
+    height: 5px;
+  }
+
   .home-compact-calendar {
-    gap: 11px;
-    padding: 12px;
+    width: calc(100% + 22px);
+    margin-inline: -11px;
+    gap: 8px;
+    padding: 8px 8px 4px;
     border-radius: 18px;
   }
 
@@ -5486,14 +5605,16 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
+    column-gap: 8px;
+    row-gap: 0;
   }
 
   .home-compact-week-range {
     grid-column: 1;
     grid-row: 2;
     margin-left: 0;
-    color: var(--text-faint);
+    align-self: center;
+    color: var(--text-soft);
     font-size: 0.75rem;
   }
 
@@ -5511,56 +5632,211 @@
 
   .home-compact-week-controls {
     grid-column: 2;
-    grid-row: 1 / span 2;
+    grid-row: 1;
     flex: 0 0 auto;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 12px;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
 
   .home-compact-week-controls button {
-    min-width: 40px;
-    padding: 0 8px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid rgba(92, 67, 48, 0.1);
+    border-radius: 12px;
+    background: #fffdfa;
   }
 
-  .home-compact-week-controls .home-compact-current-week {
-    min-width: 50px;
+  .home-compact-mobile-current-week {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 94px;
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--accent-strong);
+    background: transparent;
+    font-size: 0.75rem;
+    font-weight: 700;
   }
 
-  .home-compact-full-week-button span {
+  .home-compact-day-toggle {
+    width: 100%;
+    min-height: 60px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 12px;
+    color: var(--home-ink);
+    background: #fffdfa;
+    font: inherit;
+    text-align: left;
+  }
+
+  .home-compact-day-toggle-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  .home-compact-day-toggle-copy strong,
+  .home-compact-day-toggle-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .home-compact-day-toggle-copy strong {
+    font-size: 0.875rem;
+    line-height: 1.3;
+  }
+
+  .home-compact-day-toggle-copy small {
+    color: var(--home-muted);
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .home-compact-day-toggle-action {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent-strong);
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .home-compact-day-toggle-action svg {
+    width: 14px;
+    height: 14px;
+    transform: rotate(90deg);
+    transition: transform 160ms ease;
+  }
+
+  .home-compact-day-toggle[aria-expanded="true"] .home-compact-day-toggle-action svg {
+    transform: rotate(-90deg);
+  }
+
+  .home-compact-day-detail.is-mobile-collapsible[hidden] {
     display: none;
   }
 
-  .home-compact-full-week-button {
-    min-width: 40px;
-    min-height: 40px;
+  .home-compact-day-detail.is-mobile-collapsible:not([hidden]) {
+    animation: home-compact-detail-enter 160ms ease-out;
   }
 
-  .home-compact-meal-grid {
+  @keyframes home-compact-detail-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .home-compact-day-detail {
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .home-compact-meal-grid.is-mobile-list {
     display: grid;
-    grid-template-columns: none;
-    grid-auto-columns: minmax(148px, 50%);
-    grid-auto-flow: column;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 1px 14px 3px 1px;
-    overscroll-behavior-inline: contain;
-    scroll-padding-inline: 1px 14px;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    overflow: visible;
+    padding: 0;
   }
 
-  .home-compact-meal-slot {
-    min-height: 70px;
-    padding: 8px 9px;
-    scroll-snap-align: start;
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    min-height: 52px;
+    align-content: center;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 12px;
   }
 
-  .home-compact-meal-item,
-  .home-compact-meal-more,
-  .home-compact-meal-add {
-    min-height: 30px;
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot-head {
+    display: grid;
+    justify-content: start;
+    justify-items: start;
+    gap: 2px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot-head strong {
+    font-size: 0.875rem;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot-head span {
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-items {
+    min-height: 44px;
+    justify-content: flex-end;
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-item,
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-more,
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-add {
+    min-height: 44px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-item {
+    padding: 0 10px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-item.has-image {
+    padding-left: 5px;
+  }
+
+  .home-compact-meal-item-image {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 8px;
+    object-fit: cover;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-more {
+    padding: 0 9px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-add {
+    min-width: 44px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot:not(.has-items) .home-compact-meal-add {
+    min-width: 72px;
+  }
+
+  .home-compact-full-week-button.is-mobile-button {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 12px;
+    color: var(--home-muted);
+    background: #fffdfa;
+    font-size: 0.8125rem;
   }
 
   .mobile-home-question,
@@ -5569,6 +5845,41 @@
   .home-highlight-panel {
     min-width: 0;
     width: 100%;
+  }
+
+  .home-required-actions {
+    gap: 6px;
+    padding: 12px 14px 10px;
+  }
+
+  .home-required-actions .home-action-list {
+    gap: 6px;
+  }
+
+  .home-required-actions .home-action-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    min-height: 56px;
+    padding: 6px 10px;
+  }
+
+  .home-required-actions .home-action-row::before {
+    top: 10px;
+    bottom: 10px;
+  }
+
+  .home-required-actions .home-action-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .home-required-actions .home-action-row .solid-button {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .home-required-actions .home-question-more {
+    min-height: 44px;
+    margin-top: -4px;
   }
 
   .mobile-dashboard-food-card {
@@ -6187,6 +6498,17 @@
     box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
   }
 
+  .mobile-home-question.mobile-dashboard-panel {
+    padding-bottom: 8px;
+    border: 1px solid rgba(92, 67, 48, 0.09);
+    background: #fff;
+    box-shadow: 0 14px 32px rgba(74, 54, 40, 0.04);
+  }
+
+  .mobile-home-question .mobile-dashboard-section-head h2 {
+    color: var(--home-ink);
+  }
+
   .mobile-dashboard-section-head {
     justify-content: space-between;
     gap: 12px;
@@ -6318,14 +6640,19 @@
 
   .mobile-dashboard-badge-row {
     display: flex;
+    flex-wrap: nowrap;
     gap: 6px;
     min-width: 0;
     overflow: hidden;
   }
 
-  .mobile-dashboard-badge-row .badge {
-    max-width: 96px;
+  .mobile-dashboard-badge-row :is(.badge, .ui-status-badge) {
+    min-width: 0;
+    max-width: calc(100% - 6px);
+    flex: 0 1 auto;
+    padding-inline: 4px;
     overflow: hidden;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -7824,6 +8151,10 @@
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   }
 
+  .ingredient-workspace-overlay-root .ingredients-shopping-switch-target {
+    min-height: 44px;
+  }
+
   .home-dashboard-overlay-root .destroy-expired-modal .workspace-overlay-body {
     display: block;
     overflow-x: hidden;
@@ -8391,7 +8722,61 @@
   }
 }
 
+@media (max-width: 767px) {
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row > button {
+    grid-column: auto !important;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions[data-primary-placement="before-extra"] .ui-form-actions-row > .ui-form-actions-primary {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .food-shopping-overlay-root .food-shopping-modal.workspace-modal {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - 18px);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .food-shopping-item {
+    padding: 10px;
+  }
+
+  .food-shopping-quantity {
+    grid-template-columns: 34px 38px 34px;
+  }
+
+  .food-shopping-quantity button,
+  .food-shopping-quantity input {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .food-shopping-detail-toggle {
+    min-height: 44px;
+  }
+
+  .food-shopping-item-details {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .home-compact-day-toggle-action svg {
+    transition: none;
+  }
+
+  .home-compact-day-detail.is-mobile-collapsible:not([hidden]) {
+    animation: none;
+  }
+
   .mobile-ingredient-detail-popover-panel,
   .workspace-overlay-root .workspace-overlay-backdrop {
     animation: none;
@@ -8403,5 +8788,83 @@
 
   .workspace-overlay-root .workspace-drawer {
     animation: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-overlay-root.eat-cook-confirm-root {
+    align-items: center;
+    justify-items: center;
+    padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal {
+    align-self: center;
+    justify-self: center;
+    width: min(100%, 460px);
+    max-width: calc(100vw - 32px);
+    max-height: calc(100dvh - 32px);
+    padding: 0;
+    border: 1px solid rgba(147, 96, 63, 0.14);
+    border-radius: 24px;
+    box-shadow: 0 20px 48px rgba(55, 40, 30, 0.18);
+    animation: home-dashboard-sheet-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-drag-zone {
+    display: none;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-head {
+    align-items: start;
+    gap: 12px;
+    padding: 20px 20px 14px;
+    border-bottom: 1px solid rgba(92, 67, 48, 0.07);
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+    font-size: 1.3rem;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-head > .workspace-overlay-close {
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    height: 42px;
+    min-height: 42px;
+    max-height: 42px;
+    border: 1px solid rgba(92, 67, 48, 0.08) !important;
+    border-radius: 50% !important;
+    aspect-ratio: 1;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-icon {
+    display: grid;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label {
+    display: none;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-body {
+    padding: 0 20px 18px;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal > .workspace-overlay-footer {
+    padding: 14px 20px 20px;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal .ui-form-actions-row > * {
+    width: 100%;
+  }
+
+  .workspace-overlay-root.eat-cook-confirm-root .workspace-modal.eat-cook-confirm-modal .ui-form-actions-spacer {
+    display: none;
   }
 }

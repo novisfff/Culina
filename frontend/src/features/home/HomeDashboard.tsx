@@ -282,6 +282,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
   }
 
   const selectedPlanDate = selectedDashboardPlanDay?.date ?? compactPlanDays[0]?.date ?? '';
+  const resolvePlanItemCoverUrl = (item: FoodPlanItem) => {
+    const planFood = foods.find((food) => food.id === item.food_id);
+    return resolveAssetUrl(planFood ? getFoodCover(planFood, recipes) : undefined);
+  };
 
   return (
     <>
@@ -306,6 +310,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         isQuickAdding={isQuickAdding}
         isCreatingFoodPlanItem={isCreatingFoodPlanItem}
         resolveAssetUrl={resolveAssetUrl}
+        resolvePlanItemCoverUrl={resolvePlanItemCoverUrl}
         onNavigate={onNavigate}
         onOpenGlobalSearch={onOpenGlobalSearch}
         onNextMobileRecommendation={onNextMobileRecommendation}

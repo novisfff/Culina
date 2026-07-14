@@ -1,7 +1,7 @@
 import { useMemo, type FormEvent } from 'react';
 import type { Food, Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, FormActions, OperationLoadingOverlay, QuantityUnitField, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
@@ -93,6 +93,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
       onClose={props.closeOverlay}
+      busy={Boolean(props.isCreatingShopping)}
       footerActions={
         <FormActions
           className="shopping-quick-actions"
@@ -106,7 +107,20 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
         />
       }
     >
-      <form id={shoppingFormId} className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
+      <form
+        id={shoppingFormId}
+        className={[
+          'shopping-quick-form',
+          'ui-operation-loading-host',
+          props.isCreatingShopping ? 'is-busy' : '',
+        ].filter(Boolean).join(' ')}
+        aria-busy={Boolean(props.isCreatingShopping)}
+        onSubmit={(event) => void props.submitShopping(event)}
+      >
+        <OperationLoadingOverlay
+          active={Boolean(props.isCreatingShopping)}
+          title="正在加入购物清单"
+        />
         <div className="shopping-quick-scroll">
           {selectedTarget ? (
             <section className="ingredients-restock-identity-card">
@@ -124,9 +138,11 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   </div>
                   <div className="ingredients-restock-identity-actions">
                     <Badge>{props.selectedShoppingFood ? '成品速食' : '档案食材'}</Badge>
-                    <button
+                    <ActionButton
                       type="button"
-                      className="text-button"
+                      tone="secondary"
+                      size="compact"
+                      className="ingredients-shopping-switch-target"
                       onClick={() =>
                         props.setShoppingForm({
                           ...props.shoppingForm,
@@ -138,7 +154,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                       }
                     >
                       改为其他采购
-                    </button>
+                    </ActionButton>
                   </div>
                 </div>
               </div>

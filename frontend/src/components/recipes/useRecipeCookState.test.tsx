@@ -98,9 +98,9 @@ describe('useRecipeCookState scoped v3', () => {
         foodId: 'food-1',
         ownershipVerified: true,
         launchContext: {
-          date: '2026-07-12',
-          mealType: 'dinner',
-          servings: 1,
+          date: '2026-07-10',
+          mealType: 'lunch',
+          servings: 3,
           source: { kind: 'direct' },
         },
       }),
@@ -108,6 +108,11 @@ describe('useRecipeCookState scoped v3', () => {
 
     act(() => {
       result.current.openCook(card);
+    });
+
+    expect(result.current.cookResumePrompt).not.toBeNull();
+    act(() => {
+      result.current.continueSavedCook();
     });
 
     await waitFor(() => {
@@ -123,25 +128,25 @@ describe('useRecipeCookState scoped v3', () => {
     expect(result.current.cookSession?.adjustments).toBe('少盐');
   });
 
-  it('requires explicit continue or abandon when another descriptor is active', () => {
-    const recipeA = makeRecipe({ id: 'recipe-a', title: 'A' });
-    const recipeB = makeRecipe({ id: 'recipe-b', title: 'B' });
-    const cardA = makeCard(recipeA);
-    const cardB = makeCard(recipeB);
+  it('requires explicit continue or restart for the same recent meal session', () => {
+    const recipe = makeRecipe();
+    const card = makeCard(recipe);
     saveCookSessionV3({
       scope: SCOPE,
-      recipeId: recipeA.id,
-      session: buildDefaultCookSessionV3(recipeA, {
+      recipeId: recipe.id,
+      session: buildDefaultCookSessionV3(recipe, {
         source: 'direct',
         planItemId: null,
-        completionRequestId: 'cook-a',
+        completionRequestId: 'cook-same-meal',
+        date: '2026-07-12',
+        mealType: 'dinner',
       }),
       savedAt: new Date().toISOString(),
     });
 
     const { result } = renderHook(() =>
       useRecipeCookState({
-        cards: [cardA, cardB],
+        cards: [card],
         selectedCard: null,
         view: 'library',
         setView: vi.fn(),
@@ -150,33 +155,37 @@ describe('useRecipeCookState scoped v3', () => {
         cookRecipe: vi.fn(async () => ({}) as never),
         showRecipeNotice: vi.fn(),
         sessionScope: SCOPE,
-        foodId: 'food-b',
+        foodId: 'food-1',
         ownershipVerified: true,
+        launchContext: {
+          date: '2026-07-12',
+          mealType: 'dinner',
+          servings: 2,
+          source: { kind: 'direct' },
+        },
       }),
     );
 
     act(() => {
-      result.current.openCook(cardB);
+      result.current.openCook(card);
     });
 
-    expect(result.current.cookCollision).not.toBeNull();
-    expect(result.current.cookCollision?.existing.recipeId).toBe('recipe-a');
+    expect(result.current.cookResumePrompt).not.toBeNull();
     expect(result.current.cookSession).toBeNull();
-    expect(readActiveCook(localStorage, SCOPE)?.recipeId).toBe('recipe-a');
   });
 
-  it('abandons the previous descriptor before starting a new cook', async () => {
-    const recipeA = makeRecipe({ id: 'recipe-a' });
-    const recipeB = makeRecipe({ id: 'recipe-b' });
-    const cardA = makeCard(recipeA);
-    const cardB = makeCard(recipeB);
+  it('keeps another meal session and starts the requested meal independently', async () => {
+    const recipe = makeRecipe();
+    const card = makeCard(recipe);
     saveCookSessionV3({
       scope: SCOPE,
-      recipeId: recipeA.id,
-      session: buildDefaultCookSessionV3(recipeA, {
+      recipeId: recipe.id,
+      session: buildDefaultCookSessionV3(recipe, {
         source: 'direct',
         planItemId: null,
-        completionRequestId: 'cook-a',
+        completionRequestId: 'cook-lunch',
+        date: '2026-07-12',
+        mealType: 'lunch',
       }),
       savedAt: new Date().toISOString(),
     });
@@ -184,7 +193,7 @@ describe('useRecipeCookState scoped v3', () => {
     const setView = vi.fn();
     const { result } = renderHook(() =>
       useRecipeCookState({
-        cards: [cardA, cardB],
+        cards: [card],
         selectedCard: null,
         view: 'library',
         setView,
@@ -193,24 +202,78 @@ describe('useRecipeCookState scoped v3', () => {
         cookRecipe: vi.fn(async () => ({}) as never),
         showRecipeNotice: vi.fn(),
         sessionScope: SCOPE,
-        foodId: 'food-b',
+        foodId: 'food-1',
         ownershipVerified: true,
+        launchContext: {
+          date: '2026-07-12',
+          mealType: 'dinner',
+          servings: 2,
+          source: { kind: 'direct' },
+        },
       }),
     );
 
     act(() => {
-      result.current.openCook(cardB);
-    });
-    act(() => {
-      result.current.abandonAndStartNewCook();
+      result.current.openCook(card);
     });
 
     await waitFor(() => {
       expect(result.current.cookSession).not.toBeNull();
     });
-    expect(result.current.cookCollision).toBeNull();
-    expect(readActiveCook(localStorage, SCOPE)?.recipeId).toBe('recipe-b');
-    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, 'recipe-a', { kind: 'direct' }))).toBeNull();
+    expect(result.current.cookResumePrompt).toBeNull();
+    expect(result.current.cookSession?.mealType).toBe('dinner');
+    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct', date: '2026-07-12', mealType: 'lunch',
+    }))).not.toBeNull();
+    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct', date: '2026-07-12', mealType: 'dinner',
+    }))).not.toBeNull();
+  });
+
+  it('restarts only the matching saved task after confirmation', async () => {
+    const recipe = makeRecipe();
+    const card = makeCard(recipe);
+    const saved = buildDefaultCookSessionV3(recipe, {
+      source: 'direct',
+      planItemId: null,
+      completionRequestId: 'cook-before-restart',
+      date: '2026-07-12',
+      mealType: 'dinner',
+    });
+    saved.currentStepIndex = 1;
+    saveCookSessionV3({ scope: SCOPE, recipeId: recipe.id, session: saved });
+
+    const { result } = renderHook(() =>
+      useRecipeCookState({
+        cards: [card],
+        selectedCard: card,
+        view: 'library',
+        setView: vi.fn(),
+        setSelectedRecipeId: vi.fn(),
+        previewCookRecipe: vi.fn(async () => ({ preview_items: [], shortages: [] }) as never),
+        cookRecipe: vi.fn(async () => ({}) as never),
+        showRecipeNotice: vi.fn(),
+        sessionScope: SCOPE,
+        foodId: 'food-1',
+        ownershipVerified: true,
+        launchContext: {
+          date: '2026-07-12',
+          mealType: 'dinner',
+          servings: 2,
+          source: { kind: 'direct' },
+        },
+      }),
+    );
+
+    act(() => result.current.openCook(card));
+    expect(result.current.cookResumePrompt).not.toBeNull();
+    act(() => result.current.restartSavedCook());
+
+    await waitFor(() => expect(result.current.cookSession).not.toBeNull());
+    expect(result.current.cookResumePrompt).toBeNull();
+    expect(result.current.cookSession?.currentStepIndex).toBe(0);
+    expect((result.current.cookSession as { completionRequestId?: string })?.completionRequestId)
+      .not.toBe('cook-before-restart');
   });
 
   it('sends always-record payload with stable completion request id', async () => {
@@ -262,6 +325,9 @@ describe('useRecipeCookState scoped v3', () => {
     act(() => {
       result.current.openCook(card, 'plan-1');
     });
+    act(() => {
+      result.current.continueSavedCook();
+    });
     await waitFor(() => expect(result.current.cookSession).not.toBeNull());
     act(() => {
       result.current.setIsCookFinishOpen(true);
@@ -288,7 +354,11 @@ describe('useRecipeCookState scoped v3', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const recipe = makeRecipe();
     const card = makeCard(recipe);
-    const sessionKey = buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' });
+    const sessionKey = buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct',
+      date: '2026-07-14',
+      mealType: 'dinner',
+    });
     const cookRecipe = vi.fn(async () => ({
       recipe_id: recipe.id,
       consumed_items: [],
@@ -353,6 +423,8 @@ describe('useRecipeCookState scoped v3', () => {
       source: 'direct',
       planItemId: null,
       completionRequestId: 'cook-incomplete-1',
+      date: '2026-07-14',
+      mealType: 'dinner',
     });
     saveCookSessionV3({
       scope: SCOPE,
@@ -381,10 +453,20 @@ describe('useRecipeCookState scoped v3', () => {
         sessionScope: SCOPE,
         foodId: 'food-1',
         ownershipVerified: true,
+        launchContext: {
+          date: '2026-07-14',
+          mealType: 'dinner',
+          servings: 2,
+          source: { kind: 'direct' },
+        },
       }),
     );
     act(() => {
       result.current.openCook(card);
+    });
+    expect(result.current.cookResumePrompt).not.toBeNull();
+    act(() => {
+      result.current.continueSavedCook();
     });
     await waitFor(() => expect(result.current.cookSession).not.toBeNull());
     await act(async () => {
@@ -392,7 +474,9 @@ describe('useRecipeCookState scoped v3', () => {
     });
     expect(result.current.cookFinishStatusMessage).toContain('完成结果不完整');
     expect(result.current.cookCompletionResult).toBeNull();
-    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' }))).not.toBeNull();
+    expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct', date: '2026-07-14', mealType: 'dinner',
+    }))).not.toBeNull();
     expect(showRecipeNotice).toHaveBeenCalledWith(expect.objectContaining({ tone: 'danger' }));
   });
 

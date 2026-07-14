@@ -21,14 +21,11 @@ import {
   parseOptionalNumber,
   parsePositiveNumber,
   resolveClampedDaysValue,
-  resolveTouchDefaultValue,
-  resolveTouchQuickValues,
-  resolveTouchStep,
 } from './ingredientWorkspaceForms';
 import { IngredientInventoryOverlay } from './IngredientInventoryOverlay';
 import { IngredientConsumeOverlay } from './IngredientConsumeOverlay';
 import { InventoryActionDialog } from '../../features/inventory/InventoryActionDialog';
-import { IngredientShoppingOverlay } from './IngredientShoppingOverlay';
+import { IngredientShoppingDialog } from './IngredientShoppingDialog';
 import type { OverlayLayerProps } from './IngredientWorkspaceOverlayTypes';
 
 
@@ -98,44 +95,6 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const inventoryExpiryDaysValue = isInventoryOverlay
     ? resolveClampedDaysValue(props.inventoryForm.expiryDays, selectedInventoryIngredient?.default_expiry_days ?? 3)
     : 3;
-  const shoppingQuantityValue =
-    isShoppingOverlay
-      ? parsePositiveNumber(props.shoppingForm.quantity) ??
-        resolveTouchDefaultValue(props.shoppingForm.unit || '个', 'quantity')
-      : 0;
-  const shoppingQuantityStep = isShoppingOverlay ? resolveTouchStep(props.shoppingForm.unit || '个') : 1;
-  const shoppingQuantityQuickValues = isShoppingOverlay
-    ? resolveTouchQuickValues(props.shoppingForm.unit || '个', 'quantity')
-    : [];
-  const selectedShoppingIngredient = isShoppingOverlay && props.shoppingForm.title.trim()
-    ? props.ingredients.find((item) => item.id === props.shoppingForm.ingredientId) ??
-      props.ingredients.find((item) => item.name === props.shoppingForm.title.trim()) ??
-      null
-    : null;
-  const selectedShoppingFood =
-    isShoppingOverlay && props.shoppingForm.foodId
-      ? props.foods.find((item) => item.id === props.shoppingForm.foodId) ?? null
-      : null;
-  const shoppingIngredientUnitOptions = selectedShoppingIngredient
-    ? getIngredientUnitOptions(selectedShoppingIngredient)
-    : [];
-  const selectedShoppingIngredientPreview = resolveAssetUrl(selectedShoppingIngredient?.image?.url);
-  const selectedShoppingFoodPreview = resolveAssetUrl(selectedShoppingFood?.images?.[0]?.url);
-  const selectedShoppingIngredientMeta = selectedShoppingIngredient
-    ? [
-        selectedShoppingIngredient.category || '未分类',
-        quantityTrackingLabel(selectedShoppingIngredient),
-        tracksIngredientQuantity(selectedShoppingIngredient) ? `默认 ${selectedShoppingIngredient.default_unit || '个'}` : '做菜不扣减数量',
-        selectedShoppingIngredient.default_storage || '常温',
-      ]
-    : [];
-  const selectedShoppingFoodMeta = selectedShoppingFood
-    ? [
-        selectedShoppingFood.category || '成品速食',
-        selectedShoppingFood.storage_location || '常温',
-        `默认 ${selectedShoppingFood.stock_unit || '份'}`,
-      ]
-    : [];
   const selectedIngredientPreview = resolveAssetUrl(selectedInventoryIngredient?.image?.url);
   const selectedIngredientMeta = selectedInventoryIngredient
     ? [
@@ -246,6 +205,21 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
     );
   }
 
+  if (isShoppingOverlay) {
+    return (
+      <IngredientShoppingDialog
+        open
+        closeOverlay={props.closeOverlay}
+        ingredients={props.ingredients}
+        foods={props.foods}
+        shoppingForm={props.shoppingForm}
+        setShoppingForm={props.setShoppingForm}
+        submitShopping={props.submitShopping}
+        isCreatingShopping={props.isCreatingShopping}
+      />
+    );
+  }
+
   return (
     <WorkspaceOverlayFrame
       rootClassName={INGREDIENT_WORKSPACE_OVERLAY_ROOT_CLASS}
@@ -301,27 +275,6 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         />
       )}
 
-      {isShoppingOverlay && (
-        <IngredientShoppingOverlay
-          closeOverlay={closeIfAllowed}
-          ingredients={props.ingredients}
-          foods={props.foods}
-          shoppingForm={props.shoppingForm}
-          setShoppingForm={props.setShoppingForm}
-          selectedShoppingIngredient={selectedShoppingIngredient}
-          selectedShoppingFood={selectedShoppingFood}
-          selectedShoppingIngredientPreview={selectedShoppingIngredientPreview}
-          selectedShoppingFoodPreview={selectedShoppingFoodPreview}
-          selectedShoppingIngredientMeta={selectedShoppingIngredientMeta}
-          selectedShoppingFoodMeta={selectedShoppingFoodMeta}
-          shoppingIngredientUnitOptions={shoppingIngredientUnitOptions}
-          shoppingQuantityValue={shoppingQuantityValue}
-          shoppingQuantityStep={shoppingQuantityStep}
-          shoppingQuantityQuickValues={shoppingQuantityQuickValues}
-          submitShopping={props.submitShopping}
-          isCreatingShopping={props.isCreatingShopping}
-        />
-      )}
     </WorkspaceOverlayFrame>
   );
 }

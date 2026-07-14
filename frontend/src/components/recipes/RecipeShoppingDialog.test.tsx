@@ -107,6 +107,7 @@ function renderDialog(options: {
 } = {}) {
   const onClose = vi.fn();
   const onAddCustomDraft = vi.fn();
+  const onUpdateDraft = vi.fn();
   const view = attachRoot();
   act(() => {
     root?.render(
@@ -125,7 +126,7 @@ function renderDialog(options: {
         unitOptions={['个', '份']}
         resolveIngredientImageUrl={() => ''}
         onClose={onClose}
-        onUpdateDraft={vi.fn()}
+        onUpdateDraft={onUpdateDraft}
         onAdjustDraftQuantity={vi.fn()}
         onRemoveDraft={vi.fn()}
         onAddRecipeIngredient={vi.fn()}
@@ -138,7 +139,7 @@ function renderDialog(options: {
       />,
     );
   });
-  return { onAddCustomDraft, onClose, view };
+  return { onAddCustomDraft, onClose, onUpdateDraft, view };
 }
 
 describe('RecipeShoppingDialog', () => {
@@ -189,6 +190,20 @@ describe('RecipeShoppingDialog', () => {
     expect(addButton?.disabled).toBe(false);
     act(() => addButton?.click());
     expect(selectedIngredient.onAddCustomDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the user edit a recipe ingredient shopping quantity', () => {
+    const { onUpdateDraft, view } = renderDialog();
+    const quantityInput = view.querySelector<HTMLInputElement>('.recipe-shopping-draft-row input[aria-label="数量"]');
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(quantityInput, '3');
+      quantityInput?.dispatchEvent(new Event('input', { bubbles: true }));
+      quantityInput?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(onUpdateDraft).toHaveBeenCalledWith('draft-1', { quantity: '3' });
   });
 
   it('disables submit when drafts do not contain real ingredient ids', () => {

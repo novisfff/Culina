@@ -237,6 +237,34 @@ export function RecipeCookView({
           <h2>{activeCookCard.recipe.title}</h2>
           <p>{activeCookCard.recipe.prep_minutes} 分钟 · {activeCookCard.recipe.servings} 人份 · {DIFFICULTY_LABELS[activeCookCard.recipe.difficulty]}</p>
         </div>
+        {(wasCookSessionRestored || Boolean(cookPreview?.shortages.length)) ? (
+          <div className="recipe-cook-header-status" aria-label="本次烹饪状态">
+            {cookPreview?.shortages.length ? (
+              <div className="recipe-cook-header-status-row warning">
+                <span aria-hidden="true"><RecipeUiIcon name="warning" /></span>
+                <div>
+                  <strong>缺 {cookPreview.shortages.length} 项食材</strong>
+                  <small title={cookPreview.shortages.map(formatCookShortageSummary).join('、')}>
+                    {cookPreview.shortages.map(formatCookShortageSummary).join('、')}
+                  </small>
+                </div>
+                <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>
+                  采购
+                </button>
+              </div>
+            ) : null}
+            {wasCookSessionRestored ? (
+              <div className="recipe-cook-header-status-row restored">
+                <span aria-hidden="true"><RecipeUiIcon name="clock" /></span>
+                <div>
+                  <strong>已恢复进度</strong>
+                  <small>步骤、用料和计时已保存</small>
+                </div>
+                <button type="button" onClick={resetActiveCookSession}>重来</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="recipe-cook-header-progress">
           <div className="recipe-cook-progress-track">
             <span style={{ width: `${cookProgressPercent}%` }} />
@@ -354,31 +382,6 @@ export function RecipeCookView({
         </section>
 
         <aside className="recipe-cook-side-panel">
-          {(wasCookSessionRestored || Boolean(cookPreview?.shortages.length)) && (
-            <section className="recipe-cook-status-card recipe-cook-status-desktop">
-              {wasCookSessionRestored && (
-                <div className="recipe-cook-status-row">
-                  <span><RecipeUiIcon name="clock" /></span>
-                  <div>
-                    <strong>已恢复进度</strong>
-                    <small>步骤、用料和计时已保存</small>
-                  </div>
-                  <button type="button" onClick={resetActiveCookSession}>重来</button>
-                </div>
-              )}
-              {cookPreview?.shortages.length ? (
-                <div className="recipe-cook-status-row warning">
-                  <span><RecipeUiIcon name="warning" /></span>
-                  <div>
-                    <strong>缺 {cookPreview.shortages.length} 项</strong>
-                    <small>{cookPreview.shortages.map(formatCookShortageSummary).join('、')}</small>
-                  </div>
-                  <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>采购</button>
-                </div>
-              ) : null}
-            </section>
-          )}
-
           {cookPreview?.shortages.length ? (
             <section className="recipe-cook-status-card recipe-cook-status-mobile recipe-cook-shortage-status">
               <div className="recipe-cook-status-row warning">

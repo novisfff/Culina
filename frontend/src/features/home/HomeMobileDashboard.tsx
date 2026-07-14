@@ -128,6 +128,7 @@ export type HomeMobileDashboardProps = {
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
+  resolvePlanItemCoverUrl?: (item: FoodPlanItem) => string | undefined;
   onNavigate: (target: AppNavigationTarget) => void;
   onOpenGlobalSearch: () => void;
   onNextMobileRecommendation: () => void;
@@ -278,6 +279,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
           onAddMeal={props.onHomePlanAddEmptyDialogOpen}
           onOpenPlanDetail={props.onHomePlanDetailOpen}
           onOpenMealPlans={props.onOpenMealPlans}
+          resolvePlanItemCoverUrl={props.resolvePlanItemCoverUrl}
           mobile
         />
       </section>

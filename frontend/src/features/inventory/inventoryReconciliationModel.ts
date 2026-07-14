@@ -11,6 +11,10 @@ import type {
 } from '../../api/types';
 import { calendarDaysBetweenDateKeys, hoursBetweenInstants } from '../../lib/date';
 import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
+import {
+  convertQuantityFromDefaultUnit,
+  convertQuantityToDefaultUnit,
+} from '../../lib/ingredientUnits';
 
 export type InventoryReconciliationScope =
   | 'suggested'
@@ -140,7 +144,7 @@ export const SCOPE_LABELS: Record<InventoryReconciliationScope, string> = {
 };
 
 export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, string> = {
-  never_confirmed: '从未确认',
+  never_confirmed: '待确认',
   current: '刚确认过',
   stale: '建议再确认',
 };
@@ -474,6 +478,151 @@ export function buildExactAdjustBatchesIntent(args: {
     observedBatches: buildObservedBatches(args.group),
     updates: args.updates,
     creates: args.creates ?? [],
+  };
+}
+
+export type ExactTotalAdjustmentSuggestion =
+  | {
+      ok: true;
+      intent: ExactIngredientIntent;
+      actualQuantityInDefaultUnit: number;
+      recordedQuantityInDefaultUnit: number;
+      availableQuantityInDefaultUnit: number;
+      processedBatchIds: string[];
+      retainedBatchIds: string[];
+      partialBatchIds: string[];
+    }
+  | {
+      ok: false;
+      reason: 'invalid_quantity' | 'incompatible_unit' | 'above_recorded';
+      message: string;
+    };
+
+export function buildExactTotalAdjustmentSuggestion(args: {
+  group: Extract<InventoryReconciliationGroup, { kind: 'exact_ingredient' }>;
+  actualQuantity: string;
+  actualUnit: string;
+  referenceDate: string;
+}): ExactTotalAdjustmentSuggestion {
+  const actualQuantity = Number(args.actualQuantity);
+  if (!Number.isFinite(actualQuantity) || actualQuantity < 0) {
+    return {
+      ok: false,
+      reason: 'invalid_quantity',
+      message: '请填写大于或等于 0 的实际数量。',
+    };
+  }
+
+  const ingredientUnits = {
+    default_unit: args.group.default_unit || args.group.batches[0]?.unit || args.actualUnit,
+    unit_conversions: args.group.unit_conversions ?? [],
+  };
+  const actualInDefault = convertQuantityToDefaultUnit(
+    ingredientUnits,
+    actualQuantity,
+    args.actualUnit,
+  );
+  if (actualInDefault === null) {
+    return {
+      ok: false,
+      reason: 'incompatible_unit',
+      message: `当前批次无法可靠换算为“${args.actualUnit}”，请手动调整批次。`,
+    };
+  }
+
+  const physicalBatches = args.group.batches.filter((batch) => batch.remaining_quantity > 0);
+  const normalizedBatches = physicalBatches.map((batch) => ({
+    batch,
+    quantityInDefault: convertQuantityToDefaultUnit(
+      ingredientUnits,
+      batch.remaining_quantity,
+      batch.unit,
+    ),
+  }));
+  if (normalizedBatches.some((entry) => entry.quantityInDefault === null)) {
+    return {
+      ok: false,
+      reason: 'incompatible_unit',
+      message: '现有批次包含无法换算的单位，请手动调整批次。',
+    };
+  }
+
+  const recordedInDefault = Number(
+    normalizedBatches.reduce((sum, entry) => sum + (entry.quantityInDefault ?? 0), 0).toFixed(2),
+  );
+  if (actualInDefault > recordedInDefault) {
+    return {
+      ok: false,
+      reason: 'above_recorded',
+      message: '实际数量高于系统记录，请手动调整并补记新增批次。',
+    };
+  }
+
+  const availableInDefault = Number(
+    normalizedBatches
+      .filter((entry) => !isPhysicalBatchExpired(entry.batch, args.referenceDate))
+      .reduce((sum, entry) => sum + (entry.quantityInDefault ?? 0), 0)
+      .toFixed(2),
+  );
+  const sorted = [...normalizedBatches].sort((left, right) => {
+    const leftExpired = isPhysicalBatchExpired(left.batch, args.referenceDate) ? 0 : 1;
+    const rightExpired = isPhysicalBatchExpired(right.batch, args.referenceDate) ? 0 : 1;
+    if (leftExpired !== rightExpired) return leftExpired - rightExpired;
+    const expiryOrder = (left.batch.expiry_date || '9999-12-31').localeCompare(
+      right.batch.expiry_date || '9999-12-31',
+    );
+    if (expiryOrder !== 0) return expiryOrder;
+    return left.batch.purchase_date.localeCompare(right.batch.purchase_date);
+  });
+  let reductionRemaining = Number((recordedInDefault - actualInDefault).toFixed(2));
+  const nextQuantityById = new Map<string, number>();
+  const processedBatchIds: string[] = [];
+  const retainedBatchIds: string[] = [];
+  const partialBatchIds: string[] = [];
+
+  for (const entry of sorted) {
+    const currentDefault = entry.quantityInDefault ?? 0;
+    const reduction = Math.min(reductionRemaining, currentDefault);
+    const nextDefault = Number((currentDefault - reduction).toFixed(2));
+    reductionRemaining = Number((reductionRemaining - reduction).toFixed(2));
+    const nextNative = convertQuantityFromDefaultUnit(
+      ingredientUnits,
+      nextDefault,
+      entry.batch.unit,
+    );
+    if (nextNative === null) {
+      return {
+        ok: false,
+        reason: 'incompatible_unit',
+        message: '系统无法生成可靠的批次建议，请手动调整批次。',
+      };
+    }
+    nextQuantityById.set(entry.batch.inventory_item_id, nextNative);
+    if (reduction > 0) processedBatchIds.push(entry.batch.inventory_item_id);
+    if (nextDefault > 0) retainedBatchIds.push(entry.batch.inventory_item_id);
+    if (reduction > 0 && nextDefault > 0) partialBatchIds.push(entry.batch.inventory_item_id);
+  }
+
+  const updates = physicalBatches.map((batch) =>
+    buildBatchUpdateFromGroup(args.group, batch.inventory_item_id, {
+      actualRemainingQuantity: formatQuantityString(
+        nextQuantityById.get(batch.inventory_item_id) ?? batch.remaining_quantity,
+      ),
+    }),
+  ).filter((entry): entry is ExactBatchUpdateIntent => Boolean(entry));
+
+  return {
+    ok: true,
+    intent:
+      actualInDefault === recordedInDefault
+        ? buildExactConfirmAllIntent(args.group)
+        : buildExactAdjustBatchesIntent({ group: args.group, updates }),
+    actualQuantityInDefaultUnit: actualInDefault,
+    recordedQuantityInDefaultUnit: recordedInDefault,
+    availableQuantityInDefaultUnit: availableInDefault,
+    processedBatchIds,
+    retainedBatchIds,
+    partialBatchIds,
   };
 }
 

@@ -2,6 +2,8 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ShoppingIntakeResult } from '../../api/types';
 import { ShoppingIntakeDialog } from './ShoppingIntakeDialog';
@@ -136,6 +138,63 @@ afterEach(() => {
 });
 
 describe('ShoppingIntakeDialog', () => {
+  it('uses standard modal chrome and compact shopping selection rows', () => {
+    renderDialog();
+
+    const modal = container!.querySelector('.workspace-modal');
+    expect(modal).not.toBeNull();
+    expect(modal?.classList.contains('inventory-maintenance-modal')).toBe(false);
+    expect(modal?.querySelector(':scope > .workspace-overlay-body > .inventory-shopping-intake-content')).not.toBeNull();
+    expect(modal?.querySelector('.inventory-maintenance-scroll')).toBeNull();
+    expect(modal?.querySelector('.inventory-maintenance-desktop-actions')).toBeNull();
+    expect(modal?.querySelector('.inventory-maintenance-mobile-actions')).toBeNull();
+
+    const row = modal?.querySelector('.inventory-shopping-intake-item');
+    const checkbox = row?.querySelector<HTMLInputElement>('input.inventory-shopping-intake-checkbox');
+    expect(row).not.toBeNull();
+    expect(checkbox?.ariaLabel).toContain('选择');
+    expect(row?.querySelector('.ui-status-badge')).not.toBeNull();
+    expect(row?.querySelector('.inventory-shopping-intake-plan')).not.toBeNull();
+
+    const freeTextAction = modal?.querySelector('.inventory-freetext-action-btn');
+    expect(freeTextAction?.classList.contains('ghost-button')).toBe(true);
+  });
+
+  it('uses warm Culina surfaces instead of cold gray shopping panels', () => {
+    const styles = readFileSync(
+      resolve(__dirname, '../../styles/11-inventory-maintenance.css'),
+      'utf8',
+    );
+
+    expect(styles).toMatch(
+      /\.inventory-shopping-intake-select\.card \{[^}]*background: var\(--surface-warm, #fcfaf7\);/,
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-review-overview \{[^}]*background: var\(--surface-warm, #fcfaf7\);/,
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-review-section\.inventory-maintenance-section \{[^}]*background: var\(--surface-warm, #fcfaf7\);/,
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-intake-item \.ui-status-badge\.tone-neutral \{[^}]*background: var\(--surface-muted, #f6f0ea\);/,
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-intake-modal > \.workspace-overlay-body \{[^}]*overflow-x: hidden;/,
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-intake-content \{[^}]*overflow-x: hidden;/,
+    );
+    expect(styles).toContain(
+      'grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);',
+    );
+    expect(styles).not.toContain(
+      'grid-template-columns: minmax(280px, 0.82fr) minmax(360px, 1.18fr);',
+    );
+    expect(styles).toMatch(
+      /\.inventory-shopping-result-heading > \.ui-status-badge \{[^}]*white-space: nowrap;/,
+    );
+  });
+
   it('renders select step with explicit multi-select and free-text actions', () => {
     const props = renderDialog();
     expect(container!.textContent).toContain('选择本次买到的项目');
@@ -281,6 +340,69 @@ describe('ShoppingIntakeDialog', () => {
     expect(props.onSubmit).toHaveBeenCalled();
   });
 
+  it('uses a compact review summary, actionable rows, and an inline no-difference state', () => {
+    const secondExactItem: ShoppingIntakeDraftItem = {
+      ...exactItem,
+      shoppingItemId: 's-yogurt',
+      title: '酸奶',
+      targetId: 'ing-yogurt',
+    };
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem, secondExactItem]),
+    });
+
+    const overview = container!.querySelector('.inventory-shopping-review-overview');
+    expect(overview).not.toBeNull();
+    expect(overview?.textContent).toContain('本次入库');
+    expect(overview?.textContent).toContain('按计划');
+    expect(overview?.textContent).toContain('需调整');
+    expect(overview?.querySelector('time[dateTime="2026-07-11"]')).not.toBeNull();
+
+    const rows = container!.querySelectorAll('.inventory-shopping-review-item');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.querySelector('.ui-status-badge')).not.toBeNull();
+
+    const adjustButton = rows[0]?.querySelector<HTMLButtonElement>(
+      '.inventory-shopping-review-adjust',
+    );
+    expect(adjustButton?.classList.contains('ghost-button')).toBe(true);
+    expect(adjustButton?.textContent).toContain('调整');
+
+    expect(container!.querySelector('.inventory-shopping-review-empty')).not.toBeNull();
+    expect(container!.textContent).toContain('没有差异，可直接确认入库');
+    expect(container!.querySelector('.inventory-maintenance-review-meta')).toBeNull();
+  });
+
+  it('keeps an edited row mounted in place when it becomes an exception', () => {
+    const props = renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+      expandedExceptionIds: ['s-milk'],
+    });
+    const rowBeforeChange = Array.from(
+      container!.querySelectorAll<HTMLElement>('.inventory-shopping-review-item'),
+    ).find((row) => row.textContent?.includes('牛奶'));
+    expect(rowBeforeChange).toBeTruthy();
+
+    act(() => {
+      root!.render(
+        <ShoppingIntakeDialog
+          {...props}
+          draft={makeDraft([{ ...exactItem, actualQuantity: '2' }])}
+          expandedExceptionIds={['s-milk']}
+        />,
+      );
+    });
+
+    const rowAfterChange = Array.from(
+      container!.querySelectorAll<HTMLElement>('.inventory-shopping-review-item'),
+    ).find((row) => row.textContent?.includes('牛奶'));
+    expect(rowAfterChange).toBe(rowBeforeChange);
+    expect(rowAfterChange?.closest('.inventory-shopping-review-list')).not.toBeNull();
+    expect(container!.textContent).toContain('1 个项目存在差异');
+  });
+
   it('lets a default planned row enter exception editing', () => {
     const props = renderDialog({
       step: 'review',
@@ -309,6 +431,7 @@ describe('ShoppingIntakeDialog', () => {
       'input[data-field-key="s-milk:actualQuantity"]',
     ) as HTMLInputElement | null;
     expect(quantityInput).toBeTruthy();
+    expect(quantityInput?.step).toBe('1');
 
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(
@@ -395,7 +518,7 @@ describe('ShoppingIntakeDialog', () => {
     expect(document.activeElement).toBe(unitTrigger);
   });
 
-  it('renders a structured storage-location error beside the editable field', () => {
+  it('renders and focuses a structured storage-location error on the storage select', () => {
     renderDialog({
       step: 'review',
       draft: makeDraft([presenceItem]),
@@ -411,27 +534,83 @@ describe('ShoppingIntakeDialog', () => {
       ],
     });
 
-    const storageInput = container!.querySelector(
-      'input[data-field-key="s-salt:storageLocation"]',
-    ) as HTMLInputElement | null;
-    expect(storageInput).toBeTruthy();
+    const storageSelect = container!.querySelector(
+      'button[data-field-key="s-salt:storageLocation"]',
+    ) as HTMLButtonElement | null;
+    expect(storageSelect).toBeTruthy();
     expect(container!.textContent).toContain('存放位置不能为空');
-    expect(document.activeElement).toBe(storageInput);
+    expect(document.activeElement).toBe(storageSelect);
+  });
+
+  it('selects storage location from the shared inventory presets', () => {
+    const props = renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+      expandedExceptionIds: ['s-milk'],
+    });
+
+    const storageSelect = container!.querySelector(
+      'button[data-field-key="s-milk:storageLocation"]',
+    ) as HTMLButtonElement | null;
+    expect(storageSelect).toBeTruthy();
+    act(() => {
+      storageSelect!.click();
+    });
+
+    const options = Array.from(
+      container!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      expect.stringContaining('冷藏'),
+      expect.stringContaining('冷冻'),
+      expect.stringContaining('常温'),
+    ]);
+    const frozenOption = options.find((option) => option.textContent?.includes('冷冻'));
+    act(() => {
+      frozenOption!.click();
+    });
+    expect(props.onPatchItem).toHaveBeenCalledWith('s-milk', { storageLocation: '冷冻' });
   });
 
   it('renders result with applied/partial counts and revertible_until', () => {
+    const onViewResult = vi.fn();
+    const onRevertResult = vi.fn();
     renderDialog({
       step: 'result',
       draft: makeDraft([exactItem]),
       result,
+      onViewResult,
+      onRevertResult,
     });
     expect(container!.textContent).toContain('本次购买已登记');
-    expect(container!.textContent).toContain('完成');
-    expect(container!.textContent).toContain('部分');
+    expect(container!.textContent).toContain('库存与采购清单已同步更新');
+    expect(container!.textContent).toContain('已登记 2 项');
+    expect(container!.textContent).toContain('完成 2');
+    expect(container!.textContent).toContain('部分 0');
     expect(container!.textContent).toMatch(/可在/);
     expect(container!.querySelector('[aria-live]')).toBeTruthy();
     expect(container!.textContent).toContain('牛奶');
     expect(container!.textContent).not.toContain('s-milk');
+    expect(container!.querySelector('.inventory-shopping-result-overview')).not.toBeNull();
+    expect(container!.querySelector('.inventory-shopping-result-items')).not.toBeNull();
+    expect(container!.querySelector('.inventory-maintenance-summary-metrics')).toBeNull();
+    expect(container!.querySelector('.inventory-shopping-intake-modal.is-result')).not.toBeNull();
+
+    const viewDetails = Array.from(container!.querySelectorAll('button')).find(
+      (button) => button.textContent === '查看操作详情',
+    );
+    const revertButtons = Array.from(container!.querySelectorAll('button')).filter(
+      (button) => button.textContent === '撤销本次登记',
+    );
+    expect(viewDetails).toBeTruthy();
+    expect(revertButtons).toHaveLength(1);
+
+    act(() => {
+      viewDetails!.click();
+      revertButtons[0].click();
+    });
+    expect(onViewResult).toHaveBeenCalledWith('op-1');
+    expect(onRevertResult).toHaveBeenCalledWith('op-1');
   });
 
   it('shows loading, empty, field-error, conflict, and busy states', () => {
@@ -488,11 +667,49 @@ describe('ShoppingIntakeDialog', () => {
       busy: true,
     });
     const busySubmit = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('处理中'),
+      button.textContent?.includes('正在登记'),
     );
     expect(busySubmit).toBeTruthy();
     expect((busySubmit as HTMLButtonElement).disabled).toBe(true);
     expect(conflictProps.onRetry).toBeTruthy();
+  });
+
+  it('shows a local progress overlay while registering inventory', () => {
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([exactItem]),
+      busy: true,
+    });
+
+    const overlay = container!.querySelector('.ui-operation-loading-overlay');
+    expect(overlay?.getAttribute('aria-busy')).toBe('true');
+    expect(overlay?.textContent).toContain('正在登记采购项');
+    expect(overlay?.querySelector('.ui-operation-loading-spinner')).not.toBeNull();
+    const submit = Array.from(container!.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '正在登记',
+    );
+    expect(submit?.disabled).toBe(true);
+    expect(submit?.querySelector('.ui-form-action-spinner')).not.toBeNull();
+  });
+
+  it('shows progress on the undo action while reverting a result', () => {
+    renderDialog({
+      step: 'result',
+      draft: makeDraft([exactItem]),
+      result,
+      busy: true,
+      onRevertResult: vi.fn(),
+    });
+
+    const overlay = container!.querySelector('.ui-operation-loading-overlay');
+    expect(overlay?.getAttribute('aria-busy')).toBe('true');
+    expect(overlay?.textContent).toContain('正在撤销本次登记');
+    const undo = Array.from(container!.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '正在撤销',
+    );
+    expect(undo?.disabled).toBe(true);
+    expect(undo?.getAttribute('aria-busy')).toBe('true');
+    expect(undo?.querySelector('.ui-form-action-spinner')).not.toBeNull();
   });
 
   it('puts a conflicted clean row first and requires a fresh confirmation', () => {

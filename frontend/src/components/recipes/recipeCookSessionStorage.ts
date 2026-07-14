@@ -19,7 +19,7 @@ export type RecipeCookSessionScope = { userId: string; familyId: string };
 export type RecipeCookSessionSource = 'direct' | 'plan';
 
 export type RecipeCookSessionSourceRef =
-  | { kind: 'direct' }
+  | { kind: 'direct'; date?: string; mealType?: MealType }
   | { kind: 'plan'; foodPlanItemId: string };
 
 export type RecipeCookSessionStateV3 = RecipeCookSessionState & {
@@ -69,6 +69,9 @@ export function buildCookSessionV3Key(
 ): string {
   if (source.kind === 'plan') {
     return `culina-recipe-cook-session-v3:${scope.userId}:${scope.familyId}:${recipeId}:plan:${source.foodPlanItemId}`;
+  }
+  if (source.date && source.mealType) {
+    return `culina-recipe-cook-session-v3:${scope.userId}:${scope.familyId}:${recipeId}:direct:${source.date}:${source.mealType}`;
   }
   return `culina-recipe-cook-session-v3:${scope.userId}:${scope.familyId}:${recipeId}:direct`;
 }
@@ -433,14 +436,17 @@ export function saveCookSessionV3(args: {
   recipeId: string;
   session: RecipeCookSessionStateV3;
   savedAt?: string;
+  /** Explicit source identity for migration callers; new direct saves derive date+meal from session. */
+  sourceRef?: RecipeCookSessionSourceRef;
   /** When true, refuse to overwrite an incompatible future version at the exact key. */
   refuseIncompatible?: boolean;
 }): ActiveCookDescriptor | null {
   const storage = args.storage ?? defaultStorage();
-  const sourceRef: RecipeCookSessionSourceRef =
+  const sourceRef: RecipeCookSessionSourceRef = args.sourceRef ?? (
     args.session.source === 'plan' && args.session.planItemId
       ? { kind: 'plan', foodPlanItemId: args.session.planItemId }
-      : { kind: 'direct' };
+      : { kind: 'direct', date: args.session.date, mealType: args.session.mealType }
+  );
   const sessionKey = buildCookSessionV3Key(args.scope, args.recipeId, sourceRef);
   if (args.refuseIncompatible !== false) {
     const existing = readCookSessionV3(storage, sessionKey);
@@ -552,14 +558,9 @@ export function compareAndClearCookSession(args: {
     if (sessionSavedAt && sessionSavedAt !== args.expectedDescriptor.savedAt) {
       return clearedDescriptor;
     }
-    // Session key already encodes recipe/source; clear only when descriptor compare succeeded
-    // or the descriptor was already cleared and the session is for the same plan/direct target.
-    if (clearedDescriptor || matchesTarget) {
-      // Stale-tab protection: if a newer descriptor exists, do not clear session of another cook.
-      const remaining = readActiveCook(storage, args.scope);
-      if (remaining && remaining.savedAt !== args.expectedDescriptor.savedAt) {
-        return clearedDescriptor;
-      }
+    // The exact key identifies one independent task. A newer descriptor may point
+    // at another task and must not block clearing this matching savedAt token.
+    if (matchesTarget) {
       removeStorage(args.expectedSessionKey, storage);
       return true;
     }
@@ -618,7 +619,39 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
   const now = input.now ?? Date.now();
   const { source, planItemId } = sourceFromRef(input.source);
   const sessionKey = buildCookSessionV3Key(input.scope, input.recipe.id, input.source);
-  const readResult = readCookSessionV3(storage, sessionKey, now);
+  let readResult = readCookSessionV3(storage, sessionKey, now);
+  let migratedScopedDirectKey = false;
+
+  // Older scoped direct sessions used one key per recipe. Move that bundle to the
+  // date+meal identity stored inside it before resolving the requested task.
+  if (
+    readResult.kind === 'missing'
+    && input.source.kind === 'direct'
+    && input.source.date
+    && input.source.mealType
+  ) {
+    const legacyScopedKey = buildCookSessionV3Key(input.scope, input.recipe.id, { kind: 'direct' });
+    const legacyScopedRead = readCookSessionV3(storage, legacyScopedKey, now);
+    if (legacyScopedRead.kind === 'ready') {
+      const legacyTargetKey = buildCookSessionV3Key(input.scope, input.recipe.id, {
+        kind: 'direct',
+        date: legacyScopedRead.bundle.session.date,
+        mealType: legacyScopedRead.bundle.session.mealType,
+      });
+      const targetRead = readCookSessionV3(storage, legacyTargetKey, now);
+      if (targetRead.kind === 'missing') {
+        const raw = storage.getItem(legacyScopedKey);
+        if (raw != null) storage.setItem(legacyTargetKey, raw);
+      }
+      removeStorage(legacyScopedKey, storage);
+      migratedScopedDirectKey = true;
+      if (legacyTargetKey === sessionKey) {
+        readResult = readCookSessionV3(storage, sessionKey, now);
+      }
+    } else if (legacyScopedRead.kind === 'expired' || legacyScopedRead.kind === 'invalid') {
+      removeStorage(legacyScopedKey, storage);
+    }
+  }
 
   if (readResult.kind === 'incompatible') {
     // Preserve storage; return a fresh in-memory session that will not overwrite incompatible data
@@ -640,7 +673,7 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
     return {
       session,
       restored: false,
-      migrated: false,
+      migrated: migratedScopedDirectKey,
       sessionKey,
       descriptor,
       readResult,
@@ -666,7 +699,7 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
     return {
       session,
       restored: true,
-      migrated: false,
+      migrated: migratedScopedDirectKey,
       sessionKey,
       descriptor,
       readResult,
@@ -674,19 +707,16 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
   }
 
   if (readResult.kind === 'expired') {
-    // Leave cleanup to compare-and-clear with the known key; do not silent-delete here if a newer
-    // descriptor exists. For exact-key expiry with no newer activity, remove the expired bundle.
+    // Sessions are independent; expiry only removes this exact task key.
     const active = readActiveCook(storage, input.scope);
     const expiredMatchesActive =
       active &&
       active.recipeId === input.recipe.id &&
       active.foodPlanItemId === planItemId &&
       active.savedAt === readResult.bundle.savedAt;
-    if (expiredMatchesActive || !active) {
-      removeStorage(sessionKey, storage);
-      if (expiredMatchesActive && active) {
-        compareAndClearActiveCook(storage, input.scope, active);
-      }
+    removeStorage(sessionKey, storage);
+    if (expiredMatchesActive && active) {
+      compareAndClearActiveCook(storage, input.scope, active);
     }
   } else if (readResult.kind === 'invalid') {
     // Provably malformed v3 for the exact current key may be removed.
@@ -760,6 +790,7 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
         scope: input.scope,
         recipeId: input.recipe.id,
         session,
+        sourceRef: input.source,
         savedAt: legacy.savedAt && !isCookSessionExpired(legacy.savedAt, source, now)
           ? legacy.savedAt
           : new Date(now).toISOString(),
@@ -792,6 +823,7 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
     scope: input.scope,
     recipeId: input.recipe.id,
     session,
+    sourceRef: input.source,
     savedAt: new Date(now).toISOString(),
   }) ?? {
     version: 1 as const,
@@ -808,19 +840,6 @@ export function loadOrMigrateCookSession(input: LoadOrMigrateCookSessionInput): 
     descriptor,
     readResult: { kind: 'missing' },
   };
-}
-
-export function descriptorsMatch(a: ActiveCookDescriptor | null, b: ActiveCookDescriptor | null): boolean {
-  if (!a || !b) return false;
-  return a.recipeId === b.recipeId && a.foodPlanItemId === b.foodPlanItemId && a.savedAt === b.savedAt;
-}
-
-export function isSameCookTarget(
-  descriptor: ActiveCookDescriptor,
-  recipeId: string,
-  planItemId: string | null,
-): boolean {
-  return descriptor.recipeId === recipeId && descriptor.foodPlanItemId === planItemId;
 }
 
 /** Runtime session used by cook UI; identical to persisted V3 shape. */
