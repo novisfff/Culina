@@ -3,7 +3,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { Recipe } from '../../api/types';
+import type { Food, Recipe } from '../../api/types';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import type { AppNavigationState } from '../../app/appNavigationModel';
 import { EatWorkspace, type EatWorkspaceProps } from './EatWorkspace';
@@ -22,6 +22,32 @@ function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
     tips: '',
     images: [],
     cook_logs: [],
+    created_at: '2026-07-01T00:00:00.000Z',
+    updated_at: '2026-07-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function makeFood(overrides: Partial<Food> = {}): Food {
+  return {
+    id: 'food-1',
+    family_id: 'family-1',
+    name: 'Tomato eggs',
+    type: 'selfMade',
+    category: 'home',
+    flavor_tags: [],
+    suitable_meal_types: ['dinner'],
+    source_name: '',
+    purchase_source: '',
+    scene: '',
+    images: [],
+    notes: '',
+    routine_note: '',
+    stock_unit: '份',
+    storage_location: '',
+    favorite: false,
+    recipe_id: 'recipe-1',
+    row_version: 1,
     created_at: '2026-07-01T00:00:00.000Z',
     updated_at: '2026-07-01T00:00:00.000Z',
     ...overrides,
@@ -69,20 +95,71 @@ function makeEatProps(overrides: Partial<EatWorkspaceProps> = {}): EatWorkspaceP
     navigation: createNavigationService(),
     resolvedTask: { kind: 'none' },
     discoverContent: <div>发现内容</div>,
-    planContent: <div>菜单内容</div>,
     historyContent: <div>吃过的内容</div>,
     ...overrides,
   };
 }
 
 describe('EatWorkspace', () => {
-  it('switches base views through tab semantics and closes the current task', async () => {
-    const user = userEvent.setup();
+  it('renders cooking as the immersive workspace without the discovery surface', () => {
+    const view = render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: {
+            kind: 'cook',
+            food: makeFood(),
+            recipe: makeRecipe(),
+            launchContext: {
+              date: '2026-07-14',
+              mealType: 'dinner',
+              servings: 2,
+              source: { kind: 'direct' },
+            },
+          },
+          cookTaskContent: <div>整屏做菜</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('整屏做菜')).toBeInTheDocument();
+    expect(screen.queryByText('发现内容')).not.toBeInTheDocument();
+    expect(view.container.querySelector('.recipe-workspace-cook-mode')).not.toBeNull();
+  });
+
+  it('keeps the food page behind the cook resume prompt', () => {
+    const view = render(
+      <EatWorkspace
+        {...makeEatProps({
+          resolvedTask: {
+            kind: 'cook',
+            food: makeFood(),
+            recipe: makeRecipe(),
+            launchContext: {
+              date: '2026-07-14',
+              mealType: 'dinner',
+              servings: 2,
+              source: { kind: 'direct' },
+            },
+          },
+          cookResumePromptOpen: true,
+          cookTaskContent: <div role="dialog">恢复做菜</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('发现内容')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('恢复做菜');
+    const background = view.container.querySelector('.eat-workspace-cook-background');
+    expect(background).toHaveAttribute('aria-hidden', 'true');
+    expect(background).toHaveAttribute('inert');
+  });
+
+  it('keeps discovery as the only top-level food view without section tabs', () => {
     const navigation = createNavigationServiceWithFoodTask();
     render(<EatWorkspace {...makeEatProps({ navigation })} />);
-    expect(screen.getByRole('tab', { name: '发现' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('tab', { name: '菜单' }));
-    expect(navigation.selectEatView).toHaveBeenCalledWith('plan', expect.anything());
+    expect(screen.getByText('发现内容')).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByText('菜单内容')).not.toBeInTheDocument();
   });
 
   it('shows a recoverable relation error without a write action', () => {
@@ -123,18 +200,17 @@ describe('EatWorkspace', () => {
     expect(screen.getByText('这份家常菜已经不存在')).toBeInTheDocument();
   });
 
-  it('renders the selected base view content and registers the base focus target', () => {
+  it('falls back to discovery when a legacy menu base view is restored', () => {
     const navigation = createNavigationService({
       eat: { baseView: 'plan', task: null, discoverSection: 'all' },
     });
     render(<EatWorkspace {...makeEatProps({ navigation })} />);
-    expect(screen.getByText('菜单内容')).toBeInTheDocument();
-    expect(screen.queryByText('发现内容')).not.toBeInTheDocument();
+    expect(screen.getByText('发现内容')).toBeInTheDocument();
+    expect(screen.queryByText('菜单内容')).not.toBeInTheDocument();
     expect(navigation.registerBaseViewFocusTarget).toHaveBeenCalled();
-    expect(screen.getByRole('tab', { name: '菜单' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('renders the active cook resume entry only on Discover base view', () => {
+  it('does not inject a page-load cook resume entry into Discover', () => {
     const navigation = createNavigationService({
       eat: { baseView: 'discover', task: null, discoverSection: 'all' },
     });
@@ -142,15 +218,14 @@ describe('EatWorkspace', () => {
       <EatWorkspace
         {...makeEatProps({
           navigation,
-          activeCookResumeContent: <div data-testid="resume-slot">继续做菜入口</div>,
         })}
       />,
     );
-    expect(screen.getByTestId('resume-slot')).toBeInTheDocument();
+    expect(screen.queryByText('继续做菜入口')).not.toBeInTheDocument();
     expect(screen.getByText('发现内容')).toBeInTheDocument();
   });
 
-  it('hides the active cook resume entry on Plan base view', () => {
+  it('does not inject a page-load cook resume entry for a legacy menu base view', () => {
     const navigation = createNavigationService({
       eat: { baseView: 'plan', task: null, discoverSection: 'all' },
     });
@@ -158,12 +233,11 @@ describe('EatWorkspace', () => {
       <EatWorkspace
         {...makeEatProps({
           navigation,
-          activeCookResumeContent: <div data-testid="resume-slot">继续做菜入口</div>,
         })}
       />,
     );
-    expect(screen.queryByTestId('resume-slot')).not.toBeInTheDocument();
-    expect(screen.getByText('菜单内容')).toBeInTheDocument();
+    expect(screen.queryByText('继续做菜入口')).not.toBeInTheDocument();
+    expect(screen.getByText('发现内容')).toBeInTheDocument();
   });
 
   it('closes a relation-error task through the return action', async () => {

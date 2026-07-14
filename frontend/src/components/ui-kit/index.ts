@@ -8,6 +8,7 @@ export * from './QuantityUnitField';
 export * from './ComboboxField';
 export * from './SearchableResourceSelect';
 export * from './OptionChipGroup';
+export * from './OperationLoadingOverlay';
 export * from './StatusBadge';
 export * from './StateBlock';
 export * from './MobileActionBar';

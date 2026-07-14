@@ -111,6 +111,13 @@ describe('recipeCookSessionStorage keys', () => {
       'culina-recipe-cook-session-v3:u1:f1:r1:direct',
     );
     expect(
+      buildCookSessionV3Key({ userId: 'u1', familyId: 'f1' }, 'r1', {
+        kind: 'direct',
+        date: '2026-07-12',
+        mealType: 'dinner',
+      }),
+    ).toBe('culina-recipe-cook-session-v3:u1:f1:r1:direct:2026-07-12:dinner');
+    expect(
       buildCookSessionV3Key({ userId: 'u1', familyId: 'f2' }, 'r1', { kind: 'plan', foodPlanItemId: 'p1' }),
     ).toBe('culina-recipe-cook-session-v3:u1:f2:r1:plan:p1');
     expect(buildActiveCookDescriptorKey(SCOPE)).toBe('culina-active-cook-v1:u1:f1');
@@ -268,8 +275,9 @@ describe('active cook descriptor compare-delete', () => {
         expectedDescriptor: oldDesc,
         expectedSessionKey: oldKey,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(readActiveCook(storage, SCOPE)).toEqual(newerDesc);
+    expect(storage.getItem(oldKey)).toBeNull();
     expect(storage.getItem(newKey)).not.toBeNull();
   });
 });
@@ -302,6 +310,48 @@ describe('legacy parser and migration', () => {
     expect(again.session.completionRequestId).toBe(migrated.session.completionRequestId);
     expect(again.migrated).toBe(false);
     expect(again.restored).toBe(true);
+  });
+
+  it('moves a scoped direct session into its date and meal key', () => {
+    const recipe = makeRecipe();
+    const legacyScopedKey = buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' });
+    const targetKey = buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct',
+      date: '2026-07-12',
+      mealType: 'dinner',
+    });
+    const session = buildDefaultCookSessionV3(recipe, {
+      source: 'direct',
+      planItemId: null,
+      completionRequestId: 'cook-scoped-direct',
+      date: '2026-07-12',
+      mealType: 'dinner',
+    });
+    const storage = memoryStorage({
+      [legacyScopedKey]: JSON.stringify({
+        version: 3,
+        savedAt: '2026-07-12T11:00:00.000Z',
+        source: 'direct',
+        planItemId: null,
+        session,
+      }),
+    });
+
+    const loaded = loadOrMigrateCookSession({
+      storage,
+      scope: SCOPE,
+      recipe,
+      foodId: 'food-1',
+      source: { kind: 'direct', date: '2026-07-12', mealType: 'dinner' },
+      ownershipVerified: true,
+      now: NOW,
+    });
+
+    expect(loaded.restored).toBe(true);
+    expect(loaded.migrated).toBe(true);
+    expect(loaded.session.completionRequestId).toBe('cook-scoped-direct');
+    expect(storage.getItem(legacyScopedKey)).toBeNull();
+    expect(storage.getItem(targetKey)).not.toBeNull();
   });
 
   it('never overwrites an existing v3 session during migration', () => {
@@ -547,7 +597,11 @@ describe('save and default session', () => {
       servings: 2,
     });
     const desc = saveCookSessionV3({ storage, scope: SCOPE, recipeId: recipe.id, session, savedAt: NOW_ISO })!;
-    const key = buildCookSessionV3Key(SCOPE, recipe.id, { kind: 'direct' });
+    const key = buildCookSessionV3Key(SCOPE, recipe.id, {
+      kind: 'direct',
+      date: '2026-07-12',
+      mealType: 'dinner',
+    });
     const raw = JSON.parse(storage.getItem(key)!);
     expect(raw.version).toBe(3);
     expect(raw.session.createMealLog).toBeUndefined();

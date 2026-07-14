@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type {
   CookRecipeRequest,
   CookRecipePreviewRequest,
@@ -67,6 +67,7 @@ import { useRecipeShoppingState } from '../../components/recipes/useRecipeShoppi
 import { buildRecipeCards, type RecipeWorkspaceView } from '../../components/recipes/workspaceModel';
 import {
   ActionButton,
+  ConfirmDialog,
   FormActions,
   StateBlock,
   WorkspaceModal,
@@ -431,13 +432,21 @@ export function EatPlanTaskBody(props: {
   recipes: Recipe[];
   isUpdatingPlan?: boolean;
   isCompleting?: boolean;
+  isUpdatingMeal?: boolean;
+  members: Member[];
   onClose: () => void;
   onUpdate: (itemId: string, payload: { plan_date?: string; meal_type?: MealType; note?: string }) => Promise<unknown>;
   onDelete: (itemId: string) => Promise<unknown>;
-  onComplete: (item: FoodPlanItem) => void;
+  onComplete: (item: FoodPlanItem) => Promise<MealLog>;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onStartCook?: (recipeId: string, foodPlanItemId: string) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [recordedMeal, setRecordedMeal] = useState<MealLog | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const activeItemIdRef = useRef(props.item.id);
+  const completionRequestRef = useRef(0);
+  activeItemIdRef.current = props.item.id;
   const [form, setForm] = useState<FoodPlanDetailFormState>({
     planDate: props.item.plan_date,
     mealType: props.item.meal_type,
@@ -445,7 +454,10 @@ export function EatPlanTaskBody(props: {
   });
 
   useEffect(() => {
+    completionRequestRef.current += 1;
     setIsEditing(false);
+    setRecordedMeal(null);
+    setCompletionError(null);
     setForm({
       planDate: props.item.plan_date,
       mealType: props.item.meal_type,
@@ -472,6 +484,22 @@ export function EatPlanTaskBody(props: {
     setIsEditing(false);
   }
 
+  if (recordedMeal) {
+    return (
+      <MealEnrichmentModal
+        open
+        meal={recordedMeal}
+        source={{ label: '来自菜单计划', status: 'planned', planItem: props.item }}
+        members={props.members}
+        isUpdating={Boolean(props.isUpdatingMeal)}
+        updateMealLog={props.updateMealLog}
+        onClose={props.onClose}
+        overlayRootClassName="eat-task-body-overlay-root"
+        formId="eat-plan-meal-enrichment-form"
+      />
+    );
+  }
+
   return (
     <FoodPlanDetailModal
       item={props.item}
@@ -481,6 +509,7 @@ export function EatPlanTaskBody(props: {
       isEditing={isEditing}
       isUpdatingPlan={props.isUpdatingPlan}
       isCompleting={props.isCompleting}
+      actionError={completionError}
       onClose={props.onClose}
       onChangeForm={setForm}
       onEditingChange={setIsEditing}
@@ -493,7 +522,18 @@ export function EatPlanTaskBody(props: {
           props.onStartCook(props.item.recipe_id, props.item.id);
           return;
         }
-        props.onComplete(props.item);
+        setCompletionError(null);
+        const completingItemId = props.item.id;
+        const requestId = ++completionRequestRef.current;
+        void props.onComplete(props.item).then((meal) => {
+          if (activeItemIdRef.current === completingItemId && completionRequestRef.current === requestId) {
+            setRecordedMeal(meal);
+          }
+        }).catch((reason) => {
+          if (activeItemIdRef.current === completingItemId && completionRequestRef.current === requestId) {
+            setCompletionError(resolveErrorMessage(reason, '记录这餐失败，请稍后重试。'));
+          }
+        });
       }}
       onDelete={() => {
         void props.onDelete(props.item.id).then(() => props.onClose());
@@ -751,6 +791,7 @@ export function EatCookTaskBody(props: {
   onClose: () => void;
   onCompleted: () => void;
   onViewMealLog?: (mealLogId: string) => void;
+  onResumePromptChange?: (open: boolean) => void;
   /** Authenticated user+family scope for v3 cook session persistence. */
   sessionScope?: { userId: string; familyId: string } | null;
 }) {
@@ -814,33 +855,30 @@ export function EatCookTaskBody(props: {
     setLaunchSeeded(true);
   }, [cookState, cookState.cookSession, cookState.wasCookSessionRestored, launchSeeded, planItemId, props.launchContext, props.sessionScope]);
 
-  if (cookState.cookCollision) {
+  useEffect(() => {
+    props.onResumePromptChange?.(Boolean(cookState.cookResumePrompt));
+    return () => props.onResumePromptChange?.(false);
+  }, [cookState.cookResumePrompt, props.onResumePromptChange]);
+
+  if (cookState.cookResumePrompt) {
     return (
       <div className="eat-cook-task-body" data-testid="eat-cook-task-body">
-        <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
-          <WorkspaceModal
-            title="已有进行中的做菜"
-            description="同一时间只能继续一份做菜进度"
-            onClose={() => {
-              cookState.dismissCookCollision();
-              props.onClose();
-            }}
-            footerActions={
-              <div className="eat-workspace-actions">
-                <ActionButton type="button" tone="primary" onClick={cookState.continueExistingCook}>
-                  继续上次
-                </ActionButton>
-                <ActionButton type="button" tone="secondary" onClick={cookState.abandonAndStartNewCook}>
-                  放弃并开始新的
-                </ActionButton>
-              </div>
-            }
-          >
-            <p className="eat-task-relation-copy">
-              你有一份未完成的做菜进度。请选择继续上次，或放弃后开始当前这份。
-            </p>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
+        <ConfirmDialog
+          open
+          title="继续上次的做菜进度？"
+          description="这道菜在当前餐次有一份最近保存的进度。你可以接着做，也可以重新开始。"
+          confirmLabel="继续上次"
+          cancelLabel="重新开始"
+          closeLabel="关闭"
+          rootClassName="eat-task-body-overlay-root eat-cook-confirm-root"
+          modalClassName="eat-cook-confirm-modal"
+          onClose={() => {
+            cookState.dismissCookResumePrompt();
+            props.onClose();
+          }}
+          onConfirm={cookState.continueSavedCook}
+          onCancel={cookState.restartSavedCook}
+        />
       </div>
     );
   }
@@ -885,7 +923,10 @@ export function EatCookTaskBody(props: {
           cookTimerSecondWheelRef: cookState.cookTimerSecondWheelRef,
           setCookTimerPicker: cookState.setCookTimerPicker,
           setIsCookTimerCustomOpen: cookState.setIsCookTimerCustomOpen,
-          exitCookMode: () => props.onClose(),
+          exitCookMode: () => {
+            cookState.exitCookMode('source');
+            props.onClose();
+          },
           cookBackLabel: '关闭',
           cookBackTarget: 'source',
           cookExitTarget: 'source',
@@ -1233,7 +1274,7 @@ export function buildEatTaskBodies(args: {
     display_label?: string | null;
     reason: string;
   }) => Promise<ShoppingListItem>;
-  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<unknown>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
   onClose: () => void;
   onOpenLogs: () => void;
   onNavigateRecipe: (recipeId: string, mode?: 'view' | 'edit') => void;
@@ -1242,6 +1283,7 @@ export function buildEatTaskBodies(args: {
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onCookCompleted: () => void;
   onViewMealLog?: (mealLogId: string) => void;
+  onCookResumePromptChange?: (open: boolean) => void;
   sessionScope?: { userId: string; familyId: string } | null;
 }): {
   foodTaskContent?: ReactNode;
@@ -1312,12 +1354,13 @@ export function buildEatTaskBodies(args: {
           recipes={args.recipes}
           isUpdatingPlan={args.isUpdatingPlan}
           isCompleting={args.isQuickAdding || args.isCookingRecipe}
+          isUpdatingMeal={args.isUpdatingMeal}
+          members={args.members}
           onClose={args.onClose}
           onUpdate={args.updateFoodPlanItem}
           onDelete={args.deleteFoodPlanItem}
-          onComplete={(item) => {
-            void args
-              .quickAddMeal({
+          onComplete={(item) =>
+            args.quickAddMeal({
                 food_id: item.food_id,
                 date: item.plan_date,
                 meal_type: item.meal_type,
@@ -1325,8 +1368,8 @@ export function buildEatTaskBodies(args: {
                 note: item.note || '来自菜单记录',
                 food_plan_item_id: item.id,
               })
-              .then(() => args.onClose());
-          }}
+          }
+          updateMealLog={args.updateMealLog}
           onStartCook={args.onStartCook}
         />
       ),
@@ -1353,6 +1396,7 @@ export function buildEatTaskBodies(args: {
           onClose={args.onClose}
           onCompleted={args.onCookCompleted}
           onViewMealLog={args.onViewMealLog}
+          onResumePromptChange={args.onCookResumePromptChange}
           sessionScope={args.sessionScope ?? null}
         />
       ),

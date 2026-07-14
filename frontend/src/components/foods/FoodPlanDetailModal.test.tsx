@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FoodPlanItem } from '../../api/types';
+import type { Food, FoodPlanItem } from '../../api/types';
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,6 +44,36 @@ function buildPlanItem(): FoodPlanItem {
   };
 }
 
+function buildFood(): Food {
+  return {
+    id: 'food-1',
+    family_id: 'family-1',
+    name: '番茄炒蛋',
+    type: 'selfMade',
+    category: '家常菜',
+    flavor_tags: [],
+    suitable_meal_types: ['lunch', 'dinner'],
+    source_name: '',
+    purchase_source: '',
+    scene: '',
+    images: [],
+    notes: '',
+    routine_note: '',
+    price: null,
+    rating: null,
+    repurchase: null,
+    expiry_date: null,
+    stock_quantity: null,
+    stock_unit: '',
+    storage_location: '',
+    favorite: false,
+    recipe_id: null,
+    row_version: 1,
+    created_at: '2026-07-07T00:00:00Z',
+    updated_at: '2026-07-07T00:00:00Z',
+  };
+}
+
 function findButton(view: HTMLElement, text: string) {
   return Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) =>
     button.textContent?.includes(text),
@@ -51,9 +81,9 @@ function findButton(view: HTMLElement, text: string) {
 }
 
 function renderModal(options: {
+  food?: Food | null;
   isCompleting?: boolean;
   isEditing?: boolean;
-  isSupplementing?: boolean;
   isUpdatingPlan?: boolean;
 } = {}) {
   const onClose = vi.fn();
@@ -62,20 +92,18 @@ function renderModal(options: {
     root?.render(
       <FoodPlanDetailModal
         item={buildPlanItem()}
-        food={null}
+        food={options.food === undefined ? null : options.food}
         recipes={[]}
         form={{ planDate: '2026-07-07', mealType: 'dinner', note: '' }}
         isEditing={Boolean(options.isEditing)}
         isUpdatingPlan={options.isUpdatingPlan}
         isCompleting={options.isCompleting}
-        isSupplementing={options.isSupplementing}
         onClose={onClose}
         onChangeForm={vi.fn()}
         onEditingChange={vi.fn()}
         onResetEdit={vi.fn()}
         onSubmit={vi.fn()}
         onComplete={vi.fn()}
-        onSupplementRecord={vi.fn()}
         onDelete={vi.fn()}
         resolveAssetUrl={() => ''}
         overlayRootClassName="food-workspace-overlay-root"
@@ -102,8 +130,9 @@ describe('FoodPlanDetailModal', () => {
   it('keeps the modal open and locks actions while completing', () => {
     const { onClose, view } = renderModal({ isCompleting: true });
 
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在准备这餐');
+    expect(view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
     expect(findButton(view, '处理中...')?.disabled).toBe(true);
-    expect(findButton(view, '补充记录')?.disabled).toBe(true);
     expect(findButton(view, '修改')?.disabled).toBe(true);
     expect(findButton(view, '删除')?.disabled).toBe(true);
 
@@ -113,9 +142,36 @@ describe('FoodPlanDetailModal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('keeps exactly three view actions and calls the primary action record eaten', () => {
+    const { view } = renderModal();
+    const actionButtons = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('.workspace-overlay-footer-actions button'),
+    );
+
+    expect(actionButtons.map((button) => button.textContent?.trim())).toEqual([
+      '记录已吃',
+      '修改',
+      '删除',
+    ]);
+    expect(findButton(view, '补充记录')).toBeUndefined();
+  });
+
+  it('renders an immersive placeholder and adaptive food facts when the cover is missing', () => {
+    const { view } = renderModal({ food: buildFood() });
+
+    expect(view.querySelector('.food-plan-detail-hero')).not.toBeNull();
+    const placeholder = view.querySelector('.food-plan-detail-cover-fallback');
+    expect(placeholder).not.toBeNull();
+    expect(placeholder?.querySelector('strong')).toBeNull();
+    expect(view.textContent).toContain('适合餐次');
+    expect(view.textContent).toContain('午餐、晚餐');
+    expect(view.textContent).toContain('关联菜谱');
+  });
+
   it('locks edit fields while saving changes', () => {
     const { view } = renderModal({ isEditing: true, isUpdatingPlan: true });
 
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在保存菜单变更');
     expect(findButton(view, '取消修改')?.disabled).toBe(true);
     expect(view.querySelector<HTMLInputElement>('input.text-input')?.disabled).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.recipe-plan-date-strip button')).every((button) => button.disabled)).toBe(true);

@@ -30,7 +30,7 @@ describe('FoodWorkspace navigation usage', () => {
     expect(workspaceSource).toContain('expected_food_row_version: food.row_version');
   });
 
-  it('exports focused Food surfaces and keeps the compatibility workspace as an adapter', () => {
+  it('exports focused Food surfaces and keeps the unified workspace composition', () => {
     const discoverSource = readSource('FoodDiscoverSurface.tsx');
     const planSource = readSource('FoodPlanSurface.tsx');
     const workspaceSource = readSource('FoodWorkspace.tsx');
@@ -42,7 +42,8 @@ describe('FoodWorkspace navigation usage', () => {
     expect(planSource).toContain('export function FoodPlanSurface');
     expect(workspaceSource).toContain('<FoodDiscoverSurface');
     expect(workspaceSource).toContain('<FoodPlanSurface');
-    expect(workspaceSource).toContain("surface === 'plan'");
+    expect(workspaceSource).not.toContain("surface?: 'discover' | 'plan'");
+    expect(workspaceSource).not.toContain("surface === 'plan'");
     expect(discoverSource).not.toContain('<AppShell');
     expect(planSource).not.toContain('<AppShell');
     expect(hubSource).not.toContain('title="食物"');

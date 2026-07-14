@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import {
+  ActionButton,
   Avatar,
   Badge,
   FormActions,
@@ -47,6 +48,7 @@ type Props = {
   focusMealLogId?: string | null;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onBackHome: () => void;
+  onBackToEat: () => void;
 };
 
 type MealLogModalMode = 'enrich' | 'preview' | null;
@@ -94,6 +96,11 @@ export function MealLogWorkspace(props: Props) {
         variant="compact"
         title="餐食记录中心"
         description="每一餐都是有效记录。照片、评价、家人和评论是可选补充，可以随时回来完善。"
+        actions={
+          <ActionButton tone="secondary" type="button" onClick={props.onBackToEat}>
+            返回吃什么
+          </ActionButton>
+        }
       />
 
       <section className="meal-log-command-grid">

@@ -20,7 +20,7 @@ export type EatTask =
   | { kind: 'food-detail'; foodId: string; returnTo: EatBaseView }
   | { kind: 'recipe-target'; recipeId: string; mode: 'view' | 'edit'; returnTo: EatBaseView }
   | { kind: 'recipe'; foodId: string; recipeId: string; mode: 'view' | 'edit'; returnTo: EatBaseView }
-  | { kind: 'plan-detail'; foodPlanItemId: string; returnTo: 'plan' }
+  | { kind: 'plan-detail'; foodPlanItemId: string; returnTo: EatBaseView }
   | { kind: 'cook'; foodId: string; recipeId: string; launchContext: CookLaunchContext; returnTo: EatBaseView }
   | {
       kind: 'meal-create';
@@ -170,15 +170,15 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
     case 'plan':
       if (target.foodPlanItemId) {
         return withEat(state, {
-          baseView: 'plan',
+          baseView: 'discover',
           task: {
             kind: 'plan-detail',
             foodPlanItemId: target.foodPlanItemId,
-            returnTo: 'plan',
+            returnTo: 'discover',
           },
         });
       }
-      return withEat(state, { baseView: 'plan', task: null });
+      return withEat(state, { baseView: 'discover', task: null });
     case 'history':
       if (target.mealLogId) {
         return withEat(state, {
@@ -210,7 +210,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
       });
     case 'cook': {
       const returnTo =
-        target.launchContext.source.kind === 'plan' ? 'plan' : state.eat.baseView;
+        target.launchContext.source.kind === 'plan' ? 'discover' : state.eat.baseView;
       return withEat(state, {
         baseView: returnTo,
         task: {
@@ -223,7 +223,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
       });
     }
     case 'meal-create': {
-      const returnTo = target.source.kind === 'plan' ? 'plan' : state.eat.baseView;
+      const returnTo = target.source.kind === 'plan' ? 'discover' : state.eat.baseView;
       return withEat(state, {
         baseView: returnTo,
         task: {
@@ -324,7 +324,9 @@ export function parsePersistedNavigation(raw: string | null | undefined): AppNav
   return {
     primaryTab: parsed.primaryTab,
     eat: {
-      baseView: parsed.eatBaseView,
+      // The former menu tab is no longer a standalone page. Keep old stored
+      // navigation valid, but return it to the single discovery surface.
+      baseView: parsed.eatBaseView === 'plan' ? 'discover' : parsed.eatBaseView,
       task: null,
       discoverSection,
     },

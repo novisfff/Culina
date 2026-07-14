@@ -61,6 +61,28 @@ type StructuredDetail = {
   conflicts?: Array<{ entity_type?: string; entity_id?: string; message?: string; code?: string }>;
 };
 
+const RECONCILIATION_LOAD_TIMEOUT_MS = 15_000;
+
+function fetchWithTimeout(
+  fetcher: () => Promise<InventoryReconciliationResponse>,
+): Promise<InventoryReconciliationResponse> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error('加载时间较长，请重新加载。'));
+    }, RECONCILIATION_LOAD_TIMEOUT_MS);
+    fetcher().then(
+      (response) => {
+        window.clearTimeout(timeoutId);
+        resolve(response);
+      },
+      (reason) => {
+        window.clearTimeout(timeoutId);
+        reject(reason);
+      },
+    );
+  });
+}
+
 function messageOf(reason: unknown, fallback: string) {
   if (isApiError(reason)) {
     return reason.detail || fallback;
@@ -220,7 +242,7 @@ export function useInventoryReconciliationActions(
 
       const resolvedStorage = resolveStorageLocation(scope, storageLocation);
       const timestamp = currentNow();
-      const { restoredDraftPrompt } = stateRef.current.beginOpen({
+      const { restoredDraftPrompt, sessionId } = stateRef.current.beginOpen({
         familyId: familyIdRef.current,
         userId: userIdRef.current,
         scope,
@@ -229,10 +251,15 @@ export function useInventoryReconciliationActions(
       });
 
       try {
-        const response = await fetchRef.current({
-          scope,
-          storageLocation: resolvedStorage,
-        });
+        const response = await fetchWithTimeout(() =>
+          fetchRef.current({
+            scope,
+            storageLocation: resolvedStorage,
+          }),
+        );
+        if (!stateRef.current.isSessionCurrent(sessionId)) {
+          return;
+        }
         stateRef.current.applyLoadedGroups({
           response,
           scope,
@@ -251,6 +278,9 @@ export function useInventoryReconciliationActions(
           });
         }
       } catch (reason) {
+        if (!stateRef.current.isSessionCurrent(sessionId)) {
+          return;
+        }
         stateRef.current.setLoading(false);
         stateRef.current.setErrorMessage(messageOf(reason, '加载盘点清单失败，请稍后重试。'));
       }

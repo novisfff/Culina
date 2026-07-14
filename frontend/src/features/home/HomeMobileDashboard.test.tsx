@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food } from '../../api/types';
+import type { Food, FoodPlanItem } from '../../api/types';
 import type {
   ExpiryInventoryActionGroup,
   LowStockInventoryActionGroup,
@@ -165,6 +167,25 @@ function makePlanDay(index: number): HomeMobileDashboardProps['compactPlanDays']
     isSelected: index === 0,
   };
   return day;
+}
+
+function makePlanItem(id: string, foodName: string, mealType: FoodPlanItem['meal_type']): FoodPlanItem {
+  return {
+    id,
+    family_id: 'family-1',
+    user_id: 'user-1',
+    food_id: `food-${id}`,
+    food_name: foodName,
+    food_type: 'dish',
+    recipe_id: null,
+    recipe_title: '',
+    plan_date: '2026-07-06',
+    meal_type: mealType,
+    note: '',
+    status: 'planned',
+    created_at: '2026-07-01T00:00:00.000Z',
+    updated_at: '2026-07-01T00:00:00.000Z',
+  };
 }
 
 function makeHighlight(index: number): HomeMobileDashboardProps['homeHighlights']['items'][number] {
@@ -376,14 +397,147 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.querySelectorAll('[data-testid="home-highlight-row"]')).toHaveLength(3);
   });
 
-  it('renders seven fixed-width calendar buttons in a dedicated scroller', () => {
+  it('renders a compact seven-day strip with collapsed meal details by default', () => {
     const view = renderMobile({
       compactPlanDays: Array.from({ length: 7 }, (_, index) => makePlanDay(index)),
     });
-    const scroller = view.querySelector('[data-testid="mobile-home-calendar-scroll"]');
-    expect(scroller?.classList.contains('is-mobile-scroll')).toBe(true);
-    expect(scroller?.querySelectorAll('button[aria-label^="选择 "]')).toHaveLength(7);
+    const dayStrip = view.querySelector('[data-testid="mobile-home-calendar-days"]');
+    expect(dayStrip?.classList.contains('is-mobile-grid')).toBe(true);
+    expect(dayStrip?.querySelectorAll('button[aria-label^="选择 "]')).toHaveLength(7);
+    expect(Array.from(dayStrip?.querySelectorAll('.home-compact-mobile-day-number') ?? []).map((node) => node.textContent)).toEqual([
+      '6',
+      '7',
+      '8',
+      '9',
+      '10',
+      '11',
+      '12',
+    ]);
+    expect(view.querySelector('.home-compact-week-controls')?.querySelectorAll('button')).toHaveLength(2);
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.trim() === '回到本周')).toBe(false);
+    expect(view.querySelector('.home-compact-day-detail-head')).toBeNull();
+    const detail = view.querySelector<HTMLElement>('.home-compact-day-detail');
+    const toggle = view.querySelector<HTMLButtonElement>('button[aria-label="展开当天安排"]');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle?.textContent).toContain('今天 · 6日');
+    expect(toggle?.textContent).toContain('当天还没有安排');
+    expect(detail?.hidden).toBe(true);
+    act(() => toggle?.click());
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle?.getAttribute('aria-label')).toBe('收起当天安排');
+    expect(detail?.hidden).toBe(false);
+    expect(view.querySelector('.home-compact-meal-grid')?.classList.contains('is-mobile-list')).toBe(true);
+    expect(view.querySelectorAll('.home-compact-meal-slot')).toHaveLength(4);
+    expect(buttonByText(view, '完整周菜单')).toBeTruthy();
     expect(view.textContent).toContain('7月6日 - 7月12日');
+  });
+
+  it('shows a thumbnail only for meal items that have a cover image', () => {
+    const day = makePlanDay(0);
+    const picturedItem = makePlanItem('pictured', '番茄炒蛋', 'dinner');
+    const textOnlyItem = makePlanItem('text-only', '清蒸三文鱼', 'snack');
+    day.mealItems = day.mealItems.map((meal) => {
+      if (meal.mealType === 'dinner') return { ...meal, items: [picturedItem] };
+      if (meal.mealType === 'snack') return { ...meal, items: [textOnlyItem] };
+      return meal;
+    });
+    day.plannedMealCount = 2;
+    day.totalCount = 2;
+
+    const view = renderMobile({
+      compactPlanDays: [day],
+      selectedDashboardPlanDay: day,
+      resolvePlanItemCoverUrl: (item) => (item.id === picturedItem.id ? '/media/番茄炒蛋.webp' : undefined),
+    });
+
+    const toggle = view.querySelector<HTMLButtonElement>('button[aria-label="展开当天安排"]');
+    expect(toggle).not.toBeNull();
+    act(() => toggle?.click());
+
+    const images = view.querySelectorAll<HTMLImageElement>('.home-compact-meal-item-image');
+    expect(images).toHaveLength(1);
+    expect(images[0]?.getAttribute('src')).toBe('/media/番茄炒蛋.webp');
+    expect(buttonByText(view, '番茄炒蛋').querySelector('img')).toBe(images[0]);
+    expect(buttonByText(view, '清蒸三文鱼').querySelector('img')).toBeNull();
+  });
+
+  it('offers a return-to-current-week action only when browsing another week', () => {
+    const view = renderMobile({
+      compactPlanDays: Array.from({ length: 7 }, (_, index) => ({
+        ...makePlanDay(index),
+        isToday: false,
+      })),
+    });
+    expect(buttonByText(view, '回到本周')).toBeTruthy();
+  });
+
+  it('keeps the weekly menu mobile layout vertically compact', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    expect(mobileStyles).toMatch(/\.home-compact-days\.is-mobile-grid > button \{[^}]*min-height: 60px;/s);
+    expect(mobileStyles).toMatch(
+      /\.home-compact-calendar \{[^}]*padding: 8px 8px 4px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-home-question\.mobile-dashboard-panel \{[^}]*padding-bottom: 8px;/s,
+    );
+    expect(mobileStyles).toMatch(/\.home-compact-meal-grid\.is-mobile-list \{[^}]*gap: 4px;/s);
+    expect(mobileStyles).toMatch(
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot \{[^}]*min-height: 52px;/s,
+    );
+  });
+
+  it('keeps required actions vertically compact on mobile without shrinking touch targets', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \{[^}]*gap: 6px;[^}]*padding: 12px 14px 10px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \.home-action-list \{[^}]*gap: 6px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \.home-action-row \{[^}]*grid-template-columns: 34px minmax\(0, 1fr\) auto;[^}]*min-height: 56px;[^}]*padding: 6px 10px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \.home-action-icon \{[^}]*width: 32px;[^}]*height: 32px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \.home-action-row \.solid-button \{[^}]*min-height: 44px;[^}]*height: 44px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-required-actions \.home-question-more \{[^}]*min-height: 44px;[^}]*margin-top: -4px;/s,
+    );
+  });
+
+  it('keeps recommendation badges on one line without overflowing the card', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-badge-row :is\(\.badge, \.ui-status-badge\) \{[^}]*min-width: 0;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
+  });
+
+  it('matches the established food and inventory palette without over-darkening light surfaces', () => {
+    const dashboardStyles = readFileSync(resolve(__dirname, '../../styles/01-home-dashboard.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+
+    expect(dashboardStyles).toMatch(
+      /\.home-question-one,\s*\.home-question-panel,\s*\.home-compact-calendar \{[^}]*--home-ink: #241714;[^}]*--home-muted: #776a61;[^}]*--home-faint: #a2948a;/s,
+    );
+    expect(dashboardStyles).toMatch(
+      /\.home-question-panel \{[^}]*border: 1px solid rgba\(92, 67, 48, 0\.09\);[^}]*background: #fff;[^}]*box-shadow: 0 14px 32px rgba\(74, 54, 40, 0\.04\);/s,
+    );
+    expect(dashboardStyles).toMatch(/\.home-question-head h2 \{[^}]*color: var\(--home-ink\);/s);
+    expect(dashboardStyles).toMatch(/\.home-action-row\.tone-expired \{[^}]*background: rgba\(253, 235, 232, 0\.5\);/s);
+    expect(dashboardStyles).toMatch(/\.home-action-row\.tone-soon \{[^}]*background: rgba\(253, 244, 219, 0\.52\);/s);
+    expect(dashboardStyles).toMatch(/\.home-action-row\.tone-later \{[^}]*background: rgba\(235, 245, 233, 0\.5\);/s);
+    expect(dashboardStyles).toMatch(/\.home-compact-days > button\.is-selected \{[^}]*background: #fff2e9;/s);
+    expect(mobileStyles).toMatch(
+      /\.mobile-home-question\.mobile-dashboard-panel \{[^}]*border: 1px solid rgba\(92, 67, 48, 0\.09\);[^}]*background: #fff;[^}]*box-shadow: 0 14px 32px rgba\(74, 54, 40, 0\.04\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-compact-day-toggle \{[^}]*border: 1px solid rgba\(92, 67, 48, 0\.09\);[^}]*color: var\(--home-ink\);[^}]*background: #fffdfa;/s,
+    );
   });
 
   it('uses 本周协作 -- for no-cache failure and Q2 shopping copy 项待采购', () => {

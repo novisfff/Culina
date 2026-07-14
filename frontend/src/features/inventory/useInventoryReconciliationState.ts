@@ -61,7 +61,9 @@ export type UseInventoryReconciliationStateResult = {
   }) => {
     restoredDraftPrompt: InventoryReconciliationDraft | null;
     draftKey: string;
+    sessionId: number;
   };
+  isSessionCurrent: (sessionId: number) => boolean;
   /** Apply freshly loaded reconciliation groups; opening does not create intents. */
   applyLoadedGroups: (args: {
     response: InventoryReconciliationResponse;
@@ -114,7 +116,12 @@ export type UseInventoryReconciliationStateResult = {
   replaceDraft: (draft: InventoryReconciliationDraft | null) => void;
   applyLocalValidation: () => ReconciliationFieldError[];
   /** Closing while not busy preserves the draft to local storage. */
-  closeReconciliation: (args?: { familyId?: string; userId?: string; now?: string }) => boolean;
+  closeReconciliation: (args?: {
+    familyId?: string;
+    userId?: string;
+    now?: string;
+    force?: boolean;
+  }) => boolean;
   persistDraft: (args: { familyId: string; userId: string; now?: string }) => void;
   clearPersistedDraft: (args: { familyId: string; userId: string }) => void;
   resetForNewReconciliation: () => void;
@@ -235,6 +242,8 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
 
   const busyRef = useRef(false);
   busyRef.current = busy;
+  const loadingRef = useRef(false);
+  loadingRef.current = loading;
   const draftRef = useRef<InventoryReconciliationDraft | null>(null);
   draftRef.current = draft;
   const groupsRef = useRef<InventoryReconciliationGroup[]>(EMPTY_GROUPS);
@@ -245,6 +254,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
   fieldErrorsRef.current = fieldErrors;
   const focusFieldKeyRef = useRef<string | null>(null);
   focusFieldKeyRef.current = focusFieldKey;
+  const sessionIdRef = useRef(0);
 
   const summary = useMemo(
     () =>
@@ -307,6 +317,8 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
   );
 
   const beginOpen: UseInventoryReconciliationStateResult['beginOpen'] = useCallback((args) => {
+    sessionIdRef.current += 1;
+    const sessionId = sessionIdRef.current;
     const draftKey = reconciliationDraftKey(args.familyId, args.userId);
     let existing = readPersistedReconciliationDraft(args.familyId, args.userId);
     // Discard expired drafts before offering a restore prompt.
@@ -341,8 +353,10 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     const prompt =
       existing && existing.intents.length > 0 && existing.scope === args.scope ? existing : null;
     setRestoredDraftPrompt(prompt);
-    return { restoredDraftPrompt: prompt, draftKey };
+    return { restoredDraftPrompt: prompt, draftKey, sessionId };
   }, []);
+
+  const isSessionCurrent = useCallback((sessionId: number) => sessionIdRef.current === sessionId, []);
 
   const applyLoadedGroups: UseInventoryReconciliationStateResult['applyLoadedGroups'] = useCallback(
     (args) => {
@@ -590,9 +604,10 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
 
   const closeReconciliation: UseInventoryReconciliationStateResult['closeReconciliation'] = useCallback(
     (args) => {
-      if (busyRef.current) {
+      if (!args?.force && busyRef.current && !loadingRef.current) {
         return false;
       }
+      sessionIdRef.current += 1;
       const current = draftRef.current;
       if (current && args?.familyId && args.userId) {
         const next = {
@@ -620,6 +635,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
       setNewlyDiscoveredTargetKeys([]);
       setRestoredDraftPrompt(null);
       setResult(null);
+      setBusy(false);
       setLoading(false);
       return true;
     },
@@ -627,6 +643,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
   );
 
   const resetForNewReconciliation = useCallback(() => {
+    sessionIdRef.current += 1;
     setOpen(false);
     setStep('review');
     setDraft(null);
@@ -670,6 +687,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     totalCount,
     canSubmit,
     beginOpen,
+    isSessionCurrent,
     applyLoadedGroups,
     acceptRestoredDraft,
     discardRestoredDraft,

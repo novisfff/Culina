@@ -15,6 +15,7 @@ export function FoodHubView(props: FoodHubViewProps) {
     <>
       <PageHeader
         variant="compact"
+        title="吃什么"
         description="从常吃、临期、外卖外食和可记录的家常菜里快速选一份，马上记到今天。"
         actions={props.heroActions}
       />

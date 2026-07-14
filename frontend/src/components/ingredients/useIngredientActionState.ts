@@ -29,8 +29,8 @@ import {
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
 import type { InventoryActionConflictState } from './IngredientWorkspaceOverlayTypes';
-import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+import { resolveShoppingFormSubmission } from './shoppingFormSubmission';
 
 type UseIngredientActionStateArgs = {
   ingredientOptions: Ingredient[];
@@ -119,69 +119,21 @@ function messageOf(reason: unknown, fallback: string) {
 export function useIngredientActionState(args: UseIngredientActionStateArgs) {
   async function submitShopping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const title = args.shoppingForm.title.trim();
-    if (!title) {
-      return;
-    }
-    // Explicit binding only — never auto-bind free text by title substring/name match.
-    const selectedShoppingIngredient =
-      args.shoppingForm.targetType === 'ingredient' && args.shoppingForm.ingredientId
-        ? args.ingredientOptions.find((item) => item.id === args.shoppingForm.ingredientId) ?? null
-        : null;
-    const selectedShoppingFood =
-      args.shoppingForm.targetType === 'food' && args.shoppingForm.foodId
-        ? args.foodOptions.find((item) => item.id === args.shoppingForm.foodId) ?? null
-        : null;
-    const isFreeText =
-      args.shoppingForm.targetType === 'free_text' || (!selectedShoppingIngredient && !selectedShoppingFood);
-    if (args.shoppingForm.targetType === 'ingredient' && !selectedShoppingIngredient) {
-      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '请从食材档案中选择采购对象，或改用其他采购。' });
-      return;
-    }
-    if (args.shoppingForm.targetType === 'food' && !selectedShoppingFood) {
-      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '请从成品速食档案中选择采购对象，或改用其他采购。' });
-      return;
-    }
-    const tracksQuantity = isFreeText
-      ? true
-      : selectedShoppingFood
-        ? true
-        : tracksIngredientQuantity(selectedShoppingIngredient);
-    const parsedFoodQuantity = selectedShoppingFood
-      ? parseFoodStockQuantity(args.shoppingForm.quantity, '待买数量')
-      : null;
-    const quantity = tracksQuantity
-      ? parsedFoodQuantity
-        ? parsedFoodQuantity.quantity
-        : parsePositiveNumber(args.shoppingForm.quantity)
-      : 1;
-    if (tracksQuantity && quantity === null) {
+    const resolution = resolveShoppingFormSubmission({
+      form: args.shoppingForm,
+      ingredients: args.ingredientOptions,
+      foods: args.foodOptions,
+    });
+    if (!resolution.ok) {
       args.showNotice({
         tone: 'warning',
-        title: '待买数量无效',
-        message: parsedFoodQuantity?.error ?? '请确认待买数量，至少要大于 0。',
+        title: resolution.title,
+        message: resolution.message,
       });
       return;
     }
-    const shoppingQuantity = quantity ?? 1;
     try {
-      const payload = {
-        title: selectedShoppingFood?.name ?? selectedShoppingIngredient?.name ?? title,
-        quantity: tracksQuantity ? shoppingQuantity : null,
-        unit: tracksQuantity
-          ? args.shoppingForm.unit.trim() ||
-            selectedShoppingFood?.stock_unit ||
-            selectedShoppingIngredient?.default_unit ||
-            '份'
-          : null,
-        ingredient_id: selectedShoppingIngredient?.id ?? null,
-        food_id: selectedShoppingFood?.id ?? null,
-        quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
-        display_label: tracksQuantity ? null : '需要补充',
-        reason:
-          args.shoppingForm.reason.trim() ||
-          (selectedShoppingFood ? '补充成品库存' : !tracksQuantity ? '需要补充' : ''),
-      } satisfies Parameters<typeof args.createShoppingItem>[0];
+      const payload = resolution.payload satisfies Parameters<typeof args.createShoppingItem>[0];
       if (args.editingShoppingItemId) {
         if (args.editingShoppingItemRowVersion === null) {
           args.showNotice({ tone: 'warning', title: '采购项已变化', message: '请刷新购物清单后再编辑。' });

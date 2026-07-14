@@ -37,7 +37,7 @@ afterEach(() => {
   container = null;
 });
 
-function renderModal(options: { open?: boolean; isUpdating?: boolean } = {}) {
+function renderModal(options: { open?: boolean; isUpdating?: boolean; meal?: MealLog } = {}) {
   const onClose = vi.fn();
   const open = options.open ?? true;
   const isUpdating = options.isUpdating ?? false;
@@ -48,7 +48,7 @@ function renderModal(options: { open?: boolean; isUpdating?: boolean } = {}) {
     root?.render(
       <MealEnrichmentModal
         open={open}
-        meal={meal}
+        meal={options.meal ?? meal}
         source={source}
         members={members}
         isUpdating={isUpdating}
@@ -67,11 +67,17 @@ describe('MealEnrichmentModal', () => {
     const { view } = renderModal();
 
     expect(view.textContent).toContain('补充这餐');
-    expect(view.textContent).toContain('保存后，本次补充记录将会出现在记录时间线中');
+    expect(view.textContent).toContain('这餐已记录，保存后会补充评价、家人、照片和评论');
     expect(view.querySelector('.workspace-overlay-root.home-dashboard-overlay-root')).not.toBeNull();
     expect(view.querySelector<HTMLButtonElement>('button.ui-form-actions-primary')?.getAttribute('form')).toBe(
       'test-meal-enrichment-form',
     );
+  });
+
+  it('keeps the create-on-save explanation for draft meals', () => {
+    const { view } = renderModal({ meal: { ...meal, id: 'draft-plan-1' } });
+
+    expect(view.textContent).toContain('保存后，本次补充记录将会出现在记录时间线中');
   });
 
   it('renders nothing when closed', () => {
@@ -82,6 +88,8 @@ describe('MealEnrichmentModal', () => {
   it('keeps the modal open while an update is submitting', () => {
     const { onClose, view } = renderModal({ isUpdating: true });
 
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在保存餐食记录');
+    expect(view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
     act(() => view.querySelector<HTMLButtonElement>('button.ui-form-actions-secondary')?.click());

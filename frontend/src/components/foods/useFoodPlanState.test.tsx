@@ -3,7 +3,7 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Food, FoodPlanItem } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog } from '../../api/types';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { useFoodPlanState } from './useFoodPlanState';
 
@@ -203,5 +203,36 @@ describe('useFoodPlanState navigation', () => {
     });
     expect(onNavigateToWeek).toHaveBeenCalledTimes(2);
     expect(onNavigateToWeek).toHaveBeenLastCalledWith('2026-07-16');
+  });
+});
+
+describe('useFoodPlanState completion', () => {
+  it('hands the created meal to the enrichment flow after recording the plan item', async () => {
+    const createdMeal: MealLog = {
+      id: 'meal-created',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    };
+    const quickAddMeal = vi.fn(async () => createdMeal);
+    const onMealRecorded = vi.fn();
+    const state = renderPlanState({
+      quickAddMeal,
+      ...({ onMealRecorded } as unknown as Partial<PlanStateInput>),
+    })!;
+
+    await act(async () => {
+      await state.completePlanItem(planItem);
+    });
+
+    expect(onMealRecorded).toHaveBeenCalledWith(createdMeal, planItem);
   });
 });

@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject, type React
 import type { ShoppingIntakeResult } from '../../api/types';
 import {
   ActionButton,
+  DropdownSelect,
   FormActions,
-  MobileActionBar,
   OptionChipGroup,
+  OperationLoadingOverlay,
   QuantityUnitField,
   SearchableResourceSelect,
   StateBlock,
+  StatusBadge,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
+import { INVENTORY_STORAGE_PRESETS } from '../../components/ingredients/ingredientWorkspaceForms';
 import { formatDateTime } from '../../lib/ui';
 import { isOperationStillRevertible } from './InventoryOperationBanner';
 import {
@@ -60,6 +63,27 @@ const AVAILABILITY_OPTIONS = [
   { value: 'present_unknown', label: '还在' },
   { value: 'low', label: '少量' },
 ] as const;
+
+const STORAGE_LOCATION_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storageLocation) => ({
+  value: storageLocation,
+  label: storageLocation,
+}));
+
+function storageLocationOptions(currentValue: string) {
+  const normalizedCurrentValue = currentValue.trim();
+  if (
+    !normalizedCurrentValue ||
+    INVENTORY_STORAGE_PRESETS.includes(
+      normalizedCurrentValue as (typeof INVENTORY_STORAGE_PRESETS)[number],
+    )
+  ) {
+    return STORAGE_LOCATION_OPTIONS;
+  }
+  return [
+    { value: normalizedCurrentValue, label: normalizedCurrentValue },
+    ...STORAGE_LOCATION_OPTIONS,
+  ];
+}
 
 function fieldErrorFor(
   fieldErrors: ShoppingIntakeFieldError[] | undefined,
@@ -181,7 +205,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
 
   const description =
     props.step === 'result'
-      ? props.result?.summary.description || '库存与采购项已同步更新。'
+      ? '库存与采购清单已同步更新。'
       : props.step === 'review'
         ? '默认按计划数量入库；只展开需要改动的例外。'
         : '请显式勾选本次买到的项目，不会默认全选。';
@@ -203,7 +227,6 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
   if (props.step === 'select') {
     footerActions = (
       <FormActions
-        className="inventory-maintenance-actions"
         primaryLabel={`下一步（${selectedItems.length}）`}
         isSubmitting={busy}
         primaryDisabled={busy || loading || selectedItems.length === 0}
@@ -218,15 +241,13 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
     );
     footerActions = (
       <FormActions
-        className="inventory-maintenance-actions"
         primaryLabel={
-          busy
-            ? '提交中…'
-            : requiresReconfirmation
-              ? '重新确认并提交'
-              : '确认入库'
+          requiresReconfirmation
+            ? '重新确认并提交'
+            : '确认入库'
         }
         isSubmitting={busy}
+        submittingLabel={requiresReconfirmation ? '正在重新提交' : '正在登记'}
         primaryDisabled={busy || loading || selectedItems.length === 0}
         onPrimary={requiresReconfirmation && props.onRetry ? props.onRetry : props.onSubmit}
         secondaryLabel="返回选择"
@@ -238,13 +259,13 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
   } else {
     footerActions = (
       <FormActions
-        className="inventory-maintenance-actions"
         primaryLabel="完成"
-        isSubmitting={false}
+        secondaryIsSubmitting={busy && canRevertResult && Boolean(props.onRevertResult)}
+        secondarySubmittingLabel="正在撤销"
         onPrimary={closeIfAllowed}
         secondaryLabel={
           canRevertResult && props.onRevertResult
-            ? '撤销本次操作'
+            ? '撤销本次登记'
             : canRevertResult
               ? '稍后可撤销'
               : undefined
@@ -261,20 +282,17 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
   }
 
   const footerInfo = (
-    <div className="inventory-maintenance-footer-summary">
+    <>
       {props.step === 'result' && props.result ? (
         <>
-          <span>已登记</span>
+          <span>{props.result.status === 'reverted' ? '登记已撤销' : '登记已生效'}</span>
           <strong>
-            完成 {props.result.summary.completed_count} · 部分 {props.result.summary.partial_count}
-          </strong>
-          <p>
             {canRevertResult
-              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
+              ? `可撤销至 ${compactTimeLabel(props.result.revertible_until)}`
               : props.result.status === 'reverted'
-                ? '这次操作已撤销'
-                : '撤销窗口已过或当前无权撤销'}
-          </p>
+                ? '库存已恢复'
+                : '本次登记已完成'}
+          </strong>
         </>
       ) : (
         <>
@@ -283,14 +301,12 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
           <p>{props.draft ? `购买日期 ${props.draft.purchaseDate}` : '—'}</p>
         </>
       )}
-    </div>
+    </>
   );
 
   return (
     <WorkspaceOverlayFrame
-      rootClassName={['inventory-maintenance-overlay-root', props.overlayRootClassName]
-        .filter(Boolean)
-        .join(' ')}
+      rootClassName={props.overlayRootClassName}
       closeOnBackdrop={!busy}
       busy={busy}
       labelledBy="shopping-intake-title"
@@ -303,21 +319,32 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         eyebrow="采购入库"
         closeLabel="关闭"
         closeAriaLabel="关闭采购入库"
-        className="workspace-modal-wide inventory-maintenance-modal inventory-shopping-intake-modal"
+        className={[
+          'workspace-modal-wide',
+          'inventory-shopping-intake-modal',
+          props.step === 'result' ? 'is-result' : '',
+        ].filter(Boolean).join(' ')}
         onClose={closeIfAllowed}
         busy={busy}
         footerInfo={footerInfo}
-        footerActions={
-          <>
-            <div className="inventory-maintenance-desktop-actions">{footerActions}</div>
-            <MobileActionBar className="inventory-maintenance-mobile-actions">{footerActions}</MobileActionBar>
-          </>
-        }
+        footerActions={footerActions}
       >
-        <div className="inventory-maintenance-scroll">
+        <div
+          className={[
+            'inventory-shopping-intake-content',
+            'ui-operation-loading-host',
+            busy ? 'is-busy' : '',
+          ].filter(Boolean).join(' ')}
+          aria-busy={busy}
+        >
           <div className="inventory-maintenance-live" aria-live="polite">
             {liveMessage}
           </div>
+
+          <OperationLoadingOverlay
+            active={busy}
+            title={props.step === 'result' ? '正在撤销本次登记' : '正在登记采购项'}
+          />
 
           {props.conflictState && props.conflictState !== 'none' ? (
             <div className="inventory-maintenance-conflict" role="status">
@@ -387,7 +414,6 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
               result={props.result}
               draft={props.draft}
               busy={busy}
-              onRevertResult={props.onRevertResult}
               onViewResult={props.onViewResult}
             />
           ) : null}
@@ -408,7 +434,7 @@ function SelectStep(props: {
   onLinkFreeText: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
 }) {
   return (
-    <section className="inventory-maintenance-section" aria-label="待买项目">
+    <section className="card inventory-maintenance-section inventory-shopping-intake-select" aria-label="待买项目">
       <div className="inventory-maintenance-section-head">
         <span>待买清单</span>
         <em>{props.draft.items.length} 项</em>
@@ -421,6 +447,7 @@ function SelectStep(props: {
               key={item.shoppingItemId}
               className={[
                 'inventory-maintenance-item-card',
+                'inventory-shopping-intake-item',
                 item.selected ? 'is-selected' : '',
                 error ? 'has-error' : '',
               ]
@@ -430,17 +457,21 @@ function SelectStep(props: {
               <label className="inventory-maintenance-item-main">
                 <input
                   type="checkbox"
+                  className="inventory-shopping-intake-checkbox"
                   checked={item.selected}
                   disabled={props.busy}
+                  aria-label={`选择 ${item.title}，${plannedCopy(item)}`}
                   data-field-key={`${item.shoppingItemId}:selected`}
                   onChange={() => props.onToggleItem(item.shoppingItemId)}
                 />
                 <div className="inventory-maintenance-item-copy">
                   <div className="inventory-maintenance-item-title-row">
                     <strong>{item.title}</strong>
-                    <span className="inventory-maintenance-chip">{itemKindLabel(item)}</span>
+                    <StatusBadge tone="neutral" size="compact">
+                      {itemKindLabel(item)}
+                    </StatusBadge>
                   </div>
-                  <p className="subtle">{plannedCopy(item)}</p>
+                  <p className="subtle inventory-shopping-intake-plan">{plannedCopy(item)}</p>
                 </div>
               </label>
               {item.kind === 'free_text' ? (
@@ -479,131 +510,183 @@ function ReviewStep(props: {
 }) {
   const exceptionIds = new Set(props.exceptions.map((item) => item.shoppingItemId));
   const cleanItems = props.selectedItems.filter((item) => !exceptionIds.has(item.shoppingItemId));
+  const errorIds = new Set(
+    props.fieldErrors.map((error) => error.shoppingItemId).filter(Boolean),
+  );
+  const reviewItems = [
+    ...props.selectedItems.filter((item) => errorIds.has(item.shoppingItemId)),
+    ...props.selectedItems.filter((item) => !errorIds.has(item.shoppingItemId)),
+  ];
 
   return (
     <div className="inventory-maintenance-review-layout">
-      <section className="inventory-maintenance-section" aria-label="默认入库">
-        <div className="inventory-maintenance-section-head">
-          <span>按计划入库</span>
-          <em>{cleanItems.length} 项</em>
+      <section className="inventory-shopping-review-overview" aria-label="入库核对摘要">
+        <div className="inventory-shopping-review-stats">
+          <article>
+            <span>本次入库</span>
+            <strong>{props.selectedItems.length}</strong>
+            <em>项</em>
+          </article>
+          <article>
+            <span>按计划</span>
+            <strong>{cleanItems.length}</strong>
+            <em>项</em>
+          </article>
+          <article className={props.exceptions.length > 0 ? 'has-exceptions' : ''}>
+            <span>需调整</span>
+            <strong>{props.exceptions.length}</strong>
+            <em>项</em>
+          </article>
         </div>
-        {cleanItems.length === 0 ? (
-          <p className="subtle">没有完全按计划的项目；请在下方处理例外。</p>
+        <div className="inventory-shopping-review-defaults">
+          <div>
+            <span>购买日期</span>
+            <time dateTime={props.draft.purchaseDate}>{props.draft.purchaseDate}</time>
+          </div>
+          <p>存放位置和到期日按档案默认值带出，只需修改有差异的项目。</p>
+        </div>
+      </section>
+
+      <section
+        className="inventory-maintenance-section inventory-shopping-review-section"
+        aria-label="本次入库项目"
+      >
+        <div className="inventory-maintenance-section-head">
+          <span>本次入库项目</span>
+          <em>{reviewItems.length} 项</em>
+        </div>
+        {reviewItems.length === 0 ? (
+          <p className="subtle">当前没有需要核对的入库项目。</p>
         ) : (
-          <div className="inventory-maintenance-item-list">
-            {cleanItems.map((item) => (
-              <article
+          <div className="inventory-maintenance-item-list inventory-shopping-review-list">
+            {reviewItems.map((item) => (
+              <ReviewItemCard
                 key={item.shoppingItemId}
-                className={[
-                  'inventory-maintenance-item-card',
-                  props.expanded.has(item.shoppingItemId) ? 'is-expanded' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                <div className="inventory-maintenance-item-title-row">
-                  <strong>{item.title}</strong>
-                  <span className="inventory-maintenance-chip">{itemKindLabel(item)}</span>
-                  <ActionButton
-                    tone="tertiary"
-                    size="compact"
-                    type="button"
-                    disabled={props.busy}
-                    onClick={() => props.onToggleException(item.shoppingItemId)}
-                  >
-                    {props.expanded.has(item.shoppingItemId) ? '收起' : '调整'}
-                  </ActionButton>
-                </div>
-                <ExceptionSummary item={item} />
-                {props.expanded.has(item.shoppingItemId) ? (
-                  <ExceptionEditor
-                    item={item}
-                    busy={props.busy}
-                    fieldErrors={props.fieldErrors}
-                    candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
-                    linkOptions={props.freeTextLinkOptions ?? []}
-                    onPatchItem={props.onPatchItem}
-                    onCompleteFreeText={props.onCompleteFreeText}
-                    onLinkFreeText={props.onLinkFreeText}
-                  />
-                ) : null}
-              </article>
+                item={item}
+                isExpanded={props.expanded.has(item.shoppingItemId)}
+                isException={exceptionIds.has(item.shoppingItemId)}
+                busy={props.busy}
+                fieldErrors={props.fieldErrors}
+                candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
+                linkOptions={props.freeTextLinkOptions ?? []}
+                onToggle={props.onToggleException}
+                onPatchItem={props.onPatchItem}
+                onCompleteFreeText={props.onCompleteFreeText}
+                onLinkFreeText={props.onLinkFreeText}
+              />
             ))}
           </div>
         )}
       </section>
 
-      <section className="inventory-maintenance-section" aria-label="例外与差异">
+      <section
+        className={[
+          'inventory-maintenance-section',
+          'inventory-shopping-review-section',
+          'inventory-shopping-review-exceptions',
+          props.exceptions.length === 0 ? 'is-empty' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        aria-label="例外与差异"
+      >
         <div className="inventory-maintenance-section-head">
           <span>差异与例外</span>
           <em>{props.exceptions.length} 项</em>
         </div>
         {props.exceptions.length === 0 ? (
-          <p className="subtle">没有需要改动的例外，可直接确认入库。</p>
+          <div className="inventory-shopping-review-empty" role="status">
+            <span aria-hidden="true">✓</span>
+            <div>
+              <strong>没有差异，可直接确认入库</strong>
+              <p>当前项目都会按计划数量和档案默认信息入库。</p>
+            </div>
+          </div>
         ) : (
-          <div className="inventory-maintenance-item-list">
-            {props.exceptions.map((item) => {
-              const isExpanded = props.expanded.has(item.shoppingItemId);
-              const itemError = fieldErrorFor(props.fieldErrors, item.shoppingItemId);
-              return (
-                <article
-                  key={item.shoppingItemId}
-                  className={[
-                    'inventory-maintenance-item-card',
-                    isExpanded ? 'is-expanded' : '',
-                    itemError ? 'has-error' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  data-field-key={itemError?.field === 'conflict'
-                    ? `${item.shoppingItemId}:conflict`
-                    : undefined}
-                  tabIndex={itemError?.field === 'conflict' ? -1 : undefined}
-                >
-                  <div className="inventory-maintenance-item-title-row">
-                    <strong>{item.title}</strong>
-                    <span className="inventory-maintenance-chip">{itemKindLabel(item)}</span>
-                    <ActionButton
-                      tone="tertiary"
-                      size="compact"
-                      type="button"
-                      disabled={props.busy}
-                      onClick={() => props.onToggleException(item.shoppingItemId)}
-                    >
-                      {isExpanded ? '收起' : '展开编辑'}
-                    </ActionButton>
-                  </div>
-                  {itemError?.field === 'conflict' ? (
-                    <p className="inventory-maintenance-field-error">{itemError.message}</p>
-                  ) : null}
-                  <ExceptionSummary item={item} />
-                  {isExpanded ? (
-                    <ExceptionEditor
-                      item={item}
-                      busy={props.busy}
-                      fieldErrors={props.fieldErrors}
-                      candidates={props.freeTextCandidatesByItemId?.[item.shoppingItemId] ?? []}
-                      linkOptions={props.freeTextLinkOptions ?? []}
-                      onPatchItem={props.onPatchItem}
-                      onCompleteFreeText={props.onCompleteFreeText}
-                      onLinkFreeText={props.onLinkFreeText}
-                    />
-                  ) : null}
-                </article>
-              );
-            })}
+          <div className="inventory-shopping-review-difference-status" role="status">
+            <span aria-hidden="true">!</span>
+            <div>
+              <strong>{props.exceptions.length} 个项目存在差异</strong>
+              <p>差异项目已在上方标记，可继续在原位置调整。</p>
+            </div>
           </div>
         )}
       </section>
-
-      <section className="inventory-maintenance-section inventory-maintenance-review-meta" aria-label="公共信息">
-        <div className="inventory-maintenance-section-head">
-          <span>公共购买日期</span>
-        </div>
-        <p className="inventory-maintenance-meta-value">{props.draft.purchaseDate}</p>
-        <p className="subtle">存放位置和到期日已按档案默认带出；只在例外中修改。</p>
-      </section>
     </div>
+  );
+}
+
+function ReviewItemCard(props: {
+  item: ShoppingIntakeDraftItem;
+  isExpanded: boolean;
+  isException: boolean;
+  busy: boolean;
+  fieldErrors: ShoppingIntakeFieldError[];
+  candidates: FreeTextLinkCandidate[];
+  linkOptions: FreeTextLinkCandidate[];
+  onToggle: (shoppingItemId: string) => void;
+  onPatchItem: (shoppingItemId: string, patch: Partial<ShoppingIntakeDraftItem>) => void;
+  onCompleteFreeText: (shoppingItemId: string) => void;
+  onLinkFreeText: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
+}) {
+  const itemError = fieldErrorFor(props.fieldErrors, props.item.shoppingItemId);
+
+  return (
+    <article
+      className={[
+        'inventory-maintenance-item-card',
+        'inventory-shopping-review-item',
+        props.isException ? 'is-exception' : '',
+        props.isExpanded ? 'is-expanded' : '',
+        itemError ? 'has-error' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      data-field-key={
+        itemError?.field === 'conflict'
+          ? `${props.item.shoppingItemId}:conflict`
+          : undefined
+      }
+      tabIndex={itemError?.field === 'conflict' ? -1 : undefined}
+    >
+      <div className="inventory-shopping-review-item-main">
+        <div className="inventory-shopping-review-item-copy">
+          <div className="inventory-maintenance-item-title-row">
+            <strong>{props.item.title}</strong>
+            <StatusBadge tone="neutral" size="compact">
+              {itemKindLabel(props.item)}
+            </StatusBadge>
+          </div>
+          <ExceptionSummary item={props.item} />
+        </div>
+        <ActionButton
+          tone="secondary"
+          size="compact"
+          type="button"
+          className="inventory-shopping-review-adjust"
+          disabled={props.busy}
+          aria-expanded={props.isExpanded}
+          onClick={() => props.onToggle(props.item.shoppingItemId)}
+        >
+          {props.isExpanded ? '收起' : props.isException ? '编辑差异' : '调整'}
+        </ActionButton>
+      </div>
+      {itemError?.field === 'conflict' ? (
+        <p className="inventory-maintenance-field-error">{itemError.message}</p>
+      ) : null}
+      {props.isExpanded ? (
+        <ExceptionEditor
+          item={props.item}
+          busy={props.busy}
+          fieldErrors={props.fieldErrors}
+          candidates={props.candidates}
+          linkOptions={props.linkOptions}
+          onPatchItem={props.onPatchItem}
+          onCompleteFreeText={props.onCompleteFreeText}
+          onLinkFreeText={props.onLinkFreeText}
+        />
+      ) : null}
+    </article>
   );
 }
 
@@ -615,11 +698,15 @@ function ExceptionSummary(props: { item: ShoppingIntakeDraftItem }) {
       unit: props.item.unit,
     });
     const copy = formatPurchaseQuantitySummary(summary);
-    return <p className="subtle">{copy ?? plannedCopy(props.item)}</p>;
+    return (
+      <p className="subtle inventory-shopping-review-summary">
+        {copy ?? plannedCopy(props.item)}
+      </p>
+    );
   }
   if (props.item.kind === 'presence_ingredient') {
     return (
-      <p className="subtle">
+      <p className="subtle inventory-shopping-review-summary">
         默认充足
         {props.item.resultingAvailabilityLevel !== 'sufficient'
           ? ` · 当前选择：${
@@ -635,7 +722,7 @@ function ExceptionSummary(props: { item: ShoppingIntakeDraftItem }) {
     );
   }
   return (
-    <p className="subtle">
+    <p className="subtle inventory-shopping-review-summary">
       {props.item.resolution === 'complete_without_inventory' ? '将仅标记已买' : '尚未关联库存'}
     </p>
   );
@@ -691,18 +778,22 @@ function ExceptionEditor(props: {
             label: option.label,
           }))}
         />
-        <label className="inventory-maintenance-date-field">
+        <div className="inventory-maintenance-date-field">
           <span>存放位置</span>
-          <input
-            type="text"
+          <DropdownSelect
+            ariaLabel={`${item.title}存放位置`}
+            placeholder="选择存放位置"
             value={item.storageLocation}
+            options={storageLocationOptions(item.storageLocation)}
             disabled={props.busy}
-            data-field-key={`${item.shoppingItemId}:storageLocation`}
-            onChange={(event) =>
-              props.onPatchItem(item.shoppingItemId, { storageLocation: event.target.value })
-            }
+            triggerFieldKey={`${item.shoppingItemId}:storageLocation`}
+            onChange={(storageLocation) => {
+              if (storageLocation) {
+                props.onPatchItem(item.shoppingItemId, { storageLocation });
+              }
+            }}
           />
-        </label>
+        </div>
         {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}
         {item.requiresManualExpiry || item.expiryDate !== null ? (
           <label className="inventory-maintenance-date-field">
@@ -744,7 +835,7 @@ function ExceptionEditor(props: {
         unit={item.unit}
         unitOptions={[{ value: item.unit, label: item.unit || '单位' }]}
         quantityDisabled={props.busy}
-        quantityStep={item.kind === 'food' ? '0.1' : '0.01'}
+        quantityStep="1"
         quantityFieldKey={`${item.shoppingItemId}:actualQuantity`}
         unitFieldKey={`${item.shoppingItemId}:unit`}
         onQuantityChange={(value) => props.onPatchItem(item.shoppingItemId, { actualQuantity: value })}
@@ -754,18 +845,22 @@ function ExceptionEditor(props: {
       {summaryCopy ? <p className="inventory-maintenance-diff-copy">{summaryCopy}</p> : null}
       {quantityError ? <p className="inventory-maintenance-field-error">{quantityError.message}</p> : null}
       {unitError ? <p className="inventory-maintenance-field-error">{unitError.message}</p> : null}
-      <label className="inventory-maintenance-date-field">
+      <div className="inventory-maintenance-date-field">
         <span>存放位置{item.kind === 'food' ? '（影响全部成品库存）' : ''}</span>
-        <input
-          type="text"
+        <DropdownSelect
+          ariaLabel={`${item.title}存放位置`}
+          placeholder="选择存放位置"
           value={item.storageLocation}
+          options={storageLocationOptions(item.storageLocation)}
           disabled={props.busy}
-          data-field-key={`${item.shoppingItemId}:storageLocation`}
-          onChange={(event) =>
-            props.onPatchItem(item.shoppingItemId, { storageLocation: event.target.value })
-          }
+          triggerFieldKey={`${item.shoppingItemId}:storageLocation`}
+          onChange={(storageLocation) => {
+            if (storageLocation) {
+              props.onPatchItem(item.shoppingItemId, { storageLocation });
+            }
+          }}
         />
-      </label>
+      </div>
       {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}
 
       {item.kind === 'exact_ingredient' && (item.requiresManualExpiry || item.expiryDate !== null) ? (
@@ -833,55 +928,70 @@ function FreeTextActions(props: {
           : '食材档案 · 只记有无',
   }));
 
+  const isCompletedWithoutInventory = props.item.resolution === 'complete_without_inventory';
+
   return (
     <div className="inventory-maintenance-freetext-actions">
-      <ActionButton
-        tone={props.item.resolution === 'complete_without_inventory' ? 'primary' : 'secondary'}
-        size="compact"
-        type="button"
-        disabled={props.busy}
-        data-field-key={`${props.item.shoppingItemId}:resolution`}
-        onClick={() => props.onComplete(props.item.shoppingItemId)}
-      >
-        仅标记已买
-      </ActionButton>
-      {props.candidates.length > 0 ? (
-        <div className="inventory-maintenance-link-candidates" aria-label="可关联目标">
-          {props.candidates.map((candidate) => (
-            <ActionButton
-              key={`${candidate.kind}:${candidate.id}`}
-              tone="tertiary"
-              size="compact"
-              type="button"
-              disabled={
-                props.busy ||
-                !isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
-              }
-              onClick={() => props.onLink(props.item.shoppingItemId, candidate)}
-            >
-              关联{candidate.name}
-            </ActionButton>
-          ))}
-        </div>
-      ) : (
-        <p className="subtle">没有精确同名档案；可搜索其他档案或仅标记已买。</p>
-      )}
-      {incompatibleExactFoodCandidates.length > 0 ? (
-        <p className="subtle">成品库存需与采购计划使用相同单位，请先在采购清单中调整单位。</p>
-      ) : null}
-      {props.linkOptions.length > 0 ? (
+      <div className="inventory-maintenance-freetext-actions-group">
         <ActionButton
-          tone="tertiary"
+          tone="secondary"
           size="compact"
           type="button"
+          className={`inventory-freetext-action-btn is-complete-btn ${isCompletedWithoutInventory ? 'is-active' : ''}`}
           disabled={props.busy}
-          aria-expanded={searchOpen}
-          onClick={() => setSearchOpen((current) => !current)}
+          data-field-key={`${props.item.shoppingItemId}:resolution`}
+          onClick={() => props.onComplete(props.item.shoppingItemId)}
         >
-          {searchOpen ? '收起档案搜索' : '搜索其他档案'}
+          仅标记已买
         </ActionButton>
-      ) : null}
-      {searchOpen ? (
+
+        {props.candidates.length > 0 &&
+          props.candidates.map((candidate) => {
+            const isCompatible = isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit);
+            return (
+              <ActionButton
+                key={`${candidate.kind}:${candidate.id}`}
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="inventory-freetext-action-btn is-recommend-btn"
+                disabled={props.busy || !isCompatible}
+                onClick={() => props.onLink(props.item.shoppingItemId, candidate)}
+              >
+                关联{candidate.name}
+              </ActionButton>
+            );
+          })}
+
+        {props.linkOptions.length > 0 && (
+          <ActionButton
+            tone="secondary"
+            size="compact"
+            type="button"
+            className={`inventory-freetext-action-btn is-search-btn ${searchOpen ? 'is-active' : ''}`}
+            disabled={props.busy}
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((current) => !current)}
+          >
+            {searchOpen ? '收起搜索' : '搜索其他档案'}
+          </ActionButton>
+        )}
+      </div>
+
+      <div className="inventory-freetext-tips">
+        {props.candidates.length === 0 && (
+          <p className="subtle inventory-freetext-tip-row">
+            没有精确同名档案，可搜索其他档案或仅标记已买。
+          </p>
+        )}
+        {incompatibleExactFoodCandidates.length > 0 && (
+          <p className="subtle inventory-freetext-tip-row warning">
+            成品库存需与采购计划使用相同单位，请先在采购清单中调整单位。
+          </p>
+        )}
+      </div>
+
+      {searchOpen && (
         <SearchableResourceSelect
           ariaLabel={`${props.item.title}关联档案`}
           placeholder="搜索食材或成品档案"
@@ -902,10 +1012,11 @@ function FreeTextActions(props: {
               isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
             ) {
               props.onLink(props.item.shoppingItemId, candidate);
+              setSearchOpen(false);
             }
           }}
         />
-      ) : null}
+      )}
     </div>
   );
 }
@@ -914,87 +1025,75 @@ function ResultStep(props: {
   result: ShoppingIntakeResult;
   draft?: ShoppingIntakeDraft | null;
   busy?: boolean;
-  onRevertResult?: (operationId: string) => void;
   onViewResult?: (operationId: string) => void;
 }) {
   const canRevert = isOperationStillRevertible(props.result, Date.now());
+  const totalCount = props.result.summary.completed_count + props.result.summary.partial_count;
   const titleByShoppingItemId = new Map(
     props.draft?.items.map((item) => [item.shoppingItemId, item.title]) ?? [],
   );
   return (
-    <section className="inventory-maintenance-result" aria-label="入库结果">
-      <div className="inventory-maintenance-summary-card">
-        <p className="eyebrow">操作结果</p>
-        <h4>{props.result.summary.title || '本次购买已登记'}</h4>
-        <p className="subtle">{props.result.summary.description}</p>
-        <div className="inventory-maintenance-summary-metrics">
-          <article>
-            <span>完成</span>
-            <strong>{props.result.summary.completed_count}</strong>
-            <em>项</em>
-          </article>
-          <article>
-            <span>部分</span>
-            <strong>{props.result.summary.partial_count}</strong>
-            <em>项</em>
-          </article>
-          <article>
-            <span>状态</span>
-            <strong>{props.result.status === 'applied' ? '已生效' : '已撤销'}</strong>
-            <em />
-          </article>
+    <section className="inventory-maintenance-result inventory-shopping-result" aria-label="入库结果">
+      <div className="inventory-shopping-result-overview">
+        <div className="inventory-shopping-result-heading">
+          <StatusBadge tone={props.result.status === 'applied' ? 'success' : 'neutral'} size="compact">
+            {props.result.status === 'applied' ? '已生效' : '已撤销'}
+          </StatusBadge>
+          <div>
+            <h4>已登记 {totalCount} 项</h4>
+            <p>库存数量与采购清单已同步。</p>
+          </div>
+        </div>
+        <div className="inventory-shopping-result-counts" aria-label="登记统计">
+          <span><strong>完成 {props.result.summary.completed_count}</strong> 项</span>
+          <span><strong>部分 {props.result.summary.partial_count}</strong> 项</span>
         </div>
         <p className="inventory-maintenance-revert-copy" aria-live="polite">
           {props.result.status === 'reverted'
             ? '这次操作已撤销'
             : canRevert
-              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
+              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次登记`
               : '撤销窗口已过或当前无权撤销'}
         </p>
-        {(props.onViewResult || (canRevert && props.onRevertResult)) ? (
-          <div className="inventory-operation-result-actions">
-            {props.onViewResult ? (
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                disabled={Boolean(props.busy)}
-                onClick={() => props.onViewResult?.(props.result.operation_id)}
-              >
-                查看详情
-              </ActionButton>
-            ) : null}
-            {canRevert && props.onRevertResult ? (
-              <ActionButton
-                tone="primary"
-                size="compact"
-                type="button"
-                disabled={Boolean(props.busy)}
-                onClick={() => props.onRevertResult?.(props.result.operation_id)}
-              >
-                撤销本次操作
-              </ActionButton>
-            ) : null}
-          </div>
+        {props.onViewResult ? (
+          <ActionButton
+            tone="tertiary"
+            size="compact"
+            type="button"
+            disabled={Boolean(props.busy)}
+            onClick={() => props.onViewResult?.(props.result.operation_id)}
+          >
+            查看操作详情
+          </ActionButton>
         ) : null}
       </div>
       {props.result.items.length > 0 ? (
-        <ul className="inventory-maintenance-summary-list">
-          {props.result.items.map((item) => (
-            <li key={item.shopping_item_id}>
-              <strong>{titleByShoppingItemId.get(item.shopping_item_id) ?? '采购项'}</strong>
-              <span>
-                {item.result === 'partial'
-                  ? `部分买到，剩余 ${item.remaining_planned_quantity ?? '—'}`
-                  : item.result === 'completed_without_inventory'
-                    ? '仅完成'
-                    : item.result === 'stocked'
-                      ? '已入库'
-                      : '已完成'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="inventory-shopping-result-items">
+          <div className="inventory-maintenance-section-head">
+            <span>本次登记项目</span>
+            <em>{props.result.items.length} 项</em>
+          </div>
+          <ul className="inventory-maintenance-summary-list">
+            {props.result.items.map((item) => {
+              const isPartial = item.result === 'partial';
+              const label = isPartial
+                ? `部分买到 · 剩余 ${item.remaining_planned_quantity ?? '—'}`
+                : item.result === 'completed_without_inventory'
+                  ? '仅完成采购项'
+                  : item.result === 'stocked'
+                    ? '已加入库存'
+                    : '已完成';
+              return (
+                <li key={item.shopping_item_id}>
+                  <strong>{titleByShoppingItemId.get(item.shopping_item_id) ?? '采购项'}</strong>
+                  <StatusBadge tone={isPartial ? 'warning' : 'success'} size="compact">
+                    {label}
+                  </StatusBadge>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       ) : null}
     </section>
   );

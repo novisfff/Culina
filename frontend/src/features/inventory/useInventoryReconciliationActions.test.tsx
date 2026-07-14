@@ -234,6 +234,61 @@ afterEach(() => {
 });
 
 describe('useInventoryReconciliationActions', () => {
+  it('turns a stalled checklist request into a recoverable loading error', async () => {
+    vi.useFakeTimers();
+    renderBundle({
+      fetchReconciliation: vi.fn(() => new Promise<InventoryReconciliationResponse>(() => undefined)),
+      submitReconciliation: vi.fn(async () => makeResult()),
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+    });
+
+    act(() => {
+      void latest!.actions.openReconciliation('suggested');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(latest!.state.open).toBe(true);
+    expect(latest!.state.loading).toBe(false);
+    expect(latest!.state.errorMessage).toContain('加载时间较长');
+  });
+
+  it('ignores a checklist response that arrives after the dialog has closed', async () => {
+    const eggs = makeExactGroup();
+    let resolveFetch: ((value: InventoryReconciliationResponse) => void) | null = null;
+    const fetchReconciliation = vi.fn(
+      () => new Promise<InventoryReconciliationResponse>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    renderBundle({
+      fetchReconciliation,
+      submitReconciliation: vi.fn(async () => makeResult()),
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+    });
+
+    let opening: Promise<void>;
+    act(() => {
+      opening = latest!.actions.openReconciliation('suggested');
+    });
+    expect(latest!.state.open).toBe(true);
+    expect(latest!.state.loading).toBe(true);
+
+    act(() => {
+      latest!.state.closeReconciliation({ familyId: FAMILY_ID, userId: USER_ID, now: NOW });
+    });
+    await act(async () => {
+      resolveFetch!(makeResponse([eggs]));
+      await opening!;
+    });
+
+    expect(latest!.state.open).toBe(false);
+    expect(latest!.state.groups).toEqual([]);
+    expect(latest!.state.draft).toBeNull();
+  });
+
   it('open fetches the selected scope and does not auto-confirm', async () => {
     const eggs = makeExactGroup();
     const fetchReconciliation = vi.fn(async (args: { scope: string; storageLocation: string | null }) => {

@@ -86,7 +86,7 @@ describe('appNavigationModel', () => {
     ).toMatchObject({ primaryTab: 'home' });
   });
 
-  it('restores valid v2 snapshots without task state', () => {
+  it('restores legacy menu snapshots on discovery without task state', () => {
     const restored = parsePersistedNavigation(
       JSON.stringify({
         version: 2,
@@ -100,7 +100,7 @@ describe('appNavigationModel', () => {
 
     expect(restored).toEqual({
       primaryTab: 'eat',
-      eat: { baseView: 'plan', task: null, discoverSection: 'selfMade' },
+      eat: { baseView: 'discover', task: null, discoverSection: 'selfMade' },
     });
   });
 
@@ -162,7 +162,19 @@ describe('appNavigationModel', () => {
     expect(reduceNavigation(opened, { type: 'close-task' }).eat.task).toBeNull();
   });
 
-  it('opens plan-sourced Cook and meal-create with plan return targets', () => {
+  it('keeps plan details on discovery after the standalone menu page is removed', () => {
+    const opened = reduceNavigation(eatState(), {
+      type: 'navigate',
+      target: { workspace: 'eat', view: 'plan', foodPlanItemId: 'plan-1' },
+    });
+
+    expect(opened.eat).toMatchObject({
+      baseView: 'discover',
+      task: { kind: 'plan-detail', foodPlanItemId: 'plan-1', returnTo: 'discover' },
+    });
+  });
+
+  it('returns plan-sourced Cook and meal-create to discovery after closing', () => {
     const planCook = reduceNavigation(eatState({ baseView: 'plan' }), {
       type: 'navigate',
       target: {
@@ -183,10 +195,10 @@ describe('appNavigationModel', () => {
       },
     });
     expect(planCook.eat).toMatchObject({
-      baseView: 'plan',
+      baseView: 'discover',
       task: {
         kind: 'cook',
-        returnTo: 'plan',
+        returnTo: 'discover',
         launchContext: {
           source: {
             kind: 'plan',
@@ -214,7 +226,7 @@ describe('appNavigationModel', () => {
     });
     expect(mealCreate.eat.task).toMatchObject({
       kind: 'meal-create',
-      returnTo: 'plan',
+      returnTo: 'discover',
       foodId: 'food-3',
       date: '2026-07-15',
       mealType: 'breakfast',
@@ -224,7 +236,7 @@ describe('appNavigationModel', () => {
         planItemBaseUpdatedAt: '2026-07-13T02:00:00.000Z',
       },
     });
-    expect(mealCreate.eat.baseView).toBe('plan');
+    expect(mealCreate.eat.baseView).toBe('discover');
   });
 
   it('emits recipe-target for recipe navigation on both desktop and mobile paths', () => {

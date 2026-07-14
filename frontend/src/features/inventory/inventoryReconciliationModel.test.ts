@@ -16,6 +16,7 @@ import {
   buildExactAdjustBatchesIntent,
   buildExactConfirmAllIntent,
   buildExactSetAbsentIntent,
+  buildExactTotalAdjustmentSuggestion,
   buildFoodConfirmIntent,
   buildFoodSetAbsentIntent,
   buildFoodSetStockIntent,
@@ -167,7 +168,7 @@ describe('inventoryReconciliationModel labels and grouping', () => {
     expect(SCOPE_LABELS.frozen).toBe('冷冻');
     expect(SCOPE_LABELS.room_temperature).toBe('常温');
     expect(SCOPE_LABELS.all).toBe('全部');
-    expect(CONFIRMATION_STATUS_LABELS.never_confirmed).toBe('从未确认');
+    expect(CONFIRMATION_STATUS_LABELS.never_confirmed).toBe('待确认');
     expect(CONFIRMATION_STATUS_LABELS.current).toBe('刚确认过');
     expect(CONFIRMATION_STATUS_LABELS.stale).toBe('建议再确认');
     expect(AVAILABILITY_LEVEL_LABELS.low).toBe('少量');
@@ -196,6 +197,82 @@ describe('inventoryReconciliationModel labels and grouping', () => {
 });
 
 describe('inventoryReconciliationModel intents and payload', () => {
+  it('suggests clearing expired batches first and then the earliest remaining batch', () => {
+    const tomatoes = makeExactGroup({
+      ingredient_id: 'ing-tomato',
+      ingredient_name: '番茄',
+      default_unit: '个',
+      unit_conversions: [],
+      batches: [
+        makeBatch({
+          inventory_item_id: 'batch-newer',
+          remaining_quantity: 4,
+          expiry_date: '2026-07-20',
+          purchase_date: '2026-07-08',
+        }),
+        makeBatch({
+          inventory_item_id: 'batch-expired',
+          remaining_quantity: 2,
+          expiry_date: '2026-07-05',
+          purchase_date: '2026-06-25',
+        }),
+      ],
+    });
+
+    const suggestion = buildExactTotalAdjustmentSuggestion({
+      group: tomatoes,
+      actualQuantity: '3',
+      actualUnit: '个',
+      referenceDate: REFERENCE_DATE,
+    });
+
+    expect(suggestion.ok).toBe(true);
+    if (!suggestion.ok) return;
+    expect(suggestion.intent.action).toBe('adjust_batches');
+    expect(suggestion.processedBatchIds).toEqual(['batch-expired', 'batch-newer']);
+    expect(suggestion.retainedBatchIds).toEqual(['batch-newer']);
+    expect(suggestion.intent.updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ inventoryItemId: 'batch-expired', actualRemainingQuantity: '0' }),
+        expect.objectContaining({ inventoryItemId: 'batch-newer', actualRemainingQuantity: '3' }),
+      ]),
+    );
+  });
+
+  it('uses reliable ingredient conversions and rejects totals above recorded inventory', () => {
+    const rice = makeExactGroup({
+      ingredient_id: 'ing-rice',
+      ingredient_name: '大米',
+      default_unit: '克',
+      unit_conversions: [{ unit: '斤', ratio_to_default: 500 }],
+      batches: [
+        makeBatch({ inventory_item_id: 'rice-grams', remaining_quantity: 500, unit: '克' }),
+        makeBatch({ inventory_item_id: 'rice-jin', remaining_quantity: 1, unit: '斤' }),
+      ],
+    });
+
+    const converted = buildExactTotalAdjustmentSuggestion({
+      group: rice,
+      actualQuantity: '1',
+      actualUnit: '斤',
+      referenceDate: REFERENCE_DATE,
+    });
+    expect(converted.ok).toBe(true);
+    if (converted.ok) {
+      expect(converted.actualQuantityInDefaultUnit).toBe(500);
+      expect(converted.recordedQuantityInDefaultUnit).toBe(1000);
+    }
+
+    expect(
+      buildExactTotalAdjustmentSuggestion({
+        group: rice,
+        actualQuantity: '3',
+        actualUnit: '斤',
+        referenceDate: REFERENCE_DATE,
+      }),
+    ).toMatchObject({ ok: false, reason: 'above_recorded' });
+  });
+
   it('creates no intent for untouched groups and only submits touched ones', () => {
     const eggs = makeExactGroup({ ingredient_id: 'ing-egg', ingredient_name: '鸡蛋' });
     const salt = makePresenceGroup();

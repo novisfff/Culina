@@ -93,4 +93,38 @@ describe('FormActions', () => {
 
     expect(view.querySelector<HTMLButtonElement>('button')?.getAttribute('form')).toBe('inventory-form');
   });
+
+  it('shows a labelled spinner on the primary action while submitting', () => {
+    const view = renderActions(
+      <FormActions
+        primaryLabel="确认入库"
+        submittingLabel="正在登记"
+        isSubmitting
+        secondaryLabel="返回"
+      />,
+    );
+
+    const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['返回', '正在登记']);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    expect(buttons[1].getAttribute('aria-busy')).toBe('true');
+    expect(buttons[1].querySelector('.ui-form-action-spinner')).not.toBeNull();
+  });
+
+  it('shows a labelled spinner on the secondary action while it is submitting', () => {
+    const view = renderActions(
+      <FormActions
+        primaryLabel="完成"
+        secondaryLabel="撤销本次登记"
+        secondaryIsSubmitting
+        secondarySubmittingLabel="正在撤销"
+      />,
+    );
+
+    const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['正在撤销', '完成']);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    expect(buttons[0].getAttribute('aria-busy')).toBe('true');
+    expect(buttons[0].querySelector('.ui-form-action-spinner')).not.toBeNull();
+  });
 });

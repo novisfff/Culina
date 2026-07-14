@@ -39,7 +39,7 @@ describe('useAppNavigationState', () => {
     const { result } = renderHook(() => useAppNavigationState());
     expect(result.current.state).toMatchObject({
       primaryTab: 'eat',
-      eat: { baseView: 'plan', discoverSection: 'selfMade', task: null },
+      eat: { baseView: 'discover', discoverSection: 'selfMade', task: null },
     });
   });
 

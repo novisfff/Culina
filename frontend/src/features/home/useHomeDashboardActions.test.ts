@@ -193,6 +193,9 @@ function createActions(overrides: {
   }) => void;
   closeActionGroup?: () => void;
   showNotice?: ReturnType<typeof vi.fn>;
+  quickAddMeal?: ReturnType<typeof vi.fn>;
+  closeHomePlanDetail?: ReturnType<typeof vi.fn>;
+  openMealLogEnrichment?: ReturnType<typeof vi.fn>;
   setActionDialogBusy?: (busy: boolean) => void;
   setActionDialogError?: (message: string | null) => void;
   setActionDialogConflict?: (state: 'none' | 'review_again') => void;
@@ -214,6 +217,11 @@ function createActions(overrides: {
   const setActionDialogBusy = overrides.setActionDialogBusy ?? vi.fn();
   const setActionDialogError = overrides.setActionDialogError ?? vi.fn();
   const setActionDialogConflict = overrides.setActionDialogConflict ?? vi.fn();
+  const quickAddMeal = overrides.quickAddMeal ?? vi.fn(async () => {
+    throw new Error('unused');
+  });
+  const closeHomePlanDetail = overrides.closeHomePlanDetail ?? vi.fn();
+  const openMealLogEnrichment = overrides.openMealLogEnrichment ?? vi.fn();
 
   const actions = useHomeDashboardActions({
     showNotice,
@@ -237,14 +245,12 @@ function createActions(overrides: {
     updateFoodPlanItem: vi.fn(async () => undefined),
     deleteFoodPlanItem: vi.fn(async () => undefined),
     createFoodPlanItem: vi.fn(async () => undefined),
-    quickAddMeal: vi.fn(async () => {
-      throw new Error('unused');
-    }),
-    closeHomePlanDetail: vi.fn(),
+    quickAddMeal,
+    closeHomePlanDetail,
     closeHomePlanAddDialog: vi.fn(),
     setIsHomePlanDetailEditing: vi.fn(),
     startPlanRecipe: vi.fn(),
-    openMealLogEnrichment: vi.fn(),
+    openMealLogEnrichment,
   });
 
   return {
@@ -262,8 +268,63 @@ function createActions(overrides: {
     setActionDialogBusy,
     setActionDialogError,
     setActionDialogConflict,
+    quickAddMeal,
+    closeHomePlanDetail,
+    openMealLogEnrichment,
   };
 }
+
+describe('useHomeDashboardActions plan completion', () => {
+  it('records a non-recipe plan and opens enrichment with the created meal', async () => {
+    const item = {
+      id: 'plan-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-1',
+      food_name: '盒装牛奶',
+      food_type: 'readyMade',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: '2026-07-14',
+      meal_type: 'dinner' as const,
+      note: '',
+      status: 'planned' as const,
+      created_at: '2026-07-14T00:00:00Z',
+      updated_at: '2026-07-14T00:00:00Z',
+    };
+    const createdMeal = {
+      id: 'meal-1',
+      family_id: 'family-1',
+      date: item.plan_date,
+      meal_type: item.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      created_at: '2026-07-14T00:00:00Z',
+      updated_at: '2026-07-14T00:00:00Z',
+    };
+    const quickAddMeal = vi.fn(async () => createdMeal);
+    const closeHomePlanDetail = vi.fn();
+    const openMealLogEnrichment = vi.fn();
+    const { actions } = createActions({
+      quickAddMeal,
+      closeHomePlanDetail,
+      openMealLogEnrichment,
+    });
+
+    await actions.startHomePlanDetailCook(item);
+
+    expect(quickAddMeal).toHaveBeenCalledWith(expect.objectContaining({
+      food_id: item.food_id,
+      food_plan_item_id: item.id,
+    }));
+    expect(closeHomePlanDetail).toHaveBeenCalledTimes(1);
+    expect(openMealLogEnrichment).toHaveBeenCalledWith({ mealLog: createdMeal, planItem: item });
+  });
+});
 
 describe('useHomeDashboardActions inventory workflow', () => {
   it('disposes selected batches with versioned payload and completes after awaited refresh', async () => {

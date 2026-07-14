@@ -8,6 +8,7 @@ import {
   ActionButton,
   FormActions,
   MobileActionBar,
+  OperationLoadingOverlay,
   StateBlock,
   WorkspaceModal,
   WorkspaceOverlayFrame,
@@ -95,6 +96,9 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
     : selectedSummary
       ? isOperationStillRevertible(selectedSummary, nowMs)
       : false;
+  const hasOperations = props.operations.length > 0;
+  const compactPresentation = !hasOperations;
+  const emptyPresentation = !loading && !props.errorMessage && !props.conflictMessage && !hasOperations;
 
   if (!props.open) {
     return null;
@@ -150,16 +154,22 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
         eyebrow="操作历史"
         closeLabel="关闭"
         closeAriaLabel="关闭操作历史"
-        className="workspace-modal-wide inventory-maintenance-modal inventory-operation-history-modal"
+        className={[
+          'workspace-modal-wide',
+          'inventory-maintenance-modal',
+          'inventory-operation-history-modal',
+          compactPresentation ? 'is-compact' : '',
+          emptyPresentation ? 'is-empty' : '',
+        ].filter(Boolean).join(' ')}
         onClose={closeIfAllowed}
         busy={busy}
-        footerInfo={
+        footerInfo={hasOperations ? (
           <div className="inventory-maintenance-footer-summary">
             <span>最近记录</span>
             <strong>{props.operations.length} 条</strong>
             <p>{canRevertSelected ? '撤销作用于整次操作' : '仅可查看历史详情'}</p>
           </div>
-        }
+        ) : undefined}
         footerActions={
           <>
             <div className="inventory-maintenance-desktop-actions">{footerActions}</div>
@@ -167,7 +177,16 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           </>
         }
       >
-        <div className="inventory-maintenance-scroll inventory-operation-history-layout">
+        <div
+          className={[
+            'inventory-maintenance-scroll',
+            'inventory-operation-history-layout',
+            'ui-operation-loading-host',
+            busy ? 'is-busy' : '',
+          ].filter(Boolean).join(' ')}
+          aria-busy={busy}
+        >
+          <OperationLoadingOverlay active={busy} title="正在撤销库存操作" />
           <div className="inventory-maintenance-live" aria-live="polite">
             {props.conflictMessage || props.errorMessage || props.detailError || ''}
           </div>
@@ -202,9 +221,9 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           {!loading && props.operations.length === 0 ? (
             <StateBlock
               status="empty"
-              title="还没有可查看的操作"
-              description="完成采购入库或快速盘点后，最近 20 次操作会出现在这里。"
-              className="inventory-maintenance-state"
+              title="暂无库存操作记录"
+              description="完成采购入库或快速盘点后，操作记录会自动保存在这里。"
+              className="inventory-maintenance-state inventory-operation-history-empty"
             />
           ) : null}
 

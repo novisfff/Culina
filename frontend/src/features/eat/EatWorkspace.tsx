@@ -1,25 +1,16 @@
 import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
-import type { EatBaseView } from '../../app/appNavigationModel';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
-
-const EAT_TABS: ReadonlyArray<{ key: EatBaseView; label: string }> = [
-  { key: 'discover', label: '发现' },
-  { key: 'plan', label: '菜单' },
-  { key: 'history', label: '吃过的' },
-];
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;
   resolvedTask: ResolvedEatTask;
   liveMessage?: string;
   completionPending?: boolean;
+  cookResumePromptOpen?: boolean;
   discoverContent?: ReactNode;
-  planContent?: ReactNode;
   historyContent?: ReactNode;
-  /** Compact active-cook resume entry rendered above Discover content when present. */
-  activeCookResumeContent?: ReactNode;
   /** Optional focused task body for food/plan/meal/cook/ready-recipe kinds. */
   foodTaskContent?: ReactNode;
   planTaskContent?: ReactNode;
@@ -29,31 +20,25 @@ export type EatWorkspaceProps = {
   mealCreateContent?: ReactNode;
 };
 
-function returnLabel(view: EatBaseView): string {
-  if (view === 'plan') return '返回菜单';
+function returnLabel(view: AppNavigationService['state']['eat']['baseView']): string {
   if (view === 'history') return '返回吃过的';
   return '返回发现';
 }
 
-function taskReturnView(task: AppNavigationService['state']['eat']['task']): EatBaseView {
+function taskReturnView(task: AppNavigationService['state']['eat']['task']): AppNavigationService['state']['eat']['baseView'] {
   return task?.returnTo ?? 'discover';
 }
 
 function renderBaseView(props: EatWorkspaceProps): ReactNode {
-  switch (props.navigation.state.eat.baseView) {
-    case 'plan':
-      return props.planContent ?? null;
-    case 'history':
-      return props.historyContent ?? null;
-    case 'discover':
-    default:
-      return (
-        <>
-          {props.activeCookResumeContent ?? null}
-          {props.discoverContent ?? null}
-        </>
-      );
+  if (props.navigation.state.eat.baseView === 'history') {
+    return props.historyContent ?? null;
   }
+
+  return (
+    <>
+      {props.discoverContent ?? null}
+    </>
+  );
 }
 
 type TaskShellProps = {
@@ -421,36 +406,34 @@ function renderResolvedTask(
 
 /**
  * Lightweight composition boundary for the unified eating workspace.
- * Owns tab semantics, base-view slots, resolved-task rendering, and focus targets.
+ * Owns base-view slots, resolved-task rendering, and focus targets.
  * Does not own domain mutations, recommendations, or query fetching.
  */
 export function EatWorkspace(props: EatWorkspaceProps) {
-  const { state } = props.navigation;
+  if (props.resolvedTask.kind === 'cook') {
+    return (
+      <main className="eat-workspace eat-workspace-cook-mode recipe-workspace recipe-workspace-cook-mode">
+        {props.cookResumePromptOpen ? (
+          <section
+            className="eat-workspace-cook-background"
+            aria-hidden="true"
+            {...({ inert: '' } as Record<string, string>)}
+          >
+            {props.discoverContent ?? null}
+          </section>
+        ) : null}
+        {renderResolvedTask(props, {
+          headingRef: props.navigation.registerTaskHeading as Ref<HTMLHeadingElement>,
+        })}
+        <div className="sr-only" aria-live="polite">
+          {props.liveMessage ?? ''}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="eat-workspace">
-      <header className="eat-workspace-header">
-        <h1 className="eat-workspace-title">吃什么</h1>
-        <div role="tablist" aria-label="吃什么视图" className="eat-workspace-tabs">
-          {EAT_TABS.map((item) => {
-            const selected = state.eat.baseView === item.key;
-            return (
-              <button
-                key={item.key}
-                role="tab"
-                type="button"
-                className={['eat-workspace-tab', selected ? 'is-selected' : ''].filter(Boolean).join(' ')}
-                aria-selected={selected}
-                tabIndex={selected ? 0 : -1}
-                onClick={(event) => props.navigation.selectEatView(item.key, event.currentTarget)}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      </header>
-
       <div className="eat-workspace-layout">
         <section
           ref={props.navigation.registerBaseViewFocusTarget}

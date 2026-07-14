@@ -19,6 +19,16 @@ export const PRIMARY_NAV_ITEMS: ReadonlyArray<{
   { key: 'family', label: '家庭', icon: 'family' },
 ];
 
+// Desktop keeps the information-oriented sidebar order. On phones, AI is the
+// center primary action so the raised avatar aligns with the middle grid slot.
+const MOBILE_PRIMARY_NAV_ITEMS = [
+  PRIMARY_NAV_ITEMS[0]!,
+  PRIMARY_NAV_ITEMS[1]!,
+  PRIMARY_NAV_ITEMS[3]!,
+  PRIMARY_NAV_ITEMS[2]!,
+  PRIMARY_NAV_ITEMS[4]!,
+] as const;
+
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
 const MOBILE_VIEWPORT_TOP_VAR = '--app-visual-viewport-top';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
@@ -533,7 +543,7 @@ export function AppShell({
       </div>
       {activeTab !== 'ai' && (
         <nav className="mobile-bottom-nav" aria-label="手机主导航">
-          {PRIMARY_NAV_ITEMS.map((item) => {
+          {MOBILE_PRIMARY_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.key;
             const isAiTab = item.key === 'ai';
             return (

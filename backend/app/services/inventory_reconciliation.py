@@ -55,7 +55,11 @@ from app.services.ingredient_inventory_state import (
     state_is_physically_present,
     upsert_inventory_state,
 )
-from app.services.ingredient_units import UnitConversionError, convert_quantity_to_default_unit
+from app.services.ingredient_units import (
+    UnitConversionError,
+    convert_quantity_to_default_unit,
+    serialize_unit_conversions,
+)
 from app.services.inventory_confirmation import (
     FOOD_STALE_AFTER_DAYS,
     PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
@@ -353,6 +357,11 @@ def build_inventory_reconciliation(
                 ingredient_id=ingredient.id,
                 ingredient_name=ingredient.name,
                 ingredient_row_version=int(ingredient.row_version),
+                default_unit=ingredient.default_unit,
+                unit_conversions=serialize_unit_conversions(
+                    ingredient.default_unit,
+                    ingredient.unit_conversions,
+                ),
                 confirmation_status=group_status,  # type: ignore[arg-type]
                 last_confirmed_at=group_last,
                 batches=batch_outs,

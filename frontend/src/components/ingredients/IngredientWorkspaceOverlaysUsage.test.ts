@@ -13,6 +13,15 @@ describe('IngredientWorkspaceOverlays shared overlay usage', () => {
     expect(source).not.toContain('<div className="workspace-overlay-root');
     expect(source).not.toContain('<div className="workspace-overlay-backdrop"');
   });
+
+  it('reuses the same complete shopping dialog on home and ingredients surfaces', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(workspaceSource).toContain('<IngredientShoppingDialog');
+    expect(appSource).toContain('<IngredientShoppingDialog');
+    expect(appSource).not.toContain("target: 'shopping',\n      ingredientId");
+  });
 });
 
 describe('IngredientShoppingOverlay free-text option', () => {

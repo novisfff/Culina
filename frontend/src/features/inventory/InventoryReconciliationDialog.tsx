@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   InventoryAvailabilityLevel,
   InventoryOperationResult,
@@ -7,15 +7,18 @@ import type {
 } from '../../api/types';
 import {
   ActionButton,
+  DropdownSelect,
   FormActions,
   MobileActionBar,
   OptionChipGroup,
+  OperationLoadingOverlay,
   QuantityUnitField,
   StateBlock,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
+import { convertQuantityToDefaultUnit, getIngredientUnitOptions } from '../../lib/ingredientUnits';
 import { isOperationStillRevertible } from './InventoryOperationBanner';
 import {
   AVAILABILITY_LEVEL_LABELS,
@@ -24,6 +27,7 @@ import {
   buildExactAdjustBatchesIntent,
   buildExactConfirmAllIntent,
   buildExactSetAbsentIntent,
+  buildExactTotalAdjustmentSuggestion,
   buildFoodConfirmIntent,
   buildFoodSetAbsentIntent,
   buildFoodSetStockIntent,
@@ -39,6 +43,7 @@ import {
   type ExactBatchCreateIntent,
   type ExactBatchUpdateIntent,
   type ExactIngredientIntent,
+  type ExactTotalAdjustmentSuggestion,
   type FoodIntent,
   type InventoryReconciliationDraft,
   type InventoryReconciliationScope,
@@ -99,6 +104,11 @@ const PRESENCE_OPTIONS: Array<{ value: InventoryAvailabilityLevel; label: string
   { value: 'absent', label: AVAILABILITY_LEVEL_LABELS.absent },
 ];
 
+const RECONCILIATION_STORAGE_OPTIONS = ['冷藏', '冷冻', '常温'].map((value) => ({
+  value,
+  label: value,
+}));
+
 function compactTimeLabel(iso: string) {
   try {
     return formatDateTime(iso);
@@ -136,21 +146,23 @@ function fieldErrorsFor(
 function intentActionLabel(intent: ReconciliationIntent | null): string | null {
   if (!intent) return null;
   if (intent.kind === 'exact_ingredient') {
-    if (intent.action === 'confirm_all') return '确认无误';
-    if (intent.action === 'set_absent') return '没有了';
-    return '调整数量';
+    return '已加入本次盘点';
   }
   if (intent.kind === 'presence_ingredient') {
     return AVAILABILITY_LEVEL_LABELS[intent.availabilityLevel];
   }
-  if (intent.action === 'confirm') return '确认无误';
-  if (intent.stockQuantity === '0') return '没有了';
-  return '调整数量';
+  return '已加入本次盘点';
 }
 
 export function InventoryReconciliationDialog(props: InventoryReconciliationDialogProps) {
   const busy = Boolean(props.busy);
   const loading = Boolean(props.loading);
+  const deferredOrderedGroups = useDeferredValue(props.orderedGroups);
+  const isDeferringGroups =
+    !loading && props.step === 'review' && deferredOrderedGroups !== props.orderedGroups;
+  // Loading the read-only checklist must never trap the user in the overlay.
+  // Only an in-flight inventory write needs to prevent closing or dismissal.
+  const closeLocked = busy && !loading;
   const fieldErrors = props.fieldErrors ?? [];
   const expanded = new Set(props.expandedBatchGroupKeys ?? []);
   const checkedCount = props.checkedCount ?? props.draft?.intents.length ?? 0;
@@ -177,26 +189,32 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
   }
 
   const closeIfAllowed = () => {
-    if (!busy) {
+    if (!closeLocked) {
       props.onClose();
     }
   };
 
   const title =
     props.step === 'result'
-      ? '本次盘点已完成'
+      ? '盘点完成'
       : props.step === 'summary'
-        ? '确认提交摘要'
+        ? '确认本次变更'
         : '快速盘点';
 
   const description =
     props.step === 'result'
-      ? props.result?.summary.description || '库存确认已同步更新。'
+      ? '库存记录已同步更新。'
       : props.step === 'summary'
         ? '只提交你确认或调整过的项目；未触碰项保持原状。'
         : `${scopeLabel(props.scope)}范围 · 逐项核对当前库存，未操作的项目不会被修改。`;
 
   const remainingErrorCount = fieldErrors.length;
+  const isLoadError =
+    !loading &&
+    props.step === 'review' &&
+    props.groups.length === 0 &&
+    Boolean(props.errorMessage) &&
+    (!props.conflictState || props.conflictState === 'none');
   const canRevertResult = isOperationStillRevertible(props.result, Date.now());
   const liveMessage =
     props.errorMessage ||
@@ -214,8 +232,8 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
     footerActions = (
       <FormActions
         className="inventory-maintenance-actions"
-        primaryLabel={`查看摘要（${checkedCount}）`}
-        isSubmitting={busy}
+        primaryLabel={`查看本次变更（${checkedCount}）`}
+        isSubmitting={closeLocked}
         primaryDisabled={busy || loading || checkedCount === 0}
         onPrimary={props.onGoSummary}
         secondaryLabel="关闭"
@@ -243,20 +261,6 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         primaryLabel="完成"
         isSubmitting={false}
         onPrimary={closeIfAllowed}
-        secondaryLabel={
-          canRevertResult && props.onRevertResult
-            ? '撤销本次操作'
-            : canRevertResult
-              ? '稍后可撤销'
-              : undefined
-        }
-        onSecondary={
-          canRevertResult && props.onRevertResult
-            ? () => props.onRevertResult?.(props.result!.operation_id)
-            : canRevertResult
-              ? closeIfAllowed
-              : undefined
-        }
       />
     );
   }
@@ -293,8 +297,8 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
       rootClassName={['inventory-maintenance-overlay-root', props.overlayRootClassName]
         .filter(Boolean)
         .join(' ')}
-      closeOnBackdrop={!busy}
-      busy={busy}
+      closeOnBackdrop={!closeLocked}
+      busy={closeLocked}
       labelledBy="inventory-reconciliation-title"
       onClose={closeIfAllowed}
     >
@@ -305,10 +309,15 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         eyebrow="快速盘点"
         closeLabel="关闭"
         closeAriaLabel="关闭快速盘点"
-        className="workspace-modal-wide inventory-maintenance-modal inventory-reconciliation-modal"
+        className={[
+          'workspace-modal-wide',
+          'inventory-maintenance-modal',
+          'inventory-reconciliation-modal',
+          props.step === 'result' ? 'is-result' : '',
+        ].filter(Boolean).join(' ')}
         onClose={closeIfAllowed}
-        busy={busy}
-        footerInfo={footerInfo}
+        busy={closeLocked}
+        footerInfo={props.step === 'result' ? undefined : footerInfo}
         footerActions={
           <>
             <div className="inventory-maintenance-desktop-actions">{footerActions}</div>
@@ -316,12 +325,24 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           </>
         }
       >
-        <div className="inventory-maintenance-scroll inventory-reconciliation-scroll">
+        <div
+          className={[
+            'inventory-maintenance-scroll',
+            'inventory-reconciliation-scroll',
+            'ui-operation-loading-host',
+            closeLocked ? 'is-busy' : '',
+          ].filter(Boolean).join(' ')}
+          aria-busy={closeLocked}
+        >
+          <OperationLoadingOverlay
+            active={closeLocked}
+            title={props.step === 'result' ? '正在撤销本次盘点' : '正在提交盘点结果'}
+          />
           <div className="inventory-maintenance-live" aria-live="polite">
             {liveMessage}
           </div>
 
-          {props.step !== 'result' ? (
+          {!loading && props.step !== 'result' ? (
             <section className="inventory-maintenance-section inventory-reconciliation-scope" aria-label="盘点范围">
               <div className="inventory-maintenance-section-head">
                 <span>盘点范围</span>
@@ -362,7 +383,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
             </div>
           ) : null}
 
-          {props.errorMessage && (!props.conflictState || props.conflictState === 'none') ? (
+          {props.errorMessage && !isLoadError && (!props.conflictState || props.conflictState === 'none') ? (
             <div className="inventory-maintenance-error" role="alert">
               {props.errorMessage}
               {remainingErrorCount > 1 ? `（剩余 ${remainingErrorCount} 处）` : null}
@@ -378,7 +399,18 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
             />
           ) : null}
 
-          {!loading && props.step !== 'result' && props.groups.length === 0 ? (
+          {isLoadError ? (
+            <StateBlock
+              status="error"
+              title="盘点清单没有加载完成"
+              description={props.errorMessage ?? '请检查网络后重新加载，也可以先关闭稍后再试。'}
+              actionLabel="重新加载"
+              onAction={() => props.onChangeScope(props.scope)}
+              className="inventory-maintenance-state inventory-reconciliation-load-error"
+            />
+          ) : null}
+
+          {!loading && !isLoadError && props.step !== 'result' && props.groups.length === 0 ? (
             <StateBlock
               status="empty"
               title="这个范围没有需要盘点的项目"
@@ -390,7 +422,9 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           {!loading && props.step === 'review' && props.draft ? (
             <ReviewLayout
               draft={props.draft}
-              orderedGroups={props.orderedGroups}
+              orderedGroups={deferredOrderedGroups}
+              totalGroupCount={props.orderedGroups.length}
+              isRenderingGroups={isDeferringGroups}
               referenceDate={props.referenceDate}
               busy={busy}
               fieldErrors={fieldErrors}
@@ -423,6 +457,8 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
 function ReviewLayout(props: {
   draft: InventoryReconciliationDraft;
   orderedGroups: InventoryReconciliationGroup[];
+  totalGroupCount: number;
+  isRenderingGroups: boolean;
   referenceDate: string;
   busy: boolean;
   fieldErrors: ReconciliationFieldError[];
@@ -435,33 +471,6 @@ function ReviewLayout(props: {
   const summaryLines = formatSubmitSummaryLines(props.summary);
   return (
     <div className="inventory-reconciliation-layout">
-      <section className="inventory-maintenance-section inventory-reconciliation-list" aria-label="库存清单">
-        <div className="inventory-maintenance-section-head">
-          <span>库存卡片</span>
-          <em>{props.orderedGroups.length} 项</em>
-        </div>
-        <div className="inventory-maintenance-item-list">
-          {props.orderedGroups.map((group) => {
-            const targetKey = reconciliationGroupTargetKey(group);
-            const intent = findIntent(props.draft, targetKey);
-            return (
-              <GroupCard
-                key={targetKey}
-                group={group}
-                intent={intent}
-                referenceDate={props.referenceDate}
-                busy={props.busy}
-                fieldErrors={props.fieldErrors}
-                expanded={props.expanded.has(targetKey)}
-                onToggleBatchDetails={() => props.onToggleBatchDetails(targetKey)}
-                onSetIntent={props.onSetIntent}
-                onClearIntent={() => props.onClearIntent(targetKey)}
-              />
-            );
-          })}
-        </div>
-      </section>
-
       <aside className="inventory-maintenance-section inventory-reconciliation-side-summary" aria-label="本次摘要">
         <div className="inventory-maintenance-section-head">
           <span>本次摘要</span>
@@ -470,10 +479,10 @@ function ReviewLayout(props: {
         {summaryLines.length === 0 ? (
           <div className="inventory-reconciliation-summary-empty">
             <span className="inventory-reconciliation-summary-icon" aria-hidden="true">✓</span>
-            <strong>从左侧开始确认</strong>
-            <p className="subtle">确认、调整或清空库存后，本次变更会汇总在这里。</p>
+            <strong>从库存卡片开始确认</strong>
+            <p className="subtle">只记录你确认、调整或清空的项目。</p>
             <span className="inventory-reconciliation-summary-remaining">
-              待检查 {props.orderedGroups.length} 项
+              待检查 {props.totalGroupCount} 项
             </span>
           </div>
         ) : (
@@ -487,6 +496,43 @@ function ReviewLayout(props: {
           </ul>
         )}
       </aside>
+
+      <section className="inventory-maintenance-section inventory-reconciliation-list" aria-label="库存清单">
+        <div className="inventory-maintenance-section-head">
+          <span>库存卡片</span>
+          <em>{props.totalGroupCount} 项</em>
+        </div>
+        {props.isRenderingGroups ? (
+          <div className="inventory-reconciliation-list-loading" role="status" aria-live="polite">
+            <span aria-hidden="true" />
+            <div>
+              <strong>正在整理库存卡片</strong>
+              <p>弹层可以继续操作，清单会马上显示。</p>
+            </div>
+          </div>
+        ) : (
+          <div className="inventory-maintenance-item-list">
+            {props.orderedGroups.map((group) => {
+              const targetKey = reconciliationGroupTargetKey(group);
+              const intent = findIntent(props.draft, targetKey);
+              return (
+                <GroupCard
+                  key={targetKey}
+                  group={group}
+                  intent={intent}
+                  referenceDate={props.referenceDate}
+                  busy={props.busy}
+                  fieldErrors={props.fieldErrors}
+                  expanded={props.expanded.has(targetKey)}
+                  onToggleBatchDetails={() => props.onToggleBatchDetails(targetKey)}
+                  onSetIntent={props.onSetIntent}
+                  onClearIntent={() => props.onClearIntent(targetKey)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -529,11 +575,11 @@ function GroupCard(props: {
             {headline.confirmationLabel}
           </span>
           {actionLabel ? <span className="inventory-maintenance-chip is-action">{actionLabel}</span> : null}
-          {headline.hasExpiredPhysicalBatch ? (
+          {headline.hasExpiredPhysicalBatch && props.group.kind !== 'exact_ingredient' ? (
             <span className="inventory-maintenance-chip is-warning">含过期批次</span>
           ) : null}
         </div>
-        <p className="subtle">{headline.detail}</p>
+        {props.group.kind === 'presence_ingredient' ? <p className="subtle">{headline.detail}</p> : null}
       </div>
 
       {props.group.kind === 'exact_ingredient' ? (
@@ -589,82 +635,317 @@ function ExactGroupActions(props: {
   onClearIntent: () => void;
 }) {
   const targetKey = reconciliationGroupTargetKey(props.group);
-  const showBatches = props.expanded || props.intent?.action === 'adjust_batches';
+  const units = getIngredientUnitOptions({
+    default_unit: props.group.default_unit || props.group.batches[0]?.unit || '个',
+    unit_conversions: props.group.unit_conversions ?? [],
+  });
+  const primaryUnit = units[0]?.unit || props.group.batches[0]?.unit || '个';
+  const zeroSuggestion = buildExactTotalAdjustmentSuggestion({
+    group: props.group,
+    actualQuantity: '0',
+    actualUnit: primaryUnit,
+    referenceDate: props.referenceDate,
+  });
+  const recordedQuantity = zeroSuggestion.ok
+    ? zeroSuggestion.recordedQuantityInDefaultUnit
+    : props.group.batches.reduce((sum, batch) => sum + Math.max(batch.remaining_quantity, 0), 0);
+  const availableQuantity = zeroSuggestion.ok
+    ? zeroSuggestion.availableQuantityInDefaultUnit
+    : recordedQuantity;
+  const physicalBatches = props.group.batches.filter((batch) => batch.remaining_quantity > 0);
+  const expiredBatchCount = physicalBatches.filter((batch) =>
+    isPhysicalBatchExpired(batch, props.referenceDate),
+  ).length;
+  const hasExpiredBatches = expiredBatchCount > 0;
+  const allExpired = physicalBatches.length > 0 && expiredBatchCount === physicalBatches.length;
+  const initialManualIntent =
+    props.intent?.action === 'adjust_batches'
+      ? props.intent
+      : buildExactAdjustBatchesIntent({
+          group: props.group,
+          updates: physicalBatches
+            .map((batch) => buildBatchUpdateFromGroup(props.group, batch.inventory_item_id))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+        });
+  const [mode, setMode] = useState<'idle' | 'total' | 'manual'>(
+    props.expanded || props.fieldErrors.length > 0 ? 'manual' : 'idle',
+  );
+  const [actualQuantity, setActualQuantity] = useState('');
+  const [actualUnit, setActualUnit] = useState(primaryUnit);
+  const [manualIntent, setManualIntent] = useState<ExactIngredientIntent | null>(initialManualIntent);
+  const [expandedDetailIds, setExpandedDetailIds] = useState<string[]>(() =>
+    props.fieldErrors.flatMap((error) => {
+      const match = error.field.match(/^batch:([^:]+):/);
+      return match ? [match[1]] : [];
+    }),
+  );
+  const suggestion = useMemo(
+    () =>
+      actualQuantity.trim()
+        ? buildExactTotalAdjustmentSuggestion({
+            group: props.group,
+            actualQuantity,
+            actualUnit,
+            referenceDate: props.referenceDate,
+          })
+        : null,
+    [actualQuantity, actualUnit, props.group, props.referenceDate],
+  );
 
-  return (
-    <div className="inventory-reconciliation-group-actions">
-      <div className="inventory-reconciliation-action-row">
-        <ActionButton
-          tone={props.intent?.action === 'confirm_all' ? 'primary' : 'secondary'}
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:confirm_all`}
-          onClick={() => props.onSetIntent(buildExactConfirmAllIntent(props.group))}
-        >
-          确认无误
-        </ActionButton>
-        <ActionButton
-          tone={props.intent?.action === 'adjust_batches' ? 'primary' : 'secondary'}
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:adjust_batches`}
-          onClick={() => {
-            const updates = props.group.batches
-              .filter((batch) => batch.remaining_quantity > 0)
-              .map((batch) => buildBatchUpdateFromGroup(props.group, batch.inventory_item_id)!)
-              .filter(Boolean);
-            props.onSetIntent(
-              buildExactAdjustBatchesIntent({
-                group: props.group,
-                updates,
-                creates: props.intent?.creates ?? [],
-              }),
-            );
-            if (!props.expanded) {
-              props.onToggleBatchDetails();
-            }
-          }}
-        >
-          调整数量
-        </ActionButton>
-        <ActionButton
-          tone={props.intent?.action === 'set_absent' ? 'primary' : 'secondary'}
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:set_absent`}
-          onClick={() => props.onSetIntent(buildExactSetAbsentIntent(props.group))}
-        >
-          没有了
-        </ActionButton>
-        {props.intent ? (
-          <ActionButton tone="tertiary" size="compact" type="button" disabled={props.busy} onClick={props.onClearIntent}>
-            取消
-          </ActionButton>
-        ) : null}
-        <ActionButton
-          tone="tertiary"
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          onClick={props.onToggleBatchDetails}
-        >
-          {showBatches ? '收起批次' : '展开批次'}
+  useEffect(() => {
+    if (!props.expanded && props.fieldErrors.length === 0) return;
+    if (props.intent?.action === 'adjust_batches') {
+      setManualIntent(props.intent);
+    }
+    setExpandedDetailIds((current) => {
+      const next = new Set(current);
+      for (const error of props.fieldErrors) {
+        const match = error.field.match(/^batch:([^:]+):/);
+        if (match) next.add(match[1]);
+      }
+      return [...next];
+    });
+    setMode('manual');
+  }, [props.expanded, props.fieldErrors, props.intent]);
+
+  function formatQuantity(value: number) {
+    return String(Number(value.toFixed(2)));
+  }
+
+  function openTotalEditor() {
+    setActualUnit(primaryUnit);
+    setActualQuantity(allExpired ? '' : formatQuantity(recordedQuantity));
+    setMode('total');
+  }
+
+  function openExpirySuggestion() {
+    setActualUnit(primaryUnit);
+    setActualQuantity(formatQuantity(availableQuantity));
+    setMode('total');
+  }
+
+  function buildCurrentBatchIntent() {
+    return buildExactAdjustBatchesIntent({
+      group: props.group,
+      updates: physicalBatches
+        .map((batch) => buildBatchUpdateFromGroup(props.group, batch.inventory_item_id))
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+      creates: props.intent?.action === 'adjust_batches' ? props.intent.creates : [],
+    });
+  }
+
+  function openManualEditor(seed?: ExactIngredientIntent | null) {
+    setManualIntent(seed ?? (props.intent?.action === 'adjust_batches' ? props.intent : buildCurrentBatchIntent()));
+    setExpandedDetailIds([]);
+    setMode('manual');
+  }
+
+  if (props.intent && mode === 'idle') {
+    const summary =
+      props.intent.action === 'confirm_all'
+        ? `数量没问题 · 记录库存 ${formatQuantity(recordedQuantity)} ${primaryUnit}`
+        : props.intent.action === 'set_absent'
+          ? `将清空 ${physicalBatches.length} 个批次 · 最终库存 0 ${primaryUnit}`
+          : `将按批次修正库存 · 共 ${physicalBatches.length} 个批次`;
+    return (
+      <div className="inventory-reconciliation-selection-summary">
+        <div>
+          <span>已加入本次盘点</span>
+          <strong>{summary}</strong>
+        </div>
+        <ActionButton tone="secondary" size="compact" type="button" disabled={props.busy} onClick={() => {
+          if (props.intent?.action === 'adjust_batches') openManualEditor(props.intent);
+          else openTotalEditor();
+        }}>
+          修改
         </ActionButton>
       </div>
+    );
+  }
 
-      {showBatches ? (
+  if (mode === 'total') {
+    return (
+      <div className="inventory-reconciliation-total-editor">
+        <div className="inventory-maintenance-field-head">
+          <span>家里实际还有多少？</span>
+          <p className="subtle">先确认总量，系统再建议如何处理批次。</p>
+        </div>
+        <QuantityUnitField
+          quantity={actualQuantity}
+          unit={actualUnit}
+          unitOptions={units.map((entry) => ({ value: entry.unit, label: entry.unit }))}
+          quantityFieldKey={`${targetKey}:actualTotal`}
+          onQuantityChange={setActualQuantity}
+          onUnitChange={setActualUnit}
+          className="inventory-reconciliation-total-field"
+        />
+        <div className={['inventory-reconciliation-suggestion', suggestion?.ok ? 'is-ready' : ''].filter(Boolean).join(' ')}>
+          <span>系统建议</span>
+          {!suggestion ? (
+            <p>填写实际总量后，我会先处理过期和较早到期的批次。</p>
+          ) : suggestion.ok ? (
+            <>
+              <strong>
+                建议处理 {suggestion.processedBatchIds.length} 个批次，保留 {suggestion.retainedBatchIds.length} 个批次
+              </strong>
+              <p>
+                记录库存 {formatQuantity(suggestion.recordedQuantityInDefaultUnit)} {primaryUnit}
+                {' → '}实际库存 {formatQuantity(suggestion.actualQuantityInDefaultUnit)} {primaryUnit}
+              </p>
+            </>
+          ) : (
+            <p className="inventory-maintenance-field-error">{suggestion.message}</p>
+          )}
+        </div>
+        <div className="inventory-reconciliation-editor-actions">
+          <ActionButton
+            tone="primary"
+            size="compact"
+            type="button"
+            disabled={!suggestion?.ok || props.busy}
+            onClick={() => {
+              if (!suggestion?.ok) return;
+              props.onSetIntent(suggestion.intent);
+              setMode('idle');
+            }}
+          >
+            接受建议
+          </ActionButton>
+          <ActionButton
+            tone="secondary"
+            size="compact"
+            type="button"
+            disabled={props.busy}
+            onClick={() => openManualEditor(suggestion?.ok ? suggestion.intent : null)}
+          >
+            手动调整批次
+          </ActionButton>
+          <ActionButton tone="tertiary" size="compact" type="button" onClick={() => setMode('idle')}>
+            返回
+          </ActionButton>
+          {props.intent ? (
+            <ActionButton tone="tertiary" size="compact" type="button" onClick={() => {
+              props.onClearIntent();
+              setMode('idle');
+            }}>
+              移出本次盘点
+            </ActionButton>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'manual' && manualIntent) {
+    const manualSuggestion: ExactTotalAdjustmentSuggestion | null = suggestion?.ok ? suggestion : null;
+    return (
+      <div className="inventory-reconciliation-batch-workspace">
+        <div className="inventory-reconciliation-batch-workspace-head">
+          <ActionButton tone="tertiary" size="compact" type="button" onClick={() => setMode(actualQuantity ? 'total' : 'idle')}>
+            返回盘点
+          </ActionButton>
+          <div>
+            <strong>调整{props.group.ingredient_name}批次</strong>
+            <span>逐批确认数量，需要时再修改日期和位置。</span>
+          </div>
+        </div>
         <ExactBatchEditor
           group={props.group}
-          intent={props.intent}
+          intent={manualIntent}
+          suggestion={manualSuggestion}
           referenceDate={props.referenceDate}
           busy={props.busy}
           fieldErrors={props.fieldErrors}
-          onSetIntent={props.onSetIntent}
+          expandedDetailIds={expandedDetailIds}
+          onToggleBatchDetail={(batchId) =>
+            setExpandedDetailIds((current) =>
+              current.includes(batchId)
+                ? current.filter((entry) => entry !== batchId)
+                : [...current, batchId],
+            )
+          }
+          onSetIntent={setManualIntent}
         />
-      ) : null}
+        <div className="inventory-reconciliation-batch-workspace-actions">
+          <ActionButton tone="secondary" size="compact" type="button" onClick={() => setMode(actualQuantity ? 'total' : 'idle')}>
+            取消
+          </ActionButton>
+          <ActionButton tone="primary" size="compact" type="button" disabled={props.busy} onClick={() => {
+            props.onSetIntent(manualIntent);
+            setMode('idle');
+          }}>
+            确认批次调整
+          </ActionButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inventory-reconciliation-group-actions">
+      <div
+        className={[
+          'inventory-reconciliation-overview',
+          hasExpiredBatches ? 'has-exception' : 'is-compact',
+        ].join(' ')}
+      >
+        <div className="inventory-reconciliation-compact-stat">
+          <span>{hasExpiredBatches ? '记录库存' : '系统记录'}</span>
+          <strong>{formatQuantity(recordedQuantity)} {primaryUnit}</strong>
+        </div>
+        <div className="inventory-reconciliation-compact-stat">
+          <span>{hasExpiredBatches ? '可用库存' : '可用'}</span>
+          <strong>{formatQuantity(availableQuantity)} {primaryUnit}</strong>
+        </div>
+        <p>
+          {allExpired
+            ? `${physicalBatches.length} 个批次全部过期`
+            : expiredBatchCount > 0
+              ? `${expiredBatchCount} 个过期批次待处理`
+              : `${physicalBatches.length} 个批次`}
+        </p>
+      </div>
+      <div className="inventory-reconciliation-card-actions">
+        <div className="inventory-reconciliation-primary-decisions">
+          <ActionButton
+            tone="primary"
+            size="compact"
+            type="button"
+            disabled={props.busy}
+            data-field-key={`${targetKey}:${allExpired ? 'set_absent' : 'confirm_all'}`}
+            onClick={() => {
+              if (allExpired) {
+                props.onSetIntent(buildExactSetAbsentIntent(props.group));
+                return;
+              }
+              if (hasExpiredBatches) {
+                openExpirySuggestion();
+                return;
+              }
+              props.onSetIntent(buildExactConfirmAllIntent(props.group));
+            }}
+          >
+            {allExpired
+              ? '这些已经处理'
+              : hasExpiredBatches
+                ? '处理过期批次'
+                : `确认还是 ${formatQuantity(recordedQuantity)} ${primaryUnit}`}
+          </ActionButton>
+          <ActionButton
+            tone="secondary"
+            size="compact"
+            type="button"
+            disabled={props.busy}
+            data-field-key={`${targetKey}:correct_total`}
+            onClick={openTotalEditor}
+          >
+            {allExpired ? '家里实际还有' : hasExpiredBatches ? '家里实际数量' : '实际数量不同'}
+          </ActionButton>
+        </div>
+        <ActionButton tone="tertiary" size="compact" type="button" disabled={props.busy} onClick={() => openManualEditor()}>
+          批次明细（{physicalBatches.length}）
+        </ActionButton>
+      </div>
     </div>
   );
 }
@@ -672,10 +953,13 @@ function ExactGroupActions(props: {
 function ExactBatchEditor(props: {
   group: Extract<InventoryReconciliationGroup, { kind: 'exact_ingredient' }>;
   intent: ExactIngredientIntent | null;
+  suggestion?: ExactTotalAdjustmentSuggestion | null;
   referenceDate: string;
   busy: boolean;
   fieldErrors: ReconciliationFieldError[];
-  onSetIntent: (intent: ReconciliationIntent) => void;
+  expandedDetailIds: string[];
+  onToggleBatchDetail: (batchId: string) => void;
+  onSetIntent: (intent: ExactIngredientIntent) => void;
 }) {
   const targetKey = reconciliationGroupTargetKey(props.group);
   const updates =
@@ -686,6 +970,21 @@ function ExactBatchEditor(props: {
           .map((batch) => buildBatchUpdateFromGroup(props.group, batch.inventory_item_id)!)
           .filter(Boolean);
   const creates = props.intent?.creates ?? [];
+  const suggestedProcessIds = new Set(
+    props.suggestion?.ok
+      ? props.suggestion.processedBatchIds
+      : props.group.batches
+          .filter((batch) => isPhysicalBatchExpired(batch, props.referenceDate))
+          .map((batch) => batch.inventory_item_id),
+  );
+  const sortedBatches = [...props.group.batches.filter((batch) => batch.remaining_quantity > 0)].sort(
+    (left, right) => {
+      const leftGroup = suggestedProcessIds.has(left.inventory_item_id) ? 0 : 1;
+      const rightGroup = suggestedProcessIds.has(right.inventory_item_id) ? 0 : 1;
+      if (leftGroup !== rightGroup) return leftGroup - rightGroup;
+      return (left.expiry_date || '9999-12-31').localeCompare(right.expiry_date || '9999-12-31');
+    },
+  );
 
   const ensureAdjustIntent = (
     nextUpdates: ExactBatchUpdateIntent[],
@@ -702,9 +1001,12 @@ function ExactBatchEditor(props: {
 
   return (
     <div className="inventory-reconciliation-batch-list" aria-label={`${props.group.ingredient_name} 批次`}>
-      {props.group.batches
-        .filter((batch) => batch.remaining_quantity > 0)
-        .map((batch) => {
+      {sortedBatches.map((batch, index) => {
+          const previousBatch = sortedBatches[index - 1];
+          const groupLabel = suggestedProcessIds.has(batch.inventory_item_id) ? '建议处理' : '建议保留';
+          const previousGroupLabel = previousBatch
+            ? suggestedProcessIds.has(previousBatch.inventory_item_id) ? '建议处理' : '建议保留'
+            : null;
           const update =
             updates.find((entry) => entry.inventoryItemId === batch.inventory_item_id) ??
             buildBatchUpdateFromGroup(props.group, batch.inventory_item_id)!;
@@ -715,17 +1017,23 @@ function ExactBatchEditor(props: {
             `batch:${batch.inventory_item_id}:storageLocation`,
           ]);
           const expired = isPhysicalBatchExpired(batch, props.referenceDate);
+          const detailExpanded = props.expandedDetailIds.includes(batch.inventory_item_id);
           return (
+            <div key={batch.inventory_item_id} className="inventory-reconciliation-batch-entry">
+              {groupLabel !== previousGroupLabel ? (
+                <div className={`inventory-reconciliation-batch-group-label is-${groupLabel === '建议处理' ? 'process' : 'retain'}`}>
+                  <strong>{groupLabel}</strong>
+                  <span>{groupLabel === '建议处理' ? '优先处理过期或较早批次' : '建议保留较新批次'}</span>
+                </div>
+              ) : null}
             <div
-              key={batch.inventory_item_id}
               className={['inventory-reconciliation-batch-row', expired ? 'is-expired' : '']
                 .filter(Boolean)
                 .join(' ')}
             >
               <div className="inventory-maintenance-item-title-row">
                 <strong>
-                  {batch.storage_location || '未设位置'} · 记录 {batch.remaining_quantity}
-                  {batch.unit}
+                  {batch.purchase_date.slice(5).replace('-', ' 月 ')} 日购买 · {batch.storage_location || '未设位置'}
                 </strong>
                 {expired ? <span className="inventory-maintenance-chip is-warning">已过期</span> : null}
               </div>
@@ -749,7 +1057,15 @@ function ExactBatchEditor(props: {
                 onUnitChange={() => undefined}
                 className="inventory-maintenance-quantity"
               />
-              <div className="inventory-reconciliation-batch-fields">
+              <ActionButton
+                tone="tertiary"
+                size="compact"
+                type="button"
+                onClick={() => props.onToggleBatchDetail(batch.inventory_item_id)}
+              >
+                {detailExpanded ? '收起详情' : '修改详情'}
+              </ActionButton>
+              {detailExpanded ? <div className="inventory-reconciliation-batch-fields">
                 <label className="inventory-maintenance-date-field">
                   <span>购买日期</span>
                   <input
@@ -807,12 +1123,13 @@ function ExactBatchEditor(props: {
                     }}
                   />
                 </label>
-              </div>
+              </div> : null}
               {batchErrors.map((error) => (
                 <p key={error.field} className="inventory-maintenance-field-error">
                   {error.message}
                 </p>
               ))}
+            </div>
             </div>
           );
         })}
@@ -1079,152 +1396,175 @@ function FoodGroupActions(props: {
   onClearIntent: () => void;
 }) {
   const targetKey = reconciliationGroupTargetKey(props.group);
-  const adjusting = props.intent?.action === 'set_stock' && props.intent.stockQuantity !== '0';
+  const initialEditing = props.fieldErrors.length > 0;
+  const [editing, setEditing] = useState(initialEditing);
+  const [quantity, setQuantity] = useState(
+    props.intent?.action === 'set_stock' && props.intent.stockQuantity !== null
+      ? props.intent.stockQuantity
+      : props.group.stock_quantity > 0
+        ? String(props.group.stock_quantity)
+        : '',
+  );
+  const [unit, setUnit] = useState(
+    props.intent?.action === 'set_stock'
+      ? props.intent.stockUnit || props.group.stock_unit || '份'
+      : props.group.stock_unit || '份',
+  );
+  const [storageLocation, setStorageLocation] = useState(
+    props.intent?.action === 'set_stock'
+      ? props.intent.storageLocation || props.group.storage_location || '冷藏'
+      : props.group.storage_location || '冷藏',
+  );
+  const [expiryDate, setExpiryDate] = useState(
+    props.intent?.action === 'set_stock'
+      ? props.intent.expiryDate || props.group.expiry_date || ''
+      : props.group.expiry_date || '',
+  );
   const qtyError = fieldErrorFor(props.fieldErrors, targetKey, 'stockQuantity');
   const unitError = fieldErrorFor(props.fieldErrors, targetKey, 'stockUnit');
   const storageError = fieldErrorFor(props.fieldErrors, targetKey, 'storageLocation');
+  const parsedQuantity = Number(quantity);
+  const canConfirmActual = Number.isFinite(parsedQuantity) && parsedQuantity > 0;
 
-  return (
-    <div className="inventory-reconciliation-group-actions">
-      <p className="inventory-reconciliation-food-warning" role="note">
-        成品是聚合库存：修改数量或位置会影响全部成品库存，不会区分批次。
-      </p>
-      <div className="inventory-reconciliation-action-row">
-        <ActionButton
-          tone={props.intent?.action === 'confirm' ? 'primary' : 'secondary'}
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:confirm`}
-          onClick={() => props.onSetIntent(buildFoodConfirmIntent(props.group))}
-        >
-          确认无误
+  useEffect(() => {
+    if (props.fieldErrors.length > 0) setEditing(true);
+  }, [props.fieldErrors]);
+
+  if (props.intent && !editing) {
+    const summary =
+      props.intent.action === 'confirm'
+        ? `数量没问题 · 当前 ${props.group.stock_quantity} ${props.group.stock_unit || '份'}`
+        : props.intent.stockQuantity === '0'
+          ? `确认家里没有 · 最终库存 0 ${props.group.stock_unit || '份'}`
+          : `修正为 ${props.intent.stockQuantity} ${props.intent.stockUnit || props.group.stock_unit || '份'} · ${props.intent.storageLocation || '未设位置'}`;
+    return (
+      <div className="inventory-reconciliation-selection-summary">
+        <div>
+          <span>已加入本次盘点</span>
+          <strong>{summary}</strong>
+        </div>
+        <ActionButton tone="secondary" size="compact" type="button" onClick={() => setEditing(true)}>
+          修改
         </ActionButton>
-        <ActionButton
-          tone={adjusting ? 'primary' : 'secondary'}
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:set_stock`}
-          onClick={() =>
-            props.onSetIntent(
-              buildFoodSetStockIntent({
-                group: props.group,
-                stockQuantity: String(props.group.stock_quantity),
-              }),
-            )
-          }
-        >
-          调整数量
-        </ActionButton>
-        <ActionButton
-          tone={
-            props.intent?.action === 'set_stock' && props.intent.stockQuantity === '0'
-              ? 'primary'
-              : 'secondary'
-          }
-          size="compact"
-          type="button"
-          disabled={props.busy}
-          data-field-key={`${targetKey}:set_absent`}
-          onClick={() => props.onSetIntent(buildFoodSetAbsentIntent(props.group))}
-        >
-          没有了
-        </ActionButton>
-        {props.intent ? (
-          <ActionButton tone="tertiary" size="compact" type="button" disabled={props.busy} onClick={props.onClearIntent}>
-            取消
-          </ActionButton>
-        ) : null}
       </div>
-      {adjusting && props.intent ? (
-        <div className="inventory-maintenance-editor">
-          <QuantityUnitField
-            quantity={props.intent.stockQuantity ?? ''}
-            unit={props.intent.stockUnit ?? props.group.stock_unit ?? '份'}
-            unitOptions={[
-              {
-                value: props.intent.stockUnit ?? props.group.stock_unit ?? '份',
-                label: props.intent.stockUnit ?? props.group.stock_unit ?? '份',
-              },
-            ]}
-            quantityDisabled={props.busy}
-            quantityStep="0.1"
-            quantityFieldKey={`${targetKey}:stockQuantity`}
-            unitFieldKey={`${targetKey}:stockUnit`}
-            onQuantityChange={(value) =>
-              props.onSetIntent(
-                buildFoodSetStockIntent({
-                  group: props.group,
-                  stockQuantity: value,
-                  stockUnit: props.intent?.stockUnit,
-                  expiryDate: props.intent?.expiryDate,
-                  storageLocation: props.intent?.storageLocation,
-                }),
-              )
-            }
-            onUnitChange={(value) =>
-              props.onSetIntent(
-                buildFoodSetStockIntent({
-                  group: props.group,
-                  stockQuantity: props.intent?.stockQuantity ?? '0',
-                  stockUnit: value,
-                  expiryDate: props.intent?.expiryDate,
-                  storageLocation: props.intent?.storageLocation,
-                }),
-              )
-            }
-            className="inventory-maintenance-quantity"
-          />
+    );
+  }
+
+  if (editing) {
+    return (
+      <div className="inventory-reconciliation-food-editor">
+        <div className="inventory-maintenance-field-head">
+          <span>家里实际还有多少？</span>
+          <p className="subtle">按总量记录，不需要逐盒或逐袋拆分。</p>
+        </div>
+        <QuantityUnitField
+          quantity={quantity}
+          unit={unit}
+          unitOptions={[{ value: unit, label: unit }]}
+          quantityDisabled={props.busy}
+          quantityStep="0.1"
+          quantityFieldKey={`${targetKey}:stockQuantity`}
+          unitFieldKey={`${targetKey}:stockUnit`}
+          onQuantityChange={setQuantity}
+          onUnitChange={setUnit}
+          className="inventory-maintenance-quantity"
+        />
+        <div className="inventory-reconciliation-food-meta-fields">
           <label className="inventory-maintenance-date-field">
-            <span>存放位置（影响全部成品库存）</span>
-            <input
-              type="text"
-              value={props.intent.storageLocation ?? ''}
-              disabled={props.busy}
-              data-field-key={`${targetKey}:storageLocation`}
-              onChange={(event) =>
-                props.onSetIntent(
-                  buildFoodSetStockIntent({
-                    group: props.group,
-                    stockQuantity: props.intent?.stockQuantity ?? '0',
-                    stockUnit: props.intent?.stockUnit,
-                    expiryDate: props.intent?.expiryDate,
-                    storageLocation: event.target.value,
-                  }),
-                )
-              }
+            <span>存放位置</span>
+            <DropdownSelect
+              ariaLabel="存放位置"
+              placeholder="选择存放位置"
+              value={storageLocation}
+              options={RECONCILIATION_STORAGE_OPTIONS}
+              triggerFieldKey={`${targetKey}:storageLocation`}
+              onChange={setStorageLocation}
             />
           </label>
           <label className="inventory-maintenance-date-field">
             <span>到期日（可选）</span>
             <input
               type="date"
-              value={props.intent.expiryDate ?? ''}
+              value={expiryDate}
               disabled={props.busy}
               data-field-key={`${targetKey}:expiryDate`}
-              onChange={(event) =>
-                props.onSetIntent(
-                  buildFoodSetStockIntent({
-                    group: props.group,
-                    stockQuantity: props.intent?.stockQuantity ?? '0',
-                    stockUnit: props.intent?.stockUnit,
-                    expiryDate: event.target.value || null,
-                    storageLocation: props.intent?.storageLocation,
-                  }),
-                )
-              }
+              onChange={(event) => setExpiryDate(event.target.value)}
             />
           </label>
-          {[qtyError, unitError, storageError]
-            .filter((error): error is ReconciliationFieldError => error !== null)
-            .map((error) => (
-              <p key={error.field} className="inventory-maintenance-field-error">
-                {error.message}
-              </p>
-            ))}
         </div>
-      ) : null}
+        {[qtyError, unitError, storageError]
+          .filter((error): error is ReconciliationFieldError => error !== null)
+          .map((error) => (
+            <p key={error.field} className="inventory-maintenance-field-error">{error.message}</p>
+          ))}
+        <div className="inventory-reconciliation-editor-actions">
+          <ActionButton
+            tone="primary"
+            size="compact"
+            type="button"
+            disabled={props.busy || !canConfirmActual}
+            onClick={() => {
+              props.onSetIntent(buildFoodSetStockIntent({
+                group: props.group,
+                stockQuantity: quantity,
+                stockUnit: unit,
+                expiryDate: expiryDate || null,
+                storageLocation,
+              }));
+              setEditing(false);
+            }}
+          >
+            确认实际库存
+          </ActionButton>
+          <ActionButton tone="secondary" size="compact" type="button" onClick={() => setEditing(false)}>
+            返回
+          </ActionButton>
+          {props.intent ? (
+            <ActionButton tone="tertiary" size="compact" type="button" onClick={() => {
+              props.onClearIntent();
+              setEditing(false);
+            }}>
+              移出本次盘点
+            </ActionButton>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inventory-reconciliation-group-actions">
+      <div className="inventory-reconciliation-food-question" role="note">
+        <span>按总量记录</span>
+        <strong>家里现在还有{props.group.food_name}吗？</strong>
+        <p>系统当前记录 {props.group.stock_quantity} {props.group.stock_unit || '份'}，只需要确认家里的实际总量。</p>
+      </div>
+      <div className="inventory-reconciliation-primary-decisions">
+        <ActionButton
+          tone="primary"
+          size="compact"
+          type="button"
+          disabled={props.busy}
+          data-field-key={`${targetKey}:${props.group.stock_quantity > 0 ? 'confirm' : 'set_absent'}`}
+          onClick={() => props.onSetIntent(
+            props.group.stock_quantity > 0
+              ? buildFoodConfirmIntent(props.group)
+              : buildFoodSetAbsentIntent(props.group),
+          )}
+        >
+          {props.group.stock_quantity > 0 ? '数量没问题' : '确认家里没有'}
+        </ActionButton>
+        <ActionButton
+          tone="secondary"
+          size="compact"
+          type="button"
+          disabled={props.busy}
+          data-field-key={`${targetKey}:set_stock`}
+          onClick={() => setEditing(true)}
+        >
+          {props.group.stock_quantity > 0 ? '修正实际库存' : '家里实际有'}
+        </ActionButton>
+      </div>
     </div>
   );
 }
@@ -1239,6 +1579,53 @@ function SummaryStep(props: {
     () => new Map(props.groups.map((group) => [reconciliationGroupTargetKey(group), group])),
     [props.groups],
   );
+
+  function exactIntentSummary(
+    group: Extract<InventoryReconciliationGroup, { kind: 'exact_ingredient' }>,
+    intent: ExactIngredientIntent,
+  ) {
+    const unitProfile = {
+      default_unit: group.default_unit || group.batches[0]?.unit || '个',
+      unit_conversions: group.unit_conversions ?? [],
+    };
+    const recorded = group.batches.reduce((sum, batch) => {
+      const normalized = convertQuantityToDefaultUnit(
+        unitProfile,
+        Math.max(batch.remaining_quantity, 0),
+        batch.unit,
+      );
+      return sum + (normalized ?? 0);
+    }, 0);
+    if (intent.action === 'confirm_all') {
+      return `数量没问题 · 记录库存 ${Number(recorded.toFixed(2))} ${unitProfile.default_unit}`;
+    }
+    if (intent.action === 'set_absent') {
+      const batchCount = group.batches.filter((batch) => batch.remaining_quantity > 0).length;
+      return `清空 ${batchCount} 个批次 · ${Number(recorded.toFixed(2))} → 0 ${unitProfile.default_unit}`;
+    }
+    const updatesById = new Map(intent.updates.map((update) => [update.inventoryItemId, update]));
+    const actualFromBatches = group.batches.reduce((sum, batch) => {
+      const update = updatesById.get(batch.inventory_item_id);
+      const normalized = convertQuantityToDefaultUnit(
+        unitProfile,
+        Number(update?.actualRemainingQuantity ?? batch.remaining_quantity),
+        batch.unit,
+      );
+      return sum + (normalized ?? 0);
+    }, 0);
+    const actualFromCreates = intent.creates.reduce((sum, create) => {
+      const normalized = convertQuantityToDefaultUnit(
+        unitProfile,
+        Number(create.actualRemainingQuantity),
+        create.unit,
+      );
+      return sum + (normalized ?? 0);
+    }, 0);
+    const clearedCount = intent.updates.filter(
+      (update) => Number(update.actualRemainingQuantity) === 0,
+    ).length;
+    return `${Number(recorded.toFixed(2))} → ${Number((actualFromBatches + actualFromCreates).toFixed(2))} ${unitProfile.default_unit} · ${clearedCount > 0 ? `清空 ${clearedCount} 个批次` : '按批次修正'}`;
+  }
 
   return (
     <section className="inventory-maintenance-section" aria-label="提交摘要">
@@ -1269,9 +1656,15 @@ function SummaryStep(props: {
                 ? group.food_name
                 : group.ingredient_name;
           return (
-            <li key={key}>
-              <strong>{title}</strong>
-              <span>{intentActionLabel(intent)}</span>
+            <li key={key} className="inventory-reconciliation-submit-item">
+              <div>
+                <strong>{title}</strong>
+                <span>
+                  {group?.kind === 'exact_ingredient' && intent.kind === 'exact_ingredient'
+                    ? exactIntentSummary(group, intent)
+                    : intentActionLabel(intent)}
+                </span>
+              </div>
             </li>
           );
         })}
@@ -1293,63 +1686,69 @@ function ResultStep(props: {
   onViewResult?: (operationId: string) => void;
 }) {
   const canRevert = isOperationStillRevertible(props.result, Date.now());
+  const applied = props.result.status === 'applied';
   return (
-    <section className="inventory-maintenance-result" aria-label="盘点结果">
-      <div className="inventory-maintenance-summary-card">
-        <p className="eyebrow">操作结果</p>
-        <h4>{props.result.summary.title || '本次盘点已完成'}</h4>
-        <p className="subtle">{props.result.summary.description}</p>
-        <div className="inventory-maintenance-summary-metrics">
-          <article>
-            <span>确认</span>
-            <strong>{props.result.summary.confirmed_count}</strong>
-            <em>项</em>
-          </article>
-          <article>
-            <span>调整</span>
-            <strong>{props.result.summary.adjusted_count}</strong>
-            <em>项</em>
-          </article>
-          <article>
-            <span>状态</span>
-            <strong>{props.result.status === 'applied' ? '已生效' : '已撤销'}</strong>
-            <em />
-          </article>
+    <section className="inventory-maintenance-result inventory-reconciliation-result" aria-label="盘点结果">
+      <div className={['inventory-reconciliation-result-head', applied ? 'is-applied' : 'is-reverted'].join(' ')}>
+        <span className="inventory-reconciliation-result-mark" aria-hidden="true">✓</span>
+        <div>
+          <span>{applied ? '操作成功' : '操作已撤销'}</span>
+          <strong>{applied ? '家庭库存已经更新' : '库存已经恢复到操作前'}</strong>
+          <p>{props.result.summary.description}</p>
         </div>
-        <p className="inventory-maintenance-revert-copy" aria-live="polite">
-          {props.result.status === 'reverted'
-            ? '这次操作已撤销'
-            : canRevert
-              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
-              : '撤销窗口已过或当前无权撤销'}
-        </p>
-        {(props.onViewResult || (canRevert && props.onRevertResult)) ? (
-          <div className="inventory-operation-result-actions">
-            {props.onViewResult ? (
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                disabled={Boolean(props.busy)}
-                onClick={() => props.onViewResult?.(props.result.operation_id)}
-              >
-                查看详情
-              </ActionButton>
-            ) : null}
-            {canRevert && props.onRevertResult ? (
-              <ActionButton
-                tone="primary"
-                size="compact"
-                type="button"
-                disabled={Boolean(props.busy)}
-                onClick={() => props.onRevertResult?.(props.result.operation_id)}
-              >
-                撤销本次操作
-              </ActionButton>
-            ) : null}
-          </div>
-        ) : null}
       </div>
+
+      <div className="inventory-reconciliation-result-metrics" aria-label="盘点统计">
+        <article className="inventory-reconciliation-result-metric">
+          <span>确认</span>
+          <strong>{props.result.summary.confirmed_count}</strong>
+          <em>项</em>
+        </article>
+        <article className="inventory-reconciliation-result-metric">
+          <span>调整</span>
+          <strong>{props.result.summary.adjusted_count}</strong>
+          <em>项</em>
+        </article>
+        <article className="inventory-reconciliation-result-metric is-status">
+          <span>状态</span>
+          <strong>{applied ? '已生效' : '已撤销'}</strong>
+        </article>
+      </div>
+
+      <p className="inventory-reconciliation-result-notice" aria-live="polite">
+        {props.result.status === 'reverted'
+          ? '这次操作已撤销'
+          : canRevert
+            ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
+            : '撤销窗口已过或当前无权撤销'}
+      </p>
+      {(props.onViewResult || (canRevert && props.onRevertResult)) ? (
+        <div className="inventory-operation-result-actions inventory-reconciliation-result-actions">
+          {props.onViewResult ? (
+            <ActionButton
+              tone="secondary"
+              size="compact"
+              type="button"
+              disabled={Boolean(props.busy)}
+              onClick={() => props.onViewResult?.(props.result.operation_id)}
+            >
+              查看详情
+            </ActionButton>
+          ) : null}
+          {canRevert && props.onRevertResult ? (
+            <ActionButton
+              tone="secondary"
+              size="compact"
+              type="button"
+              className="inventory-reconciliation-result-revert"
+              disabled={Boolean(props.busy)}
+              onClick={() => props.onRevertResult?.(props.result.operation_id)}
+            >
+              撤销本次操作
+            </ActionButton>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

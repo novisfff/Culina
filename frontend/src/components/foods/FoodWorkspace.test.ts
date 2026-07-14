@@ -6,7 +6,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, ShoppingListItem } from '../../api/types';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { todayKey } from '../../lib/ui';
 import {
@@ -230,6 +230,12 @@ function renderWorkspace(options: {
     stock_quantity?: number | null;
     stock_unit?: string | null;
   }) => Promise<MealLog>;
+  shoppingItems?: ShoppingListItem[];
+  createShoppingItem?: ReturnType<typeof vi.fn>;
+  updateShoppingItem?: ReturnType<typeof vi.fn>;
+  recipes?: Recipe[];
+  ingredients?: Ingredient[];
+  inventoryItems?: InventoryItem[];
 } = {}) {
   const view = attachRoot();
   const food = options.food ?? baseFood;
@@ -248,10 +254,11 @@ function renderWorkspace(options: {
         { client },
         createElement(FoodWorkspace, {
           foods: [food],
-          recipes: [],
-          ingredients: [],
-          inventoryItems: [],
+          recipes: options.recipes ?? [],
+          ingredients: options.ingredients ?? [],
+          inventoryItems: options.inventoryItems ?? [],
           mealLogs: [],
+          members: [],
           foodRecommendations: null,
           foodScenes: [],
           foodPlanItems: [],
@@ -268,7 +275,10 @@ function renderWorkspace(options: {
           createRecipe: vi.fn(),
           updateRecipe: vi.fn(),
           quickAddMeal,
-          createShoppingItem: vi.fn(),
+          updateMealLog: vi.fn(),
+          shoppingItems: options.shoppingItems ?? [],
+          createShoppingItem: options.createShoppingItem ?? vi.fn(),
+          updateShoppingItem: options.updateShoppingItem ?? vi.fn(),
           createFoodPlanItem: vi.fn(),
           updateFoodPlanItem: vi.fn(),
           deleteFoodPlanItem: vi.fn(),
@@ -716,6 +726,83 @@ describe('food workspace helpers', () => {
 });
 
 describe('FoodWorkspace shopping-origin restock cutover', () => {
+  it('renders the mobile favorite control as an image overlay instead of a footer action', () => {
+    const { view, food } = renderWorkspace({ isPhoneViewport: true, navigationRequest: null });
+    const card = view.querySelector('.mobile-food-library-card');
+    const favorite = card?.querySelector(`[aria-label="取消收藏：${food.name}"]`);
+
+    expect(card).not.toBeNull();
+    expect(favorite).not.toBeNull();
+    expect(card?.querySelector('.mobile-food-library-media > .food-favorite-chip')).toBe(favorite);
+    expect(card?.querySelector('.mobile-food-card-actions .food-favorite-chip')).toBeNull();
+  });
+
+  it('describes an inactive mobile favorite control as a collect action', () => {
+    const food = { ...baseFood, favorite: false };
+    const { view } = renderWorkspace({ food, isPhoneViewport: true, navigationRequest: null });
+
+    expect(view.querySelector(`[aria-label="收藏：${food.name}"]`)).not.toBeNull();
+  });
+
+  it('opens a confirmation dialog before creating a desktop food shopping item', async () => {
+    const createShoppingItem = vi.fn();
+    const { view, food } = renderWorkspace({ navigationRequest: null, createShoppingItem });
+    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购：${food.name}"]`);
+
+    await act(async () => trigger?.click());
+
+    expect(trigger).not.toBeNull();
+    expect(view.textContent).toContain('确认采购');
+    expect(createShoppingItem).not.toHaveBeenCalled();
+  });
+
+  it('exposes the food shopping confirmation entry on mobile cards', () => {
+    const { view, food } = renderWorkspace({ isPhoneViewport: true, navigationRequest: null });
+
+    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购：${food.name}"]`)).not.toBeNull();
+  });
+
+  it('exposes the recipe ingredient shopping entry on mobile self-made food cards', () => {
+    const selfMadeFood: Food = { ...baseFood, id: 'food-mobile-self-made', type: 'selfMade', recipe_id: recipe.id };
+    const { view } = renderWorkspace({ food: selfMadeFood, isPhoneViewport: true, navigationRequest: null });
+
+    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购：${selfMadeFood.name}"]`)).not.toBeNull();
+  });
+
+  it('opens editable recipe ingredient drafts from a self-made food shopping action', async () => {
+    const selfMadeFood: Food = { ...baseFood, id: 'food-self-made', type: 'selfMade', recipe_id: recipe.id };
+    const recipeWithIngredient: Recipe = {
+      ...recipe,
+      ingredient_items: [
+        {
+          id: 'recipe-ingredient-tomato',
+          ingredient_id: tomato.id,
+          ingredient_name: tomato.name,
+          quantity: 2,
+          unit: '个',
+          note: '',
+        },
+      ],
+    };
+    const createShoppingItem = vi.fn();
+    const { view } = renderWorkspace({
+      food: selfMadeFood,
+      navigationRequest: null,
+      recipes: [recipeWithIngredient],
+      ingredients: [tomato],
+      createShoppingItem,
+    });
+    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购：${selfMadeFood.name}"]`);
+
+    await act(async () => trigger?.click());
+
+    expect(trigger).not.toBeNull();
+    expect(view.querySelector('.recipe-shopping-modal')).not.toBeNull();
+    expect(view.querySelector('.recipe-shopping-draft-row')?.textContent).toContain('番茄');
+    expect(view.querySelector<HTMLInputElement>('.recipe-shopping-draft-row input[value="2"]')).not.toBeNull();
+    expect(createShoppingItem).not.toHaveBeenCalled();
+  });
+
   it('does not chain restockFoodStock with updateShoppingItem', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
     const ingredientWorkspace = readFileSync('src/components/ingredients/IngredientWorkspace.tsx', 'utf8');
@@ -725,13 +812,13 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
   });
 });
 
-describe('FoodWorkspace surface extraction', () => {
-  it('keeps FoodWorkspace as a temporary discover/plan surface adapter', () => {
+describe('FoodWorkspace discovery composition', () => {
+  it('keeps FoodWorkspace focused on the unified discovery surface', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
-    expect(source).toContain("surface?: 'discover' | 'plan'");
-    expect(source).toContain("props.surface === 'plan'");
     expect(source).toContain('<FoodDiscoverSurface');
     expect(source).toContain('<FoodPlanSurface');
+    expect(source).not.toContain("surface?: 'discover' | 'plan'");
+    expect(source).not.toContain("props.surface === 'plan'");
   });
 });
 

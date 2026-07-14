@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { isApiError } from '../../api/request';
+import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   Food,
@@ -15,10 +17,13 @@ import type {
   MealLog,
   MealType,
   MediaAsset,
+  Member,
   QuickAddMealLogPayload,
   Recipe,
   RecipePayload,
+  ShoppingListItem,
   UpdateFoodPayload,
+  UpdateMealLogPayload,
 } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
@@ -45,6 +50,7 @@ import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
+import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
@@ -85,6 +91,16 @@ import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { FoodMobileView } from './FoodMobileView';
+import { FoodShoppingDialog } from './FoodShoppingDialog';
+import {
+  buildFoodShoppingDialogState,
+  buildFoodShoppingWrite,
+  type FoodShoppingDialogState,
+} from './FoodShoppingModel';
+import { RecipeShoppingDialog } from '../recipes/RecipeShoppingDialog';
+import { useRecipeShoppingState } from '../recipes/useRecipeShoppingState';
+import { SHOPPING_UNIT_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
+import { resolveIngredientImageUrl } from '../recipes/RecipeWorkspaceModel';
 import {
   NormalizedFoodType,
   normalizeFoodType,
@@ -162,11 +178,11 @@ type Props = {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   mealLogs: MealLog[];
+  members: Member[];
   foodRecommendations?: FoodRecommendations | null;
   foodScenes: FoodScene[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
-  surface?: 'discover' | 'plan';
   isPhoneViewport?: boolean;
   notificationCenter?: ReactNode;
   navigationRequest?: {
@@ -182,14 +198,19 @@ type Props = {
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  shoppingItems: ShoppingListItem[];
   createShoppingItem: (payload: {
     title: string;
     quantity?: number | null;
     unit?: string | null;
     ingredient_id?: string | null;
     food_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
     reason: string;
   }) => Promise<unknown>;
+  updateShoppingItem: (itemId: string, payload: UpdateShoppingItemPayload) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
@@ -229,6 +250,8 @@ type Props = {
   isQuickAdding?: boolean;
   isUpdatingPlan?: boolean;
   isUpdatingScene?: boolean;
+  isUpdatingMeal?: boolean;
+  isCreatingShopping?: boolean;
 };
 
 type RecommendationCardViewModel = {
@@ -319,6 +342,10 @@ function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealT
 function getFoodCardPrimaryActionLabel(food: Food) {
   if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) return '开始做';
   return getPrimaryFoodActionLabel(food);
+}
+
+function isFoodShoppingEligible(food: Food) {
+  return isReadyLikeFood(food) || (normalizeFoodType(food) === 'selfMade' && Boolean(food.recipe_id));
 }
 
 function getRecommendationPrimaryActionLabel(item: RecommendationCardViewModel) {
@@ -587,8 +614,20 @@ export function FoodWorkspace(props: Props) {
     quickAddMeal: props.quickAddMeal,
   });
   const { notice, showNotice, clearNotice } = useNotice();
+  const recipeShopping = useRecipeShoppingState({
+    ingredients: props.ingredients,
+    createShoppingItem: props.createShoppingItem,
+    showRecipeNotice: showNotice,
+  });
   const foodPlanWeekRef = useRef<HTMLDivElement | null>(null);
   const [mobileWeekPlanDate, setMobileWeekPlanDate] = useState<string | null>(null);
+  const [planMealEnrichment, setPlanMealEnrichment] = useState<{
+    meal: MealLog;
+    planItem: FoodPlanItem;
+  } | null>(null);
+  const [foodShoppingDialog, setFoodShoppingDialog] = useState<FoodShoppingDialogState | null>(null);
+  const [foodShoppingError, setFoodShoppingError] = useState<string | null>(null);
+  const [isFoodShoppingSubmitting, setIsFoodShoppingSubmitting] = useState(false);
 
   const handleNavigateToWeek = useCallback((planDate: string) => {
     if (props.isPhoneViewport) {
@@ -660,6 +699,7 @@ export function FoodWorkspace(props: Props) {
     updateFoodPlanItem: props.updateFoodPlanItem,
     deleteFoodPlanItem: props.deleteFoodPlanItem,
     quickAddMeal: props.quickAddMeal,
+    onMealRecorded: (meal, planItem) => setPlanMealEnrichment({ meal, planItem }),
     onStartRecipe: props.onStartRecipe,
   });
   const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
@@ -1158,20 +1198,59 @@ export function FoodWorkspace(props: Props) {
     setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
   }
 
-  async function addFoodToShopping(food: Food) {
+  function openFoodShoppingDialog(food: Food) {
     if (!isReadyLikeFood(food)) return;
+    setFoodShoppingError(null);
+    setFoodShoppingDialog(buildFoodShoppingDialogState(food, props.shoppingItems));
+  }
+
+  function openFoodShopping(food: Food) {
+    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
+      const card = recipeCards.find((entry) => entry.recipe.id === food.recipe_id);
+      if (!card) {
+        showNotice({ tone: 'warning', title: '菜谱暂不可用', message: '没有找到这道家常菜的菜谱原料，请刷新后再试。' });
+        return;
+      }
+      recipeShopping.openShoppingDialog(card, () => undefined, 'all');
+      return;
+    }
+    openFoodShoppingDialog(food);
+  }
+
+  async function submitFoodShopping() {
+    if (!foodShoppingDialog || isFoodShoppingSubmitting) return;
+    let write;
     try {
-      await props.createShoppingItem({
-        title: food.name,
-        quantity: 1,
-        unit: food.stock_unit || '份',
-        ingredient_id: null,
-        food_id: food.id,
-        reason: '补充成品库存',
-      });
-      showNotice({ tone: 'success', title: '已加入采购', message: `${food.name} 已加入采购清单。` });
+      write = buildFoodShoppingWrite(foodShoppingDialog.draft, foodShoppingDialog.existingItem);
     } catch (reason) {
-      showNotice({ tone: 'danger', title: '加入采购失败', message: resolveErrorMessage(reason, '加入采购失败') });
+      setFoodShoppingError(resolveErrorMessage(reason, '请确认采购信息。'));
+      return;
+    }
+    setIsFoodShoppingSubmitting(true);
+    setFoodShoppingError(null);
+    try {
+      if (write.kind === 'update') {
+        await props.updateShoppingItem(write.itemId, write.payload);
+      } else {
+        await props.createShoppingItem(write.payload);
+      }
+      const foodName = foodShoppingDialog.draft.title;
+      setFoodShoppingDialog(null);
+      showNotice({
+        tone: 'success',
+        title: write.kind === 'update' ? '采购项已更新' : '已加入采购',
+        message: write.kind === 'update'
+          ? `${foodName} 的采购数量已更新。`
+          : `${foodName} 已加入采购清单。`,
+      });
+    } catch (reason) {
+      setFoodShoppingError(
+        isApiError(reason) && reason.status === 409
+          ? '采购项已发生变化，请刷新后重新确认。'
+          : resolveErrorMessage(reason, '保存采购项失败，请稍后重试。'),
+      );
+    } finally {
+      setIsFoodShoppingSubmitting(false);
     }
   }
 
@@ -1331,7 +1410,7 @@ export function FoodWorkspace(props: Props) {
             </ActionButton>
             <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
               <FoodUiIcon name="receipt" />
-              <span>完整记一餐</span>
+              <span>吃过的</span>
             </ActionButton>
           </div>
         }
@@ -1574,7 +1653,7 @@ export function FoodWorkspace(props: Props) {
                       {compactLabels.map((label) => <span key={label}>{label}</span>)}
                     </div>
                   )}
-                  <div className="food-card-actions">
+                  <div className={`food-card-actions${isFoodShoppingEligible(food) ? ' has-shopping-action' : ''}`}>
                     <ActionButton tone="primary" size="compact" className="food-card-primary-action" type="button" disabled={props.isQuickAdding} onClick={() => handleFoodCardPrimaryAction(food, defaultMealType)}>
                       <FoodUiIcon name="plus" />
                       <span>{getFoodCardPrimaryActionLabel(food)}</span>
@@ -1582,8 +1661,8 @@ export function FoodWorkspace(props: Props) {
                     <button className="food-card-detail-button" type="button" aria-label={`查看详情：${food.name}`} title="查看详情" onClick={() => openDetail(food)}>
                       <FoodUiIcon name="list" />
                     </button>
-                    {isReadyLikeFood(food) && (
-                      <button className="food-card-detail-button" type="button" aria-label={`加入采购：${food.name}`} title="加入采购" onClick={() => void addFoodToShopping(food)}>
+                    {isFoodShoppingEligible(food) && (
+                      <button className="food-card-detail-button" type="button" aria-label={`加入采购：${food.name}`} title="加入采购" onClick={() => openFoodShopping(food)}>
                         <FoodUiIcon name="clipboard" />
                       </button>
                     )}
@@ -1752,7 +1831,9 @@ export function FoodWorkspace(props: Props) {
         onHandleRecommendationPrimaryAction={handleRecommendationPrimaryAction}
         onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
         onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
+        onOpenShopping={openFoodShopping}
         onOpenCreate={() => handleOpenCreate('takeout')}
+        onOpenLogs={props.onOpenLogs}
         onClearFoodFilters={() => {
           clearFoodFilters();
           setMobileCookingFilter('all');
@@ -1770,12 +1851,7 @@ export function FoodWorkspace(props: Props) {
       onCreateFood: () => handleOpenCreate('takeout'),
     };
 
-    const surfaceContent =
-      props.surface === 'plan' ? (
-        <FoodPlanSurface {...planSurfaceProps} />
-      ) : (
-        <FoodDiscoverSurface {...discoverSurfaceProps} />
-      );
+    const surfaceContent = <FoodDiscoverSurface {...discoverSurfaceProps} />;
 
     return (
     <main className="food-workspace">
@@ -1794,6 +1870,47 @@ export function FoodWorkspace(props: Props) {
         </div>
       )}
       {surfaceContent}
+      {foodShoppingDialog ? (
+        <FoodShoppingDialog
+          food={props.foods.find((item) => item.id === foodShoppingDialog.draft.foodId) ?? props.foods[0]}
+          draft={foodShoppingDialog.draft}
+          existingItem={foodShoppingDialog.existingItem}
+          busy={isFoodShoppingSubmitting}
+          errorMessage={foodShoppingError}
+          onDraftChange={(draft) => setFoodShoppingDialog((current) => current ? { ...current, draft } : current)}
+          onSubmit={() => void submitFoodShopping()}
+          onClose={() => {
+            if (!isFoodShoppingSubmitting) {
+              setFoodShoppingDialog(null);
+              setFoodShoppingError(null);
+            }
+          }}
+        />
+      ) : null}
+
+      {recipeShopping.shoppingDialogCard ? (
+        <RecipeShoppingDialog
+          card={recipeShopping.shoppingDialogCard}
+          ingredients={props.ingredients}
+          drafts={recipeShopping.shoppingDrafts}
+          customForm={recipeShopping.shoppingCustomForm}
+          isIngredientPickerOpen={recipeShopping.isShoppingIngredientPickerOpen}
+          isCreatingShopping={props.isCreatingShopping}
+          unitOptions={SHOPPING_UNIT_OPTIONS}
+          resolveIngredientImageUrl={resolveIngredientImageUrl}
+          onClose={recipeShopping.closeShoppingDialog}
+          onUpdateDraft={recipeShopping.updateShoppingDraft}
+          onAdjustDraftQuantity={recipeShopping.adjustShoppingDraftQuantity}
+          onRemoveDraft={recipeShopping.removeShoppingDraft}
+          onAddRecipeIngredient={recipeShopping.addRecipeIngredientToShoppingDraft}
+          onChangeCustomForm={recipeShopping.setShoppingCustomForm}
+          onSetIngredientPickerOpen={recipeShopping.setIsShoppingIngredientPickerOpen}
+          onSelectIngredientOption={recipeShopping.selectShoppingIngredientOption}
+          onAdjustCustomQuantity={recipeShopping.adjustCustomShoppingQuantity}
+          onAddCustomDraft={recipeShopping.addCustomShoppingDraft}
+          onSubmit={() => void recipeShopping.submitShoppingDrafts()}
+        />
+      ) : null}
 
       {view !== 'list' && !isFoodRecipeEditorOpen && (
         <WorkspaceOverlayFrame
@@ -2039,6 +2156,22 @@ export function FoodWorkspace(props: Props) {
           overlayRootClassName="food-workspace-overlay-root"
         />
       )}
+
+      <MealEnrichmentModal
+        open={Boolean(planMealEnrichment)}
+        meal={planMealEnrichment?.meal ?? null}
+        source={
+          planMealEnrichment
+            ? { label: '来自菜单计划', status: 'planned', planItem: planMealEnrichment.planItem }
+            : null
+        }
+        members={props.members}
+        isUpdating={Boolean(props.isUpdatingMeal)}
+        updateMealLog={props.updateMealLog}
+        onClose={() => setPlanMealEnrichment(null)}
+        overlayRootClassName="food-workspace-overlay-root"
+        formId="food-plan-meal-enrichment-form"
+      />
 
       <FoodSceneDialogs
         isSceneManagerOpen={isSceneManagerOpen}

@@ -12,10 +12,22 @@ export type FormActionsProps = {
   primaryDisabled?: boolean;
   primaryDisabledReason?: string;
   isSubmitting?: boolean;
+  submittingLabel?: ReactNode;
   secondaryLabel?: ReactNode;
+  secondaryIsSubmitting?: boolean;
+  secondarySubmittingLabel?: ReactNode;
   onSecondary?: () => void;
   className?: string;
 };
+
+function SubmittingLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="ui-form-action-loading">
+      <span className="ui-form-action-spinner" aria-hidden="true" />
+      <span>{children}</span>
+    </span>
+  );
+}
 
 export function FormActions({
   primaryLabel,
@@ -28,11 +40,15 @@ export function FormActions({
   primaryDisabled = false,
   primaryDisabledReason,
   isSubmitting = false,
+  submittingLabel = '处理中...',
   secondaryLabel,
+  secondaryIsSubmitting = false,
+  secondarySubmittingLabel = '处理中...',
   onSecondary,
   className,
 }: FormActionsProps) {
-  const disabled = primaryDisabled || isSubmitting;
+  const actionInProgress = isSubmitting || secondaryIsSubmitting;
+  const disabled = primaryDisabled || actionInProgress;
   const primaryClassName = ['ui-form-actions-primary', primaryTone === 'danger' ? 'danger' : undefined]
     .filter(Boolean)
     .join(' ');
@@ -44,13 +60,23 @@ export function FormActions({
       className={primaryClassName}
       onClick={onPrimary}
       disabled={disabled}
+      aria-busy={isSubmitting || undefined}
     >
-      {isSubmitting ? '处理中...' : primaryLabel}
+      {isSubmitting ? <SubmittingLabel>{submittingLabel}</SubmittingLabel> : primaryLabel}
     </ActionButton>
   );
   const secondaryAction = secondaryLabel ? (
-    <ActionButton tone="secondary" type="button" className="ui-form-actions-secondary" onClick={onSecondary} disabled={isSubmitting}>
-      {secondaryLabel}
+    <ActionButton
+      tone="secondary"
+      type="button"
+      className="ui-form-actions-secondary"
+      onClick={onSecondary}
+      disabled={actionInProgress}
+      aria-busy={secondaryIsSubmitting || undefined}
+    >
+      {secondaryIsSubmitting
+        ? <SubmittingLabel>{secondarySubmittingLabel}</SubmittingLabel>
+        : secondaryLabel}
     </ActionButton>
   ) : null;
 

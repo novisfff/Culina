@@ -9,6 +9,7 @@ export type ConfirmDialogProps = {
   description: ReactNode;
   confirmLabel: ReactNode;
   cancelLabel?: ReactNode;
+  closeLabel?: ReactNode;
   tone?: 'primary' | 'danger';
   isSubmitting?: boolean;
   rootClassName?: string;
@@ -16,6 +17,7 @@ export type ConfirmDialogProps = {
   actionsClassName?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  onClose?: () => void;
 };
 
 export function ConfirmDialog({
@@ -24,6 +26,7 @@ export function ConfirmDialog({
   description,
   confirmLabel,
   cancelLabel = '取消',
+  closeLabel,
   tone = 'primary',
   isSubmitting = false,
   rootClassName,
@@ -31,26 +34,29 @@ export function ConfirmDialog({
   actionsClassName,
   onConfirm,
   onCancel,
+  onClose,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
-  function cancelIfAllowed() {
-    if (!isSubmitting) onCancel();
+  const resolvedCloseLabel = closeLabel ?? cancelLabel;
+
+  function closeIfAllowed() {
+    if (!isSubmitting) (onClose ?? onCancel)();
   }
 
   return (
     <WorkspaceOverlayFrame
       rootClassName={rootClassName}
       closeOnBackdrop={!isSubmitting}
-      onClose={cancelIfAllowed}
+      onClose={closeIfAllowed}
     >
       <WorkspaceModal
         title={title}
         description={typeof description === 'string' ? description : undefined}
-        closeLabel={cancelLabel}
-        closeAriaLabel={typeof cancelLabel === 'string' ? cancelLabel : '关闭确认弹窗'}
+        closeLabel={resolvedCloseLabel}
+        closeAriaLabel={typeof resolvedCloseLabel === 'string' ? resolvedCloseLabel : '关闭确认弹窗'}
         className={modalClassName}
-        onClose={cancelIfAllowed}
+        onClose={closeIfAllowed}
         footerActions={
           <FormActions
             primaryLabel={confirmLabel}

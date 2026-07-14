@@ -371,10 +371,13 @@ describe('AppNotificationCenter', () => {
   });
 
 describe('AppShell primary navigation', () => {
-  it('renders the same five primary entries on desktop and mobile', () => {
+  it('keeps the desktop information order and centers AI on mobile', () => {
     renderAppShell(<div>内容</div>, 'eat');
-    const expected = ['首页', '吃什么', '食材', 'AI', '家庭'];
+    const desktopExpected = ['首页', '吃什么', '食材', 'AI', '家庭'];
     for (const name of ['大屏主导航', '顶部主导航', '手机主导航']) {
+      const expected = name === '手机主导航'
+        ? ['首页', '吃什么', 'AI', '食材', '家庭']
+        : desktopExpected;
       expect(
         within(screen.getByRole('navigation', { name }))
           .getAllByRole('button')

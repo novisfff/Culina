@@ -590,6 +590,28 @@
   color: var(--danger, #d94b3d);
 }
 
+.ui-form-action-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.ui-form-action-spinner {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: ui-form-action-spin 720ms linear infinite;
+}
+
+@keyframes ui-form-action-spin {
+  to { transform: rotate(360deg); }
+}
+
 .ui-confirm-dialog-description {
   color: var(--text-soft);
   line-height: 1.6;
@@ -1664,6 +1686,66 @@
   padding: 0 14px;
   font: inherit;
   font-weight: 700;
+}
+
+.ui-operation-loading-host {
+  position: relative;
+  isolation: isolate;
+}
+
+.ui-operation-loading-host.is-busy > :not(.ui-operation-loading-overlay) {
+  pointer-events: none;
+  user-select: none;
+}
+
+.ui-operation-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-warm, #fcfaf7) 90%, transparent);
+  text-align: center;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.ui-operation-loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ui-operation-loading-spin 780ms linear infinite;
+}
+
+.ui-operation-loading-overlay strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.ui-operation-loading-overlay p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+@keyframes ui-operation-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-operation-loading-spinner {
+    animation: none;
+  }
 }
 
 .ui-mobile-action-bar {

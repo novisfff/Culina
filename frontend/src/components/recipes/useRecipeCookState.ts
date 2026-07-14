@@ -29,9 +29,8 @@ import {
 import {
   buildCookSessionV3Key,
   compareAndClearCookSession,
-  isSameCookTarget,
   loadOrMigrateCookSession,
-  readActiveCook,
+  readCookSessionV3,
   saveCookSessionV3,
   toPersistedCookSessionV3,
   toRuntimeCookSession,
@@ -45,16 +44,21 @@ import type { RecipeCardViewModel, RecipeWorkspaceView } from './workspaceModel'
 export type RecipeCookReturnTarget = 'home' | 'foods' | 'recipes';
 export type RecipeCookExitTarget = 'detail' | 'library' | 'source';
 
-export type CookSessionCollision = {
-  existing: ActiveCookDescriptor;
+export type CookSessionResumePrompt = {
   pendingCard: RecipeCardViewModel;
   pendingPlanItemId: string | null;
   pendingReturnTarget: RecipeCookReturnTarget | null;
   pendingLaunch: CookLaunchContext | null;
 };
 
-function sourceRefFromPlanItemId(planItemId: string | null): RecipeCookSessionSourceRef {
-  return planItemId ? { kind: 'plan', foodPlanItemId: planItemId } : { kind: 'direct' };
+function sourceRefForCook(
+  planItemId: string | null,
+  identity?: { date: string; mealType: CookLaunchContext['mealType'] } | null,
+): RecipeCookSessionSourceRef {
+  if (planItemId) return { kind: 'plan', foodPlanItemId: planItemId };
+  return identity
+    ? { kind: 'direct', date: identity.date, mealType: identity.mealType }
+    : { kind: 'direct' };
 }
 
 function planItemBaseFromLaunch(launch: CookLaunchContext | null | undefined, planItemId: string | null): string | null {
@@ -126,7 +130,7 @@ export function useRecipeCookState(args: {
   const [cookTimerPicker, setCookTimerPicker] = useState({ minutes: 2, seconds: 0 });
   const [cookTimerJustStarted, setCookTimerJustStarted] = useState(false);
   const [cookReturnTarget, setCookReturnTarget] = useState<RecipeCookReturnTarget | null>(null);
-  const [cookCollision, setCookCollision] = useState<CookSessionCollision | null>(null);
+  const [cookResumePrompt, setCookResumePrompt] = useState<CookSessionResumePrompt | null>(null);
   const [cookFinishStatusMessage, setCookFinishStatusMessage] = useState<string | null>(null);
   const [cookCompletionResult, setCookCompletionResult] = useState<{
     mealLogId: string;
@@ -239,7 +243,7 @@ export function useRecipeCookState(args: {
         sessionKeyAtStartRef.current = buildCookSessionV3Key(
           scope,
           activeCookCard.recipe.id,
-          sourceRefFromPlanItemId(persisted.planItemId),
+          sourceRefForCook(persisted.planItemId, persisted),
         );
       }
       return;
@@ -282,40 +286,30 @@ export function useRecipeCookState(args: {
     returnTarget?: RecipeCookReturnTarget | null;
     launch?: CookLaunchContext | null;
     forceNew?: boolean;
+    skipResumePrompt?: boolean;
   }) {
-    const { card, planItemId, returnTarget, launch, forceNew } = argsOpen;
+    const { card, planItemId, returnTarget, launch, forceNew, skipResumePrompt } = argsOpen;
     const scope = args.sessionScope;
 
     if (scope) {
+      const source = sourceRefForCook(planItemId, launch);
       if (forceNew) {
-        const active = readActiveCook(localStorage, scope);
-        if (active) {
-          const activeKey = buildCookSessionV3Key(
-            scope,
-            active.recipeId,
-            active.foodPlanItemId ? { kind: 'plan', foodPlanItemId: active.foodPlanItemId } : { kind: 'direct' },
-          );
+        const sessionKey = buildCookSessionV3Key(scope, card.recipe.id, source);
+        const current = readCookSessionV3(localStorage, sessionKey);
+        if (current.kind === 'ready') {
           compareAndClearCookSession({
             scope,
-            expectedDescriptor: active,
-            expectedSessionKey: activeKey,
+            expectedDescriptor: {
+              version: 1,
+              recipeId: card.recipe.id,
+              foodPlanItemId: planItemId,
+              savedAt: current.bundle.savedAt,
+            },
+            expectedSessionKey: sessionKey,
           });
-        }
-      } else {
-        const active = readActiveCook(localStorage, scope);
-        if (active && !isSameCookTarget(active, card.recipe.id, planItemId)) {
-          setCookCollision({
-            existing: active,
-            pendingCard: card,
-            pendingPlanItemId: planItemId,
-            pendingReturnTarget: returnTarget ?? null,
-            pendingLaunch: launch ?? null,
-          });
-          return;
         }
       }
 
-      const source = sourceRefFromPlanItemId(planItemId);
       const loaded = loadOrMigrateCookSession({
         scope,
         recipe: card.recipe,
@@ -330,6 +324,16 @@ export function useRecipeCookState(args: {
               : undefined
             : { date: launch.date, mealType: launch.mealType, servings: launch.servings },
       });
+
+      if (loaded.restored && !forceNew && !skipResumePrompt) {
+        setCookResumePrompt({
+          pendingCard: card,
+          pendingPlanItemId: planItemId,
+          pendingReturnTarget: returnTarget ?? null,
+          pendingLaunch: launch ?? null,
+        });
+        return;
+      }
 
       // Restored sessions keep date/meal/servings/timers/feedback/request ID.
       // New sessions may already be seeded via launch in loadOrMigrate.
@@ -348,7 +352,7 @@ export function useRecipeCookState(args: {
       setCookCompletionResult(null);
       setCookPreview(null);
       setCookPreviewError(null);
-      setCookCollision(null);
+      setCookResumePrompt(null);
       args.setView('cook');
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -380,40 +384,30 @@ export function useRecipeCookState(args: {
     });
   }
 
-  function continueExistingCook() {
-    if (!cookCollision || !args.sessionScope) return;
-    const existing = cookCollision.existing;
-    const targetCard =
-      args.cards.find((card) => card.recipe.id === existing.recipeId) ?? null;
-    if (!targetCard) {
-      args.showRecipeNotice({
-        tone: 'warning',
-        title: '无法继续上次做菜',
-        message: '上次的菜谱当前不可用，可放弃后重新开始。',
-      });
-      return;
-    }
+  function continueSavedCook() {
+    if (!cookResumePrompt || !args.sessionScope) return;
     beginCookSession({
-      card: targetCard,
-      planItemId: existing.foodPlanItemId,
-      returnTarget: cookCollision.pendingReturnTarget,
-      launch: null,
+      card: cookResumePrompt.pendingCard,
+      planItemId: cookResumePrompt.pendingPlanItemId,
+      returnTarget: cookResumePrompt.pendingReturnTarget,
+      launch: cookResumePrompt.pendingLaunch,
+      skipResumePrompt: true,
     });
   }
 
-  function abandonAndStartNewCook() {
-    if (!cookCollision) return;
+  function restartSavedCook() {
+    if (!cookResumePrompt) return;
     beginCookSession({
-      card: cookCollision.pendingCard,
-      planItemId: cookCollision.pendingPlanItemId,
-      returnTarget: cookCollision.pendingReturnTarget,
-      launch: cookCollision.pendingLaunch,
+      card: cookResumePrompt.pendingCard,
+      planItemId: cookResumePrompt.pendingPlanItemId,
+      returnTarget: cookResumePrompt.pendingReturnTarget,
+      launch: cookResumePrompt.pendingLaunch,
       forceNew: true,
     });
   }
 
-  function dismissCookCollision() {
-    setCookCollision(null);
+  function dismissCookResumePrompt() {
+    setCookResumePrompt(null);
   }
 
   useEffect(() => {
@@ -740,7 +734,7 @@ export function useRecipeCookState(args: {
     const scope = args.sessionScope;
     if (scope) {
       clearScopedSessionIfMatches();
-      const source = sourceRefFromPlanItemId(planItemId);
+      const source = sourceRefForCook(planItemId, cookSession ?? args.launchContext);
       const loaded = loadOrMigrateCookSession({
         scope,
         recipe: activeCookCard.recipe,
@@ -829,7 +823,7 @@ export function useRecipeCookState(args: {
             sessionKeyAtStartRef.current = buildCookSessionV3Key(
               scope,
               activeCookCard.recipe.id,
-              sourceRefFromPlanItemId(nextSession.planItemId),
+              sourceRefForCook(nextSession.planItemId, nextSession),
             );
           }
         } else {
@@ -1057,10 +1051,10 @@ export function useRecipeCookState(args: {
     deleteTimer,
     selectTimer,
     toggleTimerById,
-    cookCollision,
-    continueExistingCook,
-    abandonAndStartNewCook,
-    dismissCookCollision,
+    cookResumePrompt,
+    continueSavedCook,
+    restartSavedCook,
+    dismissCookResumePrompt,
     clearScopedSessionIfMatches,
   };
 }

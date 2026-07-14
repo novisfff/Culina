@@ -334,6 +334,8 @@ export interface ExactIngredientReconciliationGroup {
   ingredient_id: string;
   ingredient_name: string;
   ingredient_row_version: number;
+  default_unit?: string;
+  unit_conversions?: IngredientUnitConversion[];
   confirmation_status: InventoryConfirmationStatus;
   last_confirmed_at: string | null;
   batches: ReconciliationBatch[];

@@ -2,7 +2,9 @@ import type { FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types';
 import { formatDate, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { ActionButton, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { getFoodPlanDetailFacts } from './FoodPlanDetailModel';
+import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
 export type FoodPlanDetailFormState = {
   planDate: string;
@@ -18,14 +20,13 @@ type Props = {
   isEditing: boolean;
   isUpdatingPlan?: boolean;
   isCompleting?: boolean;
-  isSupplementing?: boolean;
+  actionError?: string | null;
   onClose: () => void;
   onChangeForm: (form: FoodPlanDetailFormState) => void;
   onEditingChange: (isEditing: boolean) => void;
   onResetEdit: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onComplete: () => void;
-  onSupplementRecord?: () => void;
   onDelete: () => void;
   resolveAssetUrl: (url: string) => string;
   overlayRootClassName?: string;
@@ -55,61 +56,13 @@ function getDateParts(dateKey: string) {
   };
 }
 
-function PlanIcon(props: { name: 'bowl' | 'bookOpen' | 'calendar' | 'clipboard' }) {
-  const common = {
-    width: 20,
-    height: 20,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    xmlns: 'http://www.w3.org/2000/svg',
-    'aria-hidden': true,
-  };
-  const strokeProps = {
-    stroke: 'currentColor',
-    strokeWidth: 2,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-  return (
-    <svg {...common}>
-      {props.name === 'bowl' && (
-        <>
-          <path {...strokeProps} d="M5 12h14a7 7 0 0 1-14 0Z" />
-          <path {...strokeProps} d="M8 19h8" />
-          <path {...strokeProps} d="M8 8c-.7-.8-.7-1.6 0-2.4" />
-          <path {...strokeProps} d="M12 8c-.7-.8-.7-1.6 0-2.4" />
-          <path {...strokeProps} d="M16 8c-.7-.8-.7-1.6 0-2.4" />
-        </>
-      )}
-      {props.name === 'bookOpen' && (
-        <>
-          <path {...strokeProps} d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z" />
-          <path {...strokeProps} d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z" />
-        </>
-      )}
-      {props.name === 'calendar' && (
-        <>
-          <path {...strokeProps} d="M7 3v4M17 3v4M4 9h16" />
-          <rect {...strokeProps} x="4" y="5" width="16" height="16" rx="2.5" />
-        </>
-      )}
-      {props.name === 'clipboard' && (
-        <>
-          <path {...strokeProps} d="M9 4h6l1 2h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l1-2Z" />
-          <path {...strokeProps} d="M9 4h6v4H9z" />
-          <path {...strokeProps} d="M9 13h6M9 17h4" />
-        </>
-      )}
-    </svg>
-  );
-}
-
 export function FoodPlanDetailModal(props: Props) {
   const todayDate = todayKey();
   const planDateOptions = Array.from({ length: 7 }, (_, index) => addDateDays(todayDate, index));
   const cover = props.food ? getFoodCover(props.food, props.recipes) : undefined;
   const planDetailFormId = 'food-plan-detail-form';
-  const isBusy = Boolean(props.isUpdatingPlan || props.isCompleting || props.isSupplementing);
+  const facts = getFoodPlanDetailFacts(props.food, todayDate);
+  const isBusy = Boolean(props.isUpdatingPlan || props.isCompleting);
 
   function closeIfAllowed() {
     if (!isBusy) {
@@ -137,17 +90,12 @@ export function FoodPlanDetailModal(props: Props) {
   ) : (
     <FormActions
       className="recipe-plan-detail-actions"
-      primaryLabel={props.item.recipe_id ? '开始做' : '记到今天'}
+      primaryLabel={props.item.recipe_id ? '开始做' : '记录已吃'}
       primaryPlacement="before-extra"
       primaryDisabled={Boolean(isBusy || props.item.status === 'cooked')}
       isSubmitting={Boolean(props.isCompleting)}
       onPrimary={props.onComplete}
     >
-      {props.onSupplementRecord && (
-        <ActionButton tone="secondary" type="button" onClick={props.onSupplementRecord} disabled={isBusy}>
-          {props.isSupplementing ? '打开中...' : '补充记录'}
-        </ActionButton>
-      )}
       <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={isBusy || props.item.status === 'cooked'}>
         修改
       </ActionButton>
@@ -162,45 +110,70 @@ export function FoodPlanDetailModal(props: Props) {
       rootClassName={props.overlayRootClassName}
       onClose={closeIfAllowed}
       closeOnBackdrop={!isBusy}
+      busy={isBusy}
     >
       <WorkspaceModal
-        title={props.item.food_name}
+        title="这餐计划"
         description={`${formatDate(props.item.plan_date)} · ${MEAL_TYPE_LABELS[props.item.meal_type]}${props.item.status === 'cooked' ? ' · 已完成' : ''}`}
         eyebrow="菜单计划详情"
         onClose={closeIfAllowed}
+        busy={isBusy}
         className="recipe-plan-detail-modal food-plan-detail-modal"
         footerActions={footerActions}
       >
-        <form id={planDetailFormId} className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
-          <section className="recipe-plan-detail-card">
+        <form
+          id={planDetailFormId}
+          className={[
+            'recipe-plan-detail-form',
+            'ui-operation-loading-host',
+            isBusy ? 'is-busy' : '',
+          ].filter(Boolean).join(' ')}
+          aria-busy={isBusy}
+          onSubmit={props.onSubmit}
+        >
+          <OperationLoadingOverlay
+            active={isBusy}
+            title={props.isCompleting ? '正在准备这餐' : '正在保存菜单变更'}
+          />
+          <section className="food-plan-detail-hero">
             <div className="recipe-plan-detail-cover">
-              <MediaWithPlaceholder
-                src={cover ? props.resolveAssetUrl(cover) : undefined}
-                alt={props.item.food_name}
-              />
+              {cover ? (
+                <MediaWithPlaceholder
+                  src={props.resolveAssetUrl(cover)}
+                  alt={props.item.food_name}
+                  loading="eager"
+                />
+              ) : (
+                <div className="food-plan-detail-cover-fallback" aria-hidden="true">
+                  <FoodUiIcon name={props.item.recipe_id ? 'cloche' : 'bowl'} />
+                </div>
+              )}
             </div>
             <div className="recipe-plan-detail-summary">
               <span className={props.item.status === 'cooked' ? 'badge tone-ready' : 'badge'}>
                 {props.item.status === 'cooked' ? '已完成' : '计划中'}
               </span>
               <strong>{props.item.food_name}</strong>
-              <div className="recipe-plan-detail-meta">
-                <span>
-                  <PlanIcon name="calendar" />
-                  {formatDate(props.item.plan_date)}
-                </span>
-                <span>
-                  <PlanIcon name="bowl" />
-                  {MEAL_TYPE_LABELS[props.item.meal_type]}
-                </span>
-                <span>
-                  <PlanIcon name={props.item.recipe_id ? 'bookOpen' : 'clipboard'} />
-                  {props.item.recipe_id ? '可开始做' : '可记到今天'}
-                </span>
-              </div>
               <p>{(props.item.note ?? '').trim() || '暂无备注'}</p>
             </div>
           </section>
+
+          {facts.length > 0 && (
+            <dl className="food-plan-detail-facts">
+              {facts.map((fact) => (
+                <div key={fact.label} className="food-plan-detail-fact">
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {props.actionError ? (
+            <p className="food-plan-detail-action-error" role="alert">
+              {props.actionError}
+            </p>
+          ) : null}
 
           {props.isEditing && (
             <>
