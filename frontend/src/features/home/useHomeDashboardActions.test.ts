@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  CompleteFoodPlanItemPayload,
   CorrectInventoryExpiryDateRequest,
   CorrectStateExpiryDateRequest,
   DisposeExpiredInventoryRequest,
+  MealLog,
   SetInventoryStateAbsentRequest,
   SnoozeExpiryAlertsRequest,
   SnoozeStateExpiryAlertRequest,
@@ -193,9 +195,13 @@ function createActions(overrides: {
   }) => void;
   closeActionGroup?: () => void;
   showNotice?: ReturnType<typeof vi.fn>;
-  quickAddMeal?: ReturnType<typeof vi.fn>;
+  completeFoodPlanItem?: (
+    itemId: string,
+    payload: CompleteFoodPlanItemPayload,
+  ) => Promise<MealLog>;
   closeHomePlanDetail?: ReturnType<typeof vi.fn>;
   openMealLogEnrichment?: ReturnType<typeof vi.fn>;
+  publishRecordResult?: ReturnType<typeof vi.fn>;
   setActionDialogBusy?: (busy: boolean) => void;
   setActionDialogError?: (message: string | null) => void;
   setActionDialogConflict?: (state: 'none' | 'review_again') => void;
@@ -217,11 +223,14 @@ function createActions(overrides: {
   const setActionDialogBusy = overrides.setActionDialogBusy ?? vi.fn();
   const setActionDialogError = overrides.setActionDialogError ?? vi.fn();
   const setActionDialogConflict = overrides.setActionDialogConflict ?? vi.fn();
-  const quickAddMeal = overrides.quickAddMeal ?? vi.fn(async () => {
-    throw new Error('unused');
-  });
+  const completeFoodPlanItem =
+    overrides.completeFoodPlanItem ??
+    vi.fn(async () => {
+      throw new Error('unused');
+    });
   const closeHomePlanDetail = overrides.closeHomePlanDetail ?? vi.fn();
   const openMealLogEnrichment = overrides.openMealLogEnrichment ?? vi.fn();
+  const publishRecordResult = overrides.publishRecordResult ?? vi.fn();
 
   const actions = useHomeDashboardActions({
     showNotice,
@@ -245,12 +254,13 @@ function createActions(overrides: {
     updateFoodPlanItem: vi.fn(async () => undefined),
     deleteFoodPlanItem: vi.fn(async () => undefined),
     createFoodPlanItem: vi.fn(async () => undefined),
-    quickAddMeal,
+    completeFoodPlanItem,
     closeHomePlanDetail,
     closeHomePlanAddDialog: vi.fn(),
     setIsHomePlanDetailEditing: vi.fn(),
     startPlanRecipe: vi.fn(),
     openMealLogEnrichment,
+    publishRecordResult,
   });
 
   return {
@@ -268,61 +278,197 @@ function createActions(overrides: {
     setActionDialogBusy,
     setActionDialogError,
     setActionDialogConflict,
-    quickAddMeal,
+    completeFoodPlanItem,
     closeHomePlanDetail,
     openMealLogEnrichment,
+    publishRecordResult,
+  };
+}
+
+function makePlanItem(overrides: Partial<{
+  id: string;
+  food_id: string;
+  food_name: string;
+  recipe_id: string | null;
+  plan_date: string;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  updated_at: string;
+  status: 'planned' | 'cooked' | 'skipped';
+}> = {}) {
+  return {
+    id: overrides.id ?? 'plan-1',
+    family_id: 'family-1',
+    user_id: 'user-1',
+    food_id: overrides.food_id ?? 'food-1',
+    food_name: overrides.food_name ?? '盒装牛奶',
+    food_type: 'readyMade',
+    recipe_id: overrides.recipe_id === undefined ? null : overrides.recipe_id,
+    recipe_title: '',
+    plan_date: overrides.plan_date ?? '2026-07-14',
+    meal_type: overrides.meal_type ?? ('dinner' as const),
+    note: '',
+    status: overrides.status ?? ('planned' as const),
+    created_at: '2026-07-14T00:00:00Z',
+    updated_at: overrides.updated_at ?? '2026-07-14T08:00:00.000Z',
+  };
+}
+
+function makeMealLog(overrides: Partial<MealLog> = {}): MealLog {
+  return {
+    id: 'meal-1',
+    family_id: 'family-1',
+    date: '2026-07-14',
+    meal_type: 'dinner',
+    food_entries: [
+      {
+        id: 'entry-1',
+        food_id: 'food-1',
+        food_name: '盒装牛奶',
+        servings: 1,
+        note: '',
+        rating: null,
+      },
+    ],
+    participant_user_ids: [],
+    notes: '',
+    mood: '',
+    photos: [],
+    deduction_suggestions: [],
+    row_version: 2,
+    created_at: '2026-07-14T00:00:00Z',
+    updated_at: '2026-07-14T00:00:00Z',
+    ...overrides,
   };
 }
 
 describe('useHomeDashboardActions plan completion', () => {
-  it('records a non-recipe plan and opens enrichment with the created meal', async () => {
-    const item = {
-      id: 'plan-1',
-      family_id: 'family-1',
-      user_id: 'user-1',
-      food_id: 'food-1',
-      food_name: '盒装牛奶',
-      food_type: 'readyMade',
-      recipe_id: null,
-      recipe_title: '',
-      plan_date: '2026-07-14',
-      meal_type: 'dinner' as const,
-      note: '',
-      status: 'planned' as const,
-      created_at: '2026-07-14T00:00:00Z',
-      updated_at: '2026-07-14T00:00:00Z',
-    };
-    const createdMeal = {
-      id: 'meal-1',
-      family_id: 'family-1',
-      date: item.plan_date,
-      meal_type: item.meal_type,
-      food_entries: [],
-      participant_user_ids: [],
-      notes: '',
-      mood: '',
-      photos: [],
-      deduction_suggestions: [],
-      created_at: '2026-07-14T00:00:00Z',
-      updated_at: '2026-07-14T00:00:00Z',
-    };
-    const quickAddMeal = vi.fn(async () => createdMeal);
+  it('completes a non-recipe plan with base timestamp and explicit candidate target', async () => {
+    const item = makePlanItem();
+    const createdMeal = makeMealLog();
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
     const closeHomePlanDetail = vi.fn();
     const openMealLogEnrichment = vi.fn();
+    const publishRecordResult = vi.fn();
     const { actions } = createActions({
-      quickAddMeal,
+      completeFoodPlanItem,
       closeHomePlanDetail,
       openMealLogEnrichment,
+      publishRecordResult,
+    });
+
+    await actions.startHomePlanDetailCook(item, {
+      target_meal_log_id: 'meal-candidate-1',
+      expected_meal_log_row_version: 4,
+    });
+
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(item.id, {
+      food_plan_item_base_updated_at: item.updated_at,
+      target_meal_log_id: 'meal-candidate-1',
+      expected_meal_log_row_version: 4,
+    });
+    expect(closeHomePlanDetail).toHaveBeenCalledTimes(1);
+    expect(openMealLogEnrichment).toHaveBeenCalledWith({ mealLog: createdMeal, planItem: item });
+    expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('accepts a replayed stored MealLog as success without publishing ordinary record undo', async () => {
+    const item = makePlanItem({ status: 'cooked' });
+    const replayedMeal = makeMealLog({ id: 'meal-stored-1', row_version: 5 });
+    const completeFoodPlanItem = vi.fn(async () => replayedMeal);
+    const openMealLogEnrichment = vi.fn();
+    const publishRecordResult = vi.fn();
+    const { actions } = createActions({
+      completeFoodPlanItem,
+      openMealLogEnrichment,
+      publishRecordResult,
+    });
+
+    await actions.startHomePlanDetailCook(item, {
+      target_meal_log_id: 'meal-stored-1',
+      expected_meal_log_row_version: 5,
+    });
+
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(item.id, {
+      food_plan_item_base_updated_at: item.updated_at,
+      target_meal_log_id: 'meal-stored-1',
+      expected_meal_log_row_version: 5,
+    });
+    expect(openMealLogEnrichment).toHaveBeenCalledWith({ mealLog: replayedMeal, planItem: item });
+    expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('completes without candidate target fields when none selected', async () => {
+    const item = makePlanItem();
+    const createdMeal = makeMealLog();
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
+    const publishRecordResult = vi.fn();
+    const { actions } = createActions({
+      completeFoodPlanItem,
+      publishRecordResult,
     });
 
     await actions.startHomePlanDetailCook(item);
 
-    expect(quickAddMeal).toHaveBeenCalledWith(expect.objectContaining({
-      food_id: item.food_id,
-      food_plan_item_id: item.id,
-    }));
-    expect(closeHomePlanDetail).toHaveBeenCalledTimes(1);
-    expect(openMealLogEnrichment).toHaveBeenCalledWith({ mealLog: createdMeal, planItem: item });
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(item.id, {
+      food_plan_item_base_updated_at: item.updated_at,
+    });
+    expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('routes recipe-backed plan items to recipe cook without completing plan', async () => {
+    const item = makePlanItem({ recipe_id: 'recipe-1', food_id: 'food-recipe' });
+    const completeFoodPlanItem = vi.fn(async () => makeMealLog());
+    const startPlanRecipe = vi.fn();
+    const closeHomePlanDetail = vi.fn();
+    const publishRecordResult = vi.fn();
+    const showNotice = vi.fn();
+    const completeActionGroup = vi.fn();
+    const closeActionGroup = vi.fn();
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const actions = useHomeDashboardActions({
+      showNotice,
+      selectedActionGroup: tomatoGroup,
+      homePlanDetailItem: null,
+      homePlanDetailForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
+      homePlanAddFood: null,
+      homePlanAddForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
+      disposeExpiredInventory: vi.fn(async () => undefined),
+      snoozeInventoryExpiryAlerts: vi.fn(async () => undefined),
+      correctInventoryExpiryDate: vi.fn(async () => undefined),
+      snoozeStateExpiryAlert: vi.fn(async () => undefined),
+      correctStateExpiryDate: vi.fn(async () => undefined),
+      setInventoryStateAbsent: vi.fn(async () => undefined),
+      refreshInventoryActions,
+      completeActionGroup,
+      closeActionGroup,
+      setActionDialogBusy: vi.fn(),
+      setActionDialogError: vi.fn(),
+      setActionDialogConflict: vi.fn(),
+      updateFoodPlanItem: vi.fn(async () => undefined),
+      deleteFoodPlanItem: vi.fn(async () => undefined),
+      createFoodPlanItem: vi.fn(async () => undefined),
+      completeFoodPlanItem,
+      closeHomePlanDetail,
+      closeHomePlanAddDialog: vi.fn(),
+      setIsHomePlanDetailEditing: vi.fn(),
+      startPlanRecipe,
+      openMealLogEnrichment: vi.fn(),
+      publishRecordResult,
+    });
+
+    await actions.startHomePlanDetailCook(item);
+
+    expect(startPlanRecipe).toHaveBeenCalledWith({
+      foodId: item.food_id,
+      recipeId: 'recipe-1',
+      foodPlanItemId: item.id,
+      planDate: item.plan_date,
+      mealType: item.meal_type,
+      servings: 1,
+      planItemBaseUpdatedAt: item.updated_at,
+    });
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
+    expect(publishRecordResult).not.toHaveBeenCalled();
   });
 });
 

@@ -43,6 +43,7 @@ import {
   todayKey,
 } from './lib/ui';
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
+import { useMealRecordResultState } from './features/meals/useMealRecordResultState';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
@@ -251,6 +252,7 @@ function App() {
     activityLogsQuery,
     activityHighlightsQuery,
     aiConversationsQuery,
+    activeMealRecordOperations,
     isBootLoading: isWorkspaceBootLoading,
     members,
     ingredients,
@@ -494,7 +496,21 @@ function App() {
     toggleFavoriteMutation,
     updateMealMutation,
     quickAddMealMutation,
+    recordMealMutation,
+    updateMealCompositionMutation,
+    revertMealRecordMutation,
+    completeFoodPlanItemMutation,
   } = useAppMutations();
+
+  const mealRecordResultState = useMealRecordResultState({
+    activeOperations: activeMealRecordOperations,
+    revertOperation: (operationId) => revertMealRecordMutation.mutateAsync(operationId),
+    rateMeal: (mealLogId, payload) =>
+      updateMealMutation.mutateAsync({ mealLogId, payload }),
+    onViewMeal: (mealLogId) => {
+      navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
+    },
+  });
 
   const shoppingIntakeState = useShoppingIntakeState();
   const shoppingIntakeActions = useShoppingIntakeActions({
@@ -1067,12 +1083,15 @@ function App() {
     updateFoodPlanItem: (itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
     deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
     createFoodPlanItem: (payload) => createFoodPlanItemMutation.mutateAsync(payload),
-    quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
+    completeFoodPlanItem: (itemId, payload) =>
+      completeFoodPlanItemMutation.mutateAsync({ itemId, payload }),
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
     startPlanRecipe,
     openMealLogEnrichment: setHomeMealEnrichmentRequest,
+    // Plan complete must never publish ordinary record undo.
+    publishRecordResult: undefined,
   });
 
   const homeMealEnrichmentMeal =
@@ -1199,10 +1218,20 @@ function App() {
             ingredients={ingredients}
             mealLogs={mealLogs}
             inventoryItems={inventoryItems}
-            isQuickAdding={quickAddMealMutation.isPending}
+            isQuickAdding={recordMealMutation.isPending}
             isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
             resolveAssetUrl={resolveDashboardAssetUrl}
-            quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+            businessDateKey={homeBusinessDateKey}
+            recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
+            loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+            onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
+            recordResult={mealRecordResultState.result}
+            isRevertingRecord={mealRecordResultState.isReverting}
+            recordRevertError={mealRecordResultState.revertError}
+            recordRateError={mealRecordResultState.rateError}
+            onRevertRecord={() => void mealRecordResultState.revert()}
+            onViewRecord={() => mealRecordResultState.viewMeal()}
+            onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
             onNavigate={navigation.navigate}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
@@ -1367,6 +1396,25 @@ function App() {
                   updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
                   onBackHome={() => navigation.navigate({ workspace: 'home' })}
                   onBackToEat={() => navigation.navigate({ workspace: 'eat', view: 'discover' })}
+                  onRecordMeal={() =>
+                    navigation.navigate({
+                      workspace: 'eat',
+                      view: 'meal-create',
+                      source: { kind: 'direct' },
+                      date: businessDateKey(new Date(), 'Asia/Shanghai'),
+                      mealType: 'dinner',
+                    })
+                  }
+                  recordResult={mealRecordResultState.result}
+                  isRevertingRecord={mealRecordResultState.isReverting}
+                  recordRevertError={mealRecordResultState.revertError}
+                  recordRateError={mealRecordResultState.rateError}
+                  onRevertRecord={() => void mealRecordResultState.revert()}
+                  onViewRecord={() => mealRecordResultState.viewMeal()}
+                  onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+                  updateMealComposition={(mealLogId, payload) =>
+                    updateMealCompositionMutation.mutateAsync({ mealLogId, payload })
+                  }
                 />
               }
             />
@@ -1531,7 +1579,7 @@ function App() {
             deleteHomePlanDetail={deleteHomePlanDetail}
             closeHomePlanDetail={closeHomePlanDetail}
             isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-            isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
+            isCompletingHomePlanDetail={cookRecipeMutation.isPending || completeFoodPlanItemMutation.isPending}
             homeMealEnrichmentMeal={homeMealEnrichmentMeal}
             homeMealEnrichmentMembers={members}
             closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}

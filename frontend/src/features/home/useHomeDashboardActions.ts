@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import type {
+  CompleteFoodPlanItemPayload,
   CorrectInventoryExpiryDateRequest,
   CorrectStateExpiryDateRequest,
   CreateFoodPlanItemPayload,
@@ -7,7 +8,6 @@ import type {
   Food,
   FoodPlanItem,
   MealLog,
-  QuickAddMealLogPayload,
   SetInventoryStateAbsentRequest,
   SnoozeExpiryAlertsRequest,
   SnoozeStateExpiryAlertRequest,
@@ -122,7 +122,8 @@ export function useHomeDashboardActions(input: {
   updateFoodPlanItem: (itemId: string, payload: UpdateFoodPlanItemPayload) => Promise<unknown>;
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) => Promise<unknown>;
-  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
+  /** Non-Recipe plan completion owner (Task 14). Never publishes ordinary record undo. */
+  completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
   closeHomePlanDetail: () => void;
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
@@ -136,8 +137,19 @@ export function useHomeDashboardActions(input: {
     planItemBaseUpdatedAt: string;
   }) => void;
   openMealLogEnrichment: (request: HomeMealEnrichmentOpenRequest) => void;
+  /**
+   * Optional spy for tests / App wiring. Plan completion MUST NOT call this.
+   * Ordinary record flows publish via App-level useMealRecordResultState instead.
+   */
+  publishRecordResult?: (response: unknown) => void;
 }) {
-  async function startHomePlanDetailCook(item: FoodPlanItem) {
+  async function startHomePlanDetailCook(
+    item: FoodPlanItem,
+    target?: {
+      target_meal_log_id?: string | null;
+      expected_meal_log_row_version?: number | null;
+    },
+  ) {
     if (item.recipe_id) {
       input.closeHomePlanDetail();
       input.startPlanRecipe({
@@ -152,15 +164,19 @@ export function useHomeDashboardActions(input: {
       return;
     }
     try {
-      const createdMeal = await input.quickAddMeal({
-        food_id: item.food_id,
-        date: item.plan_date,
-        meal_type: item.meal_type,
-        servings: 1,
-        note: item.note || '来自菜单计划',
-        food_plan_item_id: item.id,
-      });
+      const payload: CompleteFoodPlanItemPayload = {
+        food_plan_item_base_updated_at: item.updated_at,
+        ...(target?.target_meal_log_id
+          ? {
+              target_meal_log_id: target.target_meal_log_id,
+              expected_meal_log_row_version: target.expected_meal_log_row_version ?? null,
+            }
+          : {}),
+      };
+      // Accepts replayed stored MealLog as success (backend idempotent complete).
+      const createdMeal = await input.completeFoodPlanItem(item.id, payload);
       input.closeHomePlanDetail();
+      // Plan complete may open enrichment / view, but never ordinary record undo.
       input.openMealLogEnrichment({ mealLog: createdMeal, planItem: item });
     } catch (reason) {
       input.showNotice({

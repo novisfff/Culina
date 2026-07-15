@@ -3,11 +3,15 @@ import { api } from '../api/client';
 import {
   invalidateAfterFoodChanged,
   invalidateAfterFoodPlanChanged,
+  invalidateAfterFoodPlanCompleted,
   invalidateAfterFoodSceneChanged,
   invalidateAfterIngredientChanged,
   invalidateAfterInventoryChanged,
   invalidateAfterInventoryOperation,
+  invalidateAfterMealCompositionChanged,
   invalidateAfterMealLogChanged,
+  invalidateAfterMealRecorded,
+  invalidateAfterMealRecordReverted,
   invalidateAfterQuickMealAdded,
   invalidateAfterRecipeChanged,
   invalidateAfterRecipeCooked,
@@ -286,10 +290,52 @@ export function useAppMutations() {
       await invalidateAfterMealLogChanged(queryClient);
     },
   });
+  /** Legacy quick-add kept for not-yet-migrated Food/Ingredient/Eat callers until Tasks 15–16. */
   const quickAddMealMutation = useMutation({
     mutationFn: api.quickAddMealLog,
     onSuccess: async () => {
       await invalidateAfterQuickMealAdded(queryClient);
+    },
+  });
+  const recordMealMutation = useMutation({
+    mutationFn: api.recordMeal,
+    onSuccess: async (response) => {
+      await invalidateAfterMealRecorded(queryClient, {
+        createdFood: (response.created_foods?.length ?? 0) > 0,
+      });
+    },
+  });
+  const updateMealCompositionMutation = useMutation({
+    mutationFn: ({
+      mealLogId,
+      payload,
+    }: {
+      mealLogId: string;
+      payload: Parameters<typeof api.updateMealComposition>[1];
+    }) => api.updateMealComposition(mealLogId, payload),
+    onSuccess: async () => {
+      await invalidateAfterMealCompositionChanged(queryClient);
+    },
+  });
+  const revertMealRecordMutation = useMutation({
+    mutationFn: api.revertMealRecordOperation,
+    retry: false,
+    onSuccess: async (response) => {
+      await invalidateAfterMealRecordReverted(queryClient, {
+        removedFood: (response.removed_food_ids?.length ?? 0) > 0,
+      });
+    },
+  });
+  const completeFoodPlanItemMutation = useMutation({
+    mutationFn: ({
+      itemId,
+      payload,
+    }: {
+      itemId: string;
+      payload: Parameters<typeof api.completeFoodPlanItem>[1];
+    }) => api.completeFoodPlanItem(itemId, payload),
+    onSuccess: async () => {
+      await invalidateAfterFoodPlanCompleted(queryClient);
     },
   });
 
@@ -330,5 +376,9 @@ export function useAppMutations() {
     toggleFavoriteMutation,
     updateMealMutation,
     quickAddMealMutation,
+    recordMealMutation,
+    updateMealCompositionMutation,
+    revertMealRecordMutation,
+    completeFoodPlanItemMutation,
   };
 }
