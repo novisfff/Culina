@@ -321,9 +321,27 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         job.bind_status = "skipped"
         return "skipped"
 
-    # MealLog bind uses the shared discover → sorted Food lock → MealLog lock path so
-    # the parent version advances exactly once when a generated asset is actually bound.
-    # Skipped/unbound paths take no MealLog locks and do not bump.
+    # Late skip decisions run before any MealLog locks: skipped/unbound paths take no
+    # MealLog locks and do not bump. Only the actual bind path locks Food+MealLog.
+    current_assets = list(
+        db.scalars(
+            select(MediaAsset).where(
+                MediaAsset.family_id == job.family_id,
+                MediaAsset.entity_type == job.target_entity_type,
+                MediaAsset.entity_id == job.target_entity_id,
+            )
+        )
+    )
+    append_to_existing = (job.request_payload or {}).get("bind_strategy") == IMAGE_BIND_STRATEGY_APPEND
+    if not append_to_existing:
+        non_ai_assets = [asset for asset in current_assets if asset.source != MediaSource.AI]
+        if non_ai_assets:
+            job.bind_status = "skipped"
+            return "skipped"
+        if job.replace_anchor_media_id and current_assets and not any(asset.id == job.replace_anchor_media_id for asset in current_assets):
+            job.bind_status = "skipped"
+            return "skipped"
+
     locked_meal_log = None
     if job.target_entity_type == "meal_log":
         try:
@@ -336,16 +354,6 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
             job.bind_status = "skipped"
             return "skipped"
 
-    current_assets = list(
-        db.scalars(
-            select(MediaAsset).where(
-                MediaAsset.family_id == job.family_id,
-                MediaAsset.entity_type == job.target_entity_type,
-                MediaAsset.entity_id == job.target_entity_id,
-            )
-        )
-    )
-    append_to_existing = (job.request_payload or {}).get("bind_strategy") == IMAGE_BIND_STRATEGY_APPEND
     if append_to_existing:
         generated.entity_type = job.target_entity_type
         generated.entity_id = job.target_entity_id
@@ -355,14 +363,6 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
             bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
         job.bind_status = "bound"
         return "bound"
-
-    non_ai_assets = [asset for asset in current_assets if asset.source != MediaSource.AI]
-    if non_ai_assets:
-        job.bind_status = "skipped"
-        return "skipped"
-    if job.replace_anchor_media_id and current_assets and not any(asset.id == job.replace_anchor_media_id for asset in current_assets):
-        job.bind_status = "skipped"
-        return "skipped"
 
     for asset in current_assets:
         asset.entity_type = None
