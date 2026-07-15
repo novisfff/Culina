@@ -2160,11 +2160,6 @@ export function FoodWorkspace(props: Props) {
       <MealEnrichmentModal
         open={Boolean(planMealEnrichment)}
         meal={planMealEnrichment?.meal ?? null}
-        source={
-          planMealEnrichment
-            ? { label: '来自菜单计划', status: 'planned', planItem: planMealEnrichment.planItem }
-            : null
-        }
         members={props.members}
         isUpdating={Boolean(props.isUpdatingMeal)}
         updateMealLog={props.updateMealLog}

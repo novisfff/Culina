@@ -83,12 +83,7 @@ import {
 } from '../../lib/foodStockQuantity';
 import { getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
-import {
-  buildMealTitle,
-  getMealRecordPresentation,
-  getMealTone,
-  resolveMealSource,
-} from '../meals/MealLogWorkspaceModel';
+import { buildMealTitle, getMealTone } from '../meals/MealLogWorkspaceModel';
 import { MealLogIcon } from '../meals/MealLogIcons';
 import { MealHistorySurface } from '../meals/MealHistorySurface';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
@@ -489,7 +484,6 @@ export function EatPlanTaskBody(props: {
       <MealEnrichmentModal
         open
         meal={recordedMeal}
-        source={{ label: '来自菜单计划', status: 'planned', planItem: props.item }}
         members={props.members}
         isUpdating={Boolean(props.isUpdatingMeal)}
         updateMealLog={props.updateMealLog}
@@ -1026,29 +1020,21 @@ export function EatMealTaskBody(props: {
   onClose: () => void;
 }) {
   const [isEnrichOpen, setIsEnrichOpen] = useState(false);
-  const source = resolveMealSource(props.mealLog, props.foodPlanItems);
-  const presentation = getMealRecordPresentation(props.mealLog);
 
   return (
     <>
       <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
         <WorkspaceModal
           title="这餐详情"
-          description="查看这次餐食的来源、评价、评论和照片。"
+          description="查看这次餐食的评价、评论和照片。"
           eyebrow="记录"
           className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
           onClose={props.onClose}
           footerActions={
             <FormActions
               className="meal-log-preview-modal-actions"
-              primaryLabel={presentation.enrichment === 'enriched' ? '关闭' : '继续补充'}
-              onPrimary={() => {
-                if (presentation.enrichment === 'enriched') {
-                  props.onClose();
-                  return;
-                }
-                setIsEnrichOpen(true);
-              }}
+              primaryLabel="编辑这顿"
+              onPrimary={() => setIsEnrichOpen(true)}
               secondaryLabel="关闭"
               onSecondary={props.onClose}
             />
@@ -1069,19 +1055,16 @@ export function EatMealTaskBody(props: {
                   <strong>{buildMealTitle(props.mealLog)}</strong>
                   <span className="meal-enrichment-summary-divider" />
                   <small>{formatDateTime(props.mealLog.created_at)}</small>
-                  {source ? (
-                    <span className="meal-enrichment-source-pill">
-                      {source.status === 'planned' ? '来自菜单计划' : '手动补录'}
-                    </span>
-                  ) : null}
                 </div>
-                <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录还没有补充评论。'}</p>
+                <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录还没有评论。'}</p>
                 <ul className="eat-meal-task-foods">
                   {props.mealLog.food_entries.map((entry) => (
                     <li key={entry.id}>
                       <strong>{entry.food_name || '未命名菜品'}</strong>
                       <span>
-                        {entry.rating == null ? '未评分' : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
+                        {entry.rating == null
+                          ? '—'
+                          : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
                       </span>
                     </li>
                   ))}
@@ -1095,7 +1078,6 @@ export function EatMealTaskBody(props: {
       <MealEnrichmentModal
         open={isEnrichOpen}
         meal={props.mealLog}
-        source={source}
         members={props.members}
         isUpdating={Boolean(props.isUpdatingMeal)}
         updateMealLog={props.updateMealLog}

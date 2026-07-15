@@ -80,7 +80,7 @@ describe('useMealRecordResultState', () => {
     const { result } = renderHook(() =>
       useMealRecordResultState({
         activeOperations: [],
-        revertOperation: vi.fn(async () => ({ status: 'reverted', meal_log: null, removed_food_ids: [], replayed: false })),
+        revertOperation: vi.fn(async () => ({ status: 'reverted' as const, meal_log: null, removed_food_ids: [], replayed: false })),
         rateMeal: vi.fn(async () => mealLog()),
         onViewMeal: vi.fn(),
       }),
@@ -120,7 +120,7 @@ describe('useMealRecordResultState', () => {
         useMealRecordResultState({
           activeOperations,
           revertOperation: vi.fn(async () => ({
-            status: 'reverted',
+            status: 'reverted' as const,
             meal_log: null,
             removed_food_ids: [],
             replayed: false,
@@ -155,7 +155,7 @@ describe('useMealRecordResultState', () => {
         useMealRecordResultState({
           activeOperations,
           revertOperation: vi.fn(async () => ({
-            status: 'reverted',
+            status: 'reverted' as const,
             meal_log: null,
             removed_food_ids: [],
             replayed: false,
@@ -190,10 +190,15 @@ describe('useMealRecordResultState', () => {
 
   it('reverts with server operation id non-optimistically and keeps result on failure', async () => {
     const revertOperation = vi
-      .fn<[], Promise<RevertMealRecordResponse>>()
+      .fn(async (_operationId: string): Promise<RevertMealRecordResponse> => ({
+        status: 'reverted' as const,
+        meal_log: null,
+        removed_food_ids: ['food-1'],
+        replayed: false,
+      }))
       .mockRejectedValueOnce(new Error('network'))
       .mockResolvedValueOnce({
-        status: 'reverted',
+        status: 'reverted' as const,
         meal_log: null,
         removed_food_ids: ['food-1'],
         replayed: false,
@@ -234,7 +239,7 @@ describe('useMealRecordResultState', () => {
       useMealRecordResultState({
         activeOperations: [summary()],
         revertOperation: vi.fn(async () => ({
-          status: 'reverted',
+          status: 'reverted' as const,
           meal_log: null,
           removed_food_ids: [],
           replayed: false,
@@ -273,7 +278,7 @@ describe('useMealRecordResultState', () => {
       useMealRecordResultState({
         activeOperations: [],
         revertOperation: vi.fn(async () => ({
-          status: 'reverted',
+          status: 'reverted' as const,
           meal_log: null,
           removed_food_ids: [],
           replayed: false,
@@ -295,7 +300,7 @@ describe('useMealRecordResultState', () => {
         useMealRecordResultState({
           activeOperations,
           revertOperation: vi.fn(async () => ({
-            status: 'reverted',
+            status: 'reverted' as const,
             meal_log: null,
             removed_food_ids: [],
             replayed: false,

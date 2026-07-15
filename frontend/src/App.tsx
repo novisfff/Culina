@@ -64,7 +64,6 @@ import {
   type FreeTextLinkCandidate,
   type FreeTextLinkTarget,
 } from './features/inventory/shoppingIntakeModel';
-import { resolveMealSource } from './features/meals/MealLogEnrichmentModel';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { resolveAssetUrl } from './lib/assets';
@@ -1080,15 +1079,6 @@ function App() {
     homeMealEnrichmentRequest?.mealLog ??
     mealLogs.find((meal) => meal.id === homeMealEnrichmentRequest?.mealLogId) ??
     null;
-  const homeMealEnrichmentPlanItems = homeMealEnrichmentRequest?.planItem
-    ? [homeMealEnrichmentRequest.planItem, ...foodPlanItems.filter((item) => item.id !== homeMealEnrichmentRequest.planItem?.id)]
-    : foodPlanItems;
-  const homeMealEnrichmentSource = homeMealEnrichmentMeal
-    ? homeMealEnrichmentRequest?.planItem
-      ? { label: '来自菜单计划', status: 'planned' as const, planItem: homeMealEnrichmentRequest.planItem }
-      : resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems)
-    : null;
-
   async function saveHomeMealEnrichment(meal: MealLog, payload: UpdateMealLogPayload) {
     const planItem = homeMealEnrichmentRequest?.planItem;
     if (!meal.id.startsWith('draft-') || !planItem) {
@@ -1542,7 +1532,6 @@ function App() {
             isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
             isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
             homeMealEnrichmentMeal={homeMealEnrichmentMeal}
-            homeMealEnrichmentSource={homeMealEnrichmentSource}
             homeMealEnrichmentMembers={members}
             closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
             updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}

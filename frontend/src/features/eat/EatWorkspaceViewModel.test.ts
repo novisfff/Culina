@@ -90,6 +90,7 @@ function makeMealLog(overrides: Partial<MealLog> = {}): MealLog {
     created_at: '2026-07-12T12:00:00.000Z',
     updated_at: '2026-07-12T12:00:00.000Z',
     ...overrides,
+    row_version: overrides.row_version ?? 1,
   };
 }
 

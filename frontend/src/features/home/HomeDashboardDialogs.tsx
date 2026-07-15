@@ -39,7 +39,6 @@ import {
   type DashboardPlanDay,
 } from './homeDashboardModel';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
-import type { MealSource } from '../meals/MealLogEnrichment';
 
 type Props = {
   recipes: Recipe[];
@@ -58,7 +57,6 @@ type Props = {
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
   homeMealEnrichmentMeal: MealLog | null;
-  homeMealEnrichmentSource: MealSource | null;
   homeMealEnrichmentMembers: Member[];
   closeHomeMealEnrichment: () => void;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
@@ -265,9 +263,8 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       <MealEnrichmentModal
-        open={Boolean(props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource)}
+        open={Boolean(props.homeMealEnrichmentMeal)}
         meal={props.homeMealEnrichmentMeal}
-        source={props.homeMealEnrichmentSource}
         members={props.homeMealEnrichmentMembers}
         isUpdating={props.isUpdatingMeal}
         updateMealLog={props.updateMealLog}

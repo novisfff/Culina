@@ -54,10 +54,11 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
   }
 
   const className = ['meal-composer-candidates', props.className].filter(Boolean).join(' ');
+  const existingTargetId = props.target.kind === 'existing' ? props.target.meal_log_id : null;
   const selected =
     props.candidates.find((item) => item.meal_log_id === props.selectedCandidateId) ??
-    (props.target.kind === 'existing'
-      ? props.candidates.find((item) => item.meal_log_id === props.target.meal_log_id)
+    (existingTargetId
+      ? props.candidates.find((item) => item.meal_log_id === existingTargetId)
       : null);
   const joiningExisting = props.target.kind === 'existing' && selected != null;
   const previewNames = finalCombinationNames(joiningExisting ? selected : null, props.draftFoods);

@@ -220,7 +220,8 @@ describe('buildEatTaskBodies plan complete', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00.000Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00.000Z',
       updated_at: '2026-07-15T00:00:00.000Z',
     };
     const quickAddMeal = vi.fn(async () => createdMeal);
@@ -267,7 +268,7 @@ describe('buildEatTaskBodies plan complete', () => {
         food_plan_item_id: planItem.id,
       }),
     );
-    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
   });
 });
 
@@ -294,7 +295,7 @@ describe('EatPlanTaskBody record failure', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
     expect(screen.getByText('菜单计划详情')).toBeInTheDocument();
-    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
   });
 
   it('clears recorded meal state when switching directly to another plan item', async () => {
@@ -311,7 +312,8 @@ describe('EatPlanTaskBody record failure', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00Z',
       updated_at: '2026-07-15T00:00:00Z',
     };
     const onComplete = vi.fn(async () => createdMeal);
@@ -331,11 +333,11 @@ describe('EatPlanTaskBody record failure', () => {
     const view = render(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
-    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
 
     view.rerender(renderBody(secondItem));
 
-    await waitFor(() => expect(screen.queryByText('补充这餐')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument());
     expect(screen.getByText('Second meal')).toBeInTheDocument();
   });
 
@@ -374,12 +376,13 @@ describe('EatPlanTaskBody record failure', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00Z',
       updated_at: '2026-07-15T00:00:00Z',
     });
 
     await waitFor(() => expect(screen.getByText('Second meal')).toBeInTheDocument());
-    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
   });
 });
 

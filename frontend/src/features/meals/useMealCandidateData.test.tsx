@@ -82,15 +82,19 @@ describe('useMealCandidateData', () => {
       .mockResolvedValueOnce(candidates)
       .mockResolvedValueOnce([]);
 
+    type CandidateHookProps = {
+      date: string;
+      mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+    };
     const { result, rerender } = renderHook(
-      ({ date, mealType }) =>
+      ({ date, mealType }: CandidateHookProps) =>
         useMealCandidateData({
           open: true,
           date,
           mealType,
         }),
       {
-        initialProps: { date: '2026-07-15', mealType: 'dinner' as const },
+        initialProps: { date: '2026-07-15', mealType: 'dinner' } as CandidateHookProps,
         wrapper: wrapperFor(client),
       },
     );

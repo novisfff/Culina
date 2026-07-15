@@ -271,7 +271,6 @@ describe('useMealComposerActions', () => {
           storage_location: '',
           favorite: false,
           recipe_id: null,
-          media_ids: [],
           row_version: 1,
           created_at: '2026-07-15T11:00:00.000Z',
           updated_at: '2026-07-15T11:00:00.000Z',

@@ -86,7 +86,8 @@ function buildPlanStateInput(overrides: Partial<PlanStateInput> = {}): PlanState
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00.000Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00.000Z',
       updated_at: '2026-07-15T00:00:00.000Z',
     })),
     onStartRecipe: vi.fn(),
@@ -219,7 +220,8 @@ describe('useFoodPlanState completion', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00.000Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00.000Z',
       updated_at: '2026-07-15T00:00:00.000Z',
     };
     const quickAddMeal = vi.fn(async () => createdMeal);

@@ -1,65 +1,126 @@
 import type { ReactNode } from 'react';
-import type { MealLog } from '../../api/types';
-import { StateBlock, StatusBadge } from '../../components/ui-kit';
-import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
+import type { Food, MealLog, MediaAsset, Member } from '../../api/types';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import type { MealSource } from './MealLogEnrichment';
 import { MealLogIcon } from './MealLogIcons';
+import { selectMealPreviewMedia } from './MealComposerModel';
 import {
   MEAL_FILTERS,
-  STATUS_FILTERS,
   buildMealTitle,
   formatDateGroupLabel,
   formatMealTime,
   getMealIconName,
-  getMealLogStatus,
-  getMealLogStatusLabel,
-  getMealRecordPresentation,
+  getMealMediaCount,
+  getMealParticipantCount,
+  getMealRatingValue,
   getMealTone,
   type MealLogMealFilter,
-  type MealLogStatusFilter,
 } from './MealLogWorkspaceModel';
 
+export type MealTimelineRowModel = {
+  meal: MealLog;
+  title: string;
+  preview: MediaAsset | null;
+  extraPhotoCount: number;
+  ratingValue: string | null;
+  participantCount: number | null;
+  mediaCount: number | null;
+  recorderName: string | null;
+};
+
+export function buildMealTimelineRowModel(args: {
+  meal: MealLog;
+  foodsById: Map<string, Food>;
+  membersById: Map<string, Member>;
+}): MealTimelineRowModel {
+  const foodCovers = args.meal.food_entries.map(
+    (entry) => args.foodsById.get(entry.food_id)?.images?.[0] ?? null,
+  );
+  const preview = selectMealPreviewMedia({
+    mealPhotos: args.meal.photos,
+    foodCovers,
+  });
+  const extraPhotoCount = Math.max(0, args.meal.photos.length - 1);
+  const recorderId = args.meal.created_by ?? args.meal.updated_by ?? null;
+  const recorderName = recorderId ? args.membersById.get(recorderId)?.display_name ?? null : null;
+  return {
+    meal: args.meal,
+    title: buildMealTitle(args.meal),
+    preview,
+    extraPhotoCount,
+    ratingValue: getMealRatingValue(args.meal),
+    participantCount: getMealParticipantCount(args.meal),
+    mediaCount: getMealMediaCount(args.meal),
+    recorderName,
+  };
+}
+
+export function MealTimelineMedia(props: {
+  title: string;
+  preview: MediaAsset | null;
+  extraPhotoCount: number;
+  className?: string;
+}) {
+  return (
+    <span className={['meal-log-row-media', props.className].filter(Boolean).join(' ')}>
+      <MediaWithPlaceholder
+        src={resolveMediaUrl(props.preview, 'thumb')}
+        srcSet={buildMediaSrcSet(props.preview)}
+        sizes={buildMediaSizes('thumb')}
+        alt={props.preview?.alt || props.title}
+        showLabel={false}
+      />
+      {props.extraPhotoCount > 0 ? <em className="meal-log-row-media-count">+{props.extraPhotoCount}</em> : null}
+    </span>
+  );
+}
+
+export function MealTimelineFacts(props: {
+  ratingValue: string | null;
+  participantCount: number | null;
+  mediaCount: number | null;
+  recorderName: string | null;
+}) {
+  const facts: string[] = [];
+  if (props.ratingValue) facts.push(`★ ${props.ratingValue}`);
+  if (props.participantCount) facts.push(`${props.participantCount} 人`);
+  if (props.mediaCount) facts.push(`${props.mediaCount} 张照片`);
+  if (props.recorderName) facts.push(props.recorderName);
+  if (facts.length === 0) return null;
+  return (
+    <span className="meal-log-row-facts">
+      {facts.map((fact) => (
+        <span key={fact}>{fact}</span>
+      ))}
+    </span>
+  );
+}
+
 type Props = {
-  basicMeals: MealLog[];
   selectedMeal: MealLog | null;
-  mealSources: Map<string, MealSource>;
-  todayMealCount: number;
-  enrichedCount: number;
-  weekRecordCount: number;
-  totalRecordCount: number;
   groupedMeals: Array<{ date: string; meals: MealLog[] }>;
   searchQuery: string;
-  statusFilter: MealLogStatusFilter;
   mealFilter: MealLogMealFilter;
+  foodsById: Map<string, Food>;
+  membersById: Map<string, Member>;
   onSelectMeal: (mealId: string) => void;
   onOpenMealRecord: (meal: MealLog) => void;
   onBackHome: () => void;
   onSearchChange: (value: string) => void;
-  onStatusFilterChange: (value: MealLogStatusFilter) => void;
   onMealFilterChange: (value: MealLogMealFilter) => void;
+  onRecordMeal?: () => void;
   notificationCenter?: ReactNode;
+  resultBar?: ReactNode;
 };
 
 export function MealLogMobileView(props: Props) {
-  const mobileStats = [
-    { label: '今日已记录', value: props.todayMealCount, detail: '来自计划与手动记录', tone: 'orange', icon: 'today' as const },
-    { label: '基础记录', value: props.basicMeals.length, detail: '可补充评价、家人、照片或评论', tone: 'amber', icon: 'pending' as const },
-    { label: '已丰富', value: props.enrichedCount, detail: '已有评价、照片或评论', tone: 'green', icon: 'done' as const },
-    { label: '本周记录', value: props.weekRecordCount, detail: `共 ${props.totalRecordCount} 条历史`, tone: 'blue', icon: 'trend' as const },
-  ];
-
   return (
-    <main className="mobile-log-page" aria-label="手机记录页">
+    <main className="mobile-log-page" aria-label="手机吃过的页面">
       <div className="mobile-log-topbar">
         <div className="mobile-log-brand">
-          <span className="mobile-log-logo">
-            <FoodUiIcon name="logo" />
-          </span>
-          <span>
-            <strong>Culina</strong>
-            <small>家庭厨房工作台</small>
-          </span>
+          <strong>Culina</strong>
+          <small>家庭厨房工作台</small>
         </div>
         <div className="mobile-log-top-actions">
           {props.notificationCenter}
@@ -70,43 +131,43 @@ export function MealLogMobileView(props: Props) {
       </div>
 
       <header className="mobile-log-hero">
-        <h1>记录</h1>
-        <p>回看每一餐实际吃了什么，需要时再补充照片、评价和家人反馈。</p>
+        <div className="mobile-log-hero-copy">
+          <h1>吃过的</h1>
+          <p>回看家里吃过什么，需要时再补充照片、评价和家人反馈。</p>
+        </div>
+        <button
+          className="mobile-log-primary-cta"
+          type="button"
+          onClick={() => props.onRecordMeal?.()}
+        >
+          记一餐
+        </button>
       </header>
 
-      <section className="mobile-log-stat-grid" aria-label="记录概览">
-        {mobileStats.map((item) => (
-          <article key={item.label} className={`mobile-log-stat-card tone-${item.tone}`}>
-            <span aria-hidden="true">
-              <MealLogIcon name={item.icon} />
-            </span>
-            <div>
-              <strong>{item.label}</strong>
-              <b>{item.value}</b>
-              <small>{item.detail}</small>
-            </div>
-          </article>
-        ))}
-      </section>
+      {props.resultBar}
+
+      <section className="mobile-log-memory-slot" data-memory-slot="true" aria-label="家庭记忆" />
 
       <label className="mobile-log-search-field">
         <span aria-hidden="true">
           <MealLogIcon name="search" />
         </span>
-        <input value={props.searchQuery} placeholder="搜索菜品、食材或备注" onChange={(event) => props.onSearchChange(event.target.value)} />
+        <input
+          value={props.searchQuery}
+          placeholder="搜索菜品或备注"
+          onChange={(event) => props.onSearchChange(event.target.value)}
+        />
       </label>
 
-      <section className="mobile-log-filter-stack" aria-label="记录筛选">
-        <div className="mobile-log-filter-row">
-          {STATUS_FILTERS.map((item) => (
-            <button key={item.key} type="button" className={props.statusFilter === item.key ? 'active' : ''} onClick={() => props.onStatusFilterChange(item.key)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
+      <section className="mobile-log-filter-stack" aria-label="餐别筛选">
         <div className="mobile-log-filter-row meal-filter">
           {MEAL_FILTERS.map((item) => (
-            <button key={item.key} type="button" className={props.mealFilter === item.key ? 'active' : ''} onClick={() => props.onMealFilterChange(item.key)}>
+            <button
+              key={item.key}
+              type="button"
+              className={props.mealFilter === item.key ? 'active' : ''}
+              onClick={() => props.onMealFilterChange(item.key)}
+            >
               <span className="meal-log-icon-slot">
                 <MealLogIcon name={getMealIconName(item.key)} />
               </span>
@@ -126,41 +187,46 @@ export function MealLogMobileView(props: Props) {
               </div>
               <div className="mobile-log-day-card">
                 {group.meals.map((meal) => {
-                  const source = props.mealSources.get(meal.id);
-                  const mealStatus = getMealLogStatus(meal);
-                  const mealStatusLabel = getMealLogStatusLabel(meal);
-                  const presentation = getMealRecordPresentation(meal);
-                  const isEnriched = mealStatus === 'done';
+                  const row = buildMealTimelineRowModel({
+                    meal,
+                    foodsById: props.foodsById,
+                    membersById: props.membersById,
+                  });
                   return (
                     <button
                       key={meal.id}
                       type="button"
-                      className={props.selectedMeal?.id === meal.id ? 'mobile-log-record-row active' : 'mobile-log-record-row'}
+                      className={
+                        props.selectedMeal?.id === meal.id
+                          ? 'mobile-log-record-row active'
+                          : 'mobile-log-record-row'
+                      }
                       onClick={() => {
                         props.onSelectMeal(meal.id);
                         props.onOpenMealRecord(meal);
                       }}
                     >
-                      <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
-                        <i className="meal-log-icon-slot">
-                          <MealLogIcon name={getMealIconName(meal.meal_type)} />
-                        </i>
-                        {MEAL_TYPE_LABELS[meal.meal_type]}
-                      </span>
+                      <MealTimelineMedia
+                        title={row.title}
+                        preview={row.preview}
+                        extraPhotoCount={row.extraPhotoCount}
+                        className="mobile-log-row-media"
+                      />
                       <span className="mobile-log-record-main">
-                        <strong>{buildMealTitle(meal)}</strong>
+                        <strong>{row.title}</strong>
                         <small>
-                          {formatMealTime(meal)} <em>{source?.status === 'planned' ? '来自菜单计划' : '手动记录'}</em>
-                          <span className="mobile-log-record-meta">
-                            <small><span className="meal-log-icon-slot compact"><MealLogIcon name="photo" /></span>{meal.photos.length}</small>
-                            <small><span className="meal-log-icon-slot compact"><MealLogIcon name="note" /></span>{meal.notes.trim() ? 1 : 0}</small>
+                          <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
+                            {MEAL_TYPE_LABELS[meal.meal_type]}
                           </span>
+                          <time>{formatMealTime(meal)}</time>
                         </small>
+                        <MealTimelineFacts
+                          ratingValue={row.ratingValue}
+                          participantCount={row.participantCount}
+                          mediaCount={row.mediaCount}
+                          recorderName={row.recorderName}
+                        />
                       </span>
-                      <StatusBadge tone={isEnriched ? 'success' : 'neutral'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
-                        {mealStatusLabel}
-                      </StatusBadge>
-                      <span className="sr-only">{presentation.actionLabel}</span>
                     </button>
                   );
                 })}
@@ -168,12 +234,10 @@ export function MealLogMobileView(props: Props) {
             </section>
           ))
         ) : (
-          <StateBlock
-            status="empty"
-            title="没有符合条件的记录"
-            description="换一个筛选条件，或先补录一餐。"
-            className="mobile-log-empty"
-          />
+          <div className="mobile-log-empty">
+            <strong>没有符合条件的记录</strong>
+            <p>换一个搜索词，或记一餐。</p>
+          </div>
         )}
       </section>
     </main>

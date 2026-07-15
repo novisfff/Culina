@@ -149,6 +149,7 @@ const mealLogs: MealLog[] = [
     mood: '',
     photos: [],
     deduction_suggestions: [],
+    row_version: 1,
     created_at: '2026-05-02T10:00:00Z',
     updated_at: '2026-05-02T10:00:00Z',
   },
@@ -165,7 +166,8 @@ const weeklyMealLog: MealLog = {
   mood: '',
   photos: [],
   deduction_suggestions: [],
-  created_at: '2026-05-12T10:00:00Z',
+    row_version: 1,
+    created_at: '2026-05-12T10:00:00Z',
   updated_at: '2026-05-12T10:00:00Z',
 };
 

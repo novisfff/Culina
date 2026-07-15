@@ -1,7 +1,30 @@
 import { useEffect, useState } from 'react';
+import { isApiError } from '../../api/request';
 import type { MealLog, MediaAsset, UpdateMealLogPayload } from '../../api/types';
 import { useDirectImageUploader } from '../../hooks/useImageComposer';
-import { buildMealEntryRatingDraft, buildMealTitle, buildUpdateMealLogPayload, hasMeaningfulMealLogInput, MAX_MEAL_PHOTOS } from './MealLogEnrichmentModel';
+import {
+  buildMealEntryRatingDraft,
+  buildMealTitle,
+  buildUpdateMealLogPayload,
+  hasMeaningfulMealLogInput,
+  MAX_MEAL_PHOTOS,
+} from './MealLogEnrichmentModel';
+
+export type MealEnrichmentStaleState = {
+  message: string;
+  current: MealLog | null;
+};
+
+function extractCurrentMeal(reason: unknown): MealLog | null {
+  if (!isApiError(reason)) return null;
+  const payload = reason.payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (!detail || typeof detail !== 'object') return null;
+  const current = (detail as { current?: unknown }).current;
+  if (!current || typeof current !== 'object') return null;
+  return current as MealLog;
+}
 
 export function useMealEnrichmentState(args: {
   meal: MealLog;
@@ -10,12 +33,15 @@ export function useMealEnrichmentState(args: {
   requireMeaningfulInput?: boolean;
   onInvalidSave?: () => void;
   onSaved?: () => void;
+  onStale?: (state: MealEnrichmentStaleState) => void;
 }) {
   const [notes, setNotes] = useState(args.meal.notes);
   const [entryRatings, setEntryRatings] = useState<Record<string, string>>(() => buildMealEntryRatingDraft(args.meal));
   const [participants, setParticipants] = useState(args.meal.participant_user_ids);
   const [photos, setPhotos] = useState<MediaAsset[]>(() => args.meal.photos.slice(0, MAX_MEAL_PHOTOS));
   const [activePhoto, setActivePhoto] = useState<MediaAsset | null>(null);
+  const [expectedRowVersion, setExpectedRowVersion] = useState(args.meal.row_version);
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
   const photoUploader = useDirectImageUploader();
 
   useEffect(() => {
@@ -24,26 +50,39 @@ export function useMealEnrichmentState(args: {
     setParticipants(args.meal.participant_user_ids);
     setPhotos(args.meal.photos.slice(0, MAX_MEAL_PHOTOS));
     setActivePhoto(null);
+    setExpectedRowVersion(args.meal.row_version);
+    setStaleMessage(null);
     photoUploader.reset();
-  }, [args.meal.id]);
+  }, [args.meal.id, args.meal.row_version]);
 
   function toggleParticipant(memberId: string, checked: boolean) {
-    setParticipants((current) => checked ? [...current, memberId] : current.filter((item) => item !== memberId));
+    setParticipants((current) => (checked ? [...current, memberId] : current.filter((item) => item !== memberId)));
   }
 
   function updateEntryRating(entryId: string, value: string) {
     setEntryRatings((current) => ({ ...current, [entryId]: value }));
   }
 
+  function applyServerMeal(meal: MealLog) {
+    setNotes(meal.notes);
+    setEntryRatings(buildMealEntryRatingDraft(meal));
+    setParticipants(meal.participant_user_ids);
+    setPhotos(meal.photos.slice(0, MAX_MEAL_PHOTOS));
+    setExpectedRowVersion(meal.row_version);
+  }
+
   async function save(includePhotos: boolean) {
     const mediaIds = includePhotos ? photos.map((photo) => photo.id) : undefined;
-    if (args.requireMeaningfulInput && !hasMeaningfulMealLogInput({
-      meal: args.meal,
-      participants,
-      notes,
-      entryRatings,
-      mediaIds,
-    })) {
+    if (
+      args.requireMeaningfulInput &&
+      !hasMeaningfulMealLogInput({
+        meal: args.meal,
+        participants,
+        notes,
+        entryRatings,
+        mediaIds,
+      })
+    ) {
       args.onInvalidSave?.();
       return;
     }
@@ -53,10 +92,27 @@ export function useMealEnrichmentState(args: {
       participants,
       notes,
       entryRatings,
+      expectedRowVersion,
       ...(mediaIds ? { mediaIds } : {}),
     });
-    await args.updateMealLog(args.meal.id, payload);
-    args.onSaved?.();
+
+    try {
+      await args.updateMealLog(args.meal.id, payload);
+      setStaleMessage(null);
+      args.onSaved?.();
+    } catch (reason) {
+      if (isApiError(reason) && reason.status === 409) {
+        const current = extractCurrentMeal(reason);
+        if (current) {
+          applyServerMeal(current);
+        }
+        const message = '这餐已被其他人更新，请查看最新内容后再保存';
+        setStaleMessage(message);
+        args.onStale?.({ message, current });
+        return;
+      }
+      throw reason;
+    }
   }
 
   async function uploadPhotos(files: FileList | null) {
@@ -89,6 +145,8 @@ export function useMealEnrichmentState(args: {
     photos,
     activePhoto,
     setActivePhoto,
+    expectedRowVersion,
+    staleMessage,
     photoState: photoUploader.state,
     isBusy: args.isUpdating || photoUploader.state.isGenerating,
     hasPhotoCapacity: photos.length < MAX_MEAL_PHOTOS,

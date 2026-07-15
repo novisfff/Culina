@@ -19,8 +19,9 @@ export function isMealLogEnriched(meal: MealLog) {
 
 export function resolveMealSource(meal: MealLog, foodPlanItems: FoodPlanItem[]): MealSource {
   const planItem = foodPlanItems.find((item) => item.meal_log_id === meal.id);
-  if (!planItem) return { label: '手动补录', status: 'manual' };
-  return { label: `来自菜单 · ${formatDate(planItem.plan_date)}`, status: 'planned', planItem };
+  // Keep source for private tracing only; timeline UI must not display these labels.
+  if (!planItem) return { label: '记录', status: 'manual' };
+  return { label: `菜单 · ${formatDate(planItem.plan_date)}`, status: 'planned', planItem };
 }
 
 export function buildMealTitle(meal: MealLog) {
@@ -76,6 +77,8 @@ export function buildUpdateMealLogPayload(args: {
   notes: string;
   entryRatings: Record<string, string>;
   mediaIds?: string[];
+  /** Defaults to the meal's current row_version for optimistic concurrency. */
+  expectedRowVersion?: number;
 }): UpdateMealLogPayload {
   const foodEntryRatings = args.meal.food_entries.map((entry) => ({
     id: entry.id,
@@ -87,6 +90,7 @@ export function buildUpdateMealLogPayload(args: {
   const averageRating = ratedValues.length > 0 ? ratedValues.reduce((sum, rating) => sum + rating, 0) / ratedValues.length : null;
 
   return {
+    expected_row_version: args.expectedRowVersion ?? args.meal.row_version,
     participant_user_ids: args.participants,
     notes: args.notes.trim(),
     mood: averageRating == null ? '' : formatMealRatingValue(averageRating),

@@ -197,6 +197,7 @@ function makeMealLog(food: Food, date: string, mealType: MealLog['meal_type'] = 
     mood: '',
     photos: [],
     deduction_suggestions: [],
+    row_version: 1,
     created_at: `${date}T10:00:00Z`,
     updated_at: `${date}T10:00:00Z`,
   };
