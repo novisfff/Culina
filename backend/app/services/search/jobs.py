@@ -16,6 +16,7 @@ from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument, SearchIndexJob
 from app.services.search.embeddings import EmbeddingUnavailableError, build_embedding_client
 from app.services.search.indexing import (
+    delete_search_document,
     upsert_food_search_document,
     upsert_ingredient_search_document,
     upsert_meal_plan_search_document,
@@ -205,7 +206,7 @@ def process_search_index_job(
             if job is None:
                 return
             document = _upsert_entity_search_document(db, job=job)
-            vector_status = _index_vector_if_enabled(document)
+            vector_status = "skipped" if document is None else _index_vector_if_enabled(document)
             now = utcnow()
             job.status = "succeeded"
             job.vector_status = vector_status
@@ -229,7 +230,7 @@ def process_search_index_job(
         logger.exception("Search index job failed job_id=%s", job_id)
 
 
-def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> SearchDocument:
+def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> SearchDocument | None:
     if job.entity_type == "ingredient":
         ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == job.family_id, Ingredient.id == job.entity_id))
         if ingredient is None:
@@ -240,7 +241,15 @@ def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> Searc
     if job.entity_type == "food":
         food = db.scalar(select(Food).where(Food.family_id == job.family_id, Food.id == job.entity_id))
         if food is None:
-            raise ValueError("索引对象不存在或已删除")
+            # Missing Food is a successful cleanup: remove stale search artifacts and skip embedding.
+            delete_search_document(
+                db,
+                family_id=job.family_id,
+                entity_type="food",
+                entity_id=job.entity_id,
+                delete_vector=True,
+            )
+            return None
         job.target_name = food.name[:255]
         return upsert_food_search_document(db, food)
 

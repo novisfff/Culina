@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from app.core.utils import utcnow
-from app.models.domain import SearchIndexJob
+from app.models.domain import SearchDocument, SearchIndexJob
+from app.services.search.documents import SearchDocumentPayload
+from app.services.search.indexing import upsert_search_document
 from app.services.search.jobs import (
     JOB_LOCK_STALE_AFTER,
     MAX_ATTEMPTS,
+    SEARCH_INDEX_ENTITY_TYPES,
     claim_pending_search_index_jobs,
     process_search_index_job,
     recover_interrupted_search_index_jobs,
@@ -22,7 +27,9 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
         status: str = "queued",
         attempt_count: int = 0,
         locked_delta: timedelta | None = None,
+        entity_type: str = "ingredient",
         entity_id: str = "ingredient-tomato",
+        target_name: str = "番茄",
         error: str | None = None,
         completed_at=None,
         created_at=None,
@@ -36,9 +43,9 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     status=status,
-                    entity_type="ingredient",
+                    entity_type=entity_type,
                     entity_id=entity_id,
-                    target_name="番茄",
+                    target_name=target_name,
                     vector_status="pending",
                     error=error,
                     attempt_count=attempt_count,
@@ -143,6 +150,49 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
             self.assertIsNotNone(job.completed_at)
             self.assertIn("索引对象不存在或已删除", job.error or "")
 
+    def test_missing_food_search_job_deletes_stale_document_and_succeeds(self) -> None:
+        self.assertNotIn("meal_log", SEARCH_INDEX_ENTITY_TYPES)
+        with self.SessionLocal() as db:
+            upsert_search_document(
+                db,
+                SearchDocumentPayload(
+                    family_id=self.family.id,
+                    entity_type="food",
+                    entity_id="food-missing",
+                    title_text="已删除食物",
+                    keyword_text="已删除食物",
+                    detail_text="",
+                    semantic_text="食物：已删除食物",
+                    metadata_json={},
+                    content_hash="hash-missing-food",
+                ),
+            )
+            db.commit()
+        self._create_job(
+            job_id="job-missing-food",
+            entity_type="food",
+            entity_id="food-missing",
+            target_name="已删除食物",
+        )
+
+        process_search_index_job("job-missing-food", session_factory=self.SessionLocal)
+
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-missing-food")
+            assert job is not None
+            self.assertEqual(job.status, "succeeded")
+            self.assertEqual(job.vector_status, "skipped")
+            self.assertIsNone(job.error)
+            self.assertIsNone(job.locked_at)
+            self.assertIsNotNone(job.completed_at)
+            document = db.scalar(
+                select(SearchDocument).where(
+                    SearchDocument.family_id == self.family.id,
+                    SearchDocument.entity_type == "food",
+                    SearchDocument.entity_id == "food-missing",
+                )
+            )
+            self.assertIsNone(document)
 
     def test_active_get_and_retry_search_index_jobs_expose_timestamps(self) -> None:
         created_at = utcnow() - timedelta(minutes=5)
