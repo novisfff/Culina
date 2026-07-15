@@ -1,153 +1,117 @@
 # Culina AI 辅助开发指南
 
-本文件用于引导 Codex、Claude Code 等 AI 辅助开发工具在 Culina 项目中工作。开始修改前，先阅读当前实现和相关文档，不要只按通用模板推断项目结构。
+本文件是 Codex、Claude Code 等 AI 工具进入 Culina 仓库后的导航与任务路由层。开始工作前先读取当前实现、对应规范和必要 Skill；不要用通用模板推断项目结构，也不要在本文件复制各模块的全部细则。
 
 ## 项目定位
 
-Culina 是一个移动优先的家庭饮食管理 Web/PWA，服务中国家庭的日常菜谱、食物、食材库存、购物清单、餐食记录和 AI 辅助决策。
+Culina 是面向中国家庭的移动优先饮食管理 Web/PWA，覆盖菜谱、食物、食材库存、购物清单、餐食记录和受控 AI 辅助决策。
 
-默认产品语境：
+- 默认使用简体中文和具体、克制的产品文案。
+- 优先服务家庭日常记录、低维护成本、清晰责任归属和温暖照片驱动体验。
+- 手机端是主要体验，不是桌面页面的简单压缩版。
+- AI 是基于家庭上下文的实用助手，不是开放式泛聊天，不做医疗或营养诊断式承诺。
 
-- 语言与文案优先使用简体中文。
-- 体验优先级是家庭日常记录、低维护成本、清晰责任归属和温暖照片驱动 UI。
-- AI 能力是实用助手，不是开放式泛聊天；建议必须基于家庭上下文，并避免医疗、营养诊断式承诺。
-- 移动端是主要体验，不要把移动端当作桌面页面的简单压缩版。
+## 仓库与真相源
 
-## 仓库结构
-
-- `frontend/`：React 18 + Vite + TypeScript + React Query 前端，包含 PWA 资源、样式和前端测试。
-- `backend/`：FastAPI + SQLAlchemy 2 + Alembic 后端，使用 MySQL 持久化，包含 API、模型、服务、AI tools/skills 和 pytest 测试。
+- `frontend/`：React 18、Vite、TypeScript、React Query、PWA、Vitest 和前端样式。
+- `backend/`：FastAPI、SQLAlchemy 2、Alembic、MySQL、AI Runtime 和 pytest。
 - `deploy/`：Docker Compose、MySQL、MinIO、后端和 nginx 前端部署配置。
-- `docs/`：项目开发规范，根目录只保留前端代码规范、后端代码规范和 AI 助手规范；阶段性设计、体检清单和落地计划统一放在 `docs/plans/`。改动对应模块前先阅读相应文档。
+- `docs/frontend-code-standards.md`：前端架构、职责、缓存和验证规范。
+- `docs/backend-code-standards.md`：后端分层、权限、事务、迁移和数据边界规范。
+- `docs/ai-assistant-standards.md`：AI Skill、Tool、Runtime、草稿审批和稳定接口规范。
+- `docs/plans/`：长期保留的架构说明、体检、迁移方案和专题计划。
+- `docs/superpowers/specs/`：经确认的设计规格；`docs/superpowers/plans/`：与规格配套的可执行计划。
+
+组件 API、业务行为、数据模型和级联顺序以当前源码为实现事实；Culina 固定视觉值与组件样式以 `frontend-ui-style` 为规范事实。两者冲突时识别为实现漂移，不用旧页面反向改写视觉规范。
+
+## 项目 Skill 路由
+
+| 任务 | 必须使用 |
+| --- | --- |
+| UI、CSS、页面、卡片、表单、弹层、移动端和响应式 | `frontend-ui-style` |
+| 复杂 UI 状态流、组件拆分、异步、类型、无障碍和验证 | `frontend-ui-style` + `frontend-ui-engineering` |
+| 前端 diff、PR 或回归风险审计 | `frontend-code-audit`；涉及 UI 时同时使用 `frontend-ui-style` |
+| 后端 diff、PR、权限、事务、迁移、媒体或 AI 审计 | `backend-code-audit` |
+
+项目 Skill 位于 `.agents/skills/`。使用前读取 Skill 正文和它明确路由的 reference，同时读取目标代码与对应规范；项目 Skill 优先于通用模板或模型默认偏好。
 
 ## 常用命令
 
-在项目根目录执行：
+在仓库根目录执行：
 
-- `npm run frontend:install`：安装前端依赖。
-- `npm run dev`：启动前端开发服务器。
-- `npm run build`：前端 TypeScript 构建、Vite 构建和 bundle 预算检查。
-- `npm test`：运行前端 Vitest。
-- `npm run db:up`：启动本地 MySQL 和 MinIO。
-- `npm run db:down`：停止本地 Docker 服务。
-- `npm run backend:venv`：创建后端虚拟环境并安装依赖。
-- `npm run backend:init-db`：初始化本地 MySQL。
-- `npm run backend:migrate`：运行 Alembic 迁移到最新版本。
-- `npm run backend:dev`：启动 FastAPI 后端，默认 `127.0.0.1:8010`。
-- `npm run backend:test`：运行后端 pytest。
+```bash
+npm run frontend:install
+npm run dev
+npm run frontend:quality
+npm run frontend:build
+npm run frontend:smoke
+npm --prefix frontend run check:style-tokens
 
-前端子目录也可直接执行：
+npm run db:up
+npm run db:down
+npm run backend:venv
+npm run backend:init-db
+npm run backend:migrate
+npm run backend:dev
+npm run backend:quality
+npm run backend:test:service
+npm run backend:test:ai
+npm run backend:test:ai-evals
+npm run backend:test:search
+```
 
-- `npm --prefix frontend run test`
-- `npm --prefix frontend run build`
-- `npm --prefix frontend run smoke`
+`frontend:quality` 包含 typecheck、Vitest 和样式 token 漂移报告；报告退出码为 0 不等于视觉验收通过，必须人工审阅新增命中。`backend:quality` 包含后端编译检查和全量 pytest。
 
-## 前端开发约定
+## 任务模式与修改边界
 
-### 前端 UI Skill 使用规则
+- 问答、解释、状态汇报、审计和评审默认只读；未明确要求修复时不要修改文件。
+- 用户要求修改或构建时，在指定范围内实现、验证并交付；不要顺手重构无关模块。
+- Git 同步、提交、推送或 PR 请求只执行对应 Git 工作流，不自动扩展成代码审计或功能修改。
+- 工作区已有修改默认属于用户；不恢复、不覆盖、不用 `git add -A` 混入无关文件。
+- 计划与当前代码冲突时，以当前代码和稳定规范重新校准，在回复中说明差异。
 
-- 凡是 UI 页面、组件、弹窗、表单、状态栏、列表、卡片、移动端页面、响应式视觉调整或样式文件开发，都必须优先使用 `.agents/skills/frontend-ui-style`。
-- 如果涉及复杂组件架构、状态流、表单/弹窗编排、TypeScript 类型、loading/empty/error 状态、无障碍或验证策略，再结合 `.agents/skills/frontend-ui-engineering`。
-- 项目专属 `frontend-ui-style` 的风格规则优先于任何通用开源 Skill、通用设计模板或模型默认视觉偏好。
-- 使用这些 Skill 前仍需先阅读当前实现和 `docs/frontend-code-standards.md`，不要只按 Skill 文档脱离代码生成 UI。
+### Superpowers 使用边界
 
-前端修改必须遵循 `docs/frontend-code-standards.md` 的职责分层：
+- 本节明确覆盖 Superpowers skill 自带的“只要有 1% 可能适用就必须调用”和“简单任务也必须使用”规则。Superpowers 是按需工作流，不是所有任务的默认入口。
+- 问答、解释、翻译、状态汇报、只读检查或评审、文本润色、单文件文档或规则修改，以及目标明确、可逆、验证路径清楚的小修，默认不调用任何 Superpowers skill，直接完成并执行与风险相称的最小验证。
+- 小型代码功能或 bug 修复可按需采用根因分析、测试先行和完成前验证，但不自动进入 `brainstorming`、设计文档、`writing-plans`、worktree、subagent review 或 branch finishing。
+- 只有需求存在实质不确定性，或涉及 UX、产品取舍、架构、跨模块边界、公开接口、数据模型、权限、安全、迁移等高影响决策时，才启动 `brainstorming -> spec -> plan`。
+- `using-git-worktrees`、`subagent-driven-development`、`dispatching-parallel-agents` 和外部评审只在用户或者方案明确要求的情况下使用。
+- `finishing-a-development-branch` 只用于独立开发分支的集成决策；普通就地修改或用户已明确要求提交时，不再展示 merge、push、keep、discard 菜单。
+- 无论是否调用 Superpowers，完成结论都必须有新鲜验证证据；简单任务不因验证要求升级成完整工作流。
 
-- 页面结构和用户可见 UI 放在 `*Page.tsx`、`*View.tsx` 或具体组件中。
-- tab、选中项、弹窗、草稿、步骤流等局部状态放在 `use*State.ts`。
-- 创建、更新、删除、确认、AI 生成等提交流程放在 `use*Actions.ts` 或 `use*ActionState.ts`。
-- 筛选、排序、统计、分组和页面展示数据整理放在 `use*Data.ts` 或 `*ViewModel.ts`。
-- 默认值、payload 构造、类型转换、业务校验和可测试计算放在 `*Model.ts`。
-- 静态选项、枚举映射、状态文案和业务配置放在 `*Options.ts`。
+## 前端不可突破的边界
 
-请求与缓存约定：
+- 新增或成规模扩展的业务进入 `frontend/src/features/<domain>/`；`app/` 只做应用组合与跨工作区协调。
+- View 表达可见 UI，state/actions/data/model/options 按 `docs/frontend-code-standards.md` 分工。
+- query key 统一由 `frontend/src/api/queryKeys.ts` 提供，mutation 失效统一由 `cacheInvalidation.ts` 维护。
+- API、图片、资源 URL、日期和 localStorage 复用现有 client、`useImageComposer`、assets、date 和 storage 封装。
+- UI 必须遵循 `frontend-ui-style` 的固定色板、字体、间距、圆角、阴影、组件和响应式规范；当前 CSS 不一致视为待修漂移。
 
-- React Query key 统一维护在 `frontend/src/api/queryKeys.ts`。
-- mutation 成功后的缓存失效统一维护在 `frontend/src/api/cacheInvalidation.ts`。
-- 组件和业务 hook 不手写裸字符串 query key。
-- API 封装放在 `frontend/src/api`，优先复用现有 client、request、类型和错误处理。
+## 后端与数据边界
 
-样式与资源约定：
+- 路由、schema、model、service、repo、serializer 和权限依赖按 `docs/backend-code-standards.md` 分层。
+- 所有家庭业务查询与写入都以当前 membership 的 `family_id` 隔离，不信任请求体中的家庭、用户或权限字段。
+- Owner 能力使用现有 Owner 检查；媒体、批量 ID、草稿、审批和子资源全部校验归属。
+- 同一用户动作的多表写入保持单一事务；高竞争写入明确锁顺序、锁后复核、幂等重放、stale version 和失败回滚。
+- 持久化 schema 变化新增 Alembic migration，不修改旧 migration；model、schema、serializer、前端类型和测试同步。
+- 用户可见写操作维护 `created_by`、`updated_by` 和活动日志。
 
-- `frontend/src/styles.css` 是样式聚合入口，业务样式放入 `frontend/src/styles/*`。
-- 新增样式使用业务域前缀，避免污染其他页面；不要在组件中堆叠大量 inline style。
-- 图片上传、参考图生成、文本生成优先复用 `frontend/src/hooks/useImageComposer.ts`。
-- 资源 URL 解析使用 `frontend/src/lib/assets.ts`，日期使用 `frontend/src/lib/date.ts`，localStorage 使用 `frontend/src/lib/storage.ts`。
+## AI、媒体与跨端契约
 
-## 后端开发约定
+- AI Skill catalog 位于 `backend/app/ai/skills/catalog/`，Tool catalog 位于 `backend/app/ai/tools/catalog/`；Orchestrator/Runner 位于 `backend/app/ai/workflows/`。
+- 模型只获得当前家庭和已注入 Skill 允许的 read/draft/control 工具，正式 write tool 不暴露给模型。
+- 正式写入固定经过 `draft -> approval -> service commit`；用户确认前不得显示或持久化成已完成。
+- continuation、artifact、会话所有权和审批恢复遵循 AI 规范与严格 schema，拒绝、冲突和失败不自动推进下一草稿。
+- 上传、绑定和 AI 生成媒体复用 `backend/app/services/media.py` 与 MinIO 流程；生成图不覆盖用户原图。
+- 修改字段、枚举、日期、媒体 URL、单位、AI mode、message part、卡片或草稿类型时，同步检查后端 schema/serializer、前端类型/client/view model 和 contract 测试。
 
-后端修改必须遵循 `docs/backend-code-standards.md`。
+## 安全、验证与交付
 
-后端采用 FastAPI 分层结构：
-
-- 路由与 HTTP 行为放在 `backend/app/api`。
-- Pydantic 请求/响应合约放在 `backend/app/schemas`。
-- SQLAlchemy 2 ORM 模型放在 `backend/app/models`。
-- 业务逻辑优先放在 `backend/app/services`。
-- 数据访问复用或补充 `backend/app/repos`。
-- 当前用户、成员身份和权限依赖复用 `backend/app/core/deps.py`。
-- 事务提交优先使用现有事务辅助，例如 `commit_session`。
-
-数据库约定：
-
-- 任何持久化 schema 变更都必须新增 Alembic migration，放在 `backend/alembic/versions`。
-- 不要直接修改旧 migration 来表达新变更。
-- 模型、schema、序列化、API 返回和测试需要同步更新。
-
-业务约定：
-
-- 所有家庭业务数据必须按 `family_id` 隔离。
-- 需要当前操作者的新增、编辑、删除流程必须维护 `created_by`、`updated_by` 和活动日志。
-- 强枚举优先使用 `backend/app/core/enums.py`，不要在各处复制自由字符串。
-- 新增 API 时保持现有错误风格、权限检查和响应模型风格。
-
-## 跨端契约
-
-修改 API 字段、枚举、状态值或响应形状时，必须同步检查：
-
-- 后端 `schemas`、`models`、`services/serializers`、API 路由和测试。
-- 前端 `frontend/src/api/types.ts`、对应 API client、query key、缓存失效和页面 view model。
-- 相关文档或 mock/helper，尤其是 AI workspace、媒体、日期和单位换算相关逻辑。
-
-涉及媒体 URL、日期、数量单位、食物类型、餐别、库存状态、AI mode 的改动，不要只改一端。
-
-## AI、图片与媒体约定
-
-AI 助手、Skill、Tool、草稿和审批流程必须遵循 `docs/ai-assistant-standards.md`。
-
-- AI 接口必须显式带家庭上下文，不能在无家庭上下文时返回库存、推荐或家庭数据。
-- AI 输出是辅助建议；涉及菜谱生成、库存扣减、购物清单、餐食记录等写操作时，应走已有 approval、tool 或 service 流程。
-- 项目内 AI skills 位于 `backend/app/ai/skills`，AI tools 位于 `backend/app/ai/tools`；新增能力前先复用现有 registry、executor、validation 模式。
-- 图片上传和 AI 生成图片使用现有 media/MinIO 流程，不绕过 `backend/app/services/media.py` 和相关绑定逻辑。
-- AI 生成图不应覆盖用户上传原图，只作为附加选项或独立 media asset。
-
-## 安全与数据边界
-
-- 不提交 `.env`、密钥、token、数据库密码或本地生成产物。
-- 不绕过认证依赖访问家庭数据；Owner 专属能力必须使用现有权限检查。
-- 所有查询和写入都要约束到当前 membership 的 `family_id`。
-- 上传、媒体绑定、AI 生成和批量操作需要校验资源归属，避免跨家庭引用。
-- 不在前端暴露后端密钥或 provider 配置。
-
-## 测试策略
-
-按变更风险选择验证范围：
-
-- 文档或注释变更：人工审阅即可，不强制跑完整测试。
-- 前端 model/helper 变更：至少跑对应 Vitest。
-- 前端页面结构、工作区编排、状态流或缓存变更：跑 `npm --prefix frontend run test`、`npm --prefix frontend run build`。
-- 响应式、移动端、导航或关键用户路径变更：补跑 `npm --prefix frontend run smoke`。
-- 后端 API、service、权限、AI tool 或 serializer 变更：跑 `npm run backend:test`，必要时只先跑相关 pytest 文件再跑全量。
-- 数据库模型变更：新增并检查 Alembic migration，必要时在本地库执行 `npm run backend:migrate`。
-
-最终回复必须说明实际执行过的验证命令；如果没有运行测试，要说明原因。
-
-## 协作规则
-
-- 先读现有代码和文档，再修改；优先复用项目已有模式。
-- 保持改动范围小，不顺手重构无关模块。
-- 不绕过现有 API client、缓存失效、media、date、storage、auth、transaction 等封装。
-- 不扩大大文件职责；新增复杂逻辑优先拆到符合职责的 hook、model、service 或 helper。
-- 不恢复或覆盖用户未要求修改的工作区改动。
-- 如果发现计划和当前代码冲突，先基于当前代码调整实现，并在回复中说明。
-- 对高风险改动主动补测试；对未验证项明确标注。
+- 不提交 `.env`、密钥、token、数据库密码、本地生成物或含家庭隐私的调试数据。
+- 文档/注释：人工审阅并运行 `git diff --check`。
+- 前端 model/helper：对应 Vitest；页面/状态/缓存：`frontend:quality` + `frontend:build`；响应式关键路径再跑 `frontend:smoke`。
+- CSS、ui-kit、token：运行 `check:style-tokens` 并人工审阅；AI contract 运行对应前后端测试。
+- 后端 route/service/权限/serializer：先跑定向 pytest，再按风险运行分类测试或 `backend:quality`。
+- 模型/migration：检查 Alembic head、migration 和关键读写；可用本地库时执行 `backend:migrate`。
+- 最终回复必须列出实际执行的命令和视口；未运行的测试或环境缺口明确说明，不把静态检查、单测、构建、smoke 或 CI 互相替代。
