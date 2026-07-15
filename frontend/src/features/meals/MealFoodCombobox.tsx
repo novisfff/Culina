@@ -102,8 +102,25 @@ export function MealFoodCombobox(props: MealFoodComboboxProps) {
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
       if (menuOpen) {
+        // Dismiss only the food menu; keep the composer open.
         event.preventDefault();
+        event.stopPropagation();
         setMenuOpen(false);
+        return;
+      }
+      if (pendingName) {
+        event.preventDefault();
+        event.stopPropagation();
+        setPendingName(null);
+      }
+      return;
+    }
+
+    // While type chips are showing, Enter must not submit the outer form.
+    if (pendingName) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
       }
       return;
     }

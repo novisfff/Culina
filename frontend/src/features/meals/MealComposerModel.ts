@@ -6,7 +6,7 @@ import type {
   RecordMealPayload,
   RecordMealTarget,
 } from '../../api/types';
-import { businessDateKey } from '../../lib/date';
+import { addDateKeyDays, businessDateKey } from '../../lib/date';
 
 export const MEAL_COMPOSER_FOOD_TYPES = ['selfMade', 'takeout', 'diningOut', 'readyMade'] as const;
 export type MealComposerFoodType = (typeof MEAL_COMPOSER_FOOD_TYPES)[number];
@@ -274,4 +274,27 @@ export function selectMealPreviewMedia(args: {
 /** Business “today” for meal recording, fixed to Asia/Shanghai. */
 export function createMealBusinessDate(instant: Date = new Date()): string {
   return businessDateKey(instant, 'Asia/Shanghai');
+}
+
+/** Calendar parts for a YYYY-MM-DD date strip chip. */
+export function getMealDateStripParts(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
+
+/**
+ * Label for a date-strip chip: 今天 / 明天 relative to Asia/Shanghai business day,
+ * otherwise the short weekday. Never uses array index.
+ */
+export function mealDateStripLabel(dateKey: string, instant: Date = new Date()): string {
+  const today = createMealBusinessDate(instant);
+  const tomorrow = addDateKeyDays(today, 1);
+  if (dateKey === today) return '今天';
+  if (dateKey === tomorrow) return '明天';
+  return getMealDateStripParts(dateKey).weekday;
 }

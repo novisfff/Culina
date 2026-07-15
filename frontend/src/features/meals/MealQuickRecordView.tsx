@@ -8,7 +8,11 @@ import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCandidateSelector } from './MealCandidateSelector';
-import type { MealComposerFood } from './MealComposerModel';
+import {
+  getMealDateStripParts,
+  mealDateStripLabel,
+  type MealComposerFood,
+} from './MealComposerModel';
 
 const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
   { value: 'breakfast', label: MEAL_TYPE_LABELS.breakfast },
@@ -43,16 +47,6 @@ export type MealQuickRecordViewProps = {
   onTargetChange: (target: RecordMealTarget, selectedCandidateId?: string | null) => void;
   onSubmit: () => void;
 };
-
-function getDateParts(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return {
-    day: String(day || 1),
-    month: String(month || 1),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
-}
 
 export function MealQuickRecordView(props: MealQuickRecordViewProps) {
   if (!props.open) {
@@ -133,9 +127,9 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
           <div className="meal-quick-record-field">
             <span>日期</span>
             <div className="meal-quick-record-date-strip" role="listbox" aria-label="选择日期">
-              {props.dateOptions.map((dateKey, index) => {
-                const parts = getDateParts(dateKey);
-                const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
+              {props.dateOptions.map((dateKey) => {
+                const parts = getMealDateStripParts(dateKey);
+                const label = mealDateStripLabel(dateKey);
                 return (
                   <button
                     key={dateKey}

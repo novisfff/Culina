@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Food, MealLogCandidate, MediaAsset } from '../../api/types';
@@ -220,13 +220,93 @@ describe('MealComposer', () => {
       onFoodsChange,
     });
 
+    // Overlay mount focuses via rAF; wait for that to settle before owning focus.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
     const input = screen.getByRole('searchbox', { name: '搜索食物' });
-    await user.click(input);
+    input.focus();
+    expect(input).toHaveFocus();
+    expect(screen.getByRole('option', { name: /番茄炒蛋/ })).toBeVisible();
     await user.keyboard('{Enter}');
 
     expect(onFoodsChange).toHaveBeenCalled();
     const nextFoods = onFoodsChange.mock.calls.at(-1)?.[0] as MealComposerFood[];
     expect(nextFoods[0]).toMatchObject({ kind: 'existing', food_id: 'food-1', name: '番茄炒蛋' });
+  });
+
+  it('labels date strip by business today/tomorrow, not array index', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00+08:00'));
+    try {
+      renderComposer({
+        date: '2026-07-16',
+        dateOptions: ['2026-07-14', '2026-07-15', '2026-07-16', '2026-07-17'],
+      });
+
+      const strip = screen.getByRole('listbox', { name: '选择日期' });
+      const options = within(strip).getAllByRole('button');
+      expect(options.map((option) => option.querySelector('span')?.textContent)).toEqual([
+        '周二',
+        '今天',
+        '明天',
+        '周五',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not submit the form while food type chips are pending', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const onFoodsChange = vi.fn();
+    renderComposer({
+      searchQuery: '酸汤牛肉',
+      searchResults: [],
+      onSubmit,
+      onFoodsChange,
+    });
+
+    await user.click(screen.getByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    expect(screen.getByRole('button', { name: '家里做' })).toBeVisible();
+
+    const input = screen.getByRole('searchbox', { name: '搜索食物' });
+    input.focus();
+    expect(input).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onFoodsChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '家里做' })).toBeVisible();
+  });
+
+  it('Escape closes food menu without closing the composer', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderComposer({
+      searchQuery: '番茄',
+      searchResults: [food('food-1', '番茄炒蛋')],
+      onClose,
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
+    const input = screen.getByRole('searchbox', { name: '搜索食物' });
+    input.focus();
+    expect(screen.getByRole('listbox', { name: '食物搜索结果' })).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox', { name: '食物搜索结果' })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: '记一餐' })).toBeVisible();
   });
 
   it('blocks close while busy and disables duplicate submit', async () => {
