@@ -84,7 +84,10 @@ import { MealCandidateSelector } from '../meals/MealCandidateSelector';
 import { MealComposer } from '../meals/MealComposer';
 import {
   buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
   createMealBusinessDate,
+  createMealRecordDateOptions,
+  type MealCandidateResolution,
   deriveCandidatePresentation,
   type MealComposerFood,
 } from '../meals/MealComposerModel';
@@ -1203,6 +1206,9 @@ export function EatMealTaskBody(props: {
 /**
  * History free multi-Food recording via production MealComposer + shared hooks.
  * Used when meal-create has no prefilled Food (history “记一餐”).
+ *
+ * Accidental close keeps draft + request identity in composer state; only success
+ * (or explicit discard) should leave the meal-create task shell.
  */
 function EatFreeMealComposerBody(props: {
   date?: string;
@@ -1224,15 +1230,41 @@ function EatFreeMealComposerBody(props: {
     mealType: state.mealType,
     searchQuery,
   });
+
+  const candidateResolution = useMemo((): MealCandidateResolution => {
+    if (!state.open) return { status: 'idle' };
+    if (data.candidateError) {
+      return {
+        status: 'error',
+        message:
+          data.candidateError instanceof Error && data.candidateError.message.trim()
+            ? data.candidateError.message
+            : '加载候选失败，请重试',
+      };
+    }
+    if (data.isLoadingCandidates || data.isFetchingCandidates) {
+      return { status: 'loading' };
+    }
+    // Query settled (success or disabled with empty) — treat as ready for this slot.
+    return { status: 'ready' };
+  }, [
+    data.candidateError,
+    data.isFetchingCandidates,
+    data.isLoadingCandidates,
+    state.open,
+  ]);
+
   const actions = useMealComposerActions({
     state,
     candidates: data.candidates,
+    candidateResolution,
     refetchCandidates: data.refetchCandidates,
     recordMeal: props.recordMeal,
     // App-level recordMeal mutation already invalidates caches on success.
     invalidateAfterRecord: async () => undefined,
     publishRecordResult: (response) => {
       props.onRecordSuccess?.(response);
+      // Success leaves the meal-create shell.
       props.onClose();
     },
   });
@@ -1254,22 +1286,19 @@ function EatFreeMealComposerBody(props: {
     .join(',');
   useEffect(() => {
     if (!state.open || state.requiresTargetReconfirm) return;
+    if (candidateResolution.status !== 'ready') return;
+    // applyCandidates preserves user-chosen target unless force.
     state.applyCandidates(data.candidates);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.open, state.date, state.mealType, candidateIdsKey]);
+  }, [state.open, state.date, state.mealType, candidateIdsKey, candidateResolution.status]);
 
-  const dateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(businessToday, index)),
-    [businessToday],
-  );
+  const dateOptions = useMemo(() => createMealRecordDateOptions(businessToday), [businessToday]);
 
-  // When shared actions close after success, also exit the task shell.
-  useEffect(() => {
-    if (openedRef.current && !state.open && !state.busy) {
-      // Only auto-exit if the composer was open then closed without discard identity reset
-      // handled via publishRecordResult/onClose above. Accidental close keeps draft; shell stays.
-    }
-  }, [state.open, state.busy]);
+  const candidatesBusy = candidateResolution.status === 'loading';
+  const submitBlocked =
+    candidatesBusy ||
+    candidateResolution.status === 'error' ||
+    state.requiresTargetReconfirm;
 
   return (
     <MealComposer
@@ -1285,13 +1314,17 @@ function EatFreeMealComposerBody(props: {
       searchQuery={searchQuery}
       searchResults={data.foods}
       isSearchingFoods={data.isSearchingFoods}
-      busy={state.busy || Boolean(props.isSubmitting)}
-      error={state.error}
+      busy={state.busy || Boolean(props.isSubmitting) || submitBlocked}
+      error={
+        state.error ??
+        (candidateResolution.status === 'error' ? candidateResolution.message : null) ??
+        (candidatesBusy ? '正在确认是否有可加入的餐食…' : null)
+      }
       overlayRootClassName="eat-task-body-overlay-root"
       onClose={() => {
         if (state.busy) return;
+        // Accidental close: keep draft + request id; stay on meal-create surface.
         state.close();
-        props.onClose();
       }}
       onDateChange={state.setDate}
       onMealTypeChange={state.setMealType}
@@ -1334,7 +1367,10 @@ function EatPrefixedMealCreateBody(props: {
   const [target, setTarget] = useState<RecordMealTarget>({ kind: 'new' });
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [candidateMode, setCandidateMode] = useState<'none' | 'single' | 'multi'>('none');
-  const [clientRequestId] = useState(() => `eat-record-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
+  const [targetTouchedByUser, setTargetTouchedByUser] = useState(false);
+  const [clientRequestId, setClientRequestId] = useState(
+    () => `eat-record-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1346,6 +1382,7 @@ function EatPrefixedMealCreateBody(props: {
     setTarget({ kind: 'new' });
     setSelectedCandidateId(null);
     setCandidateMode('none');
+    setTargetTouchedByUser(false);
   }, [planItem?.id, planItem?.plan_date, planItem?.meal_type]);
 
   // Recipe + plan source opens cook owner instead of ordinary record.
@@ -1377,14 +1414,46 @@ function EatPrefixedMealCreateBody(props: {
     .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
     .join(',');
 
+  const candidateResolution = useMemo((): MealCandidateResolution => {
+    if (!needsCandidates) return { status: 'ready' };
+    if (candidateQuery.error) {
+      return {
+        status: 'error',
+        message:
+          candidateQuery.error instanceof Error && candidateQuery.error.message.trim()
+            ? candidateQuery.error.message
+            : '加载候选失败，请重试',
+      };
+    }
+    if (candidateQuery.isLoading || candidateQuery.isFetching || !candidatesFetched) {
+      return { status: 'loading' };
+    }
+    return { status: 'ready' };
+  }, [
+    candidateQuery.error,
+    candidateQuery.isFetching,
+    candidateQuery.isLoading,
+    candidatesFetched,
+    needsCandidates,
+  ]);
+
   useEffect(() => {
-    if (!needsCandidates || !candidatesFetched) return;
+    if (!needsCandidates || candidateResolution.status !== 'ready') return;
     const presentation = deriveCandidatePresentation(candidates, effectiveMealType);
-    setTarget(presentation.target);
-    setSelectedCandidateId(presentation.selectedCandidateId);
     setCandidateMode(presentation.mode);
+    if (!targetTouchedByUser) {
+      setTarget(presentation.target);
+      setSelectedCandidateId(presentation.selectedCandidateId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsCandidates, effectiveDate, effectiveMealType, candidateIdsKey, candidatesFetched]);
+  }, [
+    needsCandidates,
+    effectiveDate,
+    effectiveMealType,
+    candidateIdsKey,
+    candidateResolution.status,
+    targetTouchedByUser,
+  ]);
 
   // Plan without food is invalid after free-composer branch; show empty only as last resort.
   if (!food) {
@@ -1411,13 +1480,27 @@ function EatPrefixedMealCreateBody(props: {
 
   const dateOptions = slotLocked
     ? [effectiveDate]
-    : Array.from({ length: 7 }, (_, index) => addDateKeyDays(businessToday, index));
+    : createMealRecordDateOptions(businessToday);
   const cover = getFoodCoverAsset(food, props.recipes) ?? null;
-  const isBusy = busy || Boolean(props.isSubmitting) || Boolean(props.isCompletingPlan);
+  const candidatesPending = needsCandidates && !canSubmitWithCandidateResolution(candidateResolution);
+  const isBusy =
+    busy ||
+    Boolean(props.isSubmitting) ||
+    Boolean(props.isCompletingPlan) ||
+    candidatesPending;
 
   async function handleSubmit() {
     if (!food || isBusy) return;
     setError(null);
+
+    if (needsCandidates && !canSubmitWithCandidateResolution(candidateResolution)) {
+      if (candidateResolution.status === 'error') {
+        setError(candidateResolution.message);
+      } else {
+        setError('正在确认是否有可加入的餐食…');
+      }
+      return;
+    }
 
     // Plan complete is a separate owner command (never ordinary record undo / never publish record result).
     if (planItem) {
@@ -1478,10 +1561,21 @@ function EatPrefixedMealCreateBody(props: {
           setTarget(presentation.target);
           setSelectedCandidateId(presentation.selectedCandidateId);
           setCandidateMode(presentation.mode);
+          setTargetTouchedByUser(false);
           setError('这顿饭刚被家人更新，请重新确认');
         } catch {
           setError(messageFromMealRecordReason(reason, '这顿饭刚被家人更新，请重新确认'));
         }
+        setBusy(false);
+        return;
+      }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        setClientRequestId(`eat-record-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
+        setError(
+          code === 'record_operation_reverted'
+            ? '上次记录已撤销，请再试一次'
+            : '记录内容已变化，请再试一次',
+        );
         setBusy(false);
         return;
       }
@@ -1517,6 +1611,7 @@ function EatPrefixedMealCreateBody(props: {
         setTarget({ kind: 'new' });
         setSelectedCandidateId(null);
         setCandidateMode('none');
+        setTargetTouchedByUser(false);
       }}
       onMealTypeChange={(next) => {
         if (slotLocked) return;
@@ -1524,10 +1619,12 @@ function EatPrefixedMealCreateBody(props: {
         setTarget({ kind: 'new' });
         setSelectedCandidateId(null);
         setCandidateMode('none');
+        setTargetTouchedByUser(false);
       }}
       onTargetChange={(nextTarget, nextSelectedId) => {
         setTarget(nextTarget);
         setSelectedCandidateId(nextSelectedId ?? null);
+        setTargetTouchedByUser(true);
       }}
       onSubmit={() => {
         void handleSubmit();

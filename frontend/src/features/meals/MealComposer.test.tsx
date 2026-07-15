@@ -250,7 +250,7 @@ describe('MealComposer', () => {
       const strip = screen.getByRole('listbox', { name: '选择日期' });
       const options = within(strip).getAllByRole('button');
       expect(options.map((option) => option.querySelector('span')?.textContent)).toEqual([
-        '周二',
+        '昨天',
         '今天',
         '明天',
         '周五',

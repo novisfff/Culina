@@ -7,6 +7,8 @@ import type {
 import {
   MealComposerValidationError,
   buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
+  type MealCandidateResolution,
 } from './MealComposerModel';
 import {
   extractMealRecordErrorCode,
@@ -18,6 +20,8 @@ import type { MealComposerState } from './useMealComposerState';
 export type UseMealComposerActionsArgs = {
   state: MealComposerState;
   candidates: MealLogCandidate[];
+  /** Candidate resolution for the current date/mealType; submit blocked until ready. */
+  candidateResolution?: MealCandidateResolution;
   refetchCandidates: () => Promise<{ data?: MealLogCandidate[] | undefined } | unknown>;
   recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
   invalidateAfterRecord: (options?: { createdFood?: boolean }) => Promise<void>;
@@ -25,10 +29,29 @@ export type UseMealComposerActionsArgs = {
 };
 
 export function useMealComposerActions(args: UseMealComposerActionsArgs) {
-  const { state, recordMeal, invalidateAfterRecord, publishRecordResult, refetchCandidates } = args;
+  const {
+    state,
+    recordMeal,
+    invalidateAfterRecord,
+    publishRecordResult,
+    refetchCandidates,
+    candidateResolution,
+  } = args;
 
   const submitRecord = useCallback(async () => {
     if (state.busy) return;
+    if (state.requiresTargetReconfirm) {
+      state.setError('这顿饭刚被家人更新，请重新确认目标');
+      return;
+    }
+    if (candidateResolution && !canSubmitWithCandidateResolution(candidateResolution)) {
+      if (candidateResolution.status === 'error') {
+        state.setError(candidateResolution.message || '加载候选失败，请重试');
+      } else {
+        state.setError('正在确认是否有可加入的餐食…');
+      }
+      return;
+    }
 
     let payload: RecordMealPayload;
     try {
@@ -64,11 +87,22 @@ export function useMealComposerActions(args: UseMealComposerActionsArgs) {
         state.markTargetStaleAndRefresh(refreshed);
         return;
       }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        // Payload changed after a timed-out attempt, or prior op was undone — rotate id and ask user to retry.
+        state.rotateClientRequestId();
+        state.setError(
+          code === 'record_operation_reverted'
+            ? '上次记录已撤销，请再试一次'
+            : '记录内容已变化，请再试一次',
+        );
+        return;
+      }
       state.setError(messageFromMealRecordReason(reason, '记录失败，请重试'));
     } finally {
       state.setBusy(false);
     }
   }, [
+    candidateResolution,
     invalidateAfterRecord,
     publishRecordResult,
     recordMeal,

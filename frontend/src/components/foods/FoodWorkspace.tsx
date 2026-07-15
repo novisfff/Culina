@@ -33,7 +33,6 @@ import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
-import { addDateKeyDays } from '../../lib/date';
 import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
@@ -57,8 +56,11 @@ import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
   buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
   createMealBusinessDate,
+  createMealRecordDateOptions,
   deriveCandidatePresentation,
+  type MealCandidateResolution,
   type MealComposerFood,
 } from '../../features/meals/MealComposerModel';
 import {
@@ -230,6 +232,7 @@ type Props = {
   onRevertRecord?: () => void | Promise<void>;
   onViewRecord?: () => void;
   onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
   /** Non-Recipe Food workspace plan completion owner. */
   completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
@@ -308,6 +311,8 @@ type FoodQuickRecordState = {
   selectedCandidateId: string | null;
   candidateMode: 'none' | 'single' | 'multi';
   candidates: MealLogCandidate[];
+  candidateResolution: MealCandidateResolution;
+  targetTouchedByUser: boolean;
   clientRequestId: string;
   busy: boolean;
   error: string | null;
@@ -1022,7 +1027,7 @@ export function FoodWorkspace(props: Props) {
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(mealBusinessDate, index)),
+    () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate]
   );
   function selectMobileFoodScene(sceneName: string) {
@@ -1374,6 +1379,8 @@ export function FoodWorkspace(props: Props) {
       selectedCandidateId: null,
       candidateMode: 'none',
       candidates: [],
+      candidateResolution: { status: 'loading' },
+      targetTouchedByUser: false,
       clientRequestId: createClientRequestId(),
       busy: false,
       error: null,
@@ -1488,7 +1495,24 @@ export function FoodWorkspace(props: Props) {
     let cancelled = false;
     const { date, mealType } = quickRecord;
     const loader = props.loadMealCandidates;
-    if (!loader) return;
+    if (!loader) {
+      setQuickRecord((current) =>
+        current && current.date === date && current.mealType === mealType
+          ? {
+              ...current,
+              candidates: [],
+              candidateMode: 'none',
+              candidateResolution: { status: 'ready' },
+            }
+          : current,
+      );
+      return;
+    }
+    setQuickRecord((current) =>
+      current && current.date === date && current.mealType === mealType
+        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
+        : current,
+    );
     void (async () => {
       try {
         const candidates = await loader(date, mealType);
@@ -1500,19 +1524,27 @@ export function FoodWorkspace(props: Props) {
             ...current,
             candidates,
             candidateMode: presentation.mode,
-            target: presentation.target,
-            selectedCandidateId: presentation.selectedCandidateId,
+            candidateResolution: { status: 'ready' },
+            ...(current.targetTouchedByUser
+              ? {}
+              : {
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                }),
           };
         });
       } catch (reason) {
         if (cancelled) return;
+        const message =
+          reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : '加载候选失败，请重试';
         setQuickRecord((current) =>
-          current
+          current && current.date === date && current.mealType === mealType
             ? {
                 ...current,
-                error: reason instanceof Error && reason.message.trim()
-                  ? reason.message
-                  : '加载候选失败，请重试',
+                candidateResolution: { status: 'error', message },
+                error: message,
               }
             : current,
         );
@@ -1527,6 +1559,20 @@ export function FoodWorkspace(props: Props) {
 
   async function submitCompactRecord() {
     if (!quickRecord || quickRecord.busy) return;
+    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                current.candidateResolution.status === 'error'
+                  ? current.candidateResolution.message || '加载候选失败，请重试'
+                  : '正在确认是否有可加入的餐食…',
+            }
+          : current,
+      );
+      return;
+    }
     const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
     let payload: RecordMealPayload;
     try {
@@ -1582,8 +1628,10 @@ export function FoodWorkspace(props: Props) {
                   busy: false,
                   candidates: refreshed,
                   candidateMode: presentation.mode,
+                  candidateResolution: { status: 'ready' },
                   target: presentation.target,
                   selectedCandidateId: presentation.selectedCandidateId,
+                  targetTouchedByUser: false,
                   error: '这顿饭刚被家人更新，请重新确认',
                 }
               : current,
@@ -1592,6 +1640,22 @@ export function FoodWorkspace(props: Props) {
         } catch {
           // fall through
         }
+      }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                busy: false,
+                clientRequestId: createClientRequestId(),
+                error:
+                  code === 'record_operation_reverted'
+                    ? '上次记录已撤销，请再试一次'
+                    : '记录内容已变化，请再试一次',
+              }
+            : current,
+        );
+        return;
       }
       setQuickRecord((current) =>
         current
@@ -2323,6 +2387,7 @@ export function FoodWorkspace(props: Props) {
         onRevert={props.onRevertRecord}
         onView={props.onViewRecord}
         onRate={props.onRateRecord}
+        onDismiss={props.onDismissRecord}
       />
 
       {quickRecord ? (
@@ -2341,7 +2406,11 @@ export function FoodWorkspace(props: Props) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isQuickAdding)}
+          busy={
+            quickRecord.busy ||
+            Boolean(props.isQuickAdding) ||
+            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
+          }
           error={quickRecord.error}
           overlayRootClassName="food-workspace-overlay-root"
           onClose={() => {
@@ -2357,6 +2426,8 @@ export function FoodWorkspace(props: Props) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -2372,6 +2443,8 @@ export function FoodWorkspace(props: Props) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -2386,6 +2459,7 @@ export function FoodWorkspace(props: Props) {
                     selectedCandidateId:
                       selectedCandidateId ??
                       (target.kind === 'existing' ? target.meal_log_id : null),
+                    targetTouchedByUser: true,
                     error: null,
                   }
                 : current,

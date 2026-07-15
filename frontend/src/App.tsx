@@ -25,6 +25,7 @@ import type {
   InventoryOperationDetail,
   InventoryOperationResult,
   MealLog,
+  MealType,
   UpdateMealLogPayload,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
@@ -512,6 +513,12 @@ function App() {
       navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
     },
   });
+
+  // Stable identity so compact record effects do not re-fetch/reset target on every App render.
+  const loadMealCandidates = useCallback(
+    (date: string, mealType: MealType) => api.getMealCandidates(date, mealType),
+    [],
+  );
 
   const shoppingIntakeState = useShoppingIntakeState();
   const shoppingIntakeActions = useShoppingIntakeActions({
@@ -1197,7 +1204,7 @@ function App() {
             resolveAssetUrl={resolveDashboardAssetUrl}
             businessDateKey={homeBusinessDateKey}
             recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
-            loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+            loadMealCandidates={loadMealCandidates}
             onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
             recordResult={mealRecordResultState.result}
             isRevertingRecord={mealRecordResultState.isReverting}
@@ -1206,6 +1213,7 @@ function App() {
             onRevertRecord={() => void mealRecordResultState.revert()}
             onViewRecord={() => mealRecordResultState.viewMeal()}
             onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+            onDismissRecord={() => mealRecordResultState.dismiss()}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
             onNavigate={navigation.navigate}
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
@@ -1334,7 +1342,7 @@ function App() {
                   createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
                   updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
                   recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
-                  loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+                  loadMealCandidates={loadMealCandidates}
                   onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
                   recordResult={mealRecordResultState.result}
                   isRevertingRecord={mealRecordResultState.isReverting}
@@ -1343,6 +1351,7 @@ function App() {
                   onRevertRecord={() => void mealRecordResultState.revert()}
                   onViewRecord={() => mealRecordResultState.viewMeal()}
                   onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+                  onDismissRecord={() => mealRecordResultState.dismiss()}
                   completeFoodPlanItem={(itemId, payload) =>
                     completeFoodPlanItemMutation.mutateAsync({ itemId, payload })
                   }
@@ -1417,6 +1426,7 @@ function App() {
                   onRevertRecord={() => void mealRecordResultState.revert()}
                   onViewRecord={() => mealRecordResultState.viewMeal()}
                   onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+                  onDismissRecord={() => mealRecordResultState.dismiss()}
                   updateMealComposition={(mealLogId, payload) =>
                     updateMealCompositionMutation.mutateAsync({ mealLogId, payload })
                   }
@@ -1436,7 +1446,7 @@ function App() {
               shoppingItems={shoppingItems}
               recipes={recipes}
               recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
-              loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+              loadMealCandidates={loadMealCandidates}
               onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
               recordResult={mealRecordResultState.result}
               isRevertingRecord={mealRecordResultState.isReverting}
@@ -1445,6 +1455,7 @@ function App() {
               onRevertRecord={() => void mealRecordResultState.revert()}
               onViewRecord={() => mealRecordResultState.viewMeal()}
               onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+              onDismissRecord={() => mealRecordResultState.dismiss()}
               isRecordingMeal={recordMealMutation.isPending}
               openShoppingIntake={openShoppingIntake}
               openReconciliation={openReconciliation}

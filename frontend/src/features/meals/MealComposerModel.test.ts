@@ -4,8 +4,12 @@ import {
   MealComposerValidationError,
   buildRecordMealPayload,
   createMealBusinessDate,
+  createMealRecordDateOptions,
   deriveCandidatePresentation,
+  mealDateStripLabel,
+  mealTypeFromBusinessInstant,
   selectMealPreviewMedia,
+  canSubmitWithCandidateResolution,
   type MealComposerFood,
 } from './MealComposerModel';
 
@@ -283,5 +287,46 @@ describe('createMealBusinessDate', () => {
     // 2026-07-15 00:30 in Tokyo is still 2026-07-14 in Shanghai.
     const instant = new Date('2026-07-14T15:30:00.000Z');
     expect(createMealBusinessDate(instant)).toBe('2026-07-14');
+  });
+});
+
+describe('meal record date helpers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('offers past 6 days through today, not future days', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00+08:00'));
+    const options = createMealRecordDateOptions(createMealBusinessDate());
+    expect(options).toEqual([
+      '2026-07-09',
+      '2026-07-10',
+      '2026-07-11',
+      '2026-07-12',
+      '2026-07-13',
+      '2026-07-14',
+      '2026-07-15',
+    ]);
+  });
+
+  it('labels yesterday relative to Shanghai business day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00+08:00'));
+    expect(mealDateStripLabel('2026-07-14')).toBe('昨天');
+    expect(mealDateStripLabel('2026-07-15')).toBe('今天');
+  });
+
+  it('maps Shanghai midnight hour to breakfast (not snack)', () => {
+    // 2026-07-15 00:30 Asia/Shanghai
+    const midnight = new Date('2026-07-14T16:30:00.000Z');
+    expect(mealTypeFromBusinessInstant(midnight)).toBe('breakfast');
+  });
+
+  it('blocks submit until candidate resolution is ready', () => {
+    expect(canSubmitWithCandidateResolution({ status: 'idle' })).toBe(false);
+    expect(canSubmitWithCandidateResolution({ status: 'loading' })).toBe(false);
+    expect(canSubmitWithCandidateResolution({ status: 'error', message: 'x' })).toBe(false);
+    expect(canSubmitWithCandidateResolution({ status: 'ready' })).toBe(true);
   });
 });

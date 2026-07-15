@@ -276,6 +276,38 @@ export function createMealBusinessDate(instant: Date = new Date()): string {
   return businessDateKey(instant, 'Asia/Shanghai');
 }
 
+/**
+ * Ordinary record date strip: past 6 days through today (inclusive).
+ * MealLog is for meals that already happened — not future planning (use FoodPlan).
+ */
+export function createMealRecordDateOptions(
+  businessToday: string = createMealBusinessDate(),
+  pastDays = 6,
+): string[] {
+  return Array.from({ length: pastDays + 1 }, (_, index) =>
+    addDateKeyDays(businessToday, index - pastDays),
+  );
+}
+
+/**
+ * Suggest meal type from Asia/Shanghai wall-clock hour.
+ * Uses hourCycle h23 so midnight is 0, not ICU "24".
+ */
+export function mealTypeFromBusinessInstant(instant: Date = new Date()): MealType {
+  const hourParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(instant);
+  let hour = Number(hourParts.find((part) => part.type === 'hour')?.value ?? '12');
+  // Defensive: some environments still emit 24 for midnight.
+  if (hour === 24) hour = 0;
+  if (hour < 10) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour < 22) return 'dinner';
+  return 'snack';
+}
+
 /** Calendar parts for a YYYY-MM-DD date strip chip. */
 export function getMealDateStripParts(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
@@ -288,13 +320,28 @@ export function getMealDateStripParts(dateKey: string) {
 }
 
 /**
- * Label for a date-strip chip: 今天 / 明天 relative to Asia/Shanghai business day,
+ * Label for a date-strip chip: 今天 / 昨天 / 明天 relative to Asia/Shanghai business day,
  * otherwise the short weekday. Never uses array index.
  */
 export function mealDateStripLabel(dateKey: string, instant: Date = new Date()): string {
   const today = createMealBusinessDate(instant);
+  const yesterday = addDateKeyDays(today, -1);
   const tomorrow = addDateKeyDays(today, 1);
   if (dateKey === today) return '今天';
+  if (dateKey === yesterday) return '昨天';
   if (dateKey === tomorrow) return '明天';
   return getMealDateStripParts(dateKey).weekday;
+}
+
+/** Candidate resolution lifecycle for ordinary record surfaces. */
+export type MealCandidateResolution =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
+
+export function canSubmitWithCandidateResolution(
+  resolution: MealCandidateResolution | undefined,
+): boolean {
+  return resolution?.status === 'ready';
 }

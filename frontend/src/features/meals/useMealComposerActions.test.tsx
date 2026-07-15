@@ -317,4 +317,90 @@ describe('useMealComposerActions', () => {
 
     expect(invalidateAfterRecord).toHaveBeenCalledWith({ createdFood: true });
   });
+
+  it('blocks submit while candidates are loading or errored', async () => {
+    const recordMeal = vi.fn(async () => recordResponse());
+    const { result } = renderHook(() => {
+      const state = useMealComposerState({
+        mode: 'full',
+        now,
+        createRequestId: () => 'req-gate',
+      });
+      const actions = useMealComposerActions({
+        state,
+        candidates: [],
+        candidateResolution: { status: 'loading' },
+        refetchCandidates: vi.fn(async () => ({ data: [] })),
+        recordMeal,
+        invalidateAfterRecord: vi.fn(async () => undefined),
+        publishRecordResult: vi.fn(),
+      });
+      return { state, actions };
+    });
+
+    act(() => {
+      result.current.state.openComposer();
+      result.current.state.setFoods([
+        { kind: 'existing', food_id: 'food-1', name: '番茄炒蛋', servings: 1 },
+      ]);
+    });
+
+    await act(async () => {
+      await result.current.actions.submitRecord();
+    });
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(result.current.state.error).toMatch(/确认|候选/);
+  });
+
+  it('rotates client request id on idempotency_key_reused', async () => {
+    let seq = 0;
+    const createRequestId = vi.fn(() => `req-${++seq}`);
+    const recordMeal = vi.fn(async () => {
+      throw new ApiError({
+        status: 409,
+        detail: 'idempotency key reused',
+        path: '/api/meal-logs/record',
+        payload: {
+          detail: {
+            code: 'idempotency_key_reused',
+            message: '记录内容已变化，请再试一次',
+          },
+        },
+      });
+    });
+
+    const { result } = renderHook(() => {
+      const state = useMealComposerState({
+        mode: 'full',
+        now,
+        createRequestId,
+      });
+      const actions = useMealComposerActions({
+        state,
+        candidates: [],
+        candidateResolution: { status: 'ready' },
+        refetchCandidates: vi.fn(async () => ({ data: [] })),
+        recordMeal,
+        invalidateAfterRecord: vi.fn(async () => undefined),
+        publishRecordResult: vi.fn(),
+      });
+      return { state, actions };
+    });
+
+    act(() => {
+      result.current.state.openComposer();
+      result.current.state.setFoods([
+        { kind: 'existing', food_id: 'food-1', name: '番茄炒蛋', servings: 1 },
+      ]);
+    });
+    const firstId = result.current.state.recordClientRequestId;
+
+    await act(async () => {
+      await result.current.actions.submitRecord();
+    });
+
+    expect(result.current.state.recordClientRequestId).not.toBe(firstId);
+    expect(result.current.state.error).toMatch(/再试一次/);
+    expect(result.current.state.open).toBe(true);
+  });
 });

@@ -176,4 +176,75 @@ describe('useMealComposerState', () => {
     expect(result.current.requiresTargetReconfirm).toBe(true);
     expect(result.current.error).toBe('这顿饭刚被家人更新，请重新确认');
   });
+
+  it('preserves an explicit user target when candidates re-apply', () => {
+    const { result } = renderHook(() => useMealComposerState({ mode: 'full', now }));
+
+    act(() => {
+      result.current.applyCandidates([candidate('meal-1')]);
+    });
+    expect(result.current.target).toEqual({
+      kind: 'existing',
+      meal_log_id: 'meal-1',
+      expected_row_version: 2,
+    });
+
+    act(() => {
+      result.current.setTarget({ kind: 'new' }, null);
+    });
+    expect(result.current.target).toEqual({ kind: 'new' });
+    expect(result.current.selectedCandidateId).toBeNull();
+
+    act(() => {
+      result.current.applyCandidates([candidate('meal-2', { row_version: 9 })]);
+    });
+    // User choice wins unless forced.
+    expect(result.current.target).toEqual({ kind: 'new' });
+    expect(result.current.selectedCandidateId).toBeNull();
+    expect(result.current.candidateMode).toBe('single');
+
+    act(() => {
+      result.current.applyCandidates([candidate('meal-2', { row_version: 9 })], { force: true });
+    });
+    expect(result.current.target).toEqual({
+      kind: 'existing',
+      meal_log_id: 'meal-2',
+      expected_row_version: 9,
+    });
+  });
+
+  it('marks target touched on setTarget and clears on date/meal change', () => {
+    const { result } = renderHook(() => useMealComposerState({ mode: 'full', now }));
+
+    act(() => {
+      result.current.setTarget(
+        { kind: 'existing', meal_log_id: 'meal-1', expected_row_version: 2 },
+        'meal-1',
+      );
+    });
+    act(() => {
+      result.current.applyCandidates([candidate('meal-other', { row_version: 4 })]);
+    });
+    expect(result.current.target).toEqual({
+      kind: 'existing',
+      meal_log_id: 'meal-1',
+      expected_row_version: 2,
+    });
+
+    act(() => {
+      result.current.setDate('2026-07-14');
+    });
+    expect(result.current.target).toEqual({ kind: 'new' });
+
+    act(() => {
+      result.current.applyCandidates([
+        candidate('meal-new', { date: '2026-07-14', meal_type: 'lunch', row_version: 1 }),
+      ]);
+    });
+    expect(result.current.target).toEqual({
+      kind: 'existing',
+      meal_log_id: 'meal-new',
+      expected_row_version: 1,
+    });
+  });
 });

@@ -3,6 +3,7 @@ import type { MealLogCandidate, MealType, MediaAsset, RecordMealTarget } from '.
 import {
   createMealBusinessDate,
   deriveCandidatePresentation,
+  mealTypeFromBusinessInstant,
   type MealComposerFood,
 } from './MealComposerModel';
 
@@ -29,19 +30,6 @@ function defaultCreateRequestId(): string {
     return crypto.randomUUID();
   }
   return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function mealTypeFromInstant(instant: Date): MealType {
-  const hourParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    hour: 'numeric',
-    hour12: false,
-  }).formatToParts(instant);
-  const hour = Number(hourParts.find((part) => part.type === 'hour')?.value ?? '12');
-  if (hour < 10) return 'breakfast';
-  if (hour < 15) return 'lunch';
-  if (hour < 22) return 'dinner';
-  return 'snack';
 }
 
 function seedFoods(
@@ -82,9 +70,16 @@ export type MealComposerState = {
   setMealType: (mealType: MealType) => void;
   setFoods: (foods: MealComposerFood[] | ((current: MealComposerFood[]) => MealComposerFood[])) => void;
   setTarget: (target: RecordMealTarget, selectedCandidateId?: string | null) => void;
-  applyCandidates: (candidates: MealLogCandidate[]) => void;
+  /**
+   * Apply authoritative candidate defaults.
+   * Does not overwrite a target the user already chose for the current date/meal slot,
+   * unless `force` is true (stale reconfirm / date-meal reset path).
+   */
+  applyCandidates: (candidates: MealLogCandidate[], options?: { force?: boolean }) => void;
   markTargetStaleAndRefresh: (candidates: MealLogCandidate[]) => void;
   clearTargetReconfirm: () => void;
+  /** Rotate client request id after idempotency_key_reused / record_operation_reverted. */
+  rotateClientRequestId: () => void;
   setBusy: (busy: boolean) => void;
   setError: (error: string | null) => void;
 };
@@ -93,7 +88,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
   const createRequestId = args.createRequestId ?? defaultCreateRequestId;
   const now = args.now ?? new Date();
   const initialDate = createMealBusinessDate(now);
-  const initialMealType = args.initialMealType ?? mealTypeFromInstant(now);
+  const initialMealType = args.initialMealType ?? mealTypeFromBusinessInstant(now);
   const initialFoods = seedFoods(args.mode, args.prefilledFood);
 
   const [open, setOpen] = useState(false);
@@ -107,10 +102,12 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requiresTargetReconfirm, setRequiresTargetReconfirm] = useState(false);
+  /** User explicitly chose a target for the current date/mealType slot. */
+  const [targetTouchedByUser, setTargetTouchedByUser] = useState(false);
 
   const resetDraftIdentity = useCallback(() => {
     setDateState(createMealBusinessDate(args.now ?? new Date()));
-    setMealTypeState(args.initialMealType ?? mealTypeFromInstant(args.now ?? new Date()));
+    setMealTypeState(args.initialMealType ?? mealTypeFromBusinessInstant(args.now ?? new Date()));
     setFoodsState(seedFoods(args.mode, args.prefilledFood));
     setTargetState({ kind: 'new' });
     setSelectedCandidateId(null);
@@ -119,6 +116,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
     setBusy(false);
     setError(null);
     setRequiresTargetReconfirm(false);
+    setTargetTouchedByUser(false);
   }, [args.initialMealType, args.mode, args.now, args.prefilledFood, createRequestId]);
 
   const openComposer = useCallback(
@@ -148,6 +146,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
     setSelectedCandidateId(null);
     setCandidateMode('none');
     setRequiresTargetReconfirm(false);
+    setTargetTouchedByUser(false);
     setError(null);
   }, []);
 
@@ -157,6 +156,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
     setSelectedCandidateId(null);
     setCandidateMode('none');
     setRequiresTargetReconfirm(false);
+    setTargetTouchedByUser(false);
     setError(null);
   }, []);
 
@@ -173,18 +173,22 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
       nextSelectedId ?? (nextTarget.kind === 'existing' ? nextTarget.meal_log_id : null),
     );
     setRequiresTargetReconfirm(false);
+    setTargetTouchedByUser(true);
     setError(null);
   }, []);
 
   const applyCandidates = useCallback(
-    (candidates: MealLogCandidate[]) => {
+    (candidates: MealLogCandidate[], options?: { force?: boolean }) => {
       const presentation = deriveCandidatePresentation(candidates, mealType);
       setCandidateMode(presentation.mode);
-      setTargetState(presentation.target);
-      setSelectedCandidateId(presentation.selectedCandidateId);
+      // Never clobber an explicit user choice for this slot unless forced (stale path).
+      if (options?.force || !targetTouchedByUser) {
+        setTargetState(presentation.target);
+        setSelectedCandidateId(presentation.selectedCandidateId);
+      }
       setRequiresTargetReconfirm(false);
     },
-    [mealType],
+    [mealType, targetTouchedByUser],
   );
 
   const markTargetStaleAndRefresh = useCallback(
@@ -193,6 +197,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
       setCandidateMode(presentation.mode);
       setTargetState(presentation.target);
       setSelectedCandidateId(presentation.selectedCandidateId);
+      setTargetTouchedByUser(false);
       setRequiresTargetReconfirm(true);
       setError('这顿饭刚被家人更新，请重新确认');
     },
@@ -202,6 +207,10 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
   const clearTargetReconfirm = useCallback(() => {
     setRequiresTargetReconfirm(false);
   }, []);
+
+  const rotateClientRequestId = useCallback(() => {
+    setRecordClientRequestId(createRequestId());
+  }, [createRequestId]);
 
   return useMemo(
     () => ({
@@ -227,6 +236,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
       applyCandidates,
       markTargetStaleAndRefresh,
       clearTargetReconfirm,
+      rotateClientRequestId,
       setBusy,
       setError,
     }),
@@ -247,6 +257,7 @@ export function useMealComposerState(args: UseMealComposerStateArgs): MealCompos
       openComposer,
       recordClientRequestId,
       requiresTargetReconfirm,
+      rotateClientRequestId,
       selectedCandidateId,
       setDate,
       setFoods,

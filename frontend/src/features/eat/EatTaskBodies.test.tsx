@@ -497,7 +497,9 @@ describe('EatMealCreateTaskBody', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    const submit = await screen.findByRole('button', { name: '记下这餐' });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    await userEvent.click(submit);
     await waitFor(() => expect(completeFoodPlanItem).toHaveBeenCalled());
     expect(completeFoodPlanItem).toHaveBeenCalledWith(
       planItem.id,
@@ -555,7 +557,9 @@ describe('EatMealCreateTaskBody', () => {
     );
 
     expect(screen.queryByRole('checkbox', { name: /同步扣减库存/i })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    const submit = await screen.findByRole('button', { name: '记下这餐' });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    await userEvent.click(submit);
     await waitFor(() => expect(recordMeal).toHaveBeenCalled());
     const payload = (recordMeal.mock.calls[0] as unknown as [Record<string, unknown>])[0];
     expect(payload).toMatchObject({

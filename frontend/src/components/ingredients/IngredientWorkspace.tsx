@@ -57,8 +57,11 @@ import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
   buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
   createMealBusinessDate,
+  createMealRecordDateOptions,
   deriveCandidatePresentation,
+  type MealCandidateResolution,
 } from '../../features/meals/MealComposerModel';
 import {
   extractMealRecordErrorCode,
@@ -143,6 +146,7 @@ type IngredientWorkspaceProps = {
   onRevertRecord?: () => void | Promise<void>;
   onViewRecord?: () => void;
   onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
   isRecordingMeal?: boolean;
   /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
@@ -274,6 +278,8 @@ type FoodQuickRecordState = {
   selectedCandidateId: string | null;
   candidateMode: 'none' | 'single' | 'multi';
   candidates: MealLogCandidate[];
+  candidateResolution: MealCandidateResolution;
+  targetTouchedByUser: boolean;
   clientRequestId: string;
   busy: boolean;
   error: string | null;
@@ -1655,7 +1661,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   const foodStockRecordDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(mealBusinessDate, index)),
+    () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate]
   );
   const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedIngredientWorkspaceState);
@@ -2374,6 +2380,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       selectedCandidateId: null,
       candidateMode: 'none',
       candidates: [],
+      candidateResolution: { status: 'loading' },
+      targetTouchedByUser: false,
       clientRequestId: createClientRequestId(),
       busy: false,
       error: null,
@@ -2455,7 +2463,24 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     let cancelled = false;
     const { date, mealType } = quickRecord;
     const loader = props.loadMealCandidates;
-    if (!loader) return;
+    if (!loader) {
+      setQuickRecord((current) =>
+        current && current.date === date && current.mealType === mealType
+          ? {
+              ...current,
+              candidates: [],
+              candidateMode: 'none',
+              candidateResolution: { status: 'ready' },
+            }
+          : current,
+      );
+      return;
+    }
+    setQuickRecord((current) =>
+      current && current.date === date && current.mealType === mealType
+        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
+        : current,
+    );
     void (async () => {
       try {
         const candidates = await loader(date, mealType);
@@ -2467,20 +2492,27 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             ...current,
             candidates,
             candidateMode: presentation.mode,
-            target: presentation.target,
-            selectedCandidateId: presentation.selectedCandidateId,
+            candidateResolution: { status: 'ready' },
+            ...(current.targetTouchedByUser
+              ? {}
+              : {
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                }),
           };
         });
       } catch (reason) {
         if (cancelled) return;
+        const message =
+          reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : '加载候选失败，请重试';
         setQuickRecord((current) =>
-          current
+          current && current.date === date && current.mealType === mealType
             ? {
                 ...current,
-                error:
-                  reason instanceof Error && reason.message.trim()
-                    ? reason.message
-                    : '加载候选失败，请重试',
+                candidateResolution: { status: 'error', message },
+                error: message,
               }
             : current,
         );
@@ -2497,6 +2529,20 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     if (!props.recordMeal) {
       setQuickRecord((current) =>
         current ? { ...current, error: '记录功能暂不可用，请稍后再试。' } : current,
+      );
+      return;
+    }
+    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                current.candidateResolution.status === 'error'
+                  ? current.candidateResolution.message || '加载候选失败，请重试'
+                  : '正在确认是否有可加入的餐食…',
+            }
+          : current,
       );
       return;
     }
@@ -2558,8 +2604,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                   busy: false,
                   candidates: refreshed,
                   candidateMode: presentation.mode,
+                  candidateResolution: { status: 'ready' },
                   target: presentation.target,
                   selectedCandidateId: presentation.selectedCandidateId,
+                  targetTouchedByUser: false,
                   error: '这顿饭刚被家人更新，请重新确认',
                 }
               : current,
@@ -2568,6 +2616,22 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         } catch {
           // fall through
         }
+      }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                busy: false,
+                clientRequestId: createClientRequestId(),
+                error:
+                  code === 'record_operation_reverted'
+                    ? '上次记录已撤销，请再试一次'
+                    : '记录内容已变化，请再试一次',
+              }
+            : current,
+        );
+        return;
       }
       setQuickRecord((current) =>
         current
@@ -3014,6 +3078,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         onRevert={props.onRevertRecord}
         onView={props.onViewRecord}
         onRate={props.onRateRecord}
+        onDismiss={props.onDismissRecord}
       />
 
       {quickRecord ? (
@@ -3032,7 +3097,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isRecordingMeal)}
+          busy={
+            quickRecord.busy ||
+            Boolean(props.isRecordingMeal) ||
+            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
+          }
           error={quickRecord.error}
           overlayRootClassName="ingredient-workspace-overlay-root"
           onClose={() => {
@@ -3048,6 +3117,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -3063,6 +3134,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -3077,6 +3150,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     selectedCandidateId:
                       selectedCandidateId ??
                       (target.kind === 'existing' ? target.meal_log_id : null),
+                    targetTouchedByUser: true,
                     error: null,
                   }
                 : current,

@@ -45,15 +45,17 @@ import {
   getSecondaryFoodActionLabel,
   buildFoodRelationViewModel,
 } from '../../components/foods/FoodWorkspaceHelpers';
-import { addDateKeyDays } from '../../lib/date';
 import { FOOD_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type {
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
 import {
   buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
   createMealBusinessDate,
+  createMealRecordDateOptions,
   deriveCandidatePresentation,
+  type MealCandidateResolution,
 } from '../meals/MealComposerModel';
 import {
   extractMealRecordErrorCode,
@@ -130,6 +132,7 @@ export type HomeDashboardProps = {
   onRevertRecord?: () => void | Promise<void>;
   onViewRecord?: () => void;
   onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   onNavigate: (target: AppNavigationTarget) => void;
   onOpenGlobalSearch: () => void;
@@ -187,6 +190,8 @@ type HomeQuickRecordState = {
   selectedCandidateId: string | null;
   candidateMode: 'none' | 'single' | 'multi';
   candidates: MealLogCandidate[];
+  candidateResolution: MealCandidateResolution;
+  targetTouchedByUser: boolean;
   clientRequestId: string;
   busy: boolean;
   error: string | null;
@@ -230,6 +235,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onRevertRecord,
     onViewRecord,
     onRateRecord,
+    onDismissRecord,
     createFoodPlanItem,
     onNavigate,
     onOpenGlobalSearch,
@@ -277,7 +283,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
   const mealBusinessDate = businessDateKey || createMealBusinessDate();
   const quickMealDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(mealBusinessDate, index)),
+    () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate],
   );
 
@@ -319,6 +325,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
       selectedCandidateId: null,
       candidateMode: 'none',
       candidates: [],
+      candidateResolution: { status: 'loading' },
+      targetTouchedByUser: false,
       clientRequestId: createClientRequestId(),
       busy: false,
       error: null,
@@ -369,7 +377,24 @@ export function HomeDashboard(props: HomeDashboardProps) {
     let cancelled = false;
     const { date, mealType } = quickRecord;
     const loader = loadMealCandidates;
-    if (!loader) return;
+    if (!loader) {
+      setQuickRecord((current) =>
+        current && current.date === date && current.mealType === mealType
+          ? {
+              ...current,
+              candidates: [],
+              candidateMode: 'none',
+              candidateResolution: { status: 'ready' },
+            }
+          : current,
+      );
+      return;
+    }
+    setQuickRecord((current) =>
+      current && current.date === date && current.mealType === mealType
+        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
+        : current,
+    );
     void (async () => {
       try {
         const candidates = await loader(date, mealType);
@@ -381,19 +406,27 @@ export function HomeDashboard(props: HomeDashboardProps) {
             ...current,
             candidates,
             candidateMode: presentation.mode,
-            target: presentation.target,
-            selectedCandidateId: presentation.selectedCandidateId,
+            candidateResolution: { status: 'ready' },
+            ...(current.targetTouchedByUser
+              ? {}
+              : {
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                }),
           };
         });
       } catch (reason) {
         if (cancelled) return;
+        const message =
+          reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : '加载候选失败，请重试';
         setQuickRecord((current) =>
-          current
+          current && current.date === date && current.mealType === mealType
             ? {
                 ...current,
-                error: reason instanceof Error && reason.message.trim()
-                  ? reason.message
-                  : '加载候选失败，请重试',
+                candidateResolution: { status: 'error', message },
+                error: message,
               }
             : current,
         );
@@ -408,6 +441,20 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
   async function submitCompactRecord() {
     if (!quickRecord || quickRecord.busy) return;
+    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                current.candidateResolution.status === 'error'
+                  ? current.candidateResolution.message || '加载候选失败，请重试'
+                  : '正在确认是否有可加入的餐食…',
+            }
+          : current,
+      );
+      return;
+    }
     const cover = getFoodCoverAsset(quickRecord.food, recipes) ?? null;
     let payload: RecordMealPayload;
     try {
@@ -458,8 +505,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   busy: false,
                   candidates: refreshed,
                   candidateMode: presentation.mode,
+                  candidateResolution: { status: 'ready' },
                   target: presentation.target,
                   selectedCandidateId: presentation.selectedCandidateId,
+                  targetTouchedByUser: false,
                   error: '这顿饭刚被家人更新，请重新确认',
                 }
               : current,
@@ -468,6 +517,22 @@ export function HomeDashboard(props: HomeDashboardProps) {
         } catch {
           // fall through to generic message
         }
+      }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                busy: false,
+                clientRequestId: createClientRequestId(),
+                error:
+                  code === 'record_operation_reverted'
+                    ? '上次记录已撤销，请再试一次'
+                    : '记录内容已变化，请再试一次',
+              }
+            : current,
+        );
+        return;
       }
       setQuickRecord((current) =>
         current
@@ -550,6 +615,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         onRevert={onRevertRecord}
         onView={onViewRecord}
         onRate={onRateRecord}
+        onDismiss={onDismissRecord}
       />
 
       {quickRecord ? (
@@ -568,7 +634,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={quickRecord.busy || isQuickAdding}
+          busy={
+            quickRecord.busy ||
+            isQuickAdding ||
+            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
+          }
           error={quickRecord.error}
           overlayRootClassName="home-dashboard-overlay-root"
           onClose={() => {
@@ -584,6 +654,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -599,6 +671,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     selectedCandidateId: null,
                     candidateMode: 'none',
                     candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
                     error: null,
                   }
                 : current,
@@ -613,6 +687,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     selectedCandidateId:
                       selectedCandidateId ??
                       (target.kind === 'existing' ? target.meal_log_id : null),
+                    targetTouchedByUser: true,
                     error: null,
                   }
                 : current,
