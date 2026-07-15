@@ -2487,6 +2487,268 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 db.refresh(entry)
                 self.assertEqual(entry.rating, Decimal("4.5"))
 
+        def test_meal_log_update_details_bumps_row_version_once(self) -> None:
+            with self.SessionLocal() as db:
+                food = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert food is not None
+                meal_log = MealLog(
+                    id="meal-log-update-bump",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="原始备注",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                db.add(
+                    MealLogFood(
+                        id="meal-log-update-bump-entry",
+                        meal_log_id=meal_log.id,
+                        food_id=food.id,
+                        servings=Decimal("1"),
+                        note="原始",
+                    )
+                )
+                db.flush()
+                base_version = int(meal_log.row_version)
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                conversation = service._get_or_create_conversation(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    prompt="补充昨晚那顿记录",
+                    quick_task=None,
+                )
+                message = AIMessage(
+                    id="ai-message-meal-log-update-bump",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add(message)
+                db.flush()
+                draft, approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload={
+                        "draft_type": "meal_log",
+                        "payload": {
+                            "draftType": "meal_log",
+                            "schemaVersion": "meal_log_operation.v1",
+                            "action": "update_details",
+                            "targetId": meal_log.id,
+                            "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                            "payload": {
+                                "participantUserIds": [self.user.id],
+                                "notes": "补充后的备注",
+                                "mood": "满足",
+                                "mediaIds": [],
+                            },
+                        },
+                    },
+                )
+                service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    approval_id=approval.id,
+                    decision="approved",
+                    draft_version=draft.version,
+                    values=approval.initial_values,
+                )
+                db.refresh(meal_log)
+                self.assertEqual(meal_log.notes, "补充后的备注")
+                self.assertEqual(int(meal_log.row_version), base_version + 1)
+
+        def test_meal_log_rate_food_bumps_row_version_once(self) -> None:
+            with self.SessionLocal() as db:
+                food = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert food is not None
+                meal_log = MealLog(
+                    id="meal-log-rate-bump",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                entry = MealLogFood(
+                    id="meal-log-rate-bump-entry",
+                    meal_log_id=meal_log.id,
+                    food_id=food.id,
+                    servings=Decimal("1"),
+                    note="",
+                    rating=None,
+                )
+                db.add(entry)
+                db.flush()
+                base_version = int(meal_log.row_version)
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                conversation = service._get_or_create_conversation(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    prompt="给这顿饭打分",
+                    quick_task=None,
+                )
+                message = AIMessage(
+                    id="ai-message-meal-log-rate-bump",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add(message)
+                db.flush()
+                draft, approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload={
+                        "draft_type": "meal_log",
+                        "payload": {
+                            "draftType": "meal_log",
+                            "schemaVersion": "meal_log_operation.v1",
+                            "action": "rate_food",
+                            "targetId": meal_log.id,
+                            "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                            "payload": {
+                                "foodEntryRatings": [{"id": entry.id, "rating": 4.5}],
+                            },
+                        },
+                    },
+                )
+                service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    approval_id=approval.id,
+                    decision="approved",
+                    draft_version=draft.version,
+                    values=approval.initial_values,
+                )
+                db.refresh(meal_log)
+                db.refresh(entry)
+                self.assertEqual(entry.rating, Decimal("4.5"))
+                self.assertEqual(int(meal_log.row_version), base_version + 1)
+
+        def test_meal_log_update_details_locks_foods_before_meal_log(self) -> None:
+            from app.services import meal_log_versions as versions
+            from app.services.ai_operations import meal_logs as meal_log_ops
+
+            lock_calls: list[str] = []
+            original_inventory_lock = versions.lock_inventory_targets
+            original_scalar = Session.scalar
+
+            def tracking_inventory_lock(*args, **kwargs):
+                lock_calls.append("food")
+                return original_inventory_lock(*args, **kwargs)
+
+            def tracking_scalar(self, statement, *args, **kwargs):
+                compiled = str(statement)
+                if "FOR UPDATE" in compiled.upper() and "meal_logs" in compiled.lower():
+                    lock_calls.append("meal_log")
+                return original_scalar(self, statement, *args, **kwargs)
+
+            with self.SessionLocal() as db:
+                food = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert food is not None
+                meal_log = MealLog(
+                    id="meal-log-update-lock-order",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="原始备注",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                db.add(
+                    MealLogFood(
+                        id="meal-log-update-lock-entry",
+                        meal_log_id=meal_log.id,
+                        food_id=food.id,
+                        servings=Decimal("1"),
+                        note="原始",
+                    )
+                )
+                db.flush()
+                with patch.object(versions, "lock_inventory_targets", side_effect=tracking_inventory_lock):
+                    with patch.object(Session, "scalar", tracking_scalar):
+                        meal_log_ops.execute_meal_log_draft(
+                            db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            payload={
+                                "action": "update_details",
+                                "targetId": meal_log.id,
+                                "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                                "payload": {
+                                    "participantUserIds": [self.user.id],
+                                    "notes": "锁序验证",
+                                    "mood": "",
+                                    "mediaIds": [],
+                                },
+                            },
+                            assert_updated_at_matches=lambda **_kwargs: None,
+                        )
+            self.assertEqual(lock_calls, ["food", "meal_log"])
+
+        def test_meal_log_create_does_not_create_record_operation(self) -> None:
+            with self.SessionLocal() as db:
+                food = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert food is not None
+                from app.services.ai_operations.meal_logs import execute_meal_log_draft
+                from app.models.domain import MealLogRecordOperation
+
+                result, entity_ids = execute_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "action": "create",
+                        "payload": {
+                            "date": date.today().isoformat(),
+                            "mealType": MealType.DINNER.value,
+                            "foods": [{"foodId": food.id, "name": food.name, "servings": 1}],
+                            "participantUserIds": [self.user.id],
+                            "notes": "AI create",
+                            "mood": "",
+                            "mediaIds": [],
+                        },
+                    },
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+                db.commit()
+                self.assertEqual(len(entity_ids), 1)
+                self.assertEqual(result["notes"], "AI create")
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(MealLogRecordOperation)),
+                    0,
+                )
+
         def test_food_profile_update_operation_updates_existing_food(self) -> None:
             with self.SessionLocal() as db:
                 food = Food(

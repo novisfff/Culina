@@ -1032,5 +1032,53 @@ class MealLogReferencesTestCase(unittest.TestCase):
             self.assertEqual(lock_calls, ["food", "meal_log"])
 
 
+    def test_complete_food_plan_item_lock_order_foods_before_meal_log_before_plan(self) -> None:
+        from unittest.mock import patch
+        from app.services.food_plan_completion import CompleteFoodPlanItemCommand, complete_food_plan_item
+        from app.services.inventory_operation_locking import lock_inventory_targets as real_inventory_lock
+
+        target = self._create_seeded_meal()
+        plan = self._create_plan_item(food_id=self.food.id, plan_date=date.fromisoformat(target["date"]))
+        lock_calls: list[str] = []
+        original_scalar = Session.scalar
+
+        def tracking_inventory_lock(*args, **kwargs):
+            lock_calls.append("food")
+            return real_inventory_lock(*args, **kwargs)
+
+        def tracking_scalar(self, statement, *args, **kwargs):
+            compiled = str(statement)
+            upper = compiled.upper()
+            if "FOR UPDATE" in upper and "meal_logs" in compiled.lower():
+                lock_calls.append("meal_log")
+            if "FOR UPDATE" in upper and "food_plan_items" in compiled.lower():
+                lock_calls.append("plan")
+            return original_scalar(self, statement, *args, **kwargs)
+
+        with self.SessionLocal() as db:
+            item = db.get(FoodPlanItem, plan.id)
+            assert item is not None
+            with patch("app.services.food_plan_completion.lock_inventory_targets", side_effect=tracking_inventory_lock):
+                with patch.object(Session, "scalar", tracking_scalar):
+                    complete_food_plan_item(
+                        db,
+                        CompleteFoodPlanItemCommand(
+                            family_id=self.family.id,
+                            actor_user_id=self.user.id,
+                            item_id=plan.id,
+                            food_plan_item_base_updated_at=item.updated_at,
+                            target_meal_log_id=target["id"],
+                            expected_meal_log_row_version=target["row_version"],
+                        ),
+                    )
+                    db.commit()
+        # First food lock is plan/entry discovery; MealLog path may re-lock foods before meal_log then plan.
+        self.assertIn("food", lock_calls)
+        self.assertIn("meal_log", lock_calls)
+        self.assertIn("plan", lock_calls)
+        self.assertLess(lock_calls.index("food"), lock_calls.index("meal_log"))
+        self.assertLess(lock_calls.index("meal_log"), lock_calls.index("plan"))
+
+
 if __name__ == "__main__":
     unittest.main()

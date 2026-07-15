@@ -20,6 +20,8 @@ MEAL_LOG_TARGETS_CHANGED_CODE = "meal_log_targets_changed"
 MEAL_LOG_TARGETS_CHANGED_MESSAGE = "这顿饭的菜品组合刚被更新，请刷新后重试"
 MEAL_LOG_NOT_FOUND_CODE = "meal_log_not_found"
 MEAL_LOG_NOT_FOUND_MESSAGE = "餐食记录不存在或已被删除"
+MEAL_LOG_DATE_MISMATCH_CODE = "meal_log_date_mismatch"
+MEAL_LOG_DATE_MISMATCH_MESSAGE = "目标餐食的日期或餐别不匹配"
 
 
 class MealLogConflictError(ValueError):

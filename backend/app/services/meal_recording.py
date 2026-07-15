@@ -28,6 +28,8 @@ from app.services.clock import today_for_family
 from app.services.meal_log_foods import create_minimal_meal_food
 from app.services.meal_log_references import MealLogReferenceError
 from app.services.meal_log_versions import (
+    MEAL_LOG_DATE_MISMATCH_CODE,
+    MEAL_LOG_DATE_MISMATCH_MESSAGE,
     MealLogConflictError,
     bump_meal_log_collection,
     load_meal_log_for_serialization,
@@ -45,8 +47,6 @@ MEAL_TYPE_LABELS = {
     "snack": "加餐/夜宵",
 }
 
-MEAL_LOG_DATE_MISMATCH_CODE = "meal_log_date_mismatch"
-MEAL_LOG_DATE_MISMATCH_MESSAGE = "目标餐食的日期或餐别不匹配"
 MEAL_LOG_DUPLICATE_FOOD_CODE = "duplicate_meal_log_food"
 MEAL_LOG_DUPLICATE_FOOD_MESSAGE = "同一食物不能重复加入一餐"
 MEAL_LOG_FOOD_NOT_FOUND_CODE = "meal_log_food_not_found"

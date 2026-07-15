@@ -15,6 +15,7 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
+    CompleteFoodPlanItemRequest,
     CreateFoodPlanItemRequest,
     CreateFoodSceneRequest,
     FoodPlanItemOut,
@@ -23,7 +24,9 @@ from app.schemas.recipes import (
     UpdateFoodPlanItemRequest,
     UpdateFoodSceneRequest,
 )
+from app.schemas.meal_logs import MealLogOut
 from app.services.activity import ActivityHighlight, log_activity
+from app.services.food_plan_completion import CompleteFoodPlanItemCommand, complete_food_plan_item
 from app.services.food_plan_locking import (
     FoodPlanConflict,
     FoodPlanWriteIntent,
@@ -31,6 +34,7 @@ from app.services.food_plan_locking import (
     food_plan_conflict_detail,
     lock_food_plan_write_intents,
 )
+from app.services.meal_log_versions import MealLogConflictError, build_meal_log_conflict_detail
 from app.services.media import replace_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
@@ -96,10 +100,28 @@ def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
         "food_plan_targets_changed",
         "food_plan_item_already_completed",
         "food_plan_food_mismatch",
+        "food_plan_item_not_planned",
     }:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
 
+
+def _raise_meal_log_conflict(
+    db: Session,
+    *,
+    family_id: str,
+    meal_log_id: str | None,
+    exc: MealLogConflictError,
+) -> None:
+    detail = build_meal_log_conflict_detail(
+        db,
+        family_id=family_id,
+        meal_log_id=meal_log_id or "",
+        code=exc.code,
+        recovery_hint=exc.recovery_hint,
+        message=exc.message,
+    )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
 
 def _lock_single_food_plan_intent(
     db: Session,
@@ -505,6 +527,39 @@ def create_food_plan_item(
     db.refresh(item)
     item.food = food
     return serialize_food_plan_item(item)
+
+
+@router.post("/api/food-plan/{item_id}/complete", response_model=MealLogOut)
+def complete_food_plan_item_route(
+    item_id: str,
+    payload: CompleteFoodPlanItemRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    command = CompleteFoodPlanItemCommand(
+        family_id=membership.family_id,
+        actor_user_id=user.id,
+        item_id=item_id,
+        food_plan_item_base_updated_at=payload.food_plan_item_base_updated_at,
+        target_meal_log_id=payload.target_meal_log_id,
+        expected_meal_log_row_version=payload.expected_meal_log_row_version,
+    )
+    try:
+        result = complete_food_plan_item(db, command)
+        commit_session(db)
+    except FoodPlanConflict as exc:
+        db.rollback()
+        _raise_food_plan_conflict(exc)
+    except MealLogConflictError as exc:
+        db.rollback()
+        _raise_meal_log_conflict(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=payload.target_meal_log_id,
+            exc=exc,
+        )
+    return result
 
 
 @router.patch("/api/food-plan/{item_id}", response_model=FoodPlanItemOut)

@@ -48,6 +48,7 @@ from app.schemas.media import (
     UploadMediaResponse,
 )
 from app.schemas.recipes import (
+    CompleteFoodPlanItemRequest,
     CookRecipeConsumedItemOut,
     CookRecipePreviewBatchOut,
     CookRecipePreviewItemOut,

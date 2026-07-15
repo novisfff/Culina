@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.ai.errors import AIConflictError
-from app.core.enums import ActivityAction
-from app.core.utils import create_id, utcnow
+from app.core.enums import ActivityAction, MealType
+from app.core.utils import utcnow
 from app.models.domain import MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn
@@ -18,11 +18,38 @@ from app.services.activity import log_activity
 from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
 from app.services.meal_log_references import MealLogReferenceError, lock_and_validate_meal_log_references
+from app.services.meal_log_versions import (
+    MealLogConflictError,
+    bump_meal_log_collection,
+    lock_meal_log_write_targets,
+)
+from app.services.meal_log_writes import MealEntryWrite, create_meal_log_with_entries
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+
+
+def _serialize_meal_log(db: Session, *, family_id: str, meal_log_id: str) -> dict[str, Any]:
+    refreshed = db.scalar(
+        select(MealLog)
+        .where(MealLog.id == meal_log_id)
+        .options(
+            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+            selectinload(MealLog.deduction_suggestions),
+        )
+    )
+    assert refreshed is not None
+    media_map = build_media_map(
+        get_media_assets_for_entities(
+            db,
+            family_id=family_id,
+            entity_type="meal_log",
+            entity_ids=[refreshed.id],
+        )
+    )
+    return serialize_meal_log(refreshed, media_map)
 
 
 def execute_meal_log_draft(
@@ -35,15 +62,28 @@ def execute_meal_log_draft(
 ) -> tuple[dict[str, Any], list[str]]:
     action = str(payload.get("action") or "")
     if action in {"update_details", "rate_food"}:
-        meal_log = db.scalar(
-            select(MealLog)
-            .where(MealLog.family_id == family_id, MealLog.id == str(payload.get("targetId")))
-            .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food), selectinload(MealLog.deduction_suggestions))
-            .with_for_update()
-        )
-        if meal_log is None:
+        meal_log_id = str(payload.get("targetId") or "")
+        if not meal_log_id:
             raise AIConflictError("餐食记录不存在或已被删除")
-        assert_updated_at_matches(actual=meal_log.updated_at, expected=str(payload.get("baseUpdatedAt")), label="餐食记录")
+        try:
+            # Task 2 order: discover entry Foods unlocked → sorted Food locks → MealLog lock → revalidate.
+            locked = lock_meal_log_write_targets(
+                db,
+                family_id=family_id,
+                meal_log_id=meal_log_id,
+            )
+        except MealLogConflictError as exc:
+            if exc.code == "meal_log_not_found":
+                raise AIConflictError("餐食记录不存在或已被删除") from exc
+            raise AIConflictError(exc.message) from exc
+
+        meal_log = locked.meal_log
+        # Keep baseUpdatedAt compatibility for old drafts after locks/revalidation.
+        assert_updated_at_matches(
+            actual=meal_log.updated_at,
+            expected=str(payload.get("baseUpdatedAt")),
+            label="餐食记录",
+        )
         if action == "update_details":
             draft = payload.get("payload") or {}
             participant_user_ids = draft.get("participantUserIds")
@@ -61,13 +101,13 @@ def execute_meal_log_draft(
                         if participant_user_ids is not None
                         else meal_log.participant_user_ids
                     ),
+                    prelocked_foods=locked.foods_by_id,
                 )
             except MealLogReferenceError as exc:
                 raise ValueError(exc.message) from exc
             meal_log.participant_user_ids = list(references.participant_user_ids)
             meal_log.notes = notes or ""
             meal_log.mood = mood or ""
-            meal_log.updated_by = user_id
             replace_media_assets(
                 db,
                 family_id=family_id,
@@ -96,6 +136,7 @@ def execute_meal_log_draft(
                     actor_user_id=user_id,
                     food_ids=[entry.food_id for entry in meal_log.food_entries],
                     participant_user_ids=[user_id],
+                    prelocked_foods=locked.foods_by_id,
                 )
             except MealLogReferenceError as exc:
                 raise ValueError(exc.message) from exc
@@ -105,7 +146,6 @@ def execute_meal_log_draft(
                 if entry is None:
                     raise ValueError("评分草稿引用了不属于该餐食记录的食物项")
                 entry.rating = Decimal(str(item.rating)) if item.rating is not None else None
-            meal_log.updated_by = user_id
             log_activity(
                 db,
                 family_id=family_id,
@@ -115,15 +155,9 @@ def execute_meal_log_draft(
                 entity_id=meal_log.id,
                 summary="AI 更新餐食记录评分",
             )
+        bump_meal_log_collection(meal_log, user_id=user_id)
         db.flush()
-        refreshed = db.scalar(
-            select(MealLog)
-            .where(MealLog.id == meal_log.id)
-            .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food), selectinload(MealLog.deduction_suggestions))
-        )
-        assert refreshed is not None
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="meal_log", entity_ids=[refreshed.id]))
-        return serialize_meal_log(refreshed, media_map), [refreshed.id]
+        return _serialize_meal_log(db, family_id=family_id, meal_log_id=meal_log.id), [meal_log.id]
 
     effective_payload = payload.get("payload") if action == "create" and isinstance(payload.get("payload"), dict) else payload
     effective_foods = [item for item in effective_payload.get("foods") or [] if isinstance(item, dict)]
@@ -160,7 +194,12 @@ def execute_meal_log_draft(
             "date": effective_payload["date"],
             "meal_type": effective_payload["mealType"],
             "food_entries": [
-                {"food_id": food.id, "servings": item.get("servings") or 1, "note": item.get("note") or "", "rating": item.get("rating")}
+                {
+                    "food_id": food.id,
+                    "servings": item.get("servings") or 1,
+                    "note": item.get("note") or "",
+                    "rating": item.get("rating"),
+                }
                 for food, item in food_entries
             ],
             "participant_user_ids": list(references.participant_user_ids),
@@ -169,31 +208,26 @@ def execute_meal_log_draft(
             "media_ids": effective_payload.get("mediaIds") or [],
         }
     )
-    meal_log = MealLog(
-        id=create_id("meal"),
+    meal_type = request.meal_type if isinstance(request.meal_type, MealType) else MealType(request.meal_type)
+    meal_log, _ = create_meal_log_with_entries(
+        db,
         family_id=family_id,
+        user_id=user_id,
         date=request.date,
-        meal_type=request.meal_type,
-        participant_user_ids=list(references.participant_user_ids),
-        notes=request.notes,
-        mood=request.mood,
-        created_by=user_id,
-        updated_by=user_id,
-    )
-    db.add(meal_log)
-    db.flush()
-    for entry_payload in request.food_entries:
-        db.add(
-            MealLogFood(
-                id=create_id("meal-food"),
-                meal_log_id=meal_log.id,
+        meal_type=meal_type,
+        entries=[
+            MealEntryWrite(
                 food_id=entry_payload.food_id,
                 servings=Decimal(str(entry_payload.servings)),
                 note=entry_payload.note,
                 rating=Decimal(str(entry_payload.rating)) if entry_payload.rating is not None else None,
             )
-        )
-    db.flush()
+            for entry_payload in request.food_entries
+        ],
+        participant_user_ids=list(references.participant_user_ids),
+        notes=request.notes,
+        mood=request.mood,
+    )
     for food, item in food_entries:
         if item.get("deductStock") is not True:
             continue
@@ -258,7 +292,4 @@ def execute_meal_log_draft(
         entity_id=meal_log.id,
         summary="AI 创建餐食记录",
     )
-    meal_log = db.scalar(select(MealLog).where(MealLog.id == meal_log.id).options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food)))
-    assert meal_log is not None
-    media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
-    return serialize_meal_log(meal_log, media_map), [meal_log.id]
+    return _serialize_meal_log(db, family_id=family_id, meal_log_id=meal_log.id), [meal_log.id]

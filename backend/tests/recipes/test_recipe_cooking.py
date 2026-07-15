@@ -8,7 +8,16 @@ from sqlalchemy.exc import IntegrityError
 from ._support import *
 
 from app.core.enums import ActivityHighlightKind, FoodType, MembershipStatus, UserRole
-from app.models.domain import ActivityLog, Food, FoodPlanItem, Membership, Recipe, User
+from app.models.domain import (
+    ActivityLog,
+    Food,
+    FoodPlanItem,
+    MealLog,
+    MealLogRecordOperation,
+    Membership,
+    Recipe,
+    User,
+)
 from app.schemas.recipes import CookRecipeResponse
 from app.services.recipe_cook_completion import (
     CompletionConflict,
@@ -1869,3 +1878,281 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(second_body["meal_log_id"], first_body["meal_log_id"])
             self.assertEqual(second_body["cook_log_id"], first_body["cook_log_id"])
             self.assertIs(second_body["replayed"], True)
+
+        def test_completion_hash_includes_target_meal_log_fields(self) -> None:
+            base = _make_completion_command()
+            with_target = replace(
+                base,
+                target_meal_log_id="meal-target-1",
+                expected_meal_log_row_version=2,
+            )
+            self.assertNotEqual(hash_completion_command(base), hash_completion_command(with_target))
+            self.assertEqual(
+                hash_completion_command(with_target),
+                hash_completion_command(
+                    replace(
+                        base,
+                        target_meal_log_id="meal-target-1",
+                        expected_meal_log_row_version=2,
+                    )
+                ),
+            )
+            from app.services.recipe_cook_completion import canonicalize_completion_command
+
+            canonical = canonicalize_completion_command(with_target)
+            self.assertEqual(canonical["target_meal_log_id"], "meal-target-1")
+            self.assertEqual(canonical["expected_meal_log_row_version"], 2)
+
+        def test_recipe_cook_appends_to_explicit_target_and_replay_does_not_append_twice(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True, title="目标餐追加")
+            recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
+            target_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food_id, "servings": 1, "note": "先有的菜"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "已有晚餐",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(target_response.status_code, 201, target_response.text)
+            target = target_response.json()
+            self.assertEqual(target["row_version"], 1)
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-target-append",
+                egg_id="inventory-egg-target-append",
+                tomato_qty="4",
+                egg_qty="6",
+            )
+            payload = self._rest_cook_payload(
+                completion_request_id="cook-target-1",
+                target_meal_log_id=target["id"],
+                expected_meal_log_row_version=1,
+            )
+            first = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+            second = self.client.post(f"/api/recipes/{recipe_id}/cook", json=payload)
+            self.assertEqual(first.status_code, 200, first.text)
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertIs(second.json()["replayed"], True)
+            self.assertEqual(first.json()["meal_log_id"], target["id"])
+            self.assertEqual(second.json()["meal_log_id"], target["id"])
+            with self.SessionLocal() as db:
+                meal = db.get(MealLog, target["id"])
+                assert meal is not None
+                self.assertEqual(len(meal.food_entries), 2)
+                self.assertEqual(meal.row_version, 2)
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(MealLogRecordOperation)),
+                    0,
+                )
+
+        def test_recipe_cook_without_target_still_creates_new_meal_log(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False, title="无目标新建")
+            recipe_id = recipe["id"]
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-no-target",
+                egg_id="inventory-egg-no-target",
+            )
+            response = self.client.post(
+                f"/api/recipes/{recipe_id}/cook",
+                json=self._rest_cook_payload(completion_request_id="cook-no-target"),
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            body = response.json()
+            self.assertTrue(body["meal_log_id"])
+            with self.SessionLocal() as db:
+                meal = db.get(MealLog, body["meal_log_id"])
+                assert meal is not None
+                self.assertEqual(len(meal.food_entries), 1)
+                self.assertEqual(meal.row_version, 1)
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(MealLogRecordOperation)),
+                    0,
+                )
+
+        def test_complete_food_plan_item_creates_new_meal_and_replays_without_second_write(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "凉拌黄瓜",
+                    "type": "readyMade",
+                    "category": "凉菜",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food_id = food_response.json()["id"]
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan = plan_response.json()
+            first = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={"food_plan_item_base_updated_at": plan["updated_at"]},
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            meal_id = first.json()["id"]
+            second = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={"food_plan_item_base_updated_at": plan["updated_at"]},
+            )
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual(second.json()["id"], meal_id)
+            with self.SessionLocal() as db:
+                self.assertEqual(db.scalar(select(func.count()).select_from(MealLog)), 1)
+                plan_item = db.get(FoodPlanItem, plan["id"])
+                assert plan_item is not None
+                self.assertEqual(plan_item.status, "cooked")
+                self.assertEqual(plan_item.meal_log_id, meal_id)
+                self.assertEqual(
+                    db.scalar(select(func.count()).select_from(MealLogRecordOperation)),
+                    0,
+                )
+
+        def test_complete_food_plan_item_appends_to_explicit_target(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "拍黄瓜",
+                    "type": "readyMade",
+                    "category": "凉菜",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food_id = food_response.json()["id"]
+            target_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food_id, "servings": 1, "note": "先记"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(target_response.status_code, 201, target_response.text)
+            target = target_response.json()
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan = plan_response.json()
+            response = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={
+                    "food_plan_item_base_updated_at": plan["updated_at"],
+                    "target_meal_log_id": target["id"],
+                    "expected_meal_log_row_version": target["row_version"],
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["id"], target["id"])
+            self.assertEqual(response.json()["row_version"], target["row_version"] + 1)
+            with self.SessionLocal() as db:
+                meal = db.get(MealLog, target["id"])
+                assert meal is not None
+                self.assertEqual(len(meal.food_entries), 2)
+
+        def test_complete_food_plan_item_different_target_after_completion_is_409(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "凉拌木耳",
+                    "type": "readyMade",
+                    "category": "凉菜",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food_id = food_response.json()["id"]
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan = plan_response.json()
+            first = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={"food_plan_item_base_updated_at": plan["updated_at"]},
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            other = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food_id, "servings": 1, "note": "另一顿"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(other.status_code, 201, other.text)
+            second = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={
+                    "food_plan_item_base_updated_at": plan["updated_at"],
+                    "target_meal_log_id": other.json()["id"],
+                    "expected_meal_log_row_version": other.json()["row_version"],
+                },
+            )
+            self.assertEqual(second.status_code, 409, second.text)
+            self.assertEqual(second.json()["detail"]["code"], "food_plan_item_already_completed")
+
+        def test_complete_food_plan_item_date_mismatch_is_409(self) -> None:
+            food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "酸辣土豆丝",
+                    "type": "readyMade",
+                    "category": "热菜",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                },
+            )
+            self.assertEqual(food_response.status_code, 201, food_response.text)
+            food_id = food_response.json()["id"]
+            target_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-15",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food_id, "servings": 1, "note": ""}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(target_response.status_code, 201, target_response.text)
+            target = target_response.json()
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner", "note": ""},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan = plan_response.json()
+            response = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
+                json={
+                    "food_plan_item_base_updated_at": plan["updated_at"],
+                    "target_meal_log_id": target["id"],
+                    "expected_meal_log_row_version": target["row_version"],
+                },
+            )
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(response.json()["detail"]["code"], "meal_log_date_mismatch")

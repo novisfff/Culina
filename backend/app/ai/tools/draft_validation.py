@@ -531,8 +531,10 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
     before = _serialize_meal_log_before(meal_log)
     if action == "update_details":
         incoming_payload = payload.get("payload") or {}
+        # AI drafts keep baseUpdatedAt OCC; expected_row_version is only required by the REST update schema.
         normalized = UpdateMealLogRequest.model_validate(
             {
+                "expected_row_version": 1,
                 "participant_user_ids": payload.get("payload", {}).get("participantUserIds") or payload.get("payload", {}).get("participant_user_ids"),
                 "notes": (payload.get("payload") or {}).get("notes"),
                 "mood": (payload.get("payload") or {}).get("mood"),
@@ -566,7 +568,9 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
     entry_ids = {entry.id for entry in meal_log.food_entries}
     normalized_ratings = []
     for item in ratings:
-        record = UpdateMealLogRequest.model_validate({"food_entry_ratings": [item]}).model_dump(mode="json", exclude_none=True)["food_entry_ratings"][0]
+        record = UpdateMealLogRequest.model_validate(
+            {"expected_row_version": 1, "food_entry_ratings": [item]}
+        ).model_dump(mode="json", exclude_none=True)["food_entry_ratings"][0]
         if record["id"] not in entry_ids:
             raise ValueError("评分草稿引用了不属于该餐食记录的食物项")
         normalized_ratings.append({"id": record["id"], "rating": record.get("rating")})
