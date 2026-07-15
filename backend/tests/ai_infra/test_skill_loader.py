@@ -4,18 +4,22 @@ from app.services.ai_operations.registry import draft_operation_registry
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
-def test_ai_assistant_standard_documents_phase3_product_loop_terminals() -> None:
+def test_ai_assistant_standard_documents_cross_skill_product_loops() -> None:
     text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
 
-    assert "## 9. 产品闭环终止条件" in text
+    assert "## 9. 跨 Skill 产品闭环" in text
     for required_text in (
-        "shopping_to_stock.v1",
-        "recipe_shortage_to_shopping.v1",
-        "餐食记录与所选成品库存扣减在同一事务中",
-        "当前消息、当前家庭",
-        "inventory_intake_candidates",
-        "meal_idea_subject.v1",
+        "本规范只定义跨 Skill 的稳定边界",
+        "业务实体必须重新按 `family_id` 读取",
+        "continuation 只恢复能力和紧凑上下文",
         "拒绝、取消或失败不得自动生成下一份草稿",
+        "| 购物完成后入库 |",
+        "| 做菜缺料转购物 |",
+        "| 餐食记录可选扣成品库存 |",
+        "| 当前消息图片绑定 |",
+        "| 冰箱照片或小票入库 |",
+        "| 库存餐食想法 |",
+        "同一 PR 必须同步更新来源与目标 Skill 文档",
     ):
         assert required_text in text
 
