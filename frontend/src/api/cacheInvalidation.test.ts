@@ -5,9 +5,13 @@ import {
   invalidateAfterAiImageJobChanged,
   invalidateAfterFoodChanged,
   invalidateAfterFoodPlanChanged,
+  invalidateAfterFoodPlanCompleted,
   invalidateAfterInventoryChanged,
   invalidateAfterInventoryOperation,
+  invalidateAfterMealCompositionChanged,
   invalidateAfterMealLogChanged,
+  invalidateAfterMealRecorded,
+  invalidateAfterMealRecordReverted,
   invalidateAfterMemberChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterQuickMealAdded,
@@ -24,6 +28,10 @@ function fakeQueryClient() {
 
 function invalidatedKeys(queryClient: ReturnType<typeof fakeQueryClient>) {
   return queryClient.invalidateQueries.mock.calls.map(([args]) => args?.queryKey);
+}
+
+function containsKey(keys: unknown[], expected: unknown) {
+  return keys.some((key) => JSON.stringify(key) === JSON.stringify(expected));
 }
 
 describe('cacheInvalidation', () => {
@@ -60,6 +68,8 @@ describe('cacheInvalidation', () => {
       ['foods'],
       ['food-recommendations'],
       ['meal-logs'],
+      ['meal-logs', 'candidates'],
+      ['meal-logs', 'insights'],
       ['food-plan'],
       ['shopping-list'],
       ['activity-logs'],
@@ -75,6 +85,7 @@ describe('cacheInvalidation', () => {
       ['foods'],
       ['inventory', 'overview'],
       ['food-recommendations'],
+      ['meal-logs', 'insights'],
       ['activity-logs'],
     ]);
 
@@ -83,6 +94,8 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(mealQueryClient)).toEqual([
       ['meal-logs'],
+      ['meal-logs', 'candidates'],
+      ['meal-logs', 'insights'],
       ['food-plan'],
       ['foods'],
       ['inventory', 'overview'],
@@ -159,6 +172,8 @@ describe('cacheInvalidation', () => {
       ['shopping-list'],
       ['food-plan'],
       ['meal-logs'],
+      ['meal-logs', 'candidates'],
+      ['meal-logs', 'insights'],
       ['foods'],
       ['food-recommendations'],
       ['activity-logs'],
@@ -254,5 +269,117 @@ describe('cacheInvalidation', () => {
     expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({
       queryKey: queryKeys.activityHighlights,
     });
+  });
+
+  it('record invalidation excludes inventory and food plan', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterMealRecorded(queryClient, { createdFood: true });
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealRecordOperations(true))).toBe(true);
+    expect(containsKey(keys, queryKeys.foods)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodRecommendations)).toBe(true);
+    expect(containsKey(keys, queryKeys.activityLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.activityHighlights)).toBe(true);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(false);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
+  });
+
+  it('record without created food skips foods invalidation', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterMealRecorded(queryClient, { createdFood: false });
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.foods)).toBe(false);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(false);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
+  });
+
+  it('composition and rating invalidate meal candidates and insights without inventory or plan', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterMealCompositionChanged(queryClient);
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodRecommendations)).toBe(true);
+    expect(containsKey(keys, queryKeys.activityLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.activityHighlights)).toBe(true);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(false);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
+  });
+
+  it('revert with removed food invalidates foods but not inventory or plan', async () => {
+    const withFood = fakeQueryClient();
+    await invalidateAfterMealRecordReverted(withFood, { removedFood: true });
+    const withFoodKeys = invalidatedKeys(withFood);
+
+    expect(containsKey(withFoodKeys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(withFoodKeys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(withFoodKeys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(withFoodKeys, queryKeys.mealRecordOperations(true))).toBe(true);
+    expect(containsKey(withFoodKeys, queryKeys.foods)).toBe(true);
+    expect(containsKey(withFoodKeys, queryKeys.inventory)).toBe(false);
+    expect(containsKey(withFoodKeys, queryKeys.foodPlanRoot)).toBe(false);
+
+    const withoutFood = fakeQueryClient();
+    await invalidateAfterMealRecordReverted(withoutFood, { removedFood: false });
+    const withoutFoodKeys = invalidatedKeys(withoutFood);
+    expect(containsKey(withoutFoodKeys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(withoutFoodKeys, queryKeys.foods)).toBe(false);
+  });
+
+  it('food name or cover changes invalidate meal insights', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterFoodChanged(queryClient);
+    const keys = invalidatedKeys(queryClient);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.foods)).toBe(true);
+  });
+
+  it('recipe cook invalidates candidates and insights plus real domain keys', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterRecipeCooked(queryClient);
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.recipes)).toBe(true);
+  });
+
+  it('plan completion invalidates candidates and insights plus plan domain keys', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterFoodPlanCompleted(queryClient);
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodRecommendations)).toBe(true);
+    expect(containsKey(keys, queryKeys.activityHighlights)).toBe(true);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(false);
+  });
+
+  it('AI approval invalidates meal candidates and insights with real domain keys', async () => {
+    const queryClient = fakeQueryClient();
+    await invalidateAfterAiApprovalSettled(queryClient, 'conversation-1');
+    const keys = invalidatedKeys(queryClient);
+
+    expect(containsKey(keys, queryKeys.mealLogs)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealCandidatesRoot)).toBe(true);
+    expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
+    expect(containsKey(keys, queryKeys.inventory)).toBe(true);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
   });
 });

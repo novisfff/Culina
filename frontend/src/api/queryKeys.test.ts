@@ -59,4 +59,22 @@ describe('queryKeys', () => {
     expect(queryKeys.foodPlanDetail('plan-1')).toEqual(['food-plan', 'detail', 'plan-1']);
     expect(queryKeys.foodPlanDetail('plan-1')[0]).toBe(queryKeys.foodPlanRoot[0]);
   });
+
+  it('centralizes meal candidate, record-operation and insight keys', () => {
+    expect(queryKeys.mealLogs).toEqual(['meal-logs']);
+    expect(queryKeys.mealCandidatesRoot).toEqual(['meal-logs', 'candidates']);
+    expect(queryKeys.mealCandidates('2026-07-15', 'dinner')).toEqual([
+      'meal-logs',
+      'candidates',
+      '2026-07-15',
+      'dinner',
+    ]);
+    expect(queryKeys.mealCandidates('2026-07-15', 'dinner')[0]).toBe(queryKeys.mealCandidatesRoot[0]);
+    expect(queryKeys.mealCandidates('2026-07-15', 'dinner').slice(0, 2)).toEqual(
+      queryKeys.mealCandidatesRoot,
+    );
+    expect(queryKeys.mealRecordOperations(true)).toEqual(['meal-logs', 'record-operations', true]);
+    expect(queryKeys.mealRecordOperations(false)).toEqual(['meal-logs', 'record-operations', false]);
+    expect(queryKeys.mealInsights).toEqual(['meal-logs', 'insights']);
+  });
 });

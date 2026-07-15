@@ -11,10 +11,7 @@ import type {
   UpdateFoodPayload,
   FoodRecommendations,
   FoodScene,
-  MealLog,
   MealType,
-  QuickAddMealLogPayload,
-  UpdateMealLogPayload,
   UpdateFoodPlanItemPayload,
 } from './types';
 
@@ -119,17 +116,6 @@ export const foodsApi = {
     }),
   disposeFoodStock: (foodId: string, payload: FoodStockChangePayload) =>
     request<Food>(`/api/foods/${foodId}/stock/dispose`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  getMealLogs: () => request<MealLog[]>('/api/meal-logs'),
-  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) =>
-    request<MealLog>(`/api/meal-logs/${mealLogId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-  quickAddMealLog: (payload: QuickAddMealLogPayload) =>
-    request<MealLog>('/api/meal-logs/quick-add', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

@@ -146,6 +146,17 @@ export function useAppWorkspaceQueries(args: {
     queryFn: api.getMealLogs,
     enabled: args.isAuthenticated && needsMealLogs,
   });
+  // Shared result bar surfaces: Home, Food (eat), Ingredient, History.
+  // Disabled on AI-only / family settings surfaces so phase-one never polls there.
+  const needsActiveMealRecordOperations =
+    args.navigationState.primaryTab === 'home' ||
+    args.navigationState.primaryTab === 'ingredients' ||
+    args.navigationState.primaryTab === 'eat';
+  const activeMealRecordOperationsQuery = useQuery({
+    queryKey: queryKeys.mealRecordOperations(true),
+    queryFn: () => api.getActiveMealRecordOperations(true),
+    enabled: args.isAuthenticated && needsActiveMealRecordOperations,
+  });
   const activityLogsQuery = useQuery({
     queryKey: queryKeys.activityLogs,
     queryFn: () => api.getActivityLogs(),
@@ -199,6 +210,7 @@ export function useAppWorkspaceQueries(args: {
     foodsQuery,
     foodRecommendationsQuery,
     mealLogsQuery,
+    activeMealRecordOperationsQuery,
     activityLogsQuery,
     activityHighlightsQuery,
     aiConversationsQuery,
@@ -219,6 +231,7 @@ export function useAppWorkspaceQueries(args: {
     foods: foodsQuery.data ?? ([] as Food[]),
     foodRecommendations: foodRecommendationsQuery.data ?? (null as FoodRecommendations | null),
     mealLogs: mealLogsQuery.data ?? ([] as MealLog[]),
+    activeMealRecordOperations: activeMealRecordOperationsQuery.data ?? [],
     aiConversations: aiConversationsQuery.data ?? [],
     family: familyQuery.data,
   };
