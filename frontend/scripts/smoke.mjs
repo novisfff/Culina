@@ -2337,8 +2337,38 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await expectVisible(page.locator('.food-mobile-view'), `${label} 发现`);
   await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
+  // Mobile history uses MealLogMobileView ("吃过的" + day groups / empty), not desktop "家庭时间线".
+  await expectVisible(page.locator('.mobile-log-page'), `${label} 吃过的页面`);
   await expectVisibleText(page, '吃过的', `${label} 吃过的`);
-  await expectVisibleText(page, '家庭时间线', `${label} 吃过的时间线`);
+  await expectVisible(page.locator('#mobile-log-timeline.mobile-log-timeline-list'), `${label} 时间线列表`);
+  await expectVisible(
+    page.locator('.mobile-log-empty, .mobile-log-day-group').first(),
+    `${label} 时间线内容`,
+  );
+  // Empty insights keep the memory strip out of the page (no cards / error chrome).
+  const mealHistoryLayout = await page.evaluate(() => {
+    const memoryCards = document.querySelectorAll('.meal-memory-card');
+    const memoryError = document.querySelector('.meal-memory-error');
+    const pageEl = document.querySelector('.mobile-log-page');
+    const timeline = document.querySelector('#mobile-log-timeline');
+    const empty = document.querySelector('.mobile-log-empty');
+    const dayGroup = document.querySelector('.mobile-log-day-group');
+    return {
+      memoryCardCount: memoryCards.length,
+      hasMemoryError: Boolean(memoryError),
+      pageVisible: Boolean(pageEl && getComputedStyle(pageEl).display !== 'none'),
+      timelineVisible: Boolean(timeline && getComputedStyle(timeline).display !== 'none'),
+      hasEmptyOrDay: Boolean(empty || dayGroup),
+    };
+  });
+  if (mealHistoryLayout.memoryCardCount !== 0 || mealHistoryLayout.hasMemoryError) {
+    throw new Error(
+      `${label} 空家庭记忆仍渲染了区域：cards=${mealHistoryLayout.memoryCardCount} error=${mealHistoryLayout.hasMemoryError}`,
+    );
+  }
+  if (!mealHistoryLayout.pageVisible || !mealHistoryLayout.timelineVisible || !mealHistoryLayout.hasEmptyOrDay) {
+    throw new Error(`${label} 吃过的移动时间线表面不可见`);
+  }
   await expectNoHorizontalOverflow(page, label);
   assertClean();
   await context.close();
