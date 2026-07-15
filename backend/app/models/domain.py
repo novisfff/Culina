@@ -25,6 +25,8 @@ from app.core.enums import (
     InventoryOperationStatus,
     InventoryOperationType,
     InventoryStatus,
+    MealLogRecordStatus,
+    MealLogRecordTargetKind,
     MealType,
     MediaSource,
     MembershipStatus,
@@ -606,6 +608,9 @@ class Food(AuditMixin, Base):
 
 class MealLog(AuditMixin, Base):
     __tablename__ = "meal_logs"
+    __table_args__ = (
+        Index("ix_meal_logs_family_date_type_created", "family_id", "date", "meal_type", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("meal"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -614,6 +619,7 @@ class MealLog(AuditMixin, Base):
     participant_user_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     mood: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     family: Mapped["Family"] = relationship(back_populates="meal_logs")
     food_entries: Mapped[list["MealLogFood"]] = relationship(
@@ -627,9 +633,14 @@ class MealLog(AuditMixin, Base):
         order_by="InventoryDeductionSuggestion.created_at",
     )
 
+    __mapper_args__ = {"version_id_col": row_version}
+
 
 class MealLogFood(Base):
     __tablename__ = "meal_log_foods"
+    __table_args__ = (
+        Index("ix_meal_log_foods_log_food", "meal_log_id", "food_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("meal-food"))
     meal_log_id: Mapped[str] = mapped_column(ForeignKey("meal_logs.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -641,6 +652,40 @@ class MealLogFood(Base):
 
     meal_log: Mapped["MealLog"] = relationship(back_populates="food_entries")
     food: Mapped["Food"] = relationship(back_populates="meal_entries")
+
+
+class MealLogRecordOperation(Base):
+    __tablename__ = "meal_log_record_operations"
+    __table_args__ = (
+        UniqueConstraint("family_id", "client_request_id", name="uq_meal_log_record_operations_family_request"),
+        Index("ix_meal_log_record_operations_family_status_revertible", "family_id", "status", "revertible_until"),
+        Index("ix_meal_log_record_operations_family_actor_applied", "family_id", "created_by", "applied_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("meal-record-op"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    client_request_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[MealLogRecordStatus] = mapped_column(
+        SqlEnum(MealLogRecordStatus, native_enum=False),
+        nullable=False,
+    )
+    target_kind: Mapped[MealLogRecordTargetKind] = mapped_column(
+        SqlEnum(MealLogRecordTargetKind, native_enum=False),
+        nullable=False,
+    )
+    meal_log_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_entry_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_food_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    revert_result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revertible_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class InventoryDeductionSuggestion(Base):
