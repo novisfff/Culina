@@ -1,6 +1,6 @@
 # 前端代码规范
 
-更新时间：2026-06-11
+更新时间：2026-07-15
 
 本文档定义 Culina 前端日常开发的默认约定。前端是移动优先的家庭饮食管理 PWA，代码应服务“快速记录、清晰查看、低维护成本”的家庭使用场景，而不是后台管理系统式体验。
 
@@ -9,6 +9,9 @@
 - 技术栈：React 18、TypeScript、Vite、React Query、Vitest。
 - 前端目录：`frontend/`。
 - 应用入口：`frontend/src/main.tsx`、`frontend/src/App.tsx`。
+- 应用组合层：`frontend/src/app/`。
+- 新业务域：`frontend/src/features/`。
+- 既有业务组件与基础组件：`frontend/src/components/`。
 - API 封装：`frontend/src/api/`。
 - 通用工具：`frontend/src/lib/`、`frontend/src/hooks/`。
 - 样式入口：`frontend/src/styles.css`，业务样式位于 `frontend/src/styles/`。
@@ -35,6 +38,13 @@ npm --prefix frontend run smoke
 - 跨业务通用能力优先复用 `src/lib`、`src/hooks`、`src/api` 中已有封装。
 
 组件应该主要表达界面结构和交互入口，不应同时承担数据请求、缓存失效、复杂状态机和 payload 组装。能写成纯函数的业务逻辑不要绑在 React 组件里。
+
+### 目录归属与渐进迁移
+
+- `src/app/` 只放应用壳、顶层导航、跨工作区 query/mutation 组合和全局交互协调；不要把某个业务域的 model、表单流程或页面细节继续堆进这里。
+- 新增或成规模扩展的业务能力优先放入 `src/features/<domain>/`，在该目录内按 view、state、actions、data/view model、model/options 拆分。
+- `src/components/` 中已有的业务目录可以在原地维护；迁移只在改动已触及且能降低职责复杂度时进行，不为满足目录形式做大规模搬迁。
+- `src/components/ui-kit/` 只放跨业务可复用的基础交互组件。业务域不得以新增根级 `components/<domain>` 作为 `features/` 的替代。
 
 ## 3. 应用与工作区
 
@@ -136,15 +146,19 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 
 - 文档或注释变更不要求跑完整前端测试。
 - model/helper 变更至少跑对应单测。
-- 页面结构、工作区编排或状态流变更至少跑 `test`、`build`。
+- 页面结构、工作区编排、`app/` 组合或状态流变更至少跑 `frontend:quality`、`frontend:build`。
 - 响应式、移动端或导航变更应补跑 `smoke`。
+- 修改 CSS、ui-kit 或样式 token 时运行 `check:style-tokens`；该脚本是报告型检查，发现命中后必须人工判断是否为新增漂移，不能把退出码 0 当作样式验收通过。
+- 修改 AI message part、结果卡片、草稿类型或其他跨端 AI contract 时，补跑 `aiWorkspaceContracts.test.ts`，并按风险运行对应页面测试。
 
 推荐命令：
 
 ```bash
-npm --prefix frontend run test
-npm --prefix frontend run build
-npm --prefix frontend run smoke
+npm run frontend:quality
+npm run frontend:build
+npm run frontend:smoke
+npm --prefix frontend run check:style-tokens
+npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts
 ```
 
 ## 10. Review Checklist
@@ -152,10 +166,12 @@ npm --prefix frontend run smoke
 提交前检查：
 
 - 新代码是否放在对应职责层，而不是顺手写进当前文件？
+- 新业务代码是否进入 `features/<domain>`，而不是继续扩大 `App.tsx` 或新增业务根组件目录？
 - 组件是否主要表达 UI，而不是同时处理请求、缓存、状态机和 payload？
 - 移动端主要页面是否有独立 view/page？
 - 派生数据和业务规则是否可测试？
 - query key 和缓存失效是否集中维护？
 - 图片、日期、资源 URL、localStorage 是否复用已有工具？
 - 新增样式是否有业务前缀，是否避免污染其他页面？
+- 样式 token 报告中的新增命中是否已经人工审阅？
 - 本次变更的验证命令是否匹配风险范围？

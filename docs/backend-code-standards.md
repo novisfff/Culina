@@ -1,6 +1,6 @@
 # 后端代码规范
 
-更新时间：2026-06-17
+更新时间：2026-07-15
 
 本文档定义 Culina 后端日常开发的默认约定。后端是家庭饮食数据、权限、媒体、AI 草稿审批和业务写入的唯一可信边界，所有实现都必须优先保证家庭数据隔离、操作者追踪和可验证的业务规则。
 
@@ -73,6 +73,14 @@ npm run backend:test
 - 出错时必须 rollback，不留下部分写入。
 - 媒体、草稿、库存扣减等带外资源需要考虑失败清理或幂等恢复。
 
+高竞争写入和可重试请求还必须明确并发与重放语义：
+
+- 库存扣减、状态迁移、批量处理、审批确认、导入和任何可能重复提交的写入，必须由 service 定义请求重放行为；不得依赖“前端不会连点”或在异常后静默再次执行。
+- 需要保护当前值的写入，先按 `family_id` 过滤目标，再在 service 中以稳定的全局顺序锁定所有目标行；锁定后重新读取并校验数量、状态、版本和归属。库存与计划相关逻辑优先复用已有 locking service，不在 route 中临时散落 `with_for_update()`。
+- 使用请求 ID 或幂等键时，必须定义同键同语义的结果，以及同键不同 payload 的结构化冲突；两种情况都不能导致第二次正式写入。无法安全重放的操作应返回可识别的冲突并让客户端刷新或重新确认。
+- 锁冲突、过期版本和幂等键复用必须保留机器可读错误码与恢复方向；不要把并发失败吞成成功，也不要自动改写用户原始输入。
+- 上述路径至少覆盖正常提交、同键重放、同键不同 payload、并发/锁冲突或 stale version，以及任一子步骤失败时的整体回滚。
+
 需要操作者追踪的实体必须维护：
 
 - `created_by`
@@ -136,13 +144,16 @@ API 返回结构必须稳定：
 - 数据库模型和 migration 变更：执行 Alembic upgrade，并覆盖关键读写路径。
 - 跨端 contract 变更：同时运行后端相关 pytest 和前端相关 Vitest。
 - 媒体、库存、AI 审批等多步骤流程：补集成式 API 测试。
+- 高竞争或幂等写入：补同键重放、同键不同 payload、锁冲突/stale version 和回滚覆盖；只测单次 happy path 不足以验收。
 
 推荐命令：
 
 ```bash
-npm run backend:test
-backend/.venv/bin/python -m pytest backend/tests/recipes -q
-backend/.venv/bin/python -m pytest backend/tests/ai_infra -q
+npm run backend:quality
+npm run backend:test:service
+npm run backend:test:ai
+npm run backend:test:search
+npm run backend:migrate
 ```
 
 ## 11. Review Checklist
@@ -154,6 +165,8 @@ backend/.venv/bin/python -m pytest backend/tests/ai_infra -q
 - schema、model、serializer、前端类型是否同步？
 - 持久化变更是否有 Alembic migration？
 - 写操作是否维护审计字段和活动日志？
+- 高竞争写入是否在 service 中按稳定顺序锁定并在锁后复核？请求重放、锁冲突和 stale version 是否有明确结果？
 - 是否复用了现有 service/repo，而不是在路由里复制业务逻辑？
 - 是否从根因修复问题，而不是增加后置兜底、静默吞错或症状级补丁？
 - 是否覆盖了权限失败、跨家庭访问、正常写入和关键边界场景？
+- 涉及可重试写入时，是否覆盖同键重放、同键不同 payload 和失败回滚？
