@@ -13,7 +13,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -28,14 +28,18 @@ import type {
   InventoryItem,
   InventoryOverviewItem,
   InventoryStatus,
+  MealLogCandidate,
   MealType,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
   Recipe,
   ShoppingListItem,
   UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { formatDate, todayKey } from '../../lib/ui';
+import { formatDate, getFoodCoverAsset, todayKey } from '../../lib/ui';
 import { addDateKeyDays, businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
@@ -51,6 +55,13 @@ import {
 import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
+import {
+  buildRecordMealPayload,
+  deriveCandidatePresentation,
+} from '../../features/meals/MealComposerModel';
+import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
+import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
+import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import {
   buildIngredientSummaries,
   buildIngredientPriorityActionGroups,
@@ -113,6 +124,21 @@ type IngredientWorkspaceProps = {
   inventoryStates?: IngredientInventoryState[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
+  /** Ordinary Food recording owner (Task 15). */
+  recordMeal?: (payload: import('../../api/types').RecordMealPayload) => Promise<import('../../api/types').RecordMealResponse>;
+  loadMealCandidates?: (
+    date: string,
+    mealType: MealType,
+  ) => Promise<import('../../api/types').MealLogCandidate[]>;
+  onRecordSuccess?: (response: import('../../api/types').RecordMealResponse) => void;
+  recordResult?: import('../../features/meals/useMealRecordResultState').MealRecordResult | null;
+  isRevertingRecord?: boolean;
+  recordRevertError?: string | null;
+  recordRateError?: string | null;
+  onRevertRecord?: () => void | Promise<void>;
+  onViewRecord?: () => void;
+  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  isRecordingMeal?: boolean;
   /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
   openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
@@ -220,13 +246,40 @@ type IngredientWorkspaceProps = {
   isUpdatingShopping?: boolean;
 };
 
-type FoodStockMealDialogState = {
+/** Inventory-only deduct dialog (no meal record). */
+type FoodStockDeductDialogState = {
   item: InventoryOverviewItem;
-  date: string | null;
-  mealType: MealType;
   stockQuantity: string;
   error: string | null;
 };
+
+/** Optional inventory follow-up after a successful ordinary record. */
+type FoodStockInventoryFollowUpState = {
+  item: InventoryOverviewItem;
+  stockQuantity: string;
+  error: string | null;
+};
+
+type FoodQuickRecordState = {
+  food: Food;
+  item: InventoryOverviewItem;
+  date: string;
+  mealType: MealType;
+  target: RecordMealTarget;
+  selectedCandidateId: string | null;
+  candidateMode: 'none' | 'single' | 'multi';
+  candidates: MealLogCandidate[];
+  clientRequestId: string;
+  busy: boolean;
+  error: string | null;
+};
+
+function createClientRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 type FoodStockAdjustDialogState = {
   item: InventoryOverviewItem;
@@ -237,12 +290,6 @@ type FoodStockAdjustDialogState = {
   error: string | null;
 };
 
-const FOOD_STOCK_MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
-  { value: 'breakfast', label: '早餐' },
-  { value: 'lunch', label: '午餐' },
-  { value: 'dinner', label: '晚餐' },
-  { value: 'snack', label: '加餐' },
-];
 const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
 const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
   { value: 7, label: '7天' },
@@ -250,16 +297,6 @@ const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
   { value: 90, label: '90天' },
 ];
 const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
-
-function getFoodStockDateParts(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return {
-    day: String(day || 1),
-    month: String(month || 1),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
-}
 
 function getDefaultFoodStockMealType(hour = new Date().getHours()): MealType {
   if (hour >= 5 && hour < 10) return 'breakfast';
@@ -1611,14 +1648,19 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const queryClient = useQueryClient();
   const todayDate = todayKey();
-  const foodStockDeductDateOptions = useMemo(
+  const foodStockRecordDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
     [todayDate]
   );
   const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedIngredientWorkspaceState);
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
   const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null);
-  const [foodStockMealDialog, setFoodStockMealDialog] = useState<FoodStockMealDialogState | null>(null);
+  // Compact ordinary Food record (Task 15) — independent of inventory.
+  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
+  // Optional inventory follow-up after successful record (separate command).
+  const [inventoryFollowUp, setInventoryFollowUp] = useState<FoodStockInventoryFollowUpState | null>(null);
+  // Inventory-only deduct (no meal).
+  const [foodStockDeductDialog, setFoodStockDeductDialog] = useState<FoodStockDeductDialogState | null>(null);
   const [foodStockAdjustDialog, setFoodStockAdjustDialog] = useState<FoodStockAdjustDialogState | null>(null);
   const [foodStockSubmitting, setFoodStockSubmitting] = useState<'meal' | 'adjust' | null>(null);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
@@ -2293,22 +2335,42 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     });
   }
 
+  /** Primary 减扣: open compact recordMeal. Inventory is a separate optional follow-up. */
   function handleRecordFoodStockMeal(foodId: string) {
     const item = findUnifiedInventoryItemBySourceId(foodId);
-    if (item) {
-      setFoodStockMealDialog({
+    if (!item) {
+      showNotice({
+        tone: 'warning',
+        title: '暂时无法打开减扣流程',
+        message: '这项成品库存还没有加载完成，请稍后再试。',
+      });
+      return;
+    }
+    const food =
+      props.foods.find((entry) => entry.id === foodId) ??
+      readyFoodOptions.find((entry) => entry.id === foodId) ??
+      null;
+    if (!food) {
+      // Inventory-only path when Food entity is not loaded.
+      setFoodStockDeductDialog({
         item,
-        date: todayDate,
-        mealType: getDefaultFoodStockMealType(),
         stockQuantity: item.quantity && item.quantity > 0 ? '1' : '',
         error: null,
       });
       return;
     }
-    showNotice({
-      tone: 'warning',
-      title: '暂时无法打开减扣流程',
-      message: '这项成品库存还没有加载完成，请稍后再试。',
+    setQuickRecord({
+      food,
+      item,
+      date: todayDate,
+      mealType: getDefaultFoodStockMealType(),
+      target: { kind: 'new' },
+      selectedCandidateId: null,
+      candidateMode: 'none',
+      candidates: [],
+      clientRequestId: createClientRequestId(),
+      busy: false,
+      error: null,
     });
   }
 
@@ -2381,61 +2443,209 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: source, error: null });
   }
 
-  async function submitFoodStockMealDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!foodStockMealDialog || foodStockSubmitting) {
+  // Load candidates for compact Food record.
+  useEffect(() => {
+    if (!quickRecord) return;
+    let cancelled = false;
+    const { date, mealType } = quickRecord;
+    const loader = props.loadMealCandidates;
+    if (!loader) return;
+    void (async () => {
+      try {
+        const candidates = await loader(date, mealType);
+        if (cancelled) return;
+        const presentation = deriveCandidatePresentation(candidates, mealType);
+        setQuickRecord((current) => {
+          if (!current || current.date !== date || current.mealType !== mealType) return current;
+          return {
+            ...current,
+            candidates,
+            candidateMode: presentation.mode,
+            target: presentation.target,
+            selectedCandidateId: presentation.selectedCandidateId,
+          };
+        });
+      } catch (reason) {
+        if (cancelled) return;
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                error:
+                  reason instanceof Error && reason.message.trim()
+                    ? reason.message
+                    : '加载候选失败，请重试',
+              }
+            : current,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
+
+  async function submitCompactFoodRecord() {
+    if (!quickRecord || quickRecord.busy) return;
+    if (!props.recordMeal) {
+      setQuickRecord((current) =>
+        current ? { ...current, error: '记录功能暂不可用，请稍后再试。' } : current,
+      );
       return;
     }
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockMealDialog.stockQuantity, '减扣数量');
+    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
+    let payload: RecordMealPayload;
+    try {
+      payload = buildRecordMealPayload({
+        clientRequestId: quickRecord.clientRequestId,
+        date: quickRecord.date,
+        mealType: quickRecord.mealType,
+        target: quickRecord.target,
+        foods: [
+          {
+            kind: 'existing',
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            servings: 1,
+            cover,
+          },
+        ],
+      });
+    } catch (reason) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                reason instanceof Error && reason.message.trim()
+                  ? reason.message
+                  : '记录失败，请重试',
+            }
+          : current,
+      );
+      return;
+    }
+
+    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
+    try {
+      const response = await props.recordMeal(payload);
+      const followUpItem = quickRecord.item;
+      setQuickRecord(null);
+      props.onRecordSuccess?.(response);
+      // Offer independent inventory follow-up; cancelling it does not roll back the meal.
+      setInventoryFollowUp({
+        item: followUpItem,
+        stockQuantity: followUpItem.quantity && followUpItem.quantity > 0 ? '1' : '',
+        error: null,
+      });
+    } catch (reason) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error:
+                reason instanceof Error && reason.message.trim()
+                  ? reason.message
+                  : '记录失败，请重试',
+            }
+          : current,
+      );
+    }
+  }
+
+  async function submitInventoryFollowUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!inventoryFollowUp || foodStockSubmitting) return;
+    const parsedQuantity = parseUnifiedFoodStockQuantity(inventoryFollowUp.stockQuantity, '减扣数量');
     if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setFoodStockMealDialog({ ...foodStockMealDialog, error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。' });
+      setInventoryFollowUp({
+        ...inventoryFollowUp,
+        error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。',
+      });
       return;
     }
     const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
       parsedQuantity.quantity,
-      foodStockMealDialog.item.quantity,
-      foodStockMealDialog.item.unit || '份'
+      inventoryFollowUp.item.quantity,
+      inventoryFollowUp.item.unit || '份',
     );
     if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
-      setFoodStockMealDialog({ ...foodStockMealDialog, error: resolvedQuantity.error ?? '当前库存不足。' });
+      setInventoryFollowUp({
+        ...inventoryFollowUp,
+        error: resolvedQuantity.error ?? '当前库存不足。',
+      });
       return;
     }
     setFoodStockSubmitting('meal');
     try {
-      if (foodStockMealDialog.date) {
-        await api.quickAddMealLog({
-          food_id: foodStockMealDialog.item.source_id,
-          date: foodStockMealDialog.date,
-          meal_type: foodStockMealDialog.mealType,
-          servings: 1,
-          note: '',
-          deduct_food_stock: true,
-          expected_food_row_version: foodStockMealDialog.item.row_version,
-          stock_quantity: resolvedQuantity.quantity,
-          stock_unit: foodStockMealDialog.item.unit || '份',
-        });
-        invalidateAfterQuickMealAdded(queryClient);
-      } else {
-        await api.consumeFoodStock(foodStockMealDialog.item.source_id, {
-          expected_row_version: foodStockMealDialog.item.row_version,
-          quantity: resolvedQuantity.quantity,
-          unit: foodStockMealDialog.item.unit || '份',
-          note: '从库存页减扣成品库存',
-        });
-        invalidateAfterFoodChanged(queryClient);
-      }
-      setFoodStockMealDialog(null);
+      await api.consumeFoodStock(inventoryFollowUp.item.source_id, {
+        expected_row_version: inventoryFollowUp.item.row_version,
+        quantity: resolvedQuantity.quantity,
+        unit: inventoryFollowUp.item.unit || '份',
+        note: '从库存页减扣成品库存',
+      });
+      invalidateAfterFoodChanged(queryClient);
+      setInventoryFollowUp(null);
       showNotice({
         tone: 'success',
-        title: foodStockMealDialog.date ? '已记餐并减扣库存' : '已减扣库存',
-        message: foodStockMealDialog.date
-          ? `${foodStockMealDialog.item.title} 已记录到${foodStockMealDialog.date === todayDate ? '今天' : formatDate(foodStockMealDialog.date)}。`
-          : `${foodStockMealDialog.item.title} 已减扣 ${resolvedQuantity.quantity}${foodStockMealDialog.item.unit || '份'}。`,
+        title: '已减扣库存',
+        message: `${inventoryFollowUp.item.title} 已减扣 ${resolvedQuantity.quantity}${inventoryFollowUp.item.unit || '份'}。`,
       });
     } catch (error) {
-      setFoodStockMealDialog({
-        ...foodStockMealDialog,
-        error: error instanceof Error ? error.message : '记餐失败，请稍后再试。',
+      // Inventory failure must not affect the already-published meal result bar.
+      setInventoryFollowUp({
+        ...inventoryFollowUp,
+        error: error instanceof Error ? error.message : '减扣库存失败，请稍后再试。',
+      });
+    } finally {
+      setFoodStockSubmitting(null);
+    }
+  }
+
+  async function submitFoodStockDeductDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!foodStockDeductDialog || foodStockSubmitting) return;
+    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockDeductDialog.stockQuantity, '减扣数量');
+    if (parsedQuantity.error || parsedQuantity.quantity === null) {
+      setFoodStockDeductDialog({
+        ...foodStockDeductDialog,
+        error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。',
+      });
+      return;
+    }
+    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
+      parsedQuantity.quantity,
+      foodStockDeductDialog.item.quantity,
+      foodStockDeductDialog.item.unit || '份',
+    );
+    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
+      setFoodStockDeductDialog({
+        ...foodStockDeductDialog,
+        error: resolvedQuantity.error ?? '当前库存不足。',
+      });
+      return;
+    }
+    setFoodStockSubmitting('meal');
+    try {
+      await api.consumeFoodStock(foodStockDeductDialog.item.source_id, {
+        expected_row_version: foodStockDeductDialog.item.row_version,
+        quantity: resolvedQuantity.quantity,
+        unit: foodStockDeductDialog.item.unit || '份',
+        note: '从库存页减扣成品库存',
+      });
+      invalidateAfterFoodChanged(queryClient);
+      setFoodStockDeductDialog(null);
+      showNotice({
+        tone: 'success',
+        title: '已减扣库存',
+        message: `${foodStockDeductDialog.item.title} 已减扣 ${resolvedQuantity.quantity}${foodStockDeductDialog.item.unit || '份'}。`,
+      });
+    } catch (error) {
+      setFoodStockDeductDialog({
+        ...foodStockDeductDialog,
+        error: error instanceof Error ? error.message : '减扣库存失败，请稍后再试。',
       });
     } finally {
       setFoodStockSubmitting(null);
@@ -2769,44 +2979,132 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         </WorkspaceOverlayFrame>
       )}
 
-      {foodStockMealDialog && (
+      {/* Shared ordinary-record result bar; preserved if inventory follow-up is dismissed/fails. */}
+      <MealRecordResultBar
+        result={props.recordResult ?? null}
+        isReverting={props.isRevertingRecord}
+        revertError={props.recordRevertError}
+        rateError={props.recordRateError}
+        onRevert={props.onRevertRecord}
+        onView={props.onViewRecord}
+        onRate={props.onRateRecord}
+      />
+
+      {quickRecord ? (
+        <MealQuickRecordView
+          open
+          prefilledFood={{
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
+            servings: 1,
+          }}
+          date={quickRecord.date}
+          mealType={quickRecord.mealType}
+          dateOptions={foodStockRecordDateOptions}
+          candidates={quickRecord.candidates}
+          selectedCandidateId={quickRecord.selectedCandidateId}
+          candidateMode={quickRecord.candidateMode}
+          target={quickRecord.target}
+          busy={quickRecord.busy || Boolean(props.isRecordingMeal)}
+          error={quickRecord.error}
+          overlayRootClassName="ingredient-workspace-overlay-root"
+          onClose={() => {
+            if (!quickRecord.busy) setQuickRecord(null);
+          }}
+          onDateChange={(date) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    date,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onMealTypeChange={(mealType) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    mealType,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onTargetChange={(target, selectedCandidateId) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    target,
+                    selectedCandidateId:
+                      selectedCandidateId ??
+                      (target.kind === 'existing' ? target.meal_log_id : null),
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onSubmit={() => {
+            void submitCompactFoodRecord();
+          }}
+        />
+      ) : null}
+
+      {inventoryFollowUp && (
         <WorkspaceOverlayFrame
           rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
           closeOnBackdrop={foodStockSubmitting !== 'meal'}
           onClose={() => {
+            // Cancelling inventory follow-up does not roll back the meal.
             if (foodStockSubmitting !== 'meal') {
-              setFoodStockMealDialog(null);
+              setInventoryFollowUp(null);
             }
           }}
         >
           <WorkspaceModal
             eyebrow="成品库存"
-            title="减扣"
-            description="选日期会记一餐并扣库存；选不记录则只扣库存。"
+            title="处理库存"
+            description="餐已记下。可选继续减扣库存；取消不影响刚才的记录。"
             className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
             closeLabel="关闭"
             onClose={() => {
               if (foodStockSubmitting !== 'meal') {
-                setFoodStockMealDialog(null);
+                setInventoryFollowUp(null);
               }
             }}
             footerActions={
               <FormActions
                 primaryLabel="确认减扣"
                 primaryType="submit"
-                primaryForm="ingredients-food-stock-meal-form"
+                primaryForm="ingredients-food-stock-inventory-followup-form"
                 isSubmitting={foodStockSubmitting === 'meal'}
-                secondaryLabel="取消"
-                onSecondary={() => setFoodStockMealDialog(null)}
+                secondaryLabel="跳过"
+                onSecondary={() => setInventoryFollowUp(null)}
               />
             }
           >
-            <form id="ingredients-food-stock-meal-form" className="ingredients-food-stock-form ingredients-food-stock-quick-form" onSubmit={submitFoodStockMealDialog}>
+            <form
+              id="ingredients-food-stock-inventory-followup-form"
+              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
+              onSubmit={submitInventoryFollowUp}
+            >
               <div className="ingredients-food-stock-quick-hero">
                 <span className="ingredients-food-stock-quick-cover">
                   <MediaWithPlaceholder
-                    src={resolveMediaUrl(foodStockMealDialog.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(foodStockMealDialog.item.image)}
+                    src={resolveMediaUrl(inventoryFollowUp.item.image, 'card')}
+                    srcSet={buildMediaSrcSet(inventoryFollowUp.item.image)}
                     sizes={buildMediaSizes('thumb')}
                     alt=""
                     emptyLabel="成品图片"
@@ -2814,71 +3112,16 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                   />
                 </span>
                 <span className="ingredients-food-stock-quick-copy">
-                  <strong>{foodStockMealDialog.item.title}</strong>
+                  <strong>{inventoryFollowUp.item.title}</strong>
                   <small>
-                    {[foodStockMealDialog.item.category || '成品', foodStockMealDialog.item.storage_location || '常温', `库存 ${foodStockMealDialog.item.quantity_label}`].join(' · ')}
+                    {[
+                      inventoryFollowUp.item.category || '成品',
+                      inventoryFollowUp.item.storage_location || '常温',
+                      `库存 ${inventoryFollowUp.item.quantity_label}`,
+                    ].join(' · ')}
                   </small>
                 </span>
               </div>
-              <div className="ingredients-food-stock-field">
-                <span>记录方式</span>
-                <div className="ingredients-food-stock-date-strip" role="listbox" aria-label="选择记录日期">
-                  <button
-                    type="button"
-                    className={foodStockMealDialog.date === null ? 'active' : ''}
-                    disabled={foodStockSubmitting === 'meal'}
-                    onClick={() =>
-                      setFoodStockMealDialog({ ...foodStockMealDialog, date: null, error: null })
-                    }
-                  >
-                    <span>不记录</span>
-                    <strong>只扣库存</strong>
-                  </button>
-                  {foodStockDeductDateOptions.map((dateKey, index) => {
-                    const parts = getFoodStockDateParts(dateKey);
-                    const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
-                    return (
-                      <button
-                        key={dateKey}
-                        type="button"
-                        className={foodStockMealDialog.date === dateKey ? 'active' : ''}
-                        disabled={foodStockSubmitting === 'meal'}
-                        onClick={() =>
-                          setFoodStockMealDialog({ ...foodStockMealDialog, date: dateKey, error: null })
-                        }
-                      >
-                        <span>{label}</span>
-                        <strong>{parts.month}/{parts.day}</strong>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {foodStockMealDialog.date ? (
-                <div className="ingredients-food-stock-field">
-                  <span>餐次</span>
-                  <div className="ingredients-food-stock-segments ingredients-food-stock-meal-segments" role="radiogroup" aria-label="选择餐次">
-                    {FOOD_STOCK_MEAL_OPTIONS.map((meal) => (
-                      <button
-                        key={meal.value}
-                        type="button"
-                        className={foodStockMealDialog.mealType === meal.value ? 'active' : ''}
-                        disabled={foodStockSubmitting === 'meal'}
-                        onClick={() =>
-                          setFoodStockMealDialog({ ...foodStockMealDialog, mealType: meal.value, error: null })
-                        }
-                      >
-                        {meal.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="ingredients-food-stock-no-record-note">
-                  <strong>不写入餐食记录</strong>
-                  <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
-                </div>
-              )}
               <label className="ingredients-food-stock-field">
                 <span>减扣数量</span>
                 <div className="ingredients-food-stock-inline-input">
@@ -2887,18 +3130,116 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     type="number"
                     min="0.1"
                     step="0.1"
-                    value={foodStockMealDialog.stockQuantity}
+                    value={inventoryFollowUp.stockQuantity}
                     disabled={foodStockSubmitting === 'meal'}
                     onChange={(event) =>
-                      setFoodStockMealDialog({ ...foodStockMealDialog, stockQuantity: event.target.value, error: null })
+                      setInventoryFollowUp({
+                        ...inventoryFollowUp,
+                        stockQuantity: event.target.value,
+                        error: null,
+                      })
                     }
                   />
-                  <em>{foodStockMealDialog.item.unit || '份'}</em>
+                  <em>{inventoryFollowUp.item.unit || '份'}</em>
                 </div>
               </label>
-              {foodStockMealDialog.error ? (
+              {inventoryFollowUp.error ? (
                 <p className="form-error ingredients-food-stock-error" role="alert">
-                  {foodStockMealDialog.error}
+                  {inventoryFollowUp.error}
+                </p>
+              ) : null}
+            </form>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      )}
+
+      {foodStockDeductDialog && (
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
+          closeOnBackdrop={foodStockSubmitting !== 'meal'}
+          onClose={() => {
+            if (foodStockSubmitting !== 'meal') {
+              setFoodStockDeductDialog(null);
+            }
+          }}
+        >
+          <WorkspaceModal
+            eyebrow="成品库存"
+            title="减扣库存"
+            description="只扣库存，不写入餐食记录。"
+            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
+            closeLabel="关闭"
+            onClose={() => {
+              if (foodStockSubmitting !== 'meal') {
+                setFoodStockDeductDialog(null);
+              }
+            }}
+            footerActions={
+              <FormActions
+                primaryLabel="确认减扣"
+                primaryType="submit"
+                primaryForm="ingredients-food-stock-deduct-form"
+                isSubmitting={foodStockSubmitting === 'meal'}
+                secondaryLabel="取消"
+                onSecondary={() => setFoodStockDeductDialog(null)}
+              />
+            }
+          >
+            <form
+              id="ingredients-food-stock-deduct-form"
+              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
+              onSubmit={submitFoodStockDeductDialog}
+            >
+              <div className="ingredients-food-stock-quick-hero">
+                <span className="ingredients-food-stock-quick-cover">
+                  <MediaWithPlaceholder
+                    src={resolveMediaUrl(foodStockDeductDialog.item.image, 'card')}
+                    srcSet={buildMediaSrcSet(foodStockDeductDialog.item.image)}
+                    sizes={buildMediaSizes('thumb')}
+                    alt=""
+                    emptyLabel="成品图片"
+                    showLabel={false}
+                  />
+                </span>
+                <span className="ingredients-food-stock-quick-copy">
+                  <strong>{foodStockDeductDialog.item.title}</strong>
+                  <small>
+                    {[
+                      foodStockDeductDialog.item.category || '成品',
+                      foodStockDeductDialog.item.storage_location || '常温',
+                      `库存 ${foodStockDeductDialog.item.quantity_label}`,
+                    ].join(' · ')}
+                  </small>
+                </span>
+              </div>
+              <div className="ingredients-food-stock-no-record-note">
+                <strong>不写入餐食记录</strong>
+                <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
+              </div>
+              <label className="ingredients-food-stock-field">
+                <span>减扣数量</span>
+                <div className="ingredients-food-stock-inline-input">
+                  <input
+                    className="text-input"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={foodStockDeductDialog.stockQuantity}
+                    disabled={foodStockSubmitting === 'meal'}
+                    onChange={(event) =>
+                      setFoodStockDeductDialog({
+                        ...foodStockDeductDialog,
+                        stockQuantity: event.target.value,
+                        error: null,
+                      })
+                    }
+                  />
+                  <em>{foodStockDeductDialog.item.unit || '份'}</em>
+                </div>
+              </label>
+              {foodStockDeductDialog.error ? (
+                <p className="form-error ingredients-food-stock-error" role="alert">
+                  {foodStockDeductDialog.error}
                 </p>
               ) : null}
             </form>

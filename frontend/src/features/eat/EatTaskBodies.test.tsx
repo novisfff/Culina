@@ -411,7 +411,7 @@ describe('EatMealCreateTaskBody', () => {
     );
   });
 
-  it('includes stock deduction fields when deductStock is enabled', async () => {
+  it('records without stock deduction fields (inventory is separate after Task 15)', async () => {
     const onSubmit = vi.fn(async () => undefined);
     const food = makeReadyFood();
     render(
@@ -424,18 +424,20 @@ describe('EatMealCreateTaskBody', () => {
       />,
     );
 
-    expect(screen.getByRole('checkbox', { name: /同步扣减库存/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: /同步扣减库存/i })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: '记录这一餐' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         food_id: food.id,
-        deduct_food_stock: true,
-        stock_quantity: 1,
-        stock_unit: '份',
-        expected_food_row_version: food.row_version,
       }),
     );
+    const firstCallArgs = (onSubmit.mock.calls as unknown as Array<[Record<string, unknown>]>)[0];
+    const payload = firstCallArgs?.[0];
+    expect(payload).toBeDefined();
+    expect(payload).not.toHaveProperty('deduct_food_stock');
+    expect(payload).not.toHaveProperty('stock_quantity');
+    expect(payload).not.toHaveProperty('stock_unit');
   });
 });
 

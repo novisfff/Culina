@@ -5,6 +5,7 @@ import { isApiError } from '../../api/request';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import { queryKeys } from '../../api/queryKeys';
 import type {
+  CompleteFoodPlanItemPayload,
   Food,
   FoodPlanItem,
   FoodPayload,
@@ -15,10 +16,13 @@ import type {
   Ingredient,
   InventoryItem,
   MealLog,
+  MealLogCandidate,
   MealType,
   MediaAsset,
   Member,
-  QuickAddMealLogPayload,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
   Recipe,
   RecipePayload,
   ShoppingListItem,
@@ -30,7 +34,7 @@ import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavi
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
-import { parseFoodStockQuantity, parseOptionalFoodStockQuantity, resolveFoodStockDeductQuantity } from '../../lib/foodStockQuantity';
+import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
@@ -50,7 +54,17 @@ import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
+import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
+import {
+  buildRecordMealPayload,
+  deriveCandidatePresentation,
+  type MealComposerFood,
+} from '../../features/meals/MealComposerModel';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
+import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
+import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
+import { useMealCandidateData } from '../../features/meals/useMealCandidateData';
+import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
@@ -197,7 +211,22 @@ type Props = {
   updateFoodFavorite: (foodId: string, favorite: boolean, expectedRowVersion: number) => Promise<Food>;
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
-  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
+  /** Ordinary Food card / takeout / dining-out record owner (Task 15). */
+  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  /** Injectable candidate loader for compact record. */
+  loadMealCandidates?: (date: string, mealType: MealType) => Promise<MealLogCandidate[]>;
+  /** Publish ordinary record result into App-level shared state. */
+  onRecordSuccess?: (response: RecordMealResponse) => void;
+  /** Shared ordinary-record result bar contract from App. */
+  recordResult?: MealRecordResult | null;
+  isRevertingRecord?: boolean;
+  recordRevertError?: string | null;
+  recordRateError?: string | null;
+  onRevertRecord?: () => void | Promise<void>;
+  onViewRecord?: () => void;
+  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  /** Non-Recipe Food workspace plan completion owner. */
+  completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   shoppingItems: ShoppingListItem[];
   createShoppingItem: (payload: {
@@ -248,6 +277,7 @@ type Props = {
   isUpdatingRecipe?: boolean;
   isUpdatingFavorite?: boolean;
   isQuickAdding?: boolean;
+  isCompletingPlan?: boolean;
   isUpdatingPlan?: boolean;
   isUpdatingScene?: boolean;
   isUpdatingMeal?: boolean;
@@ -264,6 +294,26 @@ type RecommendationCardViewModel = {
 };
 
 type MobileCookingFilter = 'all' | 'ready' | 'shortage';
+
+type FoodQuickRecordState = {
+  food: Food;
+  date: string;
+  mealType: MealType;
+  target: RecordMealTarget;
+  selectedCandidateId: string | null;
+  candidateMode: 'none' | 'single' | 'multi';
+  candidates: MealLogCandidate[];
+  clientRequestId: string;
+  busy: boolean;
+  error: string | null;
+};
+
+function createClientRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function getFoodPlanDateParts(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
@@ -563,6 +613,136 @@ export function getMobileDefaultFoodSceneCardMedia(
   };
 }
 
+/** Plan detail with candidate confirmation for non-Recipe complete (Task 15). */
+function FoodPlanDetailWithCandidates(props: {
+  item: FoodPlanItem;
+  food: Food | null;
+  recipes: Recipe[];
+  form: import('./FoodPlanDetailModal').FoodPlanDetailFormState;
+  isEditing: boolean;
+  isUpdatingPlan?: boolean;
+  isCompleting?: boolean;
+  onClose: () => void;
+  onChangeForm: (form: import('./FoodPlanDetailModal').FoodPlanDetailFormState) => void;
+  onEditingChange: (editing: boolean) => void;
+  onResetEdit: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onComplete: (target?: {
+    target_meal_log_id?: string | null;
+    expected_meal_log_row_version?: number | null;
+  }) => void;
+  onDelete: () => void;
+  resolveAssetUrl: (url: string) => string;
+}) {
+  const needsPlanCompleteCandidates = Boolean(
+    props.item && !props.item.recipe_id && props.item.status !== 'cooked',
+  );
+  const planCandidateQuery = useMealCandidateData({
+    open: needsPlanCompleteCandidates,
+    date: props.item.plan_date,
+    mealType: props.item.meal_type,
+  });
+  const planCandidates = planCandidateQuery.candidates;
+  const planCandidatesFetched = planCandidateQuery.query.isFetched;
+  const planCandidateIdsKey = planCandidates
+    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
+    .join(',');
+  const [planCompleteTarget, setPlanCompleteTarget] = useState<RecordMealTarget>({ kind: 'new' });
+  const [planCompleteSelectedCandidateId, setPlanCompleteSelectedCandidateId] = useState<string | null>(
+    null,
+  );
+  const [planCompleteCandidateMode, setPlanCompleteCandidateMode] = useState<'none' | 'single' | 'multi'>(
+    'none',
+  );
+
+  useEffect(() => {
+    if (!needsPlanCompleteCandidates) {
+      setPlanCompleteTarget((current) => (current.kind === 'new' ? current : { kind: 'new' }));
+      setPlanCompleteSelectedCandidateId(null);
+      setPlanCompleteCandidateMode('none');
+      return;
+    }
+    if (!planCandidatesFetched) return;
+    const presentation = deriveCandidatePresentation(planCandidates, props.item.meal_type);
+    setPlanCompleteTarget(presentation.target);
+    setPlanCompleteSelectedCandidateId(presentation.selectedCandidateId);
+    setPlanCompleteCandidateMode(presentation.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    needsPlanCompleteCandidates,
+    props.item.id,
+    props.item.plan_date,
+    props.item.meal_type,
+    planCandidateIdsKey,
+    planCandidatesFetched,
+  ]);
+
+  const planCompleteDraftFoods: MealComposerFood[] = [
+    {
+      kind: 'existing',
+      food_id: props.item.food_id,
+      name: props.item.food_name,
+      servings: 1,
+      cover: null,
+    },
+  ];
+
+  const planCompleteExtras =
+    needsPlanCompleteCandidates ? (
+      <MealCandidateSelector
+        mode={planCompleteCandidateMode}
+        mealType={props.item.meal_type}
+        candidates={planCandidates}
+        selectedCandidateId={planCompleteSelectedCandidateId}
+        target={planCompleteTarget}
+        draftFoods={planCompleteDraftFoods}
+        disabled={props.isCompleting}
+        className="food-plan-detail-candidates"
+        onTargetChange={(target, selectedCandidateId) => {
+          setPlanCompleteTarget(target);
+          setPlanCompleteSelectedCandidateId(selectedCandidateId ?? null);
+        }}
+      />
+    ) : null;
+
+  function handleComplete() {
+    if (props.item.recipe_id) {
+      props.onComplete();
+      return;
+    }
+    const target =
+      planCompleteTarget.kind === 'existing'
+        ? {
+            target_meal_log_id: planCompleteTarget.meal_log_id,
+            expected_meal_log_row_version: planCompleteTarget.expected_row_version,
+          }
+        : undefined;
+    props.onComplete(target);
+  }
+
+  return (
+    <FoodPlanDetailModal
+      item={props.item}
+      food={props.food}
+      recipes={props.recipes}
+      form={props.form}
+      isEditing={props.isEditing}
+      isUpdatingPlan={props.isUpdatingPlan}
+      isCompleting={props.isCompleting}
+      completeExtras={planCompleteExtras}
+      onClose={props.onClose}
+      onChangeForm={props.onChangeForm}
+      onEditingChange={props.onEditingChange}
+      onResetEdit={props.onResetEdit}
+      onSubmit={props.onSubmit}
+      onComplete={handleComplete}
+      onDelete={props.onDelete}
+      resolveAssetUrl={props.resolveAssetUrl}
+      overlayRootClassName="food-workspace-overlay-root"
+    />
+  );
+}
+
 export function FoodWorkspace(props: Props) {
   const {
     view,
@@ -611,7 +791,6 @@ export function FoodWorkspace(props: Props) {
     createFood: props.createFood,
     updateFood: props.updateFood,
     createFoodScene: props.createFoodScene,
-    quickAddMeal: props.quickAddMeal,
   });
   const { notice, showNotice, clearNotice } = useNotice();
   const recipeShopping = useRecipeShoppingState({
@@ -698,7 +877,9 @@ export function FoodWorkspace(props: Props) {
     createFoodPlanItem: props.createFoodPlanItem,
     updateFoodPlanItem: props.updateFoodPlanItem,
     deleteFoodPlanItem: props.deleteFoodPlanItem,
-    quickAddMeal: props.quickAddMeal,
+    completeFoodPlanItem: props.completeFoodPlanItem,
+    // Plan complete must never publish ordinary record undo.
+    publishRecordResult: undefined,
     onMealRecorded: (meal, planItem) => setPlanMealEnrichment({ meal, planItem }),
     onStartRecipe: props.onStartRecipe,
   });
@@ -828,8 +1009,10 @@ export function FoodWorkspace(props: Props) {
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
+  // Recipe cook confirmation still uses FoodQuickMealDialog (no stock fields).
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
-  const [quickMealStockError, setQuickMealStockError] = useState<string | null>(null);
+  // Non-Recipe Food card / takeout / dining-out uses compact prefilled MealQuickRecordView.
+  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
@@ -1155,47 +1338,54 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  function openQuickMealDialog(food: Food, mealType: MealType, action: FoodQuickMealDialogState['action']) {
-    const shouldDeductStock =
-      action === 'eat' &&
-      isReadyLikeFood(food) &&
-      food.stock_quantity !== null &&
-      food.stock_quantity !== undefined &&
-      food.stock_quantity > 0;
-    const recipeId = action === 'cook' ? food.recipe_id ?? undefined : undefined;
+  function openCookConfirmDialog(food: Food, mealType: MealType, options?: { date?: string }) {
+    const recipeId = food.recipe_id ?? undefined;
     const recipeServings =
       recipeId != null
         ? props.recipes.find((recipe) => recipe.id === recipeId)?.servings
         : undefined;
     setQuickMealDialog({
-      action,
-      date: todayKey(),
+      action: 'cook',
+      date: options?.date ?? todayKey(),
       food,
       mealType,
       recipeId,
-      servings: action === 'cook' ? (recipeServings && recipeServings > 0 ? recipeServings : 1) : undefined,
-      deductStock: shouldDeductStock,
-      stockQuantity: shouldDeductStock ? '1' : '',
+      servings: recipeServings && recipeServings > 0 ? recipeServings : 1,
     });
-    setQuickMealStockError(null);
   }
 
-  async function quickAdd(
+  function openCompactRecord(
+    food: Food,
+    fallbackMealType?: MealType,
+    options?: { date?: string },
+  ) {
+    const mealType = getQuickDefaultMealType(food, fallbackMealType ?? suggestedMealType);
+    setQuickRecord({
+      food,
+      date: options?.date ?? todayKey(),
+      mealType,
+      target: { kind: 'new' },
+      selectedCandidateId: null,
+      candidateMode: 'none',
+      candidates: [],
+      clientRequestId: createClientRequestId(),
+      busy: false,
+      error: null,
+    });
+  }
+
+  /** Recipe foods open cook confirm; ordinary foods open compact recordMeal. */
+  function openQuickMealDialog(
     food: Food,
     mealType: MealType,
-    date: string,
-    stockPatch: Pick<QuickAddMealLogPayload, 'deduct_food_stock' | 'stock_quantity' | 'stock_unit'> = {}
+    action: FoodQuickMealDialogState['action'],
+    options?: { date?: string },
   ) {
-    await props.quickAddMeal({
-      food_id: food.id,
-      date,
-      meal_type: mealType,
-      servings: 1,
-      note: '',
-      ...(stockPatch.deduct_food_stock ? { expected_food_row_version: food.row_version } : {}),
-      ...stockPatch,
-    });
-    setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
+    if (action === 'cook' && food.recipe_id) {
+      openCookConfirmDialog(food, mealType, options);
+      return;
+    }
+    openCompactRecord(food, mealType, options);
   }
 
   function openFoodShoppingDialog(food: Food) {
@@ -1255,71 +1445,136 @@ export function FoodWorkspace(props: Props) {
   }
 
   function updateQuickMealDialog(
-    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings' | 'deductStock' | 'stockQuantity'>>,
+    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
   ) {
-    setQuickMealStockError(null);
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
-  async function submitQuickMealDialog(event: FormEvent<HTMLFormElement>) {
+  async function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!quickMealDialog) return;
     const current = quickMealDialog;
-    if (current.action === 'cook' && current.recipeId) {
-      // Direct Cook: never create a plan item just to start cooking.
-      const servings =
-        current.servings != null && current.servings > 0
-          ? current.servings
-          : props.recipes.find((recipe) => recipe.id === current.recipeId)?.servings || 1;
-      const target = buildDirectCookTarget({
-        foodId: current.food.id,
-        recipeId: current.recipeId,
-        date: current.date,
-        mealType: current.mealType,
-        servings,
-      });
-      setQuickMealDialog(null);
-      if (props.navigate) {
-        props.navigate(target);
-      } else {
-        // Legacy fallback when navigate is not composed (older tests).
-        props.onStartRecipe(current.recipeId);
+    if (!(current.action === 'cook' && current.recipeId)) return;
+    // Direct Cook: never create a plan item just to start cooking.
+    const servings =
+      current.servings != null && current.servings > 0
+        ? current.servings
+        : props.recipes.find((recipe) => recipe.id === current.recipeId)?.servings || 1;
+    const target = buildDirectCookTarget({
+      foodId: current.food.id,
+      recipeId: current.recipeId,
+      date: current.date,
+      mealType: current.mealType,
+      servings,
+    });
+    setQuickMealDialog(null);
+    if (props.navigate) {
+      props.navigate(target);
+    } else {
+      // Legacy fallback when navigate is not composed (older tests).
+      props.onStartRecipe(current.recipeId);
+    }
+  }
+
+  // Load authoritative candidates when compact record date/mealType change.
+  useEffect(() => {
+    if (!quickRecord) return;
+    let cancelled = false;
+    const { date, mealType } = quickRecord;
+    const loader = props.loadMealCandidates;
+    if (!loader) return;
+    void (async () => {
+      try {
+        const candidates = await loader(date, mealType);
+        if (cancelled) return;
+        const presentation = deriveCandidatePresentation(candidates, mealType);
+        setQuickRecord((current) => {
+          if (!current || current.date !== date || current.mealType !== mealType) return current;
+          return {
+            ...current,
+            candidates,
+            candidateMode: presentation.mode,
+            target: presentation.target,
+            selectedCandidateId: presentation.selectedCandidateId,
+          };
+        });
+      } catch (reason) {
+        if (cancelled) return;
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                error: reason instanceof Error && reason.message.trim()
+                  ? reason.message
+                  : '加载候选失败，请重试',
+              }
+            : current,
+        );
       }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only re-run when open identity / date / mealType / loader change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
+
+  async function submitCompactRecord() {
+    if (!quickRecord || quickRecord.busy) return;
+    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
+    let payload: RecordMealPayload;
+    try {
+      payload = buildRecordMealPayload({
+        clientRequestId: quickRecord.clientRequestId,
+        date: quickRecord.date,
+        mealType: quickRecord.mealType,
+        target: quickRecord.target,
+        foods: [
+          {
+            kind: 'existing',
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            servings: 1,
+            cover,
+          },
+        ],
+      });
+    } catch (reason) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error: reason instanceof Error && reason.message.trim()
+                ? reason.message
+                : '记录失败，请重试',
+            }
+          : current,
+      );
       return;
     }
-    let stockQuantity: number | null = null;
-    if (current.deductStock) {
-      const parsedStockQuantity = parseFoodStockQuantity(current.stockQuantity ?? '', '扣减数量');
-      if (parsedStockQuantity.error || parsedStockQuantity.quantity === null) {
-        setQuickMealStockError(parsedStockQuantity.error ?? '请输入大于 0 的扣减数量。');
-        return;
-      }
-      const resolvedStockQuantity = resolveFoodStockDeductQuantity(
-        parsedStockQuantity.quantity,
-        current.food.stock_quantity,
-        current.food.stock_unit || '份'
-      );
-      if (resolvedStockQuantity.error || resolvedStockQuantity.quantity === null) {
-        setQuickMealStockError(resolvedStockQuantity.error ?? '当前库存不足。');
-        return;
-      }
-      stockQuantity = resolvedStockQuantity.quantity;
-    }
 
+    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
     try {
-      await quickAdd(current.food, current.mealType, current.date, {
-        deduct_food_stock: Boolean(current.deductStock),
-        stock_quantity: current.deductStock ? stockQuantity : null,
-        stock_unit: current.deductStock ? current.food.stock_unit || '份' : null,
-      });
-      setQuickMealStockError(null);
-      setQuickMealDialog(null);
+      const response = await props.recordMeal(payload);
+      setQuickRecord(null);
+      props.onRecordSuccess?.(response);
+      setFeedback(
+        `${quickRecord.food.name} 已记录到${
+          quickRecord.date === todayKey() ? '今天' : formatDate(quickRecord.date)
+        }${MEAL_TYPE_LABELS[quickRecord.mealType]}`,
+      );
     } catch (reason) {
-      showNotice({
-        tone: 'danger',
-        title: '记录这一餐失败',
-        message: resolveErrorMessage(reason, '记录这一餐失败，请稍后再试。'),
-      });
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error: reason instanceof Error && reason.message.trim()
+                ? reason.message
+                : '记录失败，请重试',
+            }
+          : current,
+      );
     }
   }
 
@@ -1374,7 +1629,7 @@ export function FoodWorkspace(props: Props) {
       days: foodPlanDays,
       weekSectionRef: foodPlanWeekRef,
       isUpdatingPlan: props.isUpdatingPlan,
-      isStartingPlanItem: props.isQuickAdding,
+      isStartingPlanItem: Boolean(props.isCompletingPlan || props.isQuickAdding),
       canCreatePlan: props.foods.length > 0,
       mobileWeekPage:
         mobileWeekPlanDate ? (
@@ -2032,22 +2287,102 @@ export function FoodWorkspace(props: Props) {
         </FoodRecipeEditorDialog>
       )}
 
+      {/* Shared ordinary-record result bar from App props (no local mutation state). */}
+      <MealRecordResultBar
+        result={props.recordResult ?? null}
+        isReverting={props.isRevertingRecord}
+        revertError={props.recordRevertError}
+        rateError={props.recordRateError}
+        onRevert={props.onRevertRecord}
+        onView={props.onViewRecord}
+        onRate={props.onRateRecord}
+      />
+
+      {quickRecord ? (
+        <MealQuickRecordView
+          open
+          prefilledFood={{
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
+            servings: 1,
+          }}
+          date={quickRecord.date}
+          mealType={quickRecord.mealType}
+          dateOptions={quickMealDateOptions}
+          candidates={quickRecord.candidates}
+          selectedCandidateId={quickRecord.selectedCandidateId}
+          candidateMode={quickRecord.candidateMode}
+          target={quickRecord.target}
+          busy={quickRecord.busy || Boolean(props.isQuickAdding)}
+          error={quickRecord.error}
+          overlayRootClassName="food-workspace-overlay-root"
+          onClose={() => {
+            if (!quickRecord.busy) setQuickRecord(null);
+          }}
+          onDateChange={(date) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    date,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onMealTypeChange={(mealType) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    mealType,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onTargetChange={(target, selectedCandidateId) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    target,
+                    selectedCandidateId:
+                      selectedCandidateId ??
+                      (target.kind === 'existing' ? target.meal_log_id : null),
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onSubmit={() => {
+            void submitCompactRecord();
+          }}
+        />
+      ) : null}
+
       {quickMealDialog && (() => {
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
         const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
 
         return (
           <FoodQuickMealDialog
-            dialog={{ ...quickMealDialog, stockQuantityError: quickMealStockError }}
+            dialog={quickMealDialog}
             dateOptions={quickMealDateOptions}
             isSubmitting={isSubmitting}
             recipes={props.recipes}
             onChange={updateQuickMealDialog}
-            onClose={() => {
-              setQuickMealStockError(null);
-              setQuickMealDialog(null);
-            }}
-            onSubmit={submitQuickMealDialog}
+            onClose={() => setQuickMealDialog(null)}
+            onSubmit={submitCookConfirmDialog}
           />
         );
       })()}
@@ -2137,23 +2472,22 @@ export function FoodWorkspace(props: Props) {
       />
 
       {activePlanDetailItem && (
-        <FoodPlanDetailModal
+        <FoodPlanDetailWithCandidates
           item={activePlanDetailItem}
           food={activePlanDetailFood}
           recipes={props.recipes}
           form={planDetailForm}
           isEditing={isPlanDetailEditing}
           isUpdatingPlan={props.isUpdatingPlan}
-          isCompleting={props.isQuickAdding}
+          isCompleting={Boolean(props.isCompletingPlan || props.isQuickAdding)}
           onClose={closePlanDetail}
           onChangeForm={setPlanDetailForm}
           onEditingChange={setIsPlanDetailEditing}
           onResetEdit={resetPlanDetailForm}
           onSubmit={submitPlanDetail}
-          onComplete={() => void completePlanItem(activePlanDetailItem)}
+          onComplete={(target) => void completePlanItem(activePlanDetailItem, target)}
           onDelete={() => void deletePlanDetail(activePlanDetailItem)}
           resolveAssetUrl={resolveFoodAssetUrl}
-          overlayRootClassName="food-workspace-overlay-root"
         />
       )}
 

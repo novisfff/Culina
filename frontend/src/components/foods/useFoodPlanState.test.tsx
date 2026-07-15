@@ -3,7 +3,7 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Food, FoodPlanItem, MealLog } from '../../api/types';
+import type { CompleteFoodPlanItemPayload, Food, FoodPlanItem, MealLog } from '../../api/types';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { useFoodPlanState } from './useFoodPlanState';
 
@@ -62,6 +62,25 @@ const planItem: FoodPlanItem = {
 
 type PlanStateInput = Parameters<typeof useFoodPlanState>[0];
 
+function makeCreatedMeal(overrides: Partial<MealLog> = {}): MealLog {
+  return {
+    id: 'meal-1',
+    family_id: 'family-1',
+    date: '2026-07-15',
+    meal_type: 'dinner',
+    food_entries: [],
+    participant_user_ids: [],
+    notes: '',
+    mood: '',
+    photos: [],
+    deduction_suggestions: [],
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00.000Z',
+    updated_at: '2026-07-15T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 function buildPlanStateInput(overrides: Partial<PlanStateInput> = {}): PlanStateInput {
   return {
     foods: [planFood],
@@ -75,21 +94,7 @@ function buildPlanStateInput(overrides: Partial<PlanStateInput> = {}): PlanState
     createFoodPlanItem: vi.fn(async () => planItem),
     updateFoodPlanItem: vi.fn(async () => planItem),
     deleteFoodPlanItem: vi.fn(async () => undefined),
-    quickAddMeal: vi.fn(async () => ({
-      id: 'meal-1',
-      family_id: 'family-1',
-      date: '2026-07-15',
-      meal_type: 'dinner' as const,
-      food_entries: [],
-      participant_user_ids: [],
-      notes: '',
-      mood: '',
-      photos: [],
-      deduction_suggestions: [],
-    row_version: 1,
-    created_at: '2026-07-15T00:00:00.000Z',
-      updated_at: '2026-07-15T00:00:00.000Z',
-    })),
+    completeFoodPlanItem: vi.fn(async () => makeCreatedMeal()),
     onStartRecipe: vi.fn(),
     ...overrides,
   };
@@ -208,33 +213,86 @@ describe('useFoodPlanState navigation', () => {
 });
 
 describe('useFoodPlanState completion', () => {
-  it('hands the created meal to the enrichment flow after recording the plan item', async () => {
-    const createdMeal: MealLog = {
-      id: 'meal-created',
-      family_id: 'family-1',
-      date: planItem.plan_date,
-      meal_type: planItem.meal_type,
-      food_entries: [],
-      participant_user_ids: [],
-      notes: '',
-      mood: '',
-      photos: [],
-      deduction_suggestions: [],
-    row_version: 1,
-    created_at: '2026-07-15T00:00:00.000Z',
-      updated_at: '2026-07-15T00:00:00.000Z',
-    };
-    const quickAddMeal = vi.fn(async () => createdMeal);
+  it('completes non-recipe plan items via completeFoodPlanItem with base timestamp', async () => {
+    const createdMeal = makeCreatedMeal({ id: 'meal-created' });
+    const completeFoodPlanItem = vi.fn(async (_itemId: string, _payload: CompleteFoodPlanItemPayload) => createdMeal);
     const onMealRecorded = vi.fn();
+    const publishRecordResult = vi.fn();
     const state = renderPlanState({
-      quickAddMeal,
-      ...({ onMealRecorded } as unknown as Partial<PlanStateInput>),
+      completeFoodPlanItem,
+      onMealRecorded,
+      publishRecordResult,
     })!;
 
     await act(async () => {
       await state.completePlanItem(planItem);
     });
 
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(planItem.id, {
+      food_plan_item_base_updated_at: planItem.updated_at,
+    });
     expect(onMealRecorded).toHaveBeenCalledWith(createdMeal, planItem);
+    expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('passes selected candidate target to completeFoodPlanItem and never publishes undo', async () => {
+    const createdMeal = makeCreatedMeal({ id: 'meal-append' });
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
+    const publishRecordResult = vi.fn();
+    const onMealRecorded = vi.fn();
+    const state = renderPlanState({
+      completeFoodPlanItem,
+      onMealRecorded,
+      publishRecordResult,
+    })!;
+
+    await act(async () => {
+      await state.completePlanItem(planItem, {
+        target_meal_log_id: 'meal-existing',
+        expected_meal_log_row_version: 3,
+      });
+    });
+
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(planItem.id, {
+      food_plan_item_base_updated_at: planItem.updated_at,
+      target_meal_log_id: 'meal-existing',
+      expected_meal_log_row_version: 3,
+    });
+    expect(onMealRecorded).toHaveBeenCalledWith(createdMeal, planItem);
+    expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('treats replayed stored MealLog as success', async () => {
+    const replayedMeal = makeCreatedMeal({ id: 'meal-replayed' });
+    const completeFoodPlanItem = vi.fn(async () => replayedMeal);
+    const onMealRecorded = vi.fn();
+    const state = renderPlanState({
+      completeFoodPlanItem,
+      onMealRecorded,
+    })!;
+
+    await act(async () => {
+      await state.completePlanItem(planItem);
+    });
+
+    expect(onMealRecorded).toHaveBeenCalledWith(replayedMeal, planItem);
+  });
+
+  it('starts recipe cook for recipe plan items without completeFoodPlanItem', async () => {
+    const recipeItem: FoodPlanItem = { ...planItem, id: 'plan-recipe', recipe_id: 'recipe-1' };
+    const completeFoodPlanItem = vi.fn();
+    const onStartRecipe = vi.fn();
+    const state = renderPlanState({
+      foodPlanItems: [recipeItem],
+      completeFoodPlanItem,
+      onStartRecipe,
+    })!;
+
+    await act(async () => {
+      await state.completePlanItem(recipeItem);
+    });
+
+    expect(onStartRecipe).toHaveBeenCalledWith('recipe-1', 'plan-recipe');
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
   });
 });

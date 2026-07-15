@@ -1354,7 +1354,19 @@ function App() {
                   }
                   createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
                   updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
-                  quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+                  recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
+                  loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+                  onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
+                  recordResult={mealRecordResultState.result}
+                  isRevertingRecord={mealRecordResultState.isReverting}
+                  recordRevertError={mealRecordResultState.revertError}
+                  recordRateError={mealRecordResultState.rateError}
+                  onRevertRecord={() => void mealRecordResultState.revert()}
+                  onViewRecord={() => mealRecordResultState.viewMeal()}
+                  onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+                  completeFoodPlanItem={(itemId, payload) =>
+                    completeFoodPlanItemMutation.mutateAsync({ itemId, payload })
+                  }
                   updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
                   shoppingItems={shoppingItems}
                   createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
@@ -1376,7 +1388,8 @@ function App() {
                   isCreatingRecipe={createRecipeMutation.isPending}
                   isUpdatingRecipe={updateRecipeMutation.isPending}
                   isUpdatingFavorite={toggleFavoriteMutation.isPending}
-                  isQuickAdding={quickAddMealMutation.isPending}
+                  isQuickAdding={recordMealMutation.isPending}
+                  isCompletingPlan={completeFoodPlanItemMutation.isPending}
                   isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
                   isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
                   isUpdatingMeal={updateMealMutation.isPending}
@@ -1430,6 +1443,17 @@ function App() {
               inventoryStates={inventoryStates}
               shoppingItems={shoppingItems}
               recipes={recipes}
+              recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
+              loadMealCandidates={(date, mealType) => api.getMealCandidates(date, mealType)}
+              onRecordSuccess={(response) => mealRecordResultState.publishRecordResult(response)}
+              recordResult={mealRecordResultState.result}
+              isRevertingRecord={mealRecordResultState.isReverting}
+              recordRevertError={mealRecordResultState.revertError}
+              recordRateError={mealRecordResultState.rateError}
+              onRevertRecord={() => void mealRecordResultState.revert()}
+              onViewRecord={() => mealRecordResultState.viewMeal()}
+              onRateRecord={(rating) => void mealRecordResultState.rate(rating)}
+              isRecordingMeal={recordMealMutation.isPending}
               openShoppingIntake={openShoppingIntake}
               openReconciliation={openReconciliation}
               openOperationHistory={openOperationHistory}

@@ -77,10 +77,6 @@ import { useImageComposer } from '../../hooks/useImageComposer';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
-import {
-  parseFoodStockQuantity,
-  resolveFoodStockDeductQuantity,
-} from '../../lib/foodStockQuantity';
 import { getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
 import { buildMealTitle, getMealTone } from '../meals/MealLogWorkspaceModel';
@@ -1101,20 +1097,14 @@ export function EatMealCreateTaskBody(props: {
   const food = props.food;
   const [dialog, setDialog] = useState<FoodQuickMealDialogState | null>(() => {
     if (!food) return null;
-    const shouldDeductStock =
-      isReadyLikeFood(food)
-      && food.stock_quantity !== null
-      && food.stock_quantity !== undefined
-      && food.stock_quantity > 0;
+    // Task 15: FoodQuickMealDialog no longer carries stock fields.
+    // Eat still uses quick-add until Task 16; inventory is not coupled here.
     return {
       action: 'eat',
       date: props.date ?? props.planItem?.plan_date ?? todayKey(),
       food,
       mealType: props.mealType ?? props.planItem?.meal_type ?? getDefaultMealType(food),
       recipeId: food.recipe_id ?? undefined,
-      deductStock: shouldDeductStock,
-      stockQuantity: shouldDeductStock ? '1' : '',
-      stockQuantityError: null,
     };
   });
 
@@ -1149,7 +1139,6 @@ export function EatMealCreateTaskBody(props: {
             ? {
                 ...current,
                 ...patch,
-                stockQuantityError: null,
               }
             : current,
         );
@@ -1158,39 +1147,6 @@ export function EatMealCreateTaskBody(props: {
       onSubmit={async (event) => {
         event.preventDefault();
 
-        let stockQuantity: number | null = null;
-        if (dialog.deductStock) {
-          const parsedStockQuantity = parseFoodStockQuantity(dialog.stockQuantity ?? '', '扣减数量');
-          if (parsedStockQuantity.error || parsedStockQuantity.quantity === null) {
-            setDialog((current) =>
-              current
-                ? {
-                    ...current,
-                    stockQuantityError: parsedStockQuantity.error ?? '请输入大于 0 的扣减数量。',
-                  }
-                : current,
-            );
-            return;
-          }
-          const resolvedStockQuantity = resolveFoodStockDeductQuantity(
-            parsedStockQuantity.quantity,
-            dialog.food.stock_quantity,
-            dialog.food.stock_unit || '份',
-          );
-          if (resolvedStockQuantity.error || resolvedStockQuantity.quantity === null) {
-            setDialog((current) =>
-              current
-                ? {
-                    ...current,
-                    stockQuantityError: resolvedStockQuantity.error ?? '当前库存不足。',
-                  }
-                : current,
-            );
-            return;
-          }
-          stockQuantity = resolvedStockQuantity.quantity;
-        }
-
         const payload: QuickAddMealLogPayload = {
           food_id: dialog.food.id,
           date: dialog.date,
@@ -1198,14 +1154,6 @@ export function EatMealCreateTaskBody(props: {
           servings: 1,
           note: props.planItem ? '来自菜单记录' : '快捷记录',
           ...(props.planItem ? { food_plan_item_id: props.planItem.id } : {}),
-          ...(dialog.deductStock
-            ? {
-                deduct_food_stock: true,
-                stock_quantity: stockQuantity,
-                stock_unit: dialog.food.stock_unit || '份',
-                expected_food_row_version: dialog.food.row_version,
-              }
-            : {}),
         };
 
         await props.onSubmit(payload);

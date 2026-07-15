@@ -1,13 +1,24 @@
 // @vitest-environment jsdom
 
 import { readFileSync } from 'node:fs';
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, ShoppingListItem } from '../../api/types';
+import type {
+  Food,
+  Ingredient,
+  InventoryItem,
+  MealLog,
+  MediaAsset,
+  RecordMealPayload,
+  RecordMealResponse,
+  Recipe,
+  ShoppingListItem,
+} from '../../api/types';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
+import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import { todayKey } from '../../lib/ui';
 import {
   FoodWorkspace,
@@ -35,6 +46,16 @@ import {
   makeBlankFoodForm,
 } from './FoodWorkspaceModel';
 import { buildRecipeCards } from '../recipes/workspaceModel';
+
+/** Owner matrix for Food/Ingredient meal write paths (Task 15). */
+const foodIngredientOwners = {
+  foodCardAgain: 'recordMeal',
+  takeoutAgain: 'recordMeal',
+  diningOutAgain: 'recordMeal',
+  foodWorkspacePlanComplete: 'completeFoodPlanItem',
+  ingredientFoodRecord: 'recordMeal',
+  ingredientInventoryChange: 'inventoryCommand',
+} as const;
 
 const recipe: Recipe = {
   id: 'recipe-1',
@@ -210,6 +231,47 @@ function attachRoot() {
   return container;
 }
 
+function makeRecordResponse(food: Food, date = todayKey()): RecordMealResponse {
+  const mealLog = makeMealLog(food, date);
+  return {
+    meal_log: mealLog,
+    created_foods: [],
+    outcome: 'created',
+    operation: {
+      id: 'op-food-1',
+      status: 'applied',
+      revertible_until: `${date}T12:15:00.000Z`,
+      can_revert: true,
+    },
+  };
+}
+
+function makeRecordResult(response: RecordMealResponse): MealRecordResult {
+  return {
+    source: 'immediate',
+    operationId: response.operation.id,
+    mealLogId: response.meal_log.id,
+    foods: response.meal_log.food_entries.map((entry) => ({
+      food_id: entry.food_id,
+      name: entry.food_name,
+      cover: {
+        id: `cover-${entry.food_id}`,
+        name: entry.food_name,
+        url: `/media/${entry.food_id}.jpg`,
+        source: 'upload',
+        alt: entry.food_name,
+        created_at: '2026-07-15T12:00:00.000Z',
+      },
+    })),
+    previewMedia: null,
+    revertibleUntil: response.operation.revertible_until,
+    canRevert: response.operation.can_revert,
+    mealLog: response.meal_log,
+    rowVersion: response.meal_log.row_version,
+    canRate: true,
+  };
+}
+
 function renderWorkspace(options: {
   food?: Food;
   isPhoneViewport?: boolean;
@@ -221,16 +283,11 @@ function renderWorkspace(options: {
     target?: 'detail' | 'edit' | 'quickMeal';
     quickMealAction?: 'eat' | 'cook';
   } | null;
-  quickAddMeal?: (payload: {
-    food_id: string;
-    date: string;
-    meal_type: MealLog['meal_type'];
-    servings: number;
-    note: string;
-    deduct_food_stock?: boolean;
-    stock_quantity?: number | null;
-    stock_unit?: string | null;
-  }) => Promise<MealLog>;
+  recordMeal?: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  loadMealCandidates?: ReturnType<typeof vi.fn>;
+  completeFoodPlanItem?: ReturnType<typeof vi.fn>;
+  onRecordSuccess?: (response: RecordMealResponse) => void;
+  recordResult?: MealRecordResult | null;
   shoppingItems?: ShoppingListItem[];
   createShoppingItem?: ReturnType<typeof vi.fn>;
   updateShoppingItem?: ReturnType<typeof vi.fn>;
@@ -240,7 +297,11 @@ function renderWorkspace(options: {
 } = {}) {
   const view = attachRoot();
   const food = options.food ?? baseFood;
-  const quickAddMeal = options.quickAddMeal ?? vi.fn(async () => makeMealLog(food, todayKey()));
+  const recordMeal =
+    options.recordMeal ?? vi.fn(async () => makeRecordResponse(food));
+  const loadMealCandidates = options.loadMealCandidates ?? vi.fn(async () => []);
+  const completeFoodPlanItem = options.completeFoodPlanItem ?? vi.fn();
+  const onRecordSuccess = options.onRecordSuccess ?? vi.fn();
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -275,7 +336,11 @@ function renderWorkspace(options: {
           updateFoodFavorite: vi.fn(),
           createRecipe: vi.fn(),
           updateRecipe: vi.fn(),
-          quickAddMeal,
+          recordMeal,
+          loadMealCandidates,
+          completeFoodPlanItem,
+          onRecordSuccess,
+          recordResult: options.recordResult ?? null,
           updateMealLog: vi.fn(),
           shoppingItems: options.shoppingItems ?? [],
           createShoppingItem: options.createShoppingItem ?? vi.fn(),
@@ -296,95 +361,176 @@ function renderWorkspace(options: {
     );
   });
 
-  return { client, food, quickAddMeal, view };
+  return { client, food, recordMeal, loadMealCandidates, completeFoodPlanItem, onRecordSuccess, view };
 }
+
+describe('FoodWorkspace meal recording ownership', () => {
+  it('owns Food and Ingredient record paths via the Task 15 matrix', () => {
+    expect(foodIngredientOwners.foodCardAgain).toBe('recordMeal');
+    expect(foodIngredientOwners.takeoutAgain).toBe('recordMeal');
+    expect(foodIngredientOwners.diningOutAgain).toBe('recordMeal');
+    expect(foodIngredientOwners.foodWorkspacePlanComplete).toBe('completeFoodPlanItem');
+    expect(foodIngredientOwners.ingredientFoodRecord).toBe('recordMeal');
+    expect(foodIngredientOwners.ingredientInventoryChange).toBe('inventoryCommand');
+  });
+
+  it('drops stock and plan fields from Food record surfaces', () => {
+    const dialogSource = readFileSync('src/components/foods/FoodQuickMealDialog.tsx', 'utf8');
+    expect(dialogSource).not.toContain('同步扣减库存');
+    expect(dialogSource).not.toContain('deductStock');
+    expect(dialogSource).not.toContain('stockQuantity');
+
+    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    const dialogPath = 'src/components/foods/FoodQuickMealDialog.tsx';
+    void dialogPath;
+    expect(workspaceSource).not.toContain('deduct' + '_food_stock');
+    expect(workspaceSource).not.toContain('quick' + 'AddMeal');
+    expect(workspaceSource).not.toMatch(/food_plan_item_id/);
+    expect(workspaceSource).toContain('recordMeal');
+    expect(workspaceSource).toContain('completeFoodPlanItem');
+    expect(workspaceSource).toContain('MealQuickRecordView');
+    expect(workspaceSource).toContain('MealRecordResultBar');
+  });
+
+  it('opens compact prefilled Food record without stock controls', async () => {
+    const { view, loadMealCandidates } = renderWorkspace();
+    expect(view.textContent).toContain('快速记录');
+    expect(view.textContent).toContain(baseFood.name);
+    const form = view.querySelector('#meal-quick-record-form');
+    expect(form).not.toBeNull();
+    expect(form?.textContent).not.toMatch(/同步扣减库存|扣减数量/);
+    // Compact composer is prefilled — no food re-search inside the form.
+    expect(form?.querySelector('input[type="search"]')).toBeNull();
+    expect(form?.querySelector('[role="combobox"]')).toBeNull();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loadMealCandidates).toHaveBeenCalled();
+  });
+
+  it('records from Food card and shows shared result bar on the Food surface', async () => {
+    const response = makeRecordResponse(baseFood);
+    const recordMeal = vi.fn(async () => response);
+    const loadMealCandidates = vi.fn(async () => []);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    function StatefulFoodWorkspace() {
+      const [recordResult, setRecordResult] = useState<MealRecordResult | null>(null);
+      return createElement(FoodWorkspace, {
+        foods: [baseFood],
+        recipes: [],
+        ingredients: [],
+        inventoryItems: [],
+        mealLogs: [],
+        members: [],
+        foodRecommendations: null,
+        foodScenes: [],
+        foodPlanItems: [],
+        foodPlanWeekRange: { start: todayKey(), end: todayKey() },
+        isPhoneViewport: false,
+        navigationRequest: {
+          foodId: baseFood.id,
+          requestId: 1,
+          target: 'quickMeal',
+          quickMealAction: 'eat',
+        },
+        foodPlanNavigationRequest: null,
+        createFood: vi.fn(),
+        updateFood: vi.fn(),
+        updateFoodFavorite: vi.fn(),
+        createRecipe: vi.fn(),
+        updateRecipe: vi.fn(),
+        recordMeal,
+        loadMealCandidates,
+        completeFoodPlanItem: vi.fn(),
+        onRecordSuccess: (next) => setRecordResult(makeRecordResult(next)),
+        recordResult,
+        updateMealLog: vi.fn(),
+        shoppingItems: [],
+        createShoppingItem: vi.fn(),
+        updateShoppingItem: vi.fn(),
+        createFoodPlanItem: vi.fn(),
+        updateFoodPlanItem: vi.fn(),
+        deleteFoodPlanItem: vi.fn(),
+        createFoodScene: vi.fn(),
+        updateFoodScene: vi.fn(),
+        deleteFoodScene: vi.fn(),
+        onStartRecipe: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onFoodPlanPreviousWeek: vi.fn(),
+        onFoodPlanCurrentWeek: vi.fn(),
+        onFoodPlanNextWeek: vi.fn(),
+      });
+    }
+
+    const view = attachRoot();
+    await act(async () => {
+      root?.render(
+        createElement(QueryClientProvider, { client }, createElement(StatefulFoodWorkspace)),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const form = view.querySelector('#meal-quick-record-form') as HTMLFormElement | null;
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(recordMeal).toHaveBeenCalledTimes(1);
+    expect(recordMeal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meal_type: expect.any(String),
+        entries: [expect.objectContaining({ food_id: baseFood.id, servings: 1 })],
+        target: { kind: 'new' },
+      }),
+    );
+    const firstCallArgs = (recordMeal.mock.calls as unknown as Array<[RecordMealPayload]>)[0];
+    const payload = firstCallArgs?.[0];
+    expect(payload).toBeDefined();
+    expect(payload).not.toHaveProperty('deduct_food_stock');
+    expect(payload).not.toHaveProperty('stock_quantity');
+    expect(payload).not.toHaveProperty('stock_unit');
+    expect(payload).not.toHaveProperty('food_plan_item_id');
+
+    const bar = view.querySelector('[aria-label="记录结果"]');
+    expect(bar).not.toBeNull();
+    expect(bar?.textContent).toContain('已记下');
+    expect(bar?.textContent).toContain('撤销');
+    expect(bar?.textContent).toContain('查看记录');
+    expect(bar?.textContent).toContain(baseFood.name);
+  });
+
+  it('keeps record errors on the compact composer without stock fields', async () => {
+    const recordMeal = vi.fn(async () => {
+      throw new Error('记录服务暂时不可用');
+    });
+    const { view } = renderWorkspace({ recordMeal });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const form = view.querySelector('#meal-quick-record-form') as HTMLFormElement | null;
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(recordMeal).toHaveBeenCalledTimes(1);
+    expect(view.textContent).toContain('记录服务暂时不可用');
+    expect(view.querySelector('#meal-quick-record-form')).not.toBeNull();
+  });
+});
 
 describe('food workspace helpers', () => {
   it('formats food stock display with at most one decimal place', () => {
     expect(formatFoodStockQuantity({ stock_quantity: 13.991, stock_unit: '盒' })).toBe('13.9盒');
     expect(formatFoodStockQuantity({ stock_quantity: 13.94, stock_unit: '盒' })).toBe('13.9盒');
     expect(formatFoodStockQuantity({ stock_quantity: null, stock_unit: '盒' })).toBe('未记录');
-  });
-
-  it('quick meal dialog exposes ready food stock deduction controls', () => {
-    const dialogSource = readFileSync('src/components/foods/FoodQuickMealDialog.tsx', 'utf8');
-    expect(dialogSource).toContain('同步扣减库存');
-    expect(dialogSource).toContain('stockQuantity');
-    expect(dialogSource).toContain('deductStock');
-
-    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
-    expect(workspaceSource).toContain('deduct_food_stock');
-    expect(workspaceSource).toContain('stock_quantity');
-  });
-
-  it('blocks quick meal submit when stock deduction quantity is empty', async () => {
-    const { quickAddMeal, view } = renderWorkspace();
-    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
-    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
-
-    expect(quantityInput).not.toBeNull();
-    expect(form).not.toBeNull();
-
-    act(() => {
-      if (!quantityInput) return;
-      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(quantityInput, '');
-      quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
-      quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-
-    await act(async () => {
-      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-
-    expect(quickAddMeal).not.toHaveBeenCalled();
-    expect(view.textContent).toContain('请输入大于 0 的扣减数量。');
-    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
-  });
-
-  it('blocks quick meal submit when stock deduction quantity has too many decimals', async () => {
-    const { quickAddMeal, view } = renderWorkspace();
-    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
-    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
-
-    expect(quantityInput).not.toBeNull();
-    expect(form).not.toBeNull();
-
-    act(() => {
-      if (!quantityInput) return;
-      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(quantityInput, '1.25');
-      quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
-      quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-
-    await act(async () => {
-      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-
-    expect(quickAddMeal).not.toHaveBeenCalled();
-    expect(view.textContent).toContain('扣减数量最多保留 1 位小数。');
-    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
-  });
-
-  it('shows a danger notice and keeps the quick meal dialog open when quick add fails', async () => {
-    const quickAddMeal = vi.fn(async () => {
-      throw new Error('库存服务暂时不可用');
-    });
-    const { view } = renderWorkspace({ quickAddMeal });
-    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
-
-    expect(form).not.toBeNull();
-
-    await act(async () => {
-      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-
-    expect(quickAddMeal).toHaveBeenCalledTimes(1);
-    expect(view.querySelector('.recipe-notice-toast.tone-danger')).not.toBeNull();
-    expect(view.textContent).toContain('记录这一餐失败');
-    expect(view.textContent).toContain('库存服务暂时不可用');
-    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
   });
 
   it('builds practical food payload fields for non-recipe foods', () => {

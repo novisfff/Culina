@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe, UpdateFoodPayload } from '../../api/types';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
-import { MEAL_TYPE_LABELS, formatDate, splitTags, todayKey } from '../../lib/ui';
+import { splitTags } from '../../lib/ui';
 import type { FoodGovernanceIssue, FoodWorkspaceLens } from './FoodWorkspaceOptions';
 import { buildFoodPayloadFromForm, foodToForm, makeBlankFoodForm, type FoodFormState } from './FoodWorkspaceModel';
 
@@ -27,7 +27,6 @@ type UseFoodWorkspaceStateArgs = {
     custom: boolean;
     sort_order: number;
   }) => Promise<FoodScene>;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
 };
 
 export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
@@ -152,11 +151,6 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
     addSceneTag(name);
   }
 
-  async function quickAdd(food: Food, mealType: MealType, date = todayKey()) {
-    await args.quickAddMeal({ food_id: food.id, date, meal_type: mealType, servings: 1, note: '' });
-    setFeedback(`${food.name} 已记到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
-  }
-
   function clearFoodFilters() {
     setSearch('');
     setTypeFilter('all');
@@ -208,7 +202,6 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
     removeSceneTag,
     addSceneTag,
     createAndAddSceneTag,
-    quickAdd,
     clearFoodFilters,
     openGovernanceIssue,
   };
