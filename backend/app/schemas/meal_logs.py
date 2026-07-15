@@ -72,6 +72,39 @@ class UpdateMealLogRequest(BaseModel):
     food_entry_ratings: list[MealLogFoodRatingIn] | None = None
 
 
+class MealCompositionEntryIn(BaseModel):
+    id: str | None = None
+    food_id: str
+    servings: float = Field(gt=0)
+    note: str = ""
+
+    @field_validator("food_id")
+    @classmethod
+    def validate_food_id(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("food_id 不能为空")
+        return cleaned
+
+    @field_validator("id")
+    @classmethod
+    def validate_entry_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        return value or ""
+
+
+class UpdateMealCompositionRequest(BaseModel):
+    expected_row_version: int = Field(ge=1)
+    food_entries: list[MealCompositionEntryIn]
+
+
 class QuickAddMealLogRequest(BaseModel):
     food_id: str
     date: date_type

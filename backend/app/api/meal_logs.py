@@ -15,7 +15,13 @@ from app.db.transactions import commit_session
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
+from app.schemas.meal_logs import (
+    CreateMealLogRequest,
+    MealLogOut,
+    QuickAddMealLogRequest,
+    UpdateMealCompositionRequest,
+    UpdateMealLogRequest,
+)
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
@@ -29,6 +35,12 @@ from app.services.food_plan_locking import (
     FoodPlanConflict,
     food_plan_conflict_detail,
     lock_plan_item_after_food,
+)
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError
+from app.services.meal_log_composition import (
+    MEAL_LOG_FOOD_NOT_FOUND_CODE,
+    MealCompositionValidationError,
+    update_meal_composition,
 )
 from app.services.meal_log_references import (
     MealLogReferenceError,
@@ -264,6 +276,73 @@ def create_meal_log(
     db.refresh(meal_log)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)
+
+
+@router.patch("/api/meal-logs/{meal_log_id}/composition", response_model=MealLogOut)
+def patch_meal_log_composition(
+    meal_log_id: str,
+    payload: UpdateMealCompositionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        meal_log = update_meal_composition(
+            db,
+            family_id=membership.family_id,
+            actor_user_id=user.id,
+            meal_log_id=meal_log_id,
+            expected_row_version=payload.expected_row_version,
+            food_entries=payload.food_entries,
+        )
+        _commit_versioned_meal_log_session(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=meal_log.id,
+        )
+        db.refresh(meal_log)
+        media_map = build_media_map(
+            get_media_assets_for_entities(
+                db,
+                family_id=membership.family_id,
+                entity_type="meal_log",
+                entity_ids=[meal_log.id],
+            )
+        )
+        return serialize_meal_log(meal_log, media_map)
+    except MealCompositionValidationError as exc:
+        db.rollback()
+        if exc.code == MEAL_LOG_FOOD_NOT_FOUND_CODE:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": exc.code, "message": exc.message},
+            ) from exc
+        if exc.code == "meal_log_entry_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": exc.code, "message": exc.message},
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except InventoryTargetNotFoundError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": MEAL_LOG_FOOD_NOT_FOUND_CODE,
+                "message": "食物不存在或不属于当前家庭",
+            },
+        ) from exc
+    except MealLogConflictError as exc:
+        db.rollback()
+        _raise_meal_log_conflict(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=meal_log_id,
+            exc=exc,
+        )
 
 
 @router.patch("/api/meal-logs/{meal_log_id}", response_model=MealLogOut)
