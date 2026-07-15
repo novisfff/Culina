@@ -447,6 +447,28 @@ def test_original_actor_and_owner_can_revert_member_denied(seed: RevertSeed) -> 
     assert owner_revert.json()["status"] == "reverted"
 
 
+def test_member_cannot_replay_owner_already_reverted_operation(seed: RevertSeed) -> None:
+    """Already-REVERTED replay must still enforce actor/Owner authorization."""
+    _as_owner(seed)
+    created = _record_new(seed, request_id="owner-for-replay-auth", with_inline=False)
+    operation_id = created["operation"]["id"]
+
+    first = seed.client.post(f"/api/meal-logs/record-operations/{operation_id}/revert")
+    assert first.status_code == 200, first.text
+    assert first.json()["replayed"] is False
+
+    # Owner may replay own already-reverted op.
+    owner_replay = seed.client.post(f"/api/meal-logs/record-operations/{operation_id}/revert")
+    assert owner_replay.status_code == 200, owner_replay.text
+    assert owner_replay.json()["replayed"] is True
+
+    # Member must not receive the stored snapshot on replay of Owner's op.
+    _as_member(seed)
+    denied = seed.client.post(f"/api/meal-logs/record-operations/{operation_id}/revert")
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "record_operation_forbidden"
+
+
 def test_cross_family_operation_not_found(seed: RevertSeed) -> None:
     created = _record_new(seed, request_id="cross-family", with_inline=False)
     operation_id = created["operation"]["id"]

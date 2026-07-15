@@ -286,6 +286,18 @@ def list_active_record_operations(
     return summaries
 
 
+def _authorize_revert_actor(
+    operation: MealLogRecordOperation,
+    *,
+    user_id: str,
+    user_role: UserRole | str,
+) -> None:
+    """Actor/Owner authorization only — required for both first revert and REVERTED replay."""
+    role = user_role if isinstance(user_role, UserRole) else UserRole(user_role)
+    if operation.created_by != user_id and role != UserRole.OWNER:
+        raise MealRecordHistoryPermissionError()
+
+
 def _authorize_revert(
     operation: MealLogRecordOperation,
     *,
@@ -293,9 +305,7 @@ def _authorize_revert(
     user_role: UserRole | str,
     now: datetime,
 ) -> None:
-    role = user_role if isinstance(user_role, UserRole) else UserRole(user_role)
-    if operation.created_by != user_id and role != UserRole.OWNER:
-        raise MealRecordHistoryPermissionError()
+    _authorize_revert_actor(operation, user_id=user_id, user_role=user_role)
     deadline = _as_aware(operation.revertible_until)
     current = _as_aware(now)
     if current > deadline:
@@ -367,6 +377,47 @@ def _delete_created_foods_if_eligible(
     return removed
 
 
+def _lock_present_foods(
+    db: Session,
+    *,
+    family_id: str,
+    food_ids: list[str],
+) -> dict[str, Food]:
+    """Lock as many of the requested Foods as currently exist.
+
+    Retries present-only locking until stable so concurrent deletes cannot
+    surface as 500 when some created Foods disappear between SELECT and lock.
+    Deletes still only operate on foods that were successfully locked.
+    """
+    remaining = _unique_sorted_ids(food_ids)
+    if not remaining:
+        return {}
+
+    # Bound retries: each miss shrinks the candidate set, so at most len(ids)+1 loops.
+    for _ in range(len(remaining) + 1):
+        try:
+            return lock_inventory_targets(
+                db,
+                family_id=family_id,
+                food_ids=remaining,
+            ).foods
+        except InventoryTargetNotFoundError:
+            present_ids = list(
+                db.scalars(
+                    select(Food.id).where(
+                        Food.family_id == family_id,
+                        Food.id.in_(remaining),
+                    )
+                )
+            )
+            remaining = _unique_sorted_ids(present_ids)
+            if not remaining:
+                return {}
+    # Exhausted retries with a non-empty set still racing; lock whatever is locked-stable
+    # by falling through to empty rather than raising 500.
+    return {}
+
+
 def revert_record_operation(
     db: Session,
     *,
@@ -387,7 +438,9 @@ def revert_record_operation(
         raise MealRecordHistoryNotFoundError()
 
     if operation.status == MealLogRecordStatus.REVERTED:
-        # Idempotent replay: never re-load MealLog/Food or re-mutate.
+        # Idempotent replay: auth required; deadline skipped for post-window network retry.
+        # Never re-load MealLog/Food or re-mutate.
+        _authorize_revert_actor(operation, user_id=actor_user_id, user_role=user_role)
         return _response_from_saved_revert(operation, replayed=True)
 
     if operation.status != MealLogRecordStatus.APPLIED:
@@ -408,28 +461,11 @@ def revert_record_operation(
 
     locked_foods: dict[str, Food] = {}
     if ordered_food_ids:
-        try:
-            locked_foods = lock_inventory_targets(
-                db,
-                family_id=family_id,
-                food_ids=ordered_food_ids,
-            ).foods
-        except InventoryTargetNotFoundError:
-            # Some created Foods may already be deleted; lock only present ones sorted.
-            present_ids = list(
-                db.scalars(
-                    select(Food.id).where(
-                        Food.family_id == family_id,
-                        Food.id.in_(ordered_food_ids),
-                    )
-                )
-            )
-            if present_ids:
-                locked_foods = lock_inventory_targets(
-                    db,
-                    family_id=family_id,
-                    food_ids=_unique_sorted_ids(present_ids),
-                ).foods
+        locked_foods = _lock_present_foods(
+            db,
+            family_id=family_id,
+            food_ids=ordered_food_ids,
+        )
 
     meal_log = db.scalar(
         select(MealLog)
