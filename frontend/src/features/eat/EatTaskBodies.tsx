@@ -1208,8 +1208,11 @@ export function EatMealCreateTaskBody(props: {
 }) {
   const food = props.food;
   const planItem = props.planItem;
-  const initialDate = props.date ?? planItem?.plan_date ?? todayKey();
-  const initialMealType = props.mealType ?? planItem?.meal_type ?? (food ? getDefaultMealType(food) : 'dinner');
+  // Plan-sourced complete always records on the plan slot (backend enforces plan_date/meal_type).
+  const slotLocked = Boolean(planItem);
+  const initialDate = planItem?.plan_date ?? props.date ?? todayKey();
+  const initialMealType =
+    planItem?.meal_type ?? props.mealType ?? (food ? getDefaultMealType(food) : 'dinner');
 
   const [date, setDate] = useState(initialDate);
   const [mealType, setMealType] = useState<MealType>(initialMealType);
@@ -1219,6 +1222,16 @@ export function EatMealCreateTaskBody(props: {
   const [clientRequestId] = useState(() => `eat-record-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep local slot state pinned when planItem is present (or planItem identity changes).
+  useEffect(() => {
+    if (!planItem) return;
+    setDate(planItem.plan_date);
+    setMealType(planItem.meal_type);
+    setTarget({ kind: 'new' });
+    setSelectedCandidateId(null);
+    setCandidateMode('none');
+  }, [planItem?.id, planItem?.plan_date, planItem?.meal_type]);
 
   // Recipe + plan source opens cook owner instead of ordinary record.
   useEffect(() => {
@@ -1234,11 +1247,14 @@ export function EatMealCreateTaskBody(props: {
     }
   }, [food, planItem, props]);
 
+  // Candidates always follow the effective (locked-when-plan) slot — same pattern as EatPlanTaskBody.
+  const effectiveDate = planItem?.plan_date ?? date;
+  const effectiveMealType = planItem?.meal_type ?? mealType;
   const needsCandidates = Boolean(food) && !planItem?.recipe_id;
   const candidateQuery = useMealCandidateData({
     open: needsCandidates,
-    date,
-    mealType,
+    date: effectiveDate,
+    mealType: effectiveMealType,
   });
   const candidates = candidateQuery.candidates;
   const candidatesFetched = candidateQuery.query.isFetched;
@@ -1248,12 +1264,12 @@ export function EatMealCreateTaskBody(props: {
 
   useEffect(() => {
     if (!needsCandidates || !candidatesFetched) return;
-    const presentation = deriveCandidatePresentation(candidates, mealType);
+    const presentation = deriveCandidatePresentation(candidates, effectiveMealType);
     setTarget(presentation.target);
     setSelectedCandidateId(presentation.selectedCandidateId);
     setCandidateMode(presentation.mode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsCandidates, date, mealType, candidateIdsKey, candidatesFetched]);
+  }, [needsCandidates, effectiveDate, effectiveMealType, candidateIdsKey, candidatesFetched]);
 
   if (!food) {
     return (
@@ -1277,7 +1293,9 @@ export function EatMealCreateTaskBody(props: {
     return null;
   }
 
-  const dateOptions = Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index));
+  const dateOptions = slotLocked
+    ? [effectiveDate]
+    : Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index));
   const cover = getFoodCoverAsset(food, props.recipes) ?? null;
   const isBusy = busy || Boolean(props.isSubmitting) || Boolean(props.isCompletingPlan);
 
@@ -1285,7 +1303,7 @@ export function EatMealCreateTaskBody(props: {
     if (!food || isBusy) return;
     setError(null);
 
-    // Plan complete is a separate owner command (never ordinary record undo).
+    // Plan complete is a separate owner command (never ordinary record undo / never publish record result).
     if (planItem) {
       setBusy(true);
       try {
@@ -1311,8 +1329,8 @@ export function EatMealCreateTaskBody(props: {
     try {
       payload = buildRecordMealPayload({
         clientRequestId,
-        date,
-        mealType,
+        date: effectiveDate,
+        mealType: effectiveMealType,
         target,
         foods: [
           {
@@ -1349,8 +1367,8 @@ export function EatMealCreateTaskBody(props: {
         cover,
         servings: 1,
       }}
-      date={date}
-      mealType={mealType}
+      date={effectiveDate}
+      mealType={effectiveMealType}
       dateOptions={dateOptions}
       candidates={candidates}
       selectedCandidateId={selectedCandidateId}
@@ -1358,15 +1376,18 @@ export function EatMealCreateTaskBody(props: {
       target={target}
       busy={isBusy}
       error={error}
+      slotLocked={slotLocked}
       overlayRootClassName="eat-task-body-overlay-root"
       onClose={props.onClose}
       onDateChange={(next) => {
+        if (slotLocked) return;
         setDate(next);
         setTarget({ kind: 'new' });
         setSelectedCandidateId(null);
         setCandidateMode('none');
       }}
       onMealTypeChange={(next) => {
+        if (slotLocked) return;
         setMealType(next);
         setTarget({ kind: 'new' });
         setSelectedCandidateId(null);

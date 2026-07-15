@@ -223,20 +223,6 @@ export async function invalidateAfterFoodPlanCompleted(queryClient: QueryClient)
   ]);
 }
 
-export async function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [
-    queryKeys.mealLogs,
-    queryKeys.mealCandidatesRoot,
-    queryKeys.mealInsights,
-    queryKeys.foodPlanRoot,
-    queryKeys.foods,
-    queryKeys.inventoryOverviewRoot,
-    queryKeys.foodRecommendations,
-    queryKeys.activityLogs,
-    queryKeys.activityHighlights,
-  ]);
-}
-
 export async function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
   await invalidateMany(queryClient, [
     queryKeys.aiMessages(conversationId),

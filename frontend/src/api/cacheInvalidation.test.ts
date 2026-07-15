@@ -14,7 +14,6 @@ import {
   invalidateAfterMealRecordReverted,
   invalidateAfterMemberChanged,
   invalidateAfterRecipeCooked,
-  invalidateAfterQuickMealAdded,
   invalidateAfterSearchIndexJobChanged,
   invalidateAfterShoppingChanged,
 } from './cacheInvalidation';
@@ -77,7 +76,7 @@ describe('cacheInvalidation', () => {
     ]);
   });
 
-  it('invalidates the inventory overview root for food and quick meal changes', async () => {
+  it('invalidates the inventory overview root for food changes', async () => {
     const foodQueryClient = fakeQueryClient();
     await invalidateAfterFoodChanged(foodQueryClient);
 
@@ -87,21 +86,6 @@ describe('cacheInvalidation', () => {
       ['food-recommendations'],
       ['meal-logs', 'insights'],
       ['activity-logs'],
-    ]);
-
-    const mealQueryClient = fakeQueryClient();
-    await invalidateAfterQuickMealAdded(mealQueryClient);
-
-    expect(invalidatedKeys(mealQueryClient)).toEqual([
-      ['meal-logs'],
-      ['meal-logs', 'candidates'],
-      ['meal-logs', 'insights'],
-      ['food-plan'],
-      ['foods'],
-      ['inventory', 'overview'],
-      ['food-recommendations'],
-      ['activity-logs'],
-      ['activity-highlights'],
     ]);
   });
 
@@ -221,7 +205,7 @@ describe('cacheInvalidation', () => {
     invalidateAfterFoodPlanChanged,
     invalidateAfterRecipeCooked,
     invalidateAfterMealLogChanged,
-    invalidateAfterQuickMealAdded,
+    invalidateAfterMealRecorded,
   ])('invalidates the activity-highlight prefix for eligible outcomes', async (invalidate) => {
     const queryClient = fakeQueryClient();
     await invalidate(queryClient);

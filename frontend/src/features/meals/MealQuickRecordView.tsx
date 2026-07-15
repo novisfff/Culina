@@ -40,6 +40,8 @@ export type MealQuickRecordViewProps = {
   target: RecordMealTarget;
   busy?: boolean;
   error?: string | null;
+  /** When true, date/mealType controls are fixed (plan-sourced complete). */
+  slotLocked?: boolean;
   overlayRootClassName?: string;
   onClose: () => void;
   onDateChange: (date: string) => void;
@@ -54,6 +56,8 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
   }
 
   const busy = Boolean(props.busy);
+  const slotLocked = Boolean(props.slotLocked);
+  const controlsDisabled = busy || slotLocked;
   const formId = 'meal-quick-record-form';
   const draftFoods: MealComposerFood[] = [
     {
@@ -126,7 +130,12 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
 
           <div className="meal-quick-record-field">
             <span>日期</span>
-            <div className="meal-quick-record-date-strip" role="listbox" aria-label="选择日期">
+            <div
+              className="meal-quick-record-date-strip"
+              role="listbox"
+              aria-label="选择日期"
+              aria-disabled={slotLocked || undefined}
+            >
               {props.dateOptions.map((dateKey) => {
                 const parts = getMealDateStripParts(dateKey);
                 const label = mealDateStripLabel(dateKey);
@@ -139,9 +148,13 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
                         ? 'meal-quick-record-date-option is-active'
                         : 'meal-quick-record-date-option'
                     }
-                    disabled={busy}
+                    disabled={controlsDisabled}
                     aria-selected={props.date === dateKey}
-                    onClick={() => props.onDateChange(dateKey)}
+                    onClick={() => {
+                      if (!controlsDisabled) {
+                        props.onDateChange(dateKey);
+                      }
+                    }}
                   >
                     <span>{label}</span>
                     <strong>
@@ -155,7 +168,12 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
 
           <div className="meal-quick-record-field">
             <span>餐次</span>
-            <div className="meal-quick-record-segments" role="radiogroup" aria-label="选择餐次">
+            <div
+              className="meal-quick-record-segments"
+              role="radiogroup"
+              aria-label="选择餐次"
+              aria-disabled={slotLocked || undefined}
+            >
               {MEAL_OPTIONS.map((meal) => (
                 <button
                   key={meal.value}
@@ -167,8 +185,12 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
                       ? 'meal-quick-record-segment is-active'
                       : 'meal-quick-record-segment'
                   }
-                  disabled={busy}
-                  onClick={() => props.onMealTypeChange(meal.value)}
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    if (!controlsDisabled) {
+                      props.onMealTypeChange(meal.value);
+                    }
+                  }}
                 >
                   {meal.label}
                 </button>

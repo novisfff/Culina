@@ -567,6 +567,106 @@ describe('EatMealCreateTaskBody', () => {
     expect(onRecordSuccess).toHaveBeenCalledWith(response);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('locks plan-sourced meal-create date/mealType to the plan slot for candidates and complete', async () => {
+    const planItem = makePlanItem({
+      recipe_id: null,
+      plan_date: '2026-07-15',
+      meal_type: 'dinner',
+    });
+    const food = makeFood({ recipe_id: null });
+    const getMealCandidates = vi.spyOn(api, 'getMealCandidates').mockResolvedValue([
+      {
+        meal_log_id: 'meal-other-slot',
+        row_version: 1,
+        date: '2026-07-16',
+        meal_type: 'lunch',
+        created_at: '2026-07-16T04:00:00Z',
+        foods: [{ food_id: 'food-x', name: 'Other', food_type: 'readyMade' }],
+        preview_media: null,
+        photo_count: 0,
+      },
+    ]);
+    const completeFoodPlanItem = vi.fn(async () => ({
+      id: 'meal-plan-locked',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    } satisfies MealLog));
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+
+    renderWithQuery(
+      <EatMealCreateTaskBody
+        food={food}
+        planItem={planItem}
+        date="2026-07-20"
+        mealType="breakfast"
+        recipes={[]}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(getMealCandidates).toHaveBeenCalled());
+    // Candidates must load for the plan slot, never the outer task date/mealType props.
+    expect(getMealCandidates).toHaveBeenCalledWith(planItem.plan_date, planItem.meal_type);
+    for (const call of getMealCandidates.mock.calls) {
+      expect(call[0]).toBe(planItem.plan_date);
+      expect(call[1]).toBe(planItem.meal_type);
+    }
+
+    const dateStrip = screen.getByRole('listbox', { name: '选择日期' });
+    const dateButtons = Array.from(dateStrip.querySelectorAll('button'));
+    expect(dateButtons).toHaveLength(1);
+    expect(dateButtons[0]).toBeDisabled();
+    expect(dateButtons[0]).toHaveAttribute('aria-selected', 'true');
+    expect(dateStrip).toHaveAttribute('aria-disabled', 'true');
+
+    const mealButtons = screen.getAllByRole('radio');
+    for (const button of mealButtons) {
+      expect(button).toBeDisabled();
+    }
+    const dinnerButton = screen.getByRole('radio', { name: '晚餐' });
+    expect(dinnerButton).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radiogroup', { name: '选择餐次' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    // Clicks on locked controls must not re-fetch a mismatched slot.
+    getMealCandidates.mockClear();
+    await userEvent.click(dinnerButton);
+    const lunchButton = screen.getByRole('radio', { name: '午餐' });
+    await userEvent.click(lunchButton);
+    expect(getMealCandidates).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(completeFoodPlanItem).toHaveBeenCalled());
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
+      expect.objectContaining({
+        food_plan_item_base_updated_at: planItem.updated_at,
+      }),
+    );
+    // completeFoodPlanItem never receives UI date/mealType — backend uses plan slot.
+    const completePayload = (completeFoodPlanItem.mock.calls[0] as unknown as [string, Record<string, unknown>])[1];
+    expect(completePayload).not.toHaveProperty('date');
+    expect(completePayload).not.toHaveProperty('meal_type');
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
+  });
 });
 
 describe('EatCookTaskBody finish dialog', () => {

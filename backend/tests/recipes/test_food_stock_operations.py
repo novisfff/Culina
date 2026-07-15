@@ -216,7 +216,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
             self.assertEqual(len(meal_entries), 1)
 
-    def test_plan_complete_does_not_mutate_stock_and_replay_is_conflict(self) -> None:
+    def test_plan_complete_does_not_mutate_stock_and_replay_is_idempotent(self) -> None:
         food = self._ready_food(id="food-stock-replay", stock_quantity=Decimal("3"))
         with self.SessionLocal() as db:
             db.add(food)
