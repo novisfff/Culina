@@ -13,7 +13,20 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.repos.meal_log_candidates import list_meal_log_candidates, serialize_meal_log_candidates
 from app.repos.meal_log_record_operations import MealRecordIdempotencyError
-from app.schemas.meal_recording import MealLogCandidateOut, RecordMealRequest, RecordMealResponse
+from app.schemas.meal_recording import (
+    MealLogCandidateOut,
+    MealLogRecordOperationSummaryOut,
+    RecordMealRequest,
+    RecordMealResponse,
+    RevertMealRecordResponse,
+)
+from app.services.meal_log_record_history import (
+    MealRecordHistoryError,
+    MealRecordHistoryNotFoundError,
+    MealRecordHistoryPermissionError,
+    list_active_record_operations,
+    revert_record_operation,
+)
 from app.services.meal_log_references import MealLogReferenceError
 from app.services.meal_log_versions import (
     MEAL_LOG_NOT_FOUND_CODE,
@@ -71,6 +84,71 @@ def get_meal_log_candidates(
         family_id=membership.family_id,
         meal_logs=meal_logs,
     )
+
+
+@router.get(
+    "/api/meal-logs/record-operations",
+    response_model=list[MealLogRecordOperationSummaryOut],
+)
+def get_active_record_operations(
+    active: bool = Query(...),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[MealLogRecordOperationSummaryOut]:
+    if not active:
+        return []
+    user, membership = auth
+    return list_active_record_operations(
+        db,
+        family_id=membership.family_id,
+        actor_user_id=user.id,
+        user_role=membership.role,
+        now=utcnow(),
+    )
+
+
+@router.post(
+    "/api/meal-logs/record-operations/{operation_id}/revert",
+    response_model=RevertMealRecordResponse,
+)
+def post_revert_record_operation(
+    operation_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> RevertMealRecordResponse:
+    user, membership = auth
+    try:
+        result = revert_record_operation(
+            db,
+            family_id=membership.family_id,
+            actor_user_id=user.id,
+            user_role=membership.role,
+            operation_id=operation_id,
+            now=utcnow(),
+        )
+        commit_session(db)
+        return result
+    except MealRecordHistoryNotFoundError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except MealRecordHistoryPermissionError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except MealRecordHistoryError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/api/meal-logs/record", response_model=RecordMealResponse)

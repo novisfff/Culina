@@ -173,3 +173,26 @@ class RecordMealResponse(BaseModel):
     created_foods: list[FoodOut]
     outcome: Literal["created", "appended", "replayed"]
     operation: MealLogRecordOperationOut
+
+
+class MealLogRecordOperationFoodSummaryOut(BaseModel):
+    food_id: str
+    name: str
+    food_type: str
+    cover: MediaAssetOut | None = None
+
+
+class MealLogRecordOperationSummaryOut(BaseModel):
+    id: str
+    meal_log_id: str
+    foods: list[MealLogRecordOperationFoodSummaryOut]
+    preview_media: MediaAssetOut | None = None
+    revertible_until: datetime
+    can_revert: bool
+
+
+class RevertMealRecordResponse(BaseModel):
+    status: Literal["reverted"]
+    meal_log: MealLogOut | None
+    removed_food_ids: list[str]
+    replayed: bool

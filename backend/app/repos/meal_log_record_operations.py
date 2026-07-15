@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,12 @@ IDEMPOTENCY_KEY_REUSED_MESSAGE = "相同请求标识已用于不同内容，请�
 RECORD_OPERATION_REVERTED_CODE = "record_operation_reverted"
 RECORD_OPERATION_REVERTED_MESSAGE = "该快速记录已被撤销，请重新发起记录"
 RECORD_REVERT_WINDOW = timedelta(minutes=15)
+
+
+def _as_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 class MealRecordIdempotencyError(ValueError):
@@ -130,3 +136,46 @@ def claim_record_operation(
         return winner, False
 
     return operation, True
+
+
+def get_family_record_operation(
+    db: Session,
+    *,
+    family_id: str,
+    operation_id: str,
+    for_update: bool = False,
+) -> MealLogRecordOperation | None:
+    """Load one family-scoped record operation, optionally with FOR UPDATE."""
+    stmt = select(MealLogRecordOperation).where(
+        MealLogRecordOperation.family_id == family_id,
+        MealLogRecordOperation.id == operation_id,
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    return db.scalar(stmt)
+
+
+def list_active_record_operations_for_actor(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    now: datetime,
+) -> list[MealLogRecordOperation]:
+    """Return the actor's APPLIED operations still inside the revert window, newest first."""
+    current = _as_aware(now)
+    operations = list(
+        db.scalars(
+            select(MealLogRecordOperation)
+            .where(
+                MealLogRecordOperation.family_id == family_id,
+                MealLogRecordOperation.created_by == actor_user_id,
+                MealLogRecordOperation.status == MealLogRecordStatus.APPLIED,
+            )
+            .order_by(
+                MealLogRecordOperation.applied_at.desc(),
+                MealLogRecordOperation.id.desc(),
+            )
+        )
+    )
+    return [item for item in operations if _as_aware(item.revertible_until) >= current]

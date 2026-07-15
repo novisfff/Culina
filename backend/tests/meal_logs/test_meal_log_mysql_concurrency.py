@@ -205,3 +205,188 @@ def test_concurrent_identical_new_target_request_converges(mysql_concurrency_con
         all_op_meal_ids = {op.meal_log_id for op in operations}
         assert all_meal_ids == {winner_meal_id}
         assert all_op_meal_ids == {winner_meal_id}
+
+
+def test_record_append_versus_revert_no_deadlock(mysql_concurrency_context: dict) -> None:
+    """One transaction appends while another reverts an operation touching the same MealLog/Food."""
+    ctx = mysql_concurrency_context
+    client: TestClient = ctx["client"]
+
+    base = client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "mysql-base-for-race",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "new_foods": [],
+            "entries": [{"food_id": ctx["food_id"], "servings": 1}],
+        },
+    )
+    assert base.status_code == 200, base.text
+    meal = base.json()["meal_log"]
+
+    append = client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "mysql-append-for-race",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {
+                "kind": "existing",
+                "meal_log_id": meal["id"],
+                "expected_row_version": meal["row_version"],
+            },
+            "new_foods": [{"client_food_id": "local-race", "name": "并发菜", "type": "selfMade"}],
+            "entries": [{"client_food_id": "local-race", "servings": 1}],
+        },
+    )
+    assert append.status_code == 200, append.text
+    operation_id = append.json()["operation"]["id"]
+    meal_id = append.json()["meal_log"]["id"]
+    version = append.json()["meal_log"]["row_version"]
+    created_food_id = append.json()["created_foods"][0]["id"]
+
+    # Seed a second existing Food so append can race without depending on the created food.
+    with ctx["SessionLocal"]() as db:
+        extra = Food(
+            id="food-meal-mysql-extra",
+            family_id=ctx["family_id"],
+            name="并发追加菜",
+            type=FoodType.SELF_MADE,
+            category="家常",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["dinner"],
+            source_name="",
+            purchase_source="",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_unit="",
+            favorite=False,
+            created_by=ctx["user_id"],
+            updated_by=ctx["user_id"],
+        )
+        db.add(extra)
+        db.commit()
+
+    def append_worker() -> dict:
+        response = client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "mysql-append-race-worker",
+                "date": "2026-07-15",
+                "meal_type": "dinner",
+                "target": {
+                    "kind": "existing",
+                    "meal_log_id": meal_id,
+                    "expected_row_version": version,
+                },
+                "new_foods": [],
+                "entries": [{"food_id": "food-meal-mysql-extra", "servings": 1}],
+            },
+        )
+        return {"name": "append", "status_code": response.status_code, "body": response.json()}
+
+    def revert_worker() -> dict:
+        response = client.post(f"/api/meal-logs/record-operations/{operation_id}/revert")
+        return {"name": "revert", "status_code": response.status_code, "body": response.json()}
+
+    results = _run_barriered([append_worker, revert_worker])
+    by_name = {item["name"]: item for item in results}
+    assert by_name["append"]["status_code"] in {200, 409}, results
+    assert by_name["revert"]["status_code"] == 200, results
+
+    with ctx["SessionLocal"]() as db:
+        meal_row = db.get(MealLog, meal_id)
+        assert meal_row is not None
+        entries = list(db.scalars(select(MealLogFood).where(MealLogFood.meal_log_id == meal_id)))
+        # Base entry must remain; append effect entries removed; concurrent append may or may not land.
+        food_ids = {entry.food_id for entry in entries}
+        assert ctx["food_id"] in food_ids
+        # Every remaining entry Food must exist.
+        for entry in entries:
+            assert db.get(Food, entry.food_id) is not None
+        op = db.get(MealLogRecordOperation, operation_id)
+        assert op is not None
+        assert op.status.value == "reverted" or str(op.status) == "reverted"
+        # Created Food may be deleted only if unused; if concurrent append reused it (it doesn't),
+        # remaining entries must not reference a missing Food.
+        if created_food_id in food_ids:
+            assert db.get(Food, created_food_id) is not None
+
+
+def test_reuse_created_food_versus_revert_no_deadlock(mysql_concurrency_context: dict) -> None:
+    """One transaction reuses a just-created minimal Food while another reverts its creator."""
+    ctx = mysql_concurrency_context
+    client: TestClient = ctx["client"]
+
+    created = client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "mysql-create-for-reuse",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "new_foods": [{"client_food_id": "local-reuse", "name": "可复用菜", "type": "selfMade"}],
+            "entries": [{"client_food_id": "local-reuse", "servings": 1}],
+        },
+    )
+    assert created.status_code == 200, created.text
+    operation_id = created.json()["operation"]["id"]
+    meal_id = created.json()["meal_log"]["id"]
+    created_food_id = created.json()["created_foods"][0]["id"]
+
+    def reuse_worker() -> dict:
+        response = client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "mysql-reuse-worker",
+                "date": "2026-07-16",
+                "meal_type": "lunch",
+                "target": {"kind": "new"},
+                "new_foods": [],
+                "entries": [{"food_id": created_food_id, "servings": 1}],
+            },
+        )
+        return {"name": "reuse", "status_code": response.status_code, "body": response.json()}
+
+    def revert_worker() -> dict:
+        response = client.post(f"/api/meal-logs/record-operations/{operation_id}/revert")
+        return {"name": "revert", "status_code": response.status_code, "body": response.json()}
+
+    results = _run_barriered([reuse_worker, revert_worker])
+    by_name = {item["name"]: item for item in results}
+    assert by_name["reuse"]["status_code"] in {200, 404, 409}, results
+    assert by_name["revert"]["status_code"] == 200, results
+
+    with ctx["SessionLocal"]() as db:
+        # All remaining MealLogFood rows must reference existing Foods.
+        entries = list(db.scalars(select(MealLogFood)))
+        for entry in entries:
+            assert db.get(Food, entry.food_id) is not None, entry.id
+
+        reuse_ok = by_name["reuse"]["status_code"] == 200
+        food = db.get(Food, created_food_id)
+        if reuse_ok:
+            # Food reused by the winning record must never be deleted.
+            assert food is not None
+            reuse_meal_id = by_name["reuse"]["body"]["meal_log"]["id"]
+            reuse_entries = list(
+                db.scalars(select(MealLogFood).where(MealLogFood.meal_log_id == reuse_meal_id))
+            )
+            assert any(entry.food_id == created_food_id for entry in reuse_entries)
+        else:
+            # Revert may have deleted the Food before reuse, causing 404; original meal should be gone
+            # or emptied of the effect entries.
+            original = db.get(MealLog, meal_id)
+            if original is not None:
+                original_entries = list(
+                    db.scalars(select(MealLogFood).where(MealLogFood.meal_log_id == meal_id))
+                )
+                assert all(entry.food_id != created_food_id or food is not None for entry in original_entries)
+
+        op = db.get(MealLogRecordOperation, operation_id)
+        assert op is not None
+        assert op.status.value == "reverted" or str(op.status) == "reverted"
