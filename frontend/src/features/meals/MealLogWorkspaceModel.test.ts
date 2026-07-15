@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MealLog, Member } from '../../api/types';
+import type { MealInsight, MealLog, Member } from '../../api/types';
 import {
+  buildMealInsightPresentation,
   buildMealLogWorkspaceViewModel,
   filterMealLogs,
   getMealMediaCount,
@@ -166,5 +167,102 @@ describe('MealLogWorkspaceModel', () => {
       mealFilter: 'all',
     });
     expect(model.selectedMeal?.id).toBe('new');
+  });
+});
+
+function makeInsight(overrides: Partial<MealInsight> & Pick<MealInsight, 'kind'>): MealInsight {
+  return {
+    kind: overrides.kind,
+    food: {
+      id: 'food-1',
+      name: '番茄炒蛋',
+      food_type: 'selfMade',
+      cover: null,
+      ...overrides.food,
+    },
+    evidence: {
+      meal_count: 4,
+      last_eaten_on: '2026-07-10',
+      rating_count: 2,
+      average_rating: 4.5,
+      window_days: 30,
+      ...overrides.evidence,
+    },
+  };
+}
+
+describe('buildMealInsightPresentation', () => {
+  it('maps repurchase takeout to 值得再点 with rating evidence', () => {
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'repurchase',
+          food: { id: 'food-t', name: '黄焖鸡', food_type: 'takeout', cover: null },
+          evidence: {
+            meal_count: 3,
+            last_eaten_on: '2026-07-01',
+            rating_count: 2,
+            average_rating: 4.5,
+            window_days: 180,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '值得再点',
+      evidence: '2 次评分，平均 4.5 分',
+    });
+  });
+
+  it('maps missed title and days-ago evidence from window_days', () => {
+    const missed = makeInsight({
+      kind: 'missed',
+      evidence: {
+        meal_count: 5,
+        last_eaten_on: '2026-06-07',
+        rating_count: 0,
+        average_rating: null,
+        window_days: 38,
+      },
+    });
+    expect(buildMealInsightPresentation(missed).title).toBe('一个月没吃');
+    expect(buildMealInsightPresentation(missed).evidence).toBe('上次是 38 天前');
+  });
+
+  it('maps frequent and repeated meal-count evidence from API facts only', () => {
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'frequent_recent',
+          evidence: {
+            meal_count: 4,
+            last_eaten_on: '2026-07-10',
+            rating_count: 0,
+            average_rating: null,
+            window_days: 30,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '家里最近常吃',
+      evidence: '近 30 天吃了 4 顿',
+    });
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'repeated_choice',
+          food: { id: 'f5', name: '咖啡', food_type: 'readyMade', cover: null },
+          evidence: {
+            meal_count: 2,
+            last_eaten_on: '2026-07-12',
+            rating_count: 0,
+            average_rating: null,
+            window_days: 30,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '最近常选',
+      evidence: '近 30 天吃了 2 顿',
+    });
   });
 });

@@ -113,6 +113,7 @@ type Props = {
   onRecordMeal?: () => void;
   notificationCenter?: ReactNode;
   resultBar?: ReactNode;
+  memoryStrip?: ReactNode;
   /** Result-linked meal for inline rating; must be that meal, not selectedMeal. */
   inlineRatingMeal?: MealLog | null;
   isUpdatingMeal?: boolean;
@@ -152,7 +153,9 @@ export function MealLogMobileView(props: Props) {
 
       {props.resultBar}
 
-      <section className="mobile-log-memory-slot" data-memory-slot="true" aria-label="家庭记忆" />
+      <div className="mobile-log-memory-slot" data-memory-slot="true">
+        {props.memoryStrip}
+      </div>
 
       <label className="mobile-log-search-field">
         <span aria-hidden="true">

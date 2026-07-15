@@ -1,4 +1,4 @@
-import type { MealLog, Member } from '../../api/types';
+import type { MealInsight, MealInsightKind, MealLog, Member } from '../../api/types';
 import { addDateKeyDays } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import { buildMealTitle, getMealRatingSummary } from './MealLogEnrichmentModel';
@@ -137,6 +137,64 @@ export function buildMealLogWorkspaceViewModel(args: {
     selectedParticipantCount: selectedMeal ? getMealParticipantCount(selectedMeal) : null,
     selectedMediaCount: selectedMeal ? getMealMediaCount(selectedMeal) : null,
     groupedMeals: groupMealsByDate(filteredMeals),
+  };
+}
+
+export type MealInsightPresentation = {
+  title: string;
+  evidence: string;
+};
+
+const REPURCHASE_TITLE_BY_FOOD_TYPE: Record<string, string> = {
+  readyMade: '值得回购',
+  instant: '值得回购',
+  packaged: '值得回购',
+  takeout: '值得再点',
+  diningOut: '值得再去',
+};
+
+function formatAverageRating(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
+ * Map stable insight kind + API evidence facts to Chinese family-language copy.
+ * Does not recompute 30/180-day eligibility or rating thresholds.
+ */
+export function buildMealInsightPresentation(insight: MealInsight): MealInsightPresentation {
+  const { kind, evidence, food } = insight;
+
+  const titleByKind: Record<MealInsightKind, string> = {
+    frequent_recent: '家里最近常吃',
+    missed: '一个月没吃',
+    repurchase: REPURCHASE_TITLE_BY_FOOD_TYPE[food.food_type] ?? '值得回购',
+    repeated_choice: '最近常选',
+  };
+
+  let evidenceText: string;
+  switch (kind) {
+    case 'frequent_recent':
+    case 'repeated_choice':
+      evidenceText = `近 ${evidence.window_days} 天吃了 ${evidence.meal_count} 顿`;
+      break;
+    case 'missed':
+      evidenceText = `上次是 ${evidence.window_days} 天前`;
+      break;
+    case 'repurchase': {
+      const average =
+        evidence.average_rating == null ? '—' : formatAverageRating(evidence.average_rating);
+      evidenceText = `${evidence.rating_count} 次评分，平均 ${average} 分`;
+      break;
+    }
+    default: {
+      const _exhaustive: never = kind;
+      evidenceText = String(_exhaustive);
+    }
+  }
+
+  return {
+    title: titleByKind[kind],
+    evidence: evidenceText,
   };
 }
 

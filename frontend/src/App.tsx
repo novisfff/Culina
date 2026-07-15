@@ -249,6 +249,7 @@ function App() {
     foodScenesQuery,
     foodsQuery,
     mealLogsQuery,
+    mealInsightsQuery,
     activityLogsQuery,
     activityHighlightsQuery,
     aiConversationsQuery,
@@ -267,6 +268,7 @@ function App() {
     foods,
     foodRecommendations,
     mealLogs,
+    mealInsights,
     aiConversations,
     family,
   } = useAppWorkspaceQueries({
@@ -1378,6 +1380,19 @@ function App() {
                   members={members}
                   recentMeals={recentMeals}
                   foods={foods}
+                  mealInsights={mealInsights}
+                  mealInsightsStatus={
+                    mealInsightsQuery.isError
+                      ? 'error'
+                      : mealInsightsQuery.isLoading || mealInsightsQuery.isPending
+                        ? 'loading'
+                        : mealInsightsQuery.isSuccess
+                          ? 'success'
+                          : 'idle'
+                  }
+                  onRetryMealInsights={() => {
+                    void mealInsightsQuery.refetch();
+                  }}
                   isUpdatingMeal={updateMealMutation.isPending}
                   notificationCenter={mobileNotificationCenter}
                   focusMealLogId={

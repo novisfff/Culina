@@ -744,6 +744,8 @@ const fixtures = {
   // Phase-one meal recording surfaces (Task 16): boot + dialog support.
   '/api/meal-logs/record-operations': [],
   '/api/meal-logs/candidates': [],
+  // Phase-two family memories (Task 18): history view only.
+  '/api/meal-logs/insights': [],
   '/api/ai/conversations': [],
   '/api/ai/status': {
     enabled: true,
@@ -1007,6 +1009,11 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
     }
 
     if (request.method() === 'GET' && url.pathname === '/api/meal-logs/record-operations') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/insights') {
       await fulfillJson(route, []);
       return;
     }
@@ -1669,7 +1676,8 @@ async function runDesktopSmoke(browser, baseUrl) {
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', '吃什么/吃过的');
+  await expectVisibleText(page, '吃过的', '吃什么/吃过的');
+  await expectVisibleText(page, '家庭时间线', '吃什么/吃过的时间线');
   await expectNoHorizontalOverflow(page, '桌面工作台切换');
   assertClean();
   await context.close();
@@ -1912,32 +1920,28 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', '1180x820 吃过的');
-  await expectNoHorizontalOverflow(page, '1180x820 餐食记录页');
-  const mealLogMetricLayout = await page.evaluate(() => {
-    const grid = document.querySelector('.meal-log-command-grid');
-    const cards = grid ? Array.from(grid.querySelectorAll('.meal-log-metric-card')) : [];
-    const tops = cards.map((card) => Math.round(card.getBoundingClientRect().top));
+  await expectVisibleText(page, '吃过的', '1180x820 吃过的');
+  await expectVisibleText(page, '家庭时间线', '1180x820 吃过的时间线');
+  await expectNoHorizontalOverflow(page, '1180x820 吃过的页');
+  // Empty insights keep the memory section out of the page; timeline remains first content.
+  const mealHistoryLayout = await page.evaluate(() => {
+    const memoryCards = document.querySelectorAll('.meal-memory-card');
+    const memoryError = document.querySelector('.meal-memory-error');
+    const timelineHead = document.querySelector('.meal-log-timeline-head h2');
     return {
-      columns: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
-      count: cards.length,
-      tops,
-      overflow: grid ? grid.scrollWidth - grid.clientWidth : Number.POSITIVE_INFINITY,
+      memoryCardCount: memoryCards.length,
+      hasMemoryError: Boolean(memoryError),
+      timelineVisible: Boolean(timelineHead && getComputedStyle(timelineHead).display !== 'none'),
+      timelineText: timelineHead?.textContent?.trim() ?? '',
     };
   });
-  const mealLogMetricTopSpread =
-    mealLogMetricLayout.tops.length > 0
-      ? Math.max(...mealLogMetricLayout.tops) - Math.min(...mealLogMetricLayout.tops)
-      : Number.POSITIVE_INFINITY;
-  if (
-    mealLogMetricLayout.columns !== 4 ||
-    mealLogMetricLayout.count !== 4 ||
-    mealLogMetricTopSpread > 2 ||
-    mealLogMetricLayout.overflow > 1
-  ) {
+  if (mealHistoryLayout.memoryCardCount !== 0 || mealHistoryLayout.hasMemoryError) {
     throw new Error(
-      `1180x820 餐食记录统计卡布局异常：${mealLogMetricLayout.columns} 列/${mealLogMetricLayout.count} 张，top=${mealLogMetricLayout.tops.join(',')}，溢出 ${mealLogMetricLayout.overflow}`
+      `1180x820 空家庭记忆仍渲染了区域：cards=${mealHistoryLayout.memoryCardCount} error=${mealHistoryLayout.hasMemoryError}`,
     );
+  }
+  if (!mealHistoryLayout.timelineVisible || mealHistoryLayout.timelineText !== '家庭时间线') {
+    throw new Error(`1180x820 吃过的时间线不可见：${mealHistoryLayout.timelineText}`);
   }
 
   await page.evaluate(() => {
@@ -2333,7 +2337,8 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await expectVisible(page.locator('.food-mobile-view'), `${label} 发现`);
   await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', `${label} 吃过的`);
+  await expectVisibleText(page, '吃过的', `${label} 吃过的`);
+  await expectVisibleText(page, '家庭时间线', `${label} 吃过的时间线`);
   await expectNoHorizontalOverflow(page, label);
   assertClean();
   await context.close();

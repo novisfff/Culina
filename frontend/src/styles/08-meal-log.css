@@ -1851,6 +1851,178 @@
   min-height: 0;
 }
 
+.meal-memory-strip {
+  display: grid;
+  gap: 10px;
+}
+
+.meal-memory-strip-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(148px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.meal-memory-strip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.meal-memory-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.meal-memory-card-media {
+  position: relative;
+  width: 64px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(247, 242, 236, 0.9);
+  flex: 0 0 auto;
+}
+
+.meal-memory-card-media .media-with-placeholder,
+.meal-memory-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.meal-memory-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meal-memory-card-title {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.meal-memory-card-name,
+.meal-memory-card-evidence {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-memory-card-name {
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.meal-memory-card-evidence {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.meal-memory-card-skeleton {
+  pointer-events: none;
+}
+
+.meal-memory-card-skeleton .meal-memory-card-media,
+.meal-memory-skeleton-line {
+  background: linear-gradient(
+    90deg,
+    rgba(244, 235, 225, 0.9) 0%,
+    rgba(255, 252, 248, 0.95) 50%,
+    rgba(244, 235, 225, 0.9) 100%
+  );
+  background-size: 200% 100%;
+  animation: meal-memory-shimmer 1.4s ease-in-out infinite;
+}
+
+.meal-memory-skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.meal-memory-skeleton-line.is-short {
+  width: 62%;
+  height: 10px;
+}
+
+.meal-memory-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.meal-memory-retry {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.meal-memory-retry:hover {
+  border-color: rgba(210, 107, 51, 0.35);
+  color: var(--accent-strong);
+}
+
+.meal-memory-retry:focus-visible {
+  outline: 2px solid rgba(210, 107, 51, 0.45);
+  outline-offset: 2px;
+}
+
+@keyframes meal-memory-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meal-memory-card-skeleton .meal-memory-card-media,
+  .meal-memory-skeleton-line {
+    animation: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .meal-log-memory-slot .meal-memory-strip-row {
+    display: grid;
+    grid-auto-flow: unset;
+    grid-auto-columns: unset;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    overflow: visible;
+  }
+}
+
 .meal-log-record-block {
   display: grid;
   gap: 8px;

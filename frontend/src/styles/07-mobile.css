@@ -519,6 +519,34 @@
     padding: 14px 0 24px;
   }
 
+  .mobile-log-memory-slot {
+    padding: 0 16px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-strip-row {
+    grid-auto-columns: minmax(168px, 72vw);
+    gap: 10px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card {
+    grid-template-columns: 56px minmax(0, 1fr);
+    padding: 8px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-media {
+    width: 56px;
+    border-radius: 12px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-title {
+    font-size: 0.8125rem;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-name,
+  .mobile-log-memory-slot .meal-memory-card-evidence {
+    font-size: 0.75rem;
+  }
+
   .mobile-log-stat-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

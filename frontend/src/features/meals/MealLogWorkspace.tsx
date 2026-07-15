@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Food, FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealInsight, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import {
   ActionButton,
   Avatar,
@@ -25,6 +25,7 @@ import {
   MealTimelineMedia,
   buildMealTimelineRowModel,
 } from './MealLogMobileView';
+import { MealMemoryStrip, type MealMemoryStripStatus } from './MealMemoryStrip';
 import { MealRecordResultBar } from './MealRecordResultBar';
 import {
   MEAL_FILTERS,
@@ -44,6 +45,9 @@ type Props = {
   members: Member[];
   recentMeals: MealLog[];
   foods?: Food[];
+  mealInsights?: MealInsight[];
+  mealInsightsStatus?: MealMemoryStripStatus;
+  onRetryMealInsights?: () => void;
   isUpdatingMeal: boolean;
   notificationCenter?: ReactNode;
   /** When set, select this meal log (e.g. meal-detail eat task). */
@@ -132,6 +136,14 @@ export function MealLogWorkspace(props: Props) {
       />
     ) : null;
 
+  const memoryStrip = (
+    <MealMemoryStrip
+      insights={props.mealInsights ?? []}
+      status={props.mealInsightsStatus ?? 'idle'}
+      onRetry={() => props.onRetryMealInsights?.()}
+    />
+  );
+
   const desktopTimeline = (
     <main className="meal-log-desktop-view meal-log-center-page">
       <PageHeader
@@ -156,7 +168,9 @@ export function MealLogWorkspace(props: Props) {
 
       {resultBar}
 
-      <section className="meal-log-memory-slot" data-memory-slot="true" aria-label="家庭记忆" />
+      <div className="meal-log-memory-slot" data-memory-slot="true">
+        {memoryStrip}
+      </div>
 
       <section className="card meal-log-record-panel">
         <div className="meal-log-filter-bar">
@@ -315,6 +329,7 @@ export function MealLogWorkspace(props: Props) {
       onRecordMeal={props.onRecordMeal}
       notificationCenter={props.notificationCenter}
       resultBar={resultBar}
+      memoryStrip={memoryStrip}
       inlineRatingMeal={showResultInlineRating ? resultMeal : null}
       isUpdatingMeal={props.isUpdatingMeal}
       inlineRateError={inlineRateError}
