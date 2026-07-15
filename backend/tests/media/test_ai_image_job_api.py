@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -10,12 +10,29 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.ai.images.generation import ImageGenerationResult
+from app.ai.images.jobs import process_image_generation_job
 from app.core.deps import get_current_auth
-from app.core.enums import ImageGenerationMode, MediaEntityType, MembershipStatus, UserRole
+from app.core.enums import FoodType, ImageGenerationMode, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
 from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import AIImageGenerationJob, Base, Family, Membership, User
+from app.models.domain import AIImageGenerationJob, Base, Family, Food, MealLog, MealLogFood, MediaAsset, Membership, User
+
+
+class FakeImageGenerationClient:
+    def generate_from_text(self, request):
+        return ImageGenerationResult(
+            prompt="test",
+            svg_markup='<svg width="1" height="1" xmlns="http://www.w3.org/2000/svg"></svg>',
+            file_extension=".svg",
+            mime_type="image/svg+xml",
+            style_key="test-style",
+            prompt_version="test-version",
+        )
+
+    def generate_from_reference(self, request):
+        return self.generate_from_text(request)
 
 
 class AiImageJobApiTimestampTestCase(unittest.TestCase):
@@ -45,7 +62,45 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
                 role=UserRole.OWNER,
                 status=MembershipStatus.ACTIVE,
             )
-            db.add_all([family, user, membership])
+            food = Food(
+                id="food-meal",
+                family_id=family.id,
+                name="番茄炒蛋",
+                type=FoodType.SELF_MADE,
+                category="家常",
+                flavor_tags=[],
+                scene_tags=[],
+                suitable_meal_types=["dinner"],
+                source_name="",
+                purchase_source="",
+                scene="",
+                notes="",
+                routine_note="",
+                stock_quantity=None,
+                stock_unit="",
+                favorite=False,
+                created_by=user.id,
+                updated_by=user.id,
+            )
+            meal = MealLog(
+                id="meal-bind-target",
+                family_id=family.id,
+                date=date(2026, 5, 16),
+                meal_type=MealType.DINNER,
+                participant_user_ids=[user.id],
+                notes="",
+                mood="",
+                created_by=user.id,
+                updated_by=user.id,
+            )
+            entry = MealLogFood(
+                id="meal-food-bind",
+                meal_log_id=meal.id,
+                food_id=food.id,
+                servings=1,
+                note="",
+            )
+            db.add_all([family, user, membership, food, meal, entry])
             db.commit()
 
         def override_db():
@@ -155,6 +210,105 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
             assert job is not None
             self._assert_timestamp_fields(retry_payload, created_at=job.created_at, completed_at=job.completed_at)
             self.assertIsNone(job.completed_at)
+
+    def test_meal_log_bind_bumps_parent_version_once(self) -> None:
+        with self.SessionLocal() as db:
+            meal = db.get(MealLog, "meal-bind-target")
+            assert meal is not None
+            self.assertEqual(meal.row_version, 1)
+
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.MEAL_LOG.value,
+                "title": "晚餐照片",
+                "target_entity_type": "meal_log",
+                "target_entity_id": "meal-bind-target",
+            },
+        )
+        self.assertEqual(response.status_code, 202, response.text)
+        job_id = response.json()["job_id"]
+
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+
+        payload = self.client.get(f"/api/media/ai-render/{job_id}").json()
+        self.assertEqual(payload["bind_status"], "bound")
+        with self.SessionLocal() as db:
+            meal = db.get(MealLog, "meal-bind-target")
+            assert meal is not None
+            self.assertEqual(meal.row_version, 2)
+            self.assertEqual(meal.notes, "")
+            self.assertEqual(meal.mood, "")
+            self.assertEqual(meal.participant_user_ids, ["user-test"])
+            generated = db.get(MediaAsset, payload["generated_asset"]["id"])
+            assert generated is not None
+            self.assertEqual(generated.entity_type, "meal_log")
+            self.assertEqual(generated.entity_id, "meal-bind-target")
+
+    def test_meal_log_bind_skipped_or_unbound_does_not_bump_version(self) -> None:
+        with self.SessionLocal() as db:
+            user_asset = MediaAsset(
+                id="photo-user-meal",
+                family_id="family-test",
+                name="user-meal.png",
+                url="/media/family-test/user-meal.png",
+                file_path="family-test/user-meal.png",
+                source=MediaSource.UPLOAD,
+                alt="user meal photo",
+                entity_type="meal_log",
+                entity_id="meal-bind-target",
+                created_by="user-test",
+            )
+            db.add(user_asset)
+            db.commit()
+
+        skipped = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.MEAL_LOG.value,
+                "title": "晚餐照片",
+                "target_entity_type": "meal_log",
+                "target_entity_id": "meal-bind-target",
+            },
+        )
+        self.assertEqual(skipped.status_code, 202, skipped.text)
+        skipped_job_id = skipped.json()["job_id"]
+        process_image_generation_job(
+            skipped_job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+        skipped_payload = self.client.get(f"/api/media/ai-render/{skipped_job_id}").json()
+        self.assertEqual(skipped_payload["bind_status"], "skipped")
+
+        unbound = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.MEAL_LOG.value,
+                "title": "未绑定照片",
+            },
+        )
+        self.assertEqual(unbound.status_code, 202, unbound.text)
+        unbound_job_id = unbound.json()["job_id"]
+        process_image_generation_job(
+            unbound_job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+        unbound_payload = self.client.get(f"/api/media/ai-render/{unbound_job_id}").json()
+        self.assertEqual(unbound_payload["bind_status"], "unbound")
+
+        with self.SessionLocal() as db:
+            meal = db.get(MealLog, "meal-bind-target")
+            assert meal is not None
+            self.assertEqual(meal.row_version, 1)
 
 
 if __name__ == "__main__":

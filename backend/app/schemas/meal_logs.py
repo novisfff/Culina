@@ -44,6 +44,7 @@ class MealLogOut(BaseModel):
     mood: str
     photos: list[MediaAssetOut]
     deduction_suggestions: list[DeductionSuggestionOut]
+    row_version: int
     created_at: datetime
     updated_at: datetime
     created_by: str | None = None
@@ -62,6 +63,7 @@ class CreateMealLogRequest(BaseModel):
 
 
 class UpdateMealLogRequest(BaseModel):
+    expected_row_version: int = Field(ge=1)
     participant_user_ids: list[str] | None = None
     notes: str | None = None
     mood: str | None = None

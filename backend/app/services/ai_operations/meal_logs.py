@@ -13,7 +13,7 @@ from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
 from app.models.domain import MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
+from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn
 from app.services.activity import log_activity
 from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
@@ -45,14 +45,11 @@ def execute_meal_log_draft(
             raise AIConflictError("餐食记录不存在或已被删除")
         assert_updated_at_matches(actual=meal_log.updated_at, expected=str(payload.get("baseUpdatedAt")), label="餐食记录")
         if action == "update_details":
-            update = UpdateMealLogRequest.model_validate(
-                {
-                    "participant_user_ids": (payload.get("payload") or {}).get("participantUserIds"),
-                    "notes": (payload.get("payload") or {}).get("notes"),
-                    "mood": (payload.get("payload") or {}).get("mood"),
-                    "media_ids": (payload.get("payload") or {}).get("mediaIds"),
-                }
-            )
+            draft = payload.get("payload") or {}
+            participant_user_ids = draft.get("participantUserIds")
+            notes = draft.get("notes")
+            mood = draft.get("mood")
+            media_ids = draft.get("mediaIds")
             try:
                 references = lock_and_validate_meal_log_references(
                     db,
@@ -60,21 +57,21 @@ def execute_meal_log_draft(
                     actor_user_id=user_id,
                     food_ids=[entry.food_id for entry in meal_log.food_entries],
                     participant_user_ids=(
-                        update.participant_user_ids
-                        if update.participant_user_ids is not None
+                        participant_user_ids
+                        if participant_user_ids is not None
                         else meal_log.participant_user_ids
                     ),
                 )
             except MealLogReferenceError as exc:
                 raise ValueError(exc.message) from exc
             meal_log.participant_user_ids = list(references.participant_user_ids)
-            meal_log.notes = update.notes or ""
-            meal_log.mood = update.mood or ""
+            meal_log.notes = notes or ""
+            meal_log.mood = mood or ""
             meal_log.updated_by = user_id
             replace_media_assets(
                 db,
                 family_id=family_id,
-                media_ids=list(update.media_ids or []),
+                media_ids=list(media_ids or []),
                 entity_type="meal_log",
                 entity_id=meal_log.id,
             )
@@ -88,9 +85,8 @@ def execute_meal_log_draft(
                 summary="AI 补充餐食记录详情",
             )
         else:
-            ratings = UpdateMealLogRequest.model_validate(
-                {"food_entry_ratings": (payload.get("payload") or {}).get("foodEntryRatings") or []}
-            ).food_entry_ratings or []
+            raw_ratings = (payload.get("payload") or {}).get("foodEntryRatings") or []
+            ratings = [MealLogFoodRatingIn.model_validate(item) for item in raw_ratings]
             try:
                 # Rating-only: lock foods with actor-only participants so historical
                 # members who left the family do not block the rating update.

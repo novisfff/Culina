@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import FoodType, MealType, MembershipStatus, UserRole
+from app.core.enums import FoodType, MealType, MediaSource, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import Base, Family, Food, FoodPlanItem, Membership, User
+from app.models.domain import Base, Family, Food, FoodPlanItem, MediaAsset, Membership, User
 from app.services.food_plan_locking import (
     FoodPlanWriteIntent,
     discover_food_plan_write_intents,
@@ -25,6 +25,7 @@ from app.services.meal_log_references import (
     ValidatedMealLogReferences,
     lock_and_validate_meal_log_references,
 )
+from app.services.meal_log_versions import lock_meal_log_write_targets
 
 
 class MealLogReferencesTestCase(unittest.TestCase):
@@ -319,7 +320,10 @@ class MealLogReferencesTestCase(unittest.TestCase):
 
             update_response = self.client.patch(
                 f"/api/meal-logs/{meal_id}",
-                json={"participant_user_ids": [self.member.id]},
+                json={
+                    "expected_row_version": create_response.json()["row_version"],
+                    "participant_user_ids": [self.member.id],
+                },
             )
             self.assertEqual(update_response.status_code, 200, update_response.text)
 
@@ -680,7 +684,10 @@ class MealLogReferencesTestCase(unittest.TestCase):
 
         rating_response = self.client.patch(
             f"/api/meal-logs/{meal_id}",
-            json={"food_entry_ratings": [{"id": entry_id, "rating": 4.5}]},
+            json={
+                "expected_row_version": body["row_version"],
+                "food_entry_ratings": [{"id": entry_id, "rating": 4.5}],
+            },
         )
         self.assertEqual(rating_response.status_code, 200, rating_response.text)
         self.assertEqual(float(rating_response.json()["food_entries"][0]["rating"]), 4.5)
@@ -688,7 +695,10 @@ class MealLogReferencesTestCase(unittest.TestCase):
         # Explicit participant updates still revalidate membership.
         participant_response = self.client.patch(
             f"/api/meal-logs/{meal_id}",
-            json={"participant_user_ids": [self.user.id, self.member.id]},
+            json={
+                "expected_row_version": rating_response.json()["row_version"],
+                "participant_user_ids": [self.user.id, self.member.id],
+            },
         )
         self.assertEqual(participant_response.status_code, 404, participant_response.text)
 
@@ -791,6 +801,235 @@ class MealLogReferencesTestCase(unittest.TestCase):
                 "已经记录完成" in message or "已被其他修改更新" in message or "不可完成" in message,
                 msg=message,
             )
+
+    def _create_seeded_meal(self) -> dict:
+        response = self.client.post(
+            "/api/meal-logs",
+            json={
+                "date": "2026-05-16",
+                "meal_type": "dinner",
+                "food_entries": [{"food_id": self.food.id, "servings": 1, "note": ""}],
+                "participant_user_ids": [self.user.id],
+                "notes": "",
+                "mood": "",
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    def test_rating_only_update_bumps_parent_version_once(self) -> None:
+        seeded = self._create_seeded_meal()
+        response = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={
+                "expected_row_version": 1,
+                "food_entry_ratings": [{"id": seeded["food_entries"][0]["id"], "rating": 4.5}],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["row_version"], 2)
+
+    def test_stale_detail_update_returns_current_meal_and_hint(self) -> None:
+        seeded = self._create_seeded_meal()
+        entry_id = seeded["food_entries"][0]["id"]
+        first = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={
+                "expected_row_version": 1,
+                "food_entry_ratings": [{"id": entry_id, "rating": 4.5}],
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        with self.SessionLocal() as db:
+            photo = MediaAsset(
+                id="meal-photo-current",
+                family_id=self.family.id,
+                name="current.png",
+                url="/media/family-meal/current.png",
+                file_path="family-meal/current.png",
+                source=MediaSource.UPLOAD,
+                alt="current meal photo",
+                entity_type="meal_log",
+                entity_id=seeded["id"],
+                created_by=self.user.id,
+            )
+            db.add(photo)
+            db.commit()
+
+        response = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"expected_row_version": 1, "notes": "过期草稿"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "meal_log_stale")
+        self.assertEqual(detail["current"]["row_version"], 2)
+        self.assertEqual(float(detail["current"]["food_entries"][0]["rating"]), 4.5)
+        self.assertEqual(detail["current"]["photos"][0]["id"], "meal-photo-current")
+        self.assertEqual(detail["recovery_hint"], "refresh_and_review")
+
+    def test_detail_field_updates_bump_parent_version_once(self) -> None:
+        seeded = self._create_seeded_meal()
+        version = seeded["row_version"]
+
+        participants = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"expected_row_version": version, "participant_user_ids": [self.user.id, self.member.id]},
+        )
+        self.assertEqual(participants.status_code, 200, participants.text)
+        self.assertEqual(participants.json()["row_version"], version + 1)
+        version = participants.json()["row_version"]
+
+        notes = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"expected_row_version": version, "notes": "今天很好吃"},
+        )
+        self.assertEqual(notes.status_code, 200, notes.text)
+        self.assertEqual(notes.json()["row_version"], version + 1)
+        version = notes.json()["row_version"]
+
+        mood = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"expected_row_version": version, "mood": "开心"},
+        )
+        self.assertEqual(mood.status_code, 200, mood.text)
+        self.assertEqual(mood.json()["row_version"], version + 1)
+
+    def test_media_only_update_bumps_parent_version_once(self) -> None:
+        seeded = self._create_seeded_meal()
+        with self.SessionLocal() as db:
+            photo = MediaAsset(
+                id="meal-photo-media-only",
+                family_id=self.family.id,
+                name="media-only.png",
+                url="/media/family-meal/media-only.png",
+                file_path="family-meal/media-only.png",
+                source=MediaSource.UPLOAD,
+                alt="media only",
+                created_by=self.user.id,
+            )
+            db.add(photo)
+            db.commit()
+
+        response = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"expected_row_version": 1, "media_ids": ["meal-photo-media-only"]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["row_version"], 2)
+        self.assertEqual(response.json()["photos"][0]["id"], "meal-photo-media-only")
+
+    def test_same_user_repeated_rating_updates_bump_once_each(self) -> None:
+        seeded = self._create_seeded_meal()
+        entry_id = seeded["food_entries"][0]["id"]
+        first = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={
+                "expected_row_version": 1,
+                "food_entry_ratings": [{"id": entry_id, "rating": 4.0}],
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["row_version"], 2)
+
+        second = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={
+                "expected_row_version": 2,
+                "food_entry_ratings": [{"id": entry_id, "rating": 4.5}],
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["row_version"], 3)
+        self.assertEqual(float(second.json()["food_entries"][0]["rating"]), 4.5)
+
+    def test_update_without_expected_row_version_returns_422(self) -> None:
+        seeded = self._create_seeded_meal()
+        response = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={"notes": "缺少版本"},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_stale_data_error_returns_complete_current_payload(self) -> None:
+        from sqlalchemy.orm.exc import StaleDataError
+
+        seeded = self._create_seeded_meal()
+        entry_id = seeded["food_entries"][0]["id"]
+        first = self.client.patch(
+            f"/api/meal-logs/{seeded['id']}",
+            json={
+                "expected_row_version": 1,
+                "food_entry_ratings": [{"id": entry_id, "rating": 4.5}],
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        with self.SessionLocal() as db:
+            photo = MediaAsset(
+                id="meal-photo-stale-data",
+                family_id=self.family.id,
+                name="stale.png",
+                url="/media/family-meal/stale.png",
+                file_path="family-meal/stale.png",
+                source=MediaSource.UPLOAD,
+                alt="stale photo",
+                entity_type="meal_log",
+                entity_id=seeded["id"],
+                created_by=self.user.id,
+            )
+            db.add(photo)
+            db.commit()
+
+        with patch(
+            "app.api.meal_logs.commit_session",
+            side_effect=StaleDataError("UPDATE meal_logs"),
+        ):
+            response = self.client.patch(
+                f"/api/meal-logs/{seeded['id']}",
+                json={"expected_row_version": 2, "notes": "flush 冲突"},
+            )
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "meal_log_stale")
+        self.assertEqual(detail["current"]["row_version"], 2)
+        self.assertEqual(float(detail["current"]["food_entries"][0]["rating"]), 4.5)
+        self.assertEqual(detail["current"]["photos"][0]["id"], "meal-photo-stale-data")
+        self.assertEqual(detail["current"]["food_entries"][0]["food_name"], self.food.name)
+        self.assertIn("deduction_suggestions", detail["current"])
+        self.assertEqual(detail["recovery_hint"], "refresh_and_review")
+
+    def test_lock_meal_log_write_targets_locks_foods_before_meal_log(self) -> None:
+        seeded = self._create_seeded_meal()
+        lock_calls: list[str] = []
+
+        from app.services import meal_log_versions as versions
+
+        original_inventory_lock = versions.lock_inventory_targets
+        original_scalar = Session.scalar
+
+        def tracking_inventory_lock(*args, **kwargs):
+            lock_calls.append("food")
+            return original_inventory_lock(*args, **kwargs)
+
+        def tracking_scalar(self, statement, *args, **kwargs):
+            compiled = str(statement)
+            if "FOR UPDATE" in compiled.upper() and "meal_logs" in compiled.lower():
+                lock_calls.append("meal_log")
+            return original_scalar(self, statement, *args, **kwargs)
+
+        with self.SessionLocal() as db:
+            with patch.object(versions, "lock_inventory_targets", side_effect=tracking_inventory_lock):
+                with patch.object(Session, "scalar", tracking_scalar):
+                    locked = lock_meal_log_write_targets(
+                        db,
+                        family_id=self.family.id,
+                        meal_log_id=seeded["id"],
+                    )
+            self.assertEqual(locked.meal_log.id, seeded["id"])
+            self.assertEqual(set(locked.discovered_food_ids), {self.food.id})
+            self.assertEqual(set(locked.foods_by_id), {self.food.id})
+            self.assertEqual(lock_calls, ["food", "meal_log"])
 
 
 if __name__ == "__main__":

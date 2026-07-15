@@ -28,6 +28,11 @@ from app.models.domain import (
     Recipe,
     User,
 )
+from app.services.meal_log_versions import (
+    MealLogConflictError,
+    bump_meal_log_collection,
+    lock_meal_log_write_targets,
+)
 from app.services.media import delete_media_file, get_media_asset, read_media_object, save_generated_asset, save_svg_asset
 
 ImageJobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -316,6 +321,21 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         job.bind_status = "skipped"
         return "skipped"
 
+    # MealLog bind uses the shared discover → sorted Food lock → MealLog lock path so
+    # the parent version advances exactly once when a generated asset is actually bound.
+    # Skipped/unbound paths take no MealLog locks and do not bump.
+    locked_meal_log = None
+    if job.target_entity_type == "meal_log":
+        try:
+            locked_meal_log = lock_meal_log_write_targets(
+                db,
+                family_id=job.family_id,
+                meal_log_id=job.target_entity_id,
+            ).meal_log
+        except MealLogConflictError:
+            job.bind_status = "skipped"
+            return "skipped"
+
     current_assets = list(
         db.scalars(
             select(MediaAsset).where(
@@ -331,6 +351,8 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         generated.entity_id = job.target_entity_id
         if job.target_entity_type == "recipe":
             _sync_recipe_image_to_food(db, job=job, generated=generated, append_to_existing=True)
+        if locked_meal_log is not None:
+            bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
         job.bind_status = "bound"
         return "bound"
 
@@ -349,6 +371,9 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
     generated.entity_id = job.target_entity_id
     if job.target_entity_type == "recipe":
         _sync_recipe_image_to_food(db, job=job, generated=generated)
+    if locked_meal_log is not None:
+        # Bind only attaches media; never overwrite MealLog business fields.
+        bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
     job.bind_status = "bound"
     return "bound"
 

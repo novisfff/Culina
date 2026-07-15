@@ -35,6 +35,17 @@ from app.services.meal_log_references import (
     lock_and_validate_meal_log_references,
     meal_log_reference_error_detail,
 )
+from app.services.meal_log_versions import (
+    MEAL_LOG_NOT_FOUND_CODE,
+    MEAL_LOG_STALE_CODE,
+    MEAL_LOG_STALE_RECOVERY_HINT,
+    MealLogConflictError,
+    build_meal_log_conflict_detail,
+    bump_meal_log_collection,
+    lock_meal_log_write_targets,
+    require_meal_log_version,
+)
+from app.services.meal_log_writes import MealEntryWrite, append_meal_log_entries, create_meal_log_with_entries
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -57,6 +68,50 @@ def _commit_meal_log_session(db: Session) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=STALE_INVENTORY_DETAIL,
+        ) from exc
+
+
+def _raise_meal_log_conflict(
+    db: Session,
+    *,
+    family_id: str,
+    meal_log_id: str,
+    exc: MealLogConflictError,
+) -> None:
+    if exc.code == MEAL_LOG_NOT_FOUND_CODE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found") from exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=build_meal_log_conflict_detail(
+            db,
+            family_id=family_id,
+            meal_log_id=meal_log_id,
+            code=exc.code,
+            recovery_hint=exc.recovery_hint,
+            message=exc.message,
+        ),
+    ) from exc
+
+
+def _commit_versioned_meal_log_session(
+    db: Session,
+    *,
+    family_id: str,
+    meal_log_id: str,
+) -> None:
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=build_meal_log_conflict_detail(
+                db,
+                family_id=family_id,
+                meal_log_id=meal_log_id,
+                code=MEAL_LOG_STALE_CODE,
+                recovery_hint=MEAL_LOG_STALE_RECOVERY_HINT,
+            ),
         ) from exc
 
 
@@ -155,33 +210,25 @@ def create_meal_log(
     except MealLogReferenceError as exc:
         _raise_meal_log_reference_error(exc)
 
-    meal_log = MealLog(
-        id=create_id("meal"),
+    meal_log, entries = create_meal_log_with_entries(
+        db,
         family_id=membership.family_id,
+        user_id=user.id,
         date=payload.date,
         meal_type=payload.meal_type,
+        entries=[
+            MealEntryWrite(
+                food_id=item.food_id,
+                servings=Decimal(str(item.servings)),
+                note=item.note,
+                rating=Decimal(str(item.rating)) if item.rating is not None else None,
+            )
+            for item in payload.food_entries
+        ],
         participant_user_ids=list(references.participant_user_ids),
         notes=payload.notes,
         mood=payload.mood,
-        created_by=user.id,
-        updated_by=user.id,
     )
-    db.add(meal_log)
-    db.flush()
-
-    entries: list[MealLogFood] = []
-    for item in payload.food_entries:
-        entry = MealLogFood(
-            id=create_id("meal-food"),
-            meal_log_id=meal_log.id,
-            food_id=item.food_id,
-            servings=item.servings,
-            note=item.note,
-            rating=item.rating,
-        )
-        entries.append(entry)
-        db.add(entry)
-    db.flush()
 
     for suggestion in _build_deduction_suggestions(db, entries):
         suggestion.meal_log_id = meal_log.id
@@ -227,19 +274,34 @@ def update_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    meal_log = db.scalar(
-        select(MealLog)
-        .where(MealLog.id == meal_log_id, MealLog.family_id == membership.family_id)
-        .options(
-            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
-            selectinload(MealLog.deduction_suggestions),
+    try:
+        locked = lock_meal_log_write_targets(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=meal_log_id,
         )
-    )
-    if meal_log is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found")
+    except MealLogConflictError as exc:
+        _raise_meal_log_conflict(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=meal_log_id,
+            exc=exc,
+        )
+
+    meal_log = locked.meal_log
+    try:
+        # Expected row version is the first business check after all locks.
+        require_meal_log_version(meal_log, payload.expected_row_version)
+    except MealLogConflictError as exc:
+        _raise_meal_log_conflict(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=meal_log_id,
+            exc=exc,
+        )
 
     if payload.participant_user_ids is not None or payload.food_entry_ratings is not None:
-        # Rating-only updates re-lock foods but must not revalidate historical
+        # Rating-only updates re-validate actor foods but must not revalidate historical
         # participants (a departed family member would otherwise block ratings).
         if payload.participant_user_ids is not None:
             try:
@@ -249,6 +311,7 @@ def update_meal_log(
                     actor_user_id=user.id,
                     food_ids=[entry.food_id for entry in meal_log.food_entries],
                     participant_user_ids=payload.participant_user_ids,
+                    prelocked_foods=locked.foods_by_id,
                 )
             except MealLogReferenceError as exc:
                 _raise_meal_log_reference_error(exc)
@@ -261,6 +324,7 @@ def update_meal_log(
                     actor_user_id=user.id,
                     food_ids=[entry.food_id for entry in meal_log.food_entries],
                     participant_user_ids=[user.id],
+                    prelocked_foods=locked.foods_by_id,
                 )
             except MealLogReferenceError as exc:
                 _raise_meal_log_reference_error(exc)
@@ -275,7 +339,6 @@ def update_meal_log(
             if entry is None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meal food entry not found")
             entry.rating = item.rating
-    meal_log.updated_by = user.id
 
     if payload.media_ids is not None:
         replace_media_assets(
@@ -297,6 +360,7 @@ def update_meal_log(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
+    bump_meal_log_collection(meal_log, user_id=user.id)
     log_activity(
         db,
         family_id=membership.family_id,
@@ -306,7 +370,11 @@ def update_meal_log(
         entity_id=meal_log.id,
         summary=f"补充了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}记录",
     )
-    commit_session(db)
+    _commit_versioned_meal_log_session(
+        db,
+        family_id=membership.family_id,
+        meal_log_id=meal_log.id,
+    )
     db.refresh(meal_log)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)
@@ -366,32 +434,28 @@ def quick_add_meal_log(
         )
 
     created = meal_log is None
+    entry_payload = MealEntryWrite(
+        food_id=food.id,
+        servings=Decimal(str(payload.servings)),
+        note=payload.note,
+    )
     if meal_log is None:
-        meal_log = MealLog(
-            id=create_id("meal"),
+        meal_log, created_entries = create_meal_log_with_entries(
+            db,
             family_id=membership.family_id,
+            user_id=user.id,
             date=payload.date,
             meal_type=payload.meal_type,
+            entries=[entry_payload],
             participant_user_ids=list(references.participant_user_ids),
             notes="",
             mood="",
-            created_by=user.id,
-            updated_by=user.id,
         )
-        db.add(meal_log)
-        db.flush()
+        entry = created_entries[0]
     else:
-        meal_log.updated_by = user.id
-
-    entry = MealLogFood(
-        id=create_id("meal-food"),
-        meal_log_id=meal_log.id,
-        food_id=food.id,
-        servings=payload.servings,
-        note=payload.note,
-    )
-    db.add(entry)
-    db.flush()
+        created_entries = append_meal_log_entries(db, meal_log=meal_log, entries=[entry_payload])
+        entry = created_entries[0]
+        bump_meal_log_collection(meal_log, user_id=user.id)
     entry_created = True
 
     for suggestion in _build_deduction_suggestions(db, [entry]):
