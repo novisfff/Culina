@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   Food,
   FoodPlanItem,
@@ -152,6 +152,7 @@ function makeReadyFood(overrides: Partial<Food> = {}): Food {
 }
 
 beforeEach(() => {
+  vi.useRealTimers();
   Object.defineProperty(window, 'scrollTo', {
     configurable: true,
     writable: true,
@@ -162,6 +163,11 @@ beforeEach(() => {
   imageComposerSpies.generate.mockClear();
   imageComposerSpies.reset.mockClear();
   vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('EatCookTaskBody resume prompt', () => {
@@ -627,10 +633,12 @@ describe('EatMealCreateTaskBody', () => {
     // Full composer, not the empty-state dead end.
     expect(screen.queryByText('还没有可记录的家常菜')).toBeNull();
     expect(screen.getByRole('heading', { name: '记一餐' })).toBeVisible();
-    expect(screen.getByRole('searchbox', { name: '搜索食物' })).toBeVisible();
+    const searchbox = screen.getByRole('searchbox', { name: '搜索食物' });
+    expect(searchbox).toBeVisible();
 
+    // Set query in one shot (avoids flake from character-by-character typing under suite load).
     const user = userEvent.setup();
-    await user.type(screen.getByRole('searchbox', { name: '搜索食物' }), '酸汤牛肉');
+    fireEvent.change(searchbox, { target: { value: '酸汤牛肉' } });
     await user.click(await screen.findByRole('option', { name: "按‘酸汤牛肉’记下" }));
     await user.click(screen.getByRole('button', { name: '家里做' }));
     expect(screen.getByText('酸汤牛肉')).toBeVisible();
