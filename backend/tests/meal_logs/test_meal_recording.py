@@ -309,6 +309,75 @@ def test_cross_family_food_rejected(seed: RecordingSeed) -> None:
     }
     response = seed.client.post("/api/meal-logs/record", json=payload)
     assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "meal_log_food_not_found"
+
+
+def test_existing_target_cross_family_food_not_found(seed: RecordingSeed) -> None:
+    create = seed.client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "record-create-cross-food",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "new_foods": [],
+            "entries": [{"food_id": seed.food_id, "servings": 1}],
+        },
+    )
+    assert create.status_code == 200
+    meal = create.json()["meal_log"]
+
+    response = seed.client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "record-append-cross-food",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {
+                "kind": "existing",
+                "meal_log_id": meal["id"],
+                "expected_row_version": meal["row_version"],
+            },
+            "new_foods": [],
+            "entries": [{"food_id": seed.other_family_food_id, "servings": 1}],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "meal_log_food_not_found"
+
+
+def test_existing_target_missing_food_not_found(seed: RecordingSeed) -> None:
+    create = seed.client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "record-create-missing-food",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "new_foods": [],
+            "entries": [{"food_id": seed.food_id, "servings": 1}],
+        },
+    )
+    assert create.status_code == 200
+    meal = create.json()["meal_log"]
+
+    response = seed.client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "record-append-missing-food",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {
+                "kind": "existing",
+                "meal_log_id": meal["id"],
+                "expected_row_version": meal["row_version"],
+            },
+            "new_foods": [],
+            "entries": [{"food_id": "food-does-not-exist", "servings": 1}],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "meal_log_food_not_found"
 
 
 def test_duplicate_final_food_on_existing_target_rejected(seed: RecordingSeed) -> None:

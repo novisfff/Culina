@@ -302,12 +302,19 @@ def record_meal(
 
     try:
         if isinstance(request.target, RecordMealTargetExisting):
-            locked = lock_meal_log_write_targets(
-                db,
-                family_id=family_id,
-                meal_log_id=request.target.meal_log_id,
-                additional_food_ids=existing_food_ids,
-            )
+            try:
+                locked = lock_meal_log_write_targets(
+                    db,
+                    family_id=family_id,
+                    meal_log_id=request.target.meal_log_id,
+                    additional_food_ids=existing_food_ids,
+                )
+            except InventoryTargetNotFoundError as exc:
+                # Request-only missing/cross-family Food (not entry-set race).
+                raise MealRecordValidationError(
+                    MEAL_LOG_FOOD_NOT_FOUND_CODE,
+                    MEAL_LOG_FOOD_NOT_FOUND_MESSAGE,
+                ) from exc
             meal_log = locked.meal_log
             _validate_existing_target(
                 meal_log,

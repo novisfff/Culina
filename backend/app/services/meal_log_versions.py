@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.domain import MealLog, MealLogFood
+from app.models.domain import Food, MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.serializers import serialize_meal_log
@@ -86,13 +86,19 @@ def lock_meal_log_write_targets(
     Lock order is fixed: sorted Food FOR UPDATE → family-scoped MealLog FOR UPDATE.
     If the locked MealLog's entry Food set differs from the pre-lock discovery set,
     raise meal_log_targets_changed and never reverse-lock Food after MealLog.
+
+    Missing / cross-family Foods that belong only to ``additional_food_ids`` (request
+    Foods, not the discovered entry set) re-raise ``InventoryTargetNotFoundError`` so
+    callers such as ``record_meal`` can map them to 404 ``meal_log_food_not_found``.
+    Incomplete discovered entry Foods still map to ``meal_log_targets_changed``.
     """
     discovered_food_ids = _discover_meal_log_entry_food_ids(
         db,
         family_id=family_id,
         meal_log_id=meal_log_id,
     )
-    ordered_food_ids = _unique_sorted_ids([*discovered_food_ids, *list(additional_food_ids)])
+    ordered_additional_food_ids = _unique_sorted_ids(additional_food_ids)
+    ordered_food_ids = _unique_sorted_ids([*discovered_food_ids, *ordered_additional_food_ids])
 
     foods_by_id: dict[str, Any] = {}
     if ordered_food_ids:
@@ -103,6 +109,21 @@ def lock_meal_log_write_targets(
                 food_ids=ordered_food_ids,
             ).foods
         except InventoryTargetNotFoundError as exc:
+            if ordered_additional_food_ids:
+                present_ids = set(
+                    db.scalars(
+                        select(Food.id).where(
+                            Food.family_id == family_id,
+                            Food.id.in_(ordered_food_ids),
+                        )
+                    )
+                )
+                missing_ids = set(ordered_food_ids) - present_ids
+                discovered_missing = missing_ids.intersection(discovered_food_ids)
+                additional_missing = missing_ids.intersection(ordered_additional_food_ids)
+                # Request-only Food absence is not an entry-set race.
+                if additional_missing and not discovered_missing:
+                    raise
             raise MealLogConflictError(
                 MEAL_LOG_TARGETS_CHANGED_CODE,
                 MEAL_LOG_TARGETS_CHANGED_MESSAGE,
