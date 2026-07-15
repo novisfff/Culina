@@ -543,6 +543,79 @@ describe('recipe workspace payload helpers', () => {
     ).not.toHaveProperty('create_meal_log');
   });
 
+  it('includes optional target meal fields in cook payload', () => {
+    expect(
+      buildCookPayload({
+        servings: '2',
+        date: '2026-07-15',
+        mealType: 'dinner',
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-target-1',
+        targetMealLogId: 'meal-existing-1',
+        expectedMealLogRowVersion: 4,
+      }),
+    ).toMatchObject({
+      completion_request_id: 'cook-target-1',
+      target_meal_log_id: 'meal-existing-1',
+      expected_meal_log_row_version: 4,
+    });
+
+    expect(
+      buildCookPayload({
+        servings: '2',
+        date: '2026-07-15',
+        mealType: 'dinner',
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-new-1',
+        targetMealLogId: null,
+      }),
+    ).not.toHaveProperty('target_meal_log_id');
+
+    expect(() =>
+      buildCookPayload({
+        servings: '2',
+        date: '2026-07-15',
+        mealType: 'dinner',
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        completionRequestId: 'cook-bad-target',
+        targetMealLogId: 'meal-1',
+      }),
+    ).toThrow(/expectedMealLogRowVersion|加入已有餐/);
+  });
+
+  /** Cross-surface owner matrix for phase-one meal write paths (Task 16). */
+  it('locks the phase-one owner matrix', () => {
+    const expectedOwners = {
+      historyPrimaryCta: 'recordMeal',
+      homeRecommendation: 'recordMeal',
+      homePlanComplete: 'completeFoodPlanItem',
+      foodCardAgain: 'recordMeal',
+      foodWorkspacePlanComplete: 'completeFoodPlanItem',
+      ingredientFoodRecord: 'recordMeal',
+      eatFoodRecord: 'recordMeal',
+      recipeCook: 'cookRecipe',
+      aiApproval: 'approvalDecision',
+    } as const;
+    expect(expectedOwners.historyPrimaryCta).toBe('recordMeal');
+    expect(expectedOwners.homeRecommendation).toBe('recordMeal');
+    expect(expectedOwners.homePlanComplete).toBe('completeFoodPlanItem');
+    expect(expectedOwners.foodCardAgain).toBe('recordMeal');
+    expect(expectedOwners.foodWorkspacePlanComplete).toBe('completeFoodPlanItem');
+    expect(expectedOwners.ingredientFoodRecord).toBe('recordMeal');
+    expect(expectedOwners.eatFoodRecord).toBe('recordMeal');
+    expect(expectedOwners.recipeCook).toBe('cookRecipe');
+    expect(expectedOwners.aiApproval).toBe('approvalDecision');
+  });
+
   it('sanitizes persisted cook sessions with safe defaults and clamped step index', () => {
     const recipe = {
       servings: 2,

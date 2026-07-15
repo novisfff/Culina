@@ -938,19 +938,6 @@ export interface MealLog {
   updated_by?: string | null;
 }
 
-export interface QuickAddMealLogPayload {
-  food_id: string;
-  date: string;
-  meal_type: MealType;
-  servings: number;
-  note: string;
-  food_plan_item_id?: string;
-  deduct_food_stock?: boolean;
-  expected_food_row_version?: number;
-  stock_quantity?: number | null;
-  stock_unit?: string | null;
-}
-
 export interface UpdateMealLogPayload {
   expected_row_version: number;
   participant_user_ids?: string[];

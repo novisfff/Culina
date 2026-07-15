@@ -4,8 +4,11 @@ import type {
   CookRecipePreviewResponse,
   CookRecipeRequest,
   CookRecipeResponse,
+  RecordMealTarget,
 } from '../../api/types';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
+import { deriveCandidatePresentation } from '../../features/meals/MealComposerModel';
+import { useMealCandidateData } from '../../features/meals/useMealCandidateData';
 import {
   advanceCookTimers,
   buildCookPayload,
@@ -138,6 +141,11 @@ export function useRecipeCookState(args: {
     message: string;
     recipeTitle: string;
   } | null>(null);
+  const [cookTarget, setCookTarget] = useState<RecordMealTarget>({ kind: 'new' });
+  const [cookSelectedCandidateId, setCookSelectedCandidateId] = useState<string | null>(null);
+  const [cookCandidateMode, setCookCandidateMode] = useState<'none' | 'single' | 'multi'>('none');
+  /** When date/meal type changes after a target was confirmed, force reconfirmation. */
+  const [cookTargetNeedsReconfirm, setCookTargetNeedsReconfirm] = useState(false);
 
   const activeCookCard = cookCard ?? (args.view === 'cook' ? args.selectedCard : null);
   const cookSteps = activeCookCard?.recipe.steps.length
@@ -158,12 +166,55 @@ export function useRecipeCookState(args: {
     ? Math.min(Math.max(activeTimer.seconds / activeTimer.durationSeconds, 0), 1)
     : 0;
   const cookProgressPercent = cookSteps.length > 0 ? Math.round((((cookSession?.currentStepIndex ?? 0) + 1) / cookSteps.length) * 100) : 0;
+
+  const cookCandidateQuery = useMealCandidateData({
+    open: isCookFinishOpen && !cookCompletionResult,
+    date: cookSession?.date ?? '',
+    mealType: cookSession?.mealType ?? 'dinner',
+  });
+  const cookCandidates = cookCandidateQuery.candidates;
+  const cookCandidatesFetched = cookCandidateQuery.query.isFetched;
+  const cookCandidateIdsKey = cookCandidates
+    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
+    .join(',');
+
   const cookSubmitDisabled =
-    args.isCookingRecipe || isCookPreviewLoading || Boolean(cookPreviewError) || !cookPreview || !cookSession;
+    args.isCookingRecipe
+    || isCookPreviewLoading
+    || Boolean(cookPreviewError)
+    || !cookPreview
+    || !cookSession
+    || cookTargetNeedsReconfirm
+    || (isCookFinishOpen && !cookCandidatesFetched);
 
   useEffect(() => {
     previewCookRecipeRef.current = args.previewCookRecipe;
   }, [args.previewCookRecipe]);
+
+  // Authoritative candidates for finish-dialog target; date/meal type changes rederive defaults.
+  useEffect(() => {
+    if (!isCookFinishOpen || cookCompletionResult) {
+      setCookTarget({ kind: 'new' });
+      setCookSelectedCandidateId(null);
+      setCookCandidateMode('none');
+      setCookTargetNeedsReconfirm(false);
+      return;
+    }
+    if (!cookSession || !cookCandidatesFetched) return;
+    const presentation = deriveCandidatePresentation(cookCandidates, cookSession.mealType);
+    setCookTarget(presentation.target);
+    setCookSelectedCandidateId(presentation.selectedCandidateId);
+    setCookCandidateMode(presentation.mode);
+    setCookTargetNeedsReconfirm(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isCookFinishOpen,
+    cookCompletionResult,
+    cookSession?.date,
+    cookSession?.mealType,
+    cookCandidateIdsKey,
+    cookCandidatesFetched,
+  ]);
 
   useEffect(() => {
     if (!activeCookCard || !cookSession) {
@@ -453,7 +504,24 @@ export function useRecipeCookState(args: {
   }
 
   function updateCookSession(patch: Partial<RecipeCookSessionState | RecipeCookSessionRuntime>) {
-    setCookSession((current) => (current ? { ...current, ...patch } : current));
+    setCookSession((current) => {
+      if (!current) return current;
+      return { ...current, ...patch };
+    });
+    // Date/meal type changes invalidate the previously confirmed meal target.
+    // Reconfirmation happens after candidates refetch for the new date/type.
+    if (patch.date !== undefined || patch.mealType !== undefined) {
+      setCookTargetNeedsReconfirm(true);
+      setCookTarget({ kind: 'new' });
+      setCookSelectedCandidateId(null);
+      setCookCandidateMode('none');
+    }
+  }
+
+  function setCookMealTarget(target: RecordMealTarget, selectedCandidateId: string | null = null) {
+    setCookTarget(target);
+    setCookSelectedCandidateId(selectedCandidateId);
+    setCookTargetNeedsReconfirm(false);
   }
 
   function selectCookTimerDuration(seconds: number | null) {
@@ -899,10 +967,18 @@ export function useRecipeCookState(args: {
   async function submitCookRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeCookCard || !cookSession) return;
+    if (cookTargetNeedsReconfirm || (isCookFinishOpen && !cookCandidatesFetched)) {
+      setCookFinishStatusMessage('请先确认要记入的餐次目标。');
+      return;
+    }
     setCookFinishStatusMessage(null);
     try {
       const completionRequestId = resolveCompletionRequestId(cookSession, activeCookCard.recipe.id);
       const planItemBaseUpdatedAt = resolvePlanItemBaseUpdatedAt(cookSession);
+      const targetMealLogId =
+        cookTarget.kind === 'existing' ? cookTarget.meal_log_id : null;
+      const expectedMealLogRowVersion =
+        cookTarget.kind === 'existing' ? cookTarget.expected_row_version : null;
       const response = await args.cookRecipe(
         activeCookCard.recipe.id,
         buildCookPayload({
@@ -916,6 +992,8 @@ export function useRecipeCookState(args: {
           completionRequestId,
           planItemBaseUpdatedAt,
           allowPartialInventoryDeduction: true,
+          targetMealLogId,
+          expectedMealLogRowVersion,
         })
       );
 
@@ -1022,6 +1100,12 @@ export function useRecipeCookState(args: {
     cookSubmitDisabled,
     cookFinishStatusMessage,
     cookCompletionResult,
+    cookCandidates,
+    cookCandidateMode,
+    cookSelectedCandidateId,
+    cookTarget,
+    cookTargetNeedsReconfirm,
+    setCookMealTarget,
     openCook,
     closeCookDialog,
     updateCookSession,

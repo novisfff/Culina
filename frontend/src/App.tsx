@@ -495,7 +495,6 @@ function App() {
     updateFoodMutation,
     toggleFavoriteMutation,
     updateMealMutation,
-    quickAddMealMutation,
     recordMealMutation,
     updateMealCompositionMutation,
     revertMealRecordMutation,
@@ -1099,35 +1098,8 @@ function App() {
     mealLogs.find((meal) => meal.id === homeMealEnrichmentRequest?.mealLogId) ??
     null;
   async function saveHomeMealEnrichment(meal: MealLog, payload: UpdateMealLogPayload) {
-    const planItem = homeMealEnrichmentRequest?.planItem;
-    if (!meal.id.startsWith('draft-') || !planItem) {
-      await updateMealMutation.mutateAsync({ mealLogId: meal.id, payload });
-      return;
-    }
-
-    const createdMeal = await quickAddMealMutation.mutateAsync({
-      food_id: planItem.food_id,
-      date: planItem.plan_date,
-      meal_type: planItem.meal_type,
-      servings: 1,
-      note: planItem.note || '来自菜单计划',
-      food_plan_item_id: planItem.id,
-    });
-    const foodEntryRatings = payload.food_entry_ratings?.map((rating, index) => {
-      const draftEntry = meal.food_entries[index];
-      const createdEntry =
-        createdMeal.food_entries.find((entry) => draftEntry && entry.food_id === draftEntry.food_id && entry.note === draftEntry.note) ??
-        createdMeal.food_entries[index];
-      return createdEntry ? { id: createdEntry.id, rating: rating.rating } : null;
-    }).filter((item): item is { id: string; rating: number | null } => item !== null);
-
-    await updateMealMutation.mutateAsync({
-      mealLogId: createdMeal.id,
-      payload: {
-        ...payload,
-        ...(foodEntryRatings ? { food_entry_ratings: foodEntryRatings } : {}),
-      },
-    });
+    // Plan complete already creates the meal via completeFoodPlanItem; enrichment only patches it.
+    await updateMealMutation.mutateAsync({ mealLogId: meal.id, payload });
   }
 
   const noticeToast = notice ? (
@@ -1265,7 +1237,8 @@ function App() {
               resolvedTask={resolvedEatTask}
               completionPending={
                 cookRecipeMutation.isPending
-                || quickAddMealMutation.isPending
+                || recordMealMutation.isPending
+                || completeFoodPlanItemMutation.isPending
                 || updateFoodPlanItemMutation.isPending
                 || deleteFoodPlanItemMutation.isPending
               }
@@ -1283,7 +1256,8 @@ function App() {
                   user?.id && membership?.family_id
                     ? { userId: user.id, familyId: membership.family_id }
                     : null,
-                isQuickAdding: quickAddMealMutation.isPending,
+                isRecordingMeal: recordMealMutation.isPending,
+                isCompletingPlan: completeFoodPlanItemMutation.isPending,
                 isUpdatingPlan:
                   createFoodPlanItemMutation.isPending
                   || updateFoodPlanItemMutation.isPending
@@ -1307,7 +1281,10 @@ function App() {
                 updateMealLog: (mealLogId, payload) =>
                   updateMealMutation.mutateAsync({ mealLogId, payload }),
                 createShoppingItem: (payload) => createShoppingMutation.mutateAsync(payload),
-                quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
+                recordMeal: (payload) => recordMealMutation.mutateAsync(payload),
+                completeFoodPlanItem: (itemId, payload) =>
+                  completeFoodPlanItemMutation.mutateAsync({ itemId, payload }),
+                onRecordSuccess: (response) => mealRecordResultState.publishRecordResult(response),
                 onClose: navigation.closeTask,
                 onOpenLogs: () => navigation.navigate({ workspace: 'eat', view: 'history' }),
                 onNavigateRecipe: (recipeId, mode = 'view') =>
@@ -1609,7 +1586,7 @@ function App() {
             closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
             updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}
             onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、评论或照片，再保存这顿饭。' })}
-            isUpdatingMeal={updateMealMutation.isPending || quickAddMealMutation.isPending}
+            isUpdatingMeal={updateMealMutation.isPending}
             isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
             homePlanAddFood={homePlanAddFood}
             homePlanAddFoodSearch={homePlanAddFoodSearch}

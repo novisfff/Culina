@@ -13,28 +13,18 @@ from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.ai.images.jobs import attach_image_generation_job_to_entity
-from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
+from app.models.domain import Food, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import (
     CreateMealLogRequest,
     MealLogOut,
-    QuickAddMealLogRequest,
     UpdateMealCompositionRequest,
     UpdateMealLogRequest,
 )
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.clock import today_for_family
-from app.services.food_stock import apply_food_stock_consume
 from app.services.inventory_versions import (
     STALE_INVENTORY_DETAIL,
-    InventoryConflictError,
-    conflict_detail,
-    require_expected_version,
-)
-from app.services.food_plan_locking import (
-    FoodPlanConflict,
-    food_plan_conflict_detail,
-    lock_plan_item_after_food,
 )
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError
 from app.services.meal_log_composition import (
@@ -127,14 +117,6 @@ def _commit_versioned_meal_log_session(
         ) from exc
 
 
-def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stock: bool):
-    statement = select(Food).where(Food.id == food_id, Food.family_id == family_id)
-    if deduct_food_stock:
-        # Prefer the shared inventory lock helper at call sites that already hold a Session.
-        statement = statement.with_for_update()
-    return statement
-
-
 def _raise_meal_log_reference_error(exc: MealLogReferenceError) -> None:
     status_code = (
         status.HTTP_404_NOT_FOUND
@@ -142,20 +124,6 @@ def _raise_meal_log_reference_error(exc: MealLogReferenceError) -> None:
         else status.HTTP_422_UNPROCESSABLE_ENTITY
     )
     raise HTTPException(status_code=status_code, detail=meal_log_reference_error_detail(exc)) from exc
-
-
-def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
-    if exc.code == "food_plan_item_not_found":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found") from exc
-    if exc.code in {
-        "food_plan_item_already_completed",
-        "food_plan_item_stale",
-        "food_plan_targets_changed",
-        "food_plan_food_mismatch",
-        "food_plan_item_not_planned",
-    }:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
 
 
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
@@ -454,153 +422,6 @@ def update_meal_log(
         family_id=membership.family_id,
         meal_log_id=meal_log.id,
     )
-    db.refresh(meal_log)
-    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
-    return serialize_meal_log(meal_log, media_map)
-
-
-@router.post("/api/meal-logs/quick-add", response_model=MealLogOut, status_code=status.HTTP_201_CREATED)
-def quick_add_meal_log(
-    payload: QuickAddMealLogRequest,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    try:
-        references = lock_and_validate_meal_log_references(
-            db,
-            family_id=membership.family_id,
-            actor_user_id=user.id,
-            food_ids=[payload.food_id],
-            participant_user_ids=[user.id],
-        )
-    except MealLogReferenceError as exc:
-        _raise_meal_log_reference_error(exc)
-    food = references.foods_by_id[payload.food_id]
-
-    plan_item: FoodPlanItem | None = None
-    if payload.food_plan_item_id:
-        # Food is already locked via meal-log references; lock plan item after Food.
-        try:
-            plan_item = lock_plan_item_after_food(
-                db,
-                family_id=membership.family_id,
-                user_id=user.id,
-                item_id=payload.food_plan_item_id,
-                expected_food_id=food.id,
-                base_updated_at=payload.food_plan_item_base_updated_at,
-                require_planned=True,
-            )
-        except FoodPlanConflict as exc:
-            _raise_food_plan_conflict(exc)
-
-    # Plan-origin completion always creates a fresh exact MealLog in one transaction.
-    # Non-plan quick-add may append to the latest same-day/same-meal log.
-    meal_log = None
-    if plan_item is None:
-        meal_log = db.scalar(
-            select(MealLog)
-            .where(
-                MealLog.family_id == membership.family_id,
-                MealLog.date == payload.date,
-                MealLog.meal_type == payload.meal_type,
-            )
-            .options(
-                selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
-                selectinload(MealLog.deduction_suggestions),
-            )
-            .order_by(MealLog.created_at.desc())
-        )
-
-    created = meal_log is None
-    entry_payload = MealEntryWrite(
-        food_id=food.id,
-        servings=Decimal(str(payload.servings)),
-        note=payload.note,
-    )
-    if meal_log is None:
-        meal_log, created_entries = create_meal_log_with_entries(
-            db,
-            family_id=membership.family_id,
-            user_id=user.id,
-            date=payload.date,
-            meal_type=payload.meal_type,
-            entries=[entry_payload],
-            participant_user_ids=list(references.participant_user_ids),
-            notes="",
-            mood="",
-        )
-        entry = created_entries[0]
-    else:
-        created_entries = append_meal_log_entries(db, meal_log=meal_log, entries=[entry_payload])
-        entry = created_entries[0]
-        bump_meal_log_collection(meal_log, user_id=user.id)
-    entry_created = True
-
-    for suggestion in _build_deduction_suggestions(db, [entry]):
-        suggestion.meal_log_id = meal_log.id
-        db.add(suggestion)
-
-    if plan_item is not None:
-        plan_item.status = "cooked"
-        plan_item.completed_at = utcnow()
-        plan_item.meal_log_id = meal_log.id
-        plan_item.updated_by = user.id
-        enqueue_search_index_job(
-            db,
-            family_id=membership.family_id,
-            user_id=user.id,
-            entity_type="meal_plan",
-            entity_id=plan_item.id,
-            target_name=food.name,
-        )
-
-    if payload.deduct_food_stock and entry_created:
-        try:
-            require_expected_version(
-                food,
-                payload.expected_food_row_version,
-                entity_type="food",
-                entity_id=food.id,
-            )
-        except InventoryConflictError as exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=conflict_detail(exc),
-            ) from exc
-        try:
-            apply_food_stock_consume(
-                db,
-                family_id=membership.family_id,
-                user_id=user.id,
-                food=food,
-                quantity=Decimal(str(payload.stock_quantity or payload.servings)),
-                unit=payload.stock_unit or food.stock_unit or "份",
-                note="随餐食记录扣减",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    should_highlight = created or entry_created
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.CREATE if created else ActivityAction.UPDATE,
-        entity_type="MealLog",
-        entity_id=meal_log.id,
-        summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
-        highlight=(
-            ActivityHighlight(
-                kind=ActivityHighlightKind.MEAL,
-                summary=f"记录了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}",
-            )
-            if should_highlight
-            else None
-        ),
-    )
-    _commit_meal_log_session(db)
     db.refresh(meal_log)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)

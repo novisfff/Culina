@@ -11,7 +11,9 @@ import type {
   Ingredient,
   MealLog,
   Recipe,
+  RecordMealResponse,
 } from '../../api/types';
+import { api } from '../../api/client';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import {
   buildCookSessionV3Key,
@@ -27,6 +29,13 @@ import {
   EatRecipeTaskBody,
   buildEatTaskBodies,
 } from './EatTaskBodies';
+
+/** Phase-one owner matrix for Eat surfaces (Task 16). */
+const eatOwners = {
+  eatFoodRecord: 'recordMeal',
+  eatPlanComplete: 'completeFoodPlanItem',
+  recipeCook: 'cookRecipe',
+} as const;
 
 const imageComposerSpies = vi.hoisted(() => ({
   upload: vi.fn(async () => undefined),
@@ -56,7 +65,12 @@ function renderWithQuery(ui: ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const view = render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return {
+    ...view,
+    rerender: (next: ReactElement) =>
+      view.rerender(<QueryClientProvider client={client}>{next}</QueryClientProvider>),
+  };
 }
 
 function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
@@ -147,6 +161,7 @@ beforeEach(() => {
   imageComposerSpies.upload.mockClear();
   imageComposerSpies.generate.mockClear();
   imageComposerSpies.reset.mockClear();
+  vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
 });
 
 describe('EatCookTaskBody resume prompt', () => {
@@ -198,7 +213,13 @@ describe('EatCookTaskBody resume prompt', () => {
 });
 
 describe('buildEatTaskBodies plan complete', () => {
-  it('records the plan item and opens enrichment with the created meal', async () => {
+  it('locks eat owners to recordMeal / completeFoodPlanItem / cookRecipe', () => {
+    expect(eatOwners.eatFoodRecord).toBe('recordMeal');
+    expect(eatOwners.eatPlanComplete).toBe('completeFoodPlanItem');
+    expect(eatOwners.recipeCook).toBe('cookRecipe');
+  });
+
+  it('completes non-recipe plan via completeFoodPlanItem and opens enrichment', async () => {
     const planItem = makePlanItem({ recipe_id: null });
     const createdMeal: MealLog = {
       id: 'meal-1',
@@ -220,11 +241,67 @@ describe('buildEatTaskBodies plan complete', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-    row_version: 1,
-    created_at: '2026-07-15T00:00:00.000Z',
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00.000Z',
       updated_at: '2026-07-15T00:00:00.000Z',
     };
-    const quickAddMeal = vi.fn(async () => createdMeal);
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const bodies = buildEatTaskBodies({
+      resolvedTask: {
+        kind: 'plan',
+        item: planItem,
+        week: { start: '2026-07-13', end: '2026-07-19' },
+      },
+      recipes: [makeRecipe()],
+      foods: [makeFood({ recipe_id: null })],
+      ingredients: [],
+      inventoryItems: [],
+      mealLogs: [],
+      foodPlanItems: [planItem],
+      members: [],
+      cookRecipe: vi.fn(),
+      previewCookRecipe: vi.fn(),
+      updateFoodPlanItem: vi.fn(),
+      deleteFoodPlanItem: vi.fn(),
+      createFoodPlanItem: vi.fn(),
+      updateFood: vi.fn(),
+      updateRecipe: vi.fn(),
+      updateMealLog: vi.fn(),
+      createShoppingItem: vi.fn(),
+      recordMeal,
+      completeFoodPlanItem,
+      onRecordSuccess,
+      onClose: vi.fn(),
+      onOpenLogs: vi.fn(),
+      onNavigateRecipe: vi.fn(),
+      onStartCook: vi.fn(),
+      onStartCookWithFood: vi.fn(),
+      onQuickAdd: vi.fn(),
+      onCookCompleted: vi.fn(),
+    });
+
+    renderWithQuery(<>{bodies.planTaskContent}</>);
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await waitFor(() => {
+      expect(completeFoodPlanItem).toHaveBeenCalled();
+    });
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
+      expect.objectContaining({
+        food_plan_item_base_updated_at: planItem.updated_at,
+      }),
+    );
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
+    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
+  });
+
+  it('starts recipe cook for recipe plan items without completeFoodPlanItem', async () => {
+    const planItem = makePlanItem({ recipe_id: 'recipe-1' });
+    const completeFoodPlanItem = vi.fn();
+    const onStartCook = vi.fn();
     const bodies = buildEatTaskBodies({
       resolvedTask: {
         kind: 'plan',
@@ -247,35 +324,28 @@ describe('buildEatTaskBodies plan complete', () => {
       updateRecipe: vi.fn(),
       updateMealLog: vi.fn(),
       createShoppingItem: vi.fn(),
-      quickAddMeal,
+      recordMeal: vi.fn(),
+      completeFoodPlanItem,
       onClose: vi.fn(),
       onOpenLogs: vi.fn(),
       onNavigateRecipe: vi.fn(),
-      onStartCook: vi.fn(),
+      onStartCook,
       onStartCookWithFood: vi.fn(),
       onQuickAdd: vi.fn(),
       onCookCompleted: vi.fn(),
     });
 
-    render(<>{bodies.planTaskContent}</>);
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
-    await waitFor(() => {
-      expect(quickAddMeal).toHaveBeenCalled();
-    });
-    expect(quickAddMeal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        food_id: planItem.food_id,
-        food_plan_item_id: planItem.id,
-      }),
-    );
-    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
+    renderWithQuery(<>{bodies.planTaskContent}</>);
+    await userEvent.click(screen.getByRole('button', { name: '开始做' }));
+    expect(onStartCook).toHaveBeenCalledWith('recipe-1', planItem.id);
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
   });
 });
 
 describe('EatPlanTaskBody record failure', () => {
   it('keeps the plan detail open and shows the recording error', async () => {
     const planItem = makePlanItem({ recipe_id: null });
-    render(
+    renderWithQuery(
       <EatPlanTaskBody
         item={planItem}
         food={makeFood({ recipe_id: null })}
@@ -312,8 +382,8 @@ describe('EatPlanTaskBody record failure', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-    row_version: 1,
-    created_at: '2026-07-15T00:00:00Z',
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00Z',
       updated_at: '2026-07-15T00:00:00Z',
     };
     const onComplete = vi.fn(async () => createdMeal);
@@ -330,7 +400,7 @@ describe('EatPlanTaskBody record failure', () => {
         updateMealLog={vi.fn()}
       />
     );
-    const view = render(renderBody(firstItem));
+    const view = renderWithQuery(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
     expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
@@ -361,7 +431,7 @@ describe('EatPlanTaskBody record failure', () => {
         updateMealLog={vi.fn()}
       />
     );
-    const view = render(renderBody(firstItem));
+    const view = renderWithQuery(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
     view.rerender(renderBody(secondItem));
@@ -387,57 +457,115 @@ describe('EatPlanTaskBody record failure', () => {
 });
 
 describe('EatMealCreateTaskBody', () => {
-  it('includes food_plan_item_id for plan-sourced meal create', async () => {
-    const onSubmit = vi.fn(async () => undefined);
-    const planItem = makePlanItem();
-    const food = makeFood();
-    render(
+  it('completes plan-sourced meal create via completeFoodPlanItem (no ordinary undo)', async () => {
+    const planItem = makePlanItem({ recipe_id: null });
+    const food = makeFood({ recipe_id: null });
+    const completeFoodPlanItem = vi.fn(async () => ({
+      id: 'meal-plan-1',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    } satisfies MealLog));
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+
+    renderWithQuery(
       <EatMealCreateTaskBody
         food={food}
         planItem={planItem}
         recipes={[makeRecipe()]}
-        onClose={vi.fn()}
-        onSubmit={onSubmit}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '记录这一餐' }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    expect(onSubmit).toHaveBeenCalledWith(
+    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(completeFoodPlanItem).toHaveBeenCalled());
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
       expect.objectContaining({
-        food_id: food.id,
-        food_plan_item_id: planItem.id,
+        food_plan_item_base_updated_at: planItem.updated_at,
       }),
     );
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('records without stock deduction fields (inventory is separate after Task 15)', async () => {
-    const onSubmit = vi.fn(async () => undefined);
+  it('records ordinary Food via recordMeal and publishes shared result', async () => {
     const food = makeReadyFood();
-    render(
+    const response = {
+      meal_log: {
+        id: 'meal-rec-1',
+        family_id: 'family-1',
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        food_entries: [],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: '2026-07-15T00:00:00.000Z',
+        updated_at: '2026-07-15T00:00:00.000Z',
+      },
+      created_foods: [],
+      outcome: 'created',
+      operation: {
+        id: 'op-1',
+        status: 'applied',
+        revertible_until: '2026-07-15T01:00:00.000Z',
+        can_revert: true,
+      },
+    } satisfies RecordMealResponse;
+    const recordMeal = vi.fn(async () => response);
+    const completeFoodPlanItem = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+
+    renderWithQuery(
       <EatMealCreateTaskBody
         food={food}
         planItem={null}
         recipes={[]}
-        onClose={vi.fn()}
-        onSubmit={onSubmit}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
       />,
     );
 
     expect(screen.queryByRole('checkbox', { name: /同步扣减库存/i })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: '记录这一餐' }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        food_id: food.id,
-      }),
+    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(recordMeal).toHaveBeenCalled());
+    const payload = (recordMeal.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(payload).toMatchObject({
+      date: expect.any(String),
+      meal_type: expect.any(String),
+      target: { kind: 'new' },
+    });
+    expect(payload.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ food_id: food.id, servings: 1 })]),
     );
-    const firstCallArgs = (onSubmit.mock.calls as unknown as Array<[Record<string, unknown>]>)[0];
-    const payload = firstCallArgs?.[0];
-    expect(payload).toBeDefined();
     expect(payload).not.toHaveProperty('deduct_food_stock');
     expect(payload).not.toHaveProperty('stock_quantity');
-    expect(payload).not.toHaveProperty('stock_unit');
+    expect(payload).not.toHaveProperty('food_plan_item_id');
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
+    expect(onRecordSuccess).toHaveBeenCalledWith(response);
+    expect(onClose).toHaveBeenCalled();
   });
 });
 

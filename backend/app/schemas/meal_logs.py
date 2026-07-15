@@ -103,30 +103,3 @@ class MealCompositionEntryIn(BaseModel):
 class UpdateMealCompositionRequest(BaseModel):
     expected_row_version: int = Field(ge=1)
     food_entries: list[MealCompositionEntryIn]
-
-
-class QuickAddMealLogRequest(BaseModel):
-    food_id: str
-    date: date_type
-    meal_type: MealType
-    servings: float = 1
-    note: str = ""
-    food_plan_item_id: str | None = None
-    food_plan_item_base_updated_at: datetime | None = None
-    deduct_food_stock: bool = False
-    expected_food_row_version: int | None = Field(default=None, ge=1)
-    stock_quantity: float | None = Field(default=None, gt=0)
-    stock_unit: str | None = Field(default=None, max_length=32)
-
-    @field_validator("servings")
-    @classmethod
-    def validate_servings(cls, value: float) -> float:
-        if value <= 0:
-            raise ValueError("份数必须大于 0")
-        return value
-
-    @model_validator(mode="after")
-    def validate_stock_version(self) -> "QuickAddMealLogRequest":
-        if self.deduct_food_stock and self.expected_food_row_version is None:
-            raise ValueError("扣减成品库存时必须提供 expected_food_row_version")
-        return self

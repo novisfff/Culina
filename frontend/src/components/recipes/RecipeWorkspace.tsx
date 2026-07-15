@@ -657,6 +657,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     cookSubmitDisabled,
     cookFinishStatusMessage,
     cookCompletionResult,
+    cookCandidates,
+    cookCandidateMode,
+    cookSelectedCandidateId,
+    cookTarget,
+    cookTargetNeedsReconfirm,
+    setCookMealTarget,
     openCook,
     closeCookDialog,
     updateCookSession,
@@ -1634,6 +1640,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       {isCookFinishOpen && activeCookCard && cookSession && (
         <RecipeCookFinishDialog
           recipeTitle={activeCookCard.recipe.title}
+          recipeCover={activeCookCard.recipe.images[0] ?? null}
           cookPreview={cookPreview}
           cookPreviewError={cookPreviewError}
           isCookPreviewLoading={isCookPreviewLoading}
@@ -1649,6 +1656,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 }
               : null
           }
+          candidates={cookCandidates}
+          candidateMode={cookCandidateMode}
+          selectedCandidateId={cookSelectedCandidateId}
+          target={cookTarget}
+          targetNeedsReconfirm={cookTargetNeedsReconfirm}
+          onTargetChange={setCookMealTarget}
           onUpdateSession={updateCookSession}
           onClose={() => setIsCookFinishOpen(false)}
           onSubmit={submitCookRecipe}

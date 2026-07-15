@@ -27,7 +27,11 @@ describe('FoodWorkspace navigation usage', () => {
     expect(workspaceSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
     expect(stateSource).toContain('expected_row_version: editingFood.row_version');
     expect(workspaceSource).toMatch(/updateFoodFavorite\(food\.id, !food\.favorite, food\.row_version\)/);
-    expect(workspaceSource).toContain('expected_food_row_version: food.row_version');
+    // Ordinary Food recording uses recordMeal + MealQuickRecordView; stock is a separate command.
+    expect(workspaceSource).toContain('recordMeal');
+    expect(workspaceSource).toContain('MealQuickRecordView');
+    expect(workspaceSource).not.toContain('expected_food_row_version: food.row_version');
+    expect(workspaceSource).not.toContain('deduct_food_stock');
   });
 
   it('exports focused Food surfaces and keeps the unified workspace composition', () => {

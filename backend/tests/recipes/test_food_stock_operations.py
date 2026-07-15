@@ -6,7 +6,6 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.models.domain import ActivityLog, Food, MealLogFood
-from app.api.meal_logs import _select_food_for_quick_add
 from app.services.food_plan_locking import lock_plan_item_after_food
 
 from ._support import RecipeApiTestCase
@@ -130,21 +129,12 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(restock.status_code, 400)
         self.assertEqual(restock.json()["detail"], "库存数量最多保留 1 位小数")
 
-        quick_add = self.client.post(
-            "/api/meal-logs/quick-add",
-            json={
-                "food_id": "food-stock-decimal",
-                "date": "2026-07-07",
-                "meal_type": "breakfast",
-                "servings": 1,
-                "note": "",
-                "deduct_food_stock": True,
-                "expected_food_row_version": 1,
-                "stock_quantity": 1.25,
-            },
+        consume = self.client.post(
+            "/api/foods/food-stock-decimal/stock/consume",
+            json={"expected_row_version": 1, "quantity": 1.25, "unit": "盒"},
         )
-        self.assertEqual(quick_add.status_code, 400)
-        self.assertEqual(quick_add.json()["detail"], "库存数量最多保留 1 位小数")
+        self.assertEqual(consume.status_code, 400)
+        self.assertEqual(consume.json()["detail"], "库存数量最多保留 1 位小数")
 
     def test_food_stock_overconsume_uses_one_decimal_safe_max(self) -> None:
         with self.SessionLocal() as db:
@@ -159,33 +149,38 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "当前最多只能处理 140.9盒")
 
-    def test_quick_add_ready_food_can_deduct_stock_in_same_request(self) -> None:
+    def test_record_meal_does_not_mutate_food_stock(self) -> None:
         food = self._ready_food(id="food-stock-quick", stock_quantity=Decimal("2"))
         with self.SessionLocal() as db:
             db.add(food)
             db.commit()
 
         response = self.client.post(
-            "/api/meal-logs/quick-add",
+            "/api/meal-logs/record",
             json={
-                "food_id": "food-stock-quick",
+                "client_request_id": "stock-record-1",
                 "date": "2026-07-07",
                 "meal_type": "breakfast",
-                "servings": 1,
-                "note": "",
-                "deduct_food_stock": True,
-                "expected_food_row_version": 1,
-                "stock_quantity": 1,
+                "target": {"kind": "new"},
+                "new_foods": [],
+                "entries": [{"food_id": "food-stock-quick", "servings": 1}],
             },
         )
-
-        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
         with self.SessionLocal() as db:
             refreshed = db.get(Food, "food-stock-quick")
             assert refreshed is not None
-            self.assertEqual(refreshed.stock_quantity, Decimal("1.00"))
+            self.assertEqual(refreshed.stock_quantity, Decimal("2.00"))
+            self.assertEqual(refreshed.row_version, 1)
 
-    def test_quick_add_stock_deduction_rejects_stale_food_version_atomically(self) -> None:
+        consume = self.client.post(
+            "/api/foods/food-stock-quick/stock/consume",
+            json={"expected_row_version": 1, "quantity": 1, "unit": "盒"},
+        )
+        self.assertEqual(consume.status_code, 200, consume.text)
+        self.assertEqual(consume.json()["stock_quantity"], 1)
+
+    def test_food_stock_consume_rejects_stale_food_version_atomically(self) -> None:
         food = self._ready_food(id="food-stock-quick-stale", stock_quantity=Decimal("2"))
         with self.SessionLocal() as db:
             db.add(food)
@@ -194,20 +189,24 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             db.commit()
             self.assertEqual(food.row_version, 2)
 
-        response = self.client.post(
-            "/api/meal-logs/quick-add",
+        # Record path never mutates stock even with a concurrent stock change.
+        record = self.client.post(
+            "/api/meal-logs/record",
             json={
-                "food_id": food.id,
+                "client_request_id": "stock-stale-record-1",
                 "date": "2026-07-07",
                 "meal_type": "breakfast",
-                "servings": 1,
-                "note": "",
-                "deduct_food_stock": True,
-                "expected_food_row_version": 1,
-                "stock_quantity": 1,
+                "target": {"kind": "new"},
+                "new_foods": [],
+                "entries": [{"food_id": food.id, "servings": 1}],
             },
         )
+        self.assertEqual(record.status_code, 200, record.text)
 
+        response = self.client.post(
+            f"/api/foods/{food.id}/stock/consume",
+            json={"expected_row_version": 1, "quantity": 1, "unit": "盒"},
+        )
         self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(response.json()["detail"]["code"], "stale_version")
         with self.SessionLocal() as db:
@@ -215,9 +214,9 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             assert refreshed is not None
             self.assertEqual(refreshed.stock_quantity, Decimal("3.00"))
             meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
-            self.assertEqual(meal_entries, [])
+            self.assertEqual(len(meal_entries), 1)
 
-    def test_quick_add_plan_replay_does_not_double_deduct_stock(self) -> None:
+    def test_plan_complete_does_not_mutate_stock_and_replay_is_conflict(self) -> None:
         food = self._ready_food(id="food-stock-replay", stock_quantity=Decimal("3"))
         with self.SessionLocal() as db:
             db.add(food)
@@ -230,54 +229,39 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(plan_response.status_code, 201, plan_response.text)
         plan = plan_response.json()
 
-        payload = {
-            "food_id": food.id,
-            "date": "2026-07-07",
-            "meal_type": "breakfast",
-            "servings": 1,
-            "note": "完成计划",
-            "food_plan_item_id": plan["id"],
-            "deduct_food_stock": True,
-            "expected_food_row_version": 1,
-            "stock_quantity": 1,
-        }
+        first_response = self.client.post(
+            f"/api/food-plan/{plan['id']}/complete",
+            json={"food_plan_item_base_updated_at": plan["updated_at"]},
+        )
+        self.assertEqual(first_response.status_code, 200, first_response.text)
 
-        first_response = self.client.post("/api/meal-logs/quick-add", json=payload)
-        self.assertEqual(first_response.status_code, 201, first_response.text)
+        # Plan complete is inventory-free; stock is an independent command.
+        with self.SessionLocal() as db:
+            refreshed = db.get(Food, food.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.stock_quantity, Decimal("3.00"))
+            meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
+            self.assertEqual(len(meal_entries), 1)
 
-        second_response = self.client.post("/api/meal-logs/quick-add", json=payload)
-        self.assertEqual(second_response.status_code, 409, second_response.text)
-        self.assertEqual(second_response.json()["detail"]["code"], "food_plan_item_already_completed")
-        self.assertEqual(second_response.json()["detail"]["meal_log_id"], first_response.json()["id"])
+        consume = self.client.post(
+            f"/api/foods/{food.id}/stock/consume",
+            json={"expected_row_version": 1, "quantity": 1, "unit": "盒"},
+        )
+        self.assertEqual(consume.status_code, 200, consume.text)
+        self.assertEqual(consume.json()["stock_quantity"], 2)
+
+        second_response = self.client.post(
+            f"/api/food-plan/{plan['id']}/complete",
+            json={"food_plan_item_base_updated_at": plan["updated_at"]},
+        )
+        # Idempotent complete returns stored meal; stock remains from the independent consume.
+        self.assertEqual(second_response.status_code, 200, second_response.text)
+        self.assertEqual(second_response.json()["id"], first_response.json()["id"])
 
         with self.SessionLocal() as db:
             refreshed = db.get(Food, food.id)
             assert refreshed is not None
             self.assertEqual(refreshed.stock_quantity, Decimal("2.00"))
-            meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
-            self.assertEqual(len(meal_entries), 1)
-
-        with self.SessionLocal() as db:
-            entries = list(
-                db.scalars(
-                    select(ActivityLog).where(
-                        ActivityLog.entity_type == "Food",
-                        ActivityLog.entity_id == food.id,
-                    )
-                )
-            )
-        self.assertEqual(len(entries), 1)
-
-    def test_quick_add_food_stock_query_uses_row_lock(self) -> None:
-        statement = _select_food_for_quick_add(food_id="food-stock-lock", family_id="family-test", deduct_food_stock=True)
-        self.assertIsNotNone(statement._for_update_arg)
-
-        unlocked_statement = _select_food_for_quick_add(
-            food_id="food-stock-lock",
-            family_id="family-test",
-            deduct_food_stock=False,
-        )
-        self.assertIsNone(unlocked_statement._for_update_arg)
 
     def test_lock_plan_item_after_food_is_callable(self) -> None:
         self.assertTrue(callable(lock_plan_item_after_food))

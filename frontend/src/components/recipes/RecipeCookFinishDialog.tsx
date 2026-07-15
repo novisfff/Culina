@@ -1,5 +1,15 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import type { CookRecipePreviewItem, CookRecipePreviewResponse, CookRecipeShortage, MealType } from '../../api/types';
+import type {
+  CookRecipePreviewItem,
+  CookRecipePreviewResponse,
+  CookRecipeShortage,
+  MealLogCandidate,
+  MealType,
+  MediaAsset,
+  RecordMealTarget,
+} from '../../api/types';
+import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
+import type { MealComposerFood } from '../../features/meals/MealComposerModel';
 import { formatDate } from '../../lib/ui';
 import { ActionButton, DropdownSelect, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
@@ -20,6 +30,7 @@ export type RecipeCookFinishSuccess = {
 
 type RecipeCookFinishDialogProps = {
   recipeTitle: string;
+  recipeCover?: MediaAsset | null;
   cookPreview: CookRecipePreviewResponse | null;
   cookPreviewError: string | null;
   isCookPreviewLoading: boolean;
@@ -28,6 +39,13 @@ type RecipeCookFinishDialogProps = {
   submitDisabled: boolean;
   statusMessage?: string | null;
   success?: RecipeCookFinishSuccess | null;
+  /** Authoritative candidates for target selection (Task 16). */
+  candidates?: MealLogCandidate[];
+  candidateMode?: 'none' | 'single' | 'multi';
+  selectedCandidateId?: string | null;
+  target?: RecordMealTarget;
+  targetNeedsReconfirm?: boolean;
+  onTargetChange?: (target: RecordMealTarget, selectedCandidateId?: string | null) => void;
   onUpdateSession: (patch: Partial<RecipeCookSessionState>) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -204,6 +222,20 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
   }
 
   function renderMealStep() {
+    const draftFoods: MealComposerFood[] = [
+      {
+        kind: 'existing',
+        food_id: 'recipe-food',
+        name: props.recipeTitle,
+        servings: Number(props.session.servings) || 1,
+        cover: props.recipeCover ?? null,
+      },
+    ];
+    const candidates = props.candidates ?? [];
+    const candidateMode = props.candidateMode ?? 'none';
+    const selectedCandidateId = props.selectedCandidateId ?? null;
+    const target = props.target ?? { kind: 'new' as const };
+
     return (
       <StepPanel
         title="填写这餐的信息"
@@ -225,6 +257,24 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
             />
           </label>
         </div>
+        {props.targetNeedsReconfirm ? (
+          <p className="subtle recipe-cook-finish-reconfirm" role="status">
+            日期或餐次已变更，请重新确认要记入的目标餐。
+          </p>
+        ) : null}
+        <MealCandidateSelector
+          mode={candidateMode}
+          mealType={props.session.mealType}
+          candidates={candidates}
+          selectedCandidateId={selectedCandidateId}
+          target={target}
+          draftFoods={draftFoods}
+          disabled={isCooking}
+          className="recipe-cook-finish-candidates"
+          onTargetChange={(nextTarget, nextSelectedId) => {
+            props.onTargetChange?.(nextTarget, nextSelectedId ?? null);
+          }}
+        />
         <p className="subtle recipe-cook-finish-auto-record">完成后会自动记入吃过的</p>
       </StepPanel>
     );

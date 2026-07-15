@@ -6,7 +6,6 @@ import type {
   MealLogCandidate,
   MealLogRecordOperationSummary,
   MealType,
-  QuickAddMealLogPayload,
   RecordMealPayload,
   RecordMealResponse,
   RevertMealRecordResponse,
@@ -50,11 +49,6 @@ export const mealLogsApi = {
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) =>
     request<MealLog>(`/api/meal-logs/${mealLogId}`, {
       method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-  quickAddMealLog: (payload: QuickAddMealLogPayload) =>
-    request<MealLog>('/api/meal-logs/quick-add', {
-      method: 'POST',
       body: JSON.stringify(payload),
     }),
 };

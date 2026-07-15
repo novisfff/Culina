@@ -12,7 +12,6 @@ import {
   invalidateAfterMealLogChanged,
   invalidateAfterMealRecorded,
   invalidateAfterMealRecordReverted,
-  invalidateAfterQuickMealAdded,
   invalidateAfterRecipeChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterRecipeDeleted,
@@ -290,13 +289,6 @@ export function useAppMutations() {
       await invalidateAfterMealLogChanged(queryClient);
     },
   });
-  /** Legacy quick-add kept for not-yet-migrated Food/Ingredient/Eat callers until Tasks 15–16. */
-  const quickAddMealMutation = useMutation({
-    mutationFn: api.quickAddMealLog,
-    onSuccess: async () => {
-      await invalidateAfterQuickMealAdded(queryClient);
-    },
-  });
   const recordMealMutation = useMutation({
     mutationFn: api.recordMeal,
     onSuccess: async (response) => {
@@ -375,7 +367,6 @@ export function useAppMutations() {
     updateFoodMutation,
     toggleFavoriteMutation,
     updateMealMutation,
-    quickAddMealMutation,
     recordMealMutation,
     updateMealCompositionMutation,
     revertMealRecordMutation,

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../../api/client';
 import type { Recipe } from '../../api/types';
 import {
   buildCookSessionV3Key,
@@ -53,9 +56,19 @@ function makeCard(recipe: Recipe = makeRecipe()): RecipeCardViewModel {
   };
 }
 
+function createWrapper() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
+}
+
 beforeEach(() => {
   // jsdom does not implement scrollTo; openCook uses it for focus reset.
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+  vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -104,6 +117,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'direct' },
         },
       }),
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -164,6 +178,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'direct' },
         },
       }),
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -211,6 +226,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'direct' },
         },
       }),
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -263,6 +279,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'direct' },
         },
       }),
+      { wrapper: createWrapper() },
     );
 
     act(() => result.current.openCook(card));
@@ -321,6 +338,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'plan', foodPlanItemId: 'plan-1', planItemBaseUpdatedAt: '2026-07-12T10:00:00Z' },
         },
       }),
+      { wrapper: createWrapper() },
     );
     act(() => {
       result.current.openCook(card, 'plan-1');
@@ -332,6 +350,8 @@ describe('useRecipeCookState scoped v3', () => {
     act(() => {
       result.current.setIsCookFinishOpen(true);
     });
+    // Finish open refetches candidates; wait until submit is enabled.
+    await waitFor(() => expect(result.current.cookSubmitDisabled).toBe(false));
     await act(async () => {
       await result.current.submitCookRecipe({ preventDefault() {} } as never);
     });
@@ -382,7 +402,7 @@ describe('useRecipeCookState scoped v3', () => {
           foodId: 'food-1',
           ownershipVerified: true,
         }),
-      { initialProps: { view: 'library' as 'library' | 'cook' } },
+      { wrapper: createWrapper(), initialProps: { view: 'library' as 'library' | 'cook' } },
     );
 
     act(() => {
@@ -396,6 +416,10 @@ describe('useRecipeCookState scoped v3', () => {
     });
     expect(result.current.cookSession?.timers.some((timer) => timer.running)).toBe(true);
 
+    act(() => {
+      result.current.setIsCookFinishOpen(true);
+    });
+    await waitFor(() => expect(result.current.cookSubmitDisabled).toBe(false));
     await act(async () => {
       await result.current.submitCookRecipe({ preventDefault() {} } as never);
     });
@@ -460,6 +484,7 @@ describe('useRecipeCookState scoped v3', () => {
           source: { kind: 'direct' },
         },
       }),
+      { wrapper: createWrapper() },
     );
     act(() => {
       result.current.openCook(card);
@@ -469,6 +494,10 @@ describe('useRecipeCookState scoped v3', () => {
       result.current.continueSavedCook();
     });
     await waitFor(() => expect(result.current.cookSession).not.toBeNull());
+    act(() => {
+      result.current.setIsCookFinishOpen(true);
+    });
+    await waitFor(() => expect(result.current.cookSubmitDisabled).toBe(false));
     await act(async () => {
       await result.current.submitCookRecipe({ preventDefault() {} } as never);
     });
@@ -478,6 +507,101 @@ describe('useRecipeCookState scoped v3', () => {
       kind: 'direct', date: '2026-07-14', mealType: 'dinner',
     }))).not.toBeNull();
     expect(showRecipeNotice).toHaveBeenCalledWith(expect.objectContaining({ tone: 'danger' }));
+  });
+
+  it('includes target meal fields in cook payload and preserves completion request id', async () => {
+    const recipe = makeRecipe();
+    const card = makeCard(recipe);
+    const session = buildDefaultCookSessionV3(recipe, {
+      source: 'direct',
+      planItemId: null,
+      completionRequestId: 'cook-target-request-1',
+      date: '2026-07-15',
+      mealType: 'dinner',
+      servings: 2,
+    });
+    saveCookSessionV3({
+      scope: SCOPE,
+      recipeId: recipe.id,
+      session,
+      savedAt: new Date().toISOString(),
+    });
+    vi.spyOn(api, 'getMealCandidates').mockResolvedValue([
+      {
+        meal_log_id: 'meal-existing-1',
+        row_version: 3,
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        created_at: '2026-07-15T10:00:00.000Z',
+        foods: [{ food_id: 'food-x', name: '已有菜', food_type: 'selfMade' }],
+        preview_media: null,
+        photo_count: 0,
+      },
+    ]);
+    const cookRecipe = vi.fn(async () => ({
+      recipe_id: recipe.id,
+      consumed_items: [],
+      shortages: [],
+      meal_log_id: 'meal-existing-1',
+      cook_log_id: 'cook-1',
+    }));
+    const { result } = renderHook(
+      () =>
+        useRecipeCookState({
+          cards: [card],
+          selectedCard: card,
+          view: 'library',
+          setView: vi.fn(),
+          setSelectedRecipeId: vi.fn(),
+          previewCookRecipe: vi.fn(async () => ({ recipe_id: recipe.id, preview_items: [], shortages: [] })),
+          cookRecipe,
+          showRecipeNotice: vi.fn(),
+          sessionScope: SCOPE,
+          foodId: 'food-1',
+          ownershipVerified: true,
+          launchContext: {
+            date: '2026-07-15',
+            mealType: 'dinner',
+            servings: 2,
+            source: { kind: 'direct' },
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+    act(() => {
+      result.current.openCook(card);
+    });
+    act(() => {
+      result.current.continueSavedCook();
+    });
+    await waitFor(() => expect(result.current.cookSession).not.toBeNull());
+    expect((result.current.cookSession as { completionRequestId?: string })?.completionRequestId).toBe(
+      'cook-target-request-1',
+    );
+    act(() => {
+      result.current.setIsCookFinishOpen(true);
+    });
+    await waitFor(() => expect(result.current.cookCandidates.length).toBe(1));
+    await waitFor(() => expect(result.current.cookSubmitDisabled).toBe(false));
+    act(() => {
+      result.current.setCookMealTarget(
+        { kind: 'existing', meal_log_id: 'meal-existing-1', expected_row_version: 3 },
+        'meal-existing-1',
+      );
+    });
+    await act(async () => {
+      await result.current.submitCookRecipe({ preventDefault() {} } as never);
+    });
+    expect(cookRecipe).toHaveBeenCalledWith(
+      recipe.id,
+      expect.objectContaining({
+        completion_request_id: 'cook-target-request-1',
+        target_meal_log_id: 'meal-existing-1',
+        expected_meal_log_row_version: 3,
+      }),
+    );
+    // Recipe cook never publishes ordinary record undo result bar state.
+    expect(result.current.cookCompletionResult?.mealLogId).toBe('meal-existing-1');
   });
 
 });

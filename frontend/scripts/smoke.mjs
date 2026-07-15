@@ -741,6 +741,9 @@ const fixtures = {
     items: recommendationItems,
   },
   '/api/meal-logs': [],
+  // Phase-one meal recording surfaces (Task 16): boot + dialog support.
+  '/api/meal-logs/record-operations': [],
+  '/api/meal-logs/candidates': [],
   '/api/ai/conversations': [],
   '/api/ai/status': {
     enabled: true,
@@ -988,6 +991,154 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
             entity: planItemOutsideWeek,
           },
         ],
+      });
+      return;
+    }
+
+    // Phase-one meal recording owners (Task 16). Never serve /api/meal-logs/quick-add.
+    if (url.pathname === '/api/meal-logs/quick-add') {
+      await fulfillJson(route, { detail: 'Not Found' }, 404);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/candidates') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/record-operations') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/meal-logs/record') {
+      let body = {};
+      try {
+        body = request.postDataJSON() ?? {};
+      } catch {
+        body = {};
+      }
+      const mealLog = {
+        id: body?.target?.kind === 'existing' ? body.target.meal_log_id : 'meal-smoke-record-1',
+        family_id: family.id,
+        date: body.date || today,
+        meal_type: body.meal_type || 'dinner',
+        food_entries: (body.entries || []).map((entry, index) => ({
+          id: `entry-smoke-${index + 1}`,
+          food_id: entry.food_id || entry.client_food_id || 'food-smoke',
+          food_name: 'Smoke food',
+          servings: entry.servings ?? 1,
+          note: '',
+          rating: null,
+        })),
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: body?.target?.kind === 'existing' ? (body.target.expected_row_version || 1) + 1 : 1,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:00:00.000Z`,
+      };
+      await fulfillJson(route, {
+        meal_log: mealLog,
+        created_foods: [],
+        outcome: body?.target?.kind === 'existing' ? 'appended' : 'created',
+        operation: {
+          id: 'op-smoke-1',
+          status: 'applied',
+          revertible_until: `${today}T12:30:00.000Z`,
+          can_revert: true,
+        },
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname.endsWith('/complete') && url.pathname.startsWith('/api/food-plan/')) {
+      const itemId = url.pathname.slice('/api/food-plan/'.length, -'/complete'.length);
+      await fulfillJson(route, {
+        id: 'meal-smoke-plan-1',
+        family_id: family.id,
+        date: today,
+        meal_type: 'dinner',
+        food_entries: [
+          {
+            id: 'entry-plan-1',
+            food_id: 'food-smoke',
+            food_name: 'Smoke plan food',
+            servings: 1,
+            note: '',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:00:00.000Z`,
+        created_by: member.id,
+        updated_by: member.id,
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/recipes\/[^/]+\/cook$/.test(url.pathname)) {
+      let body = {};
+      try {
+        body = request.postDataJSON() ?? {};
+      } catch {
+        body = {};
+      }
+      await fulfillJson(route, {
+        recipe_id: recipe.id,
+        consumed_items: [],
+        shortages: [],
+        meal_log_id: body.target_meal_log_id || 'meal-smoke-cook-1',
+        cook_log_id: 'cook-smoke-1',
+        completion_request_id: body.completion_request_id || 'cook-smoke-req',
+        replayed: false,
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/recipes\/[^/]+\/cook-preview$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        recipe_id: recipe.id,
+        preview_items: [],
+        shortages: [],
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/meal-logs\/record-operations\/[^/]+\/revert$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        operation_id: 'op-smoke-1',
+        status: 'reverted',
+        meal_log_id: 'meal-smoke-record-1',
+        removed_food_ids: [],
+        replayed: false,
+      });
+      return;
+    }
+
+    if (request.method() === 'PATCH' && /\/api\/meal-logs\/[^/]+\/composition$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        id: 'meal-smoke-record-1',
+        family_id: family.id,
+        date: today,
+        meal_type: 'dinner',
+        food_entries: [],
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 2,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:05:00.000Z`,
       });
       return;
     }

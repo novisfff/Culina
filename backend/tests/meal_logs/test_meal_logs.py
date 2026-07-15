@@ -278,7 +278,12 @@ class MealLogReferencesTestCase(unittest.TestCase):
                 )
             self.assertIs(references.foods_by_id[self.food.id], food)
 
-    def test_rest_create_update_and_quick_add_call_shared_helper(self) -> None:
+    def test_legacy_quick_add_is_removed(self) -> None:
+        response = self.client.post("/api/meal-logs/quick-add", json={})
+        # Route fully removed: FastAPI may report 404 or 405 depending on remaining path matches.
+        self.assertIn(response.status_code, {404, 405}, response.text)
+
+    def test_rest_create_update_and_record_call_shared_helper(self) -> None:
         calls: list[dict] = []
 
         def tracking_lock(*args, **kwargs):
@@ -327,22 +332,23 @@ class MealLogReferencesTestCase(unittest.TestCase):
             )
             self.assertEqual(update_response.status_code, 200, update_response.text)
 
-            quick_add = self.client.post(
-                "/api/meal-logs/quick-add",
-                json={
-                    "food_id": self.food.id,
-                    "date": "2026-05-17",
-                    "meal_type": "lunch",
-                    "servings": 1,
-                    "note": "quick",
-                },
-            )
-            self.assertEqual(quick_add.status_code, 201, quick_add.text)
+        # record uses meal_recording service (inventory locks), not the meal_logs REST helper path.
+        record = self.client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "record-shared-helper-1",
+                "date": "2026-05-17",
+                "meal_type": "lunch",
+                "target": {"kind": "new"},
+                "new_foods": [],
+                "entries": [{"food_id": self.food.id, "servings": 1}],
+            },
+        )
+        self.assertEqual(record.status_code, 200, record.text)
 
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0]["food_ids"], [self.food.id])
         self.assertEqual(calls[1]["participant_user_ids"], [self.member.id])
-        self.assertEqual(calls[2]["food_ids"], [self.food.id])
 
     def test_create_rejects_empty_and_cross_family_foods(self) -> None:
         empty = self.client.post(
@@ -443,20 +449,15 @@ class MealLogReferencesTestCase(unittest.TestCase):
             db.refresh(item)
             return item
 
-    def test_plan_origin_quick_add_completes_one_plan_and_meal_atomically(self) -> None:
+    def test_plan_origin_complete_creates_one_plan_and_meal_atomically(self) -> None:
         planned = self._create_plan_item(food_id=self.food.id)
         response = self.client.post(
-            "/api/meal-logs/quick-add",
+            f"/api/food-plan/{planned.id}/complete",
             json={
-                "food_id": planned.food_id,
-                "date": planned.plan_date.isoformat(),
-                "meal_type": planned.meal_type.value,
-                "servings": 1.5,
-                "food_plan_item_id": planned.id,
                 "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
             },
         )
-        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
         meal_id = response.json()["id"]
         with self.SessionLocal() as db:
             refreshed = db.get(FoodPlanItem, planned.id)
@@ -485,25 +486,14 @@ class MealLogReferencesTestCase(unittest.TestCase):
             meal_log_id=meal_id,
         )
         response = self.client.post(
-            "/api/meal-logs/quick-add",
+            f"/api/food-plan/{cooked.id}/complete",
             json={
-                "food_id": cooked.food_id,
-                "date": cooked.plan_date.isoformat(),
-                "meal_type": cooked.meal_type.value,
-                "servings": 1,
-                "food_plan_item_id": cooked.id,
                 "food_plan_item_base_updated_at": cooked.updated_at.isoformat(),
             },
         )
-        self.assertEqual(response.status_code, 409, response.text)
-        self.assertEqual(
-            response.json()["detail"],
-            {
-                "code": "food_plan_item_already_completed",
-                "message": "该菜单项已经记录完成",
-                "meal_log_id": meal_id,
-            },
-        )
+        # completeFoodPlanItem is idempotent: already-cooked plan returns the stored MealLog.
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["id"], meal_id)
         second_list = self.client.get("/api/meal-logs")
         self.assertEqual(second_list.status_code, 200, second_list.text)
         self.assertEqual(len(second_list.json()), 1)
