@@ -165,6 +165,7 @@ def complete_food_plan_item(db: Session, command: CompleteFoodPlanItemCommand) -
 
     locked_target_meal_log: MealLog | None = None
     # Prefer explicit target for write path; stored id is used for completed replay.
+    # Foods already locked above — MealLog-only lock via prelocked_foods (no second Food pass).
     lock_meal_log_id = requested_target_id or None
     if lock_meal_log_id is not None:
         locked = lock_meal_log_write_targets(
@@ -172,6 +173,7 @@ def complete_food_plan_item(db: Session, command: CompleteFoodPlanItemCommand) -
             family_id=command.family_id,
             meal_log_id=lock_meal_log_id,
             additional_food_ids=[discovered_food_id],
+            prelocked_foods=foods_by_id,
         )
         locked_target_meal_log = locked.meal_log
         foods_by_id.update(locked.foods_by_id)

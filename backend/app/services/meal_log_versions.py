@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,12 +51,18 @@ def _unique_sorted_ids(ids: Sequence[str]) -> list[str]:
     return sorted({str(item_id).strip() for item_id in ids if str(item_id).strip()})
 
 
-def _discover_meal_log_entry_food_ids(
+def discover_meal_log_entry_food_ids(
     db: Session,
     *,
     family_id: str,
     meal_log_id: str,
 ) -> tuple[str, ...]:
+    """Return sorted entry Food IDs for a family-scoped MealLog without locking.
+
+    Raises meal_log_not_found when the MealLog is missing or cross-family.
+    Callers that already hold parent locks may use this to discover Foods to union
+    into an earlier Food lock set and avoid reverse-locking after InventoryItems.
+    """
     meal_log_id_found = db.scalar(
         select(MealLog.id).where(MealLog.id == meal_log_id, MealLog.family_id == family_id)
     )
@@ -82,6 +88,7 @@ def lock_meal_log_write_targets(
     family_id: str,
     meal_log_id: str,
     additional_food_ids: Sequence[str] = (),
+    prelocked_foods: Mapping[str, Food] | None = None,
 ) -> LockedMealLogWriteTargets:
     """Discover entry Foods unlocked, lock Foods then MealLog, and revalidate the set.
 
@@ -89,12 +96,15 @@ def lock_meal_log_write_targets(
     If the locked MealLog's entry Food set differs from the pre-lock discovery set,
     raise meal_log_targets_changed and never reverse-lock Food after MealLog.
 
+    When ``prelocked_foods`` is provided, Foods are assumed already locked in global
+    order and this helper only locks MealLog (no second Food FOR UPDATE pass).
+
     Missing / cross-family Foods that belong only to ``additional_food_ids`` (request
     Foods, not the discovered entry set) re-raise ``InventoryTargetNotFoundError`` so
     callers such as ``record_meal`` can map them to 404 ``meal_log_food_not_found``.
     Incomplete discovered entry Foods still map to ``meal_log_targets_changed``.
     """
-    discovered_food_ids = _discover_meal_log_entry_food_ids(
+    discovered_food_ids = discover_meal_log_entry_food_ids(
         db,
         family_id=family_id,
         meal_log_id=meal_log_id,
@@ -104,33 +114,52 @@ def lock_meal_log_write_targets(
 
     foods_by_id: dict[str, Any] = {}
     if ordered_food_ids:
-        try:
-            foods_by_id = lock_inventory_targets(
-                db,
-                family_id=family_id,
-                food_ids=ordered_food_ids,
-            ).foods
-        except InventoryTargetNotFoundError as exc:
-            if ordered_additional_food_ids:
-                present_ids = set(
-                    db.scalars(
-                        select(Food.id).where(
-                            Food.family_id == family_id,
-                            Food.id.in_(ordered_food_ids),
-                        )
-                    )
-                )
-                missing_ids = set(ordered_food_ids) - present_ids
+        if prelocked_foods is not None:
+            foods_by_id = {
+                food_id: prelocked_foods[food_id]
+                for food_id in ordered_food_ids
+                if food_id in prelocked_foods and prelocked_foods[food_id].family_id == family_id
+            }
+            if len(foods_by_id) != len(ordered_food_ids):
+                missing_ids = set(ordered_food_ids) - set(foods_by_id)
                 discovered_missing = missing_ids.intersection(discovered_food_ids)
                 additional_missing = missing_ids.intersection(ordered_additional_food_ids)
                 # Request-only Food absence is not an entry-set race.
                 if additional_missing and not discovered_missing:
-                    raise
-            raise MealLogConflictError(
-                MEAL_LOG_TARGETS_CHANGED_CODE,
-                MEAL_LOG_TARGETS_CHANGED_MESSAGE,
-                recovery_hint=MEAL_LOG_STALE_RECOVERY_HINT,
-            ) from exc
+                    raise InventoryTargetNotFoundError("食物不存在或不属于当前家庭")
+                raise MealLogConflictError(
+                    MEAL_LOG_TARGETS_CHANGED_CODE,
+                    MEAL_LOG_TARGETS_CHANGED_MESSAGE,
+                    recovery_hint=MEAL_LOG_STALE_RECOVERY_HINT,
+                )
+        else:
+            try:
+                foods_by_id = lock_inventory_targets(
+                    db,
+                    family_id=family_id,
+                    food_ids=ordered_food_ids,
+                ).foods
+            except InventoryTargetNotFoundError as exc:
+                if ordered_additional_food_ids:
+                    present_ids = set(
+                        db.scalars(
+                            select(Food.id).where(
+                                Food.family_id == family_id,
+                                Food.id.in_(ordered_food_ids),
+                            )
+                        )
+                    )
+                    missing_ids = set(ordered_food_ids) - present_ids
+                    discovered_missing = missing_ids.intersection(discovered_food_ids)
+                    additional_missing = missing_ids.intersection(ordered_additional_food_ids)
+                    # Request-only Food absence is not an entry-set race.
+                    if additional_missing and not discovered_missing:
+                        raise
+                raise MealLogConflictError(
+                    MEAL_LOG_TARGETS_CHANGED_CODE,
+                    MEAL_LOG_TARGETS_CHANGED_MESSAGE,
+                    recovery_hint=MEAL_LOG_STALE_RECOVERY_HINT,
+                ) from exc
 
     meal_log = db.scalar(
         select(MealLog)

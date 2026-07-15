@@ -1949,6 +1949,131 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                     0,
                 )
 
+        def test_cook_stale_target_version_fails_before_inventory_mutation(self) -> None:
+            from app.services.meal_log_versions import MealLogConflictError
+
+            recipe = self.create_recipe(auto_create_food=True, title="目标版本过期")
+            recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
+            target_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": food_id, "servings": 1, "note": "先有的菜"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "已有晚餐",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(target_response.status_code, 201, target_response.text)
+            target = target_response.json()
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-stale-target",
+                egg_id="inventory-egg-stale-target",
+                tomato_qty="4",
+                egg_qty="6",
+            )
+            command = self._completion_command_for_recipe(
+                recipe_id,
+                completion_request_id="cook-stale-target-version",
+                target_meal_log_id=target["id"],
+                expected_meal_log_row_version=999,
+            )
+            with self.SessionLocal() as db:
+                with patch(
+                    "app.services.recipe_cook_completion.apply_locked_inventory_plan",
+                    side_effect=AssertionError("inventory must not mutate on stale MealLog version"),
+                ):
+                    with self.assertRaises(MealLogConflictError) as raised:
+                        complete_recipe_cook(db, command)
+                self.assertEqual(raised.exception.code, "meal_log_stale")
+                tomato = db.get(InventoryItem, "inventory-tomato-stale-target")
+                egg = db.get(InventoryItem, "inventory-egg-stale-target")
+                assert tomato is not None and egg is not None
+                self.assertEqual(tomato.consumed_quantity, Decimal("0"))
+                self.assertEqual(egg.consumed_quantity, Decimal("0"))
+                meal = db.get(MealLog, target["id"])
+                assert meal is not None
+                self.assertEqual(meal.row_version, 1)
+                self.assertEqual(len(meal.food_entries), 1)
+                db.rollback()
+
+        def test_cook_target_path_unions_entry_foods_and_skips_second_food_lock(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True, title="目标锁顺序")
+            recipe_id = recipe["id"]
+            food_id = self._linked_food_id(recipe_id)
+            other_food_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "米饭-目标锁",
+                    "type": "readyMade",
+                    "category": "主食",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                },
+            )
+            self.assertEqual(other_food_response.status_code, 201, other_food_response.text)
+            other_food_id = other_food_response.json()["id"]
+            target_response = self.client.post(
+                "/api/meal-logs",
+                json={
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "food_entries": [{"food_id": other_food_id, "servings": 1, "note": "已有米饭"}],
+                    "participant_user_ids": [self.user.id],
+                    "notes": "已有晚餐",
+                    "mood": "",
+                },
+            )
+            self.assertEqual(target_response.status_code, 201, target_response.text)
+            target = target_response.json()
+            self._seed_full_inventory(
+                tomato_id="inventory-tomato-lock-order",
+                egg_id="inventory-egg-lock-order",
+                tomato_qty="4",
+                egg_qty="6",
+            )
+            command = self._completion_command_for_recipe(
+                recipe_id,
+                completion_request_id="cook-target-lock-order",
+                target_meal_log_id=target["id"],
+                expected_meal_log_row_version=target["row_version"],
+            )
+            inventory_lock_calls: list[dict] = []
+            from app.services.inventory_operation_locking import (
+                lock_inventory_targets as real_inventory_lock,
+            )
+
+            def tracking_inventory_lock(*args, **kwargs):
+                inventory_lock_calls.append(
+                    {
+                        "food_ids": sorted(kwargs.get("food_ids") or []),
+                        "inventory_item_ids": sorted(kwargs.get("inventory_item_ids") or []),
+                    }
+                )
+                return real_inventory_lock(*args, **kwargs)
+
+            with self.SessionLocal() as db:
+                with (
+                    patch(
+                        "app.services.recipe_cook_completion.lock_inventory_targets",
+                        side_effect=tracking_inventory_lock,
+                    ),
+                    patch(
+                        "app.services.meal_log_versions.lock_inventory_targets",
+                        side_effect=AssertionError("must not re-lock Foods after inventory items"),
+                    ),
+                ):
+                    result = complete_recipe_cook(db, command)
+                    db.commit()
+            self.assertEqual(result.meal_log_id, target["id"])
+            self.assertEqual(len(inventory_lock_calls), 1)
+            self.assertIn(other_food_id, inventory_lock_calls[0]["food_ids"])
+            self.assertIn(food_id, inventory_lock_calls[0]["food_ids"])
+            self.assertTrue(inventory_lock_calls[0]["inventory_item_ids"])
+
         def test_recipe_cook_without_target_still_creates_new_meal_log(self) -> None:
             recipe = self.create_recipe(auto_create_food=False, title="无目标新建")
             recipe_id = recipe["id"]

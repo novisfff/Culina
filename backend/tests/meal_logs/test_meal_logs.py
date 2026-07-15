@@ -1058,26 +1058,55 @@ class MealLogReferencesTestCase(unittest.TestCase):
         with self.SessionLocal() as db:
             item = db.get(FoodPlanItem, plan.id)
             assert item is not None
-            with patch("app.services.food_plan_completion.lock_inventory_targets", side_effect=tracking_inventory_lock):
-                with patch.object(Session, "scalar", tracking_scalar):
-                    complete_food_plan_item(
-                        db,
-                        CompleteFoodPlanItemCommand(
-                            family_id=self.family.id,
-                            actor_user_id=self.user.id,
-                            item_id=plan.id,
-                            food_plan_item_base_updated_at=item.updated_at,
-                            target_meal_log_id=target["id"],
-                            expected_meal_log_row_version=target["row_version"],
-                        ),
-                    )
-                    db.commit()
-        # First food lock is plan/entry discovery; MealLog path may re-lock foods before meal_log then plan.
-        self.assertIn("food", lock_calls)
+            with (
+                patch(
+                    "app.services.food_plan_completion.lock_inventory_targets",
+                    side_effect=tracking_inventory_lock,
+                ),
+                # Foods already held; MealLog path must not take a second Food FOR UPDATE pass.
+                patch(
+                    "app.services.meal_log_versions.lock_inventory_targets",
+                    side_effect=AssertionError("must not re-lock Foods under plan target append"),
+                ),
+                patch.object(Session, "scalar", tracking_scalar),
+            ):
+                complete_food_plan_item(
+                    db,
+                    CompleteFoodPlanItemCommand(
+                        family_id=self.family.id,
+                        actor_user_id=self.user.id,
+                        item_id=plan.id,
+                        food_plan_item_base_updated_at=item.updated_at,
+                        target_meal_log_id=target["id"],
+                        expected_meal_log_row_version=target["row_version"],
+                    ),
+                )
+                db.commit()
+        self.assertEqual(lock_calls.count("food"), 1)
         self.assertIn("meal_log", lock_calls)
         self.assertIn("plan", lock_calls)
         self.assertLess(lock_calls.index("food"), lock_calls.index("meal_log"))
         self.assertLess(lock_calls.index("meal_log"), lock_calls.index("plan"))
+
+    def test_lock_meal_log_write_targets_prelocked_foods_skips_inventory_lock(self) -> None:
+        seeded = self._create_seeded_meal()
+        with self.SessionLocal() as db:
+            food = db.get(Food, self.food.id)
+            assert food is not None
+            with patch(
+                "app.services.meal_log_versions.lock_inventory_targets",
+                side_effect=AssertionError("should not re-lock prelocked foods"),
+            ):
+                locked = lock_meal_log_write_targets(
+                    db,
+                    family_id=self.family.id,
+                    meal_log_id=seeded["id"],
+                    additional_food_ids=[self.food.id],
+                    prelocked_foods={self.food.id: food},
+                )
+            self.assertEqual(locked.meal_log.id, seeded["id"])
+            self.assertEqual(set(locked.discovered_food_ids), {self.food.id})
+            self.assertIs(locked.foods_by_id[self.food.id], food)
 
 
 if __name__ == "__main__":
