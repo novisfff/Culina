@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types';
 import { formatDate, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -21,6 +21,8 @@ type Props = {
   isUpdatingPlan?: boolean;
   isCompleting?: boolean;
   actionError?: string | null;
+  /** Optional slot for candidate confirmation on non-Recipe complete (Home). */
+  completeExtras?: ReactNode;
   onClose: () => void;
   onChangeForm: (form: FoodPlanDetailFormState) => void;
   onEditingChange: (isEditing: boolean) => void;
@@ -174,6 +176,8 @@ export function FoodPlanDetailModal(props: Props) {
               {props.actionError}
             </p>
           ) : null}
+
+          {!props.isEditing && props.completeExtras ? props.completeExtras : null}
 
           {props.isEditing && (
             <>

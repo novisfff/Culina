@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Food, MealLog, MealLogRecordOperationSummary, RecordMealResponse } from '../../api/types';
@@ -825,17 +825,15 @@ describe('HomeDashboard meal recording ownership', () => {
     expect(loadMealCandidates).toHaveBeenCalled();
   });
 
-  it('records from Home recommendation and stays with shared result bar', async () => {
+  it('records from Home recommendation and shows shared result bar in one flow', async () => {
     const response = makeRecordResponse('推荐菜 0');
     const recordMeal = vi.fn(async () => response);
-    const onRecordSuccess = vi.fn();
     const loadMealCandidates = vi.fn(async () => []);
     const food = makeFood(0);
-    const view = renderDashboard({
+    const baseProps = buildProps({
       desktopRecommendations: [makeRecommendation(0)],
       recommendationCount: 1,
       recordMeal,
-      onRecordSuccess,
       loadMealCandidates,
       businessDateKey: '2026-07-15',
       foodRecommendations: {
@@ -851,6 +849,49 @@ describe('HomeDashboard meal recording ownership', () => {
         ],
       },
     });
+
+    function StatefulHome() {
+      const [recordResult, setRecordResult] = useState<MealRecordResult | null>(null);
+      return (
+        <HomeDashboard
+          {...baseProps}
+          recordResult={recordResult}
+          onRecordSuccess={(next) => {
+            setRecordResult(makeRecordResult({
+              operationId: next.operation.id,
+              mealLogId: next.meal_log.id,
+              foods: next.meal_log.food_entries.map((entry) => ({
+                food_id: entry.food_id,
+                name: entry.food_name,
+                cover: {
+                  id: `cover-${entry.food_id}`,
+                  name: entry.food_name,
+                  url: `/media/${entry.food_id}.jpg`,
+                  source: 'upload',
+                  alt: entry.food_name,
+                  created_at: '2026-07-15T12:00:00.000Z',
+                },
+              })),
+              previewMedia: null,
+              revertibleUntil: next.operation.revertible_until,
+              canRevert: next.operation.can_revert,
+              mealLog: next.meal_log,
+              rowVersion: next.meal_log.row_version,
+              canRate: true,
+            }));
+          }}
+        />
+      );
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<StatefulHome />);
+    });
+    const view = container;
+
     const desktop = desktopSurface(view);
     const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('记到今天'),
@@ -877,18 +918,7 @@ describe('HomeDashboard meal recording ownership', () => {
         target: { kind: 'new' },
       }),
     );
-    expect(onRecordSuccess).toHaveBeenCalledWith(response);
-    // Remains on Home surface (no navigation).
-    expect(desktop.textContent).toContain('今天吃什么');
-  });
 
-  it('renders shared result bar with 已记下 / 撤销 / 查看记录 and food image', () => {
-    const result = makeRecordResult();
-    const view = renderDashboard({
-      recordResult: result,
-      desktopRecommendations: [makeRecommendation(0)],
-      recommendationCount: 1,
-    });
     const bar = view.querySelector('[aria-label="记录结果"]');
     expect(bar).not.toBeNull();
     expect(bar?.textContent).toContain('已记下');
@@ -896,7 +926,7 @@ describe('HomeDashboard meal recording ownership', () => {
     expect(bar?.textContent).toContain('查看记录');
     expect(bar?.textContent).toContain('推荐菜 0');
     expect(bar?.querySelector('img, [class*="media"], [class*="placeholder"]')).not.toBeNull();
-    // Still on Home.
+    // Remains on Home surface (no navigation).
     expect(desktopSurface(view).textContent).toContain('今天吃什么');
   });
 

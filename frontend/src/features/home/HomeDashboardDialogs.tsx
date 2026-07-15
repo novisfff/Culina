@@ -1,4 +1,4 @@
-import { type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -6,6 +6,7 @@ import type {
   MealLog,
   Member,
   Recipe,
+  RecordMealTarget,
   UpdateMealLogPayload,
   VersionedInventoryItemRef,
 } from '../../api/types';
@@ -38,6 +39,12 @@ import {
   DASHBOARD_PLAN_MEAL_TYPES,
   type DashboardPlanDay,
 } from './homeDashboardModel';
+import { MealCandidateSelector } from '../meals/MealCandidateSelector';
+import {
+  deriveCandidatePresentation,
+  type MealComposerFood,
+} from '../meals/MealComposerModel';
+import { useMealCandidateData } from '../meals/useMealCandidateData';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
 
 type Props = {
@@ -51,7 +58,13 @@ type Props = {
   setIsHomePlanDetailEditing: (value: boolean) => void;
   resetHomePlanDetailForm: (item?: FoodPlanItem | null) => void;
   submitHomePlanDetail: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  startHomePlanDetailCook: (item: FoodPlanItem) => Promise<void>;
+  startHomePlanDetailCook: (
+    item: FoodPlanItem,
+    target?: {
+      target_meal_log_id?: string | null;
+      expected_meal_log_row_version?: number | null;
+    },
+  ) => Promise<void>;
   deleteHomePlanDetail: (item: FoodPlanItem) => Promise<void>;
   closeHomePlanDetail: () => void;
   isUpdatingHomePlanDetail: boolean;
@@ -113,6 +126,54 @@ export function HomeDashboardDialogs(props: Props) {
       : null;
   const homePlanAddFormId = 'home-plan-add-overlay-form';
 
+  // Non-Recipe plan complete: load authoritative candidates for plan_date + meal_type.
+  const needsPlanCompleteCandidates = Boolean(
+    homePlanDetailItem && !homePlanDetailItem.recipe_id && homePlanDetailItem.status !== 'cooked',
+  );
+  const planCandidateQuery = useMealCandidateData({
+    open: needsPlanCompleteCandidates,
+    date: homePlanDetailItem?.plan_date ?? '',
+    mealType: homePlanDetailItem?.meal_type ?? 'dinner',
+  });
+  const planCandidates = planCandidateQuery.candidates;
+  const planCandidatesFetched = planCandidateQuery.query.isFetched;
+  const planCandidateIdsKey = planCandidates
+    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
+    .join(',');
+  const [planCompleteTarget, setPlanCompleteTarget] = useState<RecordMealTarget>({ kind: 'new' });
+  const [planCompleteSelectedCandidateId, setPlanCompleteSelectedCandidateId] = useState<string | null>(
+    null,
+  );
+  const [planCompleteCandidateMode, setPlanCompleteCandidateMode] = useState<'none' | 'single' | 'multi'>(
+    'none',
+  );
+
+  useEffect(() => {
+    if (!needsPlanCompleteCandidates || !homePlanDetailItem) {
+      setPlanCompleteTarget((current) => (current.kind === 'new' ? current : { kind: 'new' }));
+      setPlanCompleteSelectedCandidateId(null);
+      setPlanCompleteCandidateMode('none');
+      return;
+    }
+    // Wait for authoritative candidate fetch (empty list is a valid result).
+    if (!planCandidatesFetched) {
+      return;
+    }
+    const presentation = deriveCandidatePresentation(planCandidates, homePlanDetailItem.meal_type);
+    setPlanCompleteTarget(presentation.target);
+    setPlanCompleteSelectedCandidateId(presentation.selectedCandidateId);
+    setPlanCompleteCandidateMode(presentation.mode);
+    // planCandidates is captured via planCandidateIdsKey identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    needsPlanCompleteCandidates,
+    homePlanDetailItem?.id,
+    homePlanDetailItem?.plan_date,
+    homePlanDetailItem?.meal_type,
+    planCandidateIdsKey,
+    planCandidatesFetched,
+  ]);
+
   const homePlanFoodSearch = useFoodResourceSearch(props.homePlanAddFoodSearch, {
     enabled: props.isHomePlanAddDialogOpen && !props.homePlanAddFood,
     fallbackFoods: props.homePlanAddFoodOptions,
@@ -122,6 +183,51 @@ export function HomeDashboardDialogs(props: Props) {
       props.closeHomePlanAddDialog();
     }
   };
+
+  function handleHomePlanDetailComplete(item: FoodPlanItem) {
+    if (item.recipe_id) {
+      void props.startHomePlanDetailCook(item);
+      return;
+    }
+    const target =
+      planCompleteTarget.kind === 'existing'
+        ? {
+            target_meal_log_id: planCompleteTarget.meal_log_id,
+            expected_meal_log_row_version: planCompleteTarget.expected_row_version,
+          }
+        : undefined;
+    void props.startHomePlanDetailCook(item, target);
+  }
+
+  const planCompleteDraftFoods: MealComposerFood[] = homePlanDetailItem
+    ? [
+        {
+          kind: 'existing',
+          food_id: homePlanDetailItem.food_id,
+          name: homePlanDetailItem.food_name,
+          servings: 1,
+          cover: null,
+        },
+      ]
+    : [];
+
+  const planCompleteExtras =
+    homePlanDetailItem && needsPlanCompleteCandidates ? (
+      <MealCandidateSelector
+        mode={planCompleteCandidateMode}
+        mealType={homePlanDetailItem.meal_type}
+        candidates={planCandidates}
+        selectedCandidateId={planCompleteSelectedCandidateId}
+        target={planCompleteTarget}
+        draftFoods={planCompleteDraftFoods}
+        disabled={props.isCompletingHomePlanDetail}
+        className="food-plan-detail-candidates"
+        onTargetChange={(target, selectedCandidateId) => {
+          setPlanCompleteTarget(target);
+          setPlanCompleteSelectedCandidateId(selectedCandidateId ?? null);
+        }}
+      />
+    ) : null;
 
   return (
     <>
@@ -134,12 +240,13 @@ export function HomeDashboardDialogs(props: Props) {
           isEditing={props.isHomePlanDetailEditing}
           isUpdatingPlan={props.isUpdatingHomePlanDetail}
           isCompleting={props.isCompletingHomePlanDetail}
+          completeExtras={planCompleteExtras}
           onClose={props.closeHomePlanDetail}
           onChangeForm={props.setHomePlanDetailForm}
           onEditingChange={props.setIsHomePlanDetailEditing}
           onResetEdit={() => props.resetHomePlanDetailForm(homePlanDetailItem)}
           onSubmit={(event) => void props.submitHomePlanDetail(event)}
-          onComplete={() => void props.startHomePlanDetailCook(homePlanDetailItem)}
+          onComplete={() => handleHomePlanDetailComplete(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
           overlayRootClassName="home-dashboard-overlay-root"
