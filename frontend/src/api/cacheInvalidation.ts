@@ -166,7 +166,7 @@ export async function invalidateAfterMealRecorded(
   queryClient: QueryClient,
   options: { createdFood?: boolean } = {},
 ) {
-  const keys = [
+  const keys: QueryKey[] = [
     queryKeys.mealLogs,
     queryKeys.mealCandidatesRoot,
     queryKeys.mealInsights,
@@ -196,7 +196,7 @@ export async function invalidateAfterMealRecordReverted(
   queryClient: QueryClient,
   options: { removedFood?: boolean } = {},
 ) {
-  const keys = [
+  const keys: QueryKey[] = [
     queryKeys.mealLogs,
     queryKeys.mealCandidatesRoot,
     queryKeys.mealInsights,
