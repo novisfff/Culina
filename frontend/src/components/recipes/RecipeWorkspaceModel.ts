@@ -19,6 +19,7 @@ import { resolveAssetUrl } from '../../lib/assets';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { createMealBusinessDate } from '../../features/meals/MealComposerModel';
 import { buildIngredientPlaceholderSvg, emptyImages, splitTags, todayKey } from '../../lib/ui';
 import { MEAL_TYPE_OPTIONS, OPTIONAL_INGREDIENT_NOTE_PATTERN } from './RecipeWorkspaceOptions';
 import type { RecipeCardViewModel } from './workspaceModel';
@@ -724,7 +725,7 @@ export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps
     ],
     activeTimerId: 'default-timer',
     servings: String(recipe.servings),
-    date: todayKey(),
+    date: createMealBusinessDate(),
     mealType: 'dinner',
     planItemId,
     adjustments: '',

@@ -423,7 +423,7 @@ function App() {
       foodId,
       recipeId,
       launchContext: {
-        date: todayKey(),
+        date: businessDateKey(new Date(), 'Asia/Shanghai'),
         mealType: 'dinner',
         servings: recipe?.servings && recipe.servings > 0 ? recipe.servings : 1,
         source: { kind: 'direct' },
@@ -1299,7 +1299,7 @@ function App() {
                     view: 'meal-create',
                     source: { kind: 'direct' },
                     foodId: food.id,
-                    date: todayKey(),
+                    date: businessDateKey(new Date(), 'Asia/Shanghai'),
                     mealType,
                   });
                 },

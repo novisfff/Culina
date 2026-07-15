@@ -57,9 +57,14 @@ import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
   buildRecordMealPayload,
+  createMealBusinessDate,
   deriveCandidatePresentation,
   type MealComposerFood,
 } from '../../features/meals/MealComposerModel';
+import {
+  extractMealRecordErrorCode,
+  messageFromMealRecordReason,
+} from '../../features/meals/mealRecordErrors';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
@@ -1009,6 +1014,7 @@ export function FoodWorkspace(props: Props) {
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
+  const mealBusinessDate = createMealBusinessDate();
   // Recipe cook confirmation still uses FoodQuickMealDialog (no stock fields).
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   // Non-Recipe Food card / takeout / dining-out uses compact prefilled MealQuickRecordView.
@@ -1016,8 +1022,8 @@ export function FoodWorkspace(props: Props) {
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
-    [todayDate]
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(mealBusinessDate, index)),
+    [mealBusinessDate]
   );
   function selectMobileFoodScene(sceneName: string) {
     const nextFilters = getMobileFoodSceneFilterState(sceneName);
@@ -1346,7 +1352,7 @@ export function FoodWorkspace(props: Props) {
         : undefined;
     setQuickMealDialog({
       action: 'cook',
-      date: options?.date ?? todayKey(),
+      date: options?.date ?? mealBusinessDate,
       food,
       mealType,
       recipeId,
@@ -1362,7 +1368,7 @@ export function FoodWorkspace(props: Props) {
     const mealType = getQuickDefaultMealType(food, fallbackMealType ?? suggestedMealType);
     setQuickRecord({
       food,
-      date: options?.date ?? todayKey(),
+      date: options?.date ?? mealBusinessDate,
       mealType,
       target: { kind: 'new' },
       selectedCandidateId: null,
@@ -1560,18 +1566,39 @@ export function FoodWorkspace(props: Props) {
       props.onRecordSuccess?.(response);
       setFeedback(
         `${quickRecord.food.name} 已记录到${
-          quickRecord.date === todayKey() ? '今天' : formatDate(quickRecord.date)
+          quickRecord.date === mealBusinessDate ? '今天' : formatDate(quickRecord.date)
         }${MEAL_TYPE_LABELS[quickRecord.mealType]}`,
       );
     } catch (reason) {
+      const code = extractMealRecordErrorCode(reason);
+      if (code === 'meal_log_stale' && props.loadMealCandidates) {
+        try {
+          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
+          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
+          setQuickRecord((current) =>
+            current
+              ? {
+                  ...current,
+                  busy: false,
+                  candidates: refreshed,
+                  candidateMode: presentation.mode,
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                  error: '这顿饭刚被家人更新，请重新确认',
+                }
+              : current,
+          );
+          return;
+        } catch {
+          // fall through
+        }
+      }
       setQuickRecord((current) =>
         current
           ? {
               ...current,
               busy: false,
-              error: reason instanceof Error && reason.message.trim()
-                ? reason.message
-                : '记录失败，请重试',
+              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
             }
           : current,
       );

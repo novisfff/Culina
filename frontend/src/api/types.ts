@@ -978,6 +978,8 @@ export type MealLogRecordOperation = {
   status: MealLogRecordStatus;
   revertible_until: string;
   can_revert: boolean;
+  /** Entry ids created by this operation — rate / summarize these only. */
+  created_entry_ids?: string[];
 };
 
 export type RecordMealResponse = {

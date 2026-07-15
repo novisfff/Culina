@@ -55,6 +55,10 @@ import {
   createMealBusinessDate,
   deriveCandidatePresentation,
 } from '../meals/MealComposerModel';
+import {
+  extractMealRecordErrorCode,
+  messageFromMealRecordReason,
+} from '../meals/mealRecordErrors';
 import { MealQuickRecordView } from '../meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../meals/MealRecordResultBar';
 import type { MealRecordResult } from '../meals/useMealRecordResultState';
@@ -442,14 +446,35 @@ export function HomeDashboard(props: HomeDashboardProps) {
       setQuickRecord(null);
       onRecordSuccess?.(response);
     } catch (reason) {
+      const code = extractMealRecordErrorCode(reason);
+      if (code === 'meal_log_stale' && loadMealCandidates) {
+        try {
+          const refreshed = await loadMealCandidates(quickRecord.date, quickRecord.mealType);
+          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
+          setQuickRecord((current) =>
+            current
+              ? {
+                  ...current,
+                  busy: false,
+                  candidates: refreshed,
+                  candidateMode: presentation.mode,
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                  error: '这顿饭刚被家人更新，请重新确认',
+                }
+              : current,
+          );
+          return;
+        } catch {
+          // fall through to generic message
+        }
+      }
       setQuickRecord((current) =>
         current
           ? {
               ...current,
               busy: false,
-              error: reason instanceof Error && reason.message.trim()
-                ? reason.message
-                : '记录失败，请重试',
+              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
             }
           : current,
       );

@@ -31,6 +31,7 @@ import type {
 import { resolveAssetUrl } from '../../lib/assets';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
+import { createMealBusinessDate } from '../../features/meals/MealComposerModel';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
@@ -1413,7 +1414,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           recipe={activeCookCard.recipe}
           food={activeCookCard.linkedFood ?? ({ id: activeCookCard.recipe.id, name: activeCookCard.recipe.title } as Food)}
           launchContext={{
-            date: todayKey(),
+            date: createMealBusinessDate(),
             mealType: 'dinner',
             servings: activeCookCard.recipe.servings,
             source: { kind: 'direct' },

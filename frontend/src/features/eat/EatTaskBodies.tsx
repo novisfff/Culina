@@ -81,14 +81,23 @@ import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import { getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCandidateSelector } from '../meals/MealCandidateSelector';
+import { MealComposer } from '../meals/MealComposer';
 import {
   buildRecordMealPayload,
+  createMealBusinessDate,
   deriveCandidatePresentation,
   type MealComposerFood,
 } from '../meals/MealComposerModel';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../meals/MealQuickRecordView';
 import { useMealCandidateData } from '../meals/useMealCandidateData';
+import { useMealComposerActions } from '../meals/useMealComposerActions';
+import { useMealComposerData } from '../meals/useMealComposerData';
+import { useMealComposerState } from '../meals/useMealComposerState';
+import {
+  extractMealRecordErrorCode,
+  messageFromMealRecordReason,
+} from '../meals/mealRecordErrors';
 import { buildMealTitle, getMealTone } from '../meals/MealLogWorkspaceModel';
 import { MealLogIcon } from '../meals/MealLogIcons';
 import { MealHistorySurface } from '../meals/MealHistorySurface';
@@ -1191,8 +1200,113 @@ export function EatMealTaskBody(props: {
   );
 }
 
-/** Ordinary Food record via compact MealQuickRecordView + recordMeal (Task 16). */
-export function EatMealCreateTaskBody(props: {
+/**
+ * History free multi-Food recording via production MealComposer + shared hooks.
+ * Used when meal-create has no prefilled Food (history “记一餐”).
+ */
+function EatFreeMealComposerBody(props: {
+  date?: string;
+  mealType?: MealType;
+  isSubmitting?: boolean;
+  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  onRecordSuccess?: (response: RecordMealResponse) => void;
+  onClose: () => void;
+}) {
+  const businessToday = createMealBusinessDate();
+  const [searchQuery, setSearchQuery] = useState('');
+  const state = useMealComposerState({
+    mode: 'full',
+    initialMealType: props.mealType,
+  });
+  const data = useMealComposerData({
+    open: state.open,
+    date: state.date,
+    mealType: state.mealType,
+    searchQuery,
+  });
+  const actions = useMealComposerActions({
+    state,
+    candidates: data.candidates,
+    refetchCandidates: data.refetchCandidates,
+    recordMeal: props.recordMeal,
+    // App-level recordMeal mutation already invalidates caches on success.
+    invalidateAfterRecord: async () => undefined,
+    publishRecordResult: (response) => {
+      props.onRecordSuccess?.(response);
+      props.onClose();
+    },
+  });
+
+  // Open once with nav-provided date / mealType (history CTA).
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    openedRef.current = true;
+    state.openComposer({
+      date: props.date ?? businessToday,
+      mealType: props.mealType,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const candidateIdsKey = data.candidates
+    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
+    .join(',');
+  useEffect(() => {
+    if (!state.open || state.requiresTargetReconfirm) return;
+    state.applyCandidates(data.candidates);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.open, state.date, state.mealType, candidateIdsKey]);
+
+  const dateOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(businessToday, index)),
+    [businessToday],
+  );
+
+  // When shared actions close after success, also exit the task shell.
+  useEffect(() => {
+    if (openedRef.current && !state.open && !state.busy) {
+      // Only auto-exit if the composer was open then closed without discard identity reset
+      // handled via publishRecordResult/onClose above. Accidental close keeps draft; shell stays.
+    }
+  }, [state.open, state.busy]);
+
+  return (
+    <MealComposer
+      open={state.open}
+      date={state.date}
+      mealType={state.mealType}
+      dateOptions={dateOptions}
+      foods={state.foods}
+      candidates={data.candidates}
+      selectedCandidateId={state.selectedCandidateId}
+      candidateMode={state.candidateMode}
+      target={state.target}
+      searchQuery={searchQuery}
+      searchResults={data.foods}
+      isSearchingFoods={data.isSearchingFoods}
+      busy={state.busy || Boolean(props.isSubmitting)}
+      error={state.error}
+      overlayRootClassName="eat-task-body-overlay-root"
+      onClose={() => {
+        if (state.busy) return;
+        state.close();
+        props.onClose();
+      }}
+      onDateChange={state.setDate}
+      onMealTypeChange={state.setMealType}
+      onSearchQueryChange={setSearchQuery}
+      onFoodsChange={state.setFoods}
+      onTargetChange={state.setTarget}
+      onSubmit={() => {
+        void actions.submitRecord();
+      }}
+    />
+  );
+}
+
+/** Compact prefilled single-Food record (Food / plan complete). */
+function EatPrefixedMealCreateBody(props: {
   food: Food | null;
   planItem: FoodPlanItem | null;
   date?: string;
@@ -1210,7 +1324,8 @@ export function EatMealCreateTaskBody(props: {
   const planItem = props.planItem;
   // Plan-sourced complete always records on the plan slot (backend enforces plan_date/meal_type).
   const slotLocked = Boolean(planItem);
-  const initialDate = planItem?.plan_date ?? props.date ?? todayKey();
+  const businessToday = createMealBusinessDate();
+  const initialDate = planItem?.plan_date ?? props.date ?? businessToday;
   const initialMealType =
     planItem?.meal_type ?? props.mealType ?? (food ? getDefaultMealType(food) : 'dinner');
 
@@ -1271,6 +1386,7 @@ export function EatMealCreateTaskBody(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsCandidates, effectiveDate, effectiveMealType, candidateIdsKey, candidatesFetched]);
 
+  // Plan without food is invalid after free-composer branch; show empty only as last resort.
   if (!food) {
     return (
       <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
@@ -1295,7 +1411,7 @@ export function EatMealCreateTaskBody(props: {
 
   const dateOptions = slotLocked
     ? [effectiveDate]
-    : Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index));
+    : Array.from({ length: 7 }, (_, index) => addDateKeyDays(businessToday, index));
   const cover = getFoodCoverAsset(food, props.recipes) ?? null;
   const isBusy = busy || Boolean(props.isSubmitting) || Boolean(props.isCompletingPlan);
 
@@ -1353,7 +1469,23 @@ export function EatMealCreateTaskBody(props: {
       props.onRecordSuccess?.(response);
       props.onClose();
     } catch (reason) {
-      setError(resolveErrorMessage(reason, '记录失败，请重试'));
+      const code = extractMealRecordErrorCode(reason);
+      if (code === 'meal_log_stale') {
+        try {
+          const refreshed = await candidateQuery.refetch();
+          const nextCandidates = Array.isArray(refreshed.data) ? refreshed.data : [];
+          const presentation = deriveCandidatePresentation(nextCandidates, effectiveMealType);
+          setTarget(presentation.target);
+          setSelectedCandidateId(presentation.selectedCandidateId);
+          setCandidateMode(presentation.mode);
+          setError('这顿饭刚被家人更新，请重新确认');
+        } catch {
+          setError(messageFromMealRecordReason(reason, '这顿饭刚被家人更新，请重新确认'));
+        }
+        setBusy(false);
+        return;
+      }
+      setError(messageFromMealRecordReason(reason, '记录失败，请重试'));
       setBusy(false);
     }
   }
@@ -1402,6 +1534,38 @@ export function EatMealCreateTaskBody(props: {
       }}
     />
   );
+}
+
+/** Ordinary Food record via compact MealQuickRecordView + recordMeal (Task 16). */
+export function EatMealCreateTaskBody(props: {
+  food: Food | null;
+  planItem: FoodPlanItem | null;
+  date?: string;
+  mealType?: MealType;
+  recipes: Recipe[];
+  isSubmitting?: boolean;
+  isCompletingPlan?: boolean;
+  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
+  onRecordSuccess?: (response: RecordMealResponse) => void;
+  onStartCook?: (recipeId: string, foodPlanItemId?: string) => void;
+  onClose: () => void;
+}) {
+  // History free multi-Food recording (no prefilled Food, no plan).
+  if (!props.food && !props.planItem) {
+    return (
+      <EatFreeMealComposerBody
+        date={props.date}
+        mealType={props.mealType}
+        isSubmitting={props.isSubmitting}
+        recordMeal={props.recordMeal}
+        onRecordSuccess={props.onRecordSuccess}
+        onClose={props.onClose}
+      />
+    );
+  }
+
+  return <EatPrefixedMealCreateBody {...props} />;
 }
 
 export function buildEatTaskBodies(args: {

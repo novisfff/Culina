@@ -273,6 +273,87 @@ describe('useMealRecordResultState', () => {
     });
   });
 
+  it('rates only this-op entries on append and disables rate when append cannot be scoped', async () => {
+    const rateMeal = vi.fn(async (_id: string, _payload: UpdateMealLogPayload) => mealLog({ row_version: 5 }));
+    const { result } = renderHook(() =>
+      useMealRecordResultState({
+        activeOperations: [],
+        revertOperation: vi.fn(async () => ({
+          status: 'reverted' as const,
+          meal_log: null,
+          removed_food_ids: [],
+          replayed: false,
+        })),
+        rateMeal,
+      }),
+    );
+
+    const multiEntryMeal = mealLog({
+      food_entries: [
+        {
+          id: 'entry-old',
+          food_id: 'food-old',
+          food_name: '旧菜',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+        {
+          id: 'entry-new',
+          food_id: 'food-new',
+          food_name: '新菜',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+      row_version: 4,
+    });
+
+    act(() => {
+      result.current.publishRecordResult(
+        recordResponse({
+          meal_log: multiEntryMeal,
+          outcome: 'appended',
+          operation: {
+            id: 'op-append',
+            status: 'applied',
+            revertible_until: '2026-07-15T11:15:00.000Z',
+            can_revert: true,
+            created_entry_ids: ['entry-new'],
+          },
+        }),
+      );
+    });
+
+    expect(result.current.result?.canRate).toBe(true);
+    expect(result.current.result?.foods.map((food) => food.food_id)).toEqual(['food-new']);
+
+    await act(async () => {
+      await result.current.rate(5);
+    });
+    expect(rateMeal).toHaveBeenCalledWith('meal-1', {
+      expected_row_version: 4,
+      food_entry_ratings: [{ id: 'entry-new', rating: 5 }],
+    });
+
+    act(() => {
+      result.current.publishRecordResult(
+        recordResponse({
+          meal_log: multiEntryMeal,
+          outcome: 'appended',
+          operation: {
+            id: 'op-append-unscoped',
+            status: 'applied',
+            revertible_until: '2026-07-15T11:15:00.000Z',
+            can_revert: true,
+          },
+        }),
+      );
+    });
+    expect(result.current.result?.canRate).toBe(false);
+  });
+
   it('exposes only ordinary record publish API; cook/plan/AI have no publish methods', () => {
     const { result } = renderHook(() =>
       useMealRecordResultState({

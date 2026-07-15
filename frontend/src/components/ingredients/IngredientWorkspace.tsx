@@ -57,8 +57,13 @@ import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
   buildRecordMealPayload,
+  createMealBusinessDate,
   deriveCandidatePresentation,
 } from '../../features/meals/MealComposerModel';
+import {
+  extractMealRecordErrorCode,
+  messageFromMealRecordReason,
+} from '../../features/meals/mealRecordErrors';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
@@ -1648,9 +1653,10 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const queryClient = useQueryClient();
   const todayDate = todayKey();
+  const mealBusinessDate = createMealBusinessDate();
   const foodStockRecordDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
-    [todayDate]
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(mealBusinessDate, index)),
+    [mealBusinessDate]
   );
   const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedIngredientWorkspaceState);
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
@@ -2362,7 +2368,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setQuickRecord({
       food,
       item,
-      date: todayDate,
+      date: mealBusinessDate,
       mealType: getDefaultFoodStockMealType(),
       target: { kind: 'new' },
       selectedCandidateId: null,
@@ -2540,15 +2546,35 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         error: null,
       });
     } catch (reason) {
+      const code = extractMealRecordErrorCode(reason);
+      if (code === 'meal_log_stale' && props.loadMealCandidates) {
+        try {
+          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
+          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
+          setQuickRecord((current) =>
+            current
+              ? {
+                  ...current,
+                  busy: false,
+                  candidates: refreshed,
+                  candidateMode: presentation.mode,
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                  error: '这顿饭刚被家人更新，请重新确认',
+                }
+              : current,
+          );
+          return;
+        } catch {
+          // fall through
+        }
+      }
       setQuickRecord((current) =>
         current
           ? {
               ...current,
               busy: false,
-              error:
-                reason instanceof Error && reason.message.trim()
-                  ? reason.message
-                  : '记录失败，请重试',
+              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
             }
           : current,
       );

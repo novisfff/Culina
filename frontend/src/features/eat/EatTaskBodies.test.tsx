@@ -568,6 +568,90 @@ describe('EatMealCreateTaskBody', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('history free meal-create opens full MealComposer and records multi-Food with publish', async () => {
+    const response = {
+      meal_log: {
+        id: 'meal-free-1',
+        family_id: 'family-1',
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        food_entries: [
+          {
+            id: 'entry-free-1',
+            food_id: 'food-inline',
+            food_name: '酸汤牛肉',
+            servings: 1,
+            note: '',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: '2026-07-15T00:00:00.000Z',
+        updated_at: '2026-07-15T00:00:00.000Z',
+      },
+      created_foods: [],
+      outcome: 'created',
+      operation: {
+        id: 'op-free-1',
+        status: 'applied',
+        revertible_until: '2026-07-15T01:00:00.000Z',
+        can_revert: true,
+        created_entry_ids: ['entry-free-1'],
+      },
+    } satisfies RecordMealResponse;
+    const recordMeal = vi.fn(async () => response);
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+    vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
+    vi.spyOn(api, 'getFoods').mockResolvedValue([]);
+
+    renderWithQuery(
+      <EatMealCreateTaskBody
+        food={null}
+        planItem={null}
+        date="2026-07-15"
+        mealType="dinner"
+        recipes={[]}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={vi.fn()}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
+      />,
+    );
+
+    // Full composer, not the empty-state dead end.
+    expect(screen.queryByText('还没有可记录的家常菜')).toBeNull();
+    expect(screen.getByRole('heading', { name: '记一餐' })).toBeVisible();
+    expect(screen.getByRole('searchbox', { name: '搜索食物' })).toBeVisible();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('searchbox', { name: '搜索食物' }), '酸汤牛肉');
+    await user.click(await screen.findByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    await user.click(screen.getByRole('button', { name: '家里做' }));
+    expect(screen.getByText('酸汤牛肉')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(recordMeal).toHaveBeenCalled());
+    const payload = (recordMeal.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(payload).toMatchObject({
+      date: '2026-07-15',
+      meal_type: 'dinner',
+      target: { kind: 'new' },
+    });
+    expect(payload.new_foods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: '酸汤牛肉', type: 'selfMade' }),
+      ]),
+    );
+    expect(onRecordSuccess).toHaveBeenCalledWith(response);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('locks plan-sourced meal-create date/mealType to the plan slot for candidates and complete', async () => {
     const planItem = makePlanItem({
       recipe_id: null,

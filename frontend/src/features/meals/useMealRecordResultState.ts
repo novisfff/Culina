@@ -28,6 +28,9 @@ export type MealRecordResult = {
   mealLog: MealLog | null;
   rowVersion: number | null;
   canRate: boolean;
+  /** Entry ids created by this op; used to rate only this-op foods. */
+  effectEntryIds?: string[] | null;
+  outcome?: RecordMealResponse['outcome'] | null;
 };
 
 export type UseMealRecordResultStateArgs = {
@@ -37,11 +40,31 @@ export type UseMealRecordResultStateArgs = {
   onViewMeal?: (mealLogId: string) => void;
 };
 
-function foodsFromMealLog(mealLog: MealLog): MealRecordResultFood[] {
-  return mealLog.food_entries.map((entry) => ({
-    food_id: entry.food_id,
-    name: entry.food_name,
-  }));
+function effectEntryIdsFromResponse(response: RecordMealResponse): string[] | null {
+  const ids = response.operation.created_entry_ids;
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  return ids.map(String).filter((id) => id.trim());
+}
+
+function foodsFromMealLog(
+  mealLog: MealLog,
+  effectEntryIds?: string[] | null,
+  createdFoods: RecordMealResponse['created_foods'] = [],
+): MealRecordResultFood[] {
+  const entries =
+    effectEntryIds && effectEntryIds.length > 0
+      ? mealLog.food_entries.filter((entry) => effectEntryIds.includes(entry.id))
+      : mealLog.food_entries;
+  const createdById = new Map(createdFoods.map((food) => [food.id, food]));
+  return entries.map((entry) => {
+    const created = createdById.get(entry.food_id);
+    return {
+      food_id: entry.food_id,
+      name: entry.food_name,
+      food_type: created?.type,
+      cover: created?.images?.[0] ?? null,
+    };
+  });
 }
 
 function foodsFromSummary(summary: MealLogRecordOperationSummary): MealRecordResultFood[] {
@@ -53,18 +76,34 @@ function foodsFromSummary(summary: MealLogRecordOperationSummary): MealRecordRes
   }));
 }
 
+function previewFromResponse(
+  response: RecordMealResponse,
+  foods: MealRecordResultFood[],
+): MediaAsset | null {
+  // Prefer meal photos; fall back to this-op Food covers (minor improvement).
+  return response.meal_log.photos[0] ?? foods.find((food) => food.cover)?.cover ?? null;
+}
+
 function resultFromResponse(response: RecordMealResponse): MealRecordResult {
+  const effectEntryIds = effectEntryIdsFromResponse(response);
+  const foods = foodsFromMealLog(response.meal_log, effectEntryIds, response.created_foods ?? []);
+  // Rate only when we can scope to this-op entries. Appended without effect ids must not rate whole meal.
+  const canRate =
+    response.outcome === 'created' ||
+    (response.outcome === 'appended' && Boolean(effectEntryIds?.length));
   return {
     source: 'immediate',
     operationId: response.operation.id,
     mealLogId: response.meal_log.id,
-    foods: foodsFromMealLog(response.meal_log),
-    previewMedia: response.meal_log.photos[0] ?? null,
+    foods,
+    previewMedia: previewFromResponse(response, foods),
     revertibleUntil: response.operation.revertible_until,
     canRevert: response.operation.can_revert,
     mealLog: response.meal_log,
     rowVersion: response.meal_log.row_version,
-    canRate: true,
+    canRate,
+    effectEntryIds,
+    outcome: response.outcome,
   };
 }
 
@@ -80,6 +119,8 @@ function resultFromSummary(summary: MealLogRecordOperationSummary): MealRecordRe
     mealLog: null,
     rowVersion: null,
     canRate: false,
+    effectEntryIds: null,
+    outcome: null,
   };
 }
 
@@ -187,11 +228,20 @@ export function useMealRecordResultState(args: UseMealRecordResultStateArgs) {
       if (!args.rateMeal) return;
 
       const mealLog = result.mealLog;
+      // Rate only this-operation entries when scoped; never overwrite whole-meal entries.
+      const rateableEntries =
+        result.effectEntryIds && result.effectEntryIds.length > 0
+          ? mealLog.food_entries.filter((entry) => result.effectEntryIds!.includes(entry.id))
+          : mealLog.food_entries;
+      if (rateableEntries.length === 0) {
+        return;
+      }
+
       setRateError(null);
       try {
         const updated = await args.rateMeal(mealLog.id, {
           expected_row_version: result.rowVersion,
-          food_entry_ratings: mealLog.food_entries.map((entry) => ({
+          food_entry_ratings: rateableEntries.map((entry) => ({
             id: entry.id,
             rating,
           })),
@@ -202,7 +252,7 @@ export function useMealRecordResultState(args: UseMealRecordResultStateArgs) {
                 ...current,
                 mealLog: updated,
                 rowVersion: updated.row_version,
-                foods: foodsFromMealLog(updated),
+                foods: foodsFromMealLog(updated, current.effectEntryIds),
               }
             : current,
         );
