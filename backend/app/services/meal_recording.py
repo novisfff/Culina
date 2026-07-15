@@ -116,6 +116,9 @@ def _build_operation_out(operation: MealLogRecordOperation, *, now: datetime) ->
         "status": operation.status.value if hasattr(operation.status, "value") else operation.status,
         "revertible_until": operation.revertible_until,
         "can_revert": _compute_can_revert(operation, now=now),
+        "created_entry_ids": [
+            str(item) for item in (operation.created_entry_ids_json or []) if str(item).strip()
+        ],
     }
 
 

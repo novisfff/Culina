@@ -148,10 +148,14 @@ def _build_summary_foods(
     family_id: str,
     operation: MealLogRecordOperation,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """Build Food names/media summary from the stored record result when available."""
+    """Build Food names/media summary for this operation's effect only.
+
+    Prefer created_entry_ids so append summaries do not list the whole meal.
+    """
     result = operation.result_json or {}
     meal_log_payload = result.get("meal_log") if isinstance(result, dict) else None
     created_foods_payload = result.get("created_foods") if isinstance(result, dict) else None
+    effect_entry_ids = set(_effect_entry_ids(operation))
 
     foods: list[dict[str, Any]] = []
     seen_food_ids: set[str] = set()
@@ -160,6 +164,10 @@ def _build_summary_foods(
     if isinstance(meal_log_payload, dict):
         for entry in meal_log_payload.get("food_entries") or []:
             if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("id") or "").strip()
+            # When effect entry ids are known, only include this-op entries.
+            if effect_entry_ids and entry_id and entry_id not in effect_entry_ids:
                 continue
             food_id = str(entry.get("food_id") or "").strip()
             if not food_id or food_id in seen_food_ids:

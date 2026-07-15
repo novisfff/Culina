@@ -595,6 +595,19 @@ def cook_recipe(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except StaleDataError as exc:
         db.rollback()
+        # When a target MealLog was part of the cook write, prefer the full meal-log
+        # conflict payload so clients can reconfirm the meal target. Inventory-only
+        # staleness keeps the inventory detail string.
+        if payload.target_meal_log_id:
+            detail = build_meal_log_conflict_detail(
+                db,
+                family_id=membership.family_id,
+                meal_log_id=payload.target_meal_log_id,
+                code="meal_log_stale",
+                recovery_hint="refresh_and_review",
+                message=None,
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=STALE_INVENTORY_DETAIL,

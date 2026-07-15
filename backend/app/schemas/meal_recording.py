@@ -166,6 +166,8 @@ class MealLogRecordOperationOut(BaseModel):
     status: MealLogRecordStatus
     revertible_until: datetime
     can_revert: bool
+    # Effect-scoped entry ids created by this record operation (for rating / summary).
+    created_entry_ids: list[str] = []
 
 
 class RecordMealResponse(BaseModel):

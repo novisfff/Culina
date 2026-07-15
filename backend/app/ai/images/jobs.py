@@ -248,6 +248,7 @@ def attach_image_generation_job_to_entity(
     entity_type: str,
     entity_id: str,
     replace_anchor_media_id: str | None = None,
+    bump_parent: bool = True,
 ) -> AIImageGenerationJob | None:
     if not job_id:
         return None
@@ -269,7 +270,7 @@ def attach_image_generation_job_to_entity(
         job.bind_status = "pending"
     job.updated_at = utcnow()
     if job.status == "succeeded" and job.generated_media_id:
-        _bind_generated_asset_to_target(db, job)
+        _bind_generated_asset_to_target(db, job, bump_parent=bump_parent)
     db.flush()
     return job
 
@@ -336,7 +337,12 @@ def _should_skip_late_bind(
     return False
 
 
-def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> ImageJobBindStatus:
+def _bind_generated_asset_to_target(
+    db: Session,
+    job: AIImageGenerationJob,
+    *,
+    bump_parent: bool = True,
+) -> ImageJobBindStatus:
     if not job.target_entity_type or not job.target_entity_id or not job.generated_media_id:
         job.bind_status = "unbound"
         return "unbound"
@@ -397,7 +403,7 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         generated.entity_id = job.target_entity_id
         if job.target_entity_type == "recipe":
             _sync_recipe_image_to_food(db, job=job, generated=generated, append_to_existing=True)
-        if locked_meal_log is not None:
+        if locked_meal_log is not None and bump_parent:
             bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
         job.bind_status = "bound"
         return "bound"
@@ -409,8 +415,10 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
     generated.entity_id = job.target_entity_id
     if job.target_entity_type == "recipe":
         _sync_recipe_image_to_food(db, job=job, generated=generated)
-    if locked_meal_log is not None:
+    if locked_meal_log is not None and bump_parent:
         # Bind only attaches media; never overwrite MealLog business fields.
+        # When called from a versioned writer (create/update meal log), bump_parent=False
+        # so the outer writer performs the single logical row_version bump.
         bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
     job.bind_status = "bound"
     return "bound"

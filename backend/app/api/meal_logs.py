@@ -217,12 +217,15 @@ def create_meal_log(
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="meal_log", entity_id=meal_log.id)
     if payload.pending_image_job_id:
         try:
+            # Create has no outer bump; bind may bump once when it attaches media.
+            # Keep bump_parent=True so a succeeded job still advances collection once.
             attach_image_generation_job_to_entity(
                 db,
                 family_id=membership.family_id,
                 job_id=payload.pending_image_job_id,
                 entity_type="meal_log",
                 entity_id=meal_log.id,
+                bump_parent=True,
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -397,12 +400,14 @@ def update_meal_log(
         )
     if payload.pending_image_job_id:
         try:
+            # Outer writer owns the single row_version bump below.
             attach_image_generation_job_to_entity(
                 db,
                 family_id=membership.family_id,
                 job_id=payload.pending_image_job_id,
                 entity_type="meal_log",
                 entity_id=meal_log.id,
+                bump_parent=False,
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
