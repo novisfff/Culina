@@ -203,4 +203,28 @@ describe('MealRecordResultBar', () => {
     });
     expect(onRate).toHaveBeenCalled();
   });
+
+  it('changes rating with arrow keys in half-star steps', async () => {
+    const user = userEvent.setup();
+    const onRate = vi.fn(async () => undefined);
+    renderBar({ onRate });
+    const slider = screen.getByRole('slider', { name: '评分' });
+    slider.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(onRate).toHaveBeenCalledWith(0.5);
+    await user.keyboard('{ArrowRight}');
+    expect(onRate).toHaveBeenCalledWith(1);
+    await user.keyboard('{End}');
+    expect(onRate).toHaveBeenCalledWith(5);
+    await user.keyboard('{Home}');
+    expect(onRate).toHaveBeenCalledWith(0);
+  });
+
+  it('renders quiet dismiss and calls onDismiss', async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+    renderBar({ onDismiss });
+    await user.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
 });

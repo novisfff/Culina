@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { ActionButton } from '../../components/ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
@@ -12,6 +12,8 @@ export type MealRecordResultBarProps = {
   onRevert?: () => void | Promise<void>;
   onView?: () => void;
   onRate?: (rating: number | null | undefined) => void | Promise<void>;
+  /** Quiet dismiss (manual close or after revert window). */
+  onDismiss?: () => void;
   /** Injectable clock for countdown tests. */
   now?: Date;
   className?: string;
@@ -27,6 +29,11 @@ function formatCountdown(ms: number): string {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
+function clampRating(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.min(5, Math.max(0, Math.round(value * 2) / 2));
+}
+
 function CompactStarRating(props: {
   value: number | null;
   disabled?: boolean;
@@ -34,6 +41,34 @@ function CompactStarRating(props: {
 }) {
   const rating = props.value ?? 0;
   const fill = `${(rating / 5) * 100}%`;
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (props.disabled) return;
+    let next: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        next = clampRating(rating + 0.5);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        next = clampRating(rating - 0.5);
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = 5;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    if (next !== rating) {
+      props.onChange(next);
+    }
+  }
+
   return (
     <div
       className="meal-record-result-rating"
@@ -46,6 +81,7 @@ function CompactStarRating(props: {
       aria-disabled={props.disabled ? true : undefined}
       tabIndex={props.disabled ? -1 : 0}
       style={{ ['--rating-width' as string]: fill }}
+      onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         if (props.disabled) return;
         event.preventDefault();
@@ -154,6 +190,17 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
         >
           查看记录
         </ActionButton>
+        {props.onDismiss ? (
+          <ActionButton
+            tone="tertiary"
+            size="compact"
+            type="button"
+            disabled={props.isReverting}
+            onClick={() => props.onDismiss?.()}
+          >
+            关闭
+          </ActionButton>
+        ) : null}
       </div>
       {props.revertError ? <p className="meal-record-result-error">{props.revertError}</p> : null}
       {props.rateError ? <p className="meal-record-result-error">{props.rateError}</p> : null}

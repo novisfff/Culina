@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   MealLog,
   MealLogRecordOperationSummary,
@@ -189,6 +189,21 @@ export function useMealRecordResultState(args: UseMealRecordResultStateArgs) {
     setRevertError(null);
     setRateError(null);
   }, [result?.operationId]);
+
+  // Auto-dismiss immediate result once revertible_until has passed.
+  useEffect(() => {
+    if (!immediate) return;
+    const deadlineMs = new Date(immediate.revertibleUntil).getTime();
+    if (Number.isNaN(deadlineMs)) return;
+    const delay = Math.max(0, deadlineMs - Date.now());
+    const timer = window.setTimeout(() => {
+      // Only dismiss if this immediate result is still showing.
+      if (immediateOperationIdRef.current === immediate.operationId) {
+        dismiss();
+      }
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [dismiss, immediate]);
 
   const revert = useCallback(async () => {
     if (!result || isReverting) return;

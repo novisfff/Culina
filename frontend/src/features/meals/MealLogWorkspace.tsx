@@ -64,6 +64,7 @@ type Props = {
   onRevertRecord?: () => void | Promise<void>;
   onViewRecord?: () => void;
   onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
   updateMealComposition?: (
     mealLogId: string,
     payload: import('../../api/types').UpdateMealCompositionPayload,
@@ -133,6 +134,7 @@ export function MealLogWorkspace(props: Props) {
         onRevert={props.onRevertRecord}
         onView={props.onViewRecord}
         onRate={props.onRateRecord}
+        onDismiss={props.onDismissRecord}
       />
     ) : null;
 

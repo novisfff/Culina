@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   MealLog,
   MealLogRecordOperationSummary,
@@ -76,6 +76,10 @@ function summary(
 }
 
 describe('useMealRecordResultState', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('publishes immediate ordinary record with full MealLog row version for optional rating', () => {
     const { result } = renderHook(() =>
       useMealRecordResultState({
@@ -407,5 +411,35 @@ describe('useMealRecordResultState', () => {
       result.current.viewMeal();
     });
     expect(onViewMeal).toHaveBeenCalledWith('meal-restored');
+  });
+
+  it('auto-dismisses immediate result after revertible_until', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T11:00:00.000Z'));
+    const { result } = renderHook(() =>
+      useMealRecordResultState({
+        activeOperations: [],
+        revertOperation: vi.fn(async () => ({}) as never),
+      }),
+    );
+
+    act(() => {
+      result.current.publishRecordResult(
+        recordResponse({
+          operation: {
+            id: 'op-auto',
+            status: 'applied',
+            revertible_until: '2026-07-15T11:00:05.000Z',
+            can_revert: true,
+          },
+        }),
+      );
+    });
+    expect(result.current.result?.operationId).toBe('op-auto');
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(result.current.result).toBeNull();
   });
 });
