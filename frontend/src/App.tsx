@@ -1358,6 +1358,7 @@ function App() {
                   foodPlanItems={foodPlanItems}
                   members={members}
                   recentMeals={recentMeals}
+                  foods={foods}
                   isUpdatingMeal={updateMealMutation.isPending}
                   notificationCenter={mobileNotificationCenter}
                   focusMealLogId={

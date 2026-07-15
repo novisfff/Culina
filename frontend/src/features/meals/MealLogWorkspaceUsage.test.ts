@@ -3,11 +3,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createElement } from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { Food, MealLog, MediaAsset, Member } from '../../api/types';
+import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
 import { MealLogWorkspace } from './MealLogWorkspace';
+import type { MealRecordResult } from './useMealRecordResultState';
 
 const mealsDir = resolve(__dirname);
 
@@ -107,8 +108,12 @@ function renderHistory(args: {
   foods?: Food[];
   members?: Member[];
   onRecordMeal?: () => void;
+  updateMealLog?: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  recordResult?: MealRecordResult | null;
+  focusMealLogId?: string | null;
 } = {}) {
   const onRecordMeal = args.onRecordMeal ?? vi.fn();
+  const updateMealLog = args.updateMealLog ?? vi.fn(async () => undefined);
   const view = render(
     createElement(MealLogWorkspace, {
       foodPlanItems: [],
@@ -116,13 +121,15 @@ function renderHistory(args: {
       recentMeals: args.meals ?? [mealLog()],
       foods: args.foods ?? [food('food-1', '番茄炒蛋', { images: [media('food-cover', { alt: '番茄炒蛋' })] })],
       isUpdatingMeal: false,
-      updateMealLog: vi.fn(async () => undefined),
+      updateMealLog,
       onBackHome: vi.fn(),
       onBackToEat: vi.fn(),
       onRecordMeal,
+      recordResult: args.recordResult ?? null,
+      focusMealLogId: args.focusMealLogId,
     }),
   );
-  return { ...view, onRecordMeal };
+  return { ...view, onRecordMeal, updateMealLog };
 }
 
 describe('MealLogWorkspace overlay reuse', () => {
@@ -283,5 +290,129 @@ describe('MealLogWorkspace photo-first timeline', () => {
     for (const debt of ['手动补录', '菜单计划', '基础记录']) {
       expect(screen.queryByText(debt)).not.toBeInTheDocument();
     }
+  });
+
+  it('rates the result-linked meal, not a different selectedMeal', async () => {
+    const selectedOlder = mealLog({
+      id: 'meal-selected',
+      food_entries: [
+        {
+          id: 'entry-selected',
+          food_id: 'food-selected',
+          food_name: '红烧肉',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+      created_at: '2026-07-14T11:00:00.000Z',
+      updated_at: '2026-07-14T11:00:00.000Z',
+      date: '2026-07-14',
+      row_version: 2,
+    });
+    // Seed an existing rating so save is enabled without pointer geometry.
+    const resultMeal = mealLog({
+      id: 'meal-result',
+      food_entries: [
+        {
+          id: 'entry-result',
+          food_id: 'food-result',
+          food_name: '番茄炒蛋',
+          servings: 1,
+          note: '',
+          rating: 4,
+        },
+      ],
+      created_at: '2026-07-15T12:00:00.000Z',
+      updated_at: '2026-07-15T12:00:00.000Z',
+      row_version: 5,
+    });
+    const updateMealLog = vi.fn(async () => undefined);
+    renderHistory({
+      meals: [resultMeal, selectedOlder],
+      foods: [
+        food('food-result', '番茄炒蛋', { images: [media('cover-result')] }),
+        food('food-selected', '红烧肉'),
+      ],
+      updateMealLog,
+      focusMealLogId: selectedOlder.id,
+      recordResult: {
+        source: 'immediate',
+        operationId: 'op-1',
+        mealLogId: resultMeal.id,
+        foods: [{ food_id: 'food-result', name: '番茄炒蛋', food_type: 'selfMade' }],
+        previewMedia: null,
+        revertibleUntil: '2026-07-15T12:15:00.000Z',
+        canRevert: true,
+        mealLog: resultMeal,
+        rowVersion: 5,
+        canRate: true,
+      },
+    });
+
+    expect(screen.getAllByText('这顿怎么样？').length).toBeGreaterThan(0);
+    // Inline rating rows must not be bound to the selected older meal's entries.
+    const inlineSections = document.querySelectorAll('.meal-inline-rating');
+    expect(inlineSections.length).toBeGreaterThan(0);
+    for (const section of inlineSections) {
+      expect(section.textContent).toContain('番茄炒蛋');
+      expect(section.textContent).not.toContain('红烧肉');
+    }
+
+    const saveButton = Array.from(document.querySelectorAll('.meal-inline-rating button')).find(
+      (button) => button.textContent?.includes('保存评分') && !(button as HTMLButtonElement).disabled,
+    ) as HTMLButtonElement;
+    expect(saveButton).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+
+    expect(updateMealLog).toHaveBeenCalledWith(
+      resultMeal.id,
+      expect.objectContaining({
+        expected_row_version: 5,
+        food_entry_ratings: expect.arrayContaining([
+          expect.objectContaining({ id: 'entry-result' }),
+        ]),
+      }),
+    );
+    expect(updateMealLog).not.toHaveBeenCalledWith(selectedOlder.id, expect.anything());
+
+    // Guard against regressing to selectedMeal-bound rating.
+    const workspaceSource = readSource('MealLogWorkspace.tsx');
+    expect(workspaceSource).not.toMatch(
+      /showInlineRating[\s\S]{0,200}meal=\{viewModel\.selectedMeal\}/,
+    );
+  });
+
+  it('falls back to Food cover when MealLog has no photos and foods are provided', () => {
+    const mealWithoutPhotos = mealLog({
+      photos: [],
+      food_entries: [
+        {
+          id: 'entry-1',
+          food_id: 'food-cover-1',
+          food_name: '宫保鸡丁',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+    });
+    renderHistory({
+      meals: [mealWithoutPhotos],
+      foods: [
+        food('food-cover-1', '宫保鸡丁', {
+          images: [media('food-cover-only', { alt: '宫保鸡丁封面' })],
+        }),
+      ],
+    });
+
+    expect(screen.getAllByRole('img', { name: /宫保鸡丁/ }).length).toBeGreaterThan(0);
+  });
+
+  it('wires foods prop through App history mount for cover fallback', () => {
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+    expect(appSource).toMatch(/<MealLogWorkspace[\s\S]*foods=\{foods\}/);
   });
 });

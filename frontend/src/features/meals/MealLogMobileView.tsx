@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import type { Food, MealLog, MediaAsset, Member } from '../../api/types';
+import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MealInlineRating } from './MealInlineRating';
 import { MealLogIcon } from './MealLogIcons';
 import { selectMealPreviewMedia } from './MealComposerModel';
 import {
@@ -112,6 +113,11 @@ type Props = {
   onRecordMeal?: () => void;
   notificationCenter?: ReactNode;
   resultBar?: ReactNode;
+  /** Result-linked meal for inline rating; must be that meal, not selectedMeal. */
+  inlineRatingMeal?: MealLog | null;
+  isUpdatingMeal?: boolean;
+  inlineRateError?: string | null;
+  onInlineRate?: (payload: UpdateMealLogPayload) => Promise<unknown>;
 };
 
 export function MealLogMobileView(props: Props) {
@@ -192,42 +198,52 @@ export function MealLogMobileView(props: Props) {
                     foodsById: props.foodsById,
                     membersById: props.membersById,
                   });
+                  const showInlineRating = props.inlineRatingMeal?.id === meal.id && props.onInlineRate;
                   return (
-                    <button
-                      key={meal.id}
-                      type="button"
-                      className={
-                        props.selectedMeal?.id === meal.id
-                          ? 'mobile-log-record-row active'
-                          : 'mobile-log-record-row'
-                      }
-                      onClick={() => {
-                        props.onSelectMeal(meal.id);
-                        props.onOpenMealRecord(meal);
-                      }}
-                    >
-                      <MealTimelineMedia
-                        title={row.title}
-                        preview={row.preview}
-                        extraPhotoCount={row.extraPhotoCount}
-                        className="mobile-log-row-media"
-                      />
-                      <span className="mobile-log-record-main">
-                        <strong>{row.title}</strong>
-                        <small>
-                          <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
-                            {MEAL_TYPE_LABELS[meal.meal_type]}
-                          </span>
-                          <time>{formatMealTime(meal)}</time>
-                        </small>
-                        <MealTimelineFacts
-                          ratingValue={row.ratingValue}
-                          participantCount={row.participantCount}
-                          mediaCount={row.mediaCount}
-                          recorderName={row.recorderName}
+                    <div key={meal.id} className="mobile-log-record-block">
+                      <button
+                        type="button"
+                        className={
+                          props.selectedMeal?.id === meal.id
+                            ? 'mobile-log-record-row active'
+                            : 'mobile-log-record-row'
+                        }
+                        onClick={() => {
+                          props.onSelectMeal(meal.id);
+                          props.onOpenMealRecord(meal);
+                        }}
+                      >
+                        <MealTimelineMedia
+                          title={row.title}
+                          preview={row.preview}
+                          extraPhotoCount={row.extraPhotoCount}
+                          className="mobile-log-row-media"
                         />
-                      </span>
-                    </button>
+                        <span className="mobile-log-record-main">
+                          <strong>{row.title}</strong>
+                          <small>
+                            <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
+                              {MEAL_TYPE_LABELS[meal.meal_type]}
+                            </span>
+                            <time>{formatMealTime(meal)}</time>
+                          </small>
+                          <MealTimelineFacts
+                            ratingValue={row.ratingValue}
+                            participantCount={row.participantCount}
+                            mediaCount={row.mediaCount}
+                            recorderName={row.recorderName}
+                          />
+                        </span>
+                      </button>
+                      {showInlineRating ? (
+                        <MealInlineRating
+                          meal={props.inlineRatingMeal!}
+                          busy={props.isUpdatingMeal}
+                          error={props.inlineRateError}
+                          onRate={props.onInlineRate!}
+                        />
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>

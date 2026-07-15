@@ -63,14 +63,6 @@ export function useMealEnrichmentState(args: {
     setEntryRatings((current) => ({ ...current, [entryId]: value }));
   }
 
-  function applyServerMeal(meal: MealLog) {
-    setNotes(meal.notes);
-    setEntryRatings(buildMealEntryRatingDraft(meal));
-    setParticipants(meal.participant_user_ids);
-    setPhotos(meal.photos.slice(0, MAX_MEAL_PHOTOS));
-    setExpectedRowVersion(meal.row_version);
-  }
-
   async function save(includePhotos: boolean) {
     const mediaIds = includePhotos ? photos.map((photo) => photo.id) : undefined;
     if (
@@ -103,8 +95,10 @@ export function useMealEnrichmentState(args: {
     } catch (reason) {
       if (isApiError(reason) && reason.status === 409) {
         const current = extractCurrentMeal(reason);
+        // Keep the user's draft (notes/ratings/participants/photos). Only advance
+        // expected_row_version so a reviewed resubmit can succeed — do not wipe draft.
         if (current) {
-          applyServerMeal(current);
+          setExpectedRowVersion(current.row_version);
         }
         const message = '这餐已被其他人更新，请查看最新内容后再保存';
         setStaleMessage(message);

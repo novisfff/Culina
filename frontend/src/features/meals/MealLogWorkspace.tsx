@@ -218,6 +218,11 @@ export function MealLogWorkspace(props: Props) {
                     const isSelected = viewModel.selectedMeal?.id === meal.id;
                     const showInlineRating =
                       props.recordResult?.mealLogId === meal.id && props.recordResult.canRate;
+                    // Always rate the result-linked meal (prefer full mealLog on result for row_version).
+                    const ratingMeal =
+                      props.recordResult?.mealLogId === meal.id
+                        ? props.recordResult.mealLog ?? meal
+                        : meal;
                     return (
                       <div key={meal.id} className="meal-log-record-block">
                         <button
@@ -249,15 +254,15 @@ export function MealLogWorkspace(props: Props) {
                             </span>
                           </span>
                         </button>
-                        {showInlineRating && viewModel.selectedMeal ? (
+                        {showInlineRating && ratingMeal ? (
                           <MealInlineRating
-                            meal={viewModel.selectedMeal}
+                            meal={ratingMeal}
                             busy={props.isUpdatingMeal}
                             error={inlineRateError}
                             onRate={async (payload) => {
                               setInlineRateError(null);
                               try {
-                                await props.updateMealLog(meal.id, payload);
+                                await props.updateMealLog(ratingMeal.id, payload);
                               } catch (reason) {
                                 setInlineRateError(
                                   reason instanceof Error ? reason.message : '评分失败，请重试',
@@ -286,6 +291,14 @@ export function MealLogWorkspace(props: Props) {
     </main>
   );
 
+  const resultMeal =
+    props.recordResult != null
+      ? props.recordResult.mealLog ??
+        props.recentMeals.find((meal) => meal.id === props.recordResult?.mealLogId) ??
+        null
+      : null;
+  const showResultInlineRating = Boolean(props.recordResult?.canRate && resultMeal);
+
   const mobileTimeline = (
     <MealLogMobileView
       selectedMeal={viewModel.selectedMeal}
@@ -302,6 +315,24 @@ export function MealLogWorkspace(props: Props) {
       onRecordMeal={props.onRecordMeal}
       notificationCenter={props.notificationCenter}
       resultBar={resultBar}
+      inlineRatingMeal={showResultInlineRating ? resultMeal : null}
+      isUpdatingMeal={props.isUpdatingMeal}
+      inlineRateError={inlineRateError}
+      onInlineRate={
+        resultMeal
+          ? async (payload) => {
+              setInlineRateError(null);
+              try {
+                await props.updateMealLog(resultMeal.id, payload);
+              } catch (reason) {
+                setInlineRateError(
+                  reason instanceof Error ? reason.message : '评分失败，请重试',
+                );
+                throw reason;
+              }
+            }
+          : undefined
+      }
     />
   );
 
