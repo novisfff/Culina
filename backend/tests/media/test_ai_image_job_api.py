@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.ai.images.generation import ImageGenerationResult
-from app.ai.images.jobs import process_image_generation_job
+from app.ai.images.jobs import _bind_generated_asset_to_target, process_image_generation_job
 from app.core.deps import get_current_auth
 from app.core.enums import FoodType, ImageGenerationMode, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
-from app.core.utils import utcnow
+from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIImageGenerationJob, Base, Family, Food, MealLog, MealLogFood, MediaAsset, Membership, User
@@ -309,6 +309,110 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
             meal = db.get(MealLog, "meal-bind-target")
             assert meal is not None
             self.assertEqual(meal.row_version, 1)
+
+    def test_meal_log_bind_rechecks_non_ai_assets_under_lock(self) -> None:
+        """Simulate a concurrent non-AI attach between pre-lock read and lock.
+
+        Pre-lock sees only AI assets (would bind), but under the MealLog lock a
+        user upload appears; bind must skip and not bump.
+        """
+        with self.SessionLocal() as db:
+            generated = MediaAsset(
+                id="photo-ai-generated",
+                family_id="family-test",
+                name="ai-meal.svg",
+                url="/media/family-test/ai-meal.svg",
+                file_path="family-test/ai-meal.svg",
+                source=MediaSource.AI,
+                alt="ai meal photo",
+                entity_type=None,
+                entity_id=None,
+                created_by="user-test",
+            )
+            existing_ai = MediaAsset(
+                id="photo-ai-existing",
+                family_id="family-test",
+                name="ai-existing.svg",
+                url="/media/family-test/ai-existing.svg",
+                file_path="family-test/ai-existing.svg",
+                source=MediaSource.AI,
+                alt="existing ai meal photo",
+                entity_type="meal_log",
+                entity_id="meal-bind-target",
+                created_by="user-test",
+            )
+            job = AIImageGenerationJob(
+                id=create_id("image-job"),
+                family_id="family-test",
+                user_id="user-test",
+                status="succeeded",
+                request_payload={
+                    "mode": ImageGenerationMode.TEXT.value,
+                    "entity_type": MediaEntityType.MEAL_LOG.value,
+                    "title": "晚餐照片",
+                },
+                target_entity_type="meal_log",
+                target_entity_id="meal-bind-target",
+                generated_media_id=generated.id,
+                bind_status="pending",
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+            db.add_all([generated, existing_ai, job])
+            db.commit()
+            job_id = job.id
+
+        from app.ai.images import jobs as image_jobs
+
+        real_lock = image_jobs.lock_meal_log_write_targets
+
+        def lock_then_attach_non_ai(*args, **kwargs):
+            locked = real_lock(*args, **kwargs)
+            session = args[0]
+            session.add(
+                MediaAsset(
+                    id="photo-user-race",
+                    family_id="family-test",
+                    name="user-race.png",
+                    url="/media/family-test/user-race.png",
+                    file_path="family-test/user-race.png",
+                    source=MediaSource.UPLOAD,
+                    alt="user race photo",
+                    entity_type="meal_log",
+                    entity_id="meal-bind-target",
+                    created_by="user-test",
+                )
+            )
+            session.flush()
+            return locked
+
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            assert job is not None
+            with patch.object(image_jobs, "lock_meal_log_write_targets", side_effect=lock_then_attach_non_ai):
+                bind_status = _bind_generated_asset_to_target(db, job)
+            db.commit()
+
+        self.assertEqual(bind_status, "skipped")
+        with self.SessionLocal() as db:
+            meal = db.get(MealLog, "meal-bind-target")
+            assert meal is not None
+            self.assertEqual(meal.row_version, 1)
+            job = db.get(AIImageGenerationJob, job_id)
+            assert job is not None
+            self.assertEqual(job.bind_status, "skipped")
+            generated = db.get(MediaAsset, "photo-ai-generated")
+            assert generated is not None
+            self.assertIsNone(generated.entity_type)
+            self.assertIsNone(generated.entity_id)
+            user_asset = db.get(MediaAsset, "photo-user-race")
+            assert user_asset is not None
+            self.assertEqual(user_asset.entity_type, "meal_log")
+            self.assertEqual(user_asset.entity_id, "meal-bind-target")
+            existing_ai = db.get(MediaAsset, "photo-ai-existing")
+            assert existing_ai is not None
+            self.assertEqual(existing_ai.entity_type, "meal_log")
+            self.assertEqual(existing_ai.entity_id, "meal-bind-target")
 
 
 if __name__ == "__main__":

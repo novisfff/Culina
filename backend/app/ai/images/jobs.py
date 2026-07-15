@@ -309,6 +309,33 @@ def _save_render_result(db: Session, *, job: AIImageGenerationJob, request: Imag
     )
 
 
+def _list_target_assets(db: Session, *, family_id: str, entity_type: str, entity_id: str) -> list[MediaAsset]:
+    return list(
+        db.scalars(
+            select(MediaAsset).where(
+                MediaAsset.family_id == family_id,
+                MediaAsset.entity_type == entity_type,
+                MediaAsset.entity_id == entity_id,
+            )
+        )
+    )
+
+
+def _should_skip_late_bind(
+    *,
+    current_assets: list[MediaAsset],
+    append_to_existing: bool,
+    replace_anchor_media_id: str | None,
+) -> bool:
+    if append_to_existing:
+        return False
+    if any(asset.source != MediaSource.AI for asset in current_assets):
+        return True
+    if replace_anchor_media_id and current_assets and not any(asset.id == replace_anchor_media_id for asset in current_assets):
+        return True
+    return False
+
+
 def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> ImageJobBindStatus:
     if not job.target_entity_type or not job.target_entity_id or not job.generated_media_id:
         job.bind_status = "unbound"
@@ -321,26 +348,22 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         job.bind_status = "skipped"
         return "skipped"
 
-    # Late skip decisions run before any MealLog locks: skipped/unbound paths take no
+    # Late skip decisions run before any MealLog locks: pure skip paths take no
     # MealLog locks and do not bump. Only the actual bind path locks Food+MealLog.
-    current_assets = list(
-        db.scalars(
-            select(MediaAsset).where(
-                MediaAsset.family_id == job.family_id,
-                MediaAsset.entity_type == job.target_entity_type,
-                MediaAsset.entity_id == job.target_entity_id,
-            )
-        )
-    )
     append_to_existing = (job.request_payload or {}).get("bind_strategy") == IMAGE_BIND_STRATEGY_APPEND
-    if not append_to_existing:
-        non_ai_assets = [asset for asset in current_assets if asset.source != MediaSource.AI]
-        if non_ai_assets:
-            job.bind_status = "skipped"
-            return "skipped"
-        if job.replace_anchor_media_id and current_assets and not any(asset.id == job.replace_anchor_media_id for asset in current_assets):
-            job.bind_status = "skipped"
-            return "skipped"
+    current_assets = _list_target_assets(
+        db,
+        family_id=job.family_id,
+        entity_type=job.target_entity_type,
+        entity_id=job.target_entity_id,
+    )
+    if _should_skip_late_bind(
+        current_assets=current_assets,
+        append_to_existing=append_to_existing,
+        replace_anchor_media_id=job.replace_anchor_media_id,
+    ):
+        job.bind_status = "skipped"
+        return "skipped"
 
     locked_meal_log = None
     if job.target_entity_type == "meal_log":
@@ -351,6 +374,21 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
                 meal_log_id=job.target_entity_id,
             ).meal_log
         except MealLogConflictError:
+            job.bind_status = "skipped"
+            return "skipped"
+        # Revalidate under the lock so concurrent non-AI attaches / anchor changes
+        # cannot be bypassed by a stale pre-lock asset list.
+        current_assets = _list_target_assets(
+            db,
+            family_id=job.family_id,
+            entity_type=job.target_entity_type,
+            entity_id=job.target_entity_id,
+        )
+        if _should_skip_late_bind(
+            current_assets=current_assets,
+            append_to_existing=append_to_existing,
+            replace_anchor_media_id=job.replace_anchor_media_id,
+        ):
             job.bind_status = "skipped"
             return "skipped"
 
