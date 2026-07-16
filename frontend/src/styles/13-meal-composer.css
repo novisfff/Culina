@@ -1,0 +1,481 @@
+/* Meal Composer and compact quick-record presentation.
+ * Prefixes: .meal-composer-* / .meal-quick-record-*
+ */
+
+.meal-composer-overlay-root,
+.meal-quick-record-overlay-root {
+  z-index: var(--z-overlay);
+}
+
+.meal-composer-modal.workspace-modal,
+.meal-quick-record-modal.workspace-modal {
+  width: min(var(--modal-width-md), calc(100vw - 48px));
+}
+
+.meal-composer-form,
+.meal-quick-record-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.meal-composer-body {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.meal-composer-region {
+  min-width: 0;
+}
+
+.meal-composer-field,
+.meal-quick-record-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meal-composer-field > span,
+.meal-quick-record-field > span {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.meal-composer-date-strip,
+.meal-quick-record-date-strip,
+.meal-composer-segments,
+.meal-quick-record-segments {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.meal-composer-date-option,
+.meal-quick-record-date-option,
+.meal-composer-segment,
+.meal-quick-record-segment,
+.meal-composer-candidate-action,
+.meal-composer-candidate-option,
+.meal-composer-food-type-chip,
+.meal-composer-food-remove,
+.meal-composer-food-option,
+.meal-composer-food-create {
+  min-height: 44px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meal-composer-date-option,
+.meal-quick-record-date-option {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  align-content: center;
+  padding: 8px 6px;
+}
+
+.meal-composer-date-option span,
+.meal-quick-record-date-option span {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.meal-composer-date-option strong,
+.meal-quick-record-date-option strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.meal-composer-segment,
+.meal-quick-record-segment {
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.meal-composer-date-option.is-active,
+.meal-quick-record-date-option.is-active,
+.meal-composer-segment.is-active,
+.meal-quick-record-segment.is-active,
+.meal-composer-candidate-action.is-selected,
+.meal-composer-candidate-option.is-selected,
+.meal-composer-food-type-chip:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.12);
+}
+
+.meal-composer-food-combobox {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.meal-composer-food-search {
+  min-width: 0;
+}
+
+.meal-composer-food-menu {
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-md);
+}
+
+.meal-composer-food-menu-status {
+  padding: 10px 12px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.meal-composer-food-option {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+}
+
+.meal-composer-food-option.is-highlighted,
+.meal-composer-food-option:hover {
+  background: var(--surface-strong);
+}
+
+.meal-composer-food-option-media,
+.meal-composer-candidate-media,
+.meal-composer-food-item-media,
+.meal-quick-record-cover {
+  display: block;
+  width: 44px;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface-strong);
+  flex-shrink: 0;
+}
+
+.meal-composer-food-option-media .media-with-placeholder,
+.meal-composer-candidate-media .media-with-placeholder,
+.meal-composer-food-item-media .media-with-placeholder,
+.meal-quick-record-cover .media-with-placeholder,
+.meal-composer-food-option-media img,
+.meal-composer-candidate-media img,
+.meal-composer-food-item-media img,
+.meal-quick-record-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.meal-composer-food-option-copy,
+.meal-composer-candidate-option-copy,
+.meal-composer-food-item-copy,
+.meal-quick-record-copy,
+.meal-composer-candidate-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meal-composer-food-option-copy strong,
+.meal-composer-candidate-option-copy strong,
+.meal-composer-food-item-copy strong,
+.meal-quick-record-copy strong,
+.meal-composer-candidate-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-composer-food-option-copy small,
+.meal-composer-candidate-option-copy span,
+.meal-composer-food-item-copy small,
+.meal-quick-record-copy small,
+.meal-composer-candidate-copy span {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-composer-food-create {
+  display: grid;
+  place-items: center start;
+  grid-template-columns: 1fr;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.meal-composer-food-type-picker {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.meal-composer-food-type-prompt {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.meal-composer-food-type-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.meal-composer-food-type-chip {
+  padding: 0 10px;
+  font-weight: 600;
+}
+
+.meal-composer-food-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meal-composer-food-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.meal-composer-servings {
+  min-width: 132px;
+}
+
+.meal-composer-food-remove {
+  padding: 0 12px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.meal-composer-food-empty {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.meal-composer-candidates,
+.meal-quick-record-candidates {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.meal-composer-candidate-single {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+}
+
+.meal-composer-candidate-single .meal-composer-candidate-media {
+  width: 56px;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.meal-composer-candidate-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.meal-composer-candidate-action {
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  font-weight: 700;
+}
+
+.meal-composer-candidate-action.is-selected {
+  background: var(--brand-button-bg);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--brand-button-shadow);
+}
+
+.meal-composer-candidate-list {
+  display: grid;
+  gap: 8px;
+}
+
+.meal-composer-candidate-option {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+}
+
+.meal-composer-candidate-new {
+  grid-template-columns: 1fr;
+  justify-items: start;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.meal-composer-final-preview {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--butter-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.meal-composer-error,
+.meal-quick-record-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.meal-composer-actions .ui-form-actions-row,
+.meal-quick-record-actions .ui-form-actions-row {
+  gap: 10px;
+}
+
+.meal-composer-actions .ui-form-actions-primary,
+.meal-quick-record-actions .ui-form-actions-primary,
+.meal-composer-actions .ui-form-actions-secondary,
+.meal-quick-record-actions .ui-form-actions-secondary {
+  min-height: 44px;
+}
+
+.meal-quick-record-hero {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+}
+
+.meal-quick-record-cover {
+  width: 72px;
+  border-radius: 16px;
+}
+
+.meal-quick-record-copy small {
+  color: var(--text-soft);
+}
+
+@media (min-width: 1024px) {
+  .meal-composer-modal.workspace-modal {
+    width: min(var(--modal-width-lg), calc(100vw - 48px));
+  }
+
+  .meal-composer-body {
+    grid-template-columns: minmax(0, 1.3fr) minmax(240px, 0.9fr);
+    align-items: start;
+  }
+}
+
+@media (max-width: 767px) {
+  .meal-composer-modal.workspace-modal,
+  .meal-quick-record-modal.workspace-modal {
+    width: 100%;
+  }
+
+  .meal-composer-form,
+  .meal-quick-record-form {
+    padding-bottom: calc(var(--mobile-nav-height, 64px) + env(safe-area-inset-bottom, 0px) + 16px);
+  }
+
+  .meal-composer-body {
+    grid-template-columns: 1fr;
+  }
+
+  .meal-composer-date-strip,
+  .meal-quick-record-date-strip,
+  .meal-composer-segments,
+  .meal-quick-record-segments {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .meal-composer-food-item {
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-areas:
+      'media copy'
+      'servings servings'
+      'remove remove';
+  }
+
+  .meal-composer-food-item-media {
+    grid-area: media;
+  }
+
+  .meal-composer-food-item-copy {
+    grid-area: copy;
+  }
+
+  .meal-composer-servings {
+    grid-area: servings;
+    min-width: 0;
+  }
+
+  .meal-composer-food-remove {
+    grid-area: remove;
+    width: 100%;
+  }
+
+  .meal-composer-actions .ui-form-actions-primary,
+  .meal-quick-record-actions .ui-form-actions-primary,
+  .meal-composer-actions .ui-form-actions-secondary,
+  .meal-quick-record-actions .ui-form-actions-secondary {
+    min-height: 48px;
+  }
+}

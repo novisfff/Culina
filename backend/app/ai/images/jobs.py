@@ -28,6 +28,11 @@ from app.models.domain import (
     Recipe,
     User,
 )
+from app.services.meal_log_versions import (
+    MealLogConflictError,
+    bump_meal_log_collection,
+    lock_meal_log_write_targets,
+)
 from app.services.media import delete_media_file, get_media_asset, read_media_object, save_generated_asset, save_svg_asset
 
 ImageJobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -243,6 +248,7 @@ def attach_image_generation_job_to_entity(
     entity_type: str,
     entity_id: str,
     replace_anchor_media_id: str | None = None,
+    bump_parent: bool = True,
 ) -> AIImageGenerationJob | None:
     if not job_id:
         return None
@@ -264,7 +270,7 @@ def attach_image_generation_job_to_entity(
         job.bind_status = "pending"
     job.updated_at = utcnow()
     if job.status == "succeeded" and job.generated_media_id:
-        _bind_generated_asset_to_target(db, job)
+        _bind_generated_asset_to_target(db, job, bump_parent=bump_parent)
     db.flush()
     return job
 
@@ -304,7 +310,39 @@ def _save_render_result(db: Session, *, job: AIImageGenerationJob, request: Imag
     )
 
 
-def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> ImageJobBindStatus:
+def _list_target_assets(db: Session, *, family_id: str, entity_type: str, entity_id: str) -> list[MediaAsset]:
+    return list(
+        db.scalars(
+            select(MediaAsset).where(
+                MediaAsset.family_id == family_id,
+                MediaAsset.entity_type == entity_type,
+                MediaAsset.entity_id == entity_id,
+            )
+        )
+    )
+
+
+def _should_skip_late_bind(
+    *,
+    current_assets: list[MediaAsset],
+    append_to_existing: bool,
+    replace_anchor_media_id: str | None,
+) -> bool:
+    if append_to_existing:
+        return False
+    if any(asset.source != MediaSource.AI for asset in current_assets):
+        return True
+    if replace_anchor_media_id and current_assets and not any(asset.id == replace_anchor_media_id for asset in current_assets):
+        return True
+    return False
+
+
+def _bind_generated_asset_to_target(
+    db: Session,
+    job: AIImageGenerationJob,
+    *,
+    bump_parent: bool = True,
+) -> ImageJobBindStatus:
     if not job.target_entity_type or not job.target_entity_id or not job.generated_media_id:
         job.bind_status = "unbound"
         return "unbound"
@@ -316,31 +354,59 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
         job.bind_status = "skipped"
         return "skipped"
 
-    current_assets = list(
-        db.scalars(
-            select(MediaAsset).where(
-                MediaAsset.family_id == job.family_id,
-                MediaAsset.entity_type == job.target_entity_type,
-                MediaAsset.entity_id == job.target_entity_id,
-            )
-        )
-    )
+    # Late skip decisions run before any MealLog locks: pure skip paths take no
+    # MealLog locks and do not bump. Only the actual bind path locks Food+MealLog.
     append_to_existing = (job.request_payload or {}).get("bind_strategy") == IMAGE_BIND_STRATEGY_APPEND
+    current_assets = _list_target_assets(
+        db,
+        family_id=job.family_id,
+        entity_type=job.target_entity_type,
+        entity_id=job.target_entity_id,
+    )
+    if _should_skip_late_bind(
+        current_assets=current_assets,
+        append_to_existing=append_to_existing,
+        replace_anchor_media_id=job.replace_anchor_media_id,
+    ):
+        job.bind_status = "skipped"
+        return "skipped"
+
+    locked_meal_log = None
+    if job.target_entity_type == "meal_log":
+        try:
+            locked_meal_log = lock_meal_log_write_targets(
+                db,
+                family_id=job.family_id,
+                meal_log_id=job.target_entity_id,
+            ).meal_log
+        except MealLogConflictError:
+            job.bind_status = "skipped"
+            return "skipped"
+        # Revalidate under the lock so concurrent non-AI attaches / anchor changes
+        # cannot be bypassed by a stale pre-lock asset list.
+        current_assets = _list_target_assets(
+            db,
+            family_id=job.family_id,
+            entity_type=job.target_entity_type,
+            entity_id=job.target_entity_id,
+        )
+        if _should_skip_late_bind(
+            current_assets=current_assets,
+            append_to_existing=append_to_existing,
+            replace_anchor_media_id=job.replace_anchor_media_id,
+        ):
+            job.bind_status = "skipped"
+            return "skipped"
+
     if append_to_existing:
         generated.entity_type = job.target_entity_type
         generated.entity_id = job.target_entity_id
         if job.target_entity_type == "recipe":
             _sync_recipe_image_to_food(db, job=job, generated=generated, append_to_existing=True)
+        if locked_meal_log is not None and bump_parent:
+            bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
         job.bind_status = "bound"
         return "bound"
-
-    non_ai_assets = [asset for asset in current_assets if asset.source != MediaSource.AI]
-    if non_ai_assets:
-        job.bind_status = "skipped"
-        return "skipped"
-    if job.replace_anchor_media_id and current_assets and not any(asset.id == job.replace_anchor_media_id for asset in current_assets):
-        job.bind_status = "skipped"
-        return "skipped"
 
     for asset in current_assets:
         asset.entity_type = None
@@ -349,6 +415,11 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
     generated.entity_id = job.target_entity_id
     if job.target_entity_type == "recipe":
         _sync_recipe_image_to_food(db, job=job, generated=generated)
+    if locked_meal_log is not None and bump_parent:
+        # Bind only attaches media; never overwrite MealLog business fields.
+        # When called from a versioned writer (create/update meal log), bump_parent=False
+        # so the outer writer performs the single logical row_version bump.
+        bump_meal_log_collection(locked_meal_log, user_id=job.user_id)
     job.bind_status = "bound"
     return "bound"
 

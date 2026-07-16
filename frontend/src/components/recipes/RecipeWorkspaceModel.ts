@@ -19,6 +19,7 @@ import { resolveAssetUrl } from '../../lib/assets';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { createMealBusinessDate } from '../../features/meals/MealComposerModel';
 import { buildIngredientPlaceholderSvg, emptyImages, splitTags, todayKey } from '../../lib/ui';
 import { MEAL_TYPE_OPTIONS, OPTIONAL_INGREDIENT_NOTE_PATTERN } from './RecipeWorkspaceOptions';
 import type { RecipeCardViewModel } from './workspaceModel';
@@ -724,7 +725,7 @@ export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps
     ],
     activeTimerId: 'default-timer',
     servings: String(recipe.servings),
-    date: todayKey(),
+    date: createMealBusinessDate(),
     mealType: 'dinner',
     planItemId,
     adjustments: '',
@@ -1018,12 +1019,29 @@ export function buildCookPayload(args: {
   completionRequestId: string;
   planItemBaseUpdatedAt?: string | null;
   allowPartialInventoryDeduction?: boolean;
+  /** Optional target meal when appending to an existing same-date/type meal. */
+  targetMealLogId?: string | null;
+  expectedMealLogRowVersion?: number | null;
 }): CookRecipeRequest {
   const planBase = typeof args.planItemBaseUpdatedAt === 'string' ? args.planItemBaseUpdatedAt.trim() : '';
   if (args.planItemId && !planBase) {
     // Match backend final contract: plan source requires OCC base. Fail closed in the
     // client instead of POSTing a body that only 422s after the user finishes cooking.
     throw new Error('计划来源完成请求缺少菜单版本（planItemBaseUpdatedAt），请重新从菜单打开或刷新后重试。');
+  }
+  const targetMealLogId =
+    typeof args.targetMealLogId === 'string' && args.targetMealLogId.trim()
+      ? args.targetMealLogId.trim()
+      : null;
+  const expectedRowVersion =
+    typeof args.expectedMealLogRowVersion === 'number' && Number.isFinite(args.expectedMealLogRowVersion)
+      ? args.expectedMealLogRowVersion
+      : null;
+  if (targetMealLogId && expectedRowVersion == null) {
+    throw new Error('加入已有餐时必须提供 expectedMealLogRowVersion。');
+  }
+  if (expectedRowVersion != null && !targetMealLogId) {
+    throw new Error('expectedMealLogRowVersion 不能脱离 targetMealLogId 使用。');
   }
   return {
     servings: Number(args.servings),
@@ -1033,6 +1051,12 @@ export function buildCookPayload(args: {
     food_plan_item_id: args.planItemId ?? undefined,
     ...(args.planItemId
       ? { food_plan_item_base_updated_at: planBase }
+      : {}),
+    ...(targetMealLogId
+      ? {
+          target_meal_log_id: targetMealLogId,
+          expected_meal_log_row_version: expectedRowVersion as number,
+        }
       : {}),
     result_note: args.resultNote.trim(),
     adjustments: args.adjustments.trim(),

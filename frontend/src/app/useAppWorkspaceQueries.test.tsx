@@ -112,6 +112,8 @@ function stubHomeBootQueries() {
     items: [],
   });
   vi.spyOn(api, 'getMealLogs').mockResolvedValue([]);
+  vi.spyOn(api, 'getActiveMealRecordOperations').mockResolvedValue([]);
+  vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
   vi.spyOn(api, 'getActivityLogs').mockResolvedValue([]);
 }
 
@@ -229,5 +231,79 @@ describe('useAppWorkspaceQueries', () => {
     });
     await flushQueries();
     expect(detail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['home', navigationForPrimary('home')],
+    [
+      'eat food discover',
+      {
+        primaryTab: 'eat' as const,
+        eat: { baseView: 'discover' as const, discoverSection: 'all' as const, task: null },
+      },
+    ],
+    [
+      'eat history',
+      {
+        primaryTab: 'eat' as const,
+        eat: { baseView: 'history' as const, discoverSection: 'all' as const, task: null },
+      },
+    ],
+    ['ingredients', navigationForPrimary('ingredients')],
+  ])('enables active meal record operations on %s', async (_label, navigationState) => {
+    const operations = vi.spyOn(api, 'getActiveMealRecordOperations').mockResolvedValue([]);
+    renderWorkspaceQueries(navigationState);
+    await flushQueries();
+    expect(operations).toHaveBeenCalledWith(true);
+  });
+
+  it.each([
+    ['ai', navigationForPrimary('ai')],
+    ['family', navigationForPrimary('family')],
+  ])('disables active meal record operations on %s', async (_label, navigationState) => {
+    const operations = vi.spyOn(api, 'getActiveMealRecordOperations').mockResolvedValue([]);
+    renderWorkspaceQueries(navigationState);
+    await flushQueries();
+    expect(operations).not.toHaveBeenCalled();
+  });
+
+  it('requests meal insights only on eat history', async () => {
+    const insights = vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
+    renderWorkspaceQueries({
+      primaryTab: 'eat',
+      eat: { baseView: 'history', discoverSection: 'all', task: null },
+    });
+    await flushQueries();
+    expect(insights).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request meal insights on eat discover', async () => {
+    const insights = vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
+    renderWorkspaceQueries({
+      primaryTab: 'eat',
+      eat: { baseView: 'discover', discoverSection: 'all', task: null },
+    });
+    await flushQueries();
+    expect(insights).not.toHaveBeenCalled();
+  });
+
+  it('does not request meal insights on home', async () => {
+    const insights = vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
+    renderWorkspaceQueries(navigationForPrimary('home'));
+    await flushQueries();
+    expect(insights).not.toHaveBeenCalled();
+  });
+
+  it('excludes meal insights loading from isBootLoading', async () => {
+    vi.spyOn(api, 'getMealInsights').mockImplementation(
+      () => new Promise(() => undefined) as Promise<never>,
+    );
+    const harness = renderWorkspaceQueries({
+      primaryTab: 'eat',
+      eat: { baseView: 'history', discoverSection: 'all', task: null },
+    });
+    await flushQueries();
+    expect(harness.current().mealInsightsQuery.isLoading).toBe(true);
+    expect(harness.current().isBootLoading).toBe(false);
   });
 });

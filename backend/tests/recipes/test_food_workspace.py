@@ -233,19 +233,60 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(update_recipe_link.status_code, 400, update_recipe_link.text)
 
             first_add = self.client.post(
-                "/api/meal-logs/quick-add",
-                json={"food_id": food["id"], "date": "2026-05-14", "meal_type": "dinner", "servings": 1, "note": "加班"},
+                "/api/meal-logs/record",
+                json={
+                    "client_request_id": "workspace-record-1",
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "target": {"kind": "new"},
+                    "new_foods": [],
+                    "entries": [{"food_id": food["id"], "servings": 1}],
+                },
             )
-            self.assertEqual(first_add.status_code, 201, first_add.text)
-            self.assertEqual(len(first_add.json()["food_entries"]), 1)
+            self.assertEqual(first_add.status_code, 200, first_add.text)
+            first_meal = first_add.json()["meal_log"]
+            self.assertEqual(len(first_meal["food_entries"]), 1)
 
-            second_add = self.client.post(
-                "/api/meal-logs/quick-add",
-                json={"food_id": food["id"], "date": "2026-05-14", "meal_type": "dinner", "servings": 0.5, "note": "又加半份"},
+            # Append a different food into the same meal (record rejects duplicate food_id).
+            other_food = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "加班小菜",
+                    "type": "instant",
+                    "category": "速食",
+                    "flavor_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                    "source_name": "",
+                    "purchase_source": "",
+                    "scene": "",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_quantity": None,
+                    "stock_unit": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
             )
-            self.assertEqual(second_add.status_code, 201, second_add.text)
-            self.assertEqual(second_add.json()["id"], first_add.json()["id"])
-            self.assertEqual(len(second_add.json()["food_entries"]), 2)
+            self.assertEqual(other_food.status_code, 201, other_food.text)
+            second_add = self.client.post(
+                "/api/meal-logs/record",
+                json={
+                    "client_request_id": "workspace-record-2",
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "target": {
+                        "kind": "existing",
+                        "meal_log_id": first_meal["id"],
+                        "expected_row_version": first_meal["row_version"],
+                    },
+                    "new_foods": [],
+                    "entries": [{"food_id": other_food.json()["id"], "servings": 0.5}],
+                },
+            )
+            self.assertEqual(second_add.status_code, 200, second_add.text)
+            second_meal = second_add.json()["meal_log"]
+            self.assertEqual(second_meal["id"], first_meal["id"])
+            self.assertEqual(len(second_meal["food_entries"]), 2)
 
         def test_get_food_plan_item_by_id_is_scoped_to_current_user(self) -> None:
             food = self._create_food_for_plan(name="本人计划食物")
@@ -332,51 +373,36 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             ])
             plan = update_response.json()
 
-            quick_add = self.client.post(
-                "/api/meal-logs/quick-add",
+            complete = self.client.post(
+                f"/api/food-plan/{plan['id']}/complete",
                 json={
-                    "food_id": food["id"],
-                    "date": "2026-05-15",
-                    "meal_type": "lunch",
-                    "servings": 1,
-                    "note": "完成计划",
-                    "food_plan_item_id": plan["id"],
                     "food_plan_item_base_updated_at": plan["updated_at"],
                 },
             )
-            self.assertEqual(quick_add.status_code, 201, quick_add.text)
+            self.assertEqual(complete.status_code, 200, complete.text)
             plan_items = self.client.get("/api/food-plan?date_from=2026-05-15&date_to=2026-05-15").json()
             self.assertEqual(plan_items[0]["status"], "cooked")
-            self.assertEqual(plan_items[0]["meal_log_id"], quick_add.json()["id"])
+            self.assertEqual(plan_items[0]["meal_log_id"], complete.json()["id"])
             self.assertIsNotNone(plan_items[0]["completed_at"])
+            # completeFoodPlanItem logs both plan-complete and meal highlights.
             self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL,
             ])
 
             replay = self.client.post(
-                "/api/meal-logs/quick-add",
+                f"/api/food-plan/{plan['id']}/complete",
                 json={
-                    "food_id": food["id"],
-                    "date": "2026-05-15",
-                    "meal_type": "lunch",
-                    "servings": 1,
-                    "note": "完成计划",
-                    "food_plan_item_id": plan["id"],
                     "food_plan_item_base_updated_at": plan_items[0]["updated_at"],
                 },
             )
-            self.assertEqual(replay.status_code, 409, replay.text)
-            self.assertEqual(
-                replay.json()["detail"],
-                {
-                    "code": "food_plan_item_already_completed",
-                    "message": "该菜单项已经记录完成",
-                    "meal_log_id": quick_add.json()["id"],
-                },
-            )
+            # Idempotent complete returns the same meal without creating another.
+            self.assertEqual(replay.status_code, 200, replay.text)
+            self.assertEqual(replay.json()["id"], complete.json()["id"])
             self.assert_highlight_kinds([
+                ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL_PLAN,
                 ActivityHighlightKind.MEAL,
@@ -469,22 +495,27 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
 
             update_response = self.client.patch(
                 f"/api/meal-logs/{meal['id']}",
-                json={"notes": "补充备注", "mood": "满足"},
+                json={
+                    "expected_row_version": meal["row_version"],
+                    "notes": "补充备注",
+                    "mood": "满足",
+                },
             )
             self.assertEqual(update_response.status_code, 200, update_response.text)
             self.assert_highlight_kinds([ActivityHighlightKind.MEAL])
 
-            quick_add = self.client.post(
-                "/api/meal-logs/quick-add",
+            record = self.client.post(
+                "/api/meal-logs/record",
                 json={
-                    "food_id": food["id"],
+                    "client_request_id": "workspace-highlight-record-1",
                     "date": "2026-05-16",
                     "meal_type": "lunch",
-                    "servings": 1,
-                    "note": "快捷午餐",
+                    "target": {"kind": "new"},
+                    "new_foods": [],
+                    "entries": [{"food_id": food["id"], "servings": 1}],
                 },
             )
-            self.assertEqual(quick_add.status_code, 201, quick_add.text)
+            self.assertEqual(record.status_code, 200, record.text)
             self.assert_highlight_kinds([
                 ActivityHighlightKind.MEAL,
                 ActivityHighlightKind.MEAL,

@@ -1,6 +1,14 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
+import { MealLogWorkspace } from './MealLogWorkspace';
+import type { MealRecordResult } from './useMealRecordResultState';
 
 const mealsDir = resolve(__dirname);
 
@@ -8,7 +16,121 @@ function readSource(fileName: string) {
   return readFileSync(resolve(mealsDir, fileName), 'utf8');
 }
 
-const DEBT_LANGUAGE = ['待补充', '未完成', '欠缺资料', '记录任务'] as const;
+const DEBT_LANGUAGE = [
+  '基础记录',
+  '已丰富',
+  '待补充',
+  '未评分',
+  '手动补录',
+  '菜单计划',
+  '补充这餐',
+  '待补充数量',
+  '记录任务',
+] as const;
+
+function media(id: string, overrides: Partial<MediaAsset> = {}): MediaAsset {
+  return {
+    id,
+    name: id,
+    url: `/media/${id}.jpg`,
+    source: 'upload',
+    alt: id,
+    created_at: '2026-07-15T11:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function mealLog(overrides: Partial<MealLog> = {}): MealLog {
+  return {
+    id: 'meal-1',
+    family_id: 'family-1',
+    date: '2026-07-15',
+    meal_type: 'dinner',
+    food_entries: [
+      {
+        id: 'entry-1',
+        food_id: 'food-1',
+        food_name: '番茄炒蛋',
+        servings: 1,
+        note: '',
+        rating: null,
+      },
+    ],
+    participant_user_ids: [],
+    notes: '',
+    mood: '',
+    photos: [],
+    deduction_suggestions: [],
+    row_version: 1,
+    created_at: '2026-07-15T11:00:00.000Z',
+    updated_at: '2026-07-15T11:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function food(id: string, name: string, overrides: Partial<Food> = {}): Food {
+  return {
+    id,
+    family_id: 'family-1',
+    name,
+    type: 'selfMade',
+    category: '家常菜',
+    flavor_tags: [],
+    suitable_meal_types: ['dinner'],
+    source_name: '',
+    purchase_source: '',
+    scene: '',
+    images: [],
+    notes: '',
+    routine_note: '',
+    stock_unit: '份',
+    storage_location: '',
+    favorite: false,
+    recipe_id: null,
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00Z',
+    updated_at: '2026-07-15T00:00:00Z',
+    ...overrides,
+  };
+}
+
+const member: Member = {
+  id: 'user-1',
+  username: 'mom',
+  display_name: '妈妈',
+  avatar_seed: 'seed',
+  role: 'Owner',
+  status: 'active',
+};
+
+function renderHistory(args: {
+  meals?: MealLog[];
+  foods?: Food[];
+  members?: Member[];
+  onRecordMeal?: () => void;
+  updateMealLog?: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  recordResult?: MealRecordResult | null;
+  focusMealLogId?: string | null;
+} = {}) {
+  const onRecordMeal = args.onRecordMeal ?? vi.fn();
+  const updateMealLog = args.updateMealLog ?? vi.fn(async () => undefined);
+  const view = render(
+    createElement(MealLogWorkspace, {
+      foodPlanItems: [],
+      members: args.members ?? [member],
+      recentMeals: args.meals ?? [mealLog()],
+      foods: args.foods ?? [food('food-1', '番茄炒蛋', { images: [media('food-cover', { alt: '番茄炒蛋' })] })],
+      isUpdatingMeal: false,
+      updateMealLog,
+      onBackHome: vi.fn(),
+      onBackToEat: vi.fn(),
+      onRecordMeal,
+      recordResult: args.recordResult ?? null,
+      focusMealLogId: args.focusMealLogId,
+    }),
+  );
+  return { ...view, onRecordMeal, updateMealLog };
+}
 
 describe('MealLogWorkspace overlay reuse', () => {
   it('uses shared overlay components for meal log modals', () => {
@@ -27,6 +149,7 @@ describe('MealLogWorkspace overlay reuse', () => {
     const mobileSource = readSource('MealLogMobileView.tsx');
     const workspaceSource = readSource('MealLogWorkspace.tsx');
     const enrichmentModalSource = readSource('MealEnrichmentModal.tsx');
+    const enrichmentSource = readSource('MealLogEnrichment.tsx');
 
     expect(historySource).toContain('export function MealHistorySurface');
     for (const phrase of DEBT_LANGUAGE) {
@@ -35,6 +158,7 @@ describe('MealLogWorkspace overlay reuse', () => {
       expect(mobileSource).not.toContain(phrase);
       expect(workspaceSource).not.toContain(phrase);
       expect(enrichmentModalSource).not.toContain(phrase);
+      expect(enrichmentSource).not.toContain(phrase);
     }
   });
 
@@ -67,5 +191,241 @@ describe('MealLogWorkspace overlay reuse', () => {
     expect(mealLogStyles).toContain('transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)');
     expect(mealLogStyles).toContain('.meal-photo-lightbox-viewport.grabbing img');
     expect(mealLogStyles).toContain('transition: none');
+  });
+
+  it('keeps lightbox actions at the canonical touch target size', () => {
+    const mealLogStyles = readFileSync(resolve(__dirname, '../../styles/08-meal-log.css'), 'utf8');
+
+    expect(mealLogStyles).toMatch(
+      /\.meal-photo-lightbox-toolbar button\s*\{[^}]*width:\s*var\(--tap-min\);[^}]*height:\s*var\(--tap-min\);/s,
+    );
+    for (const selector of ['meal-photo-lightbox-close', 'meal-photo-lightbox-download']) {
+      expect(mealLogStyles).toMatch(
+        new RegExp(`\\.${selector}\\s*\\{[^}]*min-height:\\s*var\\(--tap-min\\);`, 's'),
+      );
+    }
+  });
+});
+
+describe('MealLogWorkspace photo-first timeline', () => {
+  it('renders only meaningful meal facts and photo-first content', () => {
+    const mealWithoutOptionalFields = mealLog({
+      photos: [],
+      notes: '',
+      mood: '',
+      participant_user_ids: [],
+      food_entries: [
+        {
+          id: 'entry-1',
+          food_id: 'food-1',
+          food_name: '番茄炒蛋',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+    });
+    const foodWithCover = food('food-1', '番茄炒蛋', {
+      images: [media('food-cover', { alt: '番茄炒蛋' })],
+    });
+
+    renderHistory({ meals: [mealWithoutOptionalFields], foods: [foodWithCover] });
+
+    expect(screen.getAllByRole('heading', { name: '吃过的' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '记一餐' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: /番茄炒蛋/ }).length).toBeGreaterThan(0);
+
+    for (const debt of DEBT_LANGUAGE) {
+      expect(screen.queryByText(debt)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByLabelText('记录丰富度筛选')).not.toBeInTheDocument();
+  });
+
+  it('prefers MealLog photo over Food cover and shows +N for extra photos', () => {
+    const meal = mealLog({
+      photos: [
+        media('meal-photo-1', { alt: '番茄炒蛋' }),
+        media('meal-photo-2', { alt: '第二张' }),
+        media('meal-photo-3', { alt: '第三张' }),
+      ],
+      food_entries: [
+        { id: 'e1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 1, note: '', rating: 4.5 },
+        { id: 'e2', food_id: 'food-2', food_name: '青菜', servings: 1, note: '', rating: null },
+      ],
+      participant_user_ids: ['user-1'],
+      created_by: 'user-1',
+    });
+    renderHistory({
+      meals: [meal],
+      foods: [
+        food('food-1', '番茄炒蛋', { images: [media('food-cover', { alt: '封面不该优先' })] }),
+        food('food-2', '青菜'),
+      ],
+    });
+
+    expect(screen.getAllByRole('img', { name: /番茄炒蛋/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('+2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/4\.5/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1 人|妈妈/).length).toBeGreaterThan(0);
+  });
+
+  it('uses independent desktop and mobile structures with memory slot', () => {
+    renderHistory();
+    expect(document.querySelector('.meal-log-desktop-view')).not.toBeNull();
+    expect(document.querySelector('.mobile-log-page')).not.toBeNull();
+    expect(document.querySelectorAll('[data-memory-slot="true"]').length).toBeGreaterThan(0);
+  });
+
+  it('opens 这餐详情 and offers optional 编辑这顿', async () => {
+    const user = userEvent.setup();
+    renderHistory({
+      meals: [
+        mealLog({
+          photos: [media('meal-photo', { alt: '番茄炒蛋' })],
+          notes: '味道不错',
+        }),
+      ],
+    });
+
+    const rows = screen.getAllByRole('button', { name: /番茄炒蛋/ });
+    await user.click(rows[0]!);
+    expect(await screen.findByRole('heading', { name: '这餐详情' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '编辑这顿' })).toBeVisible();
+    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+  });
+
+  it('shows empty state without source labels when search misses', async () => {
+    const user = userEvent.setup();
+    renderHistory({ meals: [mealLog()] });
+    const search = screen.getAllByPlaceholderText(/搜索/)[0]!;
+    await user.type(search, '不存在的菜');
+    expect(screen.getAllByText(/没有符合条件的记录|没有找到/).length).toBeGreaterThan(0);
+    for (const debt of ['手动补录', '菜单计划', '基础记录']) {
+      expect(screen.queryByText(debt)).not.toBeInTheDocument();
+    }
+  });
+
+  it('rates the result-linked meal, not a different selectedMeal', async () => {
+    const selectedOlder = mealLog({
+      id: 'meal-selected',
+      food_entries: [
+        {
+          id: 'entry-selected',
+          food_id: 'food-selected',
+          food_name: '红烧肉',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+      created_at: '2026-07-14T11:00:00.000Z',
+      updated_at: '2026-07-14T11:00:00.000Z',
+      date: '2026-07-14',
+      row_version: 2,
+    });
+    // Seed an existing rating so save is enabled without pointer geometry.
+    const resultMeal = mealLog({
+      id: 'meal-result',
+      food_entries: [
+        {
+          id: 'entry-result',
+          food_id: 'food-result',
+          food_name: '番茄炒蛋',
+          servings: 1,
+          note: '',
+          rating: 4,
+        },
+      ],
+      created_at: '2026-07-15T12:00:00.000Z',
+      updated_at: '2026-07-15T12:00:00.000Z',
+      row_version: 5,
+    });
+    const updateMealLog = vi.fn(async () => undefined);
+    renderHistory({
+      meals: [resultMeal, selectedOlder],
+      foods: [
+        food('food-result', '番茄炒蛋', { images: [media('cover-result')] }),
+        food('food-selected', '红烧肉'),
+      ],
+      updateMealLog,
+      focusMealLogId: selectedOlder.id,
+      recordResult: {
+        source: 'immediate',
+        operationId: 'op-1',
+        mealLogId: resultMeal.id,
+        foods: [{ food_id: 'food-result', name: '番茄炒蛋', food_type: 'selfMade' }],
+        previewMedia: null,
+        revertibleUntil: '2026-07-15T12:15:00.000Z',
+        canRevert: true,
+        mealLog: resultMeal,
+        rowVersion: 5,
+        canRate: true,
+      },
+    });
+
+    expect(screen.getAllByText('这顿怎么样？').length).toBeGreaterThan(0);
+    // Inline rating rows must not be bound to the selected older meal's entries.
+    const inlineSections = document.querySelectorAll('.meal-inline-rating');
+    expect(inlineSections.length).toBeGreaterThan(0);
+    for (const section of inlineSections) {
+      expect(section.textContent).toContain('番茄炒蛋');
+      expect(section.textContent).not.toContain('红烧肉');
+    }
+
+    const saveButton = Array.from(document.querySelectorAll('.meal-inline-rating button')).find(
+      (button) => button.textContent?.includes('保存评分') && !(button as HTMLButtonElement).disabled,
+    ) as HTMLButtonElement;
+    expect(saveButton).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+
+    expect(updateMealLog).toHaveBeenCalledWith(
+      resultMeal.id,
+      expect.objectContaining({
+        expected_row_version: 5,
+        food_entry_ratings: expect.arrayContaining([
+          expect.objectContaining({ id: 'entry-result' }),
+        ]),
+      }),
+    );
+    expect(updateMealLog).not.toHaveBeenCalledWith(selectedOlder.id, expect.anything());
+
+    // Guard against regressing to selectedMeal-bound rating.
+    const workspaceSource = readSource('MealLogWorkspace.tsx');
+    expect(workspaceSource).not.toMatch(
+      /showInlineRating[\s\S]{0,200}meal=\{viewModel\.selectedMeal\}/,
+    );
+  });
+
+  it('falls back to Food cover when MealLog has no photos and foods are provided', () => {
+    const mealWithoutPhotos = mealLog({
+      photos: [],
+      food_entries: [
+        {
+          id: 'entry-1',
+          food_id: 'food-cover-1',
+          food_name: '宫保鸡丁',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+    });
+    renderHistory({
+      meals: [mealWithoutPhotos],
+      foods: [
+        food('food-cover-1', '宫保鸡丁', {
+          images: [media('food-cover-only', { alt: '宫保鸡丁封面' })],
+        }),
+      ],
+    });
+
+    expect(screen.getAllByRole('img', { name: /宫保鸡丁/ }).length).toBeGreaterThan(0);
+  });
+
+  it('wires foods prop through App history mount for cover fallback', () => {
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+    expect(appSource).toMatch(/<MealLogWorkspace[\s\S]*foods=\{foods\}/);
   });
 });

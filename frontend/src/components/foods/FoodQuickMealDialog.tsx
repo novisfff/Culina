@@ -5,8 +5,13 @@ import { FOOD_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FormActions, TouchStepperField, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
-import { formatFoodStockQuantity, getPrimaryFoodActionLabel, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
+import { getPrimaryFoodActionLabel, normalizeFoodType } from './FoodWorkspaceHelpers';
 
+/**
+ * Cook-confirmation dialog only (Task 15+).
+ * Ordinary Food/Ingredient recording uses MealQuickRecordView + recordMeal.
+ * Stock fields are intentionally absent — inventory is a separate command.
+ */
 export type FoodQuickMealDialogState = {
   action: 'cook' | 'eat';
   date: string;
@@ -14,9 +19,6 @@ export type FoodQuickMealDialogState = {
   mealType: MealType;
   recipeId?: string;
   servings?: number;
-  deductStock?: boolean;
-  stockQuantity?: string;
-  stockQuantityError?: string | null;
 };
 
 type FoodQuickMealDialogProps = {
@@ -26,9 +28,7 @@ type FoodQuickMealDialogProps = {
   recipes: Recipe[];
   overlayRootClassName?: string;
   onChange: (
-    patch: Partial<
-      Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings' | 'deductStock' | 'stockQuantity'>
-    >,
+    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
   ) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -100,7 +100,9 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
               <strong>{props.dialog.food.name}</strong>
               <small>
                 {FOOD_TYPE_LABELS[normalizeFoodType(props.dialog.food)]}
-                {props.dialog.food.source_name || props.dialog.food.purchase_source ? ` · ${props.dialog.food.source_name || props.dialog.food.purchase_source}` : ''}
+                {props.dialog.food.source_name || props.dialog.food.purchase_source
+                  ? ` · ${props.dialog.food.source_name || props.dialog.food.purchase_source}`
+                  : ''}
               </small>
             </span>
           </div>
@@ -120,7 +122,9 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
                     onClick={() => props.onChange({ date: dateKey })}
                   >
                     <span>{label}</span>
-                    <strong>{parts.month}/{parts.day}</strong>
+                    <strong>
+                      {parts.month}/{parts.day}
+                    </strong>
                   </button>
                 );
               })}
@@ -156,45 +160,6 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
               />
             </div>
           ) : null}
-
-          {!isCookAction && isReadyLikeFood(props.dialog.food) && props.dialog.food.stock_quantity != null && props.dialog.food.stock_quantity > 0 && (
-            <div className="food-quick-meal-stock-box">
-              <label className="food-quick-meal-stock-toggle">
-                <input
-                  type="checkbox"
-                  checked={props.dialog.deductStock ?? true}
-                  disabled={isSubmitting}
-                  onChange={(event) => props.onChange({ deductStock: event.target.checked })}
-                />
-                <span>
-                  <strong>同步扣减库存</strong>
-                  <small>当前剩余 {formatFoodStockQuantity(props.dialog.food)}</small>
-                </span>
-              </label>
-              {(props.dialog.deductStock ?? true) && (
-                <label className="food-quick-meal-stock-quantity">
-                  <span>扣减数量</span>
-                  <input
-                    className="text-input"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={props.dialog.stockQuantity ?? '1'}
-                    disabled={isSubmitting}
-                    aria-invalid={props.dialog.stockQuantityError ? 'true' : undefined}
-                    aria-describedby={props.dialog.stockQuantityError ? 'food-quick-meal-stock-error' : undefined}
-                    onChange={(event) => props.onChange({ stockQuantity: event.target.value })}
-                  />
-                  <em>{props.dialog.food.stock_unit || '份'}</em>
-                </label>
-              )}
-              {props.dialog.stockQuantityError ? (
-                <p id="food-quick-meal-stock-error" className="form-error food-quick-meal-stock-error" role="alert">
-                  {props.dialog.stockQuantityError}
-                </p>
-              ) : null}
-            </div>
-          )}
         </form>
       </WorkspaceModal>
     </WorkspaceOverlayFrame>

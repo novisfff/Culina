@@ -52,6 +52,16 @@ from app.services.meal_log_references import (
     lock_and_validate_meal_log_references,
     normalize_and_validate_participant_user_ids,
 )
+from app.services.meal_log_versions import (
+    MEAL_LOG_DATE_MISMATCH_CODE,
+    MEAL_LOG_DATE_MISMATCH_MESSAGE,
+    MealLogConflictError,
+    bump_meal_log_collection,
+    discover_meal_log_entry_food_ids,
+    lock_meal_log_write_targets,
+    require_meal_log_version,
+)
+from app.services.meal_log_writes import MealEntryWrite, append_meal_log_entries, create_meal_log_with_entries
 from app.services.recipe_food_sync import ensure_food_for_recipe
 
 COMPLETION_RESULT_VERSION = 1
@@ -89,6 +99,8 @@ class RecipeCookCompletionCommand:
     allow_partial_inventory_deduction: bool
     inventory_expectation: RecipeCookInventoryExpectation | None = None
     recipe_base_updated_at: datetime | None = None
+    target_meal_log_id: str | None = None
+    expected_meal_log_row_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +164,8 @@ def canonicalize_completion_command(command: RecipeCookCompletionCommand) -> dic
         "rating": command.rating,
         "allow_partial_inventory_deduction": command.allow_partial_inventory_deduction,
         "inventory_expectation": jsonable_encoder(command.inventory_expectation),
+        "target_meal_log_id": command.target_meal_log_id,
+        "expected_meal_log_row_version": command.expected_meal_log_row_version,
     }
 
 
@@ -677,39 +691,51 @@ def ensure_completion_food_after_claim(
     return food
 
 
+def validate_target_meal_log_for_completion(
+    meal_log: MealLog,
+    *,
+    command: RecipeCookCompletionCommand,
+) -> None:
+    """First business checks after target MealLog is locked (before inventory mutation)."""
+    if meal_log.date != command.cook_date or meal_log.meal_type != command.meal_type:
+        raise MealLogConflictError(
+            MEAL_LOG_DATE_MISMATCH_CODE,
+            MEAL_LOG_DATE_MISMATCH_MESSAGE,
+            recovery_hint="refresh_and_review",
+        )
+    if command.expected_meal_log_row_version is None:
+        raise CompletionConflict("meal_log_target_invalid", "加入已有餐时必须提供 expected_meal_log_row_version")
+    require_meal_log_version(meal_log, command.expected_meal_log_row_version)
+
+
 def create_completion_meal_log(
     db: Session,
     *,
     command: RecipeCookCompletionCommand,
     food: Food,
     references: ValidatedMealLogReferences,
+    target_meal_log: MealLog | None = None,
 ) -> MealLog:
-    del food  # validated through references.foods_by_id
-    food_id = next(iter(references.foods_by_id))
-    meal_log = MealLog(
-        id=create_id("meal"),
+    if food.id not in references.foods_by_id:
+        raise CompletionConflict("meal_log_food_not_found", "食物不存在或不属于当前家庭")
+    entry = MealEntryWrite(food_id=food.id, servings=command.servings, note="", rating=None)
+    if target_meal_log is not None:
+        # Version/date already validated immediately after locks; only append here.
+        append_meal_log_entries(db, meal_log=target_meal_log, entries=[entry])
+        bump_meal_log_collection(target_meal_log, user_id=command.actor_user_id)
+        return target_meal_log
+
+    meal_log, _ = create_meal_log_with_entries(
+        db,
         family_id=command.family_id,
+        user_id=command.actor_user_id,
         date=command.cook_date,
         meal_type=command.meal_type,
+        entries=[entry],
         participant_user_ids=list(references.participant_user_ids),
         notes=command.notes,
         mood="",
-        created_by=command.actor_user_id,
-        updated_by=command.actor_user_id,
     )
-    db.add(meal_log)
-    db.flush()
-    db.add(
-        MealLogFood(
-            id=create_id("meal-food"),
-            meal_log_id=meal_log.id,
-            food_id=food_id,
-            servings=command.servings,
-            note="",
-            rating=None,
-        )
-    )
-    db.flush()
     return meal_log
 
 
@@ -818,12 +844,22 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
         raise CompletionConflict(IDEMPOTENCY_KEY_REUSED_CODE, IDEMPOTENCY_KEY_REUSED_MESSAGE)
 
     candidates = discover_completion_inventory_candidates(db, recipe=recipe, command=normalized_command)
+    # Discover target MealLog entry Foods before any inventory lock so we can union
+    # them into the first Food lock set and never re-lock Foods after InventoryItems.
+    target_entry_food_ids: tuple[str, ...] = ()
+    if normalized_command.target_meal_log_id is not None:
+        target_entry_food_ids = discover_meal_log_entry_food_ids(
+            db,
+            family_id=command.family_id,
+            meal_log_id=normalized_command.target_meal_log_id,
+        )
+    inventory_food_ids = _unique_sorted_ids([*candidates.food_ids, *target_entry_food_ids])
     try:
         locked = lock_inventory_targets(
             db,
             family_id=command.family_id,
             ingredient_ids=candidates.ingredient_ids,
-            food_ids=candidates.food_ids,
+            food_ids=inventory_food_ids,
             state_ingredient_ids=candidates.required_state_ingredient_ids,
             optional_state_ingredient_ids=candidates.optional_state_ingredient_ids,
             inventory_item_ids=candidates.inventory_item_ids,
@@ -870,12 +906,29 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
             return replay
         raise CompletionConflict(IDEMPOTENCY_KEY_REUSED_CODE, IDEMPOTENCY_KEY_REUSED_MESSAGE) from exc
 
+    # After claim: optional MealLog (Foods already held) → plan → version/date checks → inventory mutation.
+    # First business checks on locked targets run only after all write locks are held.
+    target_meal_log: MealLog | None = None
+    locked_foods = dict(locked.foods)
+    if normalized_command.target_meal_log_id is not None:
+        locked_target = lock_meal_log_write_targets(
+            db,
+            family_id=command.family_id,
+            meal_log_id=normalized_command.target_meal_log_id,
+            additional_food_ids=list(candidates.food_ids),
+            prelocked_foods=locked_foods,
+        )
+        target_meal_log = locked_target.meal_log
+        locked_foods.update(locked_target.foods_by_id)
+
     plan_item = lock_optional_completion_plan_item(
         db,
         command=normalized_command,
         candidate_plan_food_id=candidates.candidate_plan_food_id,
-        locked_foods=locked.foods,
+        locked_foods=locked_foods,
     )
+    if target_meal_log is not None:
+        validate_target_meal_log_for_completion(target_meal_log, command=normalized_command)
     consumed_items = apply_locked_inventory_plan(
         db,
         plan=plan,
@@ -886,7 +939,7 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
         db,
         recipe=recipe,
         command=normalized_command,
-        locked_foods=locked.foods,
+        locked_foods=locked_foods,
     )
     references = lock_and_validate_meal_log_references(
         db,
@@ -894,13 +947,14 @@ def complete_recipe_cook(db: Session, command: RecipeCookCompletionCommand) -> C
         actor_user_id=command.actor_user_id,
         food_ids=[food.id],
         participant_user_ids=normalized_participants,
-        prelocked_foods={**locked.foods, food.id: food},
+        prelocked_foods={**locked_foods, food.id: food},
     )
     meal_log = create_completion_meal_log(
         db,
         command=normalized_command,
         food=food,
         references=references,
+        target_meal_log=target_meal_log,
     )
     finish_claimed_cook_log(cook_log, command=normalized_command, meal_log=meal_log)
     finish_optional_plan_item(plan_item, meal_log=meal_log, actor_user_id=command.actor_user_id)

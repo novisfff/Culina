@@ -36,6 +36,7 @@ from app.services.food_plan_locking import FoodPlanConflict, food_plan_conflict_
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
 from app.services.meal_log_references import MealLogReferenceError, meal_log_reference_error_detail
+from app.services.meal_log_versions import MealLogConflictError, build_meal_log_conflict_detail
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.recipe_cook_completion import (
     CompletionConflict,
@@ -563,6 +564,8 @@ def cook_recipe(
         adjustments=payload.adjustments.strip(),
         rating=payload.rating,
         allow_partial_inventory_deduction=payload.allow_partial_inventory_deduction,
+        target_meal_log_id=payload.target_meal_log_id,
+        expected_meal_log_row_version=payload.expected_meal_log_row_version,
     )
     try:
         result = complete_recipe_cook(db, command)
@@ -573,6 +576,17 @@ def cook_recipe(
     except FoodPlanConflict as exc:
         db.rollback()
         _raise_food_plan_conflict(exc)
+    except MealLogConflictError as exc:
+        db.rollback()
+        detail = build_meal_log_conflict_detail(
+            db,
+            family_id=membership.family_id,
+            meal_log_id=payload.target_meal_log_id or "",
+            code=exc.code,
+            recovery_hint=exc.recovery_hint,
+            message=exc.message,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
     except MealLogReferenceError as exc:
         db.rollback()
         _raise_meal_log_reference_error(exc)
@@ -581,6 +595,19 @@ def cook_recipe(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except StaleDataError as exc:
         db.rollback()
+        # When a target MealLog was part of the cook write, prefer the full meal-log
+        # conflict payload so clients can reconfirm the meal target. Inventory-only
+        # staleness keeps the inventory detail string.
+        if payload.target_meal_log_id:
+            detail = build_meal_log_conflict_detail(
+                db,
+                family_id=membership.family_id,
+                meal_log_id=payload.target_meal_log_id,
+                code="meal_log_stale",
+                recovery_hint="refresh_and_review",
+                message=None,
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=STALE_INVENTORY_DETAIL,

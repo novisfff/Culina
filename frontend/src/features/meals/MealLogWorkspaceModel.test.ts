@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FoodPlanItem, MealLog, Member } from '../../api/types';
+import type { MealInsight, MealLog, Member } from '../../api/types';
 import {
+  buildMealInsightPresentation,
   buildMealLogWorkspaceViewModel,
   filterMealLogs,
-  getMealRecordPresentation,
+  getMealMediaCount,
+  getMealParticipantCount,
+  getMealRatingValue,
   getMealTone,
   getWeekRecordCount,
   groupMealsByDate,
   selectInitialMeal,
 } from './MealLogWorkspaceModel';
-import { resolveMealSource } from './MealLogEnrichmentModel';
 
 function makeMealLog(id: string, overrides: Partial<MealLog> = {}): MealLog {
   return {
@@ -23,29 +25,10 @@ function makeMealLog(id: string, overrides: Partial<MealLog> = {}): MealLog {
     mood: '',
     photos: [],
     deduction_suggestions: [],
+    row_version: 1,
     created_at: '2026-06-02T10:30:00Z',
     updated_at: '2026-06-02T10:30:00Z',
     ...overrides,
-  };
-}
-
-function makePlanItem(mealLogId: string): FoodPlanItem {
-  return {
-    id: 'plan-1',
-    family_id: 'family-1',
-    user_id: 'user-1',
-    food_id: 'food-1',
-    food_name: '番茄炒蛋',
-    food_type: 'selfMade',
-    recipe_id: null,
-    recipe_title: '',
-    plan_date: '2026-06-02',
-    meal_type: 'dinner',
-    note: '',
-    status: 'cooked',
-    meal_log_id: mealLogId,
-    created_at: '2026-06-02T08:00:00Z',
-    updated_at: '2026-06-02T08:00:00Z',
   };
 }
 
@@ -63,15 +46,27 @@ afterEach(() => {
 });
 
 describe('MealLogWorkspaceModel', () => {
-  it('filters meal logs by search, status, and meal type', () => {
-    const doneMeal = makeMealLog('meal-done', { notes: '很香', meal_type: 'lunch' });
-    const pendingMeal = makeMealLog('meal-pending', { food_entries: [{ id: 'entry-2', food_id: 'food-2', food_name: '粥', servings: 1, note: '', rating: null }] });
-    const mealSources = new Map([
-      [doneMeal.id, resolveMealSource(doneMeal, [])],
-      [pendingMeal.id, resolveMealSource(pendingMeal, [])],
-    ]);
+  it('filters meal logs by search and meal type without status debt', () => {
+    const lunchWithNote = makeMealLog('meal-lunch', { notes: '很香', meal_type: 'lunch' });
+    const dinner = makeMealLog('meal-dinner', {
+      food_entries: [{ id: 'entry-2', food_id: 'food-2', food_name: '粥', servings: 1, note: '', rating: null }],
+    });
 
-    expect(filterMealLogs({ meals: [doneMeal, pendingMeal], mealSources, searchQuery: '香', statusFilter: 'done', mealFilter: 'lunch' })).toEqual([doneMeal]);
+    expect(
+      filterMealLogs({
+        meals: [lunchWithNote, dinner],
+        searchQuery: '香',
+        mealFilter: 'lunch',
+      }),
+    ).toEqual([lunchWithNote]);
+
+    expect(
+      filterMealLogs({
+        meals: [lunchWithNote, dinner],
+        searchQuery: '手动补录',
+        mealFilter: 'all',
+      }),
+    ).toEqual([]);
   });
 
   it('maps meal types to explicit tone class names', () => {
@@ -105,54 +100,169 @@ describe('MealLogWorkspaceModel', () => {
     ])).toBe(2);
   });
 
-  it('builds a workspace view model with selected source and participant members', () => {
-    const meal = makeMealLog('meal-1', { participant_user_ids: ['user-1'] });
+  it('builds a workspace view model with participant and present-value counts', () => {
+    const meal = makeMealLog('meal-1', {
+      participant_user_ids: ['user-1'],
+      photos: [
+        {
+          id: 'photo-1',
+          name: 'meal',
+          url: '/media/meal.jpg',
+          source: 'upload',
+          alt: 'meal',
+          created_at: '2026-06-02T10:30:00Z',
+        },
+      ],
+      food_entries: [
+        { id: 'entry-1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 1, note: '', rating: 4.5 },
+      ],
+    });
     const model = buildMealLogWorkspaceViewModel({
       recentMeals: [meal],
-      foodPlanItems: [makePlanItem(meal.id)],
       members: [member],
       selectedMealId: meal.id,
       searchQuery: '',
-      statusFilter: 'all',
       mealFilter: 'all',
     });
 
-    expect(model.selectedSource?.status).toBe('planned');
     expect(model.selectedParticipantMembers.map((item) => item.display_name)).toEqual(['妈妈']);
-    expect(model.basicMeals).toEqual([meal]);
+    expect(model.selectedParticipantCount).toBe(1);
+    expect(model.selectedMediaCount).toBe(1);
+    expect(model.selectedRatingValue).toContain('4.5');
+    expect(model).not.toHaveProperty('basicMeals');
+    expect(model).not.toHaveProperty('enrichedCount');
+    expect(model).not.toHaveProperty('selectedSource');
   });
 
-  it('treats a minimal MealLog as a complete valid record', () => {
-    const meal = makeMealLog('meal-minimal', { photos: [], notes: '', mood: '', participant_user_ids: [] });
-    expect(getMealRecordPresentation(meal)).toEqual({
-      validity: 'valid',
-      enrichment: 'basic',
-      actionLabel: '补充这餐',
+  it('hides zero participant/media/rating counts', () => {
+    const meal = makeMealLog('meal-minimal', {
+      photos: [],
+      notes: '',
+      mood: '',
+      participant_user_ids: [],
     });
+    expect(getMealParticipantCount(meal)).toBeNull();
+    expect(getMealMediaCount(meal)).toBeNull();
+    expect(getMealRatingValue(meal)).toBeNull();
   });
 
-  it('does not select a pending record ahead of a newer valid record', () => {
-    const olderWithNoPhoto = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
+  it('does not select an older record ahead of a newer valid record', () => {
+    const older = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
     const newer = makeMealLog('new', { date: '2026-07-12', created_at: '2026-07-12T10:00:00Z' });
-    expect(selectInitialMeal([olderWithNoPhoto, newer])?.id).toBe('new');
+    expect(selectInitialMeal([older, newer])?.id).toBe('new');
   });
 
   it('falls back to the newest meal when no selection is provided', () => {
-    const olderWithNoPhoto = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
+    const older = makeMealLog('old', { date: '2026-07-11', created_at: '2026-07-11T10:00:00Z' });
     const newer = makeMealLog('new', {
       date: '2026-07-12',
       created_at: '2026-07-12T10:00:00Z',
       notes: '有备注',
     });
     const model = buildMealLogWorkspaceViewModel({
-      recentMeals: [olderWithNoPhoto, newer],
-      foodPlanItems: [],
+      recentMeals: [older, newer],
       members: [],
       selectedMealId: null,
       searchQuery: '',
-      statusFilter: 'all',
       mealFilter: 'all',
     });
     expect(model.selectedMeal?.id).toBe('new');
+  });
+});
+
+function makeInsight(overrides: Partial<MealInsight> & Pick<MealInsight, 'kind'>): MealInsight {
+  return {
+    kind: overrides.kind,
+    food: {
+      id: 'food-1',
+      name: '番茄炒蛋',
+      food_type: 'selfMade',
+      cover: null,
+      ...overrides.food,
+    },
+    evidence: {
+      meal_count: 4,
+      last_eaten_on: '2026-07-10',
+      rating_count: 2,
+      average_rating: 4.5,
+      window_days: 30,
+      ...overrides.evidence,
+    },
+  };
+}
+
+describe('buildMealInsightPresentation', () => {
+  it('maps repurchase takeout to 值得再点 with rating evidence', () => {
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'repurchase',
+          food: { id: 'food-t', name: '黄焖鸡', food_type: 'takeout', cover: null },
+          evidence: {
+            meal_count: 3,
+            last_eaten_on: '2026-07-01',
+            rating_count: 2,
+            average_rating: 4.5,
+            window_days: 180,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '值得再点',
+      evidence: '2 次评分，平均 4.5 分',
+    });
+  });
+
+  it('maps missed title and days-ago evidence from window_days', () => {
+    const missed = makeInsight({
+      kind: 'missed',
+      evidence: {
+        meal_count: 5,
+        last_eaten_on: '2026-06-07',
+        rating_count: 0,
+        average_rating: null,
+        window_days: 38,
+      },
+    });
+    expect(buildMealInsightPresentation(missed).title).toBe('一个月没吃');
+    expect(buildMealInsightPresentation(missed).evidence).toBe('上次是 38 天前');
+  });
+
+  it('maps frequent and repeated meal-count evidence from API facts only', () => {
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'frequent_recent',
+          evidence: {
+            meal_count: 4,
+            last_eaten_on: '2026-07-10',
+            rating_count: 0,
+            average_rating: null,
+            window_days: 30,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '家里最近常吃',
+      evidence: '近 30 天吃了 4 顿',
+    });
+    expect(
+      buildMealInsightPresentation(
+        makeInsight({
+          kind: 'repeated_choice',
+          food: { id: 'f5', name: '咖啡', food_type: 'readyMade', cover: null },
+          evidence: {
+            meal_count: 2,
+            last_eaten_on: '2026-07-12',
+            rating_count: 0,
+            average_rating: null,
+            window_days: 30,
+          },
+        }),
+      ),
+    ).toEqual({
+      title: '最近常选',
+      evidence: '近 30 天吃了 2 顿',
+    });
   });
 });

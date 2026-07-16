@@ -32,6 +32,16 @@ class MealType(str, Enum):
     SNACK = "snack"
 
 
+class MealLogRecordStatus(str, Enum):
+    APPLIED = "applied"
+    REVERTED = "reverted"
+
+
+class MealLogRecordTargetKind(str, Enum):
+    NEW = "new"
+    EXISTING = "existing"
+
+
 class Difficulty(str, Enum):
     EASY = "easy"
     MEDIUM = "medium"

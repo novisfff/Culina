@@ -1,10 +1,197 @@
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import select
+
 from ._support import *
 
+from app.core.enums import FoodType, MealType
+from app.models.domain import Food, MealLog, MealLogFood, SearchIndexJob
+from app.services.meal_log_foods import (
+    can_delete_record_created_food,
+    create_minimal_meal_food,
+    is_food_recommendation_eligible,
+)
 from app.services.search.documents import build_food_search_document, build_ingredient_search_document
 from app.services.search.indexing import upsert_search_document
 
 
 class RecipeFoodQueriesTestCase(RecipeApiTestCase):
+        def _create_minimal_food_with_one_meal(
+            self,
+            *,
+            name: str = "酸汤牛肉",
+            food_type: FoodType = FoodType.SELF_MADE,
+            meal_date: date = date(2026, 7, 14),
+            meal_id: str | None = None,
+        ) -> str:
+            with self.SessionLocal() as db:
+                food = create_minimal_meal_food(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    name=name,
+                    food_type=food_type,
+                )
+                food_id = food.id
+                resolved_meal_id = meal_id or f"meal-{food_id}"
+                meal_log = MealLog(
+                    id=resolved_meal_id,
+                    family_id=self.family.id,
+                    date=meal_date,
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                db.add(
+                    MealLogFood(
+                        id=f"meal-food-{resolved_meal_id}",
+                        meal_log_id=meal_log.id,
+                        food_id=food_id,
+                        servings=1,
+                        note="",
+                    )
+                )
+                db.commit()
+                return food_id
+
+        def _add_distinct_meal(self, food_id: str, *, meal_id: str, meal_date: date) -> None:
+            with self.SessionLocal() as db:
+                meal_log = MealLog(
+                    id=meal_id,
+                    family_id=self.family.id,
+                    date=meal_date,
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                db.add(
+                    MealLogFood(
+                        id=f"meal-food-{meal_id}",
+                        meal_log_id=meal_log.id,
+                        food_id=food_id,
+                        servings=1,
+                        note="",
+                    )
+                )
+                db.commit()
+
+        def _recommendation_ids(self, *, now: str = "2026-07-15T18:00:00", limit: int = 12) -> list[str]:
+            response = self.client.get(f"/api/foods/recommendations?now={now}&limit={limit}")
+            self.assertEqual(response.status_code, 200, response.text)
+            return [item["food"]["id"] for item in response.json()["items"]]
+
+        def test_minimal_self_made_food_has_no_recipe_or_completion_debt(self) -> None:
+            with self.SessionLocal() as db:
+                food = create_minimal_meal_food(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    name="  酸汤牛肉  ",
+                    food_type=FoodType.SELF_MADE,
+                )
+                db.commit()
+                self.assertEqual(food.name, "酸汤牛肉")
+                self.assertEqual(food.type, "selfMade")
+                self.assertEqual(food.category, "家常菜")
+                self.assertIsNone(food.recipe_id)
+                self.assertFalse(food.favorite)
+                self.assertIsNone(food.stock_quantity)
+                self.assertTrue(can_delete_record_created_food(db, food))
+                job = db.scalar(
+                    select(SearchIndexJob).where(
+                        SearchIndexJob.family_id == self.family.id,
+                        SearchIndexJob.entity_type == "food",
+                        SearchIndexJob.entity_id == food.id,
+                    )
+                )
+                self.assertIsNotNone(job)
+
+            create_response = self.client.post(
+                "/api/foods",
+                json={
+                    "name": "家常菜直接创建",
+                    "type": "selfMade",
+                    "category": "家常菜",
+                    "flavor_tags": [],
+                    "scene_tags": [],
+                    "suitable_meal_types": ["dinner"],
+                    "source_name": "",
+                    "purchase_source": "",
+                    "scene": "",
+                    "notes": "",
+                    "routine_note": "",
+                    "stock_unit": "",
+                    "storage_location": "",
+                    "favorite": False,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(create_response.status_code, 400, create_response.text)
+
+        def test_one_use_minimal_food_is_excluded_until_a_qualification_signal(self) -> None:
+            food_id = self._create_minimal_food_with_one_meal()
+            self.assertNotIn(food_id, self._recommendation_ids())
+
+            self._add_distinct_meal(food_id, meal_id="meal-second-use", meal_date=date(2026, 7, 15))
+            self.assertIn(food_id, self._recommendation_ids(now="2026-07-16T18:00:00"))
+
+        def test_one_use_minimal_food_qualifies_via_favorite_stock_source_or_recipe(self) -> None:
+            cases = [
+                ("favorite", {"favorite": True}),
+                ("stock", {"stock_quantity": Decimal("1"), "stock_unit": "份"}),
+                ("source_name", {"source_name": "楼下馆子"}),
+                ("purchase_source", {"purchase_source": "超市"}),
+                ("recipe_id", {"recipe_id": "recipe-eligibility-signal"}),
+            ]
+            for label, updates in cases:
+                with self.subTest(signal=label):
+                    food_id = self._create_minimal_food_with_one_meal(
+                        name=f"最小菜-{label}",
+                        meal_id=f"meal-minimal-{label}",
+                    )
+                    self.assertNotIn(food_id, self._recommendation_ids())
+                    with self.SessionLocal() as db:
+                        food = db.get(Food, food_id)
+                        self.assertIsNotNone(food)
+                        assert food is not None
+                        for key, value in updates.items():
+                            setattr(food, key, value)
+                        db.commit()
+                    self.assertIn(food_id, self._recommendation_ids())
+
+        def test_same_meal_duplicate_history_counts_once_for_recommendation(self) -> None:
+            food_id = self._create_minimal_food_with_one_meal(meal_id="meal-minimal-dup")
+            with self.SessionLocal() as db:
+                meal_log = db.get(MealLog, "meal-minimal-dup")
+                self.assertIsNotNone(meal_log)
+                assert meal_log is not None
+                db.add(
+                    MealLogFood(
+                        id="meal-food-minimal-dup-2",
+                        meal_log_id=meal_log.id,
+                        food_id=food_id,
+                        servings=1,
+                        note="同餐重复",
+                    )
+                )
+                food = db.get(Food, food_id)
+                self.assertIsNotNone(food)
+                assert food is not None
+                self.assertFalse(is_food_recommendation_eligible(food, 1))
+                db.commit()
+            self.assertNotIn(food_id, self._recommendation_ids())
+
         def test_food_and_ingredient_lists_support_search_and_pagination(self) -> None:
             with self.SessionLocal() as db:
                 other_family = Family(id="family-other", name="其他家庭", motto="", location="")

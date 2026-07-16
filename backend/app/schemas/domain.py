@@ -38,7 +38,6 @@ from app.schemas.meal_logs import (
     MealLogFoodIn,
     MealLogFoodOut,
     MealLogOut,
-    QuickAddMealLogRequest,
 )
 from app.schemas.media import (
     AiRenderResponse,
@@ -48,6 +47,7 @@ from app.schemas.media import (
     UploadMediaResponse,
 )
 from app.schemas.recipes import (
+    CompleteFoodPlanItemRequest,
     CookRecipeConsumedItemOut,
     CookRecipePreviewBatchOut,
     CookRecipePreviewItemOut,

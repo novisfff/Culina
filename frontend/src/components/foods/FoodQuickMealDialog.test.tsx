@@ -218,38 +218,7 @@ describe('FoodQuickMealDialog', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('shows stock deduction controls for eat actions with stock', () => {
-    const { onChange, view } = renderDialog({
-      dialog: {
-        food: {
-          ...buildFood(),
-          type: 'instant',
-          stock_quantity: 3,
-          stock_unit: '盒',
-        },
-        deductStock: true,
-        stockQuantity: '1.5',
-      },
-    });
-
-    expect(view.textContent).toContain('同步扣减库存');
-    expect(view.textContent).toContain('当前剩余 3盒');
-    expect(view.textContent).toContain('扣减数量');
-
-    const checkbox = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-toggle input');
-    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
-
-    expect(checkbox?.checked).toBe(true);
-    expect(quantityInput?.value).toBe('1.5');
-    expect(quantityInput?.step).toBe('0.1');
-
-    act(() => {
-      checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    expect(onChange).toHaveBeenCalledWith({ deductStock: false });
-  });
-
-  it('shows an inline stock quantity error when provided', () => {
+  it('does not expose stock deduction controls (inventory is a separate command)', () => {
     const { view } = renderDialog({
       dialog: {
         food: {
@@ -258,18 +227,13 @@ describe('FoodQuickMealDialog', () => {
           stock_quantity: 3,
           stock_unit: '盒',
         },
-        deductStock: true,
-        stockQuantity: '',
-        stockQuantityError: '请输入大于 0 的扣减数量。',
       },
     });
 
-    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
-    const error = view.querySelector<HTMLElement>('.food-quick-meal-stock-error');
-
-    expect(quantityInput?.getAttribute('aria-invalid')).toBe('true');
-    expect(quantityInput?.getAttribute('aria-describedby')).toBe('food-quick-meal-stock-error');
-    expect(error?.textContent).toContain('请输入大于 0 的扣减数量。');
+    expect(view.textContent).not.toContain('同步扣减库存');
+    expect(view.textContent).not.toContain('扣减数量');
+    expect(view.querySelector('.food-quick-meal-stock-toggle')).toBeNull();
+    expect(view.querySelector('.food-quick-meal-stock-quantity')).toBeNull();
   });
 
   it('shows cook-only servings stepper and cook confirmation copy', () => {

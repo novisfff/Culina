@@ -18,7 +18,7 @@ from app.services.serializers import serialize_meal_log
 
 MEAL_LOG_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "date", "mealType"],
+    "required": ["id", "date", "mealType", "rowVersion"],
     "properties": {
         "id": {"type": "string"},
         "date": {"type": "string"},
@@ -29,6 +29,7 @@ MEAL_LOG_ITEM_OUTPUT = {
         "notes": {"type": ["string", "null"]},
         "mood": {"type": ["string", "null"]},
         "photos": {"type": "array", "items": {"type": "object"}},
+        "rowVersion": {"type": "integer", "minimum": 1},
         "deductionSuggestions": {"type": "array", "items": {"type": "object"}},
         "createdAt": {"type": ["string", "null"]},
         "updatedAt": {"type": ["string", "null"]},
@@ -92,6 +93,7 @@ def _serialize_meal_log_tool_item(
         "notes": record["notes"],
         "mood": record["mood"],
         "photos": record["photos"],
+        "rowVersion": int(record["row_version"]),
         "deductionSuggestions": [
             {
                 "id": item["id"],

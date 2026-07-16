@@ -1,17 +1,25 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food } from '../../api/types';
+import type { Food, MealLog, MealLogRecordOperationSummary, RecordMealResponse } from '../../api/types';
 import type {
   ExpiryInventoryActionGroup,
   LowStockInventoryActionGroup,
 } from '../inventory/inventoryActionModel';
+import type { MealRecordResult } from '../meals/useMealRecordResultState';
 import { HomeDashboard, type HomeDashboardProps } from './HomeDashboard';
 import type { DashboardPlanDay, DashboardRecommendation, HomeHighlightsViewModel } from './homeDashboardModel';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** Owner matrix for Home meal write paths (Task 14). */
+const homeOwners = {
+  historyPrimaryCta: 'recordMeal',
+  homeRecommendation: 'recordMeal',
+  homePlanComplete: 'completeFoodPlanItem',
+} as const;
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -254,7 +262,12 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     isQuickAdding: false,
     isCreatingFoodPlanItem: false,
     resolveAssetUrl: (url) => url,
-    quickAddMeal: async () => undefined,
+    businessDateKey: '2026-07-15',
+    recordMeal: async () => {
+      throw new Error('unused');
+    },
+    loadMealCandidates: async () => [],
+    onRecordSuccess: vi.fn(),
     createFoodPlanItem: async () => {
       throw new Error('unused');
     },
@@ -279,6 +292,72 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     onFoodPlanPreviousWeek: vi.fn(),
     onFoodPlanCurrentWeek: vi.fn(),
     onFoodPlanNextWeek: vi.fn(),
+    ...overrides,
+  };
+}
+
+function makeRecordResponse(foodName = '推荐菜 0'): RecordMealResponse {
+  const mealLog: MealLog = {
+    id: 'meal-recorded-1',
+    family_id: 'family-1',
+    date: '2026-07-15',
+    meal_type: 'dinner',
+    food_entries: [
+      {
+        id: 'entry-1',
+        food_id: 'food-0',
+        food_name: foodName,
+        servings: 1,
+        note: '',
+        rating: null,
+      },
+    ],
+    participant_user_ids: [],
+    notes: '',
+    mood: '',
+    photos: [],
+    deduction_suggestions: [],
+    row_version: 1,
+    created_at: '2026-07-15T12:00:00.000Z',
+    updated_at: '2026-07-15T12:00:00.000Z',
+  };
+  return {
+    meal_log: mealLog,
+    created_foods: [],
+    outcome: 'created',
+    operation: {
+      id: 'op-home-1',
+      status: 'applied',
+      revertible_until: '2026-07-15T12:15:00.000Z',
+      can_revert: true,
+    },
+  };
+}
+
+function makeRecordResult(overrides: Partial<MealRecordResult> = {}): MealRecordResult {
+  const response = makeRecordResponse();
+  return {
+    source: 'immediate',
+    operationId: response.operation.id,
+    mealLogId: response.meal_log.id,
+    foods: response.meal_log.food_entries.map((entry) => ({
+      food_id: entry.food_id,
+      name: entry.food_name,
+      cover: {
+        id: 'cover-1',
+        name: entry.food_name,
+        url: `/media/${entry.food_id}.jpg`,
+        source: 'upload',
+        alt: entry.food_name,
+        created_at: '2026-07-15T12:00:00.000Z',
+      },
+    })),
+    previewMedia: null,
+    revertibleUntil: response.operation.revertible_until,
+    canRevert: true,
+    mealLog: response.meal_log,
+    rowVersion: response.meal_log.row_version,
+    canRate: true,
     ...overrides,
   };
 }
@@ -695,5 +774,231 @@ describe('HomeDashboard three-question desktop', () => {
       mealType: expect.any(String),
       servings: 1,
     });
+  });
+});
+
+describe('HomeDashboard meal recording ownership', () => {
+  it('owns recommendation writes via recordMeal', () => {
+    expect(homeOwners.homeRecommendation).toBe('recordMeal');
+    expect(homeOwners.homePlanComplete).toBe('completeFoodPlanItem');
+    expect(homeOwners.historyPrimaryCta).toBe('recordMeal');
+  });
+
+  it('opens compact prefilled Food flow without re-searching Food', async () => {
+    const loadMealCandidates = vi.fn(async () => []);
+    const food = makeFood(0);
+    const view = renderDashboard({
+      desktopRecommendations: [makeRecommendation(0)],
+      recommendationCount: 1,
+      loadMealCandidates,
+      foodRecommendations: {
+        target_meal_type: 'dinner',
+        target_date: '2026-07-15',
+        items: [
+          {
+            food,
+            score: 0.9,
+            reasons: ['适合今天'],
+            primary_action: 'quick_add_meal',
+          },
+        ],
+      },
+    });
+    const desktop = desktopSurface(view);
+    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('记到今天'),
+    );
+    expect(recordButton).toBeDefined();
+    await act(async () => {
+      recordButton?.click();
+    });
+
+    expect(view.textContent).toContain('快速记录');
+    expect(view.textContent).toContain('记到今天');
+    expect(view.textContent).toContain(food.name);
+    expect(view.querySelector('input[type="search"]')).toBeNull();
+    expect(view.querySelector('[role="combobox"]')).toBeNull();
+    expect(view.textContent).not.toMatch(/搜索食物|搜索菜名/);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loadMealCandidates).toHaveBeenCalled();
+  });
+
+  it('records from Home recommendation and shows shared result bar in one flow', async () => {
+    const response = makeRecordResponse('推荐菜 0');
+    const recordMeal = vi.fn(async () => response);
+    const loadMealCandidates = vi.fn(async () => []);
+    const food = makeFood(0);
+    const baseProps = buildProps({
+      desktopRecommendations: [makeRecommendation(0)],
+      recommendationCount: 1,
+      recordMeal,
+      loadMealCandidates,
+      businessDateKey: '2026-07-15',
+      foodRecommendations: {
+        target_meal_type: 'dinner',
+        target_date: '2026-07-15',
+        items: [
+          {
+            food,
+            score: 0.9,
+            reasons: ['适合今天'],
+            primary_action: 'quick_add_meal',
+          },
+        ],
+      },
+    });
+
+    function StatefulHome() {
+      const [recordResult, setRecordResult] = useState<MealRecordResult | null>(null);
+      return (
+        <HomeDashboard
+          {...baseProps}
+          recordResult={recordResult}
+          onRecordSuccess={(next) => {
+            setRecordResult(makeRecordResult({
+              operationId: next.operation.id,
+              mealLogId: next.meal_log.id,
+              foods: next.meal_log.food_entries.map((entry) => ({
+                food_id: entry.food_id,
+                name: entry.food_name,
+                cover: {
+                  id: `cover-${entry.food_id}`,
+                  name: entry.food_name,
+                  url: `/media/${entry.food_id}.jpg`,
+                  source: 'upload',
+                  alt: entry.food_name,
+                  created_at: '2026-07-15T12:00:00.000Z',
+                },
+              })),
+              previewMedia: null,
+              revertibleUntil: next.operation.revertible_until,
+              canRevert: next.operation.can_revert,
+              mealLog: next.meal_log,
+              rowVersion: next.meal_log.row_version,
+              canRate: true,
+            }));
+          }}
+        />
+      );
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<StatefulHome />);
+    });
+    const view = container;
+
+    const desktop = desktopSurface(view);
+    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('记到今天'),
+    );
+    await act(async () => {
+      recordButton?.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const form = view.querySelector('#meal-quick-record-form') as HTMLFormElement | null;
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(recordMeal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        entries: [expect.objectContaining({ food_id: food.id, servings: 1 })],
+        target: { kind: 'new' },
+      }),
+    );
+
+    const bar = view.querySelector('[aria-label="记录结果"]');
+    expect(bar).not.toBeNull();
+    expect(bar?.textContent).toContain('已记下');
+    expect(bar?.textContent).toContain('撤销');
+    expect(bar?.textContent).toContain('查看记录');
+    expect(bar?.textContent).toContain('推荐菜 0');
+    expect(bar?.querySelector('img, [class*="media"], [class*="placeholder"]')).not.toBeNull();
+    // Remains on Home surface (no navigation).
+    expect(desktopSurface(view).textContent).toContain('今天吃什么');
+  });
+
+  it('restores Home result bar from active operation summary', () => {
+    const summary: MealLogRecordOperationSummary = {
+      id: 'op-restored-1',
+      meal_log_id: 'meal-restored-1',
+      foods: [
+        {
+          food_id: 'food-0',
+          name: '推荐菜 0',
+          food_type: 'selfMade',
+          cover: {
+            id: 'cover-restored',
+            name: '推荐菜 0',
+            url: '/media/food-0.jpg',
+            source: 'upload',
+            alt: '推荐菜 0',
+            created_at: '2026-07-15T12:00:00.000Z',
+          },
+        },
+      ],
+      preview_media: null,
+      revertible_until: '2026-07-15T12:20:00.000Z',
+      can_revert: true,
+    };
+    const restored = makeRecordResult({
+      source: 'restored',
+      operationId: summary.id,
+      mealLogId: summary.meal_log_id,
+      foods: summary.foods.map((food) => ({
+        food_id: food.food_id,
+        name: food.name,
+        food_type: food.food_type,
+        cover: food.cover ?? null,
+      })),
+      canRate: false,
+      mealLog: null,
+      rowVersion: null,
+    });
+    const view = renderDashboard({ recordResult: restored });
+    const bar = view.querySelector('[aria-label="记录结果"]');
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute('data-operation-id')).toBe('op-restored-1');
+    expect(bar?.textContent).toContain('已记下');
+    expect(bar?.textContent).toContain('撤销');
+    expect(bar?.textContent).toContain('查看记录');
+  });
+
+  it('defaults meal quick-record date to injected businessDateKey (Asia/Shanghai)', async () => {
+    const loadMealCandidates = vi.fn(async () => []);
+    const view = renderDashboard({
+      desktopRecommendations: [makeRecommendation(0)],
+      recommendationCount: 1,
+      businessDateKey: '2026-07-12',
+      loadMealCandidates,
+    });
+    const desktop = desktopSurface(view);
+    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('记到今天'),
+    );
+    await act(async () => {
+      recordButton?.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const activeDate = view.querySelector(
+      '.meal-quick-record-date-option.is-active',
+    ) as HTMLButtonElement | null;
+    expect(activeDate).not.toBeNull();
+    // Date strip shows month/day for the business date key.
+    expect(activeDate?.textContent).toMatch(/7\/12|07\/12|12/);
   });
 });

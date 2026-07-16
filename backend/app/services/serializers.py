@@ -443,6 +443,7 @@ def serialize_meal_log(meal_log: MealLog, media_map: dict[tuple[str, str], list[
         "mood": meal_log.mood,
         "photos": [serialize_media(asset) for asset in media_map.get(("meal_log", meal_log.id), [])],
         "deduction_suggestions": [serialize_deduction_suggestion(item) for item in meal_log.deduction_suggestions],
+        "row_version": int(meal_log.row_version),
         "created_at": _utc_datetime(meal_log.created_at),
         "updated_at": _utc_datetime(meal_log.updated_at),
         "created_by": meal_log.created_by,

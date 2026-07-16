@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
+import type {
+  CompleteFoodPlanItemPayload,
+  Food,
+  FoodPlanItem,
+  MealLog,
+  MealType,
+} from '../../api/types';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';
@@ -31,8 +37,14 @@ export function useFoodPlanState(input: {
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
+  /** Non-Recipe plan completion owner (Task 15). Never publishes ordinary record undo. */
+  completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
   onMealRecorded?: (meal: MealLog, planItem: FoodPlanItem) => void;
+  /**
+   * Optional spy for tests / App wiring. Plan completion MUST NOT call this.
+   * Ordinary record flows publish via App-level useMealRecordResultState instead.
+   */
+  publishRecordResult?: (response: unknown) => void;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
 }) {
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
@@ -196,20 +208,30 @@ export function useFoodPlanState(input: {
     }
   }
 
-  async function completePlanItem(item: FoodPlanItem) {
+  async function completePlanItem(
+    item: FoodPlanItem,
+    target?: {
+      target_meal_log_id?: string | null;
+      expected_meal_log_row_version?: number | null;
+    },
+  ) {
     if (item.recipe_id) {
       input.onStartRecipe(item.recipe_id, item.id);
       return;
     }
     try {
-      const createdMeal = await input.quickAddMeal({
-        food_id: item.food_id,
-        date: item.plan_date,
-        meal_type: item.meal_type,
-        servings: 1,
-        note: item.note || '来自菜单计划',
-        food_plan_item_id: item.id,
-      });
+      const payload: CompleteFoodPlanItemPayload = {
+        food_plan_item_base_updated_at: item.updated_at,
+        ...(target?.target_meal_log_id
+          ? {
+              target_meal_log_id: target.target_meal_log_id,
+              expected_meal_log_row_version: target.expected_meal_log_row_version ?? null,
+            }
+          : {}),
+      };
+      // Accepts replayed stored MealLog as success (backend idempotent complete).
+      // Plan complete may open enrichment / view, but never ordinary record undo.
+      const createdMeal = await input.completeFoodPlanItem(item.id, payload);
       input.setFeedback(`${item.food_name} 已完成菜单计划`);
       closePlanDetail();
       input.onMealRecorded?.(createdMeal, item);

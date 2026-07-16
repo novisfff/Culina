@@ -230,7 +230,6 @@ export function MealEnrichmentForm(props: {
   formId?: string;
   meal: MealLog;
   members: Member[];
-  source: MealSource;
   isUpdating: boolean;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   requireMeaningfulInput?: boolean;
@@ -263,8 +262,10 @@ export function MealEnrichmentForm(props: {
         <strong>{title}</strong>
         <span className="meal-enrichment-summary-divider" />
         <small><MealEnrichmentIcon name="calendar" />{formatDate(props.meal.date)} {formatMealTime(props.meal)}</small>
-        <span className="meal-enrichment-source-pill">{props.source.status === 'planned' ? '来自菜单计划' : '手动补录'}</span>
       </div>
+      {enrichmentState.staleMessage ? (
+        <p className="meal-enrichment-stale-message">{enrichmentState.staleMessage}</p>
+      ) : null}
 
       <div className="meal-enrichment-layout">
         <div className="meal-enrichment-main">

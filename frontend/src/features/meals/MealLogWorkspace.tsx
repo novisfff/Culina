@@ -1,47 +1,53 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealInsight, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import {
   ActionButton,
   Avatar,
   Badge,
   FormActions,
-  OptionChipGroup,
   PageHeader,
   StateBlock,
-  StatusBadge,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MealCompositionEditor } from './MealCompositionEditor';
 import { MealEnrichmentModal } from './MealEnrichmentModal';
 import { MealHistorySurface } from './MealHistorySurface';
+import { MealInlineRating } from './MealInlineRating';
 import { MealPhotoLightbox } from './MealLogEnrichment';
 import { MealLogIcon } from './MealLogIcons';
-import { MealLogMobileView } from './MealLogMobileView';
+import {
+  MealLogMobileView,
+  MealTimelineFacts,
+  MealTimelineMedia,
+  buildMealTimelineRowModel,
+} from './MealLogMobileView';
+import { MealMemoryStrip, type MealMemoryStripStatus } from './MealMemoryStrip';
+import { MealRecordResultBar } from './MealRecordResultBar';
 import {
   MEAL_FILTERS,
-  STATUS_FILTERS,
   buildMealLogWorkspaceViewModel,
   buildMealTitle,
   formatDateGroupLabel,
   formatMealTime,
   getMealIconName,
-  getMealLogStatus,
-  getMealLogStatusLabel,
-  getMealRecordPresentation,
-  getMealRatingSummary,
   getMealTone,
   selectInitialMeal,
   type MealLogMealFilter,
-  type MealLogStatusFilter,
 } from './MealLogWorkspaceModel';
+import type { MealRecordResult } from './useMealRecordResultState';
 
 type Props = {
   foodPlanItems: FoodPlanItem[];
   members: Member[];
   recentMeals: MealLog[];
+  foods?: Food[];
+  mealInsights?: MealInsight[];
+  mealInsightsStatus?: MealMemoryStripStatus;
+  onRetryMealInsights?: () => void;
   isUpdatingMeal: boolean;
   notificationCenter?: ReactNode;
   /** When set, select this meal log (e.g. meal-detail eat task). */
@@ -49,9 +55,24 @@ type Props = {
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onBackHome: () => void;
   onBackToEat: () => void;
+  onRecordMeal?: () => void;
+  /** Shared Task 11 result; History only renders, does not own mutations. */
+  recordResult?: MealRecordResult | null;
+  isRevertingRecord?: boolean;
+  recordRevertError?: string | null;
+  recordRateError?: string | null;
+  onRevertRecord?: () => void | Promise<void>;
+  onViewRecord?: () => void;
+  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
+  updateMealComposition?: (
+    mealLogId: string,
+    payload: import('../../api/types').UpdateMealCompositionPayload,
+  ) => Promise<MealLog>;
+  refetchMealLog?: (mealLogId: string) => Promise<MealLog | null>;
 };
 
-type MealLogModalMode = 'enrich' | 'preview' | null;
+type MealLogModalMode = 'detail' | 'enrich' | 'composition' | null;
 
 export function MealLogWorkspace(props: Props) {
   const initialMealId = selectInitialMeal(props.recentMeals)?.id ?? null;
@@ -59,18 +80,31 @@ export function MealLogWorkspace(props: Props) {
   const [modalMode, setModalMode] = useState<MealLogModalMode>(null);
   const [activePreviewPhotoId, setActivePreviewPhotoId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<MealLogStatusFilter>('all');
   const [mealFilter, setMealFilter] = useState<MealLogMealFilter>('all');
-  const viewModel = useMemo(() => buildMealLogWorkspaceViewModel({
-    recentMeals: props.recentMeals,
-    foodPlanItems: props.foodPlanItems,
-    members: props.members,
-    selectedMealId,
-    searchQuery,
-    statusFilter,
-    mealFilter,
-  }), [props.recentMeals, props.foodPlanItems, props.members, selectedMealId, searchQuery, statusFilter, mealFilter]);
-  const activePreviewPhoto = viewModel.selectedMeal?.photos.find((photo) => photo.id === activePreviewPhotoId) ?? null;
+  const [inlineRateError, setInlineRateError] = useState<string | null>(null);
+
+  const foodsById = useMemo(
+    () => new Map((props.foods ?? []).map((food) => [food.id, food])),
+    [props.foods],
+  );
+  const membersById = useMemo(
+    () => new Map(props.members.map((member) => [member.id, member])),
+    [props.members],
+  );
+
+  const viewModel = useMemo(
+    () =>
+      buildMealLogWorkspaceViewModel({
+        recentMeals: props.recentMeals,
+        members: props.members,
+        selectedMealId,
+        searchQuery,
+        mealFilter,
+      }),
+    [props.recentMeals, props.members, selectedMealId, searchQuery, mealFilter],
+  );
+  const activePreviewPhoto =
+    viewModel.selectedMeal?.photos.find((photo) => photo.id === activePreviewPhotoId) ?? null;
   const mealEnrichmentFormId = 'meal-log-enrichment-overlay-form';
 
   useEffect(() => {
@@ -87,62 +121,82 @@ export function MealLogWorkspace(props: Props) {
 
   function openMealRecord(meal: MealLog) {
     setSelectedMealId(meal.id);
-    setModalMode(getMealRecordPresentation(meal).enrichment === 'enriched' ? 'preview' : 'enrich');
+    setModalMode('detail');
   }
+
+  const resultBar =
+    props.recordResult != null ? (
+      <MealRecordResultBar
+        result={props.recordResult}
+        isReverting={props.isRevertingRecord}
+        revertError={props.recordRevertError}
+        rateError={props.recordRateError}
+        onRevert={props.onRevertRecord}
+        onView={props.onViewRecord}
+        onRate={props.onRateRecord}
+        onDismiss={props.onDismissRecord}
+      />
+    ) : null;
+
+  const memoryStrip = (
+    <MealMemoryStrip
+      insights={props.mealInsights ?? []}
+      status={props.mealInsightsStatus ?? 'idle'}
+      onRetry={() => props.onRetryMealInsights?.()}
+    />
+  );
 
   const desktopTimeline = (
     <main className="meal-log-desktop-view meal-log-center-page">
       <PageHeader
         variant="compact"
-        title="餐食记录中心"
-        description="每一餐都是有效记录。照片、评价、家人和评论是可选补充，可以随时回来完善。"
+        title="吃过的"
+        description="回看家里吃过什么，随时记一餐。"
         actions={
-          <ActionButton tone="secondary" type="button" onClick={props.onBackToEat}>
-            返回吃什么
-          </ActionButton>
+          <div className="meal-log-header-actions">
+            <ActionButton
+              tone="primary"
+              type="button"
+              onClick={() => props.onRecordMeal?.()}
+            >
+              记一餐
+            </ActionButton>
+            <ActionButton tone="secondary" type="button" onClick={props.onBackToEat}>
+              返回吃什么
+            </ActionButton>
+          </div>
         }
       />
 
-      <section className="meal-log-command-grid">
-        <article className="meal-log-metric-card tone-orange">
-          <span><MealLogIcon name="today" />今日已记录</span>
-          <strong>{viewModel.todayMeals.length}</strong>
-          <p>来自计划与手动记录</p>
-        </article>
-        <article className="meal-log-metric-card tone-amber">
-          <span><MealLogIcon name="pending" />基础记录</span>
-          <strong>{viewModel.basicMeals.length}</strong>
-          <p>可补充评价、家人、照片或评论</p>
-        </article>
-        <article className="meal-log-metric-card tone-green">
-          <span><MealLogIcon name="done" />已丰富</span>
-          <strong>{viewModel.enrichedCount}</strong>
-          <p>已有评价、照片或评论</p>
-        </article>
-        <article className="meal-log-metric-card tone-blue">
-          <span><MealLogIcon name="trend" />本周记录</span>
-          <strong>{viewModel.weekRecordCount}</strong>
-          <p>共 {props.recentMeals.length} 条历史</p>
-        </article>
-      </section>
+      {resultBar}
+
+      <div className="meal-log-memory-slot" data-memory-slot="true">
+        {memoryStrip}
+      </div>
 
       <section className="card meal-log-record-panel">
         <div className="meal-log-filter-bar">
           <label className="meal-log-search">
-            <span><MealLogIcon name="search" /></span>
-            <input value={searchQuery} placeholder="搜索菜品、食材或者备注" onChange={(event) => setSearchQuery(event.target.value)} />
+            <span>
+              <MealLogIcon name="search" />
+            </span>
+            <input
+              value={searchQuery}
+              placeholder="搜索菜品或备注"
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
           </label>
-          <OptionChipGroup
-            ariaLabel="记录丰富度筛选"
-            value={statusFilter}
-            options={STATUS_FILTERS.map((item) => ({ value: item.key, label: item.label }))}
-            className="meal-log-segment"
-            onChange={setStatusFilter}
-          />
           <div className="meal-log-meal-filter" aria-label="餐别筛选">
             {MEAL_FILTERS.map((item) => (
-              <button key={item.key} type="button" className={mealFilter === item.key ? 'active' : ''} onClick={() => setMealFilter(item.key)}>
-                <span className="meal-log-icon-slot"><MealLogIcon name={getMealIconName(item.key)} /></span>
+              <button
+                key={item.key}
+                type="button"
+                className={mealFilter === item.key ? 'active' : ''}
+                onClick={() => setMealFilter(item.key)}
+              >
+                <span className="meal-log-icon-slot">
+                  <MealLogIcon name={getMealIconName(item.key)} />
+                </span>
                 {item.label}
               </button>
             ))}
@@ -151,10 +205,12 @@ export function MealLogWorkspace(props: Props) {
 
         <div className="meal-log-timeline-head">
           <div>
-            <h2>记录时间线</h2>
+            <h2>家庭时间线</h2>
             <span>按记录时间倒序展示</span>
           </div>
-          <small>{viewModel.groupedMeals.reduce((total, group) => total + group.meals.length, 0)} 条记录</small>
+          <small>
+            {viewModel.groupedMeals.reduce((total, group) => total + group.meals.length, 0)} 条记录
+          </small>
         </div>
 
         {viewModel.groupedMeals.length > 0 ? (
@@ -170,53 +226,69 @@ export function MealLogWorkspace(props: Props) {
                 </div>
                 <div className="meal-log-record-list">
                   {group.meals.map((meal) => {
-                    const source = viewModel.mealSources.get(meal.id);
-                    if (!source) {
-                      return null;
-                    }
+                    const row = buildMealTimelineRowModel({
+                      meal,
+                      foodsById,
+                      membersById,
+                    });
                     const isSelected = viewModel.selectedMeal?.id === meal.id;
-                    const mealStatus = getMealLogStatus(meal);
-                    const mealStatusLabel = getMealLogStatusLabel(meal);
-                    const presentation = getMealRecordPresentation(meal);
-                    const ratingSummary = getMealRatingSummary(meal);
+                    const showInlineRating =
+                      props.recordResult?.mealLogId === meal.id && props.recordResult.canRate;
+                    // Always rate the result-linked meal (prefer full mealLog on result for row_version).
+                    const ratingMeal =
+                      props.recordResult?.mealLogId === meal.id
+                        ? props.recordResult.mealLog ?? meal
+                        : meal;
                     return (
-                      <button
-                        key={meal.id}
-                        type="button"
-                        className={isSelected ? 'meal-log-record-row active' : 'meal-log-record-row'}
-                        onClick={() => openMealRecord(meal)}
-                      >
-                        <span className={`meal-log-meal-pill ${getMealTone(meal.meal_type)}`}>
-                          <span className="meal-log-icon-slot"><MealLogIcon name={getMealIconName(meal.meal_type)} /></span>
-                          {MEAL_TYPE_LABELS[meal.meal_type]}
-                        </span>
-                        <span className="meal-log-record-main">
-                          <strong>{buildMealTitle(meal)}</strong>
-                          <span className="meal-log-record-subline">
-                            <time>{formatMealTime(meal)}</time>
-                            <StatusBadge tone={source.status === 'planned' ? 'plan' : 'neutral'} size="compact" className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
-                              {source.status === 'planned' ? '菜单计划' : '手动补录'}
-                            </StatusBadge>
+                      <div key={meal.id} className="meal-log-record-block">
+                        <button
+                          type="button"
+                          className={isSelected ? 'meal-log-record-row active' : 'meal-log-record-row'}
+                          onClick={() => openMealRecord(meal)}
+                        >
+                          <MealTimelineMedia
+                            title={row.title}
+                            preview={row.preview}
+                            extraPhotoCount={row.extraPhotoCount}
+                          />
+                          <span className={`meal-log-meal-pill ${getMealTone(meal.meal_type)}`}>
+                            <span className="meal-log-icon-slot">
+                              <MealLogIcon name={getMealIconName(meal.meal_type)} />
+                            </span>
+                            {MEAL_TYPE_LABELS[meal.meal_type]}
                           </span>
-                        </span>
-                        <span className="meal-log-record-info">
-                          <StatusBadge
-                            tone={mealStatus === 'done' ? 'success' : 'neutral'}
-                            size="compact"
-                            className={`meal-record-status status-${mealStatus}`}
-                          >
-                            {mealStatusLabel}
-                          </StatusBadge>
-                          <span className={ratingSummary ? 'meal-log-row-rating has-rating' : 'meal-log-row-rating'}>
-                            {ratingSummary ? `★ ${ratingSummary}` : '未评分'}
+                          <span className="meal-log-record-main">
+                            <strong>{row.title}</strong>
+                            <span className="meal-log-record-subline">
+                              <time>{formatMealTime(meal)}</time>
+                              <MealTimelineFacts
+                                ratingValue={row.ratingValue}
+                                participantCount={row.participantCount}
+                                mediaCount={row.mediaCount}
+                                recorderName={row.recorderName}
+                              />
+                            </span>
                           </span>
-                          <span className="meal-log-row-meta">
-                            <span><span className="meal-log-icon-slot compact"><MealLogIcon name="photo" /></span>{meal.photos.length}</span>
-                            <span><span className="meal-log-icon-slot compact"><MealLogIcon name="note" /></span>{meal.notes.trim() ? 1 : 0}</span>
-                          </span>
-                        </span>
-                        <span className="meal-log-row-action">{presentation.actionLabel}</span>
-                      </button>
+                        </button>
+                        {showInlineRating && ratingMeal ? (
+                          <MealInlineRating
+                            meal={ratingMeal}
+                            busy={props.isUpdatingMeal}
+                            error={inlineRateError}
+                            onRate={async (payload) => {
+                              setInlineRateError(null);
+                              try {
+                                await props.updateMealLog(ratingMeal.id, payload);
+                              } catch (reason) {
+                                setInlineRateError(
+                                  reason instanceof Error ? reason.message : '评分失败，请重试',
+                                );
+                                throw reason;
+                              }
+                            }}
+                          />
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -227,7 +299,7 @@ export function MealLogWorkspace(props: Props) {
           <StateBlock
             status="empty"
             title="没有符合条件的记录"
-            description="换一个筛选条件，或手动补录一餐。"
+            description="换一个搜索词，或记一餐。"
             className="meal-log-empty-panel"
           />
         )}
@@ -235,26 +307,49 @@ export function MealLogWorkspace(props: Props) {
     </main>
   );
 
+  const resultMeal =
+    props.recordResult != null
+      ? props.recordResult.mealLog ??
+        props.recentMeals.find((meal) => meal.id === props.recordResult?.mealLogId) ??
+        null
+      : null;
+  const showResultInlineRating = Boolean(props.recordResult?.canRate && resultMeal);
+
   const mobileTimeline = (
     <MealLogMobileView
-      basicMeals={viewModel.basicMeals}
       selectedMeal={viewModel.selectedMeal}
-      mealSources={viewModel.mealSources}
-      todayMealCount={viewModel.todayMeals.length}
-      enrichedCount={viewModel.enrichedCount}
-      weekRecordCount={viewModel.weekRecordCount}
-      totalRecordCount={props.recentMeals.length}
       groupedMeals={viewModel.groupedMeals}
       searchQuery={searchQuery}
-      statusFilter={statusFilter}
       mealFilter={mealFilter}
+      foodsById={foodsById}
+      membersById={membersById}
       onSelectMeal={setSelectedMealId}
       onOpenMealRecord={openMealRecord}
       onBackHome={props.onBackHome}
       onSearchChange={setSearchQuery}
-      onStatusFilterChange={setStatusFilter}
       onMealFilterChange={setMealFilter}
+      onRecordMeal={props.onRecordMeal}
       notificationCenter={props.notificationCenter}
+      resultBar={resultBar}
+      memoryStrip={memoryStrip}
+      inlineRatingMeal={showResultInlineRating ? resultMeal : null}
+      isUpdatingMeal={props.isUpdatingMeal}
+      inlineRateError={inlineRateError}
+      onInlineRate={
+        resultMeal
+          ? async (payload) => {
+              setInlineRateError(null);
+              try {
+                await props.updateMealLog(resultMeal.id, payload);
+              } catch (reason) {
+                setInlineRateError(
+                  reason instanceof Error ? reason.message : '评分失败，请重试',
+                );
+                throw reason;
+              }
+            }
+          : undefined
+      }
     />
   );
 
@@ -265,11 +360,150 @@ export function MealLogWorkspace(props: Props) {
         {desktopTimeline}
       </MealHistorySurface>
 
+      {modalMode === 'detail' && viewModel.selectedMeal ? (
+        <WorkspaceOverlayFrame onClose={() => setModalMode(null)}>
+          <WorkspaceModal
+            title="这餐详情"
+            description="查看这次餐食的评价、评论和照片。"
+            eyebrow="记录"
+            className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
+            onClose={() => setModalMode(null)}
+            footerActions={
+              <FormActions
+                className="meal-log-preview-modal-actions"
+                primaryLabel="编辑这顿"
+                onPrimary={() => setModalMode('enrich')}
+                secondaryLabel="关闭"
+                onSecondary={() => setModalMode(null)}
+              >
+                {props.updateMealComposition ? (
+                  <ActionButton
+                    tone="secondary"
+                    type="button"
+                    onClick={() => setModalMode('composition')}
+                  >
+                    调整组合
+                  </ActionButton>
+                ) : null}
+              </FormActions>
+            }
+          >
+            <div className="meal-log-preview-detail">
+              <div className="meal-enrichment-summary">
+                <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
+                  <span className="meal-log-icon-slot">
+                    <MealLogIcon name="done" />
+                  </span>
+                  {MEAL_TYPE_LABELS[viewModel.selectedMeal.meal_type]}
+                </span>
+                <strong>{buildMealTitle(viewModel.selectedMeal)}</strong>
+                <span className="meal-enrichment-summary-divider" />
+                <small>{formatDateTime(viewModel.selectedMeal.created_at)}</small>
+              </div>
+
+              <div className="meal-log-preview-layout">
+                <div className="meal-log-preview-main">
+                  <section className="meal-log-preview-panel">
+                    <div className="meal-log-preview-section-head">
+                      <span>1</span>
+                      <strong>菜品评分</strong>
+                    </div>
+                    {viewModel.selectedMeal.food_entries.some((entry) => entry.rating != null) ? (
+                      <div className="meal-log-preview-ratings">
+                        {viewModel.selectedMeal.food_entries.map((entry) => (
+                          <div key={entry.id}>
+                            <strong>{entry.food_name || '未命名菜品'}</strong>
+                            <span>
+                              {entry.rating == null
+                                ? '—'
+                                : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <strong className="meal-log-preview-rating">还没有评分</strong>
+                    )}
+                  </section>
+
+                  <section className="meal-log-preview-panel">
+                    <div className="meal-log-preview-section-head">
+                      <span>2</span>
+                      <strong>参与家人</strong>
+                    </div>
+                    <div className="meal-log-preview-members">
+                      {viewModel.selectedParticipantMembers.length > 0 ? (
+                        viewModel.selectedParticipantMembers.slice(0, 8).map((member) => (
+                          <span key={member.id} className="meal-log-preview-member">
+                            <Avatar
+                              label={member.display_name}
+                              seed={member.avatar_seed}
+                              imageUrl={member.avatar_image?.url}
+                            />
+                            {member.display_name}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="meal-log-preview-member empty">未选择</span>
+                      )}
+                      {viewModel.selectedParticipantMembers.length > 8 && (
+                        <Badge>+{viewModel.selectedParticipantMembers.length - 8}</Badge>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="meal-log-preview-panel">
+                    <div className="meal-log-preview-section-head">
+                      <span>3</span>
+                      <strong>评论</strong>
+                    </div>
+                    <p>{viewModel.selectedMeal.notes || '这条记录还没有评论。'}</p>
+                  </section>
+                </div>
+
+                <aside className="meal-log-preview-photo-side">
+                  <div className="meal-log-preview-section-head">
+                    <span>4</span>
+                    <strong>餐食照片</strong>
+                  </div>
+                  {viewModel.selectedMeal.photos.length > 0 ? (
+                    <p>本次记录共 {viewModel.selectedMeal.photos.length} 张照片</p>
+                  ) : null}
+                  <div className="meal-log-photo-grid meal-log-preview-photo-grid">
+                    {viewModel.selectedMeal.photos.slice(0, 6).map((photo) => (
+                      <button
+                        key={photo.id}
+                        className="meal-photo-open-button"
+                        type="button"
+                        onClick={() => setActivePreviewPhotoId(photo.id)}
+                        aria-label="查看大图"
+                      >
+                        <MediaWithPlaceholder
+                          src={resolveAssetUrl(photo.url) ?? photo.url}
+                          alt={photo.alt || buildMealTitle(viewModel.selectedMeal!)}
+                        />
+                      </button>
+                    ))}
+                    {viewModel.selectedMeal.photos.length === 0 && (
+                      <div className="meal-log-photo-placeholder">暂无照片</div>
+                    )}
+                    {viewModel.selectedMeal.photos.length > 6 && (
+                      <div className="meal-log-photo-placeholder">
+                        +{viewModel.selectedMeal.photos.length - 6}
+                      </div>
+                    )}
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      ) : null}
+
       {modalMode === 'enrich' ? (
         <MealEnrichmentModal
           open
           meal={viewModel.selectedMeal}
-          source={viewModel.selectedSource}
           members={props.members}
           isUpdating={props.isUpdatingMeal}
           updateMealLog={props.updateMealLog}
@@ -278,117 +512,36 @@ export function MealLogWorkspace(props: Props) {
         />
       ) : null}
 
-      {modalMode === 'preview' && (
+      {modalMode === 'composition' && viewModel.selectedMeal && props.updateMealComposition ? (
         <WorkspaceOverlayFrame onClose={() => setModalMode(null)}>
           <WorkspaceModal
-            title="这餐详情"
-            description="查看这次餐食的来源、评价、评论和照片。"
-            eyebrow="记录"
-            className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
+            title="调整组合"
+            description="修改这顿的菜品、份量和备注"
+            className="meal-log-modal meal-log-enrich-modal"
             onClose={() => setModalMode(null)}
-            footerActions={
-              viewModel.selectedMeal && viewModel.selectedSource ? (
-                <FormActions
-                  className="meal-log-preview-modal-actions"
-                  primaryLabel="继续补充"
-                  onPrimary={() => setModalMode('enrich')}
-                  secondaryLabel="取消"
-                  onSecondary={() => setModalMode(null)}
-                />
-              ) : undefined
-            }
           >
-            {viewModel.selectedMeal && viewModel.selectedSource ? (
-              <div className="meal-log-preview-detail">
-                <div className="meal-enrichment-summary">
-                  <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
-                    <span className="meal-log-icon-slot"><MealLogIcon name="done" /></span>
-                    {MEAL_TYPE_LABELS[viewModel.selectedMeal.meal_type]}
-                  </span>
-                  <strong>{buildMealTitle(viewModel.selectedMeal)}</strong>
-                  <span className="meal-enrichment-summary-divider" />
-                  <small>{formatDateTime(viewModel.selectedMeal.created_at)}</small>
-                  <span className="meal-enrichment-source-pill">{viewModel.selectedSource.status === 'planned' ? '来自菜单计划' : '手动补录'}</span>
-                </div>
-
-                <div className="meal-log-preview-layout">
-                  <div className="meal-log-preview-main">
-                    <section className="meal-log-preview-panel">
-                      <div className="meal-log-preview-section-head">
-                        <span>1</span>
-                        <strong>菜品评分</strong>
-                      </div>
-                      {viewModel.selectedMeal.food_entries.some((entry) => entry.rating != null) ? (
-                        <div className="meal-log-preview-ratings">
-                          {viewModel.selectedMeal.food_entries.map((entry) => (
-                            <div key={entry.id}>
-                              <strong>{entry.food_name || '未命名菜品'}</strong>
-                              <span>{entry.rating == null ? '未评分' : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <strong className="meal-log-preview-rating">还没有评分</strong>
-                      )}
-                    </section>
-
-                    <section className="meal-log-preview-panel">
-                      <div className="meal-log-preview-section-head">
-                        <span>2</span>
-                        <strong>参与家人</strong>
-                      </div>
-                      <div className="meal-log-preview-members">
-                        {viewModel.selectedParticipantMembers.length > 0 ? (
-                          viewModel.selectedParticipantMembers.slice(0, 8).map((member) => (
-                            <span key={member.id} className="meal-log-preview-member">
-                              <Avatar label={member.display_name} seed={member.avatar_seed} imageUrl={member.avatar_image?.url} />
-                              {member.display_name}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="meal-log-preview-member empty">未选择</span>
-                        )}
-                        {viewModel.selectedParticipantMembers.length > 8 && <Badge>+{viewModel.selectedParticipantMembers.length - 8}</Badge>}
-                      </div>
-                    </section>
-
-                    <section className="meal-log-preview-panel">
-                      <div className="meal-log-preview-section-head">
-                        <span>3</span>
-                        <strong>评论</strong>
-                      </div>
-                      <p>{viewModel.selectedMeal.notes || '这条记录还没有补充评论。'}</p>
-                    </section>
-                  </div>
-
-                  <aside className="meal-log-preview-photo-side">
-                    <div className="meal-log-preview-section-head">
-                      <span>4</span>
-                      <strong>餐食照片</strong>
-                    </div>
-                    <p>本次记录共 {viewModel.selectedMeal.photos.length} 张照片</p>
-                    <div className="meal-log-photo-grid meal-log-preview-photo-grid">
-                      {viewModel.selectedMeal.photos.slice(0, 6).map((photo) => (
-                        <button key={photo.id} className="meal-photo-open-button" type="button" onClick={() => setActivePreviewPhotoId(photo.id)} aria-label="查看大图">
-                          <MediaWithPlaceholder
-                            src={resolveAssetUrl(photo.url) ?? photo.url}
-                            alt={photo.alt || buildMealTitle(viewModel.selectedMeal!)}
-                          />
-                        </button>
-                      ))}
-                      {viewModel.selectedMeal.photos.length === 0 && <div className="meal-log-photo-placeholder">暂无照片</div>}
-                      {viewModel.selectedMeal.photos.length > 6 && <div className="meal-log-photo-placeholder">+{viewModel.selectedMeal.photos.length - 6}</div>}
-                    </div>
-                  </aside>
-                </div>
-
-              </div>
-            ) : null}
+            <MealCompositionEditor
+              meal={viewModel.selectedMeal}
+              busy={props.isUpdatingMeal}
+              onSubmit={(payload) => props.updateMealComposition!(viewModel.selectedMeal!.id, payload)}
+              onRefetchMeal={
+                props.refetchMealLog
+                  ? () => props.refetchMealLog!(viewModel.selectedMeal!.id)
+                  : undefined
+              }
+              onSaved={() => setModalMode('detail')}
+              onClose={() => setModalMode(null)}
+            />
           </WorkspaceModal>
         </WorkspaceOverlayFrame>
-      )}
+      ) : null}
+
       {activePreviewPhoto && viewModel.selectedMeal && (
-        <MealPhotoLightbox photo={activePreviewPhoto} title={buildMealTitle(viewModel.selectedMeal)} onClose={() => setActivePreviewPhotoId(null)} />
+        <MealPhotoLightbox
+          photo={activePreviewPhoto}
+          title={buildMealTitle(viewModel.selectedMeal)}
+          onClose={() => setActivePreviewPhotoId(null)}
+        />
       )}
     </>
   );

@@ -291,6 +291,21 @@ def lock_food_plan_write_intents(
     return LockedFoodPlanTargets(foods_by_id=foods_by_id, items_by_id=items_by_id)
 
 
+def assert_food_plan_base_updated_at_matches(
+    *,
+    actual: datetime | None,
+    expected: datetime | None,
+    label: str = "菜单计划",
+) -> None:
+    """Public wrapper for plan-item baseUpdatedAt OCC checks."""
+    _assert_base_updated_at_matches(actual=actual, expected=expected, label=label)
+
+
+def normalize_food_plan_datetime(value: datetime | str | None) -> datetime | None:
+    """Public wrapper for UTC datetime normalization used by plan writers."""
+    return _normalize_datetime(value)
+
+
 def lock_plan_item_after_food(
     db: Session,
     *,

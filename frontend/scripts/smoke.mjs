@@ -741,6 +741,11 @@ const fixtures = {
     items: recommendationItems,
   },
   '/api/meal-logs': [],
+  // Phase-one meal recording surfaces (Task 16): boot + dialog support.
+  '/api/meal-logs/record-operations': [],
+  '/api/meal-logs/candidates': [],
+  // Phase-two family memories (Task 18): history view only.
+  '/api/meal-logs/insights': [],
   '/api/ai/conversations': [],
   '/api/ai/status': {
     enabled: true,
@@ -988,6 +993,159 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
             entity: planItemOutsideWeek,
           },
         ],
+      });
+      return;
+    }
+
+    // Phase-one meal recording owners (Task 16). Never serve /api/meal-logs/quick-add.
+    if (url.pathname === '/api/meal-logs/quick-add') {
+      await fulfillJson(route, { detail: 'Not Found' }, 404);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/candidates') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/record-operations') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/meal-logs/insights') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/meal-logs/record') {
+      let body = {};
+      try {
+        body = request.postDataJSON() ?? {};
+      } catch {
+        body = {};
+      }
+      const mealLog = {
+        id: body?.target?.kind === 'existing' ? body.target.meal_log_id : 'meal-smoke-record-1',
+        family_id: family.id,
+        date: body.date || today,
+        meal_type: body.meal_type || 'dinner',
+        food_entries: (body.entries || []).map((entry, index) => ({
+          id: `entry-smoke-${index + 1}`,
+          food_id: entry.food_id || entry.client_food_id || 'food-smoke',
+          food_name: 'Smoke food',
+          servings: entry.servings ?? 1,
+          note: '',
+          rating: null,
+        })),
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: body?.target?.kind === 'existing' ? (body.target.expected_row_version || 1) + 1 : 1,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:00:00.000Z`,
+      };
+      await fulfillJson(route, {
+        meal_log: mealLog,
+        created_foods: [],
+        outcome: body?.target?.kind === 'existing' ? 'appended' : 'created',
+        operation: {
+          id: 'op-smoke-1',
+          status: 'applied',
+          revertible_until: `${today}T12:30:00.000Z`,
+          can_revert: true,
+        },
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname.endsWith('/complete') && url.pathname.startsWith('/api/food-plan/')) {
+      const itemId = url.pathname.slice('/api/food-plan/'.length, -'/complete'.length);
+      await fulfillJson(route, {
+        id: 'meal-smoke-plan-1',
+        family_id: family.id,
+        date: today,
+        meal_type: 'dinner',
+        food_entries: [
+          {
+            id: 'entry-plan-1',
+            food_id: 'food-smoke',
+            food_name: 'Smoke plan food',
+            servings: 1,
+            note: '',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:00:00.000Z`,
+        created_by: member.id,
+        updated_by: member.id,
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/recipes\/[^/]+\/cook$/.test(url.pathname)) {
+      let body = {};
+      try {
+        body = request.postDataJSON() ?? {};
+      } catch {
+        body = {};
+      }
+      await fulfillJson(route, {
+        recipe_id: recipe.id,
+        consumed_items: [],
+        shortages: [],
+        meal_log_id: body.target_meal_log_id || 'meal-smoke-cook-1',
+        cook_log_id: 'cook-smoke-1',
+        completion_request_id: body.completion_request_id || 'cook-smoke-req',
+        replayed: false,
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/recipes\/[^/]+\/cook-preview$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        recipe_id: recipe.id,
+        preview_items: [],
+        shortages: [],
+      });
+      return;
+    }
+
+    if (request.method() === 'POST' && /\/api\/meal-logs\/record-operations\/[^/]+\/revert$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        operation_id: 'op-smoke-1',
+        status: 'reverted',
+        meal_log_id: 'meal-smoke-record-1',
+        removed_food_ids: [],
+        replayed: false,
+      });
+      return;
+    }
+
+    if (request.method() === 'PATCH' && /\/api\/meal-logs\/[^/]+\/composition$/.test(url.pathname)) {
+      await fulfillJson(route, {
+        id: 'meal-smoke-record-1',
+        family_id: family.id,
+        date: today,
+        meal_type: 'dinner',
+        food_entries: [],
+        participant_user_ids: [member.id],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 2,
+        created_at: `${today}T12:00:00.000Z`,
+        updated_at: `${today}T12:05:00.000Z`,
       });
       return;
     }
@@ -1518,7 +1676,8 @@ async function runDesktopSmoke(browser, baseUrl) {
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', '吃什么/吃过的');
+  await expectVisibleText(page, '吃过的', '吃什么/吃过的');
+  await expectVisibleText(page, '家庭时间线', '吃什么/吃过的时间线');
   await expectNoHorizontalOverflow(page, '桌面工作台切换');
   assertClean();
   await context.close();
@@ -1760,33 +1919,42 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   }
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
+  const mealInsightsLoaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/meal-logs/insights'
+      && response.ok(),
+    { timeout: 10_000 },
+  );
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', '1180x820 吃过的');
-  await expectNoHorizontalOverflow(page, '1180x820 餐食记录页');
-  const mealLogMetricLayout = await page.evaluate(() => {
-    const grid = document.querySelector('.meal-log-command-grid');
-    const cards = grid ? Array.from(grid.querySelectorAll('.meal-log-metric-card')) : [];
-    const tops = cards.map((card) => Math.round(card.getBoundingClientRect().top));
+  await expectVisibleText(page, '吃过的', '1180x820 吃过的');
+  await expectVisibleText(page, '家庭时间线', '1180x820 吃过的时间线');
+  await expectNoHorizontalOverflow(page, '1180x820 吃过的页');
+  await mealInsightsLoaded;
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-memory-status="loading"]').length === 0,
+    undefined,
+    { timeout: 10_000 },
+  );
+  // Empty insights keep the memory section out of the page; timeline remains first content.
+  const mealHistoryLayout = await page.evaluate(() => {
+    const memoryCards = document.querySelectorAll('.meal-memory-card');
+    const memoryError = document.querySelector('.meal-memory-error');
+    const timelineHead = document.querySelector('.meal-log-timeline-head h2');
     return {
-      columns: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
-      count: cards.length,
-      tops,
-      overflow: grid ? grid.scrollWidth - grid.clientWidth : Number.POSITIVE_INFINITY,
+      memoryCardCount: memoryCards.length,
+      hasMemoryError: Boolean(memoryError),
+      timelineVisible: Boolean(timelineHead && getComputedStyle(timelineHead).display !== 'none'),
+      timelineText: timelineHead?.textContent?.trim() ?? '',
     };
   });
-  const mealLogMetricTopSpread =
-    mealLogMetricLayout.tops.length > 0
-      ? Math.max(...mealLogMetricLayout.tops) - Math.min(...mealLogMetricLayout.tops)
-      : Number.POSITIVE_INFINITY;
-  if (
-    mealLogMetricLayout.columns !== 4 ||
-    mealLogMetricLayout.count !== 4 ||
-    mealLogMetricTopSpread > 2 ||
-    mealLogMetricLayout.overflow > 1
-  ) {
+  if (mealHistoryLayout.memoryCardCount !== 0 || mealHistoryLayout.hasMemoryError) {
     throw new Error(
-      `1180x820 餐食记录统计卡布局异常：${mealLogMetricLayout.columns} 列/${mealLogMetricLayout.count} 张，top=${mealLogMetricLayout.tops.join(',')}，溢出 ${mealLogMetricLayout.overflow}`
+      `1180x820 空家庭记忆仍渲染了区域：cards=${mealHistoryLayout.memoryCardCount} error=${mealHistoryLayout.hasMemoryError}`,
     );
+  }
+  if (!mealHistoryLayout.timelineVisible || mealHistoryLayout.timelineText !== '家庭时间线') {
+    throw new Error(`1180x820 吃过的时间线不可见：${mealHistoryLayout.timelineText}`);
   }
 
   await page.evaluate(() => {
@@ -2181,8 +2349,52 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await expectVisible(page.locator('.food-mobile-view'), `${label} 发现`);
+  const mealInsightsLoaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/meal-logs/insights'
+      && response.ok(),
+    { timeout: 10_000 },
+  );
   await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
-  await expectVisibleText(page, '餐食记录', `${label} 吃过的`);
+  // Mobile history uses MealLogMobileView ("吃过的" + day groups / empty), not desktop "家庭时间线".
+  await expectVisible(page.locator('.mobile-log-page'), `${label} 吃过的页面`);
+  await expectVisibleText(page, '吃过的', `${label} 吃过的`);
+  await expectVisible(page.locator('#mobile-log-timeline.mobile-log-timeline-list'), `${label} 时间线列表`);
+  await expectVisible(
+    page.locator('.mobile-log-empty, .mobile-log-day-group').first(),
+    `${label} 时间线内容`,
+  );
+  await mealInsightsLoaded;
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-memory-status="loading"]').length === 0,
+    undefined,
+    { timeout: 10_000 },
+  );
+  // Empty insights keep the memory strip out of the page (no cards / error chrome).
+  const mealHistoryLayout = await page.evaluate(() => {
+    const memoryCards = document.querySelectorAll('.meal-memory-card');
+    const memoryError = document.querySelector('.meal-memory-error');
+    const pageEl = document.querySelector('.mobile-log-page');
+    const timeline = document.querySelector('#mobile-log-timeline');
+    const empty = document.querySelector('.mobile-log-empty');
+    const dayGroup = document.querySelector('.mobile-log-day-group');
+    return {
+      memoryCardCount: memoryCards.length,
+      hasMemoryError: Boolean(memoryError),
+      pageVisible: Boolean(pageEl && getComputedStyle(pageEl).display !== 'none'),
+      timelineVisible: Boolean(timeline && getComputedStyle(timeline).display !== 'none'),
+      hasEmptyOrDay: Boolean(empty || dayGroup),
+    };
+  });
+  if (mealHistoryLayout.memoryCardCount !== 0 || mealHistoryLayout.hasMemoryError) {
+    throw new Error(
+      `${label} 空家庭记忆仍渲染了区域：cards=${mealHistoryLayout.memoryCardCount} error=${mealHistoryLayout.hasMemoryError}`,
+    );
+  }
+  if (!mealHistoryLayout.pageVisible || !mealHistoryLayout.timelineVisible || !mealHistoryLayout.hasEmptyOrDay) {
+    throw new Error(`${label} 吃过的移动时间线表面不可见`);
+  }
   await expectNoHorizontalOverflow(page, label);
   assertClean();
   await context.close();

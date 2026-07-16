@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import type { MealLog } from '../../api/types';
-import { getMealRecordPresentation } from './MealLogWorkspaceModel';
 
 export type MealHistorySurfaceMode = 'timeline' | 'create' | 'detail' | 'enrich';
 
@@ -20,11 +19,9 @@ export type MealHistorySurfaceProps = {
  * Timeline/create/detail/enrich presentation without debt-task language.
  */
 export function MealHistorySurface(props: MealHistorySurfaceProps) {
-  const presentation = props.meal ? getMealRecordPresentation(props.meal) : null;
-
   if (props.mode === 'create' && props.createContent) {
     return (
-      <section className="meal-history-surface meal-history-surface-create" aria-label="记录一餐">
+      <section className="meal-history-surface meal-history-surface-create" aria-label="记一餐">
         {props.createContent}
       </section>
     );
@@ -32,11 +29,7 @@ export function MealHistorySurface(props: MealHistorySurfaceProps) {
 
   if (props.mode === 'detail' && props.detailContent) {
     return (
-      <section
-        className="meal-history-surface meal-history-surface-detail"
-        aria-label="这餐详情"
-        data-enrichment={presentation?.enrichment}
-      >
+      <section className="meal-history-surface meal-history-surface-detail" aria-label="这餐详情">
         {props.detailContent}
       </section>
     );
@@ -44,11 +37,7 @@ export function MealHistorySurface(props: MealHistorySurfaceProps) {
 
   if (props.mode === 'enrich' && props.enrichContent) {
     return (
-      <section
-        className="meal-history-surface meal-history-surface-enrich"
-        aria-label="补充这餐"
-        data-enrichment={presentation?.enrichment}
-      >
+      <section className="meal-history-surface meal-history-surface-enrich" aria-label="编辑这顿">
         {props.enrichContent}
       </section>
     );

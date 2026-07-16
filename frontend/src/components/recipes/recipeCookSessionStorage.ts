@@ -1,7 +1,7 @@
 import type { MealType, Recipe } from '../../api/types';
 import type { StorageLike } from '../../lib/storage';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
-import { todayKey } from '../../lib/ui';
+import { createMealBusinessDate } from '../../features/meals/MealComposerModel';
 import {
   advanceCookTimers,
   clampStepIndex,
@@ -132,7 +132,7 @@ export function buildDefaultCookSessionV3(
     ],
     activeTimerId: 'default-timer',
     servings: args.servings != null ? String(args.servings) : String(recipe.servings),
-    date: args.date ?? todayKey(),
+    date: args.date ?? createMealBusinessDate(),
     mealType: args.mealType ?? 'dinner',
     planItemId,
     adjustments: '',

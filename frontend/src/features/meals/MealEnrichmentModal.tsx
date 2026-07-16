@@ -1,11 +1,10 @@
 import type { MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import { FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
-import { MealEnrichmentForm, type MealSource } from './MealLogEnrichment';
+import { MealEnrichmentForm } from './MealLogEnrichment';
 
 export type MealEnrichmentModalProps = {
   open: boolean;
   meal: MealLog | null;
-  source: MealSource | null;
   members: Member[];
   isUpdating: boolean;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
@@ -14,15 +13,17 @@ export type MealEnrichmentModalProps = {
   onInvalidSave?: () => void;
   overlayRootClassName?: string;
   formId?: string;
+  title?: string;
+  description?: string;
+  primaryLabel?: string;
 };
 
 export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
-  if (!props.open || !props.meal || !props.source) {
+  if (!props.open || !props.meal) {
     return null;
   }
 
   const formId = props.formId ?? 'meal-log-enrichment-overlay-form';
-  const isDraftMeal = props.meal.id.startsWith('draft-');
   const closeIfAllowed = () => {
     if (!props.isUpdating) {
       props.onClose();
@@ -37,26 +38,20 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
-        title="补充这餐"
-        description="为这次记录添加评价、家人、照片和评论"
+        title={props.title ?? '编辑这顿'}
+        description={props.description ?? '补充评价、家人、照片和评论'}
         className="meal-log-modal meal-log-enrich-modal"
         closeAriaLabel="关闭"
         onClose={closeIfAllowed}
         busy={props.isUpdating}
-        footerInfo={
-          <span>
-            {isDraftMeal
-              ? '保存后，本次补充记录将会出现在记录时间线中'
-              : '这餐已记录，保存后会补充评价、家人、照片和评论'}
-          </span>
-        }
+        footerInfo={<span>保存后会更新这顿的评价、家人、照片和评论</span>}
         footerActions={
           <FormActions
-            primaryLabel="保存记录"
+            primaryLabel={props.primaryLabel ?? '保存'}
             primaryType="submit"
             primaryForm={formId}
             isSubmitting={props.isUpdating}
-            secondaryLabel="稍后再说"
+            secondaryLabel="取消"
             onSecondary={closeIfAllowed}
           />
         }
@@ -70,7 +65,6 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
             formId={formId}
             meal={props.meal}
             members={props.members}
-            source={props.source}
             isUpdating={props.isUpdating}
             updateMealLog={props.updateMealLog}
             requireMeaningfulInput={props.requireMeaningfulInput}

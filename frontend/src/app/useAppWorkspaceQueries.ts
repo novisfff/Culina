@@ -9,6 +9,7 @@ import type {
   Ingredient,
   IngredientInventoryState,
   InventoryOperationSummary,
+  MealInsight,
   MealLog,
   Recipe,
   RecipeDiscovery,
@@ -51,6 +52,9 @@ export function useAppWorkspaceQueries(args: {
   // Local-only windows not modeled on AppQueryScope.
   const needsActivityHighlights = args.navigationState.primaryTab === 'home';
   const needsInventoryOperations = args.navigationState.primaryTab === 'ingredients';
+  // Phase-two family memories: history view only; never part of boot loading.
+  const needsMealInsights =
+    args.navigationState.primaryTab === 'eat' && args.navigationState.eat.baseView === 'history';
 
   const planDetailId =
     args.navigationState.eat.task?.kind === 'plan-detail'
@@ -146,6 +150,22 @@ export function useAppWorkspaceQueries(args: {
     queryFn: api.getMealLogs,
     enabled: args.isAuthenticated && needsMealLogs,
   });
+  const mealInsightsQuery = useQuery({
+    queryKey: queryKeys.mealInsights,
+    queryFn: api.getMealInsights,
+    enabled: args.isAuthenticated && needsMealInsights,
+  });
+  // Shared result bar surfaces: Home, Food (eat), Ingredient, History.
+  // Disabled on AI-only / family settings surfaces so phase-one never polls there.
+  const needsActiveMealRecordOperations =
+    args.navigationState.primaryTab === 'home' ||
+    args.navigationState.primaryTab === 'ingredients' ||
+    args.navigationState.primaryTab === 'eat';
+  const activeMealRecordOperationsQuery = useQuery({
+    queryKey: queryKeys.mealRecordOperations(true),
+    queryFn: () => api.getActiveMealRecordOperations(true),
+    enabled: args.isAuthenticated && needsActiveMealRecordOperations,
+  });
   const activityLogsQuery = useQuery({
     queryKey: queryKeys.activityLogs,
     queryFn: () => api.getActivityLogs(),
@@ -199,6 +219,8 @@ export function useAppWorkspaceQueries(args: {
     foodsQuery,
     foodRecommendationsQuery,
     mealLogsQuery,
+    mealInsightsQuery,
+    activeMealRecordOperationsQuery,
     activityLogsQuery,
     activityHighlightsQuery,
     aiConversationsQuery,
@@ -219,6 +241,8 @@ export function useAppWorkspaceQueries(args: {
     foods: foodsQuery.data ?? ([] as Food[]),
     foodRecommendations: foodRecommendationsQuery.data ?? (null as FoodRecommendations | null),
     mealLogs: mealLogsQuery.data ?? ([] as MealLog[]),
+    mealInsights: mealInsightsQuery.data ?? ([] as MealInsight[]),
+    activeMealRecordOperations: activeMealRecordOperationsQuery.data ?? [],
     aiConversations: aiConversationsQuery.data ?? [],
     family: familyQuery.data,
   };

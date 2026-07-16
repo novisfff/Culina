@@ -17,6 +17,7 @@ from app.services.clock import today_for_family
 from app.services.food_plan_locking import FoodPlanConflict
 from app.services.inventory_versions import InventoryConflictError, STALE_INVENTORY_DETAIL
 from app.services.meal_log_references import MealLogReferenceError
+from app.services.meal_log_versions import MealLogConflictError
 from app.services.recipe_cook_completion import (
     CompletionConflict,
     RecipeCookCompletionCommand,
@@ -170,6 +171,21 @@ def recipe_cook_command_from_ai_payload(
         payload.get("baseUpdatedAt") if "baseUpdatedAt" in payload else payload.get("base_updated_at")
     )
 
+    target_meal_log_id_raw = payload.get("targetMealLogId")
+    if target_meal_log_id_raw is None:
+        target_meal_log_id_raw = payload.get("target_meal_log_id")
+    target_meal_log_id = str(target_meal_log_id_raw).strip() if target_meal_log_id_raw else None
+    expected_row_version_raw = payload.get("expectedMealLogRowVersion")
+    if expected_row_version_raw is None:
+        expected_row_version_raw = payload.get("expected_meal_log_row_version")
+    expected_meal_log_row_version = (
+        int(expected_row_version_raw) if expected_row_version_raw is not None and str(expected_row_version_raw).strip() != "" else None
+    )
+    if target_meal_log_id and expected_meal_log_row_version is None:
+        raise AIConflictError("加入已有餐时必须提供 expectedMealLogRowVersion")
+    if expected_meal_log_row_version is not None and not target_meal_log_id:
+        raise AIConflictError("expectedMealLogRowVersion 不能脱离 targetMealLogId 使用")
+
     return RecipeCookCompletionCommand(
         completion_request_id=completion_request_id,
         family_id=family_id,
@@ -188,6 +204,8 @@ def recipe_cook_command_from_ai_payload(
         allow_partial_inventory_deduction=False,
         inventory_expectation=inventory_expectation,
         recipe_base_updated_at=recipe_base_updated_at,
+        target_meal_log_id=target_meal_log_id,
+        expected_meal_log_row_version=expected_meal_log_row_version,
     )
 
 
@@ -246,6 +264,8 @@ def execute_recipe_cook_draft(
         raise _map_completion_conflict(exc) from exc
     except FoodPlanConflict as exc:
         raise _map_food_plan_conflict(exc) from exc
+    except MealLogConflictError as exc:
+        raise AIConflictError(exc.message) from exc
     except MealLogReferenceError as exc:
         raise AIConflictError(str(exc)) from exc
     except (InventoryConflictError, StaleDataError) as exc:

@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MealLog, Member } from '../../api/types';
 import { MealEnrichmentModal } from './MealEnrichmentModal';
-import type { MealSource } from './MealLogEnrichment';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,12 +22,12 @@ const meal: MealLog = {
   mood: '',
   photos: [],
   deduction_suggestions: [],
+  row_version: 1,
   created_at: '2026-07-07T12:00:00Z',
   updated_at: '2026-07-07T12:00:00Z',
 };
 
 const members: Member[] = [];
-const source: MealSource = { status: 'planned', label: '菜单计划' };
 
 afterEach(() => {
   act(() => root?.unmount());
@@ -49,7 +48,6 @@ function renderModal(options: { open?: boolean; isUpdating?: boolean; meal?: Mea
       <MealEnrichmentModal
         open={open}
         meal={options.meal ?? meal}
-        source={source}
         members={members}
         isUpdating={isUpdating}
         updateMealLog={vi.fn(async () => undefined)}
@@ -66,18 +64,12 @@ describe('MealEnrichmentModal', () => {
   it('wraps MealEnrichmentForm with the shared modal footer', () => {
     const { view } = renderModal();
 
-    expect(view.textContent).toContain('补充这餐');
-    expect(view.textContent).toContain('这餐已记录，保存后会补充评价、家人、照片和评论');
+    expect(view.textContent).toContain('编辑这顿');
+    expect(view.textContent).toContain('保存后会更新这顿的评价、家人、照片和评论');
     expect(view.querySelector('.workspace-overlay-root.home-dashboard-overlay-root')).not.toBeNull();
     expect(view.querySelector<HTMLButtonElement>('button.ui-form-actions-primary')?.getAttribute('form')).toBe(
       'test-meal-enrichment-form',
     );
-  });
-
-  it('keeps the create-on-save explanation for draft meals', () => {
-    const { view } = renderModal({ meal: { ...meal, id: 'draft-plan-1' } });
-
-    expect(view.textContent).toContain('保存后，本次补充记录将会出现在记录时间线中');
   });
 
   it('renders nothing when closed', () => {

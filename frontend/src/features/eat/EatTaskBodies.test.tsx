@@ -4,14 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   Food,
   FoodPlanItem,
   Ingredient,
   MealLog,
   Recipe,
+  RecordMealResponse,
 } from '../../api/types';
+import { api } from '../../api/client';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import {
   buildCookSessionV3Key,
@@ -27,6 +29,13 @@ import {
   EatRecipeTaskBody,
   buildEatTaskBodies,
 } from './EatTaskBodies';
+
+/** Phase-one owner matrix for Eat surfaces (Task 16). */
+const eatOwners = {
+  eatFoodRecord: 'recordMeal',
+  eatPlanComplete: 'completeFoodPlanItem',
+  recipeCook: 'cookRecipe',
+} as const;
 
 const imageComposerSpies = vi.hoisted(() => ({
   upload: vi.fn(async () => undefined),
@@ -56,7 +65,12 @@ function renderWithQuery(ui: ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const view = render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return {
+    ...view,
+    rerender: (next: ReactElement) =>
+      view.rerender(<QueryClientProvider client={client}>{next}</QueryClientProvider>),
+  };
 }
 
 function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
@@ -138,6 +152,7 @@ function makeReadyFood(overrides: Partial<Food> = {}): Food {
 }
 
 beforeEach(() => {
+  vi.useRealTimers();
   Object.defineProperty(window, 'scrollTo', {
     configurable: true,
     writable: true,
@@ -147,6 +162,12 @@ beforeEach(() => {
   imageComposerSpies.upload.mockClear();
   imageComposerSpies.generate.mockClear();
   imageComposerSpies.reset.mockClear();
+  vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('EatCookTaskBody resume prompt', () => {
@@ -198,7 +219,13 @@ describe('EatCookTaskBody resume prompt', () => {
 });
 
 describe('buildEatTaskBodies plan complete', () => {
-  it('records the plan item and opens enrichment with the created meal', async () => {
+  it('locks eat owners to recordMeal / completeFoodPlanItem / cookRecipe', () => {
+    expect(eatOwners.eatFoodRecord).toBe('recordMeal');
+    expect(eatOwners.eatPlanComplete).toBe('completeFoodPlanItem');
+    expect(eatOwners.recipeCook).toBe('cookRecipe');
+  });
+
+  it('completes non-recipe plan via completeFoodPlanItem and opens enrichment', async () => {
     const planItem = makePlanItem({ recipe_id: null });
     const createdMeal: MealLog = {
       id: 'meal-1',
@@ -220,10 +247,67 @@ describe('buildEatTaskBodies plan complete', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
+      row_version: 1,
       created_at: '2026-07-15T00:00:00.000Z',
       updated_at: '2026-07-15T00:00:00.000Z',
     };
-    const quickAddMeal = vi.fn(async () => createdMeal);
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const bodies = buildEatTaskBodies({
+      resolvedTask: {
+        kind: 'plan',
+        item: planItem,
+        week: { start: '2026-07-13', end: '2026-07-19' },
+      },
+      recipes: [makeRecipe()],
+      foods: [makeFood({ recipe_id: null })],
+      ingredients: [],
+      inventoryItems: [],
+      mealLogs: [],
+      foodPlanItems: [planItem],
+      members: [],
+      cookRecipe: vi.fn(),
+      previewCookRecipe: vi.fn(),
+      updateFoodPlanItem: vi.fn(),
+      deleteFoodPlanItem: vi.fn(),
+      createFoodPlanItem: vi.fn(),
+      updateFood: vi.fn(),
+      updateRecipe: vi.fn(),
+      updateMealLog: vi.fn(),
+      createShoppingItem: vi.fn(),
+      recordMeal,
+      completeFoodPlanItem,
+      onRecordSuccess,
+      onClose: vi.fn(),
+      onOpenLogs: vi.fn(),
+      onNavigateRecipe: vi.fn(),
+      onStartCook: vi.fn(),
+      onStartCookWithFood: vi.fn(),
+      onQuickAdd: vi.fn(),
+      onCookCompleted: vi.fn(),
+    });
+
+    renderWithQuery(<>{bodies.planTaskContent}</>);
+    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await waitFor(() => {
+      expect(completeFoodPlanItem).toHaveBeenCalled();
+    });
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
+      expect.objectContaining({
+        food_plan_item_base_updated_at: planItem.updated_at,
+      }),
+    );
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
+    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
+  });
+
+  it('starts recipe cook for recipe plan items without completeFoodPlanItem', async () => {
+    const planItem = makePlanItem({ recipe_id: 'recipe-1' });
+    const completeFoodPlanItem = vi.fn();
+    const onStartCook = vi.fn();
     const bodies = buildEatTaskBodies({
       resolvedTask: {
         kind: 'plan',
@@ -246,35 +330,28 @@ describe('buildEatTaskBodies plan complete', () => {
       updateRecipe: vi.fn(),
       updateMealLog: vi.fn(),
       createShoppingItem: vi.fn(),
-      quickAddMeal,
+      recordMeal: vi.fn(),
+      completeFoodPlanItem,
       onClose: vi.fn(),
       onOpenLogs: vi.fn(),
       onNavigateRecipe: vi.fn(),
-      onStartCook: vi.fn(),
+      onStartCook,
       onStartCookWithFood: vi.fn(),
       onQuickAdd: vi.fn(),
       onCookCompleted: vi.fn(),
     });
 
-    render(<>{bodies.planTaskContent}</>);
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
-    await waitFor(() => {
-      expect(quickAddMeal).toHaveBeenCalled();
-    });
-    expect(quickAddMeal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        food_id: planItem.food_id,
-        food_plan_item_id: planItem.id,
-      }),
-    );
-    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+    renderWithQuery(<>{bodies.planTaskContent}</>);
+    await userEvent.click(screen.getByRole('button', { name: '开始做' }));
+    expect(onStartCook).toHaveBeenCalledWith('recipe-1', planItem.id);
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
   });
 });
 
 describe('EatPlanTaskBody record failure', () => {
   it('keeps the plan detail open and shows the recording error', async () => {
     const planItem = makePlanItem({ recipe_id: null });
-    render(
+    renderWithQuery(
       <EatPlanTaskBody
         item={planItem}
         food={makeFood({ recipe_id: null })}
@@ -294,7 +371,7 @@ describe('EatPlanTaskBody record failure', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
     expect(screen.getByText('菜单计划详情')).toBeInTheDocument();
-    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
   });
 
   it('clears recorded meal state when switching directly to another plan item', async () => {
@@ -311,6 +388,7 @@ describe('EatPlanTaskBody record failure', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
+      row_version: 1,
       created_at: '2026-07-15T00:00:00Z',
       updated_at: '2026-07-15T00:00:00Z',
     };
@@ -328,14 +406,14 @@ describe('EatPlanTaskBody record failure', () => {
         updateMealLog={vi.fn()}
       />
     );
-    const view = render(renderBody(firstItem));
+    const view = renderWithQuery(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
-    expect(await screen.findByText('补充这餐')).toBeInTheDocument();
+    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
 
     view.rerender(renderBody(secondItem));
 
-    await waitFor(() => expect(screen.queryByText('补充这餐')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument());
     expect(screen.getByText('Second meal')).toBeInTheDocument();
   });
 
@@ -359,7 +437,7 @@ describe('EatPlanTaskBody record failure', () => {
         updateMealLog={vi.fn()}
       />
     );
-    const view = render(renderBody(firstItem));
+    const view = renderWithQuery(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
     view.rerender(renderBody(secondItem));
@@ -374,65 +452,316 @@ describe('EatPlanTaskBody record failure', () => {
       mood: '',
       photos: [],
       deduction_suggestions: [],
-      created_at: '2026-07-15T00:00:00Z',
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00Z',
       updated_at: '2026-07-15T00:00:00Z',
     });
 
     await waitFor(() => expect(screen.getByText('Second meal')).toBeInTheDocument());
-    expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
+    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
   });
 });
 
 describe('EatMealCreateTaskBody', () => {
-  it('includes food_plan_item_id for plan-sourced meal create', async () => {
-    const onSubmit = vi.fn(async () => undefined);
-    const planItem = makePlanItem();
-    const food = makeFood();
-    render(
+  it('completes plan-sourced meal create via completeFoodPlanItem (no ordinary undo)', async () => {
+    const planItem = makePlanItem({ recipe_id: null });
+    const food = makeFood({ recipe_id: null });
+    const completeFoodPlanItem = vi.fn(async () => ({
+      id: 'meal-plan-1',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    } satisfies MealLog));
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+
+    renderWithQuery(
       <EatMealCreateTaskBody
         food={food}
         planItem={planItem}
         recipes={[makeRecipe()]}
-        onClose={vi.fn()}
-        onSubmit={onSubmit}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '记录这一餐' }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    expect(onSubmit).toHaveBeenCalledWith(
+    const submit = await screen.findByRole('button', { name: '记下这餐' });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    await userEvent.click(submit);
+    await waitFor(() => expect(completeFoodPlanItem).toHaveBeenCalled());
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
       expect.objectContaining({
-        food_id: food.id,
-        food_plan_item_id: planItem.id,
+        food_plan_item_base_updated_at: planItem.updated_at,
       }),
     );
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('includes stock deduction fields when deductStock is enabled', async () => {
-    const onSubmit = vi.fn(async () => undefined);
+  it('records ordinary Food via recordMeal and publishes shared result', async () => {
     const food = makeReadyFood();
-    render(
+    const response = {
+      meal_log: {
+        id: 'meal-rec-1',
+        family_id: 'family-1',
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        food_entries: [],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: '2026-07-15T00:00:00.000Z',
+        updated_at: '2026-07-15T00:00:00.000Z',
+      },
+      created_foods: [],
+      outcome: 'created',
+      operation: {
+        id: 'op-1',
+        status: 'applied',
+        revertible_until: '2026-07-15T01:00:00.000Z',
+        can_revert: true,
+      },
+    } satisfies RecordMealResponse;
+    const recordMeal = vi.fn(async () => response);
+    const completeFoodPlanItem = vi.fn();
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+
+    renderWithQuery(
       <EatMealCreateTaskBody
         food={food}
         planItem={null}
         recipes={[]}
-        onClose={vi.fn()}
-        onSubmit={onSubmit}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
       />,
     );
 
-    expect(screen.getByRole('checkbox', { name: /同步扣减库存/i })).toBeChecked();
-    await userEvent.click(screen.getByRole('button', { name: '记录这一餐' }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    expect(onSubmit).toHaveBeenCalledWith(
+    expect(screen.queryByRole('checkbox', { name: /同步扣减库存/i })).toBeNull();
+    const submit = await screen.findByRole('button', { name: '记下这餐' });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    await userEvent.click(submit);
+    await waitFor(() => expect(recordMeal).toHaveBeenCalled());
+    const payload = (recordMeal.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(payload).toMatchObject({
+      date: expect.any(String),
+      meal_type: expect.any(String),
+      target: { kind: 'new' },
+    });
+    expect(payload.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ food_id: food.id, servings: 1 })]),
+    );
+    expect(payload).not.toHaveProperty('deduct_food_stock');
+    expect(payload).not.toHaveProperty('stock_quantity');
+    expect(payload).not.toHaveProperty('food_plan_item_id');
+    expect(completeFoodPlanItem).not.toHaveBeenCalled();
+    expect(onRecordSuccess).toHaveBeenCalledWith(response);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('history free meal-create opens full MealComposer and records multi-Food with publish', async () => {
+    const response = {
+      meal_log: {
+        id: 'meal-free-1',
+        family_id: 'family-1',
+        date: '2026-07-15',
+        meal_type: 'dinner',
+        food_entries: [
+          {
+            id: 'entry-free-1',
+            food_id: 'food-inline',
+            food_name: '酸汤牛肉',
+            servings: 1,
+            note: '',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: '2026-07-15T00:00:00.000Z',
+        updated_at: '2026-07-15T00:00:00.000Z',
+      },
+      created_foods: [],
+      outcome: 'created',
+      operation: {
+        id: 'op-free-1',
+        status: 'applied',
+        revertible_until: '2026-07-15T01:00:00.000Z',
+        can_revert: true,
+        created_entry_ids: ['entry-free-1'],
+      },
+    } satisfies RecordMealResponse;
+    const recordMeal = vi.fn(async () => response);
+    const onRecordSuccess = vi.fn();
+    const onClose = vi.fn();
+    vi.spyOn(api, 'getMealCandidates').mockResolvedValue([]);
+    vi.spyOn(api, 'getFoods').mockResolvedValue([]);
+
+    renderWithQuery(
+      <EatMealCreateTaskBody
+        food={null}
+        planItem={null}
+        date="2026-07-15"
+        mealType="dinner"
+        recipes={[]}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={vi.fn()}
+        onRecordSuccess={onRecordSuccess}
+        onClose={onClose}
+      />,
+    );
+
+    // Full composer, not the empty-state dead end.
+    expect(screen.queryByText('还没有可记录的家常菜')).toBeNull();
+    expect(screen.getByRole('heading', { name: '记一餐' })).toBeVisible();
+    const searchbox = screen.getByRole('searchbox', { name: '搜索食物' });
+    expect(searchbox).toBeVisible();
+
+    // Set query in one shot (avoids flake from character-by-character typing under suite load).
+    const user = userEvent.setup();
+    fireEvent.change(searchbox, { target: { value: '酸汤牛肉' } });
+    await user.click(await screen.findByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    await user.click(screen.getByRole('button', { name: '家里做' }));
+    expect(screen.getByText('酸汤牛肉')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(recordMeal).toHaveBeenCalled());
+    const payload = (recordMeal.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(payload).toMatchObject({
+      date: '2026-07-15',
+      meal_type: 'dinner',
+      target: { kind: 'new' },
+    });
+    expect(payload.new_foods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: '酸汤牛肉', type: 'selfMade' }),
+      ]),
+    );
+    expect(onRecordSuccess).toHaveBeenCalledWith(response);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('locks plan-sourced meal-create date/mealType to the plan slot for candidates and complete', async () => {
+    const planItem = makePlanItem({
+      recipe_id: null,
+      plan_date: '2026-07-15',
+      meal_type: 'dinner',
+    });
+    const food = makeFood({ recipe_id: null });
+    const getMealCandidates = vi.spyOn(api, 'getMealCandidates').mockResolvedValue([
+      {
+        meal_log_id: 'meal-other-slot',
+        row_version: 1,
+        date: '2026-07-16',
+        meal_type: 'lunch',
+        created_at: '2026-07-16T04:00:00Z',
+        foods: [{ food_id: 'food-x', name: 'Other', food_type: 'readyMade' }],
+        preview_media: null,
+        photo_count: 0,
+      },
+    ]);
+    const completeFoodPlanItem = vi.fn(async () => ({
+      id: 'meal-plan-locked',
+      family_id: 'family-1',
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      food_entries: [],
+      participant_user_ids: [],
+      notes: '',
+      mood: '',
+      photos: [],
+      deduction_suggestions: [],
+      row_version: 1,
+      created_at: '2026-07-15T00:00:00.000Z',
+      updated_at: '2026-07-15T00:00:00.000Z',
+    } satisfies MealLog));
+    const recordMeal = vi.fn();
+    const onRecordSuccess = vi.fn();
+
+    renderWithQuery(
+      <EatMealCreateTaskBody
+        food={food}
+        planItem={planItem}
+        date="2026-07-20"
+        mealType="breakfast"
+        recipes={[]}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={completeFoodPlanItem}
+        onRecordSuccess={onRecordSuccess}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(getMealCandidates).toHaveBeenCalled());
+    // Candidates must load for the plan slot, never the outer task date/mealType props.
+    expect(getMealCandidates).toHaveBeenCalledWith(planItem.plan_date, planItem.meal_type);
+    for (const call of getMealCandidates.mock.calls) {
+      expect(call[0]).toBe(planItem.plan_date);
+      expect(call[1]).toBe(planItem.meal_type);
+    }
+
+    const dateStrip = screen.getByRole('listbox', { name: '选择日期' });
+    const dateButtons = Array.from(dateStrip.querySelectorAll('button'));
+    expect(dateButtons).toHaveLength(1);
+    expect(dateButtons[0]).toBeDisabled();
+    expect(dateButtons[0]).toHaveAttribute('aria-selected', 'true');
+    expect(dateStrip).toHaveAttribute('aria-disabled', 'true');
+
+    const mealButtons = screen.getAllByRole('radio');
+    for (const button of mealButtons) {
+      expect(button).toBeDisabled();
+    }
+    const dinnerButton = screen.getByRole('radio', { name: '晚餐' });
+    expect(dinnerButton).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radiogroup', { name: '选择餐次' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    // Clicks on locked controls must not re-fetch a mismatched slot.
+    getMealCandidates.mockClear();
+    await userEvent.click(dinnerButton);
+    const lunchButton = screen.getByRole('radio', { name: '午餐' });
+    await userEvent.click(lunchButton);
+    expect(getMealCandidates).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(completeFoodPlanItem).toHaveBeenCalled());
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(
+      planItem.id,
       expect.objectContaining({
-        food_id: food.id,
-        deduct_food_stock: true,
-        stock_quantity: 1,
-        stock_unit: '份',
-        expected_food_row_version: food.row_version,
+        food_plan_item_base_updated_at: planItem.updated_at,
       }),
     );
+    // completeFoodPlanItem never receives UI date/mealType — backend uses plan slot.
+    const completePayload = (completeFoodPlanItem.mock.calls[0] as unknown as [string, Record<string, unknown>])[1];
+    expect(completePayload).not.toHaveProperty('date');
+    expect(completePayload).not.toHaveProperty('meal_type');
+    expect(recordMeal).not.toHaveBeenCalled();
+    expect(onRecordSuccess).not.toHaveBeenCalled();
   });
 });
 

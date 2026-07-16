@@ -99,14 +99,16 @@ describe('IngredientWorkspace shared overlay usage', () => {
 
     expect(panelsSource).toContain('减扣');
     expect(panelsSource).toContain('补库存');
-    expect(workspaceSource).toContain('api.quickAddMealLog');
+    // Ordinary Food recording uses shared recordMeal; inventory is a separate command.
+    expect(workspaceSource).not.toContain('api.quick' + 'AddMealLog');
+    expect(workspaceSource).not.toContain('quick' + 'AddMeal');
+    expect(workspaceSource).toContain('recordMeal');
+    expect(workspaceSource).toContain('MealQuickRecordView');
+    expect(workspaceSource).toContain('MealRecordResultBar');
     expect(workspaceSource).toContain('api.restockFoodStock');
     expect(workspaceSource).toContain('api.consumeFoodStock');
-    expect(workspaceSource).toContain('expected_row_version: foodStockMealDialog.item.row_version');
-    expect(workspaceSource).toContain('expected_food_row_version: foodStockMealDialog.item.row_version');
     expect(workspaceSource).toContain('expected_row_version: foodStockAdjustDialog.item.row_version');
     expect(workspaceSource).not.toContain('api.disposeFoodStock');
-    expect(workspaceSource).toContain('不记录');
     expect(workspaceSource).toContain('step="0.1"');
     expect(workspaceSource).toContain('parseUnifiedFoodStockQuantity');
     expect(workspaceSource).not.toContain('ingredients-food-stock-storage-segments');
@@ -117,6 +119,24 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('记餐入口还在食物页');
     expect(appSource).not.toContain('onOpenFoodEditor={(foodId)');
     expect(appSource).not.toContain('onOpenFoodQuickMeal={(foodId)');
+  });
+
+  it('splits ingredient Food record from independent inventory mutation', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+
+    // Record payloads must not include stock/plan fields.
+    expect(workspaceSource).not.toContain('deduct_food_stock');
+    expect(workspaceSource).not.toContain('expected_food_row_version');
+    expect(workspaceSource).not.toMatch(/recordMeal\([\s\S]{0,400}stock_quantity/);
+    expect(workspaceSource).not.toMatch(/recordMeal\([\s\S]{0,400}stock_unit/);
+    expect(workspaceSource).not.toMatch(/recordMeal\([\s\S]{0,400}food_plan_item_id/);
+
+    // Inventory follow-up is a separate submit after record.
+    expect(workspaceSource).toContain('api.consumeFoodStock');
+    expect(workspaceSource).toContain('处理库存');
+    // Cancelling inventory follow-up must not roll back the meal — no revert on dismiss.
+    expect(workspaceSource).not.toMatch(/setInventoryFollowUp[\s\S]{0,200}revert/);
+    expect(workspaceSource).not.toMatch(/onClose[\s\S]{0,120}revertMeal/);
   });
 
   it('carries shopping row versions through edit and restore actions', () => {

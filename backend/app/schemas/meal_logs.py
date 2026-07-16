@@ -44,6 +44,7 @@ class MealLogOut(BaseModel):
     mood: str
     photos: list[MediaAssetOut]
     deduction_suggestions: list[DeductionSuggestionOut]
+    row_version: int
     created_at: datetime
     updated_at: datetime
     created_by: str | None = None
@@ -62,6 +63,7 @@ class CreateMealLogRequest(BaseModel):
 
 
 class UpdateMealLogRequest(BaseModel):
+    expected_row_version: int = Field(ge=1)
     participant_user_ids: list[str] | None = None
     notes: str | None = None
     mood: str | None = None
@@ -70,28 +72,34 @@ class UpdateMealLogRequest(BaseModel):
     food_entry_ratings: list[MealLogFoodRatingIn] | None = None
 
 
-class QuickAddMealLogRequest(BaseModel):
+class MealCompositionEntryIn(BaseModel):
+    id: str | None = None
     food_id: str
-    date: date_type
-    meal_type: MealType
-    servings: float = 1
+    servings: float = Field(gt=0)
     note: str = ""
-    food_plan_item_id: str | None = None
-    food_plan_item_base_updated_at: datetime | None = None
-    deduct_food_stock: bool = False
-    expected_food_row_version: int | None = Field(default=None, ge=1)
-    stock_quantity: float | None = Field(default=None, gt=0)
-    stock_unit: str | None = Field(default=None, max_length=32)
 
-    @field_validator("servings")
+    @field_validator("food_id")
     @classmethod
-    def validate_servings(cls, value: float) -> float:
-        if value <= 0:
-            raise ValueError("份数必须大于 0")
-        return value
+    def validate_food_id(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("food_id 不能为空")
+        return cleaned
 
-    @model_validator(mode="after")
-    def validate_stock_version(self) -> "QuickAddMealLogRequest":
-        if self.deduct_food_stock and self.expected_food_row_version is None:
-            raise ValueError("扣减成品库存时必须提供 expected_food_row_version")
-        return self
+    @field_validator("id")
+    @classmethod
+    def validate_entry_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        return value or ""
+
+
+class UpdateMealCompositionRequest(BaseModel):
+    expected_row_version: int = Field(ge=1)
+    food_entries: list[MealCompositionEntryIn]

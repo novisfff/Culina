@@ -31,6 +31,7 @@ import type {
 import { resolveAssetUrl } from '../../lib/assets';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
+import { createMealBusinessDate } from '../../features/meals/MealComposerModel';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
@@ -657,6 +658,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     cookSubmitDisabled,
     cookFinishStatusMessage,
     cookCompletionResult,
+    cookCandidates,
+    cookCandidateMode,
+    cookSelectedCandidateId,
+    cookTarget,
+    cookTargetNeedsReconfirm,
+    setCookMealTarget,
     openCook,
     closeCookDialog,
     updateCookSession,
@@ -1407,7 +1414,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           recipe={activeCookCard.recipe}
           food={activeCookCard.linkedFood ?? ({ id: activeCookCard.recipe.id, name: activeCookCard.recipe.title } as Food)}
           launchContext={{
-            date: todayKey(),
+            date: createMealBusinessDate(),
             mealType: 'dinner',
             servings: activeCookCard.recipe.servings,
             source: { kind: 'direct' },
@@ -1634,6 +1641,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       {isCookFinishOpen && activeCookCard && cookSession && (
         <RecipeCookFinishDialog
           recipeTitle={activeCookCard.recipe.title}
+          recipeCover={activeCookCard.recipe.images[0] ?? null}
           cookPreview={cookPreview}
           cookPreviewError={cookPreviewError}
           isCookPreviewLoading={isCookPreviewLoading}
@@ -1649,6 +1657,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 }
               : null
           }
+          candidates={cookCandidates}
+          candidateMode={cookCandidateMode}
+          selectedCandidateId={cookSelectedCandidateId}
+          target={cookTarget}
+          targetNeedsReconfirm={cookTargetNeedsReconfirm}
+          onTargetChange={setCookMealTarget}
           onUpdateSession={updateCookSession}
           onClose={() => setIsCookFinishOpen(false)}
           onSubmit={submitCookRecipe}

@@ -116,6 +116,8 @@ export async function invalidateAfterRecipeCooked(queryClient: QueryClient) {
     queryKeys.foods,
     queryKeys.foodRecommendations,
     queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
     queryKeys.foodPlanRoot,
     queryKeys.shoppingList,
     queryKeys.activityLogs,
@@ -140,24 +142,81 @@ export async function invalidateAfterFoodSceneChanged(queryClient: QueryClient) 
 }
 
 export async function invalidateAfterFoodChanged(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  await invalidateMany(queryClient, [
+    queryKeys.foods,
+    queryKeys.inventoryOverviewRoot,
+    queryKeys.foodRecommendations,
+    queryKeys.mealInsights,
+    queryKeys.activityLogs,
+  ]);
 }
 
 export async function invalidateAfterMealLogChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [
     queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
     queryKeys.activityHighlights,
   ]);
 }
 
-export async function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
+export async function invalidateAfterMealRecorded(
+  queryClient: QueryClient,
+  options: { createdFood?: boolean } = {},
+) {
+  const keys: QueryKey[] = [
+    queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
+    queryKeys.mealRecordOperations(true),
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ];
+  if (options.createdFood) {
+    keys.push(queryKeys.foods);
+  }
+  await invalidateMany(queryClient, keys);
+}
+
+export async function invalidateAfterMealCompositionChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [
     queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ]);
+}
+
+export async function invalidateAfterMealRecordReverted(
+  queryClient: QueryClient,
+  options: { removedFood?: boolean } = {},
+) {
+  const keys: QueryKey[] = [
+    queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
+    queryKeys.mealRecordOperations(true),
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+    queryKeys.activityHighlights,
+  ];
+  if (options.removedFood) {
+    keys.push(queryKeys.foods);
+  }
+  await invalidateMany(queryClient, keys);
+}
+
+export async function invalidateAfterFoodPlanCompleted(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
     queryKeys.foodPlanRoot,
-    queryKeys.foods,
-    queryKeys.inventoryOverviewRoot,
+    queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
     queryKeys.activityHighlights,
@@ -177,6 +236,8 @@ export async function invalidateAfterAiApprovalSettled(queryClient: QueryClient,
     queryKeys.shoppingList,
     queryKeys.foodPlanRoot,
     queryKeys.mealLogs,
+    queryKeys.mealCandidatesRoot,
+    queryKeys.mealInsights,
     queryKeys.foods,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,

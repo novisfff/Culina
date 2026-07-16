@@ -13,6 +13,8 @@ from app.api.inventory import router as inventory_router
 from app.api.inventory_reconciliation import router as inventory_reconciliation_router
 from app.api.inventory_operations import router as inventory_operations_router
 from app.api.inventory_states import router as inventory_states_router
+from app.api.meal_log_insights import router as meal_log_insights_router
+from app.api.meal_log_recording import router as meal_log_recording_router
 from app.api.meal_logs import router as meal_logs_router
 from app.api.media import router as media_router
 from app.api.recipe_meta import router as recipe_meta_router
@@ -35,6 +37,8 @@ api_router.include_router(recipes_router)
 api_router.include_router(recipe_meta_router)
 api_router.include_router(foods_router)
 api_router.include_router(meal_logs_router)
+api_router.include_router(meal_log_recording_router)
+api_router.include_router(meal_log_insights_router)
 api_router.include_router(activity_logs_router)
 api_router.include_router(activity_highlights_router)
 api_router.include_router(media_router)

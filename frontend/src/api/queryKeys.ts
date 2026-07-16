@@ -1,5 +1,6 @@
 const inventoryOverviewRoot = ['inventory', 'overview'] as const;
 const foodPlanRoot = ['food-plan'] as const;
+const mealCandidatesRoot = ['meal-logs', 'candidates'] as const;
 
 export const queryKeys = {
   authMe: ['auth', 'me'] as const,
@@ -38,6 +39,12 @@ export const queryKeys = {
   search: (query: string, scopes: readonly string[] = [], limit = 20, offset = 0) =>
     ['search', query.trim(), [...scopes].sort().join(','), limit, offset] as const,
   mealLogs: ['meal-logs'] as const,
+  mealCandidatesRoot,
+  mealCandidates: (date: string, mealType: string) =>
+    [...mealCandidatesRoot, date, mealType] as const,
+  mealRecordOperations: (active: boolean) =>
+    ['meal-logs', 'record-operations', active] as const,
+  mealInsights: ['meal-logs', 'insights'] as const,
   activityLogs: ['activity-logs'] as const,
   activityLogList: (params: {
     start_date?: string;

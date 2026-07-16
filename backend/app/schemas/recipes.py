@@ -160,11 +160,17 @@ class CookRecipeRequest(CookRecipeDraftFields):
     completion_request_id: str = Field(min_length=1, max_length=120)
     food_plan_item_id: str | None = None
     food_plan_item_base_updated_at: datetime | None = None
+    target_meal_log_id: str | None = None
+    expected_meal_log_row_version: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def require_plan_base_timestamp(self) -> Self:
         if self.food_plan_item_id and self.food_plan_item_base_updated_at is None:
             raise ValueError("计划来源完成请求必须提供 food_plan_item_base_updated_at")
+        if self.target_meal_log_id and self.expected_meal_log_row_version is None:
+            raise ValueError("加入已有餐时必须提供 expected_meal_log_row_version")
+        if self.expected_meal_log_row_version is not None and not self.target_meal_log_id:
+            raise ValueError("expected_meal_log_row_version 不能脱离 target_meal_log_id 使用")
         return self
 
 
@@ -298,5 +304,19 @@ class UpdateFoodPlanItemRequest(BaseModel):
     meal_type: MealType | None = None
     note: str | None = None
     status: str | None = None
+
+
+class CompleteFoodPlanItemRequest(BaseModel):
+    food_plan_item_base_updated_at: datetime
+    target_meal_log_id: str | None = None
+    expected_meal_log_row_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def require_target_version_pair(self) -> Self:
+        if self.target_meal_log_id and self.expected_meal_log_row_version is None:
+            raise ValueError("加入已有餐时必须提供 expected_meal_log_row_version")
+        if self.expected_meal_log_row_version is not None and not self.target_meal_log_id:
+            raise ValueError("expected_meal_log_row_version 不能脱离 target_meal_log_id 使用")
+        return self
 
 

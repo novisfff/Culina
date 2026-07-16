@@ -1,5 +1,19 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import type {
+  Food,
+  FoodPlanItem,
+  FoodRecommendations,
+  Ingredient,
+  InventoryItem,
+  MealLog,
+  MealLogCandidate,
+  MealType,
+  Recipe,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
+  ShoppingListItem,
+} from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { HomePlanCookArgs, HomeRecommendedCookArgs } from '../../app/useAppHomeHandlers';
 import { DashboardIcon } from '../../app/shellIcons';
@@ -31,11 +45,25 @@ import {
   getSecondaryFoodActionLabel,
   buildFoodRelationViewModel,
 } from '../../components/foods/FoodWorkspaceHelpers';
-import { addDateKeyDays } from '../../lib/date';
-import { FOOD_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type {
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
+import {
+  buildRecordMealPayload,
+  canSubmitWithCandidateResolution,
+  createMealBusinessDate,
+  createMealRecordDateOptions,
+  deriveCandidatePresentation,
+  type MealCandidateResolution,
+} from '../meals/MealComposerModel';
+import {
+  extractMealRecordErrorCode,
+  messageFromMealRecordReason,
+} from '../meals/mealRecordErrors';
+import { MealQuickRecordView } from '../meals/MealQuickRecordView';
+import { MealRecordResultBar } from '../meals/MealRecordResultBar';
+import type { MealRecordResult } from '../meals/useMealRecordResultState';
 import {
   type DashboardPlanDay,
   type DashboardPlanSummaryItem,
@@ -88,7 +116,23 @@ export type HomeDashboardProps = {
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
+  /** Asia/Shanghai business date for meal defaults (injected from App). */
+  businessDateKey: string;
+  /** Ordinary Home recommendation/direct Food record owner. */
+  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  /** Injectable candidate loader (defaults unused; App/tests pass this). */
+  loadMealCandidates?: (date: string, mealType: MealType) => Promise<MealLogCandidate[]>;
+  /** Publish ordinary record result into App-level shared state. */
+  onRecordSuccess?: (response: RecordMealResponse) => void;
+  /** Shared ordinary-record result bar contract from App. */
+  recordResult?: MealRecordResult | null;
+  isRevertingRecord?: boolean;
+  recordRevertError?: string | null;
+  recordRateError?: string | null;
+  onRevertRecord?: () => void | Promise<void>;
+  onViewRecord?: () => void;
+  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
+  onDismissRecord?: () => void;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   onNavigate: (target: AppNavigationTarget) => void;
   onOpenGlobalSearch: () => void;
@@ -131,6 +175,28 @@ function getHomeQuickDefaultMealType(food: Food, fallbackMealType?: MealType): M
   return food.suitable_meal_types[0] ?? suggestedMealType;
 }
 
+function createClientRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+type HomeQuickRecordState = {
+  food: Food;
+  date: string;
+  mealType: MealType;
+  target: RecordMealTarget;
+  selectedCandidateId: string | null;
+  candidateMode: 'none' | 'single' | 'multi';
+  candidates: MealLogCandidate[];
+  candidateResolution: MealCandidateResolution;
+  targetTouchedByUser: boolean;
+  clientRequestId: string;
+  busy: boolean;
+  error: string | null;
+};
+
 export function HomeDashboard(props: HomeDashboardProps) {
   const {
     sidebarFamilyName,
@@ -158,7 +224,18 @@ export function HomeDashboard(props: HomeDashboardProps) {
     isQuickAdding,
     isCreatingFoodPlanItem,
     resolveAssetUrl,
-    quickAddMeal,
+    businessDateKey,
+    recordMeal,
+    loadMealCandidates,
+    onRecordSuccess,
+    recordResult = null,
+    isRevertingRecord = false,
+    recordRevertError = null,
+    recordRateError = null,
+    onRevertRecord,
+    onViewRecord,
+    onRateRecord,
+    onDismissRecord,
     createFoodPlanItem,
     onNavigate,
     onOpenGlobalSearch,
@@ -182,7 +259,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
   } = props;
+  // Recipe cook confirmation still uses FoodQuickMealDialog.
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
+  // Non-Recipe recommendation / direct Food uses compact prefilled MealQuickRecordView.
+  const [quickRecord, setQuickRecord] = useState<HomeQuickRecordState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
   const [morePlansPopover, setMorePlansPopover] = useState<{
     date: string;
@@ -201,12 +281,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
     openDetail(food);
   }
 
+  const mealBusinessDate = businessDateKey || createMealBusinessDate();
   const quickMealDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index)),
-    [],
+    () => createMealRecordDateOptions(mealBusinessDate),
+    [mealBusinessDate],
   );
 
-  function openQuickMealDialog(
+  function openCookConfirmDialog(
     food: Food,
     fallbackMealType?: MealType,
     options?: { date?: string; preferFallbackMealType?: boolean },
@@ -216,25 +297,53 @@ export function HomeDashboard(props: HomeDashboardProps) {
       recipeId != null
         ? recipes.find((recipe) => recipe.id === recipeId)?.servings
         : undefined;
-    const isCook = Boolean(food.recipe_id);
-    // Recommendation / detail cook may pass an explicit target meal that should
-    // survive into the dialog even when the food's suitable_meal_types differ.
     const mealType =
-      isCook && options?.preferFallbackMealType && fallbackMealType
+      options?.preferFallbackMealType && fallbackMealType
         ? fallbackMealType
         : getHomeQuickDefaultMealType(food, fallbackMealType);
     setQuickMealDialog({
-      action: isCook ? 'cook' : 'eat',
-      date: options?.date ?? todayKey(),
+      action: 'cook',
+      date: options?.date ?? mealBusinessDate,
       food,
       mealType,
       recipeId,
-      servings: isCook
-        ? recipeServings && recipeServings > 0
-          ? recipeServings
-          : 1
-        : undefined,
+      servings: recipeServings && recipeServings > 0 ? recipeServings : 1,
     });
+  }
+
+  function openCompactRecord(
+    food: Food,
+    fallbackMealType?: MealType,
+    options?: { date?: string },
+  ) {
+    const mealType = getHomeQuickDefaultMealType(food, fallbackMealType);
+    setQuickRecord({
+      food,
+      date: options?.date ?? mealBusinessDate,
+      mealType,
+      target: { kind: 'new' },
+      selectedCandidateId: null,
+      candidateMode: 'none',
+      candidates: [],
+      candidateResolution: { status: 'loading' },
+      targetTouchedByUser: false,
+      clientRequestId: createClientRequestId(),
+      busy: false,
+      error: null,
+    });
+  }
+
+  /** Recommendation / detail primary action: cook for recipe foods, compact record otherwise. */
+  function openQuickMealDialog(
+    food: Food,
+    fallbackMealType?: MealType,
+    options?: { date?: string; preferFallbackMealType?: boolean },
+  ) {
+    if (food.recipe_id) {
+      openCookConfirmDialog(food, fallbackMealType, options);
+      return;
+    }
+    openCompactRecord(food, fallbackMealType, options);
   }
 
   function updateQuickMealDialog(
@@ -243,34 +352,198 @@ export function HomeDashboard(props: HomeDashboardProps) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
-  async function submitQuickMealDialog(event: FormEvent<HTMLFormElement>) {
+  async function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!quickMealDialog) return;
     const current = quickMealDialog;
-    // Cook path: direct cook without creating a plan item (matches recommendation detail).
-    if ((current.action === 'cook' || current.food.recipe_id) && current.food.recipe_id) {
-      const servings =
-        current.servings != null && current.servings > 0
-          ? current.servings
-          : recipes.find((recipe) => recipe.id === current.food.recipe_id)?.servings || 1;
-      setQuickMealDialog(null);
-      onStartRecommendedRecipe({
-        foodId: current.food.id,
-        recipeId: current.food.recipe_id,
-        date: current.date,
-        mealType: current.mealType,
-        servings,
-      });
+    if (!current.food.recipe_id) return;
+    const servings =
+      current.servings != null && current.servings > 0
+        ? current.servings
+        : recipes.find((recipe) => recipe.id === current.food.recipe_id)?.servings || 1;
+    setQuickMealDialog(null);
+    onStartRecommendedRecipe({
+      foodId: current.food.id,
+      recipeId: current.food.recipe_id,
+      date: current.date,
+      mealType: current.mealType,
+      servings,
+    });
+  }
+
+  // Load authoritative candidates when compact record date/mealType change.
+  useEffect(() => {
+    if (!quickRecord) return;
+    let cancelled = false;
+    const { date, mealType } = quickRecord;
+    const loader = loadMealCandidates;
+    if (!loader) {
+      setQuickRecord((current) =>
+        current && current.date === date && current.mealType === mealType
+          ? {
+              ...current,
+              candidates: [],
+              candidateMode: 'none',
+              candidateResolution: { status: 'ready' },
+            }
+          : current,
+      );
       return;
     }
-    await quickAddMeal({
-      food_id: current.food.id,
-      date: current.date,
-      meal_type: current.mealType,
-      servings: 1,
-      note: '首页快捷记录',
-    });
-    setQuickMealDialog(null);
+    setQuickRecord((current) =>
+      current && current.date === date && current.mealType === mealType
+        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
+        : current,
+    );
+    void (async () => {
+      try {
+        const candidates = await loader(date, mealType);
+        if (cancelled) return;
+        const presentation = deriveCandidatePresentation(candidates, mealType);
+        setQuickRecord((current) => {
+          if (!current || current.date !== date || current.mealType !== mealType) return current;
+          return {
+            ...current,
+            candidates,
+            candidateMode: presentation.mode,
+            candidateResolution: { status: 'ready' },
+            ...(current.targetTouchedByUser
+              ? {}
+              : {
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                }),
+          };
+        });
+      } catch (reason) {
+        if (cancelled) return;
+        const message =
+          reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : '加载候选失败，请重试';
+        setQuickRecord((current) =>
+          current && current.date === date && current.mealType === mealType
+            ? {
+                ...current,
+                candidateResolution: { status: 'error', message },
+                error: message,
+              }
+            : current,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only re-run when open identity / date / mealType / loader change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, loadMealCandidates]);
+
+  async function submitCompactRecord() {
+    if (!quickRecord || quickRecord.busy) return;
+    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                current.candidateResolution.status === 'error'
+                  ? current.candidateResolution.message || '加载候选失败，请重试'
+                  : '正在确认是否有可加入的餐食…',
+            }
+          : current,
+      );
+      return;
+    }
+    const cover = getFoodCoverAsset(quickRecord.food, recipes) ?? null;
+    let payload: RecordMealPayload;
+    try {
+      payload = buildRecordMealPayload({
+        clientRequestId: quickRecord.clientRequestId,
+        date: quickRecord.date,
+        mealType: quickRecord.mealType,
+        target: quickRecord.target,
+        foods: [
+          {
+            kind: 'existing',
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            servings: 1,
+            cover,
+          },
+        ],
+      });
+    } catch (reason) {
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              error: reason instanceof Error && reason.message.trim()
+                ? reason.message
+                : '记录失败，请重试',
+            }
+          : current,
+      );
+      return;
+    }
+
+    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
+    try {
+      const response = await recordMeal(payload);
+      setQuickRecord(null);
+      onRecordSuccess?.(response);
+    } catch (reason) {
+      const code = extractMealRecordErrorCode(reason);
+      if (code === 'meal_log_stale' && loadMealCandidates) {
+        try {
+          const refreshed = await loadMealCandidates(quickRecord.date, quickRecord.mealType);
+          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
+          setQuickRecord((current) =>
+            current
+              ? {
+                  ...current,
+                  busy: false,
+                  candidates: refreshed,
+                  candidateMode: presentation.mode,
+                  candidateResolution: { status: 'ready' },
+                  target: presentation.target,
+                  selectedCandidateId: presentation.selectedCandidateId,
+                  targetTouchedByUser: false,
+                  error: '这顿饭刚被家人更新，请重新确认',
+                }
+              : current,
+          );
+          return;
+        } catch {
+          // fall through to generic message
+        }
+      }
+      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
+        setQuickRecord((current) =>
+          current
+            ? {
+                ...current,
+                busy: false,
+                clientRequestId: createClientRequestId(),
+                error:
+                  code === 'record_operation_reverted'
+                    ? '上次记录已撤销，请再试一次'
+                    : '记录内容已变化，请再试一次',
+              }
+            : current,
+        );
+        return;
+      }
+      setQuickRecord((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
+            }
+          : current,
+      );
+    }
   }
 
   function handleOpenInventoryAction(group: InventoryActionGroup) {
@@ -334,6 +607,95 @@ export function HomeDashboard(props: HomeDashboardProps) {
         onOpenReconciliation={onOpenReconciliation}
       />
 
+      <MealRecordResultBar
+        result={recordResult ?? null}
+        isReverting={isRevertingRecord}
+        revertError={recordRevertError}
+        rateError={recordRateError}
+        onRevert={onRevertRecord}
+        onView={onViewRecord}
+        onRate={onRateRecord}
+        onDismiss={onDismissRecord}
+      />
+
+      {quickRecord ? (
+        <MealQuickRecordView
+          open
+          prefilledFood={{
+            food_id: quickRecord.food.id,
+            name: quickRecord.food.name,
+            cover: getFoodCoverAsset(quickRecord.food, recipes) ?? null,
+            servings: 1,
+          }}
+          date={quickRecord.date}
+          mealType={quickRecord.mealType}
+          dateOptions={quickMealDateOptions}
+          candidates={quickRecord.candidates}
+          selectedCandidateId={quickRecord.selectedCandidateId}
+          candidateMode={quickRecord.candidateMode}
+          target={quickRecord.target}
+          busy={quickRecord.busy || isQuickAdding}
+          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
+          error={quickRecord.error}
+          overlayRootClassName="home-dashboard-overlay-root"
+          onClose={() => {
+            if (!quickRecord.busy) setQuickRecord(null);
+          }}
+          onDateChange={(date) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    date,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onMealTypeChange={(mealType) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    mealType,
+                    target: { kind: 'new' },
+                    selectedCandidateId: null,
+                    candidateMode: 'none',
+                    candidates: [],
+                    candidateResolution: { status: 'loading' },
+                    targetTouchedByUser: false,
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onTargetChange={(target, selectedCandidateId) => {
+            setQuickRecord((current) =>
+              current
+                ? {
+                    ...current,
+                    target,
+                    selectedCandidateId:
+                      selectedCandidateId ??
+                      (target.kind === 'existing' ? target.meal_log_id : null),
+                    targetTouchedByUser: true,
+                    error: null,
+                  }
+                : current,
+            );
+          }}
+          onSubmit={() => {
+            void submitCompactRecord();
+          }}
+        />
+      ) : null}
+
       {quickMealDialog && (() => {
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
         const isSubmitting = Boolean(isQuickAdding || (isCookAction && isCreatingFoodPlanItem));
@@ -347,7 +709,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             overlayRootClassName="home-dashboard-overlay-root"
             onChange={updateQuickMealDialog}
             onClose={() => setQuickMealDialog(null)}
-            onSubmit={submitQuickMealDialog}
+            onSubmit={submitCookConfirmDialog}
           />
         );
       })()}
