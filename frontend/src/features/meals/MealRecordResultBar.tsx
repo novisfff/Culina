@@ -30,8 +30,8 @@ function formatCountdown(ms: number): string {
 }
 
 function clampRating(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  return Math.min(5, Math.max(0, Math.round(value * 2) / 2));
+  if (Number.isNaN(value)) return 0.5;
+  return Math.min(5, Math.max(0.5, Math.round(value * 2) / 2));
 }
 
 function CompactStarRating(props: {
@@ -55,7 +55,7 @@ function CompactStarRating(props: {
         next = clampRating(rating - 0.5);
         break;
       case 'Home':
-        next = 0;
+        next = 0.5;
         break;
       case 'End':
         next = 5;
@@ -74,9 +74,9 @@ function CompactStarRating(props: {
       className="meal-record-result-rating"
       role="slider"
       aria-label="评分"
-      aria-valuemin={0}
+      aria-valuemin={0.5}
       aria-valuemax={5}
-      aria-valuenow={rating}
+      aria-valuenow={props.value ?? 0.5}
       aria-valuetext={rating > 0 ? `${rating} 分` : '尚未评分'}
       aria-disabled={props.disabled ? true : undefined}
       tabIndex={props.disabled ? -1 : 0}
@@ -171,7 +171,6 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
         {canUndo ? (
           <ActionButton
             tone="secondary"
-            size="compact"
             type="button"
             disabled={props.isReverting}
             onClick={() => {
@@ -183,7 +182,6 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
         ) : null}
         <ActionButton
           tone="secondary"
-          size="compact"
           type="button"
           disabled={props.isReverting}
           onClick={() => props.onView?.()}
@@ -193,7 +191,6 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
         {props.onDismiss ? (
           <ActionButton
             tone="tertiary"
-            size="compact"
             type="button"
             disabled={props.isReverting}
             onClick={() => props.onDismiss?.()}

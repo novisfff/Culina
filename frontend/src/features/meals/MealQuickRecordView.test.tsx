@@ -119,6 +119,24 @@ describe('MealQuickRecordView', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('disables only submit while candidates are unresolved and still allows close', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    renderQuick({ submitDisabled: true, onClose, onSubmit });
+
+    const submit = screen.getByRole('button', { name: '记下这餐' });
+    const cancel = screen.getByRole('button', { name: '取消' });
+    expect(submit).toBeDisabled();
+    expect(cancel).toBeEnabled();
+
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('renders server errors inline', () => {
     renderQuick({ error: '这顿饭刚被家人更新，请重新确认' });
     expect(screen.getByRole('alert')).toHaveTextContent('这顿饭刚被家人更新，请重新确认');

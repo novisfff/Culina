@@ -105,7 +105,11 @@ describe('MealRecordResultBar', () => {
 
   it('shows compact rating only when full MealLog/version exists', () => {
     const { rerender, props } = renderBar();
-    expect(screen.getByRole('slider', { name: '评分' })).toBeVisible();
+    const slider = screen.getByRole('slider', { name: '评分' });
+    expect(slider).toBeVisible();
+    expect(slider).toHaveAttribute('aria-valuemin', '0.5');
+    expect(slider).toHaveAttribute('aria-valuenow', '0.5');
+    expect(slider).toHaveAttribute('aria-valuetext', '尚未评分');
 
     rerender(
       <MealRecordResultBar
@@ -217,7 +221,16 @@ describe('MealRecordResultBar', () => {
     await user.keyboard('{End}');
     expect(onRate).toHaveBeenCalledWith(5);
     await user.keyboard('{Home}');
-    expect(onRate).toHaveBeenCalledWith(0);
+    expect(onRate).toHaveBeenCalledWith(0.5);
+    expect(onRate).not.toHaveBeenCalledWith(0);
+  });
+
+  it('keeps result actions out of compact touch sizing', () => {
+    renderBar({ onDismiss: vi.fn() });
+
+    for (const name of ['撤销', '查看记录', '关闭']) {
+      expect(screen.getByRole('button', { name })).not.toHaveClass('button-compact');
+    }
   });
 
   it('renders quiet dismiss and calls onDismiss', async () => {

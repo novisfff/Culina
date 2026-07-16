@@ -38,6 +38,8 @@ export type MealComposerProps = {
   searchResults: Food[];
   isSearchingFoods?: boolean;
   busy?: boolean;
+  submitDisabled?: boolean;
+  candidateSelectionDisabled?: boolean;
   error?: string | null;
   overlayRootClassName?: string;
   onClose: () => void;
@@ -66,6 +68,7 @@ export function MealComposer(props: MealComposerProps) {
   }
 
   const busy = Boolean(props.busy);
+  const submitDisabled = Boolean(props.submitDisabled);
   const formId = 'meal-composer-form';
 
   function closeIfAllowed() {
@@ -133,6 +136,7 @@ export function MealComposer(props: MealComposerProps) {
             primaryLabel="记下这餐"
             primaryType="submit"
             primaryForm={formId}
+            primaryDisabled={submitDisabled}
             isSubmitting={busy}
             submittingLabel="正在记下..."
             secondaryLabel="取消"
@@ -145,7 +149,7 @@ export function MealComposer(props: MealComposerProps) {
           className="meal-composer-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!busy) {
+            if (!busy && !submitDisabled) {
               props.onSubmit();
             }
           }}
@@ -274,7 +278,7 @@ export function MealComposer(props: MealComposerProps) {
                 selectedCandidateId={props.selectedCandidateId}
                 target={props.target}
                 draftFoods={props.foods}
-                disabled={busy}
+                disabled={busy || Boolean(props.candidateSelectionDisabled)}
                 onTargetChange={props.onTargetChange}
               />
             </section>

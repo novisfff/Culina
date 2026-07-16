@@ -1367,7 +1367,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
+  min-height: var(--tap-min);
   padding: 0 18px;
   border: 1.5px solid rgba(255, 255, 255, 0.24);
   border-radius: 12px;
@@ -1390,7 +1390,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: var(--tap-min);
   padding: 0 20px;
   border: 0;
   border-radius: 12px;
@@ -1461,8 +1461,8 @@
 }
 
 .meal-photo-lightbox-toolbar button {
-  width: 34px;
-  height: 34px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   display: grid;
   place-items: center;
   border: 0;
@@ -1816,7 +1816,7 @@
 
   .meal-photo-lightbox-close,
   .meal-photo-lightbox-download {
-    min-height: 38px;
+    min-height: var(--control-height-touch);
     font-size: 0.88rem;
     padding: 0 12px;
     border-radius: 10px;

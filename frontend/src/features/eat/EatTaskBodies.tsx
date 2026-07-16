@@ -1314,7 +1314,9 @@ function EatFreeMealComposerBody(props: {
       searchQuery={searchQuery}
       searchResults={data.foods}
       isSearchingFoods={data.isSearchingFoods}
-      busy={state.busy || Boolean(props.isSubmitting) || submitBlocked}
+      busy={state.busy || Boolean(props.isSubmitting)}
+      submitDisabled={submitBlocked}
+      candidateSelectionDisabled={candidatesBusy || candidateResolution.status === 'error'}
       error={
         state.error ??
         (candidateResolution.status === 'error' ? candidateResolution.message : null) ??
@@ -1483,11 +1485,11 @@ function EatPrefixedMealCreateBody(props: {
     : createMealRecordDateOptions(businessToday);
   const cover = getFoodCoverAsset(food, props.recipes) ?? null;
   const candidatesPending = needsCandidates && !canSubmitWithCandidateResolution(candidateResolution);
-  const isBusy =
+  const mutationBusy =
     busy ||
     Boolean(props.isSubmitting) ||
-    Boolean(props.isCompletingPlan) ||
-    candidatesPending;
+    Boolean(props.isCompletingPlan);
+  const isBusy = mutationBusy || candidatesPending;
 
   async function handleSubmit() {
     if (!food || isBusy) return;
@@ -1600,7 +1602,8 @@ function EatPrefixedMealCreateBody(props: {
       selectedCandidateId={selectedCandidateId}
       candidateMode={candidateMode}
       target={target}
-      busy={isBusy}
+      busy={mutationBusy}
+      submitDisabled={candidatesPending}
       error={error}
       slotLocked={slotLocked}
       overlayRootClassName="eat-task-body-overlay-root"

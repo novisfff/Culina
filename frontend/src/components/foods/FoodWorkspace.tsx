@@ -2406,11 +2406,8 @@ export function FoodWorkspace(props: Props) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={
-            quickRecord.busy ||
-            Boolean(props.isQuickAdding) ||
-            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
-          }
+          busy={quickRecord.busy || Boolean(props.isQuickAdding)}
+          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
           error={quickRecord.error}
           overlayRootClassName="food-workspace-overlay-root"
           onClose={() => {

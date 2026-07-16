@@ -634,11 +634,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={
-            quickRecord.busy ||
-            isQuickAdding ||
-            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
-          }
+          busy={quickRecord.busy || isQuickAdding}
+          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
           error={quickRecord.error}
           overlayRootClassName="home-dashboard-overlay-root"
           onClose={() => {

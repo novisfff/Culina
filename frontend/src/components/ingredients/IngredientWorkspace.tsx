@@ -3097,11 +3097,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           selectedCandidateId={quickRecord.selectedCandidateId}
           candidateMode={quickRecord.candidateMode}
           target={quickRecord.target}
-          busy={
-            quickRecord.busy ||
-            Boolean(props.isRecordingMeal) ||
-            !canSubmitWithCandidateResolution(quickRecord.candidateResolution)
-          }
+          busy={quickRecord.busy || Boolean(props.isRecordingMeal)}
+          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
           error={quickRecord.error}
           overlayRootClassName="ingredient-workspace-overlay-root"
           onClose={() => {

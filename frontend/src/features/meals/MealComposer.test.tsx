@@ -329,6 +329,20 @@ describe('MealComposer', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('keeps cancel available when only submit is disabled', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    renderComposer({ submitDisabled: true, onClose, onSubmit });
+
+    expect(screen.getByRole('button', { name: '记下这餐' })).toBeDisabled();
+    const cancel = screen.getByRole('button', { name: '取消' });
+    expect(cancel).toBeEnabled();
+    await user.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('shows validation or server errors inline', () => {
     renderComposer({ error: '至少选择一道食物' });
     expect(screen.getByRole('alert')).toHaveTextContent('至少选择一道食物');

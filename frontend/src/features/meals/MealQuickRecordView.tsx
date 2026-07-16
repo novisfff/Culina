@@ -39,6 +39,7 @@ export type MealQuickRecordViewProps = {
   candidateMode: 'none' | 'single' | 'multi';
   target: RecordMealTarget;
   busy?: boolean;
+  submitDisabled?: boolean;
   error?: string | null;
   /** When true, date/mealType controls are fixed (plan-sourced complete). */
   slotLocked?: boolean;
@@ -56,6 +57,7 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
   }
 
   const busy = Boolean(props.busy);
+  const submitDisabled = Boolean(props.submitDisabled);
   const slotLocked = Boolean(props.slotLocked);
   const controlsDisabled = busy || slotLocked;
   const formId = 'meal-quick-record-form';
@@ -96,6 +98,7 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
             primaryLabel="记下这餐"
             primaryType="submit"
             primaryForm={formId}
+            primaryDisabled={submitDisabled}
             isSubmitting={busy}
             submittingLabel="正在记下..."
             secondaryLabel="取消"
@@ -108,7 +111,7 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
           className="meal-quick-record-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!busy) {
+            if (!busy && !submitDisabled) {
               props.onSubmit();
             }
           }}
@@ -205,7 +208,7 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
             selectedCandidateId={props.selectedCandidateId}
             target={props.target}
             draftFoods={draftFoods}
-            disabled={busy}
+            disabled={busy || submitDisabled}
             className="meal-quick-record-candidates"
             onTargetChange={props.onTargetChange}
           />

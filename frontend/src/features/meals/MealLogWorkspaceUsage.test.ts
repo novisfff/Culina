@@ -192,6 +192,19 @@ describe('MealLogWorkspace overlay reuse', () => {
     expect(mealLogStyles).toContain('.meal-photo-lightbox-viewport.grabbing img');
     expect(mealLogStyles).toContain('transition: none');
   });
+
+  it('keeps lightbox actions at the canonical touch target size', () => {
+    const mealLogStyles = readFileSync(resolve(__dirname, '../../styles/08-meal-log.css'), 'utf8');
+
+    expect(mealLogStyles).toMatch(
+      /\.meal-photo-lightbox-toolbar button\s*\{[^}]*width:\s*var\(--tap-min\);[^}]*height:\s*var\(--tap-min\);/s,
+    );
+    for (const selector of ['meal-photo-lightbox-close', 'meal-photo-lightbox-download']) {
+      expect(mealLogStyles).toMatch(
+        new RegExp(`\\.${selector}\\s*\\{[^}]*min-height:\\s*var\\(--tap-min\\);`, 's'),
+      );
+    }
+  });
 });
 
 describe('MealLogWorkspace photo-first timeline', () => {

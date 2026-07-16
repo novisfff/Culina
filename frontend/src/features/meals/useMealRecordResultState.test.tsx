@@ -47,7 +47,7 @@ function recordResponse(overrides: Partial<RecordMealResponse> = {}): RecordMeal
     operation: {
       id: 'op-1',
       status: 'applied',
-      revertible_until: '2026-07-15T11:15:00.000Z',
+      revertible_until: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       can_revert: true,
     },
     ...overrides,
