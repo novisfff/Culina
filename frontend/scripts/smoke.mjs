@@ -1919,10 +1919,23 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   }
 
   await page.getByRole('button', { name: '吃什么' }).first().click();
+  const mealInsightsLoaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/meal-logs/insights'
+      && response.ok(),
+    { timeout: 10_000 },
+  );
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
   await expectVisibleText(page, '吃过的', '1180x820 吃过的');
   await expectVisibleText(page, '家庭时间线', '1180x820 吃过的时间线');
   await expectNoHorizontalOverflow(page, '1180x820 吃过的页');
+  await mealInsightsLoaded;
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-memory-status="loading"]').length === 0,
+    undefined,
+    { timeout: 10_000 },
+  );
   // Empty insights keep the memory section out of the page; timeline remains first content.
   const mealHistoryLayout = await page.evaluate(() => {
     const memoryCards = document.querySelectorAll('.meal-memory-card');
@@ -2336,6 +2349,13 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: '吃什么' }).first().click();
   await expectVisible(page.locator('.food-mobile-view'), `${label} 发现`);
+  const mealInsightsLoaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/meal-logs/insights'
+      && response.ok(),
+    { timeout: 10_000 },
+  );
   await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
   // Mobile history uses MealLogMobileView ("吃过的" + day groups / empty), not desktop "家庭时间线".
   await expectVisible(page.locator('.mobile-log-page'), `${label} 吃过的页面`);
@@ -2344,6 +2364,12 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   await expectVisible(
     page.locator('.mobile-log-empty, .mobile-log-day-group').first(),
     `${label} 时间线内容`,
+  );
+  await mealInsightsLoaded;
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-memory-status="loading"]').length === 0,
+    undefined,
+    { timeout: 10_000 },
   );
   // Empty insights keep the memory strip out of the page (no cards / error chrome).
   const mealHistoryLayout = await page.evaluate(() => {
