@@ -72,7 +72,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         footerInfo={
           <div className="recipe-shopping-footer-summary">
             <span><RecipeUiIcon name="clipboard" /></span>
-            <p>已选择 <strong>{validDraftCount} 项</strong>，将加入采购清单</p>
+            <p>已选择 <strong>{validDraftCount} 项</strong></p>
           </div>
         }
         footerActions={
@@ -108,8 +108,10 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                     <article key={item.id} className="recipe-shopping-draft-row">
                       <div className="recipe-shopping-media">
                         <MediaWithPlaceholder
-                          src={props.resolveIngredientImageUrl(linkedIngredient, item.title)}
+                          src={linkedIngredient?.image ? props.resolveIngredientImageUrl(linkedIngredient, item.title) : null}
                           alt={item.title || '采购项'}
+                          emptyLabel="暂无图片"
+                          showLabel={false}
                         />
                       </div>
                       <div className="recipe-shopping-draft-main">
@@ -179,8 +181,10 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                   <article key={item.id} className="recipe-shopping-candidate-row">
                     <div className="recipe-shopping-candidate-media">
                       <MediaWithPlaceholder
-                        src={props.resolveIngredientImageUrl(linkedIngredient, item.ingredient_name)}
+                        src={linkedIngredient?.image ? props.resolveIngredientImageUrl(linkedIngredient, item.ingredient_name) : null}
                         alt={item.ingredient_name}
+                        emptyLabel="暂无图片"
+                        showLabel={false}
                       />
                     </div>
                     <div>

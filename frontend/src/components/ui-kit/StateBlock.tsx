@@ -9,7 +9,11 @@ export type StateBlockProps = {
 
 export function StateBlock(props: StateBlockProps) {
   return (
-    <div className={['ui-state-block', `is-${props.status}`, props.className].filter(Boolean).join(' ')} role={props.status === 'error' ? 'alert' : 'status'}>
+    <div
+      className={['ui-state-block', `is-${props.status}`, props.className].filter(Boolean).join(' ')}
+      role={props.status === 'error' ? 'alert' : 'status'}
+      aria-busy={props.status === 'loading' || undefined}
+    >
       <strong>{props.title}</strong>
       <p>{props.description}</p>
       {props.actionLabel && props.onAction ? (

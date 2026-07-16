@@ -63,7 +63,11 @@ describe('FoodWorkspace navigation usage', () => {
     expect(hubSource).toContain('<PageHeader');
     expect(hubSource).toContain('variant="compact"');
     expect(hubSource).toContain('actions={props.heroActions}');
-    expect(hubSource).toContain('从常吃、临期、外卖外食和可记录的家常菜里快速选一份，马上记到今天。');
+    expect(hubSource).toContain('选一份，安排这餐。');
+    expect(mobileSource).toContain('选一份，安排这餐。');
+    expect(hubSource).not.toContain('recommendationSection');
+    expect(workspaceSource).not.toContain('food-quick-strip');
+    expect(mobileSource).not.toContain('mobile-dashboard-recommend');
 
     // Discover surface must not break the food-desktop-view height chain.
     expect(foodCss).toMatch(/\.eat-discover-surface\s*\{\s*display:\s*contents;/);

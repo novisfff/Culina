@@ -48,4 +48,9 @@ describe('StateBlock', () => {
     const view = renderState(<StateBlock status="error" title="加载失败" description="请稍后重试。" />);
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('加载失败');
   });
+
+  it('marks loading state as busy', () => {
+    const view = renderState(<StateBlock status="loading" title="正在加载" description="请稍候。" />);
+    expect(view.querySelector('[role="status"]')?.getAttribute('aria-busy')).toBe('true');
+  });
 });

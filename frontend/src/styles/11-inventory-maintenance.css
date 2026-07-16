@@ -212,8 +212,8 @@
 }
 
 .inventory-shopping-intake-item .inventory-shopping-intake-checkbox:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .inventory-shopping-intake-item .inventory-shopping-intake-checkbox:disabled {
@@ -1528,9 +1528,9 @@
 }
 
 .inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-close {
-  width: 42px;
-  min-width: 42px;
-  min-height: 42px;
+  width: var(--tap-min);
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
   padding: 0;
   border-radius: 50%;
 }
@@ -1785,11 +1785,11 @@
 
 /* Quick reconciliation refresh: neutral work surface, compact cards, recoverable mobile sheet. */
 .inventory-reconciliation-modal.workspace-modal {
-  background: #fbfaf8;
+  background: var(--surface-2);
 }
 
 .inventory-reconciliation-modal > .workspace-overlay-body {
-  background: #fbfaf8;
+  background: var(--surface-warm);
 }
 
 .inventory-reconciliation-scroll {
@@ -1798,15 +1798,15 @@
 
 .inventory-reconciliation-scope.inventory-maintenance-section {
   border-color: rgba(47, 37, 30, 0.09);
-  background: #f3f4f3;
+  background: var(--surface-muted);
   box-shadow: none;
 }
 
 .inventory-reconciliation-scope .inventory-maintenance-section-head > em {
   padding: 3px 8px;
   border-radius: 999px;
-  background: #e6e9e7;
-  color: #65706b;
+  background: var(--surface-strong);
+  color: var(--text-soft);
   font-style: normal;
 }
 
@@ -1839,12 +1839,12 @@
 
 .inventory-reconciliation-list.inventory-maintenance-section {
   border-color: rgba(47, 37, 30, 0.08);
-  background: #f1f3f2;
+  background: var(--surface-muted);
 }
 
 .inventory-reconciliation-side-summary.inventory-maintenance-section {
   border-color: rgba(47, 37, 30, 0.08);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .inventory-reconciliation-list-loading {
@@ -1855,7 +1855,7 @@
   min-height: 72px;
   padding: 12px;
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .inventory-reconciliation-list-loading > span {
@@ -1883,7 +1883,7 @@
 .inventory-reconciliation-group-card.inventory-maintenance-item-card {
   border-color: rgba(47, 37, 30, 0.1);
   border-radius: 16px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .inventory-reconciliation-group-card.inventory-maintenance-item-card.is-selected {
@@ -1899,7 +1899,7 @@
 
 .inventory-reconciliation-batch-row {
   border-color: rgba(47, 37, 30, 0.1);
-  background: #f6f7f6;
+  background: var(--surface-warm);
 }
 
 .inventory-reconciliation-batch-row.is-expired {
@@ -1913,7 +1913,7 @@
 }
 
 .inventory-reconciliation-load-error .ui-state-block-action {
-  min-height: 42px;
+  min-height: var(--tap-min);
   padding-inline: 16px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line-soft));
   border-radius: 12px;
@@ -1946,13 +1946,13 @@
 
   .inventory-reconciliation-modal.workspace-modal {
     max-height: calc(100dvh - 6px);
-    background: #fbfaf8;
+    background: var(--surface-2);
   }
 
   .inventory-reconciliation-modal > .workspace-overlay-head {
     padding: 30px 16px 12px;
     border-bottom: 1px solid rgba(47, 37, 30, 0.07);
-    background: #ffffff;
+    background: var(--surface-2);
   }
 
   .inventory-reconciliation-modal > .workspace-overlay-head > .workspace-overlay-titleblock {
@@ -2050,7 +2050,7 @@
     padding: 9px;
     border: 1px solid rgba(47, 37, 30, 0.07);
     border-radius: 16px;
-    background: #f1f3f2;
+    background: var(--surface-muted);
   }
 
   .inventory-reconciliation-group-card.inventory-maintenance-item-card {
@@ -2101,7 +2101,7 @@
     z-index: 5;
     padding: 10px 12px max(10px, env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(47, 37, 30, 0.08);
-    background: #ffffff;
+    background: var(--surface-2);
     box-shadow: none;
     backdrop-filter: none;
     pointer-events: auto;
@@ -2128,7 +2128,7 @@
   padding: 10px;
   border: 1px solid rgba(47, 37, 30, 0.08);
   border-radius: 14px;
-  background: #f4f5f4;
+  background: var(--surface-muted);
 }
 
 .inventory-reconciliation-overview > div {
@@ -2137,7 +2137,7 @@
   min-width: 0;
   padding: 8px 10px;
   border-radius: 11px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .inventory-reconciliation-overview span {
@@ -2168,7 +2168,7 @@
   gap: 8px 18px;
   padding: 8px 11px;
   border-radius: 12px;
-  background: #f6f7f6;
+  background: var(--surface-warm);
 }
 
 .inventory-reconciliation-overview.is-compact > div {
@@ -2267,7 +2267,7 @@
   padding: 12px;
   border: 1px solid rgba(47, 37, 30, 0.1);
   border-radius: 15px;
-  background: #f6f7f6;
+  background: var(--surface-muted);
 }
 
 .inventory-reconciliation-total-field.ui-quantity-unit-field {
@@ -2280,7 +2280,7 @@
   padding: 11px 12px;
   border: 1px solid rgba(47, 37, 30, 0.08);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .inventory-reconciliation-suggestion.is-ready {
@@ -2311,7 +2311,7 @@
   padding: 11px 12px;
   border: 1px solid rgba(47, 37, 30, 0.08);
   border-radius: 13px;
-  background: #f4f5f4;
+  background: var(--surface-muted);
 }
 
 .inventory-reconciliation-food-question > span {
@@ -2339,7 +2339,7 @@
   padding: 12px;
   border: 1px solid rgba(47, 37, 30, 0.1);
   border-radius: 15px;
-  background: #f6f7f6;
+  background: var(--surface-muted);
 }
 
 .inventory-reconciliation-food-meta-fields {
@@ -2512,14 +2512,14 @@
     min-height: 0;
     padding: max(20px, env(safe-area-inset-top, 0px)) 14px 0;
     border-radius: 26px 26px 0 0;
-    background: #fbfaf8;
+    background: var(--surface-warm);
     box-shadow: 0 -10px 34px rgba(47, 37, 30, 0.16);
   }
 
   .inventory-reconciliation-batch-workspace-head {
     flex: 0 0 auto;
     padding: 6px 0 12px;
-    background: #fbfaf8;
+    background: var(--surface-warm);
   }
 
   .inventory-reconciliation-batch-workspace > .inventory-reconciliation-batch-list {
@@ -2539,7 +2539,7 @@
     margin-inline: -14px;
     padding: 10px 14px max(10px, env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(47, 37, 30, 0.08);
-    background: #ffffff;
+    background: var(--surface-2);
   }
 
   .inventory-reconciliation-batch-workspace-actions button {
@@ -2548,7 +2548,7 @@
   }
 
   .inventory-reconciliation-batch-row {
-    background: #ffffff;
+    background: var(--surface);
   }
 
   .inventory-reconciliation-batch-group-label {

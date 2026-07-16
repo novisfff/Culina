@@ -1757,6 +1757,32 @@ async function runTouchTabletLandscapeSmoke(browser, baseUrl) {
     );
   }
 
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.locator('.food-tablet-support-surface'), `${label} Pad 辅助区`);
+  await expectNoHorizontalOverflow(page, `${label} 食物页`);
+  const foodTabletLayout = await page.evaluate(() => {
+    const sidebar = document.querySelector('.food-task-sidebar');
+    const surface = document.querySelector('.food-tablet-support-surface');
+    const sceneScroller = document.querySelector('.food-tablet-scene-scroller');
+    return {
+      sidebarDisplay: sidebar ? getComputedStyle(sidebar).display : 'missing',
+      surfaceDisplay: surface ? getComputedStyle(surface).display : 'missing',
+      metricCount: document.querySelectorAll('.food-tablet-management-metric').length,
+      dateCount: document.querySelectorAll('.food-tablet-plan-date-rail > button').length,
+      sceneCount: document.querySelectorAll('.food-tablet-scene-scroller > button').length,
+      sceneScrollable: sceneScroller ? sceneScroller.scrollWidth > sceneScroller.clientWidth : false,
+    };
+  });
+  if (
+    foodTabletLayout.sidebarDisplay !== 'none' ||
+    foodTabletLayout.surfaceDisplay !== 'grid' ||
+    foodTabletLayout.metricCount !== 4 ||
+    foodTabletLayout.dateCount !== 7 ||
+    (foodTabletLayout.sceneCount > 3 && !foodTabletLayout.sceneScrollable)
+  ) {
+    throw new Error(`${label} 食物 Pad 辅助区异常：${JSON.stringify(foodTabletLayout)}`);
+  }
+
   assertClean();
   await context.close();
 }
@@ -1791,6 +1817,30 @@ async function runTabletLandscapeSmoke(browser, baseUrl) {
     throw new Error(
       `1112x834 首页布局提前降级：统计区 ${layout.statColumns} 列，推荐区 ${layout.foodColumns} 列`
     );
+  }
+
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisible(page.locator('.food-tablet-support-surface'), '1112x834 食物 Pad 辅助区');
+  await expectNoHorizontalOverflow(page, '1112x834 食物页');
+  const foodTabletLayout = await page.evaluate(() => ({
+    sidebarDisplay: (() => {
+      const sidebar = document.querySelector('.food-task-sidebar');
+      return sidebar ? getComputedStyle(sidebar).display : 'missing';
+    })(),
+    surfaceDisplay: (() => {
+      const surface = document.querySelector('.food-tablet-support-surface');
+      return surface ? getComputedStyle(surface).display : 'missing';
+    })(),
+    metricCount: document.querySelectorAll('.food-tablet-management-metric').length,
+    dateCount: document.querySelectorAll('.food-tablet-plan-date-rail > button').length,
+  }));
+  if (
+    foodTabletLayout.sidebarDisplay !== 'none' ||
+    foodTabletLayout.surfaceDisplay !== 'grid' ||
+    foodTabletLayout.metricCount !== 4 ||
+    foodTabletLayout.dateCount !== 7
+  ) {
+    throw new Error(`1112x834 食物 Pad 辅助区异常：${JSON.stringify(foodTabletLayout)}`);
   }
 
   await page.getByRole('button', { name: '家庭' }).first().click();
@@ -1853,31 +1903,127 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   await expectVisibleText(page, '食物库', '1180x820 食物页');
   await expectNoHorizontalOverflow(page, '1180x820 食物页');
   const foodLayout = await page.evaluate(() => {
+    const longTitle = document.querySelector('.food-work-card .food-card-title-row h3');
+    if (longTitle) longTitle.textContent = '秋葵凉拌菜自动测0710smoke超长标题';
     const columnCount = (selector) => {
       const element = document.querySelector(selector);
       return element ? getComputedStyle(element).gridTemplateColumns.split(' ').length : 0;
     };
+    const cardMeasurements = Array.from(document.querySelectorAll('.food-work-card')).map((card) => {
+      const cardBounds = card.getBoundingClientRect();
+      const titleSlotBounds = card.querySelector('.food-card-title-row > div')?.getBoundingClientRect();
+      const actionBounds = Array.from(card.querySelectorAll('.food-card-actions > *')).map((action) =>
+        action.getBoundingClientRect()
+      );
+      const badgeRows = Array.from(
+        card.querySelectorAll('.food-card-status-row, .food-card-issue-row')
+      ).map((row) => {
+        const bounds = row.getBoundingClientRect();
+        const styles = getComputedStyle(row);
+        return {
+          rightOverflow: bounds.right - cardBounds.right,
+          flexWrap: styles.flexWrap,
+          overflowX: styles.overflowX,
+        };
+      });
+      return {
+        contentOverflow: card.scrollWidth - card.clientWidth,
+        titleRightOverflow: titleSlotBounds ? titleSlotBounds.right - cardBounds.right : 0,
+        actionRightOverflow: actionBounds.length > 0
+          ? Math.max(...actionBounds.map((bounds) => bounds.right - cardBounds.right))
+          : 0,
+        badgeRows,
+      };
+    });
     return {
       contentColumns: columnCount('.food-content-layout'),
       recommendationColumns: columnCount('.food-recommendation-grid'),
-      cardColumns: columnCount('.food-card-grid'),
-      sidebarColumns: columnCount('.food-task-sidebar'),
-      quickColumns: columnCount('.food-sidebar-quick-section .food-library-insight'),
-      planColumns: columnCount('.food-plan-week'),
-      sceneColumns: columnCount('.food-sidebar-scene-list'),
+      cardColumns: columnCount('.food-card-page'),
+      cardPageSizes: Array.from(document.querySelectorAll('.food-card-page')).map(
+        (page) => page.querySelectorAll('.food-work-card').length
+      ),
+      cardPageRowCounts: Array.from(document.querySelectorAll('.food-card-page')).map(
+        (page) => new Set(
+          Array.from(page.querySelectorAll('.food-work-card')).map(
+            (card) => Math.round(card.getBoundingClientRect().top)
+          )
+        ).size
+      ),
+      cardScrollerOverflowX: (() => {
+        const scroller = document.querySelector('.food-card-grid');
+        return scroller ? getComputedStyle(scroller).overflowX : 'missing';
+      })(),
+      cardScrollerSnapType: (() => {
+        const scroller = document.querySelector('.food-card-grid');
+        return scroller ? getComputedStyle(scroller).scrollSnapType : 'missing';
+      })(),
+      loadMoreDisplay: (() => {
+        const button = document.querySelector('.food-card-library > .paged-list-status .paged-list-load-more');
+        return button ? getComputedStyle(button).display : 'missing';
+      })(),
+      desktopSidebarDisplay: (() => {
+        const sidebar = document.querySelector('.food-task-sidebar');
+        return sidebar ? getComputedStyle(sidebar).display : 'missing';
+      })(),
+      tabletSurfaceDisplay: (() => {
+        const surface = document.querySelector('.food-tablet-support-surface');
+        return surface ? getComputedStyle(surface).display : 'missing';
+      })(),
+      managementMetricCount: document.querySelectorAll('.food-tablet-management-metric').length,
+      tabletDateCount: document.querySelectorAll('.food-tablet-plan-date-rail > button').length,
+      tabletMealColumns: columnCount('.food-tablet-plan-day-summary'),
+      sceneCount: document.querySelectorAll('.food-tablet-scene-scroller > button').length,
+      sceneScroller: (() => {
+        const scroller = document.querySelector('.food-tablet-scene-scroller');
+        if (!scroller) return null;
+        const fourthCard = scroller.children[3];
+        const scrollerBounds = scroller.getBoundingClientRect();
+        const fourthCardBounds = fourthCard?.getBoundingClientRect();
+        return {
+          overflowX: getComputedStyle(scroller).overflowX,
+          snapType: getComputedStyle(scroller).scrollSnapType,
+          scrollable: scroller.scrollWidth > scroller.clientWidth,
+          fourthCardPeek: fourthCardBounds ? scrollerBounds.right - fourthCardBounds.left : 0,
+        };
+      })(),
+      cardMeasurements,
     };
   });
   if (
     foodLayout.contentColumns !== 1 ||
-    foodLayout.recommendationColumns !== 3 ||
-    foodLayout.cardColumns !== 3 ||
-    foodLayout.sidebarColumns !== 2 ||
-    foodLayout.quickColumns !== 3 ||
-    foodLayout.planColumns !== 3 ||
-    foodLayout.sceneColumns !== 3
+    ![0, 3].includes(foodLayout.recommendationColumns) ||
+    foodLayout.cardColumns !== 1 ||
+    foodLayout.desktopSidebarDisplay !== 'none' ||
+    foodLayout.tabletSurfaceDisplay !== 'grid' ||
+    foodLayout.managementMetricCount !== 4 ||
+    foodLayout.tabletDateCount !== 7 ||
+    ![3, 4].includes(foodLayout.tabletMealColumns) ||
+    foodLayout.sceneCount < 1 ||
+    foodLayout.sceneScroller?.overflowX !== 'auto' ||
+    foodLayout.sceneScroller?.snapType !== 'x mandatory' ||
+    (foodLayout.sceneCount > 3 && (
+      foodLayout.sceneScroller?.scrollable !== true ||
+      foodLayout.sceneScroller.fourthCardPeek <= 0 ||
+      foodLayout.sceneScroller.fourthCardPeek > 40
+    )) ||
+    foodLayout.cardPageSizes.length === 0 ||
+    foodLayout.cardPageSizes.some((size) => size < 1 || size > 2) ||
+    foodLayout.cardPageRowCounts.some((count) => count < 1 || count > 2) ||
+    foodLayout.cardScrollerOverflowX !== 'auto' ||
+    foodLayout.cardScrollerSnapType !== 'x mandatory' ||
+    !['none', 'missing'].includes(foodLayout.loadMoreDisplay) ||
+    foodLayout.cardMeasurements.some(
+      ({ contentOverflow, titleRightOverflow, actionRightOverflow, badgeRows }) =>
+        contentOverflow > 1 ||
+        titleRightOverflow > 1 ||
+        actionRightOverflow > 1 ||
+        badgeRows.some(({ rightOverflow, flexWrap, overflowX }) =>
+          rightOverflow > 1 || flexWrap !== 'nowrap' || overflowX !== 'auto'
+        )
+    )
   ) {
     throw new Error(
-      `1180x820 食物页布局异常：主区 ${foodLayout.contentColumns} 列，推荐区 ${foodLayout.recommendationColumns} 列，卡片区 ${foodLayout.cardColumns} 列，辅助区 ${foodLayout.sidebarColumns} 列，视角 ${foodLayout.quickColumns} 列，菜单 ${foodLayout.planColumns} 列，场景 ${foodLayout.sceneColumns} 列`
+      `1180x820 食物页布局异常：主区 ${foodLayout.contentColumns} 列，推荐区 ${foodLayout.recommendationColumns} 列，滑动列 ${foodLayout.cardColumns} 列/${foodLayout.cardPageSizes.join(',')} 张/${foodLayout.cardPageRowCounts.join(',')} 行，横滑 ${foodLayout.cardScrollerOverflowX}/${foodLayout.cardScrollerSnapType}，加载按钮 ${foodLayout.loadMoreDisplay}，旧侧栏 ${foodLayout.desktopSidebarDisplay}，Pad 辅助区 ${foodLayout.tabletSurfaceDisplay}，摘要 ${foodLayout.managementMetricCount} 项，日期 ${foodLayout.tabletDateCount} 天，餐别 ${foodLayout.tabletMealColumns} 列，场景 ${foodLayout.sceneCount} 项/${JSON.stringify(foodLayout.sceneScroller)}，卡片溢出 ${JSON.stringify(foodLayout.cardMeasurements)}`
     );
   }
 
@@ -2502,6 +2648,11 @@ async function main() {
   const preview = await startPreview();
   const browser = await chromium.launch();
   try {
+    if (process.env.SMOKE_TABLET_AIR_ONLY === '1') {
+      await runTabletAirWorkspaceSmoke(browser, preview.url);
+      console.log('Smoke tablet-air-only passed');
+      return;
+    }
     if (process.env.SMOKE_RECON_ONLY === '1') {
       await runInventoryReconciliationSmoke(
         browser,

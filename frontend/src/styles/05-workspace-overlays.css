@@ -1,17 +1,17 @@
 /* Generic Workspace Modal width and tablet/desktop touch responsive rules */
 .workspace-modal {
-  width: min(var(--modal-width-md), calc(100vw - 32px));
+  width: min(var(--workspace-modal-width, var(--modal-width-md)), calc(100vw - 32px));
 }
 
 @media (min-width: 768px) {
   .workspace-modal {
-    width: min(var(--modal-width-md), calc(100vw - 64px));
+    width: min(var(--workspace-modal-width, var(--modal-width-md)), calc(100vw - 64px));
   }
 }
 
 @media (min-width: 1024px) {
   .workspace-modal {
-    width: min(var(--modal-width-md), calc(100vw - 96px));
+    width: min(var(--workspace-modal-width, var(--modal-width-md)), calc(100vw - 96px));
   }
 }
 
@@ -4180,6 +4180,11 @@
   outline: none;
 }
 
+.recipe-shopping-custom-quantity:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .recipe-shopping-presence-control {
   display: grid;
   gap: 5px;
@@ -4423,11 +4428,11 @@
   }
 
   .recipe-shopping-draft-row {
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px;
     border: 1px solid rgba(92, 67, 48, 0.08);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.86);
+    border-radius: 14px;
+    background: var(--surface);
   }
 
   .recipe-shopping-media {
@@ -4435,7 +4440,7 @@
   }
 
   .recipe-shopping-draft-main {
-    gap: 8px;
+    gap: 6px;
   }
 
   .recipe-shopping-draft-title {
@@ -4443,18 +4448,21 @@
   }
 
   .recipe-shopping-draft-title strong {
-    flex-basis: 100%;
-    font-size: 1rem;
-    white-space: normal;
+    display: none;
   }
 
   .recipe-shopping-draft-main .text-input {
-    min-height: 46px;
+    min-height: var(--control-height-touch);
     border-radius: 14px;
   }
 
   .recipe-shopping-draft-controls {
-    grid-template-columns: minmax(0, 1fr) 96px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .recipe-shopping-draft-row .ui-quantity-unit-field {
+    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.72fr);
     gap: 8px;
   }
   .recipe-shopping-presence-control input {
@@ -4466,8 +4474,15 @@
     height: 34px;
   }
   .recipe-shopping-delete-button {
-    grid-column: 1 / -1;
-    min-height: 36px;
+    grid-column: auto;
+    align-self: end;
+    min-width: 64px;
+    min-height: var(--control-height-touch);
+    padding: 0 12px;
+    border: 1px solid var(--danger-line);
+    border-radius: 14px;
+    background: var(--danger-soft);
+    color: var(--danger);
   }
 
   .recipe-shopping-candidate-list {
@@ -4479,10 +4494,10 @@
   }
 
   .recipe-shopping-candidate-row {
-    grid-template-columns: 44px minmax(0, 1fr) 40px;
+    grid-template-columns: 40px minmax(0, 1fr) 44px;
     gap: 10px;
-    min-height: 58px;
-    padding: 8px 10px;
+    min-height: 56px;
+    padding: 7px 9px;
   }
 
   .recipe-shopping-candidate-media {
@@ -4492,8 +4507,8 @@
   }
 
   .recipe-shopping-candidate-row button {
-    width: 38px;
-    min-height: 38px;
+    width: var(--tap-min);
+    min-height: var(--tap-min);
   }
 
   .recipe-shopping-custom-row {

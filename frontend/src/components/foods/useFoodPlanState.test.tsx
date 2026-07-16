@@ -153,6 +153,22 @@ afterEach(() => {
 });
 
 describe('useFoodPlanState navigation', () => {
+  it('opens the existing plan dialog with Pad date and meal defaults', () => {
+    let state = renderPlanState()!;
+
+    act(() => {
+      (state.openPlanDialog as unknown as (
+        food: Food | undefined,
+        defaults: { planDate: string; mealType: 'lunch' },
+      ) => void)(undefined, { planDate: '2026-07-18', mealType: 'lunch' });
+    });
+    state = latestPlanState!;
+
+    expect(state.isPlanDialogOpen).toBe(true);
+    expect(state.planForm.planDate).toBe('2026-07-18');
+    expect(state.planForm.mealType).toBe('lunch');
+  });
+
   it('handles week navigation without opening plan detail', () => {
     const onNavigateToWeek = vi.fn();
     let state = renderPlanState({

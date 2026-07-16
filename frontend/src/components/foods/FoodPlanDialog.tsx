@@ -130,7 +130,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
                   description: [
                     FOOD_TYPE_LABELS[props.normalizeFoodType(food)],
                     food.source_name || food.purchase_source || food.category,
-                    food.recipe_id ? '可开始做' : '可记到今天',
+                    food.recipe_id ? '可开始做' : '可加入计划',
                     MEAL_TYPE_LABELS[props.getDefaultMealType(food)],
                   ]
                     .filter(Boolean)

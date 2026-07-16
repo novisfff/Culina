@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
 import { Avatar } from '../../components/ui-kit';
+import { useOverlayFocusLifecycle } from '../../components/ui-kit/useOverlayFocusLifecycle';
 import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
@@ -67,6 +68,14 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useOverlayFocusLifecycle({
+    rootRef: lightboxRef,
+    onClose: props.onClose,
+    initialFocusRef: closeButtonRef,
+  });
 
   const zoomIn = () => setScale(prev => Math.min(prev + 0.25, 4));
   const zoomOut = () => {
@@ -162,8 +171,8 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
   }, []);
 
   return createPortal(
-    <div className="meal-photo-lightbox" role="dialog" aria-modal="true" aria-label="查看餐食照片">
-      <button className="meal-photo-lightbox-backdrop" type="button" aria-label="关闭大图" onClick={props.onClose} />
+    <div ref={lightboxRef} className="meal-photo-lightbox" role="dialog" aria-modal="true" aria-label="查看餐食照片" tabIndex={-1}>
+      <button className="meal-photo-lightbox-backdrop" type="button" tabIndex={-1} aria-label="关闭大图" onClick={props.onClose} />
       
       <div className="meal-photo-lightbox-head">
         <div className="meal-photo-lightbox-info">
@@ -174,7 +183,7 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
           <a className="meal-photo-lightbox-download" href={photoUrl} download={downloadName} target="_blank" rel="noreferrer">
             下载原图
           </a>
-          <button className="meal-photo-lightbox-close" type="button" onClick={props.onClose}>
+          <button ref={closeButtonRef} className="meal-photo-lightbox-close" type="button" onClick={props.onClose}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
             <span>关闭</span>
           </button>

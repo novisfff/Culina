@@ -32,6 +32,7 @@ import {
   getDefaultMealType,
   getFoodAudienceText,
   getFoodFactRows,
+  getFoodInventoryConfirmation,
   getFoodMealHistory,
   getFoodSceneTags,
   getFoodStatus,
@@ -268,6 +269,7 @@ export function EatFoodTaskBody(props: {
         expiry={expiry}
         factRows={factRows}
         history={history}
+        inventoryConfirmation={isReadyLikeFood(props.food) ? getFoodInventoryConfirmation(props.food, todayKey()) : null}
         isOutsideFood={isOutsideFood(props.food)}
         isQuickAdding={props.isQuickAdding}
         isReadyLikeFood={isReadyLikeFood(props.food)}
@@ -284,7 +286,6 @@ export function EatFoodTaskBody(props: {
         onClose={props.onClose}
         onEdit={() => setIsEditing(true)}
         onEditRecipe={props.onEditRecipe}
-        onOpenLogs={props.onOpenLogs}
         onOpenPlanDialog={() => {
           setPlanForm({
             foodId: props.food.id,

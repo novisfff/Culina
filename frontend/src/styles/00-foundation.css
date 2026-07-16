@@ -15,9 +15,14 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --bg: #FAF8F5;
+  --font-sans: 'Manrope', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --font-display: 'ZCOOL XiaoWei', 'Noto Sans SC', serif;
+  --surface: #FFFFFF;
   --surface-1: rgba(255, 255, 255, 0.6);
   --surface-2: rgba(255, 255, 255, 0.98);
-  --surface-3: #FDFBf8;
+  --surface-3: #FDFBF8;
+  --surface-warm: #FCFAF7;
+  --surface-muted: #F6F0EA;
   --surface-strong: #F4EBE1;
   --accent: #D26B33;
   --accent-strong: #B35122;
@@ -28,19 +33,50 @@
   --warning-soft: #FFF4E6;
   --danger: #D94B3D;
   --danger-soft: #FDEBE8;
+  --info: #517A58;
+  --info-soft: #E2ECD8;
+  --plan: #7164BD;
+  --plan-soft: #F0EEFF;
   /* Shared color treatment for primary orange action buttons. */
   --brand-button-bg: var(--accent);
   --brand-button-bg-hover: var(--accent-strong);
   --brand-button-radius: 24px;
   --brand-button-shadow: 0 10px 22px rgba(210, 107, 51, 0.18);
   --brand-button-shadow-hover: 0 12px 26px rgba(210, 107, 51, 0.22);
-  --sage-soft: #E2ECD8;
+  --sage-soft: var(--info-soft);
   --butter-soft: #FDF3DB;
   --line-soft: rgba(147, 96, 63, 0.12);
   --line-strong: rgba(147, 96, 63, 0.2);
+  --accent-line: rgba(210, 107, 51, 0.24);
+  --success-line: rgba(79, 154, 88, 0.24);
+  --warning-line: rgba(226, 137, 44, 0.24);
+  --danger-line: rgba(217, 75, 61, 0.24);
+  --info-line: rgba(81, 122, 88, 0.24);
+  --plan-line: rgba(113, 100, 189, 0.24);
+  --focus-ring: rgba(210, 107, 51, 0.28);
+  --overlay-backdrop: rgba(55, 40, 30, 0.28);
   --text: #2f251e;
   --text-soft: #6A5B51;
   --text-faint: #928378;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-meta: 0.875rem;
+  --text-body: 0.9375rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.75rem;
+  --text-display: 2.5rem;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 28px;
+  --space-9: 32px;
   --shadow-sm: 0 4px 14px rgba(74, 54, 40, 0.04), 0 1px 3px rgba(74, 54, 40, 0.02);
   --shadow-md: 0 10px 24px rgba(74, 54, 40, 0.06), 0 3px 6px rgba(74, 54, 40, 0.03);
   --shadow-lg: 0 16px 36px rgba(74, 54, 40, 0.08);
@@ -48,9 +84,17 @@
   --radius-sm: 14px;
   --radius-md: 20px;
   --radius-lg: 28px;
+  --control-height-compact: 36px;
+  --control-height: 44px;
+  --control-height-touch: 48px;
+  --tap-min: 44px;
   --content-width: 1440px;
   --modal-width-md: 680px;
+  --modal-width-sm: 440px;
   --modal-width-lg: 960px;
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-slow: 240ms;
   --z-sidebar: 140;
   --z-mobile-topbar: 180;
   --z-notification: 300;
@@ -108,8 +152,11 @@ button {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid rgba(184, 107, 65, 0.36);
+textarea:focus-visible,
+a[href]:focus-visible,
+[role='button']:focus-visible,
+[tabindex]:not([tabindex='-1']):focus-visible {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -2224,10 +2271,10 @@ textarea:focus-visible {
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.text-input:focus {
-  outline: none;
+.text-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   border-color: var(--accent, #D26B33);
-  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12);
 }
 
 .text-input:-webkit-autofill,
@@ -2470,6 +2517,8 @@ select.text-input {
 .touch-stepper-display:focus-within {
   border-color: rgba(210, 107, 51, 0.18);
   background: rgba(255, 255, 255, 0.9);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .touch-stepper-display-input::-webkit-outer-spin-button,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { isApiError } from '../../api/request';
@@ -9,8 +9,6 @@ import type {
   Food,
   FoodPlanItem,
   FoodPayload,
-  FoodRecommendationItem,
-  FoodRecommendations,
   FoodScene,
   FoodType,
   Ingredient,
@@ -37,7 +35,6 @@ import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
-  Badge,
   EmptyState,
   OptionChipGroup,
   SearchField,
@@ -51,7 +48,7 @@ import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
-import { FoodPlanSurface } from './FoodPlanSurface';
+import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
@@ -67,6 +64,7 @@ import {
   extractMealRecordErrorCode,
   messageFromMealRecordReason,
 } from '../../features/meals/mealRecordErrors';
+import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
@@ -147,6 +145,7 @@ import {
   isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
+  chunkFoodCardPages,
   formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
@@ -200,7 +199,6 @@ type Props = {
   inventoryItems: InventoryItem[];
   mealLogs: MealLog[];
   members: Member[];
-  foodRecommendations?: FoodRecommendations | null;
   foodScenes: FoodScene[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
@@ -290,15 +288,6 @@ type Props = {
   isUpdatingScene?: boolean;
   isUpdatingMeal?: boolean;
   isCreatingShopping?: boolean;
-};
-
-type RecommendationCardViewModel = {
-  food: Food;
-  mealType: MealType;
-  score: number;
-  reasons: string[];
-  primaryAction: 'cook_recipe' | 'quick_add_meal' | 'review_food';
-  recipeAvailability?: FoodRecommendationItem['recipe_availability'];
 };
 
 type MobileCookingFilter = 'all' | 'ready' | 'shortage';
@@ -399,6 +388,12 @@ function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealT
   return getDefaultMealType(food);
 }
 
+function openFoodDetailFromCard(event: KeyboardEvent<HTMLElement>, onOpenDetail: () => void) {
+  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+  event.preventDefault();
+  onOpenDetail();
+}
+
 function getFoodCardPrimaryActionLabel(food: Food) {
   if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) return '开始做';
   return getPrimaryFoodActionLabel(food);
@@ -406,12 +401,6 @@ function getFoodCardPrimaryActionLabel(food: Food) {
 
 function isFoodShoppingEligible(food: Food) {
   return isReadyLikeFood(food) || (normalizeFoodType(food) === 'selfMade' && Boolean(food.recipe_id));
-}
-
-function getRecommendationPrimaryActionLabel(item: RecommendationCardViewModel) {
-  if (item.primaryAction === 'cook_recipe') return '开始做';
-  if (item.primaryAction === 'quick_add_meal') return getPrimaryFoodActionLabel(item.food);
-  return '查看详情';
 }
 
 function formatFoodStock(food: Food) {
@@ -766,8 +755,6 @@ export function FoodWorkspace(props: Props) {
     setSearch,
     lensFilter,
     setLensFilter,
-    recommendationPage,
-    setRecommendationPage,
     governanceIssueFilter,
     setGovernanceIssueFilter,
     typeFilter,
@@ -954,32 +941,6 @@ export function FoodWorkspace(props: Props) {
     [governanceIssueFilter, needsInfoFoods, props.recipes]
   );
   const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
-  const todayRecommendations = useMemo(
-    () => buildTodayFoodRecommendations(props.foods, props.mealLogs, { mealType: suggestedMealType, recipes: props.recipes }),
-    [props.foods, props.mealLogs, props.recipes, suggestedMealType]
-  );
-  const recommendationCards = useMemo<RecommendationCardViewModel[]>(() => {
-    if (props.foodRecommendations?.items.length) {
-      return props.foodRecommendations.items.map((item) => ({
-        food: item.food,
-        mealType: props.foodRecommendations?.target_meal_type ?? suggestedMealType,
-        score: item.score,
-        reasons: item.reasons,
-        primaryAction: item.primary_action,
-        recipeAvailability: item.recipe_availability,
-      }));
-    }
-    return todayRecommendations.map((item) => ({
-      food: item.food,
-      mealType: item.mealType,
-      score: item.score,
-      reasons: item.reasons,
-      primaryAction: normalizeFoodType(item.food) === 'selfMade' && item.food.recipe_id ? 'cook_recipe' : 'quick_add_meal',
-      recipeAvailability: null,
-    }));
-  }, [props.foodRecommendations, suggestedMealType, todayRecommendations]);
-  const recommendationPageCount = Math.max(1, Math.ceil(recommendationCards.length / 3));
-  const visibleRecommendations = recommendationCards.slice((recommendationPage % recommendationPageCount) * 3, (recommendationPage % recommendationPageCount) * 3 + 3);
   const repeatFoods = useMemo(
     () =>
       foodUsageCards
@@ -1011,6 +972,7 @@ export function FoodWorkspace(props: Props) {
     ].join('|'),
   });
   const visibleFoods = filteredFoods.slice(0, foodCardPager.visibleCount);
+  const foodCardPages = chunkFoodCardPages(visibleFoods);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
   const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
@@ -1669,18 +1631,6 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  function handleRecommendationPrimaryAction(item: RecommendationCardViewModel) {
-    if (item.primaryAction === 'cook_recipe' && item.food.recipe_id) {
-      openQuickMealDialog(item.food, item.mealType, 'cook');
-      return;
-    }
-    if (item.primaryAction === 'quick_add_meal') {
-      openQuickMealDialog(item.food, item.mealType, 'eat');
-      return;
-    }
-    openDetail(item.food);
-  }
-
   function handleFoodCardPrimaryAction(food: Food, mealType: MealType) {
     const initialMealType = getQuickDefaultMealType(food, suggestedMealType);
     if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
@@ -1715,7 +1665,7 @@ export function FoodWorkspace(props: Props) {
     }
   }, [props.foods, props.navigationRequest]);
 
-  const planSurfaceProps = {
+  const planSurfaceProps: FoodPlanSurfaceProps = {
       weekRange: props.foodPlanWeekRange,
       days: foodPlanDays,
       weekSectionRef: foodPlanWeekRef,
@@ -1739,7 +1689,7 @@ export function FoodWorkspace(props: Props) {
       onPreviousWeek: props.onFoodPlanPreviousWeek,
       onCurrentWeek: props.onFoodPlanCurrentWeek,
       onNextWeek: props.onFoodPlanNextWeek,
-      onCreatePlan: () => openPlanDialog(),
+      onCreatePlan: (defaults) => openPlanDialog(undefined, defaults),
       onOpenPlanItem: openPlanDetail,
       onStartPlanItem: (item: FoodPlanItem) => {
         void completePlanItem(item);
@@ -1760,104 +1710,34 @@ export function FoodWorkspace(props: Props) {
             </ActionButton>
           </div>
         }
-        recommendationSection={<section className="food-quick-strip" aria-label="食物智能推荐">
-        <div className="food-quick-head">
-          <div className="food-quick-title">
-            <strong>今日推荐</strong>
-          </div>
-          <div className="food-quick-actions">
-            <button
-              type="button"
-              aria-label="换一换"
-              title="换一换"
-              onClick={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
-              disabled={recommendationCards.length <= 3}
-            >
-              <FoodUiIcon name="refresh" />
-              <span>换一换</span>
-            </button>
-          </div>
-        </div>
-        {visibleRecommendations.length > 0 ? (
-          <div className="food-recommendation-grid">
-            {visibleRecommendations.map((item) => {
-              const coverAsset = getFoodCoverAsset(item.food, props.recipes);
-              const cover = resolveMediaUrl(coverAsset, 'card');
-              const normalizedType = normalizeFoodType(item.food);
-              return (
-                <article key={item.food.id} className={`food-recommendation-card tone-${normalizedType}`}>
-                  <div className="food-recommendation-media">
-                    <MediaWithPlaceholder
-                      src={cover}
-                      srcSet={buildMediaSrcSet(coverAsset)}
-                      sizes={buildMediaSizes('card')}
-                      alt=""
-                    />
-                  </div>
-                  <div className="food-recommendation-body">
-                    <div className="food-recommendation-heading">
-                      <h4>{item.food.name}</h4>
-                      <span className="food-recommendation-type">{FOOD_TYPE_LABELS[normalizedType]}</span>
-                    </div>
-                    <div className="food-recommendation-reasons">
-                      {item.reasons.map((reason) => <Badge key={reason}>{reason}</Badge>)}
-                    </div>
-                    <div className="food-recommendation-actions">
-                      <button
-                        className="primary"
-                        type="button"
-                        title={getRecommendationPrimaryActionLabel(item)}
-                        disabled={props.isQuickAdding}
-                        onClick={() => handleRecommendationPrimaryAction(item)}
-                      >
-                        {getRecommendationPrimaryActionLabel(item)}
-                      </button>
-                      <button className="icon-only" type="button" aria-label={`查看详情：${item.food.name}`} title="查看详情" onClick={() => openDetail(item.food)}>
-                        <FoodUiIcon name="list" />
-                      </button>
-                      <button className="icon-only" type="button" aria-label={`加入菜单：${item.food.name}`} title="加入菜单" onClick={() => openPlanDialog(item.food)}>
-                        <FoodUiIcon name="calendar" />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="food-recommendation-empty">
-            <strong>还没有可推荐食物</strong>
-            <span>先新增外卖、成品，或补一份家常菜谱。</span>
-            <button type="button" onClick={() => handleOpenCreate('takeout')}>新增可吃项</button>
-          </div>
-        )}
-      </section>}
         filtersSection={<section className="food-filter-shell">
           <div className="food-library-main">
             <div className="food-library-head">
               <div className="workspace-toolbar-copy">
                 <h3>食物库</h3>
               </div>
-              <SearchField
-                className="food-search-field"
-                ariaLabel="搜索食物"
-                placeholder="搜索食物、来源、口味或备注..."
-                value={search}
-                loading={isFoodSearchFetching}
-                leadingIcon={<FoodUiIcon name="search" />}
-                onChange={setSearch}
-                onClear={() => setSearch('')}
-                onCompositionStart={foodSearchComposition.onCompositionStart}
-                onCompositionEnd={foodSearchComposition.onCompositionEnd}
-              />
-              <div className="food-library-head-actions">
-                <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 份食物</p>
-                {hasFoodFilters && (
-                  <button className="food-clear-filters-button" type="button" onClick={clearFoodFilters}>
-                    <FoodUiIcon name="refresh" />
-                    <span>清空筛选</span>
-                  </button>
-                )}
+              <div className="food-library-search-row">
+                <SearchField
+                  className="food-search-field"
+                  ariaLabel="搜索食物"
+                  placeholder="搜索食物、来源、口味或备注..."
+                  value={search}
+                  loading={isFoodSearchFetching}
+                  leadingIcon={<FoodUiIcon name="search" />}
+                  onChange={setSearch}
+                  onClear={() => setSearch('')}
+                  onCompositionStart={foodSearchComposition.onCompositionStart}
+                  onCompositionEnd={foodSearchComposition.onCompositionEnd}
+                />
+                <div className="food-library-head-actions">
+                  <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 份食物</p>
+                  {hasFoodFilters && (
+                    <button className="food-clear-filters-button" type="button" onClick={clearFoodFilters}>
+                      <FoodUiIcon name="refresh" />
+                      <span>清空筛选</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
               <div className="food-toolbar-controls">
@@ -1925,8 +1805,11 @@ export function FoodWorkspace(props: Props) {
           </div>
         ) : null}
         gridSection={filteredFoods.length > 0 ? (
-          <section className="food-card-grid">
-          {visibleFoods.map((food) => {
+          <div className="food-card-library">
+            <section className="food-card-grid" aria-label="食物卡片分页">
+            {foodCardPages.map((page, pageIndex) => (
+              <div className="food-card-page" key={page[0]?.id ?? `food-card-page-${pageIndex}`}>
+              {page.map((food) => {
             const usage = getMealUsage(food, props.mealLogs);
             const coverAsset = getFoodCoverAsset(food, props.recipes);
             const cover = resolveMediaUrl(coverAsset, 'card');
@@ -1934,15 +1817,20 @@ export function FoodWorkspace(props: Props) {
             const normalizedType = normalizeFoodType(food);
             const defaultMealType = getDefaultMealType(food);
             const status = getFoodStatus(food, usage, expiry, props.recipes);
-            const inventoryConfirmation = isReadyLikeFood(food)
-              ? getFoodInventoryConfirmation(food, todayDate)
-              : null;
             const governanceIssueLabels = getFoodGovernanceIssueLabels(food, props.recipes);
             const compactLabels = governanceIssueLabels.length > 0
-              ? governanceIssueLabels.slice(0, 2)
-              : [...getFoodSceneTags(food).slice(0, 2), food.rating != null ? `${food.rating} 分` : null].filter((item): item is string => Boolean(item));
+              ? governanceIssueLabels
+              : [...getFoodSceneTags(food), food.rating != null ? `${food.rating} 分` : null].filter((item): item is string => Boolean(item));
             return (
-              <article key={food.id} className={`food-work-card tone-${normalizedType}`}>
+              <article
+                key={food.id}
+                className={`food-work-card tone-${normalizedType}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`查看详情：${food.name}`}
+                onClick={() => openDetail(food)}
+                onKeyDown={(event) => openFoodDetailFromCard(event, () => openDetail(food))}
+              >
                 <div className="food-work-card-media">
                   <MediaWithPlaceholder
                     src={cover}
@@ -1956,7 +1844,10 @@ export function FoodWorkspace(props: Props) {
                     type="button"
                     aria-label={food.favorite ? '取消收藏' : '收藏食物'}
                     disabled={props.isUpdatingFavorite}
-                    onClick={() => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void props.updateFoodFavorite(food.id, !food.favorite, food.row_version);
+                    }}
                   >
                     <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
                   </button>
@@ -1976,18 +1867,6 @@ export function FoodWorkspace(props: Props) {
                       <strong>{status.label}</strong>
                       <small>{status.detail}</small>
                     </span>
-                    {inventoryConfirmation ? (
-                      <span
-                        className={`inventory-maintenance-chip is-confirmation is-${inventoryConfirmation.confirmationTone}`}
-                        title={
-                          inventoryConfirmation.lastConfirmedAt
-                            ? `上次确认 ${inventoryConfirmation.lastConfirmedAt.slice(0, 10)}`
-                            : '还没有人工确认过成品库存'
-                        }
-                      >
-                        {inventoryConfirmation.confirmationLabel}
-                      </span>
-                    ) : null}
                     {food.suitable_meal_types.length > 0 && (
                       <span className="food-card-meal-summary">
                         {food.suitable_meal_types.map((meal) => MEAL_TYPE_LABELS[meal]).join(' / ')}
@@ -2000,36 +1879,64 @@ export function FoodWorkspace(props: Props) {
                     </div>
                   )}
                   <div className={`food-card-actions${isFoodShoppingEligible(food) ? ' has-shopping-action' : ''}`}>
-                    <ActionButton tone="primary" size="compact" className="food-card-primary-action" type="button" disabled={props.isQuickAdding} onClick={() => handleFoodCardPrimaryAction(food, defaultMealType)}>
+                    <ActionButton
+                      tone="primary"
+                      size="compact"
+                      className="food-card-primary-action"
+                      type="button"
+                      disabled={props.isQuickAdding}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleFoodCardPrimaryAction(food, defaultMealType);
+                      }}
+                    >
                       <FoodUiIcon name="plus" />
                       <span>{getFoodCardPrimaryActionLabel(food)}</span>
                     </ActionButton>
-                    <button className="food-card-detail-button" type="button" aria-label={`查看详情：${food.name}`} title="查看详情" onClick={() => openDetail(food)}>
-                      <FoodUiIcon name="list" />
-                    </button>
                     {isFoodShoppingEligible(food) && (
-                      <button className="food-card-detail-button" type="button" aria-label={`加入采购：${food.name}`} title="加入采购" onClick={() => openFoodShopping(food)}>
+                      <button
+                        className="food-card-icon-button"
+                        type="button"
+                        aria-label={`加入采购：${food.name}`}
+                        title="加入采购"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openFoodShopping(food);
+                        }}
+                      >
                         <FoodUiIcon name="clipboard" />
                       </button>
                     )}
-                    <button className="food-card-detail-button" type="button" aria-label={`加入菜单：${food.name}`} title="加入菜单" onClick={() => openPlanDialog(food)}>
+                    <button
+                      className="food-card-icon-button"
+                      type="button"
+                      aria-label={`加入菜单：${food.name}`}
+                      title="加入菜单"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openPlanDialog(food);
+                      }}
+                    >
                       <FoodUiIcon name="calendar" />
                     </button>
                   </div>
                 </div>
               </article>
             );
-          })}
-          <div className="paged-list-status" ref={foodCardPager.sentinelRef}>
-            {foodCardPager.hasMore ? (
-              <button className="paged-list-load-more" type="button" onClick={foodCardPager.loadMore}>
-                继续加载食物
-              </button>
-            ) : (
-              <span>已加载全部食物</span>
-            )}
+              })}
+              </div>
+            ))}
+            </section>
+            <div className="paged-list-status" ref={foodCardPager.sentinelRef}>
+              {foodCardPager.hasMore ? (
+                <button className="paged-list-load-more" type="button" onClick={foodCardPager.loadMore}>
+                  继续加载食物
+                </button>
+              ) : (
+                <span>已加载全部食物</span>
+              )}
+            </div>
           </div>
-        </section>
         ) : (
           <EmptyState
             title={currentLensCopy.emptyTitle}
@@ -2045,7 +1952,8 @@ export function FoodWorkspace(props: Props) {
             }
           />
         )}
-        sidebar={<aside className="food-task-sidebar" aria-label="食物页辅助操作">
+        sidebar={<>
+        <aside className="food-task-sidebar" aria-label="食物页辅助操作">
           <div className="food-task-sidebar-head">
             <strong>食物管理</strong>
             <span className="eyebrow">视角、待办与菜单计划</span>
@@ -2124,7 +2032,46 @@ export function FoodWorkspace(props: Props) {
               )}
             </div>
           </div>
-        </aside>}
+        </aside>
+        <FoodTabletSupportSurface
+          metrics={[
+            {
+              label: '常吃清单',
+              value: repeatFoodCount,
+              title: repeatFoods.map(({ food }) => food.name).join('、') || '常吃清单',
+              onClick: () => setLensFilter('favorite'),
+            },
+            {
+              label: '临期/待补',
+              value: managementIssueCount,
+              onClick: () => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all')),
+            },
+            {
+              label: '待完善',
+              value: needsInfoFoods.length,
+              onClick: () => openGovernanceIssue('all'),
+            },
+            {
+              label: '场景管理',
+              value: props.foodScenes.filter((scene) => !scene.hidden).length,
+              onClick: () => setIsSceneManagerOpen(true),
+            },
+          ]}
+          nextTaskLabel={nextGovernanceFood ? '下一条待办' : '待办'}
+          nextTaskSummary={nextGovernanceSummary}
+          canOpenNextTask={Boolean(nextGovernanceFood)}
+          onOpenNextTask={openNextGovernanceFood}
+          plan={planSurfaceProps}
+          scenes={sceneCards.map((scene) => ({
+            name: scene.name,
+            description: scene.description || (scene.count > 0 ? `${scene.count} 份食物` : '推荐场景'),
+            imageUrl: resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined),
+            imageSrcSet: buildMediaSrcSet(scene.imageAsset),
+            active: sceneFilter === scene.name,
+            onSelect: () => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name),
+          }))}
+        />
+        </>}
       />
     );
 
@@ -2132,8 +2079,6 @@ export function FoodWorkspace(props: Props) {
       <FoodMobileView
         recipes={props.recipes}
         mealLogs={props.mealLogs}
-        visibleRecommendations={visibleRecommendations}
-        recommendationCardCount={recommendationCards.length}
         managementIssueCount={managementIssueCount}
         mobileScenePages={mobileScenePages}
         mobileLibraryFoods={mobileLibraryFoods}
@@ -2162,19 +2107,16 @@ export function FoodWorkspace(props: Props) {
         }
         resolveFoodAssetUrl={resolveFoodAssetUrl}
         getFoodCardPrimaryActionLabel={getFoodCardPrimaryActionLabel}
-        getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
         getDefaultMealType={getDefaultMealType}
         getFoodSceneTags={getFoodSceneTags}
         getFoodCookingSummary={getFoodCookingSummary}
         onSearchChange={setSearch}
         onSearchCompositionStart={foodSearchComposition.onCompositionStart}
         onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
-        onRotateRecommendation={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
         onOpenGovernanceIssue={() => openGovernanceIssue('all')}
         onOpenSceneManager={() => setIsSceneManagerOpen(true)}
         onOpenDetail={openDetail}
         onOpenPlanDialog={openPlanDialog}
-        onHandleRecommendationPrimaryAction={handleRecommendationPrimaryAction}
         onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
         onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite, food.row_version)}
         onOpenShopping={openFoodShopping}
@@ -2511,6 +2453,7 @@ export function FoodWorkspace(props: Props) {
             expiry={expiry}
             factRows={factRows}
             history={history}
+            inventoryConfirmation={isReadyLikeFood(detailFood) ? getFoodInventoryConfirmation(detailFood, todayDate) : null}
             isOutsideFood={isOutsideFood(detailFood)}
             isQuickAdding={props.isQuickAdding}
             isReadyLikeFood={isReadyLikeFood(detailFood)}
@@ -2527,7 +2470,6 @@ export function FoodWorkspace(props: Props) {
             onClose={closeDetail}
             onEdit={handleOpenEdit}
             onEditRecipe={handleOpenRecipeEditorDirectly}
-            onOpenLogs={props.onOpenLogs}
             onOpenPlanDialog={openPlanDialog}
             onStartCook={() => {
               // Route through the same date/meal/servings dialog as Discover primary cook.

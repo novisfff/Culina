@@ -31,6 +31,13 @@ export type FoodCookingSummary = {
   isReady: boolean;
 };
 
+export function chunkFoodCardPages<T>(items: T[], pageSize = 2) {
+  const normalizedPageSize = Math.max(1, pageSize);
+  return Array.from({ length: Math.ceil(items.length / normalizedPageSize) }, (_, index) =>
+    items.slice(index * normalizedPageSize, index * normalizedPageSize + normalizedPageSize)
+  );
+}
+
 export function getDaysUntil(dateValue?: string | null) {
   if (!dateValue) return null;
   const target = new Date(`${dateValue}T00:00:00`).getTime();
@@ -86,8 +93,11 @@ export function getFoodGovernanceIssues(food: Food, recipes: Recipe[] = []): Foo
 }
 
 export function getFoodGovernanceIssueLabels(food: Food, recipes: Recipe[] = []) {
+  const priorities = new Map(FOOD_GOVERNANCE_ISSUE_OPTIONS.map((item, index) => [item.value, index]));
   const labels = new Map(FOOD_GOVERNANCE_ISSUE_OPTIONS.map((item) => [item.value, item.label]));
-  return getFoodGovernanceIssues(food, recipes).map((issue) => labels.get(issue) ?? issue);
+  return [...getFoodGovernanceIssues(food, recipes)]
+    .sort((left, right) => (priorities.get(left) ?? 0) - (priorities.get(right) ?? 0))
+    .map((issue) => labels.get(issue) ?? issue);
 }
 
 export function isFoodMissingDecisionInfo(food: Food, recipes: Recipe[] = []) {
@@ -111,15 +121,17 @@ export function getFoodStatus(food: Food, usage: ReturnType<typeof getMealUsage>
 }
 
 /** Three-state inventory confirmation freshness for Food aggregate stock. */
-export function getFoodInventoryConfirmation(
-  food: Food,
-  referenceDate: string,
-): {
+export type FoodInventoryConfirmationView = {
   confirmationStatus: 'never_confirmed' | 'current' | 'stale';
   confirmationLabel: string;
   confirmationTone: InventoryConfirmationTone;
   lastConfirmedAt: string | null;
-} {
+};
+
+export function getFoodInventoryConfirmation(
+  food: Food,
+  referenceDate: string,
+): FoodInventoryConfirmationView {
   return buildFoodConfirmation({ food, referenceDate });
 }
 

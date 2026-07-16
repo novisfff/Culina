@@ -361,8 +361,28 @@ describe('HomeMobileDashboard three-question mobile', () => {
     });
     expect(view.querySelectorAll('[data-testid="home-recommendation-card"]')).toHaveLength(1);
     expect(view.querySelector('[data-testid="mobile-recommendation-scroller"]')).toBeNull();
-    act(() => buttonByText(view, '换一个').click());
+    const nextButton = buttonByText(view, '换一个');
+    expect(nextButton.querySelector('svg')).not.toBeNull();
+    act(() => nextButton.click());
     expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the same add-plan action for a non-recipe recommendation', () => {
+    const onHomePlanAddDialogOpen = vi.fn();
+    const onQuickStartFood = vi.fn();
+    const view = renderMobile({
+      mobileRecommendations: [makeRecommendation(0)],
+      onHomePlanAddDialogOpen,
+      onQuickStartFood,
+    });
+
+    act(() => buttonByText(view, '加入计划').click());
+
+    expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'food-0' }),
+      'dinner',
+    );
+    expect(onQuickStartFood).not.toHaveBeenCalled();
   });
 
   it('disables 换一个 only when N <= 1', () => {

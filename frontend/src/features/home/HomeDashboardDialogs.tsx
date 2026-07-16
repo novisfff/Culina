@@ -325,7 +325,7 @@ export function HomeDashboardDialogs(props: Props) {
                       description: [
                         FOOD_TYPE_LABELS[food.type],
                         food.source_name || food.purchase_source || food.category,
-                        food.recipe_id ? '可开始做' : '可记到今天',
+                        food.recipe_id ? '可开始做' : '可加入计划',
                       ]
                         .filter(Boolean)
                         .join(' · '),

@@ -1327,7 +1327,6 @@ function App() {
                   inventoryItems={inventoryItems}
                   mealLogs={mealLogs}
                   members={members}
-                  foodRecommendations={foodRecommendations}
                   foodScenes={foodScenes}
                   foodPlanItems={foodPlanItems}
                   foodPlanWeekRange={foodPlanWeekRange}

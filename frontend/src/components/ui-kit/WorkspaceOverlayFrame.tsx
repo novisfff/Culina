@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { useOverlayFocusLifecycle } from './useOverlayFocusLifecycle';
 
 export type WorkspaceOverlayFrameProps = {
   children: ReactNode;
@@ -19,50 +20,6 @@ export type WorkspaceOverlayFrameProps = {
   backdropClassName?: string;
 };
 
-/** Mounted overlay roots; topmost is resolved by DOM nesting + mount order. */
-const overlayStack: HTMLElement[] = [];
-
-/**
- * Resolve the active overlay for Escape.
- * Nested overlays: the deepest descendant wins (child effects register before parents).
- * Sibling overlays: the later-mounted root wins.
- */
-function getTopmostOverlay(): HTMLElement | undefined {
-  let top: HTMLElement | undefined;
-  for (const node of overlayStack) {
-    if (!top) {
-      top = node;
-      continue;
-    }
-    if (top.contains(node)) {
-      top = node;
-    } else if (node.contains(top)) {
-      // Keep the deeper overlay already chosen.
-    } else {
-      top = node;
-    }
-  }
-  return top;
-}
-
-function getFocusableElements(root: HTMLElement): HTMLElement[] {
-  const selector = [
-    'a[href]',
-    'button:not([disabled])',
-    'textarea:not([disabled])',
-    'input:not([disabled]):not([type="hidden"])',
-    'select:not([disabled])',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(',');
-  return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((node) => {
-    if (node.getAttribute('aria-hidden') === 'true') return false;
-    if (node.hasAttribute('disabled')) return false;
-    const style = window.getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    return true;
-  });
-}
-
 export function WorkspaceOverlayFrame({
   children,
   onClose,
@@ -75,7 +32,6 @@ export function WorkspaceOverlayFrame({
   backdropClassName,
 }: WorkspaceOverlayFrameProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const restoreTargetRef = useRef<HTMLElement | null>(null);
   // Keep latest callbacks/flags in refs so the mount effect does not re-run (and re-steal
   // focus) when parents pass a new onClose identity on every render.
   const onCloseRef = useRef(onClose);
@@ -91,29 +47,17 @@ export function WorkspaceOverlayFrame({
     busyRef.current = busy;
   }, [busy]);
 
-  useEffect(() => {
-    restoreTargetRef.current =
-      restoreFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  }, [restoreFocusTo]);
+  useOverlayFocusLifecycle({
+    rootRef,
+    onClose,
+    busy,
+    initialFocusRef,
+    restoreFocusTo,
+  });
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-
-    overlayStack.push(root);
-
-    // Mark siblings inert so background content is removed from normal tab order.
-    const inerted: HTMLElement[] = [];
-    const parent = root.parentElement;
-    if (parent) {
-      Array.from(parent.children).forEach((child) => {
-        if (child === root) return;
-        if (!(child instanceof HTMLElement)) return;
-        if (child.hasAttribute('inert')) return;
-        child.setAttribute('inert', '');
-        inerted.push(child);
-      });
-    }
 
     const panel =
       root.querySelector<HTMLElement>('[data-workspace-overlay-panel="true"]') ??
@@ -128,60 +72,7 @@ export function WorkspaceOverlayFrame({
       panel.setAttribute('data-workspace-overlay-busy', busyRef.current ? 'true' : 'false');
     }
 
-    const focusNow = () => {
-      const focusTarget =
-        initialFocusRef?.current ??
-        (panel ? getFocusableElements(panel)[0] : null) ??
-        panel;
-      if (focusTarget && typeof focusTarget.focus === 'function') {
-        try {
-          focusTarget.focus({ preventScroll: true });
-        } catch {
-          focusTarget.focus();
-        }
-      }
-    };
-    // Focus immediately and again on the next frame so late-mounted children are covered.
-    focusNow();
-    const focusFrame = window.requestAnimationFrame(focusNow);
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // Only the topmost overlay (deepest nested, else latest sibling) should respond.
-      if (getTopmostOverlay() !== root) return;
-      if (busyRef.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      onCloseRef.current();
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.removeEventListener('keydown', handleKeyDown);
-      const stackIndex = overlayStack.lastIndexOf(root);
-      if (stackIndex >= 0) {
-        overlayStack.splice(stackIndex, 1);
-      }
-      for (const node of inerted) {
-        node.removeAttribute('inert');
-      }
-      const restoreTo = restoreTargetRef.current;
-      if (restoreTo && typeof restoreTo.focus === 'function' && document.contains(restoreTo)) {
-        try {
-          restoreTo.focus({ preventScroll: true });
-        } catch {
-          restoreTo.focus();
-        }
-      }
-    };
-    // onClose / busy intentionally omitted: read via refs so parent re-renders do not re-steal focus.
-  }, [initialFocusRef, resolvedLabelledBy]);
+  }, [resolvedLabelledBy]);
 
   // Keep busy attribute in sync without remounting inert/focus logic.
   useEffect(() => {

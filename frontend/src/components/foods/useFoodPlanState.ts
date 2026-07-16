@@ -84,11 +84,14 @@ export function useFoodPlanState(input: {
   const planDateOptions = Array.from({ length: 90 }, (_, index) => addDateKeyDays(todayDate, index));
   const selectedPlanFood = planForm.foodId ? input.foods.find((food) => food.id === planForm.foodId) ?? null : null;
 
-  function openPlanDialog(food?: Food) {
+  function openPlanDialog(
+    food?: Food,
+    defaults?: Partial<Pick<PlanFormState, 'planDate' | 'mealType'>>,
+  ) {
     setPlanForm({
       foodId: food?.id ?? '',
-      planDate: todayKey(),
-      mealType: food ? input.getDefaultMealType(food) : 'dinner',
+      planDate: defaults?.planDate ?? todayKey(),
+      mealType: defaults?.mealType ?? (food ? input.getDefaultMealType(food) : 'dinner'),
       note: '',
     });
     setPlanFoodSearch(food?.name ?? '');

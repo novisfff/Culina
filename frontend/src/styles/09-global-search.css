@@ -88,6 +88,11 @@
   outline: 0;
 }
 
+.global-search-input-row:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .global-search-loading {
   position: static;
   width: 18px;

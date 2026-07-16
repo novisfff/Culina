@@ -35,7 +35,9 @@ import {
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
+  chunkFoodCardPages,
   formatFoodStockQuantity,
+  getFoodGovernanceIssueLabels,
   getFoodGovernanceIssues,
 } from './FoodWorkspaceHelpers';
 import {
@@ -321,7 +323,6 @@ function renderWorkspace(options: {
           inventoryItems: options.inventoryItems ?? [],
           mealLogs: [],
           members: [],
-          foodRecommendations: null,
           foodScenes: [],
           foodPlanItems: [],
           foodPlanWeekRange: options.foodPlanWeekRange ?? { start: todayKey(), end: todayKey() },
@@ -425,7 +426,6 @@ describe('FoodWorkspace meal recording ownership', () => {
         inventoryItems: [],
         mealLogs: [],
         members: [],
-        foodRecommendations: null,
         foodScenes: [],
         foodPlanItems: [],
         foodPlanWeekRange: { start: todayKey(), end: todayKey() },
@@ -527,6 +527,17 @@ describe('FoodWorkspace meal recording ownership', () => {
 });
 
 describe('food workspace helpers', () => {
+  it('chunks tablet food cards into two-item swipe columns', () => {
+    const items = Array.from({ length: 7 }, (_, index) => index + 1);
+
+    expect(chunkFoodCardPages(items)).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+      [7],
+    ]);
+  });
+
   it('formats food stock display with at most one decimal place', () => {
     expect(formatFoodStockQuantity({ stock_quantity: 13.991, stock_unit: '盒' })).toBe('13.9盒');
     expect(formatFoodStockQuantity({ stock_quantity: 13.94, stock_unit: '盒' })).toBe('13.9盒');
@@ -727,6 +738,13 @@ describe('food workspace helpers', () => {
     const completeFood: Food = { ...baseFood, images: [image] };
 
     expect(getFoodGovernanceIssues(missingAll)).toEqual(['image', 'meal', 'note', 'source', 'stock']);
+    expect(getFoodGovernanceIssueLabels(missingAll)).toEqual([
+      '缺库存/到期',
+      '缺餐别',
+      '缺来源',
+      '缺图片',
+      '缺备注',
+    ]);
     expect(getFoodGovernanceIssues(completeFood)).toEqual([]);
   });
 
@@ -873,6 +891,51 @@ describe('food workspace helpers', () => {
 });
 
 describe('FoodWorkspace shopping-origin restock cutover', () => {
+  it('moves ready-food inventory confirmation from the card into the detail header', () => {
+    const food: Food = {
+      ...baseFood,
+      id: 'food-ready-confirmation',
+      name: '盒装牛奶',
+      type: 'readyMade',
+      recipe_id: null,
+      stock_quantity: 1,
+      stock_unit: '盒',
+      storage_location: '常温',
+      expiry_date: dateOffset(14),
+      inventory_last_confirmed_at: null,
+    };
+    const { view } = renderWorkspace({ food, navigationRequest: null });
+    const card = view.querySelector<HTMLElement>('.food-work-card');
+
+    expect(card?.textContent).not.toContain('从未确认');
+
+    act(() => card?.click());
+
+    const confirmation = view.querySelector('.food-detail-inventory-confirmation');
+    expect(confirmation?.textContent).toContain('从未确认');
+    expect(confirmation?.closest('.food-detail-status-row')).not.toBeNull();
+  });
+
+  it('opens desktop food details from the card without a detail button', () => {
+    const { view, food } = renderWorkspace({ navigationRequest: null });
+    const card = view.querySelector<HTMLElement>('.food-work-card');
+
+    act(() => card?.click());
+
+    expect(view.querySelector('.food-detail-drawer')).not.toBeNull();
+    expect(view.querySelector(`.food-work-card button[aria-label="查看详情：${food.name}"]`)).toBeNull();
+  });
+
+  it('opens mobile food details from the card without a detail button', () => {
+    const { view, food } = renderWorkspace({ isPhoneViewport: true, navigationRequest: null });
+    const card = view.querySelector<HTMLElement>('.mobile-food-library-card');
+
+    act(() => card?.click());
+
+    expect(view.querySelector('.food-detail-drawer')).not.toBeNull();
+    expect(view.querySelector(`.mobile-food-library-card button[aria-label="查看详情：${food.name}"]`)).toBeNull();
+  });
+
   it('renders the mobile favorite control as an image overlay instead of a footer action', () => {
     const { view, food } = renderWorkspace({ isPhoneViewport: true, navigationRequest: null });
     const card = view.querySelector('.mobile-food-library-card');
@@ -960,6 +1023,33 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
 });
 
 describe('FoodWorkspace discovery composition', () => {
+  it('renders the dedicated Pad landscape support surface', () => {
+    const { view } = renderWorkspace({ navigationRequest: null });
+    const tabletSurface = view.querySelector('.food-tablet-support-surface');
+
+    expect(tabletSurface).not.toBeNull();
+    expect(tabletSurface?.querySelectorAll('.food-tablet-management-metric')).toHaveLength(4);
+    expect(tabletSurface?.querySelector('.food-tablet-plan-section')).not.toBeNull();
+    expect(tabletSurface?.querySelector('.food-tablet-scene-scroller')).not.toBeNull();
+    expect(tabletSurface?.textContent).not.toContain('摘要与下一步');
+    expect(tabletSurface?.textContent).not.toContain('横向滑动查看更多');
+  });
+
+  it('limits the new support layout to Pad landscape and keeps scene cards swipeable', () => {
+    const styles = readFileSync('src/styles/06-food-workspace.css', 'utf8');
+    const tabletBlock = styles.match(
+      /@media \(min-width: 901px\) and \(max-width: 1180px\) and \(orientation: landscape\) \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(tabletBlock).toContain('.food-task-sidebar');
+    expect(tabletBlock).toContain('display: none');
+    expect(tabletBlock).toContain('.food-tablet-support-surface');
+    expect(tabletBlock).toContain('display: grid');
+    expect(tabletBlock).toContain('.food-tablet-scene-scroller');
+    expect(tabletBlock).toContain('overflow-x: auto');
+    expect(tabletBlock).toContain('scroll-snap-type: x mandatory');
+  });
+
   it('keeps FoodWorkspace focused on the unified discovery surface', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
     expect(source).toContain('<FoodDiscoverSurface');

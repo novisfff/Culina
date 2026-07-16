@@ -2,6 +2,8 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Food } from '../../api/types';
 import { FoodPlanDialog } from './FoodPlanDialog';
@@ -107,6 +109,14 @@ function renderDialog(options: { isUpdatingPlan?: boolean; selectedPlanFood?: Fo
 }
 
 describe('FoodPlanDialog', () => {
+  it('uses the standard mobile bottom-sheet geometry for the home plan dialog', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.home-dashboard-overlay-root \.home-plan-add-modal\.recipe-plan-modal\.workspace-modal \{[^}]*width: 100%;[^}]*max-height: min\(92dvh, var\(--app-visual-viewport-height\)\);[^}]*border-radius: 24px 24px 0 0;/,
+    );
+  });
+
   it('uses the shared food overlay frame and closes when idle', () => {
     const { onClose, view } = renderDialog();
 

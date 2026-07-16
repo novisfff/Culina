@@ -195,20 +195,37 @@
   background: rgba(255, 255, 255, 0.86);
 }
 
-.dashboard-recommend-panel {
-  gap: 12px;
-  padding-top: 18px;
-  padding-bottom: 16px;
-}
-
-.dashboard-recommend-panel .dashboard-panel-head {
-  margin-bottom: 2px;
-}
-
 .dashboard-food-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+.dashboard-food-scroller {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.dashboard-food-scroller.can-scroll-left .dashboard-food-row,
+.dashboard-food-scroller.can-scroll-right .dashboard-food-row {
+  transition: mask-image 160ms ease, -webkit-mask-image 160ms ease;
+}
+
+.dashboard-food-scroller.can-scroll-left .dashboard-food-row {
+  mask-image: linear-gradient(90deg, transparent, #000 36px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px);
+}
+
+.dashboard-food-scroller.can-scroll-right .dashboard-food-row {
+  mask-image: linear-gradient(270deg, transparent, #000 36px);
+  -webkit-mask-image: linear-gradient(270deg, transparent, #000 36px);
+}
+
+.dashboard-food-scroller.can-scroll-left.can-scroll-right .dashboard-food-row {
+  mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
 }
 
 .dashboard-food-card {
@@ -219,17 +236,12 @@
   border: 1px solid rgba(92, 67, 48, 0.09);
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 14px 32px rgba(74, 54, 40, 0.05);
   cursor: pointer;
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.18s ease;
 }
 
 .dashboard-food-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(210, 107, 51, 0.18);
-  box-shadow: 0 18px 34px rgba(74, 54, 40, 0.075);
+  border-color: var(--accent);
 }
 
 .dashboard-food-card:focus-visible {
@@ -2032,8 +2044,8 @@
 
 .home-question-one {
   display: grid;
-  gap: 12px;
-  padding: 16px 18px;
+  gap: 6px;
+  padding: 8px 18px;
 }
 
 .home-question-head {
@@ -2047,6 +2059,19 @@
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.home-question-one-head > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.home-question-one-head > button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .home-question-head h2 {
@@ -2837,3 +2862,97 @@
 /* Keep problem 2/3 as two columns on all desktop/tablet surfaces.
    Phone uses the independent mobile stack, so a single-column collapse
    at ~1100px would only degrade landscape tablet acceptance. */
+
+/* Landscape iPad keeps the desktop information architecture, but its main
+   canvas is substantially narrower once the persistent sidebar is present. */
+@media (min-width: 768px) and (max-width: 1280px) {
+  .dashboard-stat-grid {
+    gap: 10px;
+  }
+
+  .dashboard-stat-card {
+    min-height: 84px;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .dashboard-stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .dashboard-stat-card span:not(.dashboard-stat-icon),
+  .dashboard-stat-card p {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dashboard-stat-card strong {
+    gap: 5px;
+    font-size: 1.35rem;
+  }
+
+  .dashboard-stat-card p {
+    margin-top: 4px;
+    font-size: 0.8125rem;
+  }
+
+  .dashboard-food-row {
+    grid-template-columns: repeat(3, minmax(260px, 1fr));
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .dashboard-food-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dashboard-food-card {
+    grid-template-columns: minmax(110px, 0.78fr) minmax(0, 1fr);
+  }
+
+  .home-compact-calendar {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .home-compact-days {
+    gap: 6px;
+  }
+
+  .home-compact-days > button {
+    min-height: 60px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    align-content: start;
+    justify-items: start;
+    padding: 8px;
+  }
+
+  .home-compact-day-date {
+    display: grid;
+    justify-content: start;
+    gap: 2px;
+  }
+
+  .home-compact-days > button .home-compact-day-weekday {
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-days > button strong {
+    font-size: 0.8125rem;
+  }
+
+  .home-compact-day-status {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.6875rem;
+  }
+}

@@ -196,6 +196,11 @@
   font-weight: 600;
 }
 
+.meal-log-search:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .meal-log-segment,
 .meal-log-meal-filter {
   display: inline-flex;
@@ -1235,9 +1240,12 @@
 
 .meal-log-enrich-modal .meal-enrichment-notes textarea:focus {
   border-color: var(--accent);
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12);
   background: #ffffff;
+}
+
+.meal-log-enrich-modal .meal-enrichment-notes textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .meal-log-enrich-modal .meal-enrichment-notes small {
@@ -1273,18 +1281,28 @@
   position: absolute;
   top: 7px;
   right: 7px;
-  width: 24px;
-  height: 24px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  background: transparent;
   color: #66564b;
   line-height: 1;
 }
 
+.meal-photo-remove-button::before {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
 .meal-photo-remove-button .meal-enrichment-icon {
+  position: relative;
   width: 14px;
   height: 14px;
   stroke-width: 2.4;
@@ -1834,8 +1852,23 @@
 
   .meal-photo-lightbox-toolbar {
     bottom: 20px;
-    padding: 6px 10px;
-    gap: 4px;
+    width: min(calc(100vw - 24px), 336px);
+    justify-content: center;
+    padding: 6px 8px;
+    gap: 2px;
+  }
+
+  .meal-photo-lightbox-toolbar button {
+    width: var(--tap-min);
+    height: var(--tap-min);
+  }
+
+  .meal-photo-lightbox-scale-text {
+    min-width: 46px;
+  }
+
+  .meal-photo-lightbox-divider {
+    margin: 0 2px;
   }
 }
 

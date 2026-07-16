@@ -234,6 +234,19 @@ describe('InventoryReconciliationDialog', () => {
     );
   });
 
+  it('uses the shared warm surface palette for reconciliation work areas', () => {
+    const styles = readFileSync(
+      resolve(__dirname, '../../styles/11-inventory-maintenance.css'),
+      'utf8',
+    );
+
+    expect(styles).toMatch(/\.inventory-reconciliation-modal\.workspace-modal \{[^}]*background: var\(--surface-2\);/);
+    expect(styles).toMatch(/\.inventory-reconciliation-scope\.inventory-maintenance-section \{[^}]*background: var\(--surface-muted\);/);
+    expect(styles).toMatch(/\.inventory-reconciliation-list\.inventory-maintenance-section \{[^}]*background: var\(--surface-muted\);/);
+    expect(styles).toMatch(/\.inventory-reconciliation-group-card\.inventory-maintenance-item-card \{[^}]*background: var\(--surface\);/);
+    expect(styles).toMatch(/\.inventory-reconciliation-overview \{[^}]*background: var\(--surface-muted\);/);
+  });
+
   it('presents expired exact inventory as one understandable total decision', () => {
     const expiredOnly = {
       ...exactGroup,
