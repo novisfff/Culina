@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../api/request';
 import type { MealLog, MediaAsset, UpdateMealLogPayload } from '../../api/types';
 import { useDirectImageUploader } from '../../hooks/useImageComposer';
@@ -8,6 +8,7 @@ import {
   buildUpdateMealLogPayload,
   hasMeaningfulMealLogInput,
   MAX_MEAL_PHOTOS,
+  mergeMealEntryRatingDraft,
 } from './MealLogEnrichmentModel';
 
 export type MealEnrichmentStaleState = {
@@ -42,9 +43,17 @@ export function useMealEnrichmentState(args: {
   const [activePhoto, setActivePhoto] = useState<MediaAsset | null>(null);
   const [expectedRowVersion, setExpectedRowVersion] = useState(args.meal.row_version);
   const [staleMessage, setStaleMessage] = useState<string | null>(null);
+  const mealIdRef = useRef(args.meal.id);
   const photoUploader = useDirectImageUploader();
 
   useEffect(() => {
+    if (mealIdRef.current === args.meal.id) {
+      setEntryRatings((current) => mergeMealEntryRatingDraft({ meal: args.meal, current }));
+      setExpectedRowVersion(args.meal.row_version);
+      setStaleMessage(null);
+      return;
+    }
+    mealIdRef.current = args.meal.id;
     setNotes(args.meal.notes);
     setEntryRatings(buildMealEntryRatingDraft(args.meal));
     setParticipants(args.meal.participant_user_ids);

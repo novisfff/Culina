@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  Food,
   MealLog,
   MealLogRecordOperationSummary,
   MediaAsset,
@@ -35,6 +36,7 @@ export type MealRecordResult = {
 
 export type UseMealRecordResultStateArgs = {
   activeOperations: MealLogRecordOperationSummary[];
+  foods?: Food[];
   revertOperation: (operationId: string) => Promise<RevertMealRecordResponse>;
   rateMeal?: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<MealLog>;
   onViewMeal?: (mealLogId: string) => void;
@@ -50,19 +52,21 @@ function foodsFromMealLog(
   mealLog: MealLog,
   effectEntryIds?: string[] | null,
   createdFoods: RecordMealResponse['created_foods'] = [],
+  availableFoods: Food[] = [],
 ): MealRecordResultFood[] {
   const entries =
     effectEntryIds && effectEntryIds.length > 0
       ? mealLog.food_entries.filter((entry) => effectEntryIds.includes(entry.id))
       : mealLog.food_entries;
   const createdById = new Map(createdFoods.map((food) => [food.id, food]));
+  const availableById = new Map(availableFoods.map((food) => [food.id, food]));
   return entries.map((entry) => {
-    const created = createdById.get(entry.food_id);
+    const food = createdById.get(entry.food_id) ?? availableById.get(entry.food_id);
     return {
       food_id: entry.food_id,
       name: entry.food_name,
-      food_type: created?.type,
-      cover: created?.images?.[0] ?? null,
+      food_type: food?.type,
+      cover: food?.images?.[0] ?? null,
     };
   });
 }
@@ -84,9 +88,14 @@ function previewFromResponse(
   return response.meal_log.photos[0] ?? foods.find((food) => food.cover)?.cover ?? null;
 }
 
-function resultFromResponse(response: RecordMealResponse): MealRecordResult {
+function resultFromResponse(response: RecordMealResponse, availableFoods: Food[] = []): MealRecordResult {
   const effectEntryIds = effectEntryIdsFromResponse(response);
-  const foods = foodsFromMealLog(response.meal_log, effectEntryIds, response.created_foods ?? []);
+  const foods = foodsFromMealLog(
+    response.meal_log,
+    effectEntryIds,
+    response.created_foods ?? [],
+    availableFoods,
+  );
   // Rate only when we can scope to this-op entries. Appended without effect ids must not rate whole meal.
   const canRate =
     response.outcome === 'created' ||
@@ -169,13 +178,13 @@ export function useMealRecordResultState(args: UseMealRecordResultStateArgs) {
   }, [dismissedOperationIds, immediate, restored]);
 
   const publishRecordResult = useCallback((response: RecordMealResponse) => {
-    const next = resultFromResponse(response);
+    const next = resultFromResponse(response, args.foods);
     immediateOperationIdRef.current = next.operationId;
     setImmediate(next);
     setDismissedOperationIds((current) => current.filter((id) => id !== next.operationId));
     setRevertError(null);
     setRateError(null);
-  }, []);
+  }, [args.foods]);
 
   const dismiss = useCallback(() => {
     const operationId = immediateOperationIdRef.current ?? result?.operationId ?? null;

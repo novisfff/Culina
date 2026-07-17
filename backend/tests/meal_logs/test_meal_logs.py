@@ -465,6 +465,118 @@ class MealLogReferencesTestCase(unittest.TestCase):
             self.assertEqual(refreshed.status, "cooked")
             self.assertEqual(refreshed.meal_log_id, meal_id)
 
+    def test_record_meal_completes_selected_plan_in_same_transaction(self) -> None:
+        planned = self._create_plan_item(food_id=self.food.id)
+        response = self.client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "record-with-plan-1",
+                "date": "2026-05-18",
+                "meal_type": "dinner",
+                "target": {"kind": "new"},
+                "entries": [{"food_id": self.food.id, "servings": 1}],
+                "plan_item_completions": [
+                    {
+                        "food_plan_item_id": planned.id,
+                        "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["completed_plan_item_ids"], [planned.id])
+        with self.SessionLocal() as db:
+            refreshed = db.get(FoodPlanItem, planned.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.status, "cooked")
+            self.assertEqual(refreshed.meal_log_id, body["meal_log"]["id"])
+
+    def test_revert_record_meal_restores_completed_plan(self) -> None:
+        planned = self._create_plan_item(food_id=self.food.id)
+        recorded = self.client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "record-with-plan-revert-1",
+                "date": "2026-05-18",
+                "meal_type": "dinner",
+                "target": {"kind": "new"},
+                "entries": [{"food_id": self.food.id, "servings": 1}],
+                "plan_item_completions": [
+                    {
+                        "food_plan_item_id": planned.id,
+                        "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
+                    }
+                ],
+            },
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+
+        reverted = self.client.post(
+            f"/api/meal-logs/record-operations/{recorded.json()['operation']['id']}/revert"
+        )
+        self.assertEqual(reverted.status_code, 200, reverted.text)
+        with self.SessionLocal() as db:
+            refreshed = db.get(FoodPlanItem, planned.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.status, "planned")
+            self.assertIsNone(refreshed.completed_at)
+            self.assertIsNone(refreshed.meal_log_id)
+
+    def test_record_meal_plan_conflict_rolls_back_meal_and_plan(self) -> None:
+        planned = self._create_plan_item(food_id=self.food.id)
+        response = self.client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "record-with-plan-wrong-slot",
+                "date": "2026-05-17",
+                "meal_type": "dinner",
+                "target": {"kind": "new"},
+                "entries": [{"food_id": self.food.id, "servings": 1}],
+                "plan_item_completions": [
+                    {
+                        "food_plan_item_id": planned.id,
+                        "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "food_plan_slot_mismatch")
+        with self.SessionLocal() as db:
+            refreshed = db.get(FoodPlanItem, planned.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.status, "planned")
+        meal_logs = self.client.get("/api/meal-logs")
+        self.assertEqual(meal_logs.status_code, 200, meal_logs.text)
+        self.assertEqual(meal_logs.json(), [])
+
+    def test_record_meal_plan_completion_replays_without_second_write(self) -> None:
+        planned = self._create_plan_item(food_id=self.food.id)
+        payload = {
+            "client_request_id": "record-with-plan-replay",
+            "date": "2026-05-18",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "entries": [{"food_id": self.food.id, "servings": 1}],
+            "plan_item_completions": [
+                {
+                    "food_plan_item_id": planned.id,
+                    "food_plan_item_base_updated_at": planned.updated_at.isoformat(),
+                }
+            ],
+        }
+        first = self.client.post("/api/meal-logs/record", json=payload)
+        second = self.client.post("/api/meal-logs/record", json=payload)
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["outcome"], "replayed")
+        self.assertEqual(second.json()["completed_plan_item_ids"], [planned.id])
+        self.assertEqual(second.json()["meal_log"]["id"], first.json()["meal_log"]["id"])
+
     def test_completed_plan_returns_existing_meal_id_without_second_meal(self) -> None:
         first = self.client.post(
             "/api/meal-logs",

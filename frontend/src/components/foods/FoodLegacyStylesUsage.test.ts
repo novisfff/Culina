@@ -64,13 +64,12 @@ describe('Food legacy style cleanup', () => {
     expect(overlayStyles).not.toContain('.food-scene-form-actions .ui-form-actions-spacer');
   });
 
-  it('keeps quick meal custom button ratio without a duplicate root grid', () => {
+  it('uses the shared form action layout for quick meal footer buttons', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
-    expect(foodStyles).toContain('.food-quick-meal-actions .ui-form-actions-row');
-    expect(foodStyles).toContain('grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);');
-    expect(foodStyles).toContain('.food-quick-meal-actions .ui-form-actions-spacer');
-    expect(foodStyles).not.toContain('.food-quick-meal-actions {\n  display: grid;');
+    expect(foodStyles).not.toContain('.food-quick-meal-actions .ui-form-actions-row');
+    expect(foodStyles).not.toContain('.food-quick-meal-actions .ui-form-actions-spacer');
+    expect(foodStyles).not.toContain('.food-quick-meal-actions .solid-button');
   });
 
   it('keeps food detail action layout scoped to desktop footer and mobile action bar', () => {
@@ -79,6 +78,27 @@ describe('Food legacy style cleanup', () => {
     expect(foodStyles).toContain('.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row');
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-row');
     expect(foodStyles).not.toContain('.food-detail-actions {\n  width: 100%;');
+  });
+
+  it('keeps food card primary and icon actions at the same visual height', () => {
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+
+    expect(foodStyles).toMatch(/\.food-card-actions \.food-card-primary-action\.solid-button \{[^}]*height: 36px;[^}]*min-height: 36px;[^}]*padding-block: 0;/);
+  });
+
+  it('keeps the desktop food detail information dense and the quick record block compact', () => {
+    const detailSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodDetailDrawer.tsx'), 'utf8');
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+
+    expect(detailSource).toContain('food-detail-quick-section');
+    expect(foodStyles).toMatch(/\.food-detail-drawer \.food-fact-grid \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+    expect(foodStyles).toMatch(/\.food-detail-quick-section \{[^}]*padding: 12px 14px;[^}]*gap: 8px;/);
+  });
+
+  it('keeps a visible gap between desktop food detail sections', () => {
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+
+    expect(foodStyles).toMatch(/\.food-detail-drawer > \.workspace-overlay-body \{[^}]*display: grid;[^}]*gap: 12px;/);
   });
 
   it('keeps food scene cover ratio in overlay styles instead of generic food media fallbacks', () => {
@@ -105,7 +125,11 @@ describe('Food legacy style cleanup', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
     expect(foodSource).toContain('food-library-head-actions');
+    expect(foodSource).toContain('food-library-search-row');
     expect(foodStyles).toContain('.food-library-head-actions');
+    expect(foodStyles).toMatch(/\.food-library-search-row \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) auto;/);
+    expect(foodStyles).toMatch(/\.food-library-head-actions \{[^}]*flex-wrap: nowrap;[^}]*white-space: nowrap;/);
+    expect(foodStyles).toMatch(/@media \(min-width: 768px\) \{[\s\S]*?\.workspace-drawer\.food-detail-drawer[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);[\s\S]*?grid-column: auto;/);
     expect(foodStyles).not.toContain('.food-filter-shell .workspace-toolbar-actions');
   });
 });

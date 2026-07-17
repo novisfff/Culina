@@ -1,4 +1,4 @@
-import type { FoodPlanItem, MealLog, UpdateMealLogPayload } from '../../api/types';
+import type { FoodPlanItem, FoodType, MealLog, RecordMealPayload, UpdateMealLogPayload } from '../../api/types';
 import { formatDate } from '../../lib/ui';
 
 export type MealSource = {
@@ -69,6 +69,67 @@ export function getMealRatingSummary(meal: MealLog) {
 
 export function buildMealEntryRatingDraft(meal: MealLog) {
   return Object.fromEntries(meal.food_entries.map((entry) => [entry.id, entry.rating == null ? '' : String(entry.rating)]));
+}
+
+export function mergeMealEntryRatingDraft(args: {
+  meal: MealLog;
+  current: Record<string, string>;
+}) {
+  return Object.fromEntries(
+    args.meal.food_entries.map((entry) => [
+      entry.id,
+      Object.prototype.hasOwnProperty.call(args.current, entry.id)
+        ? args.current[entry.id]
+        : entry.rating == null
+          ? ''
+          : String(entry.rating),
+    ]),
+  );
+}
+
+export function buildMealEnrichmentRecordPayload(args: {
+  meal: MealLog;
+  clientRequestId: string;
+  food:
+    | { kind: 'existing'; foodId: string }
+    | { kind: 'new'; clientFoodId: string; name: string; type: FoodType };
+  planItem?: FoodPlanItem;
+}): RecordMealPayload {
+  const foodPayload = args.food.kind === 'existing'
+    ? {
+        entries: [{ food_id: args.food.foodId, servings: 1 }],
+      }
+    : {
+        new_foods: [
+          {
+            client_food_id: args.food.clientFoodId,
+            name: args.food.name,
+            type: args.food.type,
+          },
+        ],
+        entries: [{ client_food_id: args.food.clientFoodId, servings: 1 }],
+      };
+  return {
+    client_request_id: args.clientRequestId,
+    date: args.meal.date,
+    meal_type: args.meal.meal_type,
+    target: {
+      kind: 'existing',
+      meal_log_id: args.meal.id,
+      expected_row_version: args.meal.row_version,
+    },
+    ...foodPayload,
+    ...(args.planItem
+      ? {
+          plan_item_completions: [
+            {
+              food_plan_item_id: args.planItem.id,
+              food_plan_item_base_updated_at: args.planItem.updated_at,
+            },
+          ],
+        }
+      : {}),
+  };
 }
 
 export function buildUpdateMealLogPayload(args: {

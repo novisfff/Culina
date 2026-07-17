@@ -9,6 +9,7 @@ import { ActionButton } from './ActionButton';
 
 type WorkspaceOverlayShellProps = {
   kind: 'drawer' | 'modal';
+  size?: 'small' | 'medium' | 'large';
   title: string;
   description?: string;
   eyebrow?: string;
@@ -29,6 +30,7 @@ type WorkspaceOverlayShellProps = {
 function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
   const shellClassName = props.kind === 'drawer' ? 'workspace-drawer' : 'workspace-modal';
   const sheetClassName = props.kind === 'drawer' ? 'workspace-drawer-sheet' : 'workspace-modal-sheet';
+  const sizeClassName = `${shellClassName}-${props.size ?? 'medium'}`;
   const hasFooter = Boolean(props.footer || props.footerInfo || props.footerActions);
   const panelRef = useRef<HTMLElement>(null);
   const dragRef = useRef({ pointerId: -1, startY: 0, startTime: 0, distance: 0 });
@@ -142,7 +144,7 @@ function WorkspaceOverlayShell(props: WorkspaceOverlayShellProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={props.className ? `${shellClassName} workspace-overlay-panel ${sheetClassName} ${props.className}` : `${shellClassName} workspace-overlay-panel ${sheetClassName}`}
+      className={[shellClassName, 'workspace-overlay-panel', sheetClassName, sizeClassName, props.className].filter(Boolean).join(' ')}
       onClick={(event) => event.stopPropagation()}
     >
       <div

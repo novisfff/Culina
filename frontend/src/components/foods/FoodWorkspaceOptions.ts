@@ -33,11 +33,11 @@ export const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
 ];
 
 export const FOOD_GOVERNANCE_ISSUE_OPTIONS: Array<{ value: FoodGovernanceIssue; label: string; description: string }> = [
-  { value: 'image', label: '缺图片', description: '补一张主图，卡片和记录更容易识别。' },
-  { value: 'meal', label: '缺餐别', description: '设置早餐、午餐、晚餐或加餐，才能参与今日推荐。' },
-  { value: 'note', label: '缺备注', description: '补场景标签、常用备注或复吃说明。' },
-  { value: 'source', label: '缺来源', description: '补店铺、餐厅、品牌或购买渠道。' },
   { value: 'stock', label: '缺库存/到期', description: '成品速食需要数量、单位和到期日期。' },
+  { value: 'meal', label: '缺餐别', description: '设置早餐、午餐、晚餐或加餐，才能参与今日推荐。' },
+  { value: 'source', label: '缺来源', description: '补店铺、餐厅、品牌或购买渠道。' },
+  { value: 'image', label: '缺图片', description: '补一张主图，卡片和记录更容易识别。' },
+  { value: 'note', label: '缺备注', description: '补场景标签、常用备注或复吃说明。' },
 ];
 
 export const FOOD_LENS_COPY: Record<FoodWorkspaceLens, { title: string; description: string; emptyTitle: string; emptyDescription: string }> = {
@@ -85,7 +85,7 @@ export const FOOD_LENS_COPY: Record<FoodWorkspaceLens, { title: string; descript
   },
   needsInfo: {
     title: '待完善',
-    description: '集中补齐缺图片、缺来源、缺餐别或缺备注的食物。',
+    description: '集中补齐缺库存/到期、缺餐别、缺来源、缺图片或缺备注的食物。',
     emptyTitle: '资料都比较完整',
     emptyDescription: '当前没有明显缺少决策信息的食物。',
   },

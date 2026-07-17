@@ -82,16 +82,20 @@ function findButton(view: HTMLElement, text: string) {
 
 function renderModal(options: {
   food?: Food | null;
+  item?: FoodPlanItem;
   isCompleting?: boolean;
   isEditing?: boolean;
   isUpdatingPlan?: boolean;
 } = {}) {
   const onClose = vi.fn();
+  const onComplete = vi.fn();
+  const onRecordEaten = vi.fn();
+  const onOpenMealRecord = vi.fn();
   const view = attachRoot();
   act(() => {
     root?.render(
       <FoodPlanDetailModal
-        item={buildPlanItem()}
+        item={options.item ?? buildPlanItem()}
         food={options.food === undefined ? null : options.food}
         recipes={[]}
         form={{ planDate: '2026-07-07', mealType: 'dinner', note: '' }}
@@ -103,14 +107,16 @@ function renderModal(options: {
         onEditingChange={vi.fn()}
         onResetEdit={vi.fn()}
         onSubmit={vi.fn()}
-        onComplete={vi.fn()}
+        onComplete={onComplete}
+        onRecordEaten={onRecordEaten}
+        onOpenMealRecord={onOpenMealRecord}
         onDelete={vi.fn()}
         resolveAssetUrl={() => ''}
         overlayRootClassName="food-workspace-overlay-root"
       />,
     );
   });
-  return { onClose, view };
+  return { onClose, onComplete, onRecordEaten, onOpenMealRecord, view };
 }
 
 describe('FoodPlanDetailModal', () => {
@@ -154,6 +160,35 @@ describe('FoodPlanDetailModal', () => {
       '删除',
     ]);
     expect(findButton(view, '补充记录')).toBeUndefined();
+    expect(view.querySelector('.recipe-plan-detail-actions.is-standard')).not.toBeNull();
+  });
+
+  it('opens the linked meal record after a plan item was recorded', () => {
+    const { view, onOpenMealRecord } = renderModal({
+      item: { ...buildPlanItem(), status: 'cooked', meal_log_id: 'meal-1', completed_at: '2026-07-07T12:00:00Z' },
+    });
+
+    expect(findButton(view, '餐食记录')).toBeDefined();
+    expect(findButton(view, '修改')).toBeUndefined();
+    expect(view.querySelector('.recipe-plan-detail-actions.is-recorded')).not.toBeNull();
+    expect(view.textContent).toContain('已关联餐食记录');
+    expect(view.textContent).toContain('记录于');
+    act(() => findButton(view, '餐食记录')?.click());
+    expect(onOpenMealRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps start cooking primary and offers direct record for a recipe plan', () => {
+    const { view, onComplete, onRecordEaten } = renderModal({
+      item: { ...buildPlanItem(), recipe_id: 'recipe-1', recipe_title: '番茄炒蛋' },
+    });
+
+    expect(findButton(view, '开始做')).toBeDefined();
+    expect(findButton(view, '直接记录已吃')).toBeDefined();
+    expect(view.querySelector('.recipe-plan-detail-actions.is-recipe')).not.toBeNull();
+    act(() => findButton(view, '直接记录已吃')?.click());
+    act(() => findButton(view, '开始做')?.click());
+    expect(onRecordEaten).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
   it('renders an immersive placeholder and adaptive food facts when the cover is missing', () => {
@@ -176,5 +211,6 @@ describe('FoodPlanDetailModal', () => {
     expect(view.querySelector<HTMLInputElement>('input.text-input')?.disabled).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.recipe-plan-date-strip button')).every((button) => button.disabled)).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.recipe-plan-meal-segment button')).every((button) => button.disabled)).toBe(true);
+    expect(view.querySelector('.recipe-plan-detail-actions.is-editing')).not.toBeNull();
   });
 });

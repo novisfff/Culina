@@ -72,7 +72,7 @@ describe('AI legacy style cleanup', () => {
     const aiStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
 
     expect(aiStyles).toContain('.ai-delete-confirm-modal.workspace-modal');
-    expect(aiStyles).toContain('.ai-rating-field .food-rating-input');
+    expect(aiStyles).toContain('.ai-rating-field .ui-star-rating-input');
     expect(foodStyles).not.toContain('.ai-delete-confirm-modal');
     expect(foodStyles).not.toContain('.ai-delete-confirm-actions');
     expect(foodStyles).not.toContain('.ai-rating-field');

@@ -103,6 +103,23 @@ describe('MealRecordResultBar', () => {
     expect(screen.getByRole('button', { name: '查看记录' })).toBeVisible();
   });
 
+  it('shows a food mosaic after recording a meal with multiple foods and no meal photo', () => {
+    renderBar({
+      result: result({
+        previewMedia: null,
+        mealLog: mealLog({ photos: [] }),
+        foods: [
+          { food_id: 'food-1', name: '番茄炒蛋', cover: media('cover-1') },
+          { food_id: 'food-2', name: '米饭', cover: null },
+          { food_id: 'food-3', name: '青菜', cover: media('cover-3') },
+        ],
+      }),
+    });
+
+    const cover = document.querySelector('[data-meal-cover-mode="mosaic"]');
+    expect(cover).toHaveAttribute('data-meal-cover-count', '3');
+  });
+
   it('shows compact rating only when full MealLog/version exists', () => {
     const { rerender, props } = renderBar();
     const slider = screen.getByRole('slider', { name: '评分' });

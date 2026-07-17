@@ -27,6 +27,7 @@ from app.services.meal_log_record_history import (
     list_active_record_operations,
     revert_record_operation,
 )
+from app.services.food_plan_locking import FoodPlanConflict, food_plan_conflict_detail
 from app.services.meal_log_references import MealLogReferenceError
 from app.services.meal_log_versions import (
     MEAL_LOG_NOT_FOUND_CODE,
@@ -192,6 +193,17 @@ def post_record_meal(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except FoodPlanConflict as exc:
+        db.rollback()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "food_plan_item_not_found"
+            else status.HTTP_409_CONFLICT
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=food_plan_conflict_detail(exc),
         ) from exc
     except MealLogReferenceError as exc:
         db.rollback()

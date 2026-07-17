@@ -3,6 +3,7 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Food } from '../../api/types';
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import {
   useHomeDashboardState,
@@ -280,6 +281,23 @@ describe('useHomeDashboardState', () => {
   it('uses injected businessDateKey for selectedDashboardPlanDate defaults', () => {
     const state = renderHarness([], '2026-07-11');
     expect(state!.selectedDashboardPlanDate).toBe('2026-07-11');
+  });
+
+  it('defaults food-card add-to-menu actions to today instead of the selected calendar date', () => {
+    let state = renderHarness([], '2026-07-11');
+    const food = {
+      id: 'food-1',
+      name: '番茄炒蛋',
+      suitable_meal_types: ['lunch'],
+    } as Food;
+
+    act(() => state?.setSelectedDashboardPlanDate('2026-07-06'));
+    state = latest;
+    act(() => state?.openHomePlanAddDialog(food));
+    state = latest;
+
+    expect(state?.homePlanAddForm.planDate).toBe('2026-07-11');
+    expect(state?.isHomePlanAddDialogOpen).toBe(true);
   });
 
   it('detects partial same-ingredient refresh via batch fingerprint, not only group id', () => {

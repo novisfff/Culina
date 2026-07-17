@@ -195,20 +195,37 @@
   background: rgba(255, 255, 255, 0.86);
 }
 
-.dashboard-recommend-panel {
-  gap: 12px;
-  padding-top: 18px;
-  padding-bottom: 16px;
-}
-
-.dashboard-recommend-panel .dashboard-panel-head {
-  margin-bottom: 2px;
-}
-
 .dashboard-food-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+.dashboard-food-scroller {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.dashboard-food-scroller.can-scroll-left .dashboard-food-row,
+.dashboard-food-scroller.can-scroll-right .dashboard-food-row {
+  transition: mask-image 160ms ease, -webkit-mask-image 160ms ease;
+}
+
+.dashboard-food-scroller.can-scroll-left .dashboard-food-row {
+  mask-image: linear-gradient(90deg, transparent, #000 36px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px);
+}
+
+.dashboard-food-scroller.can-scroll-right .dashboard-food-row {
+  mask-image: linear-gradient(270deg, transparent, #000 36px);
+  -webkit-mask-image: linear-gradient(270deg, transparent, #000 36px);
+}
+
+.dashboard-food-scroller.can-scroll-left.can-scroll-right .dashboard-food-row {
+  mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
 }
 
 .dashboard-food-card {
@@ -219,17 +236,12 @@
   border: 1px solid rgba(92, 67, 48, 0.09);
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 14px 32px rgba(74, 54, 40, 0.05);
   cursor: pointer;
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.18s ease;
 }
 
 .dashboard-food-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(210, 107, 51, 0.18);
-  box-shadow: 0 18px 34px rgba(74, 54, 40, 0.075);
+  border-color: var(--accent);
 }
 
 .dashboard-food-card:focus-visible {
@@ -1531,7 +1543,7 @@
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-picker,
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-note-field,
-.home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-form-row label {
+.home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-form-field {
   gap: 7px;
 }
 
@@ -1579,11 +1591,12 @@
 }
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-date-strip {
-  grid-auto-columns: 54px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-columns: unset;
 }
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-date-strip button {
-  min-width: 54px;
+  min-width: 0;
   min-height: 46px;
   border-radius: 10px;
 }
@@ -2032,8 +2045,8 @@
 
 .home-question-one {
   display: grid;
-  gap: 12px;
-  padding: 16px 18px;
+  gap: 6px;
+  padding: 8px 18px;
 }
 
 .home-question-head {
@@ -2047,6 +2060,19 @@
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.home-question-one-head > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.home-question-one-head > button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .home-question-head h2 {
@@ -2588,10 +2614,18 @@
 }
 
 .home-compact-days > button.has-plan .home-compact-day-status {
-  color: var(--success);
+  color: var(--accent-strong);
 }
 
 .home-compact-days > button.has-plan .home-compact-day-status i {
+  background: var(--accent);
+}
+
+.home-compact-days > button.is-complete .home-compact-day-status {
+  color: var(--success);
+}
+
+.home-compact-days > button.is-complete .home-compact-day-status i {
   background: var(--success);
 }
 
@@ -2721,7 +2755,9 @@
 }
 
 .home-compact-meal-slot-head,
-.home-compact-meal-items {
+.home-compact-meal-items,
+.home-compact-meal-foods,
+.home-compact-meal-actions {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -2747,9 +2783,23 @@
   white-space: nowrap;
 }
 
+.home-compact-meal-status-tablet {
+  display: none;
+}
+
 .home-compact-meal-items {
   gap: 5px;
   overflow: hidden;
+}
+
+.home-compact-meal-foods {
+  flex: 1 1 auto;
+  gap: 5px;
+}
+
+.home-compact-meal-actions {
+  flex: 0 0 auto;
+  gap: 5px;
 }
 
 .home-compact-meal-item,
@@ -2784,6 +2834,15 @@
 .home-compact-meal-item.is-cooked {
   color: var(--success);
   background: var(--success-soft);
+}
+
+.home-compact-meal-item-media,
+.home-compact-meal-item-image {
+  display: none;
+}
+
+.home-compact-meal-slot.has-items .home-compact-meal-add span {
+  display: none;
 }
 
 .home-compact-meal-more {
@@ -2837,3 +2896,261 @@
 /* Keep problem 2/3 as two columns on all desktop/tablet surfaces.
    Phone uses the independent mobile stack, so a single-column collapse
    at ~1100px would only degrade landscape tablet acceptance. */
+
+/* Landscape iPad keeps the desktop information architecture, but its main
+   canvas is substantially narrower once the persistent sidebar is present. */
+@media (min-width: 768px) and (max-width: 1280px) {
+  .dashboard-stat-grid {
+    gap: 10px;
+  }
+
+  .dashboard-stat-card {
+    min-height: 84px;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .dashboard-stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .dashboard-stat-card span:not(.dashboard-stat-icon),
+  .dashboard-stat-card p {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dashboard-stat-card strong {
+    gap: 5px;
+    font-size: 1.35rem;
+  }
+
+  .dashboard-stat-card p {
+    margin-top: 4px;
+    font-size: 0.8125rem;
+  }
+
+  .dashboard-food-row {
+    grid-template-columns: repeat(3, minmax(260px, 1fr));
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .dashboard-food-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dashboard-food-card {
+    grid-template-columns: minmax(110px, 0.78fr) minmax(0, 1fr);
+  }
+
+  .home-compact-calendar {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .home-compact-days {
+    gap: 6px;
+  }
+
+  .home-compact-days > button {
+    min-height: 60px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    align-content: start;
+    justify-items: start;
+    padding: 8px;
+  }
+
+  .home-compact-day-date {
+    display: grid;
+    justify-content: start;
+    gap: 2px;
+  }
+
+  .home-compact-days > button .home-compact-day-weekday {
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-days > button strong {
+    font-size: 0.8125rem;
+  }
+
+  .home-compact-day-status {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.6875rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  .home-compact-meal-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 12px;
+    background: #fffdfa;
+  }
+
+  .home-compact-meal-slot {
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+    align-content: stretch;
+    gap: 6px;
+    overflow: hidden;
+    padding: 7px 8px;
+    border: 0;
+    border-right: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .home-compact-meal-slot:last-child {
+    border-right: 0;
+  }
+
+  .home-compact-meal-slot.has-items {
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .home-compact-meal-slot-head strong {
+    flex: 0 0 auto;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .home-compact-meal-slot-head span {
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.6875rem;
+    text-align: right;
+    text-overflow: ellipsis;
+  }
+
+  .home-compact-meal-items {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 0;
+    align-content: start;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .home-compact-meal-foods {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .home-compact-meal-item,
+  .home-compact-meal-more,
+  .home-compact-meal-add {
+    min-height: 44px;
+  }
+
+  .home-compact-meal-item {
+    padding: 3px 10px 3px 4px;
+    gap: 9px;
+    font-size: 0.8125rem;
+  }
+
+  .home-compact-meal-item-media {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    min-height: 36px;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+
+  .home-compact-meal-item-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .home-compact-meal-actions {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    width: 100%;
+    gap: 5px;
+    justify-content: flex-end;
+    align-self: start;
+  }
+
+  .home-compact-meal-more,
+  .home-compact-meal-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    gap: 4px;
+    padding-inline: 4px;
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-meal-more {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+  }
+
+  .home-compact-meal-slot.has-items .home-compact-meal-add span {
+    display: inline;
+  }
+
+  .home-compact-meal-status-long {
+    display: none;
+  }
+
+  .home-compact-meal-status-tablet {
+    display: block;
+  }
+
+  .home-compact-meal-slot:not(.has-items) {
+    height: auto;
+    min-height: 0;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-items {
+    display: grid;
+    align-content: start;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-actions {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .home-compact-meal-slot.has-items:not(.has-overflow) .home-compact-meal-actions {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-add,
+  .home-compact-meal-slot.has-items:not(.has-overflow) .home-compact-meal-add {
+    width: 100%;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-foods {
+    display: none;
+  }
+}

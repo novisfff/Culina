@@ -3,10 +3,17 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createElement } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
+import type {
+  Food,
+  MealLog,
+  MediaAsset,
+  Member,
+  UpdateMealCompositionPayload,
+  UpdateMealLogPayload,
+} from '../../api/types';
 import { MealLogWorkspace } from './MealLogWorkspace';
 import type { MealRecordResult } from './useMealRecordResultState';
 
@@ -109,6 +116,10 @@ function renderHistory(args: {
   members?: Member[];
   onRecordMeal?: () => void;
   updateMealLog?: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  updateMealComposition?: (
+    mealLogId: string,
+    payload: UpdateMealCompositionPayload,
+  ) => Promise<MealLog>;
   recordResult?: MealRecordResult | null;
   focusMealLogId?: string | null;
 } = {}) {
@@ -122,6 +133,7 @@ function renderHistory(args: {
       foods: args.foods ?? [food('food-1', '番茄炒蛋', { images: [media('food-cover', { alt: '番茄炒蛋' })] })],
       isUpdatingMeal: false,
       updateMealLog,
+      updateMealComposition: args.updateMealComposition,
       onBackHome: vi.fn(),
       onBackToEat: vi.fn(),
       onRecordMeal,
@@ -141,6 +153,16 @@ describe('MealLogWorkspace overlay reuse', () => {
     expect(source).toContain('WorkspaceOverlayFrame');
     expect(source).not.toContain('<div className="workspace-overlay-root"');
     expect(source).not.toContain('<div className="workspace-overlay-backdrop"');
+  });
+
+  it('keeps the composition editor in a compact medium modal', () => {
+    const source = readSource('MealLogWorkspace.tsx');
+    const mealLogStyles = readFileSync(resolve(__dirname, '../../styles/08-meal-log.css'), 'utf8');
+
+    expect(source).toContain('className="meal-log-modal meal-log-composition-modal"');
+    expect(mealLogStyles).toMatch(
+      /\.meal-log-composition-modal\.workspace-modal\s*\{[^}]*width:\s*min\(var\(--modal-width-md\), calc\(100vw - 32px\)\);/s,
+    );
   });
 
   it('keeps MealHistorySurface free of debt-task language', () => {
@@ -294,6 +316,50 @@ describe('MealLogWorkspace photo-first timeline', () => {
     expect(screen.queryByText('补充这餐')).not.toBeInTheDocument();
   });
 
+  it('shows every food with its image and rating state in a compact meal detail', async () => {
+    const user = userEvent.setup();
+    const meal = mealLog({
+      food_entries: [
+        { id: 'e1', food_id: 'food-1', food_name: '盒装牛奶', servings: 1, note: '', rating: null },
+        {
+          id: 'e2',
+          food_id: 'food-2',
+          food_name: '番茄鸡蛋面',
+          servings: 1,
+          note: '',
+          rating: null,
+        },
+      ],
+      participant_user_ids: [],
+      notes: '',
+      photos: [],
+    });
+    renderHistory({
+      meals: [meal],
+      foods: [
+        food('food-1', '盒装牛奶', { type: 'packaged', images: [media('milk-cover')] }),
+        food('food-2', '番茄鸡蛋面', { images: [media('noodle-cover')] }),
+      ],
+      updateMealComposition: vi.fn(async () => meal),
+    });
+
+    const row = screen.getAllByRole('button', { name: /盒装牛奶、番茄鸡蛋面/ })[0]!;
+    await user.click(row);
+
+    const dialog = await screen.findByRole('dialog', { name: '这餐详情' });
+    const detail = within(dialog);
+    expect(detail.getByText('这顿吃了什么')).toBeVisible();
+    expect(detail.getByRole('img', { name: '盒装牛奶' })).toBeVisible();
+    expect(detail.getByRole('img', { name: '番茄鸡蛋面' })).toBeVisible();
+    expect(detail.getAllByText('未评分')).toHaveLength(2);
+    expect(detail.getByText('没有选择参与家人')).toBeVisible();
+    expect(detail.getByText('还没有评论')).toBeVisible();
+    expect(detail.getByText('暂无餐食照片')).toBeVisible();
+    expect(detail.queryByRole('button', { name: /^关闭$/ })).not.toBeInTheDocument();
+    expect(detail.getByRole('button', { name: '调整组合' })).toBeVisible();
+    expect(detail.getByRole('button', { name: '编辑这顿' })).toBeVisible();
+  });
+
   it('shows empty state without source labels when search misses', async () => {
     const user = userEvent.setup();
     renderHistory({ meals: [mealLog()] });
@@ -422,6 +488,28 @@ describe('MealLogWorkspace photo-first timeline', () => {
     });
 
     expect(screen.getAllByRole('img', { name: /宫保鸡丁/ }).length).toBeGreaterThan(0);
+  });
+
+  it('uses the same food mosaic in desktop and mobile meal timelines', () => {
+    const mealWithoutPhotos = mealLog({
+      photos: [],
+      food_entries: [
+        { id: 'entry-1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 1, note: '', rating: null },
+        { id: 'entry-2', food_id: 'food-2', food_name: '米饭', servings: 1, note: '', rating: null },
+        { id: 'entry-3', food_id: 'food-3', food_name: '青菜', servings: 1, note: '', rating: null },
+      ],
+    });
+    renderHistory({
+      meals: [mealWithoutPhotos],
+      foods: [
+        food('food-1', '番茄炒蛋', { images: [media('cover-1')] }),
+        food('food-2', '米饭'),
+        food('food-3', '青菜', { images: [media('cover-3')] }),
+      ],
+    });
+
+    const mosaics = document.querySelectorAll('[data-meal-cover-mode="mosaic"][data-meal-cover-count="3"]');
+    expect(mosaics.length).toBeGreaterThanOrEqual(2);
   });
 
   it('wires foods prop through App history mount for cover fallback', () => {

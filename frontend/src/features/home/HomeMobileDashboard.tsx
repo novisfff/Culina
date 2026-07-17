@@ -81,11 +81,15 @@ function HomeRecommendationCards(props: {
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    props.onQuickStartFood(food, props.targetMealType);
+                    if (food.recipe_id) {
+                      props.onQuickStartFood(food, props.targetMealType);
+                      return;
+                    }
+                    props.onHomePlanAddDialogOpen(food, props.targetMealType ?? 'dinner');
                   }}
                   disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                 >
-                  开始做
+                  {food.recipe_id ? '开始做' : '加入计划'}
                 </button>
                 <button
                   type="button"
@@ -254,6 +258,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
             onClick={props.onNextMobileRecommendation}
             disabled={props.recommendationCount <= 1}
           >
+            <DashboardIcon name="refresh" />
             换一个
           </button>
         </div>

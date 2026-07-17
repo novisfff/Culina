@@ -17,6 +17,8 @@ export type ExistingComposerFood = {
   name: string;
   servings: number;
   cover?: MediaAsset | null;
+  planItems?: Array<{ id: string; baseUpdatedAt: string }>;
+  manuallySelected?: boolean;
 };
 
 export type NewComposerFood = {
@@ -28,6 +30,56 @@ export type NewComposerFood = {
 };
 
 export type MealComposerFood = ExistingComposerFood | NewComposerFood;
+
+export type PlannedMealFoodSeed = {
+  id: string;
+  foodId: string;
+  foodName: string;
+  baseUpdatedAt: string;
+  cover?: MediaAsset | null;
+};
+
+export function reconcilePlannedMealFoods(
+  current: MealComposerFood[],
+  planned: PlannedMealFoodSeed[],
+): MealComposerFood[] {
+  const refsByFoodId = new Map<string, Array<{ id: string; baseUpdatedAt: string }>>();
+  const seedByFoodId = new Map<string, PlannedMealFoodSeed>();
+  for (const item of planned) {
+    const refs = refsByFoodId.get(item.foodId) ?? [];
+    refs.push({ id: item.id, baseUpdatedAt: item.baseUpdatedAt });
+    refsByFoodId.set(item.foodId, refs);
+    if (!seedByFoodId.has(item.foodId)) seedByFoodId.set(item.foodId, item);
+  }
+
+  const next: MealComposerFood[] = [];
+  const includedFoodIds = new Set<string>();
+  for (const food of current) {
+    if (food.kind === 'new') {
+      next.push(food);
+      continue;
+    }
+    const planItems = refsByFoodId.get(food.food_id);
+    if (!food.manuallySelected && !planItems) continue;
+    next.push({ ...food, planItems });
+    includedFoodIds.add(food.food_id);
+  }
+
+  for (const [foodId, refs] of refsByFoodId) {
+    if (includedFoodIds.has(foodId)) continue;
+    const seed = seedByFoodId.get(foodId)!;
+    next.push({
+      kind: 'existing',
+      food_id: foodId,
+      name: seed.foodName,
+      servings: 1,
+      cover: seed.cover ?? null,
+      manuallySelected: false,
+      planItems: refs,
+    });
+  }
+  return next;
+}
 
 export type CandidatePresentationMode = 'none' | 'single' | 'multi';
 
@@ -244,6 +296,21 @@ export function buildRecordMealPayload(args: {
     return { client_food_id: food.client_food_id.trim(), servings: food.servings };
   });
 
+  const planItemCompletions = Array.from(
+    new Map(
+      args.foods
+        .filter((food): food is ExistingComposerFood => food.kind === 'existing')
+        .flatMap((food) => food.planItems ?? [])
+        .map((item) => [
+          item.id,
+          {
+            food_plan_item_id: item.id,
+            food_plan_item_base_updated_at: item.baseUpdatedAt,
+          },
+        ]),
+    ).values(),
+  );
+
   return {
     client_request_id: args.clientRequestId,
     date: args.date,
@@ -251,6 +318,7 @@ export function buildRecordMealPayload(args: {
     target: args.target,
     new_foods,
     entries,
+    ...(planItemCompletions.length > 0 ? { plan_item_completions: planItemCompletions } : {}),
   };
 }
 
@@ -302,9 +370,9 @@ export function mealTypeFromBusinessInstant(instant: Date = new Date()): MealTyp
   let hour = Number(hourParts.find((part) => part.type === 'hour')?.value ?? '12');
   // Defensive: some environments still emit 24 for midnight.
   if (hour === 24) hour = 0;
-  if (hour < 10) return 'breakfast';
-  if (hour < 15) return 'lunch';
-  if (hour < 22) return 'dinner';
+  if (hour >= 4 && hour < 11) return 'breakfast';
+  if (hour >= 11 && hour < 15) return 'lunch';
+  if (hour >= 17 && hour < 22) return 'dinner';
   return 'snack';
 }
 

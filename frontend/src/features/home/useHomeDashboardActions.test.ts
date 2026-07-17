@@ -200,6 +200,7 @@ function createActions(overrides: {
     payload: CompleteFoodPlanItemPayload,
   ) => Promise<MealLog>;
   closeHomePlanDetail?: ReturnType<typeof vi.fn>;
+  startPlanRecipe?: ReturnType<typeof vi.fn>;
   openMealLogEnrichment?: ReturnType<typeof vi.fn>;
   publishRecordResult?: ReturnType<typeof vi.fn>;
   setActionDialogBusy?: (busy: boolean) => void;
@@ -229,6 +230,7 @@ function createActions(overrides: {
       throw new Error('unused');
     });
   const closeHomePlanDetail = overrides.closeHomePlanDetail ?? vi.fn();
+  const startPlanRecipe = overrides.startPlanRecipe ?? vi.fn();
   const openMealLogEnrichment = overrides.openMealLogEnrichment ?? vi.fn();
   const publishRecordResult = overrides.publishRecordResult ?? vi.fn();
 
@@ -258,7 +260,7 @@ function createActions(overrides: {
     closeHomePlanDetail,
     closeHomePlanAddDialog: vi.fn(),
     setIsHomePlanDetailEditing: vi.fn(),
-    startPlanRecipe: vi.fn(),
+    startPlanRecipe,
     openMealLogEnrichment,
     publishRecordResult,
   });
@@ -469,6 +471,23 @@ describe('useHomeDashboardActions plan completion', () => {
     });
     expect(completeFoodPlanItem).not.toHaveBeenCalled();
     expect(publishRecordResult).not.toHaveBeenCalled();
+  });
+
+  it('directly records a recipe-backed plan when requested', async () => {
+    const item = makePlanItem({ recipe_id: 'recipe-1', food_id: 'food-recipe' });
+    const createdMeal = makeMealLog();
+    const completeFoodPlanItem = vi.fn(async () => createdMeal);
+    const startPlanRecipe = vi.fn();
+    const openMealLogEnrichment = vi.fn();
+    const { actions } = createActions({ completeFoodPlanItem, startPlanRecipe, openMealLogEnrichment });
+
+    await actions.startHomePlanDetailCook(item, undefined, 'record');
+
+    expect(startPlanRecipe).not.toHaveBeenCalled();
+    expect(completeFoodPlanItem).toHaveBeenCalledWith(item.id, {
+      food_plan_item_base_updated_at: item.updated_at,
+    });
+    expect(openMealLogEnrichment).toHaveBeenCalledWith({ mealLog: createdMeal, planItem: item });
   });
 });
 

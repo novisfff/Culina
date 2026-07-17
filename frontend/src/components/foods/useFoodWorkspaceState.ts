@@ -36,7 +36,6 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
   const [form, setForm] = useState<FoodFormState>(() => makeBlankFoodForm());
   const [search, setSearch] = useState('');
   const [lensFilter, setLensFilter] = useState<FoodWorkspaceLens>('all');
-  const [recommendationPage, setRecommendationPage] = useState(0);
   const [governanceIssueFilter, setGovernanceIssueFilter] = useState<'all' | FoodGovernanceIssue>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | FoodType>('all');
   const [mealFilter, setMealFilter] = useState<'all' | MealType>('all');
@@ -177,8 +176,6 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
     setSearch,
     lensFilter,
     setLensFilter,
-    recommendationPage,
-    setRecommendationPage,
     governanceIssueFilter,
     setGovernanceIssueFilter,
     typeFilter,

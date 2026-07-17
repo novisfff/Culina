@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import type { FormEvent } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -184,6 +186,25 @@ function renderFoodQuickMeal(options: {
 }
 
 describe('FoodQuickMealDialog', () => {
+  it('uses a static border-and-fill selection treatment for date and meal choices', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/06-food-workspace.css'), 'utf8');
+    const activeRule = styles.match(
+      /\.food-quick-meal-date-strip button\.active,\n\.food-quick-meal-segments button\.active \{([^}]*)\}/,
+    )?.[1];
+    const hoverRule = styles.match(
+      /\.food-quick-meal-date-strip button:hover:not\(\.active\),\n\.food-quick-meal-segments button:hover:not\(\.active\) \{([^}]*)\}/,
+    )?.[1];
+
+    expect(activeRule).toContain('background: var(--accent-soft);');
+    expect(activeRule).toContain('color: var(--accent-strong);');
+    expect(activeRule).not.toContain('box-shadow:');
+    expect(activeRule).not.toContain('transform:');
+    expect(hoverRule).not.toContain('transform:');
+    expect(styles).toMatch(/\.food-quick-meal-date-strip \{[^}]*gap: 8px;/);
+    expect(styles).toMatch(/\.food-quick-meal-segments \{[^}]*gap: 12px;/);
+    expect(styles).not.toContain('.food-quick-meal-actions .ui-form-actions-row');
+  });
+
   it('uses the shared food overlay frame and closes when idle', () => {
     const { onChange, onClose, view } = renderDialog();
 

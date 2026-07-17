@@ -962,6 +962,11 @@ export type RecordMealNewFoodPayload = {
   type: FoodType;
 };
 
+export type RecordMealPlanCompletionPayload = {
+  food_plan_item_id: string;
+  food_plan_item_base_updated_at: string;
+};
+
 export type RecordMealPayload = {
   client_request_id: string;
   date: string;
@@ -969,6 +974,7 @@ export type RecordMealPayload = {
   target: RecordMealTarget;
   new_foods?: RecordMealNewFoodPayload[];
   entries: RecordMealEntryPayload[];
+  plan_item_completions?: RecordMealPlanCompletionPayload[];
 };
 
 export type MealLogRecordStatus = 'applied' | 'reverted';
@@ -987,6 +993,7 @@ export type RecordMealResponse = {
   created_foods: Food[];
   outcome: 'created' | 'appended' | 'replayed';
   operation: MealLogRecordOperation;
+  completed_plan_item_ids?: string[];
 };
 
 export type MealLogCandidateFood = {

@@ -8,11 +8,12 @@ from enum import Enum
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActivityAction, ActivityHighlightKind, MealLogRecordStatus, MealLogRecordTargetKind, MealType
 from app.core.utils import create_id
-from app.models.domain import MealLog, MealLogRecordOperation
+from app.models.domain import FoodPlanItem, MealLog, MealLogRecordOperation
 from app.repos.meal_log_record_operations import (
     MealRecordIdempotencyError,
     claim_record_operation,
@@ -25,6 +26,10 @@ from app.schemas.meal_recording import (
 )
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.clock import today_for_family
+from app.services.food_plan_locking import (
+    FoodPlanConflict,
+    assert_food_plan_base_updated_at_matches,
+)
 from app.services.meal_log_foods import create_minimal_meal_food
 from app.services.meal_log_references import MealLogReferenceError
 from app.services.meal_log_versions import (
@@ -98,6 +103,7 @@ def canonical_record_request_hash(request: RecordMealRequest) -> str:
         "target": request.target,
         "new_foods": request.new_foods,
         "entries": request.entries,
+        "plan_item_completions": request.plan_item_completions,
     }
     normalized = _normalize_for_hash(payload)
     canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -267,6 +273,84 @@ def _validate_existing_target(
         )
 
 
+def _complete_requested_plan_items(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    request: RecordMealRequest,
+    meal_log: MealLog,
+    included_food_ids: set[str],
+    now: datetime,
+) -> list[str]:
+    if not request.plan_item_completions:
+        return []
+
+    refs_by_id = {
+        item.food_plan_item_id: item
+        for item in request.plan_item_completions
+    }
+    ordered_ids = sorted(refs_by_id)
+    plan_items = list(
+        db.scalars(
+            select(FoodPlanItem)
+            .where(
+                FoodPlanItem.family_id == family_id,
+                FoodPlanItem.user_id == actor_user_id,
+                FoodPlanItem.id.in_(ordered_ids),
+            )
+            .order_by(FoodPlanItem.id.asc())
+            .with_for_update()
+        )
+    )
+    items_by_id = {item.id: item for item in plan_items}
+    if set(items_by_id) != set(ordered_ids):
+        raise FoodPlanConflict("food_plan_item_not_found", "餐食计划不存在或已被删除")
+
+    completed_ids: list[str] = []
+    for item_id in ordered_ids:
+        plan_item = items_by_id[item_id]
+        reference = refs_by_id[item_id]
+        assert_food_plan_base_updated_at_matches(
+            actual=plan_item.updated_at,
+            expected=reference.food_plan_item_base_updated_at,
+        )
+        if plan_item.status != "planned" or plan_item.meal_log_id:
+            raise FoodPlanConflict(
+                "food_plan_item_already_completed"
+                if plan_item.status == "cooked" or plan_item.meal_log_id
+                else "food_plan_item_not_planned",
+                "该菜单项已经记录完成"
+                if plan_item.status == "cooked" or plan_item.meal_log_id
+                else "该菜单项当前不可完成",
+                meal_log_id=plan_item.meal_log_id,
+            )
+        if plan_item.plan_date != request.date or plan_item.meal_type != request.meal_type:
+            raise FoodPlanConflict("food_plan_slot_mismatch", "菜单计划日期或餐次已变化，请刷新后重试")
+        if plan_item.food_id not in included_food_ids:
+            raise FoodPlanConflict("food_plan_food_not_selected", "计划食物不在本次餐食中，请重新确认")
+
+        plan_item.status = "cooked"
+        plan_item.completed_at = now
+        plan_item.meal_log_id = meal_log.id
+        plan_item.updated_by = actor_user_id
+        completed_ids.append(plan_item.id)
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=actor_user_id,
+            action=ActivityAction.UPDATE,
+            entity_type="FoodPlanItem",
+            entity_id=plan_item.id,
+            summary="完成菜单计划",
+            highlight=ActivityHighlight(
+                kind=ActivityHighlightKind.MEAL_PLAN,
+                summary="完成本餐计划",
+            ),
+        )
+    return completed_ids
+
+
 def record_meal(
     db: Session,
     *,
@@ -389,6 +473,16 @@ def record_meal(
             day_label = "今天" if request.date == today_for_family(family_id) else request.date.isoformat()
             summary = f"记录了{day_label}的{_meal_type_label(request.meal_type)}"
 
+        completed_plan_item_ids = _complete_requested_plan_items(
+            db,
+            family_id=family_id,
+            actor_user_id=actor_user_id,
+            request=request,
+            meal_log=meal_log,
+            included_food_ids={item.food_id for item in entry_writes},
+            now=now,
+        )
+
         operation.created_entry_ids_json = [entry.id for entry in created_entries]
         operation.created_food_ids_json = [food.id for food in created_foods]
         operation.meal_log_id = meal_log.id
@@ -403,6 +497,7 @@ def record_meal(
             "created_foods": created_foods_payload,
             "outcome": outcome,
             "operation": _build_operation_out(operation, now=now),
+            "completed_plan_item_ids": completed_plan_item_ids,
         }
         operation.result_json = jsonable_encoder(response_payload)
 

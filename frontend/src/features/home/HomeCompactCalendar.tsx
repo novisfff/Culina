@@ -1,8 +1,9 @@
 import { useId, useState } from 'react';
 import { DashboardIcon } from '../../app/shellIcons';
 import type { FoodPlanItem, MealType } from '../../api/types';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { formatDashboardPlanRange, type DashboardPlanDay } from './homeDashboardModel';
+import { formatDashboardPlanRange, getDashboardPlanProgress, type DashboardPlanDay } from './homeDashboardModel';
 
 export function HomeCompactCalendar(props: {
   days: DashboardPlanDay[];
@@ -22,6 +23,9 @@ export function HomeCompactCalendar(props: {
   const [isMobileDetailExpanded, setIsMobileDetailExpanded] = useState(false);
   const mobileDetailId = useId();
   const selectedDay = props.days.find((day) => day.date === props.selectedDate);
+  const selectedDayProgress = getDashboardPlanProgress(
+    selectedDay?.mealItems.flatMap((meal) => meal.items) ?? [],
+  );
   const isCurrentWeek = props.days.some((day) => day.isToday);
   const selectedDateLabel = selectedDay
     ? selectedDay.dayLabel.endsWith(selectedDay.weekday)
@@ -35,8 +39,8 @@ export function HomeCompactCalendar(props: {
   const selectedDayTitle = selectedDay
     ? `${selectedDay.isToday ? '今天' : `周${selectedDay.weekday}`} · ${selectedDateLabel}`
     : '已选日期';
-  const selectedDayPlanSummary = selectedDay?.totalCount
-    ? `已安排 ${selectedDay.plannedMealCount} 个餐次 · 共 ${selectedDay.totalCount} 项`
+  const selectedDayPlanSummary = selectedDayProgress.totalCount
+    ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
     : '当天还没有安排';
 
   return (
@@ -87,6 +91,7 @@ export function HomeCompactCalendar(props: {
         data-testid={props.mobile ? 'mobile-home-calendar-days' : undefined}
       >
         {props.days.map((day) => {
+          const progress = getDashboardPlanProgress(day.mealItems.flatMap((meal) => meal.items));
           const dateLabel = day.dayLabel.endsWith(day.weekday)
             ? day.dayLabel.slice(0, -day.weekday.length)
             : day.dayLabel;
@@ -99,7 +104,9 @@ export function HomeCompactCalendar(props: {
               className={[
                 day.date === props.selectedDate ? 'is-selected' : '',
                 day.isToday ? 'is-today' : '',
-                day.totalCount > 0 ? 'has-plan' : '',
+                progress.totalCount > 0 ? 'has-plan' : '',
+                progress.state === 'partial' ? 'is-partial' : '',
+                progress.state === 'complete' ? 'is-complete' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -117,7 +124,7 @@ export function HomeCompactCalendar(props: {
               </span>
               <span className="home-compact-day-status">
                 <i aria-hidden="true" />
-                {day.totalCount > 0 ? `${day.totalCount} 项安排` : '待安排'}
+                {progress.label}
               </span>
             </button>
           );
@@ -153,8 +160,8 @@ export function HomeCompactCalendar(props: {
               <span>{selectedDay?.isToday ? '今天' : selectedDay ? `周${selectedDay.weekday}` : '已选日期'}</span>
               <strong>{selectedDateLabel}</strong>
               <small>
-                {selectedDay?.totalCount
-                  ? `${selectedDay.plannedMealCount} 个餐次 · ${selectedDay.totalCount} 项`
+                {selectedDayProgress.totalCount
+                  ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
                   : '当天还没有安排'}
               </small>
             </div>
@@ -174,67 +181,85 @@ export function HomeCompactCalendar(props: {
           aria-label={`${selectedDateLabel}餐次安排`}
         >
           {selectedDay?.mealItems.map((meal) => {
-            const visibleItems = meal.items.slice(0, props.mobile ? 1 : 2);
+            const progress = getDashboardPlanProgress(meal.items);
+            const visibleItems = meal.items.slice(0, 2);
             const hiddenItemCount = meal.items.length - visibleItems.length;
             return (
               <section
                 key={meal.mealType}
-                className={meal.items.length > 0 ? 'home-compact-meal-slot has-items' : 'home-compact-meal-slot'}
+                className={[
+                  'home-compact-meal-slot',
+                  meal.items.length > 0 ? 'has-items' : '',
+                  hiddenItemCount > 0 ? 'has-overflow' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
               >
                 <div className="home-compact-meal-slot-head">
                   <strong>{MEAL_TYPE_LABELS[meal.mealType]}</strong>
-                  <span>{meal.items.length > 0 ? `${meal.items.length} 项` : '未安排'}</span>
+                  <span className="home-compact-meal-status-long">
+                    {progress.totalCount > 0 ? `${progress.totalCount} 项计划 · 已记录 ${progress.recordedCount} 项` : '未安排'}
+                  </span>
+                  <span className="home-compact-meal-status-tablet">
+                    {progress.totalCount > 0 ? `已记 ${progress.recordedCount}/${progress.totalCount}` : '未安排'}
+                  </span>
                 </div>
                 <div className="home-compact-meal-items">
-                  {visibleItems.map((item) => {
-                    const title = item.recipe_title || item.food_name || '未命名餐食';
-                    const coverUrl = props.mobile ? props.resolvePlanItemCoverUrl?.(item) : undefined;
-                    return (
-                      <button
-                        key={item.id}
-                        className={[
-                          'home-compact-meal-item',
-                          item.status === 'cooked' ? 'is-cooked' : '',
-                          coverUrl ? 'has-image' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        type="button"
-                        title={title}
-                        onClick={() => props.onOpenPlanDetail(item)}
-                      >
-                        {coverUrl && (
-                          <img
-                            className="home-compact-meal-item-image"
+                  <div className="home-compact-meal-foods">
+                    {visibleItems.map((item) => {
+                      const title = item.recipe_title || item.food_name || '未命名餐食';
+                      const coverUrl = props.resolvePlanItemCoverUrl?.(item);
+                      return (
+                        <button
+                          key={item.id}
+                          className={[
+                            'home-compact-meal-item',
+                            item.status === 'cooked' ? 'is-cooked' : '',
+                            'has-media',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          type="button"
+                          title={title}
+                          aria-label={`${title}，${item.status === 'cooked' ? '已记录' : '待记录'}`}
+                          onClick={() => props.onOpenPlanDetail(item)}
+                        >
+                          <MediaWithPlaceholder
                             src={coverUrl}
                             alt=""
+                            className="home-compact-meal-item-media"
+                            imageClassName="home-compact-meal-item-image"
                             loading="lazy"
                             decoding="async"
+                            showLabel={false}
+                            ariaHidden
                           />
-                        )}
-                        <span className="home-compact-meal-item-label">{title}</span>
+                          <span className="home-compact-meal-item-label">{title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="home-compact-meal-actions">
+                    {hiddenItemCount > 0 && (
+                      <button
+                        className="home-compact-meal-more"
+                        type="button"
+                        aria-label={`查看${MEAL_TYPE_LABELS[meal.mealType]}全部 ${meal.items.length} 项安排`}
+                        onClick={() => props.onOpenMealPlans(selectedDay.date, meal.mealType, meal.items)}
+                      >
+                        +{hiddenItemCount}
                       </button>
-                    );
-                  })}
-                  {hiddenItemCount > 0 && (
+                    )}
                     <button
-                      className="home-compact-meal-more"
+                      className="home-compact-meal-add"
                       type="button"
-                      aria-label={`查看${MEAL_TYPE_LABELS[meal.mealType]}全部 ${meal.items.length} 项安排`}
-                      onClick={() => props.onOpenMealPlans(selectedDay.date, meal.mealType, meal.items)}
+                      aria-label={`为${selectedDateLabel}${MEAL_TYPE_LABELS[meal.mealType]}安排餐食`}
+                      onClick={() => props.onAddMeal(selectedDay.date, meal.mealType)}
                     >
-                      +{hiddenItemCount}
+                      <DashboardIcon name="plus" />
+                      <span>{meal.items.length === 0 ? '安排' : '加餐'}</span>
                     </button>
-                  )}
-                  <button
-                    className="home-compact-meal-add"
-                    type="button"
-                    aria-label={`为${selectedDateLabel}${MEAL_TYPE_LABELS[meal.mealType]}安排餐食`}
-                    onClick={() => props.onAddMeal(selectedDay.date, meal.mealType)}
-                  >
-                    <DashboardIcon name="plus" />
-                    {meal.items.length === 0 && <span>安排</span>}
-                  </button>
+                  </div>
                 </div>
               </section>
             );

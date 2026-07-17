@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -36,6 +36,7 @@ import {
   describeExpiry,
   getFoodStatus,
   getFoodFactRows,
+  getFoodInventoryConfirmation,
   getFoodMealHistory,
   getFoodAudienceText,
   getMealUsage,
@@ -45,7 +46,7 @@ import {
   getSecondaryFoodActionLabel,
   buildFoodRelationViewModel,
 } from '../../components/foods/FoodWorkspaceHelpers';
-import { FOOD_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import type {
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
@@ -269,6 +270,29 @@ export function HomeDashboard(props: HomeDashboardProps) {
     mealType: MealType;
     items: FoodPlanItem[];
   } | null>(null);
+  const recommendationRowRef = useRef<HTMLDivElement | null>(null);
+  const [recommendationScrollState, setRecommendationScrollState] = useState({
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
+
+  function syncRecommendationScrollState() {
+    const row = recommendationRowRef.current;
+    if (!row) return;
+    const canScrollLeft = row.scrollLeft > 4;
+    const canScrollRight = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
+    setRecommendationScrollState((current) =>
+      current.canScrollLeft === canScrollLeft && current.canScrollRight === canScrollRight
+        ? current
+        : { canScrollLeft, canScrollRight },
+    );
+  }
+
+  useEffect(() => {
+    syncRecommendationScrollState();
+    window.addEventListener('resize', syncRecommendationScrollState);
+    return () => window.removeEventListener('resize', syncRecommendationScrollState);
+  }, [desktopRecommendations]);
 
   function openDetail(food: Food) {
     setDetailFood(food);
@@ -740,6 +764,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             expiry={expiry}
             factRows={factRows}
             history={history}
+            inventoryConfirmation={isReadyLikeFood(detailFood) ? getFoodInventoryConfirmation(detailFood, todayKey()) : null}
             isOutsideFood={isOutsideFood(detailFood)}
             isQuickAdding={isQuickAdding}
             isReadyLikeFood={isReadyLikeFood(detailFood)}
@@ -764,10 +789,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
               } else {
                 onNavigate({ workspace: 'eat', view: 'food', foodId: detailFood.id });
               }
-              setDetailFood(null);
-            }}
-            onOpenLogs={() => {
-              onNavigate({ workspace: 'eat', view: 'history' });
               setDetailFood(null);
             }}
             onOpenPlanDialog={(food) => {
@@ -873,15 +894,30 @@ export function HomeDashboard(props: HomeDashboardProps) {
               onClick={onNextDesktopRecommendations}
               disabled={recommendationCount <= 3}
             >
+              <DashboardIcon name="refresh" />
               换一批
             </button>
           </header>
 
           {desktopRecommendations.length > 0 ? (
-            <div className="dashboard-food-row">
+            <div
+              className={[
+                'dashboard-food-scroller',
+                recommendationScrollState.canScrollLeft ? 'can-scroll-left' : '',
+                recommendationScrollState.canScrollRight ? 'can-scroll-right' : '',
+              ].filter(Boolean).join(' ')}
+              data-testid="home-recommendation-scroller"
+            >
+              <div
+                ref={recommendationRowRef}
+                className="dashboard-food-row"
+                data-testid="home-recommendation-row"
+                onScroll={syncRecommendationScrollState}
+              >
               {desktopRecommendations.map(({ recommendation, coverUrl }) => {
                 const food = recommendation.food;
-                const primaryActionLabel = food.recipe_id ? '开始做' : getPrimaryFoodActionLabel(food);
+                const canStartRecipe = Boolean(food.recipe_id);
+                const primaryActionLabel = canStartRecipe ? '开始做' : '加入计划';
                 return (
                   <article
                     key={food.id}
@@ -909,7 +945,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            openQuickMealDialog(food, foodRecommendations?.target_meal_type);
+                            if (canStartRecipe) {
+                              openQuickMealDialog(food, foodRecommendations?.target_meal_type);
+                              return;
+                            }
+                            openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
                           }}
                           disabled={isQuickAdding || isCreatingFoodPlanItem}
                         >
@@ -933,6 +973,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   </article>
                 );
               })}
+              </div>
             </div>
           ) : (
             <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
@@ -950,6 +991,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onAddMeal={openHomePlanAddEmptyDialog}
             onOpenPlanDetail={openHomePlanDetail}
             onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
+            resolvePlanItemCoverUrl={resolvePlanItemCoverUrl}
           />
         </section>
 

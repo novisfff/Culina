@@ -61,6 +61,7 @@ describe('SearchField', () => {
 
     expect(onChange).toHaveBeenCalledWith('鸡蛋');
     expect(onClear).toHaveBeenCalled();
+    expect(view.querySelector('button[aria-label="清空搜索"] > span')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('shows loading status while searching', () => {

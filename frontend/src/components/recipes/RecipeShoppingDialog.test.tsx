@@ -124,7 +124,7 @@ function renderDialog(options: {
         isIngredientPickerOpen={false}
         isCreatingShopping={options.isCreatingShopping}
         unitOptions={['个', '份']}
-        resolveIngredientImageUrl={() => ''}
+        resolveIngredientImageUrl={() => 'data:image/svg+xml,generated-placeholder'}
         onClose={onClose}
         onUpdateDraft={onUpdateDraft}
         onAdjustDraftQuantity={vi.fn()}
@@ -156,6 +156,22 @@ describe('RecipeShoppingDialog', () => {
     act(() => findButton(view, '取消')?.click());
 
     expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses the shared empty-image placeholder when an ingredient has no photo', () => {
+    const { view } = renderDialog();
+    const candidateMedia = view.querySelector('.recipe-shopping-candidate-media');
+
+    expect(candidateMedia?.querySelector('.media-placeholder.state-empty')).not.toBeNull();
+    expect(candidateMedia?.querySelector('img')).toBeNull();
+  });
+
+  it('keeps the sticky footer summary concise', () => {
+    const { view } = renderDialog();
+    const summary = view.querySelector('.recipe-shopping-footer-summary');
+
+    expect(summary?.textContent).toContain('已选择 1 项');
+    expect(summary?.textContent).not.toContain('将加入采购清单');
   });
 
   it('keeps the dialog open and locks shopping edits while submitting', () => {

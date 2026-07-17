@@ -6,17 +6,16 @@ import type {
   MealLog,
   Member,
   Recipe,
+  RecordMealPayload,
+  RecordMealResponse,
   RecordMealTarget,
+  RevertMealRecordResponse,
   UpdateMealLogPayload,
   VersionedInventoryItemRef,
 } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
-import {
-  FoodPlanDateMealNoteFields,
-  FoodPlanFoodPicker,
-  FoodPlanSelectedHero,
-} from '../../components/foods/FoodPlanDialogParts';
+import { FoodPlanDialog } from '../../components/foods/FoodPlanDialog';
 import {
   InventoryActionDialog,
 } from '../inventory/InventoryActionDialog';
@@ -25,20 +24,14 @@ import type {
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
 import type { HomeActionCompletionSummary, HomePlanAddFormState } from './useHomeDashboardState';
-import { Avatar, Badge, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
-import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
+import { Avatar, Badge, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import {
-  FOOD_TYPE_LABELS,
   formatDate,
   formatDateTime,
   getFoodCover,
   MEAL_TYPE_LABELS,
-  todayKey,
 } from '../../lib/ui';
-import {
-  DASHBOARD_PLAN_MEAL_TYPES,
-  type DashboardPlanDay,
-} from './homeDashboardModel';
+import type { DashboardPlanDay } from './homeDashboardModel';
 import { MealCandidateSelector } from '../meals/MealCandidateSelector';
 import {
   deriveCandidatePresentation,
@@ -46,6 +39,7 @@ import {
 } from '../meals/MealComposerModel';
 import { useMealCandidateData } from '../meals/useMealCandidateData';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
+import { buildMealEnrichmentRecordPayload } from '../meals/MealLogEnrichmentModel';
 
 type Props = {
   recipes: Recipe[];
@@ -64,13 +58,20 @@ type Props = {
       target_meal_log_id?: string | null;
       expected_meal_log_row_version?: number | null;
     },
+    action?: 'default' | 'record',
   ) => Promise<void>;
+  openHomeMealRecord: (item: FoodPlanItem) => void;
   deleteHomePlanDetail: (item: FoodPlanItem) => Promise<void>;
   closeHomePlanDetail: () => void;
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
   homeMealEnrichmentMeal: MealLog | null;
   homeMealEnrichmentMembers: Member[];
+  foodPlanItems: FoodPlanItem[];
+  foods: Food[];
+  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
+  revertMealRecord: (operationId: string) => Promise<RevertMealRecordResponse>;
+  onHomeMealEnrichmentMealChanged: (meal: MealLog) => void;
   closeHomeMealEnrichment: () => void;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onInvalidMealEnrichmentSave: () => void;
@@ -118,17 +119,32 @@ type Props = {
 };
 
 export function HomeDashboardDialogs(props: Props) {
-  const today = todayKey();
   const homePlanDetailItem = props.homePlanDetailItem;
   const selectedExpiryGroup =
     props.selectedActionGroup && props.selectedActionGroup.kind === 'expiry'
       ? (props.selectedActionGroup as ExpiryInventoryActionGroup)
       : null;
-  const homePlanAddFormId = 'home-plan-add-overlay-form';
+  const pendingEnrichmentPlanItems = props.homeMealEnrichmentMeal
+    ? props.foodPlanItems.filter(
+        (item) =>
+          item.status === 'planned' &&
+          item.plan_date === props.homeMealEnrichmentMeal?.date &&
+          item.meal_type === props.homeMealEnrichmentMeal?.meal_type,
+      )
+    : [];
 
-  // Non-Recipe plan complete: load authoritative candidates for plan_date + meal_type.
+  function createRecordRequestId(prefix: string) {
+    return `${prefix}-${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+  }
+
+  function requireEnrichmentMeal() {
+    if (!props.homeMealEnrichmentMeal) throw new Error('餐食记录尚未加载，请稍后重试');
+    return props.homeMealEnrichmentMeal;
+  }
+
+  // Direct record (with or without a Recipe): load authoritative candidates for plan_date + meal_type.
   const needsPlanCompleteCandidates = Boolean(
-    homePlanDetailItem && !homePlanDetailItem.recipe_id && homePlanDetailItem.status !== 'cooked',
+    homePlanDetailItem && homePlanDetailItem.status !== 'cooked',
   );
   const planCandidateQuery = useMealCandidateData({
     open: needsPlanCompleteCandidates,
@@ -174,16 +190,6 @@ export function HomeDashboardDialogs(props: Props) {
     planCandidatesFetched,
   ]);
 
-  const homePlanFoodSearch = useFoodResourceSearch(props.homePlanAddFoodSearch, {
-    enabled: props.isHomePlanAddDialogOpen && !props.homePlanAddFood,
-    fallbackFoods: props.homePlanAddFoodOptions,
-  });
-  const closeHomePlanAddDialogIfAllowed = () => {
-    if (!props.isCreatingFoodPlanItem) {
-      props.closeHomePlanAddDialog();
-    }
-  };
-
   function handleHomePlanDetailComplete(item: FoodPlanItem) {
     if (item.recipe_id) {
       void props.startHomePlanDetailCook(item);
@@ -197,6 +203,17 @@ export function HomeDashboardDialogs(props: Props) {
           }
         : undefined;
     void props.startHomePlanDetailCook(item, target);
+  }
+
+  function handleHomePlanDetailRecordEaten(item: FoodPlanItem) {
+    const target =
+      planCompleteTarget.kind === 'existing'
+        ? {
+            target_meal_log_id: planCompleteTarget.meal_log_id,
+            expected_meal_log_row_version: planCompleteTarget.expected_row_version,
+          }
+        : undefined;
+    void props.startHomePlanDetailCook(item, target, 'record');
   }
 
   const planCompleteDraftFoods: MealComposerFood[] = homePlanDetailItem
@@ -247,132 +264,82 @@ export function HomeDashboardDialogs(props: Props) {
           onResetEdit={() => props.resetHomePlanDetailForm(homePlanDetailItem)}
           onSubmit={(event) => void props.submitHomePlanDetail(event)}
           onComplete={() => handleHomePlanDetailComplete(homePlanDetailItem)}
+          onRecordEaten={() => handleHomePlanDetailRecordEaten(homePlanDetailItem)}
+          onOpenMealRecord={() => props.openHomeMealRecord(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
           overlayRootClassName="home-dashboard-overlay-root"
         />
       )}
 
-      {props.isHomePlanAddDialogOpen && (
-        <WorkspaceOverlayFrame
-          rootClassName="home-dashboard-overlay-root"
-          onClose={closeHomePlanAddDialogIfAllowed}
-          closeOnBackdrop={!props.isCreatingFoodPlanItem}
-          busy={props.isCreatingFoodPlanItem}
-        >
-          <WorkspaceModal
-            title="加食物到菜单"
-            description="选择日期和餐次后加入当前周菜单。"
-            eyebrow="菜单计划"
-            onClose={closeHomePlanAddDialogIfAllowed}
-            busy={props.isCreatingFoodPlanItem}
-            className="recipe-plan-modal food-plan-modal home-plan-add-modal"
-            footerActions={
-              <FormActions
-                className="recipe-plan-dialog-actions"
-                primaryLabel="加入菜单"
-                primaryType="submit"
-                primaryForm={homePlanAddFormId}
-                primaryDisabled={!props.homePlanAddFood}
-                isSubmitting={props.isCreatingFoodPlanItem}
-                secondaryLabel="取消"
-                onSecondary={closeHomePlanAddDialogIfAllowed}
-              />
-            }
-          >
-            <form
-              id={homePlanAddFormId}
-              className={[
-                'recipe-plan-dialog-form',
-                'ui-operation-loading-host',
-                props.isCreatingFoodPlanItem ? 'is-busy' : '',
-              ].filter(Boolean).join(' ')}
-              aria-busy={props.isCreatingFoodPlanItem}
-              onSubmit={(event) => void props.submitHomePlanAdd(event)}
-            >
-              <OperationLoadingOverlay
-                active={props.isCreatingFoodPlanItem}
-                title="正在加入菜单"
-              />
-              {props.homePlanAddFood ? (
-                <FoodPlanSelectedHero
-                  food={props.homePlanAddFood}
-                  coverUrl={props.resolveAssetUrl(getFoodCover(props.homePlanAddFood, props.recipes))}
-                  typeLabel={FOOD_TYPE_LABELS[props.homePlanAddFood.type]}
-                  sourceLabel={
-                    props.homePlanAddFood.source_name ||
-                    props.homePlanAddFood.purchase_source ||
-                    props.homePlanAddFood.category ||
-                    '常吃食物'
-                  }
-                  capabilityLabel={props.homePlanAddFood.recipe_id ? '有菜谱' : '可直接记录'}
-                  iconKind={props.homePlanAddFood.recipe_id ? 'bookOpen' : 'clipboard'}
-                  onClear={() => props.setHomePlanAddFoodId(null)}
-                />
-              ) : (
-                <FoodPlanFoodPicker
-                  searchInputId="home-food-plan-search"
-                  value=""
-                  query={props.homePlanAddFoodSearch}
-                  loading={homePlanFoodSearch.isSearching}
-                  loadingMore={homePlanFoodSearch.isFetchingNextPage}
-                  hasMore={homePlanFoodSearch.hasMore}
-                  options={homePlanFoodSearch.foods.map((food) => {
-                    const cover = getFoodCover(food, props.recipes);
-                    return {
-                      id: food.id,
-                      label: food.name,
-                      description: [
-                        FOOD_TYPE_LABELS[food.type],
-                        food.source_name || food.purchase_source || food.category,
-                        food.recipe_id ? '可开始做' : '可记到今天',
-                      ]
-                        .filter(Boolean)
-                        .join(' · '),
-                      image: <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />,
-                    };
-                  })}
-                  emptyText={homePlanFoodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
-                  onCompositionStart={homePlanFoodSearch.onCompositionStart}
-                  onCompositionEnd={homePlanFoodSearch.onCompositionEnd}
-                  onQueryChange={props.setHomePlanAddFoodSearch}
-                  onLoadMore={() => {
-                    if (homePlanFoodSearch.hasMore && !homePlanFoodSearch.isFetchingNextPage) {
-                      void homePlanFoodSearch.fetchNextPage();
-                    }
-                  }}
-                  onChange={(foodId) => {
-                    const food = homePlanFoodSearch.findFoodById(foodId);
-                    if (food) props.selectHomePlanAddFood(food);
-                  }}
-                />
-              )}
-
-              <FoodPlanDateMealNoteFields
-                planDate={props.homePlanAddForm.planDate}
-                mealType={props.homePlanAddForm.mealType}
-                note={props.homePlanAddForm.note}
-                todayDate={today}
-                planDateOptions={props.dashboardPlanDays.map((day) => ({
-                  value: day.date,
-                  label: day.isToday ? '今天' : `周${day.weekday}`,
-                  display: day.date.slice(5).replace('-', '/'),
-                }))}
-                mealOptions={DASHBOARD_PLAN_MEAL_TYPES.map((value) => ({ value, label: MEAL_TYPE_LABELS[value] }))}
-                notePlaceholder="比如：少油、常点套餐、提前解冻"
-                onPlanDateChange={(planDate) => props.setHomePlanAddForm((current) => ({ ...current, planDate }))}
-                onMealTypeChange={(mealType) => props.setHomePlanAddForm((current) => ({ ...current, mealType }))}
-                onPlanNoteChange={(note) => props.setHomePlanAddForm((current) => ({ ...current, note }))}
-              />
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
+      <FoodPlanDialog
+        isOpen={props.isHomePlanAddDialogOpen}
+        selectedPlanFood={props.homePlanAddFood}
+        foods={props.homePlanAddFoodOptions}
+        recipes={props.recipes}
+        planFoodSearch={props.homePlanAddFoodSearch}
+        planForm={{ ...props.homePlanAddForm, foodId: props.homePlanAddFood?.id }}
+        todayDate={props.businessDateKey}
+        isUpdatingPlan={props.isCreatingFoodPlanItem}
+        overlayRootClassName="home-dashboard-overlay-root"
+        modalClassName="home-plan-add-modal"
+        onClose={props.closeHomePlanAddDialog}
+        onSubmit={(event) => void props.submitHomePlanAdd(event)}
+        onClearPlanFoodSelection={() => props.setHomePlanAddFoodId(null)}
+        onPlanFoodSearchChange={props.setHomePlanAddFoodSearch}
+        onSelectPlanFood={props.selectHomePlanAddFood}
+        onPlanDateChange={(planDate) => props.setHomePlanAddForm((current) => ({ ...current, planDate }))}
+        onMealTypeChange={(mealType) => props.setHomePlanAddForm((current) => ({ ...current, mealType }))}
+        onPlanNoteChange={(note) => props.setHomePlanAddForm((current) => ({ ...current, note }))}
+        resolveFoodAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
+        getFoodCover={getFoodCover}
+        getDefaultMealType={(food) => food.suitable_meal_types[0] ?? 'dinner'}
+        getPlanDateParts={(dateKey) => {
+          const day = props.dashboardPlanDays.find((item) => item.date === dateKey);
+          const [, month = '1', date = '1'] = dateKey.split('-');
+          return {
+            month: Number(month),
+            day: Number(date),
+            weekday: day ? `周${day.weekday}` : dateKey,
+          };
+        }}
+        normalizeFoodType={(food) => food.type}
+      />
 
       <MealEnrichmentModal
         open={Boolean(props.homeMealEnrichmentMeal)}
         meal={props.homeMealEnrichmentMeal}
         members={props.homeMealEnrichmentMembers}
+        pendingPlanItems={pendingEnrichmentPlanItems}
+        availableFoods={props.foods}
+        onRecordPlanItem={(item) => {
+          const meal = requireEnrichmentMeal();
+          return props.recordMeal(buildMealEnrichmentRecordPayload({
+            meal,
+            clientRequestId: createRecordRequestId(`meal-enrichment-plan-${item.id}`),
+            food: { kind: 'existing', foodId: item.food_id },
+            planItem: item,
+          }));
+        }}
+        onAddExistingFood={(food) => {
+          const meal = requireEnrichmentMeal();
+          return props.recordMeal(buildMealEnrichmentRecordPayload({
+            meal,
+            clientRequestId: createRecordRequestId(`meal-enrichment-food-${food.id}`),
+            food: { kind: 'existing', foodId: food.id },
+          }));
+        }}
+        onCreateFood={(input) => {
+          const meal = requireEnrichmentMeal();
+          const clientFoodId = createRecordRequestId('meal-enrichment-new-food');
+          return props.recordMeal(buildMealEnrichmentRecordPayload({
+            meal,
+            clientRequestId: createRecordRequestId('meal-enrichment-record'),
+            food: { kind: 'new', clientFoodId, name: input.name, type: input.type },
+          }));
+        }}
+        onRevertRecord={props.revertMealRecord}
+        onMealChanged={props.onHomeMealEnrichmentMealChanged}
         isUpdating={props.isUpdatingMeal}
         updateMealLog={props.updateMealLog}
         requireMeaningfulInput={props.homeMealEnrichmentMeal?.id.startsWith('draft-')}

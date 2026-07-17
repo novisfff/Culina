@@ -96,6 +96,7 @@ function renderDrawer(options: { isQuickAdding?: boolean } = {}) {
         expiry={null}
         factRows={[{ label: '餐别', value: '晚餐' }]}
         history={[]}
+        inventoryConfirmation={null}
         isOutsideFood={false}
         isQuickAdding={options.isQuickAdding}
         isReadyLikeFood={false}
@@ -117,7 +118,6 @@ function renderDrawer(options: { isQuickAdding?: boolean } = {}) {
         getSecondaryFoodActionLabel={() => '编辑资料'}
         getSceneTags={(food) => food.scene_tags ?? []}
         onClose={onClose}
-        onOpenLogs={vi.fn()}
         onOpenPlanDialog={vi.fn()}
         onStartCook={vi.fn()}
         onEditRecipe={vi.fn()}
@@ -140,6 +140,9 @@ describe('FoodDetailDrawer', () => {
     expect(view.querySelector('.workspace-overlay-footer .food-detail-actions-desktop')).not.toBeNull();
     expect(view.querySelector('.workspace-overlay-body .food-detail-actions-mobile')).not.toBeNull();
     expect(view.textContent).toContain('番茄炒蛋');
+    expect(view.querySelectorAll('.food-detail-actions-desktop .ui-form-actions-row > button')).toHaveLength(3);
+    expect(view.querySelectorAll('.food-detail-actions-mobile .ui-form-actions-row > button')).toHaveLength(3);
+    expect(view.textContent).not.toContain('完整记一餐');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
@@ -153,7 +156,6 @@ describe('FoodDetailDrawer', () => {
     expectButtonsDisabled(view, '处理中...');
     expectButtonsDisabled(view, '编辑资料');
     expectButtonsDisabled(view, '加入菜单');
-    expectButtonsDisabled(view, '完整记一餐');
     expectButtonsDisabled(view, '编辑菜谱');
     expectButtonsDisabled(view, '+ 晚餐');
 

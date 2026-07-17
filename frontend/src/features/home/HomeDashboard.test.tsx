@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -381,6 +383,97 @@ function desktopSurface(view: HTMLElement) {
 }
 
 describe('HomeDashboard three-question desktop', () => {
+  it('keeps the dashboard dense without clipping content on iPad widths', () => {
+    const homeStyles = readFileSync(resolve(__dirname, '../../styles/01-home-dashboard.css'), 'utf8');
+
+    expect(homeStyles).toMatch(/@media \(min-width: 768px\) and \(max-width: 1280px\)/);
+    expect(homeStyles).toMatch(/\.dashboard-stat-card span:not\(\.dashboard-stat-icon\)[\s\S]*?white-space: nowrap/);
+    expect(homeStyles).toMatch(/\.dashboard-stat-card p[\s\S]*?text-overflow: ellipsis/);
+    expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?grid-template-columns: repeat\(3, minmax\(260px, 1fr\)\)/);
+    expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?overflow-x: auto/);
+    expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?scrollbar-width: none/);
+    expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left \.dashboard-food-row[\s\S]*?mask-image/);
+    expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left\.can-scroll-right \.dashboard-food-row/);
+    expect(homeStyles).toMatch(/\.dashboard-food-scroller \{[\s\S]*?overflow: hidden[\s\S]*?border-radius: 14px/);
+    expect(homeStyles).not.toMatch(/\.dashboard-food-card \{[^}]*box-shadow:/);
+    expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*box-shadow:/);
+    expect(homeStyles).toMatch(/\.dashboard-food-card:hover \{[^}]*border-color: var\(--accent\)/);
+    expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*border-width:/);
+    expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*transform:/);
+    expect(homeStyles).toMatch(/\.home-question-one \{[\s\S]*?gap: 6px[\s\S]*?padding: 8px 18px/);
+    expect(homeStyles).toMatch(/\.home-compact-days > button[\s\S]*?min-height: 60px[\s\S]*?align-content: start/);
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1180px\) \{[\s\S]*?\.home-compact-meal-grid \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-foods \{[^}]*grid-template-columns: minmax\(0, 1fr\);/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-status-long \{[^}]*display: none;[^}]*\}[\s\S]*?\.home-compact-meal-status-tablet \{[^}]*display: block;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-actions \{[^}]*grid-template-columns: 44px minmax\(0, 1fr\);/s,
+    );
+    expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');
+  });
+
+  it('passes food cover images into the desktop and tablet compact meal schedule', () => {
+    const picturedFood = {
+      ...makeFood(0),
+      images: [
+        {
+          id: 'media-plan-food',
+          name: '番茄炒蛋.webp',
+          url: '/media/番茄炒蛋.webp',
+          source: 'upload' as const,
+          alt: '番茄炒蛋',
+          created_at: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+    };
+    const day = makePlanDay(0);
+    day.mealItems = day.mealItems.map((meal) =>
+      meal.mealType === 'dinner'
+        ? {
+            ...meal,
+            items: [
+              {
+                id: 'plan-pictured-food',
+                family_id: 'family-1',
+                user_id: 'user-1',
+                food_id: picturedFood.id,
+                food_name: '番茄炒蛋',
+                food_type: 'dish',
+                recipe_id: null,
+                recipe_title: '',
+                plan_date: day.date,
+                meal_type: 'dinner',
+                note: '',
+                status: 'planned',
+                created_at: '2026-07-01T00:00:00.000Z',
+                updated_at: '2026-07-01T00:00:00.000Z',
+              },
+            ],
+          }
+        : meal,
+    );
+    day.plannedMealCount = 1;
+    day.totalCount = 1;
+
+    const view = renderDashboard({
+      foods: [picturedFood],
+      compactPlanDays: [day],
+      selectedDashboardPlanDay: day,
+    });
+
+    expect(
+      desktopSurface(view)
+        .querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')
+        ?.querySelector<HTMLImageElement>('.home-compact-meal-item-image')
+        ?.getAttribute('src'),
+    ).toBe('/media/番茄炒蛋.webp');
+  });
+
   it('renders desktop recommendations, compact week and the two-column lower questions', () => {
     const view = renderDashboard({
       desktopRecommendations: [0, 1, 2].map(makeRecommendation),
@@ -407,6 +500,23 @@ describe('HomeDashboard three-question desktop', () => {
     expect(desktop.textContent).toContain('家里发生了什么');
     expect(desktop.querySelectorAll('[data-testid="home-highlight-row"]')).toHaveLength(5);
     expect(desktop.querySelector('[data-testid="home-lower-grid"]')?.classList.contains('home-dashboard-lower-grid')).toBe(true);
+  });
+
+  it('adds a non-recipe recommendation to the selected meal plan', () => {
+    const onHomePlanAddDialogOpen = vi.fn();
+    const view = renderDashboard({
+      desktopRecommendations: [makeRecommendation(0)],
+      recommendationCount: 1,
+      onHomePlanAddDialogOpen,
+    });
+
+    const addPlanButton = buttonByText(desktopSurface(view), '加入计划');
+    act(() => addPlanButton.click());
+
+    expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'food-0' }),
+      'dinner',
+    );
   });
 
   it('opens plan details and quick-adds directly from the selected meal slots', () => {
@@ -453,6 +563,42 @@ describe('HomeDashboard three-question desktop', () => {
     expect(lunchAdd).not.toBeNull();
     act(() => lunchAdd?.click());
     expect(addMeal).toHaveBeenCalledWith(days[0]!.date, 'lunch');
+  });
+
+  it('distinguishes planned and recorded items in the compact calendar', () => {
+    const days = Array.from({ length: 7 }, (_, index) => makePlanDay(index));
+    const base = {
+      id: 'plan-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-1',
+      food_name: '番茄炒蛋',
+      food_type: 'selfMade',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: days[0]!.date,
+      meal_type: 'dinner' as const,
+      note: '',
+      status: 'cooked',
+      meal_log_id: 'meal-1',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-01T00:00:00.000Z',
+    };
+    const items = [base, { ...base, id: 'plan-2', food_id: 'food-2', food_name: '米饭', status: 'planned', meal_log_id: null }];
+    days[0] = {
+      ...days[0]!,
+      mealItems: days[0]!.mealItems.map((meal) => meal.mealType === 'dinner' ? { ...meal, items } : meal),
+      plannedMealCount: 1,
+      totalCount: 2,
+    };
+
+    const view = renderDashboard({ compactPlanDays: days, selectedDashboardPlanDay: days[0] });
+    const desktop = desktopSurface(view);
+
+    expect(desktop.textContent).toContain('已记录 1 / 2');
+    expect(desktop.textContent).toContain('2 项计划 · 已记录 1 项');
+    expect(buttonByText(desktop, '番茄炒蛋').getAttribute('aria-label')).toContain('已记录');
+    expect(buttonByText(desktop, '米饭').getAttribute('aria-label')).toContain('待记录');
   });
 
   it('renders local loading/error/stale states without hiding the other two questions', () => {
@@ -507,6 +653,7 @@ describe('HomeDashboard three-question desktop', () => {
       onNextDesktopRecommendations,
     });
     const fewButton = buttonByText(desktopSurface(few), '换一批');
+    expect(fewButton.querySelector('svg')).not.toBeNull();
     expect(fewButton.disabled).toBe(true);
 
     act(() => root?.unmount());
@@ -538,6 +685,38 @@ describe('HomeDashboard three-question desktop', () => {
       recommendationCount: 2,
     });
     expect(desktopSurface(two).querySelectorAll('[data-testid="home-recommendation-card"]')).toHaveLength(2);
+  });
+
+  it('shows only the available horizontal recommendation directions while scrolling', () => {
+    const view = renderDashboard({
+      desktopRecommendations: [0, 1, 2].map(makeRecommendation),
+      recommendationCount: 3,
+    });
+    const desktop = desktopSurface(view);
+    const scroller = desktop.querySelector('[data-testid="home-recommendation-scroller"]') as HTMLDivElement | null;
+    const row = desktop.querySelector('[data-testid="home-recommendation-row"]') as HTMLDivElement | null;
+    expect(scroller).not.toBeNull();
+    expect(row).not.toBeNull();
+
+    Object.defineProperties(row!, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 900 },
+      scrollLeft: { configurable: true, writable: true, value: 0 },
+    });
+
+    act(() => row?.dispatchEvent(new Event('scroll', { bubbles: true })));
+    expect(scroller?.classList.contains('can-scroll-left')).toBe(false);
+    expect(scroller?.classList.contains('can-scroll-right')).toBe(true);
+
+    row!.scrollLeft = 300;
+    act(() => row?.dispatchEvent(new Event('scroll', { bubbles: true })));
+    expect(scroller?.classList.contains('can-scroll-left')).toBe(true);
+    expect(scroller?.classList.contains('can-scroll-right')).toBe(true);
+
+    row!.scrollLeft = 600;
+    act(() => row?.dispatchEvent(new Event('scroll', { bubbles: true })));
+    expect(scroller?.classList.contains('can-scroll-left')).toBe(true);
+    expect(scroller?.classList.contains('can-scroll-right')).toBe(false);
   });
 
   it('renders at most three prepared required actions and never re-sorts them', () => {
@@ -784,7 +963,7 @@ describe('HomeDashboard meal recording ownership', () => {
     expect(homeOwners.historyPrimaryCta).toBe('recordMeal');
   });
 
-  it('opens compact prefilled Food flow without re-searching Food', async () => {
+  it('opens compact prefilled Food flow from the recommendation detail without re-searching Food', async () => {
     const loadMealCandidates = vi.fn(async () => []);
     const food = makeFood(0);
     const view = renderDashboard({
@@ -805,7 +984,9 @@ describe('HomeDashboard meal recording ownership', () => {
       },
     });
     const desktop = desktopSurface(view);
-    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+    const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
+    act(() => recommendationCard?.click());
+    const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('记到今天'),
     );
     expect(recordButton).toBeDefined();
@@ -825,7 +1006,7 @@ describe('HomeDashboard meal recording ownership', () => {
     expect(loadMealCandidates).toHaveBeenCalled();
   });
 
-  it('records from Home recommendation and shows shared result bar in one flow', async () => {
+  it('records from a Home recommendation detail and shows the shared result bar in one flow', async () => {
     const response = makeRecordResponse('推荐菜 0');
     const recordMeal = vi.fn(async () => response);
     const loadMealCandidates = vi.fn(async () => []);
@@ -893,7 +1074,9 @@ describe('HomeDashboard meal recording ownership', () => {
     const view = container;
 
     const desktop = desktopSurface(view);
-    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+    const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
+    act(() => recommendationCard?.click());
+    const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('记到今天'),
     );
     await act(async () => {
@@ -985,7 +1168,9 @@ describe('HomeDashboard meal recording ownership', () => {
       loadMealCandidates,
     });
     const desktop = desktopSurface(view);
-    const recordButton = Array.from(desktop.querySelectorAll('button')).find((button) =>
+    const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
+    act(() => recommendationCard?.click());
+    const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('记到今天'),
     );
     await act(async () => {

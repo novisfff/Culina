@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
-import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { ActionButton } from '../../components/ui-kit';
-import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { MealCover } from './MealCover';
 import type { MealRecordResult } from './useMealRecordResultState';
 
 export type MealRecordResultBarProps = {
@@ -127,8 +126,12 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
 
   const primaryFood = result.foods[0] ?? null;
   const foodNames = result.foods.map((food) => food.name).filter(Boolean).join('、') || '这顿饭';
-  const preview = result.previewMedia ?? primaryFood?.cover ?? null;
-  const previewUrl = resolveMediaUrl(preview, 'thumb');
+  const foodCoverIds = new Set(
+    result.foods.map((food) => food.cover?.id).filter((id): id is string => Boolean(id)),
+  );
+  const restoredMealPhoto =
+    result.previewMedia && !foodCoverIds.has(result.previewMedia.id) ? result.previewMedia : null;
+  const mealPhoto = result.mealLog?.photos[0] ?? restoredMealPhoto;
   const canUndo = result.canRevert && remainingMs > 0;
   const showRating = result.canRate && result.mealLog != null && result.rowVersion != null;
 
@@ -140,12 +143,14 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
       aria-label="记录结果"
     >
       <div className="meal-record-result-media">
-        <MediaWithPlaceholder
-          src={previewUrl}
-          srcSet={buildMediaSrcSet(preview)}
-          sizes={buildMediaSizes('thumb')}
-          alt={preview?.alt || primaryFood?.name || foodNames}
-          showLabel={false}
+        <MealCover
+          mealPhoto={mealPhoto}
+          foods={result.foods.map((food) => ({
+            id: food.food_id,
+            name: food.name,
+            cover: food.cover ?? null,
+          }))}
+          alt={mealPhoto?.alt || primaryFood?.name || foodNames}
         />
       </div>
       <div className="meal-record-result-copy">

@@ -185,7 +185,7 @@ export function MealFoodCombobox(props: MealFoodComboboxProps) {
       {menuOpen && (trimmedQuery.length > 0 || availableResults.length > 0) ? (
         <div
           id={listboxId}
-          className="meal-composer-food-menu"
+          className="ui-combobox-menu meal-composer-food-menu"
           role="listbox"
           aria-label="食物搜索结果"
         >

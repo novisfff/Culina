@@ -125,7 +125,20 @@ describe('WorkspaceOverlayShell', () => {
     expect(mobileStyles).toContain('button:nth-of-type(3):nth-last-of-type(1)');
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-row');
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-primary');
-    expect(foodStyles).toContain('flex: 0 1 220px;');
-    expect(foodStyles).toContain('flex: 0 1 156px;');
+    expect(foodStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
+    expect(foodStyles).toContain('.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row');
+  });
+});
+
+describe('Foundation visual tokens', () => {
+  it('defines the canonical type and spacing scales used by responsive surfaces', () => {
+    const foundationStyles = readFileSync(resolve(__dirname, '../styles/00-foundation.css'), 'utf8');
+
+    expect(foundationStyles).toContain('--text-xs: 0.75rem;');
+    expect(foundationStyles).toContain('--text-body: 0.9375rem;');
+    expect(foundationStyles).toContain('--text-md: 1.125rem;');
+    expect(foundationStyles).toContain('--space-1: 4px;');
+    expect(foundationStyles).toContain('--space-5: 16px;');
+    expect(foundationStyles).toContain('--space-9: 32px;');
   });
 });

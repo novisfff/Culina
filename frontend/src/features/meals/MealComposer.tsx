@@ -1,4 +1,6 @@
 import type { Food, MealLogCandidate, MealType, RecordMealTarget } from '../../api/types';
+import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FormActions,
   TouchStepperField,
@@ -41,6 +43,7 @@ export type MealComposerProps = {
   submitDisabled?: boolean;
   candidateSelectionDisabled?: boolean;
   error?: string | null;
+  plannedFoodRefsByFoodId?: Record<string, Array<{ id: string; baseUpdatedAt: string }>>;
   overlayRootClassName?: string;
   onClose: () => void;
   onDateChange: (date: string) => void;
@@ -63,6 +66,28 @@ function createClientFoodId(): string {
 }
 
 export function MealComposer(props: MealComposerProps) {
+  const selectedDateRef = useRef<HTMLButtonElement | null>(null);
+  const dateStripRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    selectedDateRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'end' });
+    const scrollSelectedDate = () => {
+      const strip = dateStripRef.current;
+      const selected = selectedDateRef.current;
+      if (!strip || !selected || strip.scrollWidth <= strip.clientWidth) return;
+      strip.scrollLeft = Math.max(
+        0,
+        selected.offsetLeft + selected.offsetWidth - strip.clientWidth,
+      );
+    };
+    const frameId = window.requestAnimationFrame(scrollSelectedDate);
+    const settleTimer = window.setTimeout(scrollSelectedDate, 180);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(settleTimer);
+    };
+  }, [props.date, props.open]);
+
   if (!props.open) {
     return null;
   }
@@ -99,6 +124,8 @@ export function MealComposer(props: MealComposerProps) {
         name: food.name,
         servings: 1,
         cover: food.images[0] ?? null,
+        manuallySelected: true,
+        planItems: props.plannedFoodRefsByFoodId?.[food.id],
       },
     ]);
   }
@@ -116,7 +143,7 @@ export function MealComposer(props: MealComposerProps) {
     ]);
   }
 
-  return (
+  return createPortal(
     <WorkspaceOverlayFrame
       rootClassName={props.overlayRootClassName ?? 'meal-composer-overlay-root'}
       onClose={closeIfAllowed}
@@ -125,7 +152,7 @@ export function MealComposer(props: MealComposerProps) {
     >
       <WorkspaceModal
         title="记一餐"
-        description="选好吃了什么，点一下就记下"
+        description="确认时间，补上这餐吃了什么"
         eyebrow="快速记录"
         className="meal-composer-modal"
         onClose={closeIfAllowed}
@@ -155,16 +182,29 @@ export function MealComposer(props: MealComposerProps) {
           }}
         >
           <div className="meal-composer-body">
-            <section className="meal-composer-region meal-composer-main">
+            <section className="meal-composer-step" aria-labelledby="meal-composer-time-heading">
+              <div className="meal-composer-step-head">
+                <span className="meal-composer-step-number" aria-hidden="true">1</span>
+                <h4 id="meal-composer-time-heading">确认时间</h4>
+                <span className="meal-composer-step-summary">
+                  {mealDateStripLabel(props.date)} · {MEAL_TYPE_LABELS[props.mealType]}
+                </span>
+              </div>
               <div className="meal-composer-field">
                 <span>日期</span>
-                <div className="meal-composer-date-strip" role="listbox" aria-label="选择日期">
+                <div
+                  ref={dateStripRef}
+                  className="meal-composer-date-strip"
+                  role="listbox"
+                  aria-label="选择日期"
+                >
                   {props.dateOptions.map((dateKey) => {
                     const parts = getMealDateStripParts(dateKey);
                     const label = mealDateStripLabel(dateKey);
                     return (
                       <button
                         key={dateKey}
+                        ref={props.date === dateKey ? selectedDateRef : undefined}
                         type="button"
                         className={
                           props.date === dateKey
@@ -207,9 +247,15 @@ export function MealComposer(props: MealComposerProps) {
                   ))}
                 </div>
               </div>
+            </section>
 
+            <section className="meal-composer-step" aria-labelledby="meal-composer-food-heading">
+              <div className="meal-composer-step-head">
+                <span className="meal-composer-step-number" aria-hidden="true">2</span>
+                <h4 id="meal-composer-food-heading">添加食物</h4>
+                <span className="meal-composer-step-summary">已选 {props.foods.length} 项</span>
+              </div>
               <div className="meal-composer-field">
-                <span>吃了什么</span>
                 <MealFoodCombobox
                   query={props.searchQuery}
                   results={props.searchResults}
@@ -242,6 +288,11 @@ export function MealComposer(props: MealComposerProps) {
                         <span className="meal-composer-food-item-copy">
                           <strong>{food.name}</strong>
                           {food.kind === 'new' ? <small>新建</small> : null}
+                          {food.kind === 'existing' && food.planItems?.length ? (
+                            <small className="meal-composer-plan-badge">
+                              本餐计划{food.planItems.length > 1 ? ` · ${food.planItems.length} 项` : ''}
+                            </small>
+                          ) : null}
                         </span>
                         <TouchStepperField
                           label={`${food.name}份量`}
@@ -259,18 +310,18 @@ export function MealComposer(props: MealComposerProps) {
                           aria-label={`移除${food.name}`}
                           onClick={() => removeFood(key)}
                         >
-                          移除
+                          <span aria-hidden="true">×</span>
                         </button>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <p className="meal-composer-food-empty">先选一道菜，或直接按菜名记下</p>
+                <p className="meal-composer-food-empty">还没有添加食物，可搜索或直接输入菜名</p>
               )}
-            </section>
-
-            <section className="meal-composer-region meal-composer-side">
+              {props.foods.some((food) => food.kind === 'existing' && Boolean(food.planItems?.length)) ? (
+                <p className="meal-composer-plan-note">列表中的计划食物会同时标记为已完成。</p>
+              ) : null}
               <MealCandidateSelector
                 mode={props.candidateMode}
                 mealType={props.mealType}
@@ -291,6 +342,7 @@ export function MealComposer(props: MealComposerProps) {
           ) : null}
         </form>
       </WorkspaceModal>
-    </WorkspaceOverlayFrame>
+    </WorkspaceOverlayFrame>,
+    document.body,
   );
 }

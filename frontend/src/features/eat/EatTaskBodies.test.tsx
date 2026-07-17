@@ -301,7 +301,7 @@ describe('buildEatTaskBodies plan complete', () => {
     );
     expect(recordMeal).not.toHaveBeenCalled();
     expect(onRecordSuccess).not.toHaveBeenCalled();
-    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
+    expect(await screen.findByText('评价这顿晚餐')).toBeInTheDocument();
   });
 
   it('starts recipe cook for recipe plan items without completeFoodPlanItem', async () => {
@@ -371,7 +371,7 @@ describe('EatPlanTaskBody record failure', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
     expect(screen.getByText('菜单计划详情')).toBeInTheDocument();
-    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
+    expect(screen.queryByText('评价这顿晚餐')).not.toBeInTheDocument();
   });
 
   it('clears recorded meal state when switching directly to another plan item', async () => {
@@ -409,11 +409,11 @@ describe('EatPlanTaskBody record failure', () => {
     const view = renderWithQuery(renderBody(firstItem));
 
     await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
-    expect(await screen.findByText('编辑这顿')).toBeInTheDocument();
+    expect(await screen.findByText('评价这顿晚餐')).toBeInTheDocument();
 
     view.rerender(renderBody(secondItem));
 
-    await waitFor(() => expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('评价这顿晚餐')).not.toBeInTheDocument());
     expect(screen.getByText('Second meal')).toBeInTheDocument();
   });
 
@@ -458,7 +458,7 @@ describe('EatPlanTaskBody record failure', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Second meal')).toBeInTheDocument());
-    expect(screen.queryByText('编辑这顿')).not.toBeInTheDocument();
+    expect(screen.queryByText('评价这顿晚餐')).not.toBeInTheDocument();
   });
 });
 
@@ -662,6 +662,75 @@ describe('EatMealCreateTaskBody', () => {
     );
     expect(onRecordSuccess).toHaveBeenCalledWith(response);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('prefills matching planned foods and submits their completion references', async () => {
+    const plannedFood = makeFood({ id: 'food-planned', name: '计划番茄炒蛋', recipe_id: null });
+    const plannedItem = makePlanItem({
+      id: 'plan-planned',
+      food_id: plannedFood.id,
+      food_name: plannedFood.name,
+      recipe_id: null,
+      plan_date: '2026-07-15',
+      meal_type: 'dinner',
+    });
+    const recordMeal = vi.fn(async () => ({
+      meal_log: {
+        id: 'meal-planned',
+        family_id: 'family-1',
+        date: '2026-07-15',
+        meal_type: 'dinner' as const,
+        food_entries: [],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        row_version: 1,
+        created_at: '2026-07-15T00:00:00.000Z',
+        updated_at: '2026-07-15T00:00:00.000Z',
+      },
+      created_foods: [],
+      completed_plan_item_ids: [plannedItem.id],
+      outcome: 'created' as const,
+      operation: {
+        id: 'op-planned',
+        status: 'applied' as const,
+        revertible_until: '2026-07-15T01:00:00.000Z',
+        can_revert: true,
+      },
+    }));
+
+    renderWithQuery(
+      <EatMealCreateTaskBody
+        food={null}
+        planItem={null}
+        date="2026-07-15"
+        mealType="dinner"
+        recipes={[]}
+        foods={[plannedFood]}
+        foodPlanItems={[plannedItem]}
+        recordMeal={recordMeal}
+        completeFoodPlanItem={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('计划番茄炒蛋')).toBeVisible();
+    expect(screen.getByText('本餐计划')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
+    await waitFor(() => expect(recordMeal).toHaveBeenCalled());
+    expect(recordMeal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [{ food_id: plannedFood.id, servings: 1 }],
+        plan_item_completions: [
+          {
+            food_plan_item_id: plannedItem.id,
+            food_plan_item_base_updated_at: plannedItem.updated_at,
+          },
+        ],
+      }),
+    );
   });
 
   it('locks plan-sourced meal-create date/mealType to the plan slot for candidates and complete', async () => {

@@ -11,7 +11,14 @@ import type {
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import type { MealComposerFood } from '../../features/meals/MealComposerModel';
 import { formatDate } from '../../lib/ui';
-import { ActionButton, DropdownSelect, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import {
+  ActionButton,
+  DropdownSelect,
+  FormActions,
+  StarRatingInput,
+  WorkspaceModal,
+  WorkspaceOverlayFrame,
+} from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import {
   formatCookPreviewRequestLabel,
@@ -286,23 +293,15 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
         title="补充这次做菜反馈"
         description="评分和备注都不是必填；跳过后只记录完成，不留下本次反馈。"
       >
-        <label className="recipe-cook-finish-field">
+        <div className="recipe-cook-finish-field">
           <span>满意度</span>
-          <DropdownSelect
-            ariaLabel="选择满意度"
-            placeholder="不评分"
+          <StarRatingInput
+            ariaLabel="满意度"
+            emptyLabel="不评分"
             value={props.session.rating}
-            clearOption={{ value: '', label: '不评分' }}
-            options={[
-              { value: '5', label: '5 分' },
-              { value: '4', label: '4 分' },
-              { value: '3', label: '3 分' },
-              { value: '2', label: '2 分' },
-              { value: '1', label: '1 分' },
-            ]}
             onChange={(rating) => props.onUpdateSession({ rating })}
           />
-        </label>
+        </div>
         <label className="recipe-cook-finish-field">
           <span>做法调整 / 变体</span>
           <textarea className="text-input" rows={3} value={props.session.adjustments} placeholder="例如：少放一勺油、番茄多炒 2 分钟出汁" onChange={(event) => props.onUpdateSession({ adjustments: event.target.value })} />

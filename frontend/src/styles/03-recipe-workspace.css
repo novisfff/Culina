@@ -800,9 +800,14 @@
 .recipe-editor-ingredient-row .text-input:focus,
 .recipe-editor-step-fields .text-input:focus,
 .recipe-editor-basic-grid .text-input:focus {
-  outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.08);
+}
+
+.recipe-editor-ingredient-row .text-input:focus-visible,
+.recipe-editor-step-fields .text-input:focus-visible,
+.recipe-editor-basic-grid .text-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .recipe-editor-workbench textarea.text-input {
@@ -4014,6 +4019,11 @@
   font-size: 0.84rem;
   font-family: inherit;
   outline: none;
+}
+
+.recipe-cook-ai-composer:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .recipe-cook-ai-composer input::placeholder {

@@ -32,6 +32,7 @@ import {
   getDefaultMealType,
   getFoodAudienceText,
   getFoodFactRows,
+  getFoodInventoryConfirmation,
   getFoodMealHistory,
   getFoodSceneTags,
   getFoodStatus,
@@ -78,7 +79,6 @@ import {
 import { useImageComposer } from '../../hooks/useImageComposer';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
-import { addDateKeyDays } from '../../lib/date';
 import { getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCandidateSelector } from '../meals/MealCandidateSelector';
 import { MealComposer } from '../meals/MealComposer';
@@ -87,6 +87,7 @@ import {
   canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
+  reconcilePlannedMealFoods,
   type MealCandidateResolution,
   deriveCandidatePresentation,
   type MealComposerFood,
@@ -221,7 +222,6 @@ export function EatFoodTaskBody(props: {
   const completionPercent = Math.round(
     (completionItems.filter((item) => item.done).length / Math.max(completionItems.length, 1)) * 100,
   );
-  const planDateOptions = Array.from({ length: 14 }, (_, index) => addDateKeyDays(todayKey(), index));
 
   async function handleSubmitFood(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -268,6 +268,7 @@ export function EatFoodTaskBody(props: {
         expiry={expiry}
         factRows={factRows}
         history={history}
+        inventoryConfirmation={isReadyLikeFood(props.food) ? getFoodInventoryConfirmation(props.food, todayKey()) : null}
         isOutsideFood={isOutsideFood(props.food)}
         isQuickAdding={props.isQuickAdding}
         isReadyLikeFood={isReadyLikeFood(props.food)}
@@ -284,7 +285,6 @@ export function EatFoodTaskBody(props: {
         onClose={props.onClose}
         onEdit={() => setIsEditing(true)}
         onEditRecipe={props.onEditRecipe}
-        onOpenLogs={props.onOpenLogs}
         onOpenPlanDialog={() => {
           setPlanForm({
             foodId: props.food.id,
@@ -407,7 +407,6 @@ export function EatFoodTaskBody(props: {
         planFoodSearch={planFoodSearch}
         planForm={planForm}
         todayDate={todayKey()}
-        planDateOptions={planDateOptions}
         isUpdatingPlan={props.isUpdatingPlan}
         onClose={() => setIsPlanDialogOpen(false)}
         onSubmit={(event) => {
@@ -1213,6 +1212,8 @@ export function EatMealTaskBody(props: {
 function EatFreeMealComposerBody(props: {
   date?: string;
   mealType?: MealType;
+  foods: Food[];
+  foodPlanItems: FoodPlanItem[];
   isSubmitting?: boolean;
   recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
   onRecordSuccess?: (response: RecordMealResponse) => void;
@@ -1230,6 +1231,37 @@ function EatFreeMealComposerBody(props: {
     mealType: state.mealType,
     searchQuery,
   });
+  const plannedFoodSeeds = useMemo(
+    () =>
+      props.foodPlanItems
+        .filter(
+          (item) =>
+            item.status === 'planned' &&
+            item.plan_date === state.date &&
+            item.meal_type === state.mealType,
+        )
+        .map((item) => {
+          const food = props.foods.find((candidate) => candidate.id === item.food_id);
+          return {
+            id: item.id,
+            foodId: item.food_id,
+            foodName: item.food_name || food?.name || '未命名食物',
+            baseUpdatedAt: item.updated_at,
+            cover: food?.images[0] ?? null,
+          };
+        }),
+    [props.foodPlanItems, props.foods, state.date, state.mealType],
+  );
+  const plannedFoodSeedsKey = plannedFoodSeeds
+    .map((item) => `${item.id}:${item.baseUpdatedAt}:${item.foodId}`)
+    .join(',');
+  const plannedFoodRefsByFoodId = useMemo(() => {
+    const result: Record<string, Array<{ id: string; baseUpdatedAt: string }>> = {};
+    for (const item of plannedFoodSeeds) {
+      (result[item.foodId] ??= []).push({ id: item.id, baseUpdatedAt: item.baseUpdatedAt });
+    }
+    return result;
+  }, [plannedFoodSeeds]);
 
   const candidateResolution = useMemo((): MealCandidateResolution => {
     if (!state.open) return { status: 'idle' };
@@ -1281,6 +1313,13 @@ function EatFreeMealComposerBody(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!state.open) return;
+    state.setFoods((current) => reconcilePlannedMealFoods(current, plannedFoodSeeds));
+    // Reconcile only when the authoritative plan set for the selected slot changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.open, state.date, state.mealType, plannedFoodSeedsKey]);
+
   const candidateIdsKey = data.candidates
     .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
     .join(',');
@@ -1322,6 +1361,7 @@ function EatFreeMealComposerBody(props: {
         (candidateResolution.status === 'error' ? candidateResolution.message : null) ??
         (candidatesBusy ? '正在确认是否有可加入的餐食…' : null)
       }
+      plannedFoodRefsByFoodId={plannedFoodRefsByFoodId}
       overlayRootClassName="eat-task-body-overlay-root"
       onClose={() => {
         if (state.busy) return;
@@ -1643,6 +1683,8 @@ export function EatMealCreateTaskBody(props: {
   date?: string;
   mealType?: MealType;
   recipes: Recipe[];
+  foods?: Food[];
+  foodPlanItems?: FoodPlanItem[];
   isSubmitting?: boolean;
   isCompletingPlan?: boolean;
   recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
@@ -1657,6 +1699,8 @@ export function EatMealCreateTaskBody(props: {
       <EatFreeMealComposerBody
         date={props.date}
         mealType={props.mealType}
+        foods={props.foods ?? []}
+        foodPlanItems={props.foodPlanItems ?? []}
         isSubmitting={props.isSubmitting}
         recordMeal={props.recordMeal}
         onRecordSuccess={props.onRecordSuccess}
@@ -1871,6 +1915,8 @@ export function buildEatTaskBodies(args: {
           date={resolved.task.date}
           mealType={resolved.task.mealType}
           recipes={args.recipes}
+          foods={args.foods}
+          foodPlanItems={args.foodPlanItems}
           isSubmitting={args.isRecordingMeal}
           isCompletingPlan={args.isCompletingPlan}
           recordMeal={args.recordMeal}

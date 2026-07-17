@@ -1,7 +1,7 @@
-import type { FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { ActionButton, ConfirmDialog, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { FoodSceneCardView, FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
 
@@ -29,9 +29,75 @@ type FoodSceneDialogsProps = {
 export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
   const sceneFormId = 'food-scene-form-modal-form';
   const isUpdatingScene = Boolean(props.isUpdatingScene);
+  const [openSceneMenuId, setOpenSceneMenuId] = useState<string | null>(null);
+  const [pendingDeleteScene, setPendingDeleteScene] = useState<{ id: string; name: string } | null>(null);
+  const [deleteRequestSceneId, setDeleteRequestSceneId] = useState<string | null>(null);
+  const openSceneMenuRef = useRef<HTMLDivElement | null>(null);
+  const wasUpdatingSceneRef = useRef(isUpdatingScene);
+  const isManagerBusy = isUpdatingScene || Boolean(deleteRequestSceneId);
+
+  useEffect(() => {
+    if (!openSceneMenuId) return;
+
+    function closeMenuOnOutsidePointer(event: PointerEvent) {
+      if (!openSceneMenuRef.current?.contains(event.target as Node)) {
+        setOpenSceneMenuId(null);
+      }
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpenSceneMenuId(null);
+      }
+    }
+
+    document.addEventListener('pointerdown', closeMenuOnOutsidePointer);
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenuOnOutsidePointer);
+      document.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [openSceneMenuId]);
+
+  useEffect(() => {
+    if (!props.isSceneManagerOpen || props.sceneFormMode) {
+      setOpenSceneMenuId(null);
+      setPendingDeleteScene(null);
+      setDeleteRequestSceneId(null);
+      return;
+    }
+    if (isManagerBusy) {
+      setOpenSceneMenuId(null);
+    }
+  }, [isManagerBusy, props.isSceneManagerOpen, props.sceneFormMode]);
+
+  useEffect(() => {
+    if (
+      pendingDeleteScene
+      && !isUpdatingScene
+      && !props.sceneCards.some((scene) => scene.id === pendingDeleteScene.id)
+    ) {
+      setPendingDeleteScene(null);
+      setDeleteRequestSceneId(null);
+    }
+  }, [isUpdatingScene, pendingDeleteScene, props.sceneCards]);
+
+  useEffect(() => {
+    const wasUpdatingScene = wasUpdatingSceneRef.current;
+    wasUpdatingSceneRef.current = isUpdatingScene;
+    if (
+      wasUpdatingScene
+      && !isUpdatingScene
+      && deleteRequestSceneId
+      && props.sceneCards.some((scene) => scene.id === deleteRequestSceneId)
+    ) {
+      setDeleteRequestSceneId(null);
+    }
+  }, [deleteRequestSceneId, isUpdatingScene, props.sceneCards]);
 
   function closeManagerIfAllowed() {
-    if (!isUpdatingScene) {
+    if (!isManagerBusy) {
       props.onCloseManager();
     }
   }
@@ -48,7 +114,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
         <WorkspaceOverlayFrame
           rootClassName="food-workspace-overlay-root"
           onClose={closeManagerIfAllowed}
-          closeOnBackdrop={!isUpdatingScene}
+          closeOnBackdrop={!isManagerBusy}
         >
           <WorkspaceModal
             title="场景管理"
@@ -61,9 +127,9 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
               <div className="food-scene-manager-toolbar">
                 <div>
                   <strong>{props.sceneCards.length} 个场景</strong>
-                  <span>整理食物库里的场景入口和封面。</span>
+                  <span>整理常用入口</span>
                 </div>
-                <ActionButton tone="primary" type="button" onClick={props.onOpenCreateScene} disabled={isUpdatingScene}>
+                <ActionButton tone="primary" type="button" onClick={props.onOpenCreateScene} disabled={isManagerBusy}>
                   <FoodUiIcon name="plus" />
                   <span>新建场景</span>
                 </ActionButton>
@@ -90,26 +156,96 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                           {scene.description && <p>{scene.description}</p>}
                         </div>
                         <div className="food-scene-row-actions">
-                          <button type="button" disabled={isUpdatingScene} onClick={() => props.onOpenEditScene(scene)}>
+                          <button
+                            type="button"
+                            className="food-scene-row-primary-action"
+                            disabled={isManagerBusy}
+                            onClick={() => props.onOpenEditScene(scene)}
+                          >
                             {scene.id ? '编辑' : '创建'}
                           </button>
                           {scene.id && (
-                            <button type="button" disabled={isUpdatingScene} onClick={() => props.onDeleteScene(scene.id!)}>
-                              删除
-                            </button>
+                            <div
+                              className="food-scene-row-menu-root"
+                              ref={openSceneMenuId === scene.id ? openSceneMenuRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                className="food-scene-row-more"
+                                aria-label={`更多操作：${scene.name}`}
+                                aria-haspopup="menu"
+                                aria-expanded={openSceneMenuId === scene.id}
+                                disabled={isManagerBusy}
+                                onClick={() => setOpenSceneMenuId((current) => current === scene.id ? null : scene.id!)}
+                              >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <circle cx="5" cy="12" r="1.8" />
+                                  <circle cx="12" cy="12" r="1.8" />
+                                  <circle cx="19" cy="12" r="1.8" />
+                                </svg>
+                              </button>
+                              {openSceneMenuId === scene.id && (
+                                <div className="food-scene-row-menu" role="menu">
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="food-scene-row-delete"
+                                    onClick={() => {
+                                      setOpenSceneMenuId(null);
+                                      setPendingDeleteScene({ id: scene.id!, name: scene.name });
+                                    }}
+                                  >
+                                    <FoodUiIcon name="trash" />
+                                    <span>删除场景</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </article>
                     );
                   })
                 ) : (
-                  <p className="subtle">暂无可管理场景。</p>
+                  <div className="food-scene-empty">
+                    <div className="food-scene-empty-icon" aria-hidden="true">
+                      <FoodUiIcon name="bowl" />
+                    </div>
+                    <div>
+                      <strong>还没有场景</strong>
+                      <span>新建一个常用场景，快速整理食物</span>
+                    </div>
+                    <ActionButton tone="secondary" type="button" onClick={props.onOpenCreateScene} disabled={isManagerBusy}>
+                      <FoodUiIcon name="plus" />
+                      <span>新建场景</span>
+                    </ActionButton>
+                  </div>
                 )}
               </div>
             </div>
           </WorkspaceModal>
         </WorkspaceOverlayFrame>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteScene)}
+        title={pendingDeleteScene ? `删除「${pendingDeleteScene.name}」？` : '删除场景？'}
+        description="删除后，这个入口将从场景列表中移除。"
+        confirmLabel="删除场景"
+        tone="danger"
+        isSubmitting={isManagerBusy}
+        rootClassName="food-scene-delete-confirm-overlay"
+        modalClassName="food-scene-delete-confirm-modal"
+        onCancel={() => {
+          if (!isManagerBusy) setPendingDeleteScene(null);
+        }}
+        onConfirm={() => {
+          if (pendingDeleteScene && !isManagerBusy) {
+            setDeleteRequestSceneId(pendingDeleteScene.id);
+            props.onDeleteScene(pendingDeleteScene.id);
+          }
+        }}
+      />
 
       {props.sceneFormMode && (
         <WorkspaceOverlayFrame

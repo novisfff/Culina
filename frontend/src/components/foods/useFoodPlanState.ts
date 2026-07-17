@@ -10,6 +10,7 @@ import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavi
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';
 import type { FoodPlanDetailFormState } from './FoodPlanDetailModal';
+import { createFoodPlanDateOptions, resolveFoodPlanDate } from './foodPlanDateOptions';
 
 type PlanFormState = {
   foodId: string;
@@ -47,11 +48,13 @@ export function useFoodPlanState(input: {
   publishRecordResult?: (response: unknown) => void;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
 }) {
+  const todayDate = todayKey();
+  const defaultPlanDate = todayDate;
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
   const [planFoodSearch, setPlanFoodSearch] = useState('');
   const [planForm, setPlanForm] = useState<PlanFormState>(() => ({
     foodId: '',
-    planDate: todayKey(),
+    planDate: defaultPlanDate,
     mealType: 'dinner',
     note: '',
   }));
@@ -64,7 +67,6 @@ export function useFoodPlanState(input: {
   const [isPlanDetailEditing, setIsPlanDetailEditing] = useState(false);
   const handledNavigationRequestIdRef = useRef<number | null>(null);
 
-  const todayDate = todayKey();
   const activePlanItems = input.foodPlanItems.filter((item) => item.status !== 'skipped');
   const activePlanDetailItem = planDetailItemId
     ? input.foodPlanItems.find((item) => item.id === planDetailItemId) ?? null
@@ -81,14 +83,17 @@ export function useFoodPlanState(input: {
       items,
     };
   });
-  const planDateOptions = Array.from({ length: 90 }, (_, index) => addDateKeyDays(todayDate, index));
+  const planDateOptions = createFoodPlanDateOptions(todayDate);
   const selectedPlanFood = planForm.foodId ? input.foods.find((food) => food.id === planForm.foodId) ?? null : null;
 
-  function openPlanDialog(food?: Food) {
+  function openPlanDialog(
+    food?: Food,
+    defaults?: Partial<Pick<PlanFormState, 'planDate' | 'mealType'>>,
+  ) {
     setPlanForm({
       foodId: food?.id ?? '',
-      planDate: todayKey(),
-      mealType: food ? input.getDefaultMealType(food) : 'dinner',
+      planDate: resolveFoodPlanDate(defaults?.planDate, todayDate),
+      mealType: defaults?.mealType ?? (food ? input.getDefaultMealType(food) : 'dinner'),
       note: '',
     });
     setPlanFoodSearch(food?.name ?? '');

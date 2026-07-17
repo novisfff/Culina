@@ -583,6 +583,9 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     const summary = inventoryItem.summary;
                     const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
                     const status = props.buildCatalogStatus(summary);
+                    const inventorySummaryLine = props.buildInventorySummaryLine(summary);
+                    const compactInventorySummaryLine = inventorySummaryLine === '未登记库存' ? '未登记' : inventorySummaryLine;
+                    const compactConfirmationLabel = summary.confirmationLabel === '从未确认' ? '未确认' : summary.confirmationLabel;
                     const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
                     const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
                     return (
@@ -601,7 +604,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
                           <div className="mobile-ingredient-meta-row">
                             <span>{status.label}</span>
-                            <span>{props.buildInventorySummaryLine(summary)}</span>
+                            <span title={inventorySummaryLine}>{compactInventorySummaryLine}</span>
                             <span
                               className={`inventory-maintenance-chip is-confirmation is-${summary.confirmationTone}`}
                               title={
@@ -610,7 +613,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   : '还没有人工确认过库存'
                               }
                             >
-                              {summary.confirmationLabel}
+                              {compactConfirmationLabel}
                             </span>
                           </div>
                           <div className="mobile-ingredient-library-actions">

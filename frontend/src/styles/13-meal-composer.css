@@ -21,18 +21,64 @@
 
 .meal-composer-body {
   display: grid;
-  gap: 16px;
+  gap: var(--space-6);
   min-width: 0;
 }
 
-.meal-composer-region {
+.meal-composer-step {
+  display: grid;
+  gap: var(--space-3);
   min-width: 0;
+}
+
+.meal-composer-step + .meal-composer-step {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line-soft);
+}
+
+.meal-composer-step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.meal-composer-step-number {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.meal-composer-step-head h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.meal-composer-step-summary {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meal-composer-field,
 .meal-quick-record-field {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -44,12 +90,28 @@
 }
 
 .meal-composer-date-strip,
+.meal-composer-segments {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+}
+
+.meal-composer-date-strip {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.meal-composer-segments {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .meal-quick-record-date-strip,
-.meal-composer-segments,
 .meal-quick-record-segments {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-3);
 }
 
 .meal-composer-date-option,
@@ -59,9 +121,7 @@
 .meal-composer-candidate-action,
 .meal-composer-candidate-option,
 .meal-composer-food-type-chip,
-.meal-composer-food-remove,
-.meal-composer-food-option,
-.meal-composer-food-create {
+.meal-composer-food-remove {
   min-height: 44px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -78,6 +138,16 @@
   justify-items: center;
   align-content: center;
   padding: 8px 6px;
+}
+
+.meal-composer-date-option,
+.meal-composer-segment {
+  border-color: transparent;
+  background: transparent;
+}
+
+.meal-composer-date-option {
+  min-height: 52px;
 }
 
 .meal-composer-date-option span,
@@ -113,6 +183,12 @@
   box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.12);
 }
 
+.meal-composer-date-option.is-active,
+.meal-composer-segment.is-active {
+  border-color: var(--accent-line);
+  box-shadow: none;
+}
+
 .meal-composer-food-combobox {
   position: relative;
   display: grid;
@@ -124,16 +200,8 @@
   min-width: 0;
 }
 
-.meal-composer-food-menu {
-  display: grid;
-  gap: 4px;
-  max-height: 240px;
-  overflow: auto;
-  padding: 8px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  box-shadow: var(--shadow-md);
+.meal-composer-food-search:focus-within {
+  outline-offset: -2px;
 }
 
 .meal-composer-food-menu-status {
@@ -142,19 +210,9 @@
   font-size: 13px;
 }
 
-.meal-composer-food-option {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  padding: 8px;
-  text-align: left;
-}
-
 .meal-composer-food-option.is-highlighted,
 .meal-composer-food-option:hover {
-  background: var(--surface-strong);
+  background: var(--accent-soft);
 }
 
 .meal-composer-food-option-media,
@@ -220,12 +278,20 @@
   white-space: nowrap;
 }
 
+.meal-composer-food-item-copy .meal-composer-plan-badge {
+  justify-self: start;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid var(--info-line);
+  border-radius: var(--radius-pill);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .meal-composer-food-create {
-  display: grid;
-  place-items: center start;
-  grid-template-columns: 1fr;
-  min-height: 44px;
-  padding: 10px 12px;
   color: var(--accent-strong);
   font-weight: 700;
 }
@@ -258,7 +324,7 @@
 
 .meal-composer-food-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -267,29 +333,74 @@
 .meal-composer-food-item {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto auto;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
-  padding: 10px;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
-  background: var(--surface-3);
+  background: var(--surface-warm);
 }
 
 .meal-composer-servings {
-  min-width: 132px;
+  min-width: 146px;
+}
+
+.meal-composer-servings .touch-field-head {
+  display: none;
+}
+
+.meal-composer-servings .touch-stepper-main {
+  grid-template-columns: 44px 46px 44px;
+  gap: var(--space-2);
+}
+
+.meal-composer-servings .touch-stepper-display {
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.meal-composer-servings .touch-stepper-display strong {
+  font-size: var(--text-base);
+}
+
+.meal-composer-servings .touch-stepper-button {
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
 }
 
 .meal-composer-food-remove {
-  padding: 0 12px;
+  display: grid;
+  width: var(--tap-min);
+  min-width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
+}
+
+.meal-composer-food-remove:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--accent-strong);
 }
 
 .meal-composer-food-empty {
   margin: 0;
   color: var(--text-faint);
   font-size: 13px;
+}
+
+.meal-composer-plan-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1.4;
 }
 
 .meal-composer-candidates,
@@ -306,8 +417,8 @@
   align-items: center;
   padding: 12px;
   border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
 }
 
 .meal-composer-candidate-single .meal-composer-candidate-media {
@@ -319,44 +430,125 @@
 .meal-composer-candidate-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-1);
   grid-column: 1 / -1;
+  padding: var(--space-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
 }
 
 .meal-composer-candidate-action {
-  display: grid;
-  place-items: center;
-  padding: 0 10px;
+  display: inline-flex;
+  min-width: 0;
+  min-height: var(--control-height-touch);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-color: transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-soft);
+  font-size: var(--text-meta);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .meal-composer-candidate-action.is-selected {
-  background: var(--brand-button-bg);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: var(--brand-button-shadow);
+  border-color: var(--accent-line);
+  background: var(--surface);
+  color: var(--accent-strong);
+  box-shadow: 0 1px 2px rgba(74, 54, 40, 0.05);
+}
+
+.meal-composer-candidate-action:hover:not(:disabled):not(.is-selected) {
+  background: var(--surface-warm);
+  color: var(--text);
+}
+
+.meal-composer-candidate-action-indicator {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.meal-composer-candidate-action.is-selected .meal-composer-candidate-action-indicator {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.meal-composer-candidate-action.is-selected .meal-composer-candidate-action-indicator::after {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--surface);
+  content: '';
 }
 
 .meal-composer-candidate-list {
   display: grid;
-  gap: 8px;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
 }
 
 .meal-composer-candidate-option {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) 16px;
   gap: 10px;
   align-items: center;
   width: 100%;
-  padding: 10px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 8px 10px;
+  border-color: transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
   text-align: left;
 }
 
-.meal-composer-candidate-new {
-  grid-template-columns: 1fr;
-  justify-items: start;
-  font-weight: 700;
+.meal-composer-candidate-option.is-selected {
+  border-color: var(--accent-line);
+  background: var(--surface);
   color: var(--accent-strong);
+  box-shadow: 0 1px 2px rgba(74, 54, 40, 0.05);
+}
+
+.meal-composer-candidate-option:hover:not(:disabled):not(.is-selected) {
+  background: var(--surface-warm);
+}
+
+.meal-composer-candidate-new {
+  grid-template-columns: minmax(0, 1fr) 16px;
+}
+
+.meal-composer-candidate-option-indicator {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.meal-composer-candidate-option.is-selected .meal-composer-candidate-option-indicator {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.meal-composer-candidate-option.is-selected .meal-composer-candidate-option-indicator::after {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--surface);
+  content: '';
 }
 
 .meal-composer-final-preview {
@@ -412,14 +604,9 @@
   color: var(--text-soft);
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) and (max-width: 1023px) {
   .meal-composer-modal.workspace-modal {
-    width: min(var(--modal-width-lg), calc(100vw - 48px));
-  }
-
-  .meal-composer-body {
-    grid-template-columns: minmax(0, 1.3fr) minmax(240px, 0.9fr);
-    align-items: start;
+    width: min(520px, calc(100vw - 64px));
   }
 }
 
@@ -429,29 +616,41 @@
     width: 100%;
   }
 
-  .meal-composer-form,
-  .meal-quick-record-form {
-    padding-bottom: calc(var(--mobile-nav-height, 64px) + env(safe-area-inset-bottom, 0px) + 16px);
-  }
-
-  .meal-composer-body {
-    grid-template-columns: 1fr;
-  }
-
-  .meal-composer-date-strip,
   .meal-quick-record-date-strip,
-  .meal-composer-segments,
   .meal-quick-record-segments {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
   }
 
+  .meal-composer-date-strip {
+    grid-auto-columns: 56px;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    margin-right: calc(var(--space-5) * -1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    scrollbar-width: none;
+  }
+
+  .meal-composer-modal.workspace-modal {
+    max-height: min(92dvh, var(--app-visual-viewport-height));
+  }
+
+  .meal-composer-date-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .meal-composer-step-summary {
+    max-width: 40%;
+  }
+
   .meal-composer-food-item {
-    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     grid-template-areas:
-      'media copy'
-      'servings servings'
-      'remove remove';
+      'media copy remove'
+      'servings servings servings';
   }
 
   .meal-composer-food-item-media {
@@ -465,11 +664,12 @@
   .meal-composer-servings {
     grid-area: servings;
     min-width: 0;
+    width: min(100%, 146px);
+    justify-self: end;
   }
 
   .meal-composer-food-remove {
     grid-area: remove;
-    width: 100%;
   }
 
   .meal-composer-actions .ui-form-actions-primary,

@@ -1,6 +1,7 @@
-import type { MealLog, Member, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types';
 import { FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { MealEnrichmentForm } from './MealLogEnrichment';
+import type { MealComposerFoodType } from './MealComposerModel';
 
 export type MealEnrichmentModalProps = {
   open: boolean;
@@ -16,6 +17,13 @@ export type MealEnrichmentModalProps = {
   title?: string;
   description?: string;
   primaryLabel?: string;
+  pendingPlanItems?: FoodPlanItem[];
+  availableFoods?: Food[];
+  onRecordPlanItem?: (item: FoodPlanItem) => Promise<RecordMealResponse>;
+  onAddExistingFood?: (food: Food) => Promise<RecordMealResponse>;
+  onCreateFood?: (input: { name: string; type: MealComposerFoodType }) => Promise<RecordMealResponse>;
+  onRevertRecord?: (operationId: string) => Promise<RevertMealRecordResponse>;
+  onMealChanged?: (meal: MealLog) => void;
 };
 
 export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
@@ -38,20 +46,20 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
-        title={props.title ?? '编辑这顿'}
-        description={props.description ?? '补充评价、家人、照片和评论'}
+        title={props.title ?? `评价这顿${props.meal.meal_type === 'breakfast' ? '早餐' : props.meal.meal_type === 'lunch' ? '午餐' : props.meal.meal_type === 'dinner' ? '晚餐' : '加餐'}`}
+        description={props.description ?? '评价属于整餐，星级记录每个食物的家庭共享感受'}
         className="meal-log-modal meal-log-enrich-modal"
         closeAriaLabel="关闭"
         onClose={closeIfAllowed}
         busy={props.isUpdating}
-        footerInfo={<span>保存后会更新这顿的评价、家人、照片和评论</span>}
+        footerInfo={<span>餐食已经记录；关闭评价不会撤销这顿</span>}
         footerActions={
           <FormActions
             primaryLabel={props.primaryLabel ?? '保存'}
             primaryType="submit"
             primaryForm={formId}
             isSubmitting={props.isUpdating}
-            secondaryLabel="取消"
+            secondaryLabel="稍后再说"
             onSecondary={closeIfAllowed}
           />
         }
@@ -70,6 +78,13 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
             requireMeaningfulInput={props.requireMeaningfulInput}
             onInvalidSave={props.onInvalidSave}
             onSaved={props.onClose}
+            pendingPlanItems={props.pendingPlanItems}
+            availableFoods={props.availableFoods}
+            onRecordPlanItem={props.onRecordPlanItem}
+            onAddExistingFood={props.onAddExistingFood}
+            onCreateFood={props.onCreateFood}
+            onRevertRecord={props.onRevertRecord}
+            onMealChanged={props.onMealChanged}
           />
         </div>
       </WorkspaceModal>

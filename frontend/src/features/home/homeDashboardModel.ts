@@ -74,6 +74,37 @@ export type DashboardPlanSummaryItem = {
   tone: string;
 };
 
+export type DashboardPlanProgress = {
+  totalCount: number;
+  recordedCount: number;
+  pendingCount: number;
+  label: string;
+  state: 'empty' | 'planned' | 'partial' | 'complete';
+};
+
+export function getDashboardPlanProgress(items: readonly FoodPlanItem[]): DashboardPlanProgress {
+  const visibleItems = items.filter((item) => item.status !== 'skipped');
+  const totalCount = visibleItems.length;
+  const recordedCount = visibleItems.filter((item) => item.status === 'cooked').length;
+  const pendingCount = totalCount - recordedCount;
+  if (totalCount === 0) {
+    return { totalCount, recordedCount, pendingCount, label: '待安排', state: 'empty' };
+  }
+  if (recordedCount === 0) {
+    return { totalCount, recordedCount, pendingCount, label: `${totalCount} 项安排`, state: 'planned' };
+  }
+  if (pendingCount === 0) {
+    return { totalCount, recordedCount, pendingCount, label: `${totalCount} 项已记录`, state: 'complete' };
+  }
+  return {
+    totalCount,
+    recordedCount,
+    pendingCount,
+    label: `已记录 ${recordedCount} / ${totalCount}`,
+    state: 'partial',
+  };
+}
+
 export type HomeRequiredAction =
   | { kind: 'inventory'; group: InventoryActionGroup }
   | { kind: 'shopping'; pendingCount: number };

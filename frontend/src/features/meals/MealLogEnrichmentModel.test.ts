@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MealLog } from '../../api/types';
-import { buildUpdateMealLogPayload, getMealRatingSummary, hasMeaningfulMealLogInput, isMealLogEnriched } from './MealLogEnrichmentModel';
+import { buildMealEnrichmentRecordPayload, buildUpdateMealLogPayload, getMealRatingSummary, hasMeaningfulMealLogInput, isMealLogEnriched, mergeMealEntryRatingDraft } from './MealLogEnrichmentModel';
 
 function makeMealLog(overrides: Partial<MealLog> = {}): MealLog {
   return {
@@ -25,6 +25,45 @@ function makeMealLog(overrides: Partial<MealLog> = {}): MealLog {
 }
 
 describe('MealLogEnrichmentModel', () => {
+  it('preserves unsaved ratings while merging newly recorded and removed meal entries', () => {
+    const nextMeal = makeMealLog({
+      row_version: 2,
+      food_entries: [
+        { id: 'entry-1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 1, note: '', rating: 3 },
+        { id: 'entry-3', food_id: 'food-3', food_name: '凉拌黄瓜', servings: 1, note: '', rating: null },
+      ],
+    });
+
+    expect(mergeMealEntryRatingDraft({ meal: nextMeal, current: { 'entry-1': '4.5', 'entry-2': '5' } })).toEqual({
+      'entry-1': '4.5',
+      'entry-3': '',
+    });
+  });
+
+  it('builds existing-meal append payloads for planned, existing, and new foods', () => {
+    const currentMeal = makeMealLog();
+    expect(buildMealEnrichmentRecordPayload({
+      meal: currentMeal,
+      clientRequestId: 'request-plan',
+      food: { kind: 'existing', foodId: 'food-rice' },
+      planItem: {
+        id: 'plan-rice', family_id: 'family-1', user_id: 'user-1', food_id: 'food-rice', food_name: '米饭',
+        food_type: 'selfMade', recipe_id: null, recipe_title: '', plan_date: currentMeal.date,
+        meal_type: currentMeal.meal_type, note: '', status: 'planned', created_at: '', updated_at: '2026-07-07T01:00:00Z',
+      },
+    })).toEqual({
+      client_request_id: 'request-plan', date: currentMeal.date, meal_type: currentMeal.meal_type,
+      target: { kind: 'existing', meal_log_id: currentMeal.id, expected_row_version: currentMeal.row_version },
+      entries: [{ food_id: 'food-rice', servings: 1 }],
+      plan_item_completions: [{ food_plan_item_id: 'plan-rice', food_plan_item_base_updated_at: '2026-07-07T01:00:00Z' }],
+    });
+    expect(buildMealEnrichmentRecordPayload({ meal: currentMeal, clientRequestId: 'request-existing', food: { kind: 'existing', foodId: 'food-soup' } }).entries).toEqual([{ food_id: 'food-soup', servings: 1 }]);
+    expect(buildMealEnrichmentRecordPayload({ meal: currentMeal, clientRequestId: 'request-new', food: { kind: 'new', clientFoodId: 'tmp-fruit', name: '水果', type: 'readyMade' } })).toMatchObject({
+      new_foods: [{ client_food_id: 'tmp-fruit', name: '水果', type: 'readyMade' }],
+      entries: [{ client_food_id: 'tmp-fruit', servings: 1 }],
+    });
+  });
+
   it('builds an update payload from rating, participant, note, and original photo drafts', () => {
     const payload = buildUpdateMealLogPayload({
       meal: makeMealLog(),

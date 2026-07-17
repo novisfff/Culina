@@ -124,6 +124,23 @@ describe('WorkspaceOverlayFrame', () => {
     expect(view.querySelector('#overlay-title')?.textContent).toContain('盘点弹窗');
   });
 
+  it('maps the canonical small and large modal sizes to stable classes', () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <>
+          <WorkspaceModal title="短提示" size="small" onClose={() => undefined}>内容</WorkspaceModal>
+          <WorkspaceModal title="复杂编辑" size="large" onClose={() => undefined}>内容</WorkspaceModal>
+        </>,
+      );
+    });
+
+    expect(container.querySelector('.workspace-modal-small')).not.toBeNull();
+    expect(container.querySelector('.workspace-modal-large')).not.toBeNull();
+  });
+
   it('moves initial focus into the dialog and restores focus on unmount', async () => {
     const trigger = document.createElement('button');
     trigger.type = 'button';
@@ -329,6 +346,45 @@ describe('WorkspaceOverlayFrame', () => {
     expect(backgroundOrAncestorInert).toBe(true);
     // aria-modal alone is insufficient proof of tab-order isolation.
     expect(panel?.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('locks background scrolling until the overlay unmounts', () => {
+    document.body.style.overflow = 'auto';
+    renderOverlay();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    act(() => root?.unmount());
+    root = null;
+    expect(document.body.style.overflow).toBe('auto');
+    document.body.style.removeProperty('overflow');
+  });
+
+  it('traps forward and backward Tab navigation inside the topmost dialog', () => {
+    const { view } = renderOverlay();
+    const panel = view.querySelector<HTMLElement>('.workspace-overlay-panel');
+    const focusable = Array.from(
+      panel?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])') ?? [],
+    );
+    expect(focusable.length).toBeGreaterThan(1);
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    act(() => last.focus());
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    });
+    expect(document.activeElement).toBe(first);
+
+    act(() => first.focus());
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    expect(document.activeElement).toBe(last);
   });
 
   it('does not re-steal focus when re-rendered with a new onClose identity', async () => {

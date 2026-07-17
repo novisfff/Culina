@@ -101,6 +101,7 @@ export function MediaWithPlaceholder(props: {
   loadingLabel?: string;
   errorLabel?: string;
   ariaHidden?: boolean;
+  onLoadError?: () => void;
 }) {
   const [activeSrc, setActiveSrc] = useState(props.src ?? null);
   const [failed, setFailed] = useState(false);
@@ -151,6 +152,7 @@ export function MediaWithPlaceholder(props: {
             }
             setLoaded(false);
             setFailed(true);
+            props.onLoadError?.();
           }}
         />
       )}

@@ -4,7 +4,7 @@ import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
 import { ActionButton, Badge, FormActions, WorkspaceDrawer, WorkspaceOverlayFrame } from '../ui-kit';
-import { formatFoodStockQuantity } from './FoodWorkspaceHelpers';
+import { formatFoodStockQuantity, type FoodInventoryConfirmationView } from './FoodWorkspaceHelpers';
 import { FoodIconName, FoodUiIcon } from './FoodWorkspacePrimitives';
 
 type FoodFactRow = {
@@ -46,6 +46,7 @@ type Props = {
   expiry: string | null;
   factRows: FoodFactRow[];
   history: FoodMealHistoryItem[];
+  inventoryConfirmation: FoodInventoryConfirmationView | null;
   isOutsideFood: boolean;
   isQuickAdding?: boolean;
   isReadyLikeFood: boolean;
@@ -60,7 +61,6 @@ type Props = {
   getSecondaryFoodActionLabel: (food: Food) => string;
   getSceneTags: (food: Food) => string[];
   onClose: () => void;
-  onOpenLogs: () => void;
   onOpenPlanDialog: (food: Food) => void;
   onStartCook: (recipeId: string) => void;
   onEditRecipe: (food: Food) => void;
@@ -124,9 +124,6 @@ export function FoodDetailDrawer(props: Props) {
       <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)} disabled={isBusy}>
         加入菜单
       </ActionButton>
-      <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs} disabled={isBusy}>
-        完整记一餐
-      </ActionButton>
     </FormActions>
   );
 
@@ -154,10 +151,24 @@ export function FoodDetailDrawer(props: Props) {
             />
           </div>
           <div className="food-detail-status-row">
-            <span className={`food-card-status tone-${props.status.tone}`}>
-              <strong>{props.status.label}</strong>
-              <small>{props.status.detail}</small>
-            </span>
+            <div className="food-detail-status-tags">
+              <span className={`food-card-status tone-${props.status.tone}`}>
+                <strong>{props.status.label}</strong>
+                <small>{props.status.detail}</small>
+              </span>
+              {props.inventoryConfirmation ? (
+                <span
+                  className={`food-detail-inventory-confirmation inventory-maintenance-chip is-confirmation is-${props.inventoryConfirmation.confirmationTone}`}
+                  title={
+                    props.inventoryConfirmation.lastConfirmedAt
+                      ? `上次确认 ${props.inventoryConfirmation.lastConfirmedAt.slice(0, 10)}`
+                      : '还没有人工确认过成品库存'
+                  }
+                >
+                  {props.inventoryConfirmation.confirmationLabel}
+                </span>
+              ) : null}
+            </div>
             <Badge>{props.food.favorite ? '已收藏' : props.getRepurchaseLabel(props.food)}</Badge>
           </div>
         </div>
@@ -422,7 +433,7 @@ export function FoodDetailDrawer(props: Props) {
           </section>
         )}
 
-        <section className="food-detail-section">
+        <section className="food-detail-section food-detail-quick-section">
           <div className="food-detail-section-head">
             <h4>快速记录</h4>
             <span>选择日期和餐次</span>

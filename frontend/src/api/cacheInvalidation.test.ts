@@ -255,7 +255,7 @@ describe('cacheInvalidation', () => {
     });
   });
 
-  it('record invalidation excludes inventory and food plan', async () => {
+  it('record invalidation refreshes food plans but excludes inventory', async () => {
     const queryClient = fakeQueryClient();
     await invalidateAfterMealRecorded(queryClient, { createdFood: true });
     const keys = invalidatedKeys(queryClient);
@@ -269,7 +269,7 @@ describe('cacheInvalidation', () => {
     expect(containsKey(keys, queryKeys.activityLogs)).toBe(true);
     expect(containsKey(keys, queryKeys.activityHighlights)).toBe(true);
     expect(containsKey(keys, queryKeys.inventory)).toBe(false);
-    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
   });
 
   it('record without created food skips foods invalidation', async () => {
@@ -282,7 +282,7 @@ describe('cacheInvalidation', () => {
     expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
     expect(containsKey(keys, queryKeys.foods)).toBe(false);
     expect(containsKey(keys, queryKeys.inventory)).toBe(false);
-    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
+    expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
   });
 
   it('composition and rating invalidate meal candidates and insights without inventory or plan', async () => {
@@ -300,7 +300,7 @@ describe('cacheInvalidation', () => {
     expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(false);
   });
 
-  it('revert with removed food invalidates foods but not inventory or plan', async () => {
+  it('revert with removed food invalidates foods and restored plans but not inventory', async () => {
     const withFood = fakeQueryClient();
     await invalidateAfterMealRecordReverted(withFood, { removedFood: true });
     const withFoodKeys = invalidatedKeys(withFood);
@@ -311,7 +311,7 @@ describe('cacheInvalidation', () => {
     expect(containsKey(withFoodKeys, queryKeys.mealRecordOperations(true))).toBe(true);
     expect(containsKey(withFoodKeys, queryKeys.foods)).toBe(true);
     expect(containsKey(withFoodKeys, queryKeys.inventory)).toBe(false);
-    expect(containsKey(withFoodKeys, queryKeys.foodPlanRoot)).toBe(false);
+    expect(containsKey(withFoodKeys, queryKeys.foodPlanRoot)).toBe(true);
 
     const withoutFood = fakeQueryClient();
     await invalidateAfterMealRecordReverted(withoutFood, { removedFood: false });

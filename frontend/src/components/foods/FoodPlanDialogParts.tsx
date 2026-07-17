@@ -1,4 +1,4 @@
-import type { CompositionEvent, ReactNode } from 'react';
+import { useState, type CompositionEvent, type ReactNode } from 'react';
 import type { Food, MealType } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { SearchableResourceSelect } from '../ui-kit';
@@ -120,19 +120,27 @@ export function FoodPlanDateMealNoteFields(props: {
   onMealTypeChange: (mealType: MealType) => void;
   onPlanNoteChange: (note: string) => void;
 }) {
+  const [hoveredPlanDate, setHoveredPlanDate] = useState<string | null>(null);
+
   return (
     <>
       <div className="recipe-plan-form-row">
-        <label className="recipe-plan-date-field">
+        <div className="recipe-plan-date-field recipe-plan-form-field">
           <span>计划日期</span>
-          <div className="recipe-plan-date-strip" role="radiogroup" aria-label="计划日期">
+          <div className="recipe-plan-date-strip food-plan-date-strip" role="radiogroup" aria-label="计划日期">
             {props.planDateOptions.map((date) => (
               <button
                 key={date.value}
                 type="button"
-                className={props.planDate === date.value ? 'active' : ''}
+                data-date={date.value}
+                className={[
+                  props.planDate === date.value ? 'active' : '',
+                  hoveredPlanDate === date.value ? 'is-hovered' : '',
+                ].filter(Boolean).join(' ')}
                 aria-pressed={props.planDate === date.value}
                 disabled={props.disabled}
+                onPointerEnter={() => setHoveredPlanDate(date.value)}
+                onPointerLeave={() => setHoveredPlanDate((current) => current === date.value ? null : current)}
                 onClick={() => props.onPlanDateChange(date.value)}
               >
                 <span>{date.value === props.todayDate ? '今天' : date.label}</span>
@@ -140,8 +148,8 @@ export function FoodPlanDateMealNoteFields(props: {
               </button>
             ))}
           </div>
-        </label>
-        <label className="recipe-plan-meal-field">
+        </div>
+        <div className="recipe-plan-meal-field recipe-plan-form-field">
           <span>餐次</span>
           <div className="recipe-plan-meal-segment" role="radiogroup" aria-label="餐次">
             {props.mealOptions.map((item) => (
@@ -157,7 +165,7 @@ export function FoodPlanDateMealNoteFields(props: {
               </button>
             ))}
           </div>
-        </label>
+        </div>
       </div>
       <label className="recipe-plan-note-field">
         <span>备注</span>

@@ -1,5 +1,5 @@
 import type { CompositionEventHandler, KeyboardEvent, ReactNode } from 'react';
-import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
+import type { Food, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
@@ -13,15 +13,6 @@ import type { FoodCookingSummary } from './FoodWorkspaceHelpers';
 function focusMobileFoodSearch() {
   focusMobileInput('mobile-food-search', { containerSelector: '.mobile-food-library-filters' });
 }
-
-type MobileRecommendationItem = {
-  food: Food;
-  mealType: MealType;
-  score: number;
-  reasons: string[];
-  primaryAction: 'cook_recipe' | 'quick_add_meal' | 'review_food';
-  recipeAvailability?: FoodRecommendationItem['recipe_availability'];
-};
 
 type MobileSceneCard = {
   key: string;
@@ -43,11 +34,15 @@ function countMealUsage(food: Food, mealLogs: MealLog[]) {
   return mealLogs.filter((log) => log.food_entries.some((entry) => entry.food_id === food.id)).length;
 }
 
+function openFoodDetailFromCard(event: KeyboardEvent<HTMLElement>, onOpenDetail: () => void) {
+  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+  event.preventDefault();
+  onOpenDetail();
+}
+
 export function FoodMobileView(props: {
   recipes: Recipe[];
   mealLogs: MealLog[];
-  visibleRecommendations: MobileRecommendationItem[];
-  recommendationCardCount: number;
   managementIssueCount: number;
   mobileScenePages: MobileSceneCard[][];
   mobileLibraryFoods: Food[];
@@ -62,19 +57,16 @@ export function FoodMobileView(props: {
   weekPage?: ReactNode;
   resolveFoodAssetUrl: (url: string) => string;
   getFoodCardPrimaryActionLabel: (food: Food) => string;
-  getRecommendationPrimaryActionLabel: (item: MobileRecommendationItem) => string;
   getDefaultMealType: (food: Food) => MealType;
   getFoodSceneTags: (food: Food) => string[];
   getFoodCookingSummary: (food: Food) => FoodCookingSummary | null;
   onSearchChange: (value: string) => void;
   onSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
   onSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
-  onRotateRecommendation: () => void;
   onOpenGovernanceIssue: () => void;
   onOpenSceneManager: () => void;
   onOpenDetail: (food: Food) => void;
   onOpenPlanDialog: (food: Food) => void;
-  onHandleRecommendationPrimaryAction: (item: MobileRecommendationItem) => void;
   onHandleFoodCardPrimaryAction: (food: Food, mealType: MealType) => void;
   onToggleFavorite: (food: Food) => void;
   onOpenShopping: (food: Food) => void;
@@ -88,14 +80,6 @@ export function FoodMobileView(props: {
     resetKey: props.mobileLibraryResetKey,
   });
   const mobileLibraryFoodPages = chunkMobilePagedItems(props.mobileLibraryFoods, libraryPager.visiblePageCount);
-
-  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
-    if (event.key !== 'Enter' && event.key !== ' ') {
-      return;
-    }
-    event.preventDefault();
-    props.onOpenDetail(food);
-  }
 
   if (props.weekPage) {
     return <>{props.weekPage}</>;
@@ -129,7 +113,7 @@ export function FoodMobileView(props: {
       <section className="mobile-food-command-panel" aria-label="吃什么快捷操作">
         <div className="mobile-food-command-copy">
           <h1>吃什么</h1>
-          <p>从家常菜、外卖和成品里选一份，轻松安排今天这一餐。</p>
+          <p>选一份，安排这餐。</p>
         </div>
         <div className="mobile-food-command-actions">
           <button className="mobile-food-command-primary" type="button" onClick={props.onOpenCreate}>
@@ -141,74 +125,6 @@ export function FoodMobileView(props: {
             吃过的
           </button>
         </div>
-      </section>
-
-      <section className="mobile-dashboard-panel mobile-dashboard-recommend">
-        <div className="mobile-dashboard-section-head">
-          <h2>今天吃什么 <span>✦</span></h2>
-          <button type="button" onClick={props.onRotateRecommendation} disabled={props.recommendationCardCount <= 3}>
-            换一换
-          </button>
-        </div>
-        {props.visibleRecommendations.length > 0 ? (
-          <div className="mobile-dashboard-food-scroller">
-            {props.visibleRecommendations.map((item) => {
-              const foodCoverAsset = getFoodCoverAsset(item.food, props.recipes);
-              const foodCoverUrl = resolveMediaUrl(foodCoverAsset, 'card');
-              const cookingSummary = props.getFoodCookingSummary(item.food);
-              return (
-                <article
-                  key={item.food.id}
-                  className="mobile-dashboard-food-card"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`查看食物详情：${item.food.name}`}
-                  onClick={() => props.onOpenDetail(item.food)}
-                  onKeyDown={(event) => handleRecommendationCardKeyDown(event, item.food)}
-                >
-                  <div className="mobile-dashboard-food-cover">
-                    <MediaWithPlaceholder src={foodCoverUrl} alt="" />
-                  </div>
-                  <div className="mobile-dashboard-food-body">
-                    <h3>{item.food.name}</h3>
-                    <div className="mobile-dashboard-badge-row">
-                      <StatusBadge size="compact">{FOOD_TYPE_LABELS[item.food.type === 'packaged' ? 'readyMade' : item.food.type]}</StatusBadge>
-                      <StatusBadge tone={cookingSummary?.availabilityLabel ? 'success' : 'neutral'} size="compact">
-                        {cookingSummary?.availabilityLabel || item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}
-                      </StatusBadge>
-                    </div>
-                    <p>{cookingSummary?.shortagePreview.length ? `缺 ${cookingSummary.shortagePreview.join('、')}` : cookingSummary?.metaLabel || item.reasons[0] || item.food.notes || '适合今天安排'}</p>
-                    <div className="mobile-dashboard-food-actions">
-                      <button
-                        className="mobile-dashboard-primary compact"
-                        type="button"
-                        disabled={props.isQuickAdding}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          props.onHandleRecommendationPrimaryAction(item);
-                        }}
-                      >
-                        {props.getRecommendationPrimaryActionLabel(item)}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          props.onOpenPlanDialog(item.food);
-                        }}
-                        aria-label={`加入菜单：${item.food.name}`}
-                      >
-                        <FoodUiIcon name="calendar" />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="暂无推荐" description="补充食物或家常菜谱后，这里会出现今日建议。" />
-        )}
       </section>
 
       <section className="mobile-food-panel">
@@ -301,28 +217,39 @@ export function FoodMobileView(props: {
                     const coverAsset = getFoodCoverAsset(food, props.recipes);
                     const cover = resolveMediaUrl(coverAsset, 'card');
                     const usageCount = countMealUsage(food, props.mealLogs);
-                    const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
+                    const tagLabels = props.getFoodSceneTags(food);
                     const cookingSummary = props.getFoodCookingSummary(food);
                     const labels = cookingSummary
                       ? [cookingSummary.availabilityLabel, `${cookingSummary.linkedRecipeCard?.recipe.ingredient_items.length ?? 0}原料`]
-                      : tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
+                      : tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.map((meal) => MEAL_TYPE_LABELS[meal]);
                     return (
-                      <article key={food.id} className="mobile-food-library-card">
+                      <article
+                        key={food.id}
+                        className="mobile-food-library-card"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`查看详情：${food.name}`}
+                        onClick={() => props.onOpenDetail(food)}
+                        onKeyDown={(event) => openFoodDetailFromCard(event, () => props.onOpenDetail(food))}
+                      >
                         <div className="mobile-food-library-media">
-                          <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
+                          <div className="mobile-food-library-cover">
                             <MediaWithPlaceholder
                               src={cover}
                               srcSet={buildMediaSrcSet(coverAsset)}
                               sizes={buildMediaSizes('card')}
                               alt={food.name}
                             />
-                          </button>
+                          </div>
                           <button
                             className={food.favorite ? 'food-favorite-chip mobile-food-favorite active' : 'food-favorite-chip mobile-food-favorite'}
                             type="button"
                             aria-label={`${food.favorite ? '取消收藏' : '收藏'}：${food.name}`}
                             disabled={props.isUpdatingFavorite}
-                            onClick={() => props.onToggleFavorite(food)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onToggleFavorite(food);
+                            }}
                           >
                             <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
                           </button>
@@ -340,7 +267,10 @@ export function FoodMobileView(props: {
                               className="mobile-food-primary"
                               type="button"
                               disabled={props.isQuickAdding}
-                              onClick={() => props.onHandleFoodCardPrimaryAction(food, props.getDefaultMealType(food))}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                props.onHandleFoodCardPrimaryAction(food, props.getDefaultMealType(food));
+                              }}
                             >
                               {props.getFoodCardPrimaryActionLabel(food)}
                             </button>
@@ -350,7 +280,10 @@ export function FoodMobileView(props: {
                                 type="button"
                                 aria-label={`加入采购：${food.name}`}
                                 title="加入采购"
-                                onClick={() => props.onOpenShopping(food)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  props.onOpenShopping(food);
+                                }}
                               >
                                 <FoodUiIcon name="clipboard" />
                               </button>
