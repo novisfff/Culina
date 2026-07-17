@@ -98,13 +98,15 @@ describe('Recipe legacy style cleanup', () => {
     expect(overlayStyles).not.toContain('.recipe-shopping-actions .ui-form-actions-row {\n  justify-content: flex-end;');
   });
 
-  it('does not keep unreachable FormActions selectors for recipe plan detail actions', () => {
+  it('keeps recipe plan detail action layouts scoped to their current states', () => {
     const overlayStyles = readFileSync(resolve(repoRoot, 'src/styles/05-workspace-overlays.css'), 'utf8');
 
     expect(overlayStyles).toContain('.recipe-plan-detail-actions {');
     expect(overlayStyles).toContain('.recipe-plan-detail-actions .solid-button');
-    expect(overlayStyles).not.toContain('.recipe-plan-detail-actions .ui-form-actions-row');
-    expect(overlayStyles).not.toContain('.recipe-plan-detail-actions .ui-form-actions-spacer');
+    expect(overlayStyles).toContain('.recipe-plan-detail-actions.is-recorded .ui-form-actions-row');
+    expect(overlayStyles).toContain('.recipe-plan-detail-actions.is-standard .ui-form-actions-row');
+    expect(overlayStyles).toContain('.recipe-plan-detail-actions.is-editing .ui-form-actions-row');
+    expect(overlayStyles).toContain('.recipe-plan-detail-actions.is-recipe .ui-form-actions-row');
   });
 
   it('keeps cook finish mobile action grid without duplicate desktop footer overrides', () => {
