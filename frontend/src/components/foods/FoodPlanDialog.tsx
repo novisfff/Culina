@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
-import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -11,6 +11,7 @@ import {
   FoodPlanFoodPicker,
   FoodPlanSelectedHero,
 } from './FoodPlanDialogParts';
+import { createFoodPlanDateOptions } from './foodPlanDateOptions';
 
 type FoodPlanDialogProps = {
   isOpen: boolean;
@@ -19,14 +20,15 @@ type FoodPlanDialogProps = {
   recipes: Recipe[];
   planFoodSearch: string;
   planForm: {
-    foodId: string;
+    foodId?: string;
     planDate: string;
     mealType: MealType;
     note: string;
   };
   todayDate: string;
-  planDateOptions: string[];
   isUpdatingPlan?: boolean;
+  overlayRootClassName?: string;
+  modalClassName?: string;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClearPlanFoodSelection: () => void;
@@ -56,6 +58,9 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
   const selectedPlanFoodCoverUrl =
     resolveMediaUrl(selectedPlanFoodCoverAsset, 'card') ??
     (props.selectedPlanFood ? props.resolveFoodAssetUrl(props.getFoodCover(props.selectedPlanFood, props.recipes) ?? '') : undefined);
+  const selectedFoodId = props.planForm.foodId ?? props.selectedPlanFood?.id ?? '';
+  const planDateOptions = createFoodPlanDateOptions(props.todayDate);
+  const yesterdayDate = planDateOptions[0];
 
   if (!props.isOpen) {
     return null;
@@ -69,30 +74,38 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
 
   return (
     <WorkspaceOverlayFrame
-      rootClassName="food-workspace-overlay-root"
+      rootClassName={props.overlayRootClassName ?? 'food-workspace-overlay-root'}
       onClose={closeIfAllowed}
       closeOnBackdrop={!isUpdatingPlan}
+      busy={isUpdatingPlan}
     >
       <WorkspaceModal
         title="加食物到菜单"
-        description="选择日期和餐次后加入菜单计划。"
+        description="选择日期和餐次后加入菜单。"
         eyebrow="菜单计划"
         onClose={closeIfAllowed}
-        className="recipe-plan-modal food-plan-modal"
+        busy={isUpdatingPlan}
+        className={['recipe-plan-modal', 'food-plan-modal', props.modalClassName].filter(Boolean).join(' ')}
         footerActions={
           <FormActions
             className="recipe-plan-dialog-actions"
-            primaryLabel="保存计划"
+            primaryLabel="加入菜单"
             primaryType="submit"
             primaryForm={planFormId}
-            primaryDisabled={Boolean(isUpdatingPlan || !props.planForm.foodId)}
+            primaryDisabled={Boolean(isUpdatingPlan || !selectedFoodId)}
             isSubmitting={isUpdatingPlan}
             secondaryLabel="取消"
             onSecondary={closeIfAllowed}
           />
         }
       >
-        <form id={planFormId} className="recipe-plan-dialog-form" onSubmit={props.onSubmit}>
+        <form
+          id={planFormId}
+          className={['recipe-plan-dialog-form', 'ui-operation-loading-host', isUpdatingPlan ? 'is-busy' : ''].filter(Boolean).join(' ')}
+          aria-busy={isUpdatingPlan}
+          onSubmit={props.onSubmit}
+        >
+          <OperationLoadingOverlay active={isUpdatingPlan} title="正在加入菜单" />
           {props.selectedPlanFood ? (
             <FoodPlanSelectedHero
               food={props.selectedPlanFood}
@@ -115,7 +128,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
           ) : (
             <FoodPlanFoodPicker
               searchInputId="food-plan-search"
-              value={props.planForm.foodId}
+              value={selectedFoodId}
               query={props.planFoodSearch}
               loading={foodSearch.isSearching}
               loadingMore={foodSearch.isFetchingNextPage}
@@ -166,9 +179,13 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
             mealType={props.planForm.mealType}
             note={props.planForm.note}
             todayDate={props.todayDate}
-            planDateOptions={props.planDateOptions.map((date) => {
+            planDateOptions={planDateOptions.map((date) => {
               const dateParts = props.getPlanDateParts(date);
-              return { value: date, label: dateParts.weekday, display: `${dateParts.month}/${dateParts.day}` };
+              return {
+                value: date,
+                label: date === yesterdayDate ? '昨天' : dateParts.weekday,
+                display: `${dateParts.month}/${dateParts.day}`,
+              };
             })}
             mealOptions={MEAL_OPTIONS}
             notePlaceholder="比如：少油、常点套餐、提前解冻"

@@ -3,6 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  Food,
   MealLog,
   MealLogRecordOperationSummary,
   RecordMealResponse,
@@ -36,6 +37,38 @@ function mealLog(overrides: Partial<MealLog> = {}): MealLog {
     created_at: '2026-07-15T11:00:00.000Z',
     updated_at: '2026-07-15T11:00:00.000Z',
     ...overrides,
+  };
+}
+
+function food(id: string, name: string, imageId: string): Food {
+  return {
+    id,
+    family_id: 'family-1',
+    name,
+    type: 'selfMade',
+    category: '家常菜',
+    flavor_tags: [],
+    suitable_meal_types: ['dinner'],
+    source_name: '',
+    purchase_source: '',
+    scene: '',
+    images: [{
+      id: imageId,
+      name: imageId,
+      url: `/media/${imageId}.jpg`,
+      source: 'upload',
+      alt: name,
+      created_at: '2026-07-15T10:00:00Z',
+    }],
+    notes: '',
+    routine_note: '',
+    stock_unit: '份',
+    storage_location: '',
+    favorite: false,
+    recipe_id: null,
+    row_version: 1,
+    created_at: '2026-07-15T10:00:00Z',
+    updated_at: '2026-07-15T10:00:00Z',
   };
 }
 
@@ -104,6 +137,40 @@ describe('useMealRecordResultState', () => {
     });
     expect(result.current.result?.mealLog?.row_version).toBe(3);
     expect(result.current.result?.foods[0]?.name).toBe('番茄炒蛋');
+  });
+
+  it('fills existing food covers from the loaded food catalog for the result mosaic', () => {
+    const response = recordResponse({
+      meal_log: mealLog({
+        food_entries: [
+          { id: 'entry-1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 1, note: '', rating: null },
+          { id: 'entry-2', food_id: 'food-2', food_name: '米饭', servings: 1, note: '', rating: null },
+        ],
+      }),
+      operation: {
+        id: 'op-1',
+        status: 'applied',
+        revertible_until: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        can_revert: true,
+        created_entry_ids: ['entry-1', 'entry-2'],
+      },
+    });
+    const { result } = renderHook(() =>
+      useMealRecordResultState({
+        activeOperations: [],
+        foods: [food('food-1', '番茄炒蛋', 'cover-1'), food('food-2', '米饭', 'cover-2')],
+        revertOperation: vi.fn(async () => ({
+          status: 'reverted' as const,
+          meal_log: null,
+          removed_food_ids: [],
+          replayed: false,
+        })),
+      }),
+    );
+
+    act(() => result.current.publishRecordResult(response));
+
+    expect(result.current.result?.foods.map((item) => item.cover?.id)).toEqual(['cover-1', 'cover-2']);
   });
 
   it('restores the newest active operation on refresh with undo/view even without rating data', () => {

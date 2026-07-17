@@ -1,15 +1,16 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar } from '../../components/ui-kit';
+import type { Food, FoodPlanItem, MealLog, MediaAsset, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types';
+import { Avatar, StarRatingInput } from '../../components/ui-kit';
 import { useOverlayFocusLifecycle } from '../../components/ui-kit/useOverlayFocusLifecycle';
-import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { resolveAssetUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { buildMealTitle, type MealSource } from './MealLogEnrichmentModel';
 import { formatMealTime } from './MealLogWorkspaceModel';
 import { useMealEnrichmentState } from './useMealEnrichmentState';
+import { MealFoodCombobox } from './MealFoodCombobox';
+import type { MealComposerFood, MealComposerFoodType } from './MealComposerModel';
 export { buildMealTitle, getMealRatingSummary, isMealLogEnriched, resolveMealSource, type MealSource } from './MealLogEnrichmentModel';
 
 type MealEnrichmentIconName =
@@ -53,6 +54,23 @@ function MealEnrichmentIcon({ name }: { name: MealEnrichmentIconName }) {
     <svg className="meal-enrichment-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       {paths[name]}
     </svg>
+  );
+}
+
+function MealDishThumbnail(props: { food?: Food; name: string }) {
+  const cover = props.food?.images[0] ?? null;
+  return (
+    <div className="meal-dish-rating-media">
+      <MediaWithPlaceholder
+        src={resolveMediaUrl(cover, 'thumb')}
+        srcSet={buildMediaSrcSet(cover)}
+        sizes={buildMediaSizes('thumb')}
+        alt={cover?.alt || props.name}
+        loading="lazy"
+        decoding="async"
+        showLabel={false}
+      />
+    </div>
   );
 }
 
@@ -244,6 +262,13 @@ export function MealEnrichmentForm(props: {
   requireMeaningfulInput?: boolean;
   onInvalidSave?: () => void;
   onSaved?: () => void;
+  pendingPlanItems?: FoodPlanItem[];
+  availableFoods?: Food[];
+  onRecordPlanItem?: (item: FoodPlanItem) => Promise<RecordMealResponse>;
+  onAddExistingFood?: (food: Food) => Promise<RecordMealResponse>;
+  onCreateFood?: (input: { name: string; type: MealComposerFoodType }) => Promise<RecordMealResponse>;
+  onRevertRecord?: (operationId: string) => Promise<RevertMealRecordResponse>;
+  onMealChanged?: (meal: MealLog) => void;
 }) {
   const enrichmentState = useMealEnrichmentState({
     meal: props.meal,
@@ -253,6 +278,100 @@ export function MealEnrichmentForm(props: {
     onInvalidSave: props.onInvalidSave,
     onSaved: props.onSaved,
   });
+  const [foodQuery, setFoodQuery] = useState('');
+  const [showFoodAdder, setShowFoodAdder] = useState(false);
+  const [recordingKey, setRecordingKey] = useState<string | null>(null);
+  const [foodActionError, setFoodActionError] = useState<string | null>(null);
+  const [locallyCompletedPlanIds, setLocallyCompletedPlanIds] = useState<Set<string>>(() => new Set());
+  const [recentOperations, setRecentOperations] = useState<Record<string, string>>({});
+  const [recentPlanItems, setRecentPlanItems] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setFoodQuery('');
+    setShowFoodAdder(false);
+    setRecordingKey(null);
+    setFoodActionError(null);
+    setLocallyCompletedPlanIds(new Set());
+    setRecentOperations({});
+    setRecentPlanItems({});
+  }, [props.meal.id]);
+
+  const pendingPlanItems = (props.pendingPlanItems ?? []).filter(
+    (item) => item.status === 'planned' && !locallyCompletedPlanIds.has(item.id),
+  );
+  const foodsById = new Map((props.availableFoods ?? []).map((food) => [food.id, food]));
+  const selectedFoods: MealComposerFood[] = props.meal.food_entries.map((entry) => ({
+    kind: 'existing',
+    food_id: entry.food_id,
+    name: entry.food_name,
+    servings: entry.servings,
+  }));
+  const availableFoods = (props.availableFoods ?? []).filter((food) =>
+    food.name.toLocaleLowerCase('zh-CN').includes(foodQuery.trim().toLocaleLowerCase('zh-CN')),
+  );
+
+  async function applyRecordAction(key: string, action: () => Promise<RecordMealResponse>, planItemId?: string) {
+    setRecordingKey(key);
+    setFoodActionError(null);
+    try {
+      const response = await action();
+      if (planItemId) {
+        setLocallyCompletedPlanIds((current) => new Set([...current, planItemId]));
+      }
+      const entryIds = response.operation.created_entry_ids ?? [];
+      if (response.operation.can_revert && entryIds.length > 0) {
+        setRecentOperations((current) => ({
+          ...current,
+          ...Object.fromEntries(entryIds.map((entryId) => [entryId, response.operation.id])),
+        }));
+        if (planItemId) {
+          setRecentPlanItems((current) => ({
+            ...current,
+            ...Object.fromEntries(entryIds.map((entryId) => [entryId, planItemId])),
+          }));
+        }
+      }
+      props.onMealChanged?.(response.meal_log);
+      setFoodQuery('');
+      setShowFoodAdder(false);
+    } catch (reason) {
+      setFoodActionError(reason instanceof Error ? reason.message : '记录失败，请重试');
+    } finally {
+      setRecordingKey(null);
+    }
+  }
+
+  async function revertEntry(entryId: string, operationId: string) {
+    if (!props.onRevertRecord) return;
+    setRecordingKey(`revert:${entryId}`);
+    setFoodActionError(null);
+    try {
+      const response = await props.onRevertRecord(operationId);
+      setRecentOperations((current) => {
+        const next = { ...current };
+        delete next[entryId];
+        return next;
+      });
+      const planItemId = recentPlanItems[entryId];
+      if (planItemId) {
+        setLocallyCompletedPlanIds((current) => {
+          const next = new Set(current);
+          next.delete(planItemId);
+          return next;
+        });
+        setRecentPlanItems((current) => {
+          const next = { ...current };
+          delete next[entryId];
+          return next;
+        });
+      }
+      if (response.meal_log) props.onMealChanged?.(response.meal_log);
+    } catch (reason) {
+      setFoodActionError(reason instanceof Error ? reason.message : '撤回失败，请重试');
+    } finally {
+      setRecordingKey(null);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -278,22 +397,78 @@ export function MealEnrichmentForm(props: {
 
       <div className="meal-enrichment-layout">
         <div className="meal-enrichment-main">
-          <section className="meal-enrichment-step">
+          <section className="meal-enrichment-step meal-enrichment-foods-step">
             <div className="meal-enrichment-step-title">
               <span>1</span>
-              <strong>{props.meal.food_entries.length > 1 ? '每道菜打分' : '这道菜打几分'}</strong>
+              <strong>这顿吃了什么</strong>
+              <small>单品评分为家庭共享</small>
             </div>
             <div className="meal-dish-rating-list" aria-label="菜品评分">
               {props.meal.food_entries.map((entry) => (
                 <div key={entry.id} className="meal-dish-rating-row">
-                  <div className="meal-dish-rating-copy">
-                    <strong>{entry.food_name || '未命名菜品'}</strong>
-                    <small>{entry.servings} 份{entry.note ? ` · ${entry.note}` : ''}</small>
+                  <div className="meal-dish-rating-identity">
+                    <MealDishThumbnail food={foodsById.get(entry.food_id)} name={entry.food_name || '未命名菜品'} />
+                    <div className="meal-dish-rating-copy">
+                      <strong>{entry.food_name || '未命名菜品'}</strong>
+                      <small>{entry.servings} 份 · 已记录{entry.note ? ` · ${entry.note}` : ''}</small>
+                      {recentOperations[entry.id] && props.onRevertRecord ? (
+                        <button
+                          type="button"
+                          className="meal-enrichment-entry-undo"
+                          disabled={recordingKey === `revert:${entry.id}`}
+                          onClick={() => void revertEntry(entry.id, recentOperations[entry.id])}
+                        >
+                          {recordingKey === `revert:${entry.id}` ? '正在撤回…' : '撤回刚才添加'}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  <FoodRatingInput value={enrichmentState.entryRatings[entry.id] ?? ''} onChange={(value) => enrichmentState.updateEntryRating(entry.id, value)} />
+                  <StarRatingInput value={enrichmentState.entryRatings[entry.id] ?? ''} onChange={(value) => enrichmentState.updateEntryRating(entry.id, value)} />
+                </div>
+              ))}
+              {pendingPlanItems.map((item) => (
+                <div key={item.id} className="meal-dish-rating-row is-pending-plan">
+                  <div className="meal-dish-rating-identity">
+                    <MealDishThumbnail food={foodsById.get(item.food_id)} name={item.food_name || '未命名食物'} />
+                    <div className="meal-dish-rating-copy">
+                      <strong>{item.food_name || '未命名食物'}</strong>
+                      <small>本餐计划 · 尚未记录</small>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="meal-enrichment-record-plan"
+                    aria-label={`记录${item.food_name || '这个食物'}已吃`}
+                    disabled={Boolean(recordingKey || !props.onRecordPlanItem)}
+                    onClick={() => props.onRecordPlanItem && void applyRecordAction(`plan:${item.id}`, () => props.onRecordPlanItem!(item), item.id)}
+                  >
+                    {recordingKey === `plan:${item.id}` ? '…' : '＋'}
+                  </button>
                 </div>
               ))}
             </div>
+            {props.onAddExistingFood || props.onCreateFood ? (
+              <div className="meal-enrichment-food-adder">
+                {showFoodAdder ? (
+                  <MealFoodCombobox
+                    query={foodQuery}
+                    results={availableFoods}
+                    selectedFoods={selectedFoods}
+                    disabled={Boolean(recordingKey)}
+                    onQueryChange={setFoodQuery}
+                    onSelectExisting={(food) => props.onAddExistingFood && void applyRecordAction(`food:${food.id}`, () => props.onAddExistingFood!(food))}
+                    onCreateNew={(input) => props.onCreateFood && void applyRecordAction(`new:${input.name}`, () => props.onCreateFood!(input))}
+                  />
+                ) : (
+                  <button type="button" className="meal-enrichment-add-food" onClick={() => setShowFoodAdder(true)}>
+                    ＋ 添加其他实际吃的食物
+                  </button>
+                )}
+              </div>
+            ) : (
+              <span className="meal-enrichment-add-food is-disabled">＋ 添加其他实际吃的食物</span>
+            )}
+            {foodActionError ? <p className="meal-enrichment-food-action-error" role="alert">{foodActionError}</p> : null}
           </section>
 
           <section className="meal-enrichment-step">

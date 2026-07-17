@@ -1878,7 +1878,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('番茄炒蛋 · 当前评分 4');
     expect(rendered.container.textContent).toContain('评分备注');
     expect(rendered.container.querySelector<HTMLInputElement>('.ai-rating-field input[type="number"]')).toBeNull();
-    const ratingSlider = rendered.container.querySelector<HTMLDivElement>('.ai-rating-field .food-rating-stars');
+    const ratingSlider = rendered.container.querySelector<HTMLDivElement>('.ai-rating-field .ui-star-rating-stars');
     expect(ratingSlider).not.toBeNull();
     expect(ratingSlider?.getAttribute('aria-valuenow')).toBe('4');
     const noteInput = rendered.container.querySelector<HTMLTextAreaElement>('.ai-meal-log-rating-card textarea');

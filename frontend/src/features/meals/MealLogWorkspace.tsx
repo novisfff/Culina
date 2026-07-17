@@ -2,18 +2,15 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealInsight, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import {
   ActionButton,
-  Avatar,
-  Badge,
   FormActions,
   PageHeader,
   StateBlock,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
-import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { resolveAssetUrl } from '../../lib/assets';
-import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCompositionEditor } from './MealCompositionEditor';
+import { MealDetailPreview } from './MealDetailPreview';
 import { MealEnrichmentModal } from './MealEnrichmentModal';
 import { MealHistorySurface } from './MealHistorySurface';
 import { MealInlineRating } from './MealInlineRating';
@@ -248,7 +245,8 @@ export function MealLogWorkspace(props: Props) {
                         >
                           <MealTimelineMedia
                             title={row.title}
-                            preview={row.preview}
+                            mealPhoto={row.mealPhoto}
+                            foods={row.foods}
                             extraPhotoCount={row.extraPhotoCount}
                           />
                           <span className={`meal-log-meal-pill ${getMealTone(meal.meal_type)}`}>
@@ -364,17 +362,15 @@ export function MealLogWorkspace(props: Props) {
         <WorkspaceOverlayFrame onClose={() => setModalMode(null)}>
           <WorkspaceModal
             title="这餐详情"
-            description="查看这次餐食的评价、评论和照片。"
-            eyebrow="记录"
-            className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
+            description="查看这次用餐的内容与记录"
+            eyebrow="餐食记录"
+            className="meal-log-modal meal-log-preview-modal"
             onClose={() => setModalMode(null)}
             footerActions={
               <FormActions
                 className="meal-log-preview-modal-actions"
                 primaryLabel="编辑这顿"
                 onPrimary={() => setModalMode('enrich')}
-                secondaryLabel="关闭"
-                onSecondary={() => setModalMode(null)}
               >
                 {props.updateMealComposition ? (
                   <ActionButton
@@ -388,114 +384,13 @@ export function MealLogWorkspace(props: Props) {
               </FormActions>
             }
           >
-            <div className="meal-log-preview-detail">
-              <div className="meal-enrichment-summary">
-                <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
-                  <span className="meal-log-icon-slot">
-                    <MealLogIcon name="done" />
-                  </span>
-                  {MEAL_TYPE_LABELS[viewModel.selectedMeal.meal_type]}
-                </span>
-                <strong>{buildMealTitle(viewModel.selectedMeal)}</strong>
-                <span className="meal-enrichment-summary-divider" />
-                <small>{formatDateTime(viewModel.selectedMeal.created_at)}</small>
-              </div>
-
-              <div className="meal-log-preview-layout">
-                <div className="meal-log-preview-main">
-                  <section className="meal-log-preview-panel">
-                    <div className="meal-log-preview-section-head">
-                      <span>1</span>
-                      <strong>菜品评分</strong>
-                    </div>
-                    {viewModel.selectedMeal.food_entries.some((entry) => entry.rating != null) ? (
-                      <div className="meal-log-preview-ratings">
-                        {viewModel.selectedMeal.food_entries.map((entry) => (
-                          <div key={entry.id}>
-                            <strong>{entry.food_name || '未命名菜品'}</strong>
-                            <span>
-                              {entry.rating == null
-                                ? '—'
-                                : `★ ${entry.rating.toFixed(1).replace(/\.0$/, '')} 分`}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <strong className="meal-log-preview-rating">还没有评分</strong>
-                    )}
-                  </section>
-
-                  <section className="meal-log-preview-panel">
-                    <div className="meal-log-preview-section-head">
-                      <span>2</span>
-                      <strong>参与家人</strong>
-                    </div>
-                    <div className="meal-log-preview-members">
-                      {viewModel.selectedParticipantMembers.length > 0 ? (
-                        viewModel.selectedParticipantMembers.slice(0, 8).map((member) => (
-                          <span key={member.id} className="meal-log-preview-member">
-                            <Avatar
-                              label={member.display_name}
-                              seed={member.avatar_seed}
-                              imageUrl={member.avatar_image?.url}
-                            />
-                            {member.display_name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="meal-log-preview-member empty">未选择</span>
-                      )}
-                      {viewModel.selectedParticipantMembers.length > 8 && (
-                        <Badge>+{viewModel.selectedParticipantMembers.length - 8}</Badge>
-                      )}
-                    </div>
-                  </section>
-
-                  <section className="meal-log-preview-panel">
-                    <div className="meal-log-preview-section-head">
-                      <span>3</span>
-                      <strong>评论</strong>
-                    </div>
-                    <p>{viewModel.selectedMeal.notes || '这条记录还没有评论。'}</p>
-                  </section>
-                </div>
-
-                <aside className="meal-log-preview-photo-side">
-                  <div className="meal-log-preview-section-head">
-                    <span>4</span>
-                    <strong>餐食照片</strong>
-                  </div>
-                  {viewModel.selectedMeal.photos.length > 0 ? (
-                    <p>本次记录共 {viewModel.selectedMeal.photos.length} 张照片</p>
-                  ) : null}
-                  <div className="meal-log-photo-grid meal-log-preview-photo-grid">
-                    {viewModel.selectedMeal.photos.slice(0, 6).map((photo) => (
-                      <button
-                        key={photo.id}
-                        className="meal-photo-open-button"
-                        type="button"
-                        onClick={() => setActivePreviewPhotoId(photo.id)}
-                        aria-label="查看大图"
-                      >
-                        <MediaWithPlaceholder
-                          src={resolveAssetUrl(photo.url) ?? photo.url}
-                          alt={photo.alt || buildMealTitle(viewModel.selectedMeal!)}
-                        />
-                      </button>
-                    ))}
-                    {viewModel.selectedMeal.photos.length === 0 && (
-                      <div className="meal-log-photo-placeholder">暂无照片</div>
-                    )}
-                    {viewModel.selectedMeal.photos.length > 6 && (
-                      <div className="meal-log-photo-placeholder">
-                        +{viewModel.selectedMeal.photos.length - 6}
-                      </div>
-                    )}
-                  </div>
-                </aside>
-              </div>
-            </div>
+            <MealDetailPreview
+              meal={viewModel.selectedMeal}
+              foods={props.foods ?? []}
+              participantMembers={viewModel.selectedParticipantMembers}
+              members={props.members}
+              onOpenPhoto={setActivePreviewPhotoId}
+            />
           </WorkspaceModal>
         </WorkspaceOverlayFrame>
       ) : null}
@@ -516,12 +411,13 @@ export function MealLogWorkspace(props: Props) {
         <WorkspaceOverlayFrame onClose={() => setModalMode(null)}>
           <WorkspaceModal
             title="调整组合"
-            description="修改这顿的菜品、份量和备注"
-            className="meal-log-modal meal-log-enrich-modal"
+            description="添加或移除这顿包含的食物"
+            className="meal-log-modal meal-log-composition-modal"
             onClose={() => setModalMode(null)}
           >
             <MealCompositionEditor
               meal={viewModel.selectedMeal}
+              availableFoods={props.foods ?? []}
               busy={props.isUpdatingMeal}
               onSubmit={(payload) => props.updateMealComposition!(viewModel.selectedMeal!.id, payload)}
               onRefetchMeal={

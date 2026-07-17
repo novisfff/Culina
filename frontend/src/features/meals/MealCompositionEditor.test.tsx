@@ -1,11 +1,50 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/request';
-import type { MealLog, UpdateMealCompositionPayload } from '../../api/types';
+import type { Food, MealLog, MediaAsset, UpdateMealCompositionPayload } from '../../api/types';
 import { MealCompositionEditor } from './MealCompositionEditor';
+
+function media(id: string): MediaAsset {
+  return {
+    id,
+    name: id,
+    url: `/media/${id}.jpg`,
+    source: 'upload',
+    alt: id,
+    created_at: '2026-07-15T10:00:00Z',
+  };
+}
+
+function food(id: string, name: string, overrides: Partial<Food> = {}): Food {
+  return {
+    id,
+    family_id: 'family-1',
+    name,
+    type: 'selfMade',
+    category: '家常菜',
+    flavor_tags: [],
+    suitable_meal_types: ['dinner'],
+    source_name: '',
+    purchase_source: '',
+    scene: '',
+    images: [],
+    notes: '',
+    routine_note: '',
+    stock_unit: '份',
+    storage_location: '',
+    favorite: false,
+    recipe_id: null,
+    row_version: 1,
+    created_at: '2026-07-15T00:00:00Z',
+    updated_at: '2026-07-15T00:00:00Z',
+    ...overrides,
+  };
+}
 
 function mealLog(overrides: Partial<MealLog> = {}): MealLog {
   return {
@@ -44,35 +83,75 @@ function mealLog(overrides: Partial<MealLog> = {}): MealLog {
 }
 
 describe('MealCompositionEditor', () => {
-  it('supports add/remove/servings/note and keeps at least one entry', async () => {
+  it('shows compact food identities and notes without servings or internal ids', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn(async (_payload: UpdateMealCompositionPayload) => mealLog());
     render(
       <MealCompositionEditor
         meal={mealLog()}
+        availableFoods={[
+          food('food-1', '番茄炒蛋', { images: [media('tomato-egg')] }),
+          food('food-2', '青菜'),
+        ]}
         busy={false}
         onSubmit={onSubmit}
         onClose={vi.fn()}
       />,
     );
 
-    expect(screen.getByDisplayValue('番茄炒蛋')).toBeVisible();
+    expect(screen.getByText('番茄炒蛋')).toBeVisible();
     expect(screen.getByDisplayValue('少盐')).toBeVisible();
+    expect(screen.queryByLabelText('份量')).not.toBeInTheDocument();
+    expect(screen.queryByText('菜品 ID')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.meal-composition-editor-media')).toHaveLength(2);
 
-    const servings = screen.getAllByLabelText('份量');
-    await user.clear(servings[0]!);
-    await user.type(servings[0]!, '2');
+    await user.click(screen.getByRole('button', { name: '移除番茄炒蛋' }));
+    expect(screen.getByRole('button', { name: '移除青菜' })).toBeDisabled();
+  });
 
-    await user.click(screen.getByRole('button', { name: '添加菜品' }));
-    expect(screen.getAllByLabelText('菜品')).toHaveLength(3);
+  it('searches existing foods, excludes selected foods, and saves hidden servings safely', async () => {
+    const user = userEvent.setup();
+    const sourceMeal = mealLog({
+      food_entries: [
+        { id: 'entry-1', food_id: 'food-1', food_name: '番茄炒蛋', servings: 2.5, note: '少盐', rating: 4 },
+      ],
+    });
+    const onSubmit = vi.fn(async (_payload: UpdateMealCompositionPayload) => sourceMeal);
+    render(
+      <MealCompositionEditor
+        meal={sourceMeal}
+        availableFoods={[
+          food('food-1', '番茄炒蛋', { images: [media('tomato-egg')] }),
+          food('food-rice', '米饭', { images: [media('rice')] }),
+        ]}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
 
-    await user.click(screen.getAllByRole('button', { name: '移除' })[2]!);
-    expect(screen.getAllByLabelText('菜品')).toHaveLength(2);
+    const search = screen.getByRole('searchbox', { name: '搜索并添加食物' });
+    await user.type(search, '米');
+    const results = screen.getByRole('listbox', { name: '搜索并添加食物结果' });
+    expect(results).not.toHaveTextContent('番茄炒蛋');
+    await user.click(screen.getByRole('option', { name: /米饭/ }));
 
-    await user.click(screen.getAllByRole('button', { name: '移除' })[0]!);
-    await user.click(screen.getAllByRole('button', { name: '移除' })[0]!);
-    expect(screen.getAllByLabelText('菜品')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '移除' })).toBeDisabled();
+    expect(screen.getByText('米饭')).toBeVisible();
+    expect(search).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: '保存组合' }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      expected_row_version: 2,
+      food_entries: [
+        { id: 'entry-1', food_id: 'food-1', servings: 2.5, note: '少盐' },
+        { id: null, food_id: 'food-rice', servings: 1, note: '' },
+      ],
+    });
+  });
+
+  it('keeps desktop rows simple and uses one compact row per food on mobile', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/08-meal-log.css'), 'utf8');
+    expect(styles).toMatch(/\.meal-composition-editor-row \{[\s\S]*?grid-template-columns:\s*minmax\(220px, 1fr\) minmax\(180px, 0\.9fr\) 44px/);
+    expect(styles).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.meal-composition-editor-row \{[\s\S]*?grid-template-columns:\s*36px minmax\(78px, 1fr\) minmax\(94px, 1fr\) 44px/);
   });
 
   it('on 409 merges conflicts, updates expected version, and requires explicit resubmit', async () => {
@@ -124,15 +203,15 @@ describe('MealCompositionEditor', () => {
       />,
     );
 
-    const servings = screen.getAllByLabelText('份量');
-    await user.clear(servings[0]!);
-    await user.type(servings[0]!, '2');
+    const notes = screen.getAllByLabelText('备注');
+    await user.clear(notes[0]!);
+    await user.type(notes[0]!, '本地备注');
     await user.click(screen.getByRole('button', { name: '保存组合' }));
 
     await waitFor(() => {
       expect(screen.getAllByText(/有冲突，请确认后再保存/).length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('份量冲突')).toBeVisible();
+    expect(screen.getByText('备注冲突')).toBeVisible();
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ expected_row_version: 2 });
 
@@ -151,8 +230,8 @@ describe('MealCompositionEditor', () => {
           id: 'entry-1',
           food_id: 'food-1',
           food_name: '番茄炒蛋',
-          servings: 2,
-          note: '少盐',
+          servings: 1,
+          note: '更少盐',
           rating: 4,
         },
         {
@@ -188,9 +267,9 @@ describe('MealCompositionEditor', () => {
       />,
     );
 
-    const servings = screen.getAllByLabelText('份量');
-    await user.clear(servings[0]!);
-    await user.type(servings[0]!, '2');
+    const notes = screen.getAllByLabelText('备注');
+    await user.clear(notes[0]!);
+    await user.type(notes[0]!, '更少盐');
     await user.click(screen.getByRole('button', { name: '保存组合' }));
 
     await waitFor(() => expect(onRefetch).toHaveBeenCalled());

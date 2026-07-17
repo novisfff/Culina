@@ -452,7 +452,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.textContent).toContain('7月6日 - 7月12日');
   });
 
-  it('shows a thumbnail only for meal items that have a cover image', () => {
+  it('shows the system media placeholder while meal thumbnails load or have no image', () => {
     const day = makePlanDay(0);
     const picturedItem = makePlanItem('pictured', '番茄炒蛋', 'dinner');
     const textOnlyItem = makePlanItem('text-only', '清蒸三文鱼', 'snack');
@@ -479,6 +479,44 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(images[0]?.getAttribute('src')).toBe('/media/番茄炒蛋.webp');
     expect(buttonByText(view, '番茄炒蛋').querySelector('img')).toBe(images[0]);
     expect(buttonByText(view, '清蒸三文鱼').querySelector('img')).toBeNull();
+    expect(
+      buttonByText(view, '番茄炒蛋')
+        .querySelector('.home-compact-meal-item-media')
+        ?.getAttribute('data-state'),
+    ).toBe('loading');
+    expect(
+      buttonByText(view, '清蒸三文鱼')
+        .querySelector('.home-compact-meal-item-media')
+        ?.getAttribute('data-state'),
+    ).toBe('empty');
+
+    act(() => images[0]?.dispatchEvent(new Event('error')));
+    expect(
+      buttonByText(view, '番茄炒蛋')
+        .querySelector('.home-compact-meal-item-media')
+        ?.getAttribute('data-state'),
+    ).toBe('error');
+  });
+
+  it('shows two planned foods before collapsing the remaining mobile meal items', () => {
+    const day = makePlanDay(0);
+    const items = [
+      makePlanItem('food-a', '盒装牛奶', 'snack'),
+      makePlanItem('food-b', '全麦面包', 'snack'),
+      makePlanItem('food-c', '水煮蛋', 'snack'),
+    ];
+    day.mealItems = day.mealItems.map((meal) => meal.mealType === 'snack' ? { ...meal, items } : meal);
+    day.plannedMealCount = 1;
+    day.totalCount = items.length;
+
+    const view = renderMobile({ compactPlanDays: [day], selectedDashboardPlanDay: day });
+    act(() => view.querySelector<HTMLButtonElement>('button[aria-label="展开当天安排"]')?.click());
+
+    expect(buttonByText(view, '盒装牛奶')).toBeTruthy();
+    expect(buttonByText(view, '全麦面包')).toBeTruthy();
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('水煮蛋'))).toBe(false);
+    expect(buttonByText(view, '+1')).toBeTruthy();
+    expect(buttonByText(view, '+1').closest('.home-compact-meal-slot')?.classList.contains('has-overflow')).toBe(true);
   });
 
   it('offers a return-to-current-week action only when browsing another week', () => {
@@ -502,7 +540,24 @@ describe('HomeMobileDashboard three-question mobile', () => {
     );
     expect(mobileStyles).toMatch(/\.home-compact-meal-grid\.is-mobile-list \{[^}]*gap: 4px;/s);
     expect(mobileStyles).toMatch(
-      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot \{[^}]*min-height: 52px;/s,
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot \{[^}]*min-height: 72px;/s,
+    );
+  });
+
+  it('gives mobile meal content the full row before fixed more and add actions', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot \{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-height: 72px;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot-head \{[^}]*display: flex;[^}]*justify-content: space-between;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-items \{[^}]*width: 100%;[^}]*overflow: hidden;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot:not\(\.has-items\) \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*min-height: 52px;/s,
     );
   });
 

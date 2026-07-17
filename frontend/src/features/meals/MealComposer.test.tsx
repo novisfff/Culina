@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -101,6 +103,7 @@ describe('MealComposer', () => {
   it('shows one inline confirmation with names and image', () => {
     const candidateWithPhoto = candidate('meal-1', {
       preview_media: media('meal-photo', { alt: '今晚这顿' }),
+      photo_count: 1,
     });
     renderComposer({
       candidates: [candidateWithPhoto],
@@ -116,6 +119,32 @@ describe('MealComposer', () => {
     expect(screen.getByRole('button', { name: '另记一顿' })).toBeVisible();
     // Single candidate confirmation is inline, not a nested modal.
     expect(document.querySelectorAll('.workspace-overlay-root').length).toBe(1);
+  });
+
+  it('presents the single candidate decision as one labeled segmented choice', () => {
+    renderComposer({
+      candidates: [candidate('meal-1')],
+      candidateMode: 'single',
+      selectedCandidateId: 'meal-1',
+      target: { kind: 'existing', meal_log_id: 'meal-1', expected_row_version: 2 },
+    });
+
+    const choice = screen.getByRole('group', { name: '餐食记录方式' });
+    expect(within(choice).getAllByRole('button')).toHaveLength(2);
+    expect(within(choice).getByRole('button', { name: '记在一起' })).toHaveAttribute('aria-pressed', 'true');
+    expect(choice.querySelectorAll('.meal-composer-candidate-action-indicator')).toHaveLength(2);
+  });
+
+  it('styles the candidate decision as a quiet segmented control instead of primary buttons', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/13-meal-composer.css'), 'utf8');
+    const actionsBlock = styles.match(/\.meal-composer-candidate-actions \{([^}]*)\}/)?.[1] ?? '';
+    const selectedBlock = styles.match(/\.meal-composer-candidate-action\.is-selected \{([^}]*)\}/)?.[1] ?? '';
+
+    expect(actionsBlock).toContain('padding: var(--space-1)');
+    expect(actionsBlock).toContain('background: var(--surface-muted)');
+    expect(selectedBlock).toContain('background: var(--surface)');
+    expect(selectedBlock).toContain('color: var(--accent-strong)');
+    expect(selectedBlock).not.toContain('var(--brand-button-bg)');
   });
 
   it('expands multi candidate chooser and keeps 另记一顿', async () => {
@@ -143,6 +172,52 @@ describe('MealComposer', () => {
 
     await user.click(screen.getByRole('option', { name: '另记一顿' }));
     expect(onTargetChange).toHaveBeenCalledWith({ kind: 'new' }, null);
+  });
+
+  it('renders every multi candidate and the new-meal choice as one consistent option list', () => {
+    renderComposer({
+      candidates: [candidate('meal-old'), candidate('meal-new')],
+      candidateMode: 'multi',
+      selectedCandidateId: 'meal-new',
+      target: { kind: 'existing', meal_log_id: 'meal-new', expected_row_version: 2 },
+    });
+
+    const list = screen.getByRole('listbox', { name: '候选餐列表' });
+    expect(within(list).getAllByRole('option')).toHaveLength(3);
+    expect(list.querySelectorAll('.meal-composer-candidate-option-indicator')).toHaveLength(3);
+    expect(within(list).getByRole('option', { name: '另记一顿' })).toHaveTextContent('不合并到已有记录');
+  });
+
+  it('shows a food mosaic for a candidate without a meal photo', () => {
+    renderComposer({
+      candidates: [candidate('meal-1', {
+        foods: [
+          { food_id: 'food-a', name: '番茄炒蛋', food_type: 'selfMade', cover: media('tomato-egg') },
+          { food_id: 'food-b', name: '米饭', food_type: 'selfMade', cover: null },
+          { food_id: 'food-c', name: '青菜', food_type: 'selfMade', cover: media('greens') },
+        ],
+      })],
+      candidateMode: 'single',
+      selectedCandidateId: 'meal-1',
+      target: { kind: 'existing', meal_log_id: 'meal-1', expected_row_version: 2 },
+    });
+
+    const cover = screen.getByRole('img', { name: /番茄炒蛋、米饭、青菜/ });
+    expect(cover).toHaveAttribute('data-meal-cover-mode', 'mosaic');
+    expect(cover).toHaveAttribute('data-meal-cover-count', '3');
+  });
+
+  it('styles multi candidates as a shared vertical selector instead of separate large cards', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/13-meal-composer.css'), 'utf8');
+    const listBlock = styles.match(/\.meal-composer-candidate-list \{([^}]*)\}/)?.[1] ?? '';
+    const optionBlock = styles.match(/\.meal-composer-candidate-option \{([^}]*)\}/)?.[1] ?? '';
+    const selectedBlock = styles.match(/\.meal-composer-candidate-option\.is-selected \{([^}]*)\}/)?.[1] ?? '';
+
+    expect(listBlock).toContain('padding: var(--space-1)');
+    expect(listBlock).toContain('background: var(--surface-muted)');
+    expect(optionBlock).toContain('grid-template-columns: 44px minmax(0, 1fr) 16px');
+    expect(selectedBlock).toContain('background: var(--surface)');
+    expect(selectedBlock).toContain('border-color: var(--accent-line)');
   });
 
   it('defaults snack single candidate to 另记一顿 language', () => {
@@ -301,7 +376,9 @@ describe('MealComposer', () => {
 
     const input = screen.getByRole('searchbox', { name: '搜索食物' });
     input.focus();
-    expect(screen.getByRole('listbox', { name: '食物搜索结果' })).toBeVisible();
+    const foodMenu = screen.getByRole('listbox', { name: '食物搜索结果' });
+    expect(foodMenu).toBeVisible();
+    expect(foodMenu).toHaveClass('ui-combobox-menu');
 
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('listbox', { name: '食物搜索结果' })).not.toBeInTheDocument();
@@ -388,5 +465,50 @@ describe('MealComposer', () => {
     const firstItem = within(list).getAllByRole('listitem')[0]!;
     await user.click(within(firstItem).getByRole('button', { name: /增加/ }));
     expect(onFoodsChange).toHaveBeenCalled();
+  });
+
+  it('presents the flow as time first and labels planned foods', () => {
+    renderComposer({
+      foods: [
+        {
+          kind: 'existing',
+          food_id: 'food-1',
+          name: '番茄炒蛋',
+          servings: 1,
+          planItems: [{ id: 'plan-1', baseUpdatedAt: '2026-07-15T08:00:00Z' }],
+        },
+      ],
+    });
+
+    expect(screen.getByRole('heading', { name: '确认时间' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '添加食物' })).toBeVisible();
+    expect(screen.getByText('已选 1 项')).toBeVisible();
+    expect(screen.queryByText('吃了什么', { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText('本餐计划')).toBeVisible();
+    expect(screen.getByRole('button', { name: '移除番茄炒蛋' })).toHaveTextContent('×');
+    expect(screen.getByText('列表中的计划食物会同时标记为已完成。')).toBeVisible();
+  });
+
+  it('keeps the selected date visible in the scrollable date strip', () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    renderComposer({
+      date: '2026-07-16',
+      dateOptions: [
+        '2026-07-10',
+        '2026-07-11',
+        '2026-07-12',
+        '2026-07-13',
+        '2026-07-14',
+        '2026-07-15',
+        '2026-07-16',
+      ],
+    });
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'end' });
   });
 });

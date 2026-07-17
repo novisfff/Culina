@@ -3339,7 +3339,7 @@
   line-height: 1.45;
 }
 
-.ai-rating-field .food-rating-input {
+.ai-rating-field .ui-star-rating-input {
   width: 100%;
   min-height: var(--input-height-lg);
   padding: 0 12px;
@@ -3347,16 +3347,16 @@
   box-shadow: none;
 }
 
-.ai-rating-field .food-rating-stars {
+.ai-rating-field .ui-star-rating-stars {
   height: 36px;
   font-size: var(--text-xl);
 }
 
-.ai-rating-field .food-rating-input strong {
+.ai-rating-field .ui-star-rating-input strong {
   min-width: 42px;
 }
 
-.ai-rating-field .food-rating-clear {
+.ai-rating-field .ui-star-rating-clear {
   display: inline-flex;
   min-height: var(--tap-min);
   align-items: center;

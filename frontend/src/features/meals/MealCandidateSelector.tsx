@@ -1,8 +1,7 @@
 import type { MealLogCandidate, MealType, RecordMealTarget } from '../../api/types';
-import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { selectMealPreviewMedia, type MealComposerFood } from './MealComposerModel';
+import { MealCover } from './MealCover';
+import type { MealComposerFood } from './MealComposerModel';
 
 export type MealCandidateSelectorProps = {
   mode: 'none' | 'single' | 'multi';
@@ -35,13 +34,6 @@ function formatRecordedAt(iso: string): string {
   }
 }
 
-function candidatePreview(candidate: MealLogCandidate) {
-  return selectMealPreviewMedia({
-    mealPhotos: candidate.preview_media ? [candidate.preview_media] : [],
-    foodCovers: candidate.foods.map((food) => food.cover ?? null),
-  });
-}
-
 function finalCombinationNames(candidate: MealLogCandidate | null, draftFoods: MealComposerFood[]): string {
   const existing = candidate?.foods.map((food) => food.name) ?? [];
   const draft = draftFoods.map((food) => food.name);
@@ -65,9 +57,9 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
 
   if (props.mode === 'single') {
     const only = props.candidates[0]!;
-    const preview = candidatePreview(only);
-    const previewUrl = resolveMediaUrl(preview, 'thumb');
-    const imageAlt = preview?.alt?.trim() || '今晚这顿';
+    const names = foodNames(only.foods) || '已有记录';
+    const mealPhoto = only.photo_count > 0 ? only.preview_media ?? null : null;
+    const imageAlt = mealPhoto?.alt?.trim() || names;
     const isJoinSelected = props.target.kind === 'existing';
 
     return (
@@ -78,15 +70,17 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
             <span>{foodNames(only.foods) || '已有记录'}</span>
           </div>
           <span className="meal-composer-candidate-media">
-            <MediaWithPlaceholder
-              src={previewUrl}
-              srcSet={buildMediaSrcSet(preview)}
-              sizes={buildMediaSizes('thumb')}
+            <MealCover
               alt={imageAlt}
-              emptyLabel="暂无图片"
+              mealPhoto={mealPhoto}
+              foods={only.foods.map((food) => ({
+                id: food.food_id,
+                name: food.name,
+                cover: food.cover ?? null,
+              }))}
             />
           </span>
-          <div className="meal-composer-candidate-actions">
+          <div className="meal-composer-candidate-actions" role="group" aria-label="餐食记录方式">
             <button
               type="button"
               className={
@@ -107,7 +101,8 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
                 )
               }
             >
-              记在一起
+              <span className="meal-composer-candidate-action-indicator" aria-hidden="true" />
+              <span>记在一起</span>
             </button>
             <button
               type="button"
@@ -120,7 +115,8 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
               aria-pressed={!isJoinSelected}
               onClick={() => props.onTargetChange({ kind: 'new' }, null)}
             >
-              另记一顿
+              <span className="meal-composer-candidate-action-indicator" aria-hidden="true" />
+              <span>另记一顿</span>
             </button>
           </div>
         </div>
@@ -137,10 +133,9 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
     <section className={className} aria-label="选择候选餐">
       <div className="meal-composer-candidate-list" role="listbox" aria-label="候选餐列表">
         {props.candidates.map((item) => {
-          const preview = candidatePreview(item);
-          const previewUrl = resolveMediaUrl(preview, 'thumb');
           const selectedItem = props.selectedCandidateId === item.meal_log_id && props.target.kind === 'existing';
           const names = foodNames(item.foods) || '已有记录';
+          const mealPhoto = item.photo_count > 0 ? item.preview_media ?? null : null;
           return (
             <button
               key={item.meal_log_id}
@@ -165,12 +160,14 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
               }
             >
               <span className="meal-composer-candidate-media">
-                <MediaWithPlaceholder
-                  src={previewUrl}
-                  srcSet={buildMediaSrcSet(preview)}
-                  sizes={buildMediaSizes('thumb')}
-                  alt={preview?.alt?.trim() || names}
-                  emptyLabel="暂无图片"
+                <MealCover
+                  alt={mealPhoto?.alt?.trim() || names}
+                  mealPhoto={mealPhoto}
+                  foods={item.foods.map((food) => ({
+                    id: food.food_id,
+                    name: food.name,
+                    cover: food.cover ?? null,
+                  }))}
                 />
               </span>
               <span className="meal-composer-candidate-option-copy">
@@ -180,12 +177,14 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
                 </strong>
                 <span>{names}</span>
               </span>
+              <span className="meal-composer-candidate-option-indicator" aria-hidden="true" />
             </button>
           );
         })}
         <button
           type="button"
           role="option"
+          aria-label="另记一顿"
           aria-selected={props.target.kind === 'new'}
           className={
             props.target.kind === 'new'
@@ -195,7 +194,11 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
           disabled={props.disabled}
           onClick={() => props.onTargetChange({ kind: 'new' }, null)}
         >
-          另记一顿
+          <span className="meal-composer-candidate-option-copy">
+            <strong>另记一顿</strong>
+            <span>不合并到已有记录</span>
+          </span>
+          <span className="meal-composer-candidate-option-indicator" aria-hidden="true" />
         </button>
       </div>
       {previewNames ? (

@@ -52,7 +52,7 @@
 
 ## 按钮
 
-所有按钮共享：
+普通按钮共享：
 
 ```css
 min-height: var(--control-height); /* 44px */
@@ -64,7 +64,7 @@ font-weight: 700;
 line-height: 1;
 ```
 
-手机和平板高频按钮高度固定 `--control-height-touch (48px)`。compact 按钮仅限桌面工具栏，固定 `36px` 高、`--radius-xs (10px)`、`--text-meta (14px)`。
+手机、平板和粗指针设备上的高频按钮可见高度固定 `--control-height-touch (48px)`。compact 按钮仅限鼠标环境中的桌面低频工具栏，固定 `36px` 高、`--radius-xs (10px)`、`--text-meta (14px)`；不能用于主操作、关闭、返回、危险操作或唯一恢复动作。
 
 ### Primary
 
@@ -82,7 +82,7 @@ line-height: 1;
 ### Tertiary
 
 - 透明背景、无边框、无阴影，文字 `--text-soft`。
-- hover 文字 `--accent-strong`；视觉可以轻，但热区仍不得小于 44px。
+- hover 文字 `--accent-strong`；独立 tertiary 按钮仍使用普通按钮高度，不能用 28px 或 32px 热区表达“轻量”。正文中的行内链接不是 tertiary 按钮，按行内文本规则处理。
 
 ### Danger
 
@@ -95,7 +95,8 @@ line-height: 1;
 - focus-visible 统一使用 2px `--focus-ring` outline 和 2px offset。
 - disabled 统一 `opacity: 0.58`、禁用光标、无位移和无阴影。
 - loading 保持按钮宽度，显示进度与动作文字，禁止重复提交。
-- 默认图标视觉尺寸 18px；关闭、返回和强调图标 20px；独立图标按钮热区 44px。
+- 默认图标视觉尺寸 18px；关闭、返回和强调图标 20px。独立图标按钮固定 44px 外层命中区域，视觉图标保持原尺寸；不得只把 SVG 放大到 44px。
+- 一行操作在满足命中尺寸后放不下时，优先降低操作数量、收起低频操作、缩短文案或在手机改为纵向排列，不缩小热区或把主操作放入横向滚动。
 
 ## 卡片
 

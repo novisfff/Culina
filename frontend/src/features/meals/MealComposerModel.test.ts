@@ -8,6 +8,7 @@ import {
   deriveCandidatePresentation,
   mealDateStripLabel,
   mealTypeFromBusinessInstant,
+  reconcilePlannedMealFoods,
   selectMealPreviewMedia,
   canSubmitWithCandidateResolution,
   type MealComposerFood,
@@ -156,6 +157,36 @@ describe('buildRecordMealPayload', () => {
     expect(payload.new_foods).toEqual([]);
   });
 
+  it('includes unique completion references from selected planned foods', () => {
+    const payload = buildRecordMealPayload({
+      clientRequestId: 'req-plan',
+      date: '2026-07-14',
+      mealType: 'dinner',
+      target: { kind: 'new' },
+      foods: [
+        {
+          ...existingFood,
+          planItems: [
+            { id: 'plan-1', baseUpdatedAt: '2026-07-14T08:00:00Z' },
+            { id: 'plan-2', baseUpdatedAt: '2026-07-14T09:00:00Z' },
+            { id: 'plan-1', baseUpdatedAt: '2026-07-14T08:00:00Z' },
+          ],
+        },
+      ],
+    });
+
+    expect(payload.plan_item_completions).toEqual([
+      {
+        food_plan_item_id: 'plan-1',
+        food_plan_item_base_updated_at: '2026-07-14T08:00:00Z',
+      },
+      {
+        food_plan_item_id: 'plan-2',
+        food_plan_item_base_updated_at: '2026-07-14T09:00:00Z',
+      },
+    ]);
+  });
+
   it('rejects empty food lists before network calls', () => {
     expect(() =>
       buildRecordMealPayload({
@@ -248,6 +279,62 @@ describe('buildRecordMealPayload', () => {
   });
 });
 
+describe('reconcilePlannedMealFoods', () => {
+  it('replaces old automatic plan foods while preserving manual selections', () => {
+    const current: MealComposerFood[] = [
+      {
+        kind: 'existing',
+        food_id: 'food-old-plan',
+        name: '旧计划菜',
+        servings: 1,
+        planItems: [{ id: 'plan-old', baseUpdatedAt: '2026-07-14T08:00:00Z' }],
+      },
+      {
+        kind: 'existing',
+        food_id: 'food-manual',
+        name: '手动添加菜',
+        servings: 1.5,
+        manuallySelected: true,
+      },
+    ];
+
+    const result = reconcilePlannedMealFoods(current, [
+      {
+        id: 'plan-manual',
+        foodId: 'food-manual',
+        foodName: '手动添加菜',
+        baseUpdatedAt: '2026-07-15T08:00:00Z',
+      },
+      {
+        id: 'plan-new',
+        foodId: 'food-new-plan',
+        foodName: '新计划菜',
+        baseUpdatedAt: '2026-07-15T09:00:00Z',
+      },
+    ]);
+
+    expect(result).toEqual([
+      {
+        kind: 'existing',
+        food_id: 'food-manual',
+        name: '手动添加菜',
+        servings: 1.5,
+        manuallySelected: true,
+        planItems: [{ id: 'plan-manual', baseUpdatedAt: '2026-07-15T08:00:00Z' }],
+      },
+      {
+        kind: 'existing',
+        food_id: 'food-new-plan',
+        name: '新计划菜',
+        servings: 1,
+        cover: null,
+        manuallySelected: false,
+        planItems: [{ id: 'plan-new', baseUpdatedAt: '2026-07-15T09:00:00Z' }],
+      },
+    ]);
+  });
+});
+
 describe('selectMealPreviewMedia', () => {
   it('prefers MealLog photo, then first Food cover, then null', () => {
     const mealPhoto = media('meal-photo');
@@ -317,10 +404,19 @@ describe('meal record date helpers', () => {
     expect(mealDateStripLabel('2026-07-15')).toBe('今天');
   });
 
-  it('maps Shanghai midnight hour to breakfast (not snack)', () => {
-    // 2026-07-15 00:30 Asia/Shanghai
-    const midnight = new Date('2026-07-14T16:30:00.000Z');
-    expect(mealTypeFromBusinessInstant(midnight)).toBe('breakfast');
+  it.each([
+    ['03:59', '2026-07-14T19:59:00.000Z', 'snack'],
+    ['04:00', '2026-07-14T20:00:00.000Z', 'breakfast'],
+    ['10:59', '2026-07-15T02:59:00.000Z', 'breakfast'],
+    ['11:00', '2026-07-15T03:00:00.000Z', 'lunch'],
+    ['14:59', '2026-07-15T06:59:00.000Z', 'lunch'],
+    ['15:00', '2026-07-15T07:00:00.000Z', 'snack'],
+    ['16:59', '2026-07-15T08:59:00.000Z', 'snack'],
+    ['17:00', '2026-07-15T09:00:00.000Z', 'dinner'],
+    ['21:59', '2026-07-15T13:59:00.000Z', 'dinner'],
+    ['22:00', '2026-07-15T14:00:00.000Z', 'snack'],
+  ] as const)('maps Shanghai %s to %s', (_label, instant, expected) => {
+    expect(mealTypeFromBusinessInstant(new Date(instant))).toBe(expected);
   });
 
   it('blocks submit until candidate resolution is ready', () => {

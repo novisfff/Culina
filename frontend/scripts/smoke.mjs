@@ -11,6 +11,12 @@ const distDir = resolve(frontendRoot, 'dist');
 
 const now = '2026-06-01T08:00:00.000Z';
 const today = '2026-06-01';
+const homeToday = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
 const user = {
   id: 'user-smoke',
@@ -338,7 +344,16 @@ const recipe = {
   ],
   tips: '出锅前调味。',
   scene_tags: ['家常'],
-  images: [],
+  images: [
+    {
+      id: 'media-food-egg',
+      name: '番茄炒蛋.svg',
+      url: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"%3E%3Crect width="160" height="160" fill="%23f7e8cf"/%3E%3Cellipse cx="80" cy="88" rx="58" ry="42" fill="%23fffaf2"/%3E%3Cpath d="M42 88c16-35 65-40 82-6-16 38-65 45-82 6Z" fill="%23e85d36"/%3E%3Cpath d="M52 78c11-20 29-24 41-8-3 22-27 31-41 8Zm41 16c11-21 27-20 34-5-8 22-25 25-34 5Z" fill="%23f5c84c"/%3E%3C/svg%3E',
+      source: 'upload',
+      alt: '番茄炒蛋',
+      created_at: now,
+    },
+  ],
   cook_logs: [],
   created_at: now,
   updated_at: now,
@@ -358,7 +373,7 @@ const food = {
   source_name: '家里做',
   purchase_source: '',
   scene: '日常',
-  images: [],
+  images: recipe.images,
   notes: '',
   routine_note: '',
   price: null,
@@ -708,6 +723,96 @@ const planItemOutsideWeek = {
   updated_at: now,
 };
 
+const riceFood = {
+  ...food,
+  id: 'food-rice',
+  name: '米饭',
+  recipe_id: null,
+  category: '主食',
+  images: [],
+};
+
+const soupFood = {
+  ...food,
+  id: 'food-soup',
+  name: '冬瓜汤',
+  recipe_id: null,
+  category: '汤羹',
+  images: [],
+};
+
+const recordedDinner = {
+  id: 'meal-home-dinner',
+  family_id: family.id,
+  date: homeToday,
+  meal_type: 'dinner',
+  food_entries: [
+    {
+      id: 'entry-home-tomato',
+      food_id: food.id,
+      food_name: food.name,
+      servings: 1,
+      note: '',
+      rating: null,
+    },
+  ],
+  participant_user_ids: [member.id],
+  notes: '',
+  mood: '',
+  photos: [],
+  deduction_suggestions: [],
+  row_version: 1,
+  created_at: `${homeToday}T12:00:00.000Z`,
+  updated_at: `${homeToday}T12:00:00.000Z`,
+};
+
+const homePlanItems = [
+  {
+    ...planItemOutsideWeek,
+    id: 'plan-home-tomato',
+    plan_date: homeToday,
+    note: '少油',
+    status: 'cooked',
+    meal_log_id: recordedDinner.id,
+    completed_at: `${homeToday}T12:00:00.000Z`,
+  },
+  {
+    ...planItemOutsideWeek,
+    id: 'plan-home-rice',
+    food_id: riceFood.id,
+    food_name: riceFood.name,
+    food_type: riceFood.type,
+    recipe_id: null,
+    recipe_title: '',
+    plan_date: homeToday,
+    note: '',
+    status: 'planned',
+    meal_log_id: null,
+  },
+  {
+    ...planItemOutsideWeek,
+    id: 'plan-home-soup',
+    food_id: soupFood.id,
+    food_name: soupFood.name,
+    food_type: soupFood.type,
+    recipe_id: null,
+    recipe_title: '',
+    plan_date: homeToday,
+    note: '',
+    status: 'planned',
+    meal_log_id: null,
+  },
+  {
+    ...planItemOutsideWeek,
+    id: 'plan-home-snack-recipe',
+    plan_date: homeToday,
+    meal_type: 'snack',
+    note: '',
+    status: 'planned',
+    meal_log_id: null,
+  },
+];
+
 const fixtures = {
   '/api/auth/me': authResponse,
   '/api/family': family,
@@ -731,16 +836,16 @@ const fixtures = {
     frequent: [],
   },
   '/api/recipe-favorites': [],
-  '/api/food-plan': [],
+  '/api/food-plan': homePlanItems,
   [`/api/food-plan/${planItemOutsideWeek.id}`]: planItemOutsideWeek,
   '/api/food-scenes': [],
-  '/api/foods': recommendationFoods,
+  '/api/foods': [...recommendationFoods, riceFood, soupFood],
   '/api/foods/recommendations': {
     target_meal_type: 'dinner',
     target_date: today,
     items: recommendationItems,
   },
-  '/api/meal-logs': [],
+  '/api/meal-logs': [recordedDinner],
   // Phase-one meal recording surfaces (Task 16): boot + dialog support.
   '/api/meal-logs/record-operations': [],
   '/api/meal-logs/candidates': [],
@@ -893,6 +998,7 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
   const requestedApiPaths = options.requestedApiPaths ?? null;
   const requestedAiHeaders = options.requestedAiHeaders ?? null;
   const routeController = options.routeController ?? createRouteController();
+  const mealCandidates = options.mealCandidates ?? [];
 
   await context.route('https://fonts.googleapis.com/**', async (route) => {
     await route.fulfill({
@@ -1004,7 +1110,7 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
     }
 
     if (request.method() === 'GET' && url.pathname === '/api/meal-logs/candidates') {
-      await fulfillJson(route, []);
+      await fulfillJson(route, mealCandidates);
       return;
     }
 
@@ -1025,19 +1131,26 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
       } catch {
         body = {};
       }
+      const existingEntries = body?.target?.kind === 'existing' ? recordedDinner.food_entries : [];
+      const createdEntries = (body.entries || []).map((entry, index) => ({
+        id: `entry-smoke-${index + 1}`,
+        food_id: entry.food_id || entry.client_food_id || 'food-smoke',
+        food_name:
+          entry.food_id === riceFood.id
+            ? riceFood.name
+            : entry.food_id === food.id
+              ? food.name
+              : entry.name || 'Smoke food',
+        servings: entry.servings ?? 1,
+        note: '',
+        rating: null,
+      }));
       const mealLog = {
         id: body?.target?.kind === 'existing' ? body.target.meal_log_id : 'meal-smoke-record-1',
         family_id: family.id,
         date: body.date || today,
         meal_type: body.meal_type || 'dinner',
-        food_entries: (body.entries || []).map((entry, index) => ({
-          id: `entry-smoke-${index + 1}`,
-          food_id: entry.food_id || entry.client_food_id || 'food-smoke',
-          food_name: 'Smoke food',
-          servings: entry.servings ?? 1,
-          note: '',
-          rating: null,
-        })),
+        food_entries: [...existingEntries, ...createdEntries],
         participant_user_ids: [member.id],
         notes: '',
         mood: '',
@@ -1056,7 +1169,9 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
           status: 'applied',
           revertible_until: `${today}T12:30:00.000Z`,
           can_revert: true,
+          created_entry_ids: createdEntries.map((entry) => entry.id),
         },
+        completed_plan_item_ids: (body.plan_item_completions || []).map((item) => item.food_plan_item_id),
       });
       return;
     }
@@ -1125,6 +1240,7 @@ async function installApiMocks(context, unexpectedRequests, options = {}) {
         operation_id: 'op-smoke-1',
         status: 'reverted',
         meal_log_id: 'meal-smoke-record-1',
+        meal_log: recordedDinner,
         removed_food_ids: [],
         replayed: false,
       });
@@ -1189,7 +1305,12 @@ async function createPage(browser, viewport, authenticated = true, contextOption
   const requestedAiHeaders = mockOptions.requestedAiHeaders ?? [];
   const routeController = mockOptions.routeController ?? createRouteController();
 
-  await installApiMocks(context, unexpectedRequests, { requestedApiPaths, requestedAiHeaders, routeController });
+  await installApiMocks(context, unexpectedRequests, {
+    requestedApiPaths,
+    requestedAiHeaders,
+    routeController,
+    mealCandidates: mockOptions.mealCandidates,
+  });
   if (authenticated) {
     await context.addInitScript(() => {
       localStorage.setItem('culina-access-token', 'smoke-token');
@@ -1678,6 +1799,55 @@ async function runDesktopSmoke(browser, baseUrl) {
   await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
   await expectVisibleText(page, '吃过的', '吃什么/吃过的');
   await expectVisibleText(page, '家庭时间线', '吃什么/吃过的时间线');
+  await page.locator('.meal-log-header-actions').getByRole('button', { name: '记一餐' }).click();
+  const mealComposer = page.locator('.meal-composer-modal');
+  await expectVisible(mealComposer, '桌面记一餐弹窗');
+  await expectVisible(mealComposer.getByRole('heading', { name: '确认时间' }), '桌面记一餐第一步');
+  await expectVisible(mealComposer.getByRole('heading', { name: '添加食物' }), '桌面记一餐第二步');
+  await page.waitForTimeout(320);
+  const mealComposerGeometry = await mealComposer.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const footer = element.querySelector('.workspace-overlay-footer')?.getBoundingClientRect();
+    return {
+      width: Math.round(rect.width),
+      bottom: Math.round(rect.bottom),
+      footerBottom: footer ? Math.round(footer.bottom) : null,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  if (
+    mealComposerGeometry.width > 681
+    || mealComposerGeometry.bottom > mealComposerGeometry.viewportHeight + 1
+    || mealComposerGeometry.footerBottom == null
+    || mealComposerGeometry.footerBottom > mealComposerGeometry.viewportHeight + 1
+  ) {
+    throw new Error(`桌面记一餐弹窗几何异常：${JSON.stringify(mealComposerGeometry)}`);
+  }
+  const desktopFoodSearch = mealComposer.getByRole('searchbox', { name: '搜索食物' });
+  await desktopFoodSearch.fill('番茄');
+  const desktopFoodMenu = mealComposer.getByRole('listbox', { name: '食物搜索结果' });
+  await expectVisible(desktopFoodMenu, '桌面食物搜索下拉框');
+  const desktopFoodMenuStyle = await desktopFoodMenu.evaluate((element) => {
+    const option = element.querySelector('[role="option"]');
+    const optionStyle = option ? getComputedStyle(option) : null;
+    return {
+      usesDefaultMenu: element.classList.contains('ui-combobox-menu'),
+      optionBorderTopWidth: optionStyle?.borderTopWidth ?? null,
+    };
+  });
+  if (!desktopFoodMenuStyle.usesDefaultMenu || desktopFoodMenuStyle.optionBorderTopWidth !== '0px') {
+    throw new Error(`桌面食物搜索未使用默认下拉样式：${JSON.stringify(desktopFoodMenuStyle)}`);
+  }
+  const screenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  if (screenshotDir) {
+    mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({ path: resolve(screenshotDir, 'meal-composer-food-menu-1440x960.png') });
+    await desktopFoodSearch.clear();
+    await page.screenshot({ path: resolve(screenshotDir, 'meal-composer-1440x960.png') });
+  }
+  await mealComposer.getByLabel('关闭弹窗').click();
+  await mealComposer.waitFor({ state: 'detached', timeout: 10_000 });
   await expectNoHorizontalOverflow(page, '桌面工作台切换');
   assertClean();
   await context.close();
@@ -2392,6 +2562,436 @@ async function runHomeFullWeekNavigationSmoke(browser, baseUrl, viewport, label,
   await context.close();
 }
 
+async function runHomeMealEvaluationSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const isTabletViewport = viewport.width >= 768 && viewport.width <= 1180;
+  const screenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  const { context, page, assertClean } = await createPage(
+    browser,
+    viewport,
+    true,
+    contextOptions,
+  );
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    const homeSurface = homeSurfaceLocator(page, viewport);
+    if (isPhoneViewport) {
+      await homeSurface.getByRole('button', { name: '展开当天安排', exact: true }).click();
+      await page.waitForTimeout(220);
+      const mealRowGeometry = await homeSurface.locator('.home-compact-meal-slot.has-items').first().evaluate((element) => {
+        const row = element.getBoundingClientRect();
+        const items = element.querySelector('.home-compact-meal-items')?.getBoundingClientRect();
+        const foods = Array.from(element.querySelectorAll('.home-compact-meal-foods > .home-compact-meal-item'))
+          .map((child) => child.getBoundingClientRect());
+        const actions = element.querySelector('.home-compact-meal-actions')?.getBoundingClientRect();
+        const emptyRow = element.parentElement?.querySelector('.home-compact-meal-slot:not(.has-items)');
+        const emptyRowRect = emptyRow?.getBoundingClientRect();
+        const emptyAdd = emptyRow?.querySelector('.home-compact-meal-add')?.getBoundingClientRect();
+        return {
+          rowWidth: Math.round(row.width),
+          rowHeight: Math.round(row.height),
+          itemsWidth: items ? Math.round(items.width) : 0,
+          foodCount: foods.length,
+          foodWidths: foods.map((food) => Math.round(food.width)),
+          foodsVisible: foods.every((food) => food.width > 0 && food.left >= row.left - 1 && food.right <= row.right + 1),
+          actionsInside: Boolean(actions) && actions.left >= row.left - 1 && actions.right <= row.right + 1,
+          emptyRowHeight: emptyRowRect ? Math.round(emptyRowRect.height) : null,
+          emptyAddHeight: emptyAdd ? Math.round(emptyAdd.height) : null,
+        };
+      });
+      if (
+        mealRowGeometry.itemsWidth < mealRowGeometry.rowWidth - 20
+        || mealRowGeometry.foodCount !== 2
+        || mealRowGeometry.foodWidths.some((width) => width < 48)
+        || !mealRowGeometry.foodsVisible
+        || !mealRowGeometry.actionsInside
+        || mealRowGeometry.emptyRowHeight == null
+        || mealRowGeometry.emptyRowHeight > mealRowGeometry.rowHeight - 12
+        || mealRowGeometry.emptyAddHeight == null
+        || mealRowGeometry.emptyAddHeight < 44
+      ) {
+        throw new Error(`${label} 手机餐次行布局异常：${JSON.stringify(mealRowGeometry)}`);
+      }
+      await expectNoHorizontalOverflow(page, `${label} 手机餐次安排`);
+      if (screenshotDir) {
+        mkdirSync(screenshotDir, { recursive: true });
+        await page.screenshot({
+          path: resolve(screenshotDir, `mobile-home-plan-${viewport.width}x${viewport.height}.png`),
+        });
+      }
+    }
+
+    if (isTabletViewport) {
+      const calendar = homeSurface.locator('.home-compact-calendar');
+      const mealLayout = await calendar.locator('.home-compact-meal-slot.has-items').first().evaluate((element) => {
+        const mealGrid = element.parentElement;
+        const foodArea = element.querySelector('.home-compact-meal-foods')?.getBoundingClientRect();
+        const actions = element.querySelector('.home-compact-meal-actions')?.getBoundingClientRect();
+        const foods = Array.from(element.querySelectorAll('.home-compact-meal-item'));
+        const image = element.querySelector('.home-compact-meal-item-image')?.getBoundingClientRect();
+        const firstFood = foods[0];
+        const firstFoodBefore = firstFood ? getComputedStyle(firstFood, '::before').content : null;
+        const slotHeights = mealGrid
+          ? Array.from(mealGrid.querySelectorAll('.home-compact-meal-slot')).map((slot) => Math.round(slot.getBoundingClientRect().height))
+          : [];
+        const emptySlot = mealGrid?.querySelector('.home-compact-meal-slot:not(.has-items)');
+        const emptySlotRect = emptySlot?.getBoundingClientRect();
+        const emptyHeadRect = emptySlot?.querySelector('.home-compact-meal-slot-head')?.getBoundingClientRect();
+        const emptyAddRect = emptySlot?.querySelector('.home-compact-meal-add')?.getBoundingClientRect();
+        return {
+          mealGridColumns: mealGrid ? getComputedStyle(mealGrid).gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+          hasOverflowClass: element.classList.contains('has-overflow'),
+          foodCount: foods.length,
+          foodRowsVertical: foods.length === 2 && foods[1].getBoundingClientRect().top > foods[0].getBoundingClientRect().bottom - 1,
+          imageVisible: Boolean(image && image.width > 0 && image.height > 0),
+          actionsOnNewRow: Boolean(foodArea && actions && actions.top >= foodArea.bottom - 1),
+          actionButtonCount: element.querySelectorAll('.home-compact-meal-actions button').length,
+          firstFoodBefore,
+          slotHeights,
+          emptyActionGap: emptyHeadRect && emptyAddRect ? Math.round(emptyAddRect.top - emptyHeadRect.bottom) : null,
+          emptyActionFullWidth: Boolean(
+            emptySlotRect
+            && emptyAddRect
+            && emptyAddRect.width >= emptySlotRect.width - 18
+          ),
+        };
+      });
+      if (
+        mealLayout.mealGridColumns !== 4
+        || !mealLayout.hasOverflowClass
+        || mealLayout.foodCount !== 2
+        || !mealLayout.foodRowsVertical
+        || !mealLayout.imageVisible
+        || !mealLayout.actionsOnNewRow
+        || mealLayout.actionButtonCount !== 2
+        || (mealLayout.firstFoodBefore !== 'none' && mealLayout.firstFoodBefore !== 'normal')
+        || mealLayout.slotHeights.length !== 4
+        || new Set(mealLayout.slotHeights).size !== 1
+        || mealLayout.emptyActionGap == null
+        || mealLayout.emptyActionGap > 8
+        || !mealLayout.emptyActionFullWidth
+      ) {
+        throw new Error(`${label} Pad 餐次纵向布局异常：${JSON.stringify(mealLayout)}`);
+      }
+      await expectNoHorizontalOverflow(page, `${label} Pad 餐次安排`);
+      if (screenshotDir) {
+        mkdirSync(screenshotDir, { recursive: true });
+        await calendar.screenshot({
+          path: resolve(screenshotDir, `tablet-home-plan-${viewport.width}x${viewport.height}.png`),
+        });
+      }
+    }
+
+    await homeSurface.getByRole('button', { name: `${food.name}，已记录`, exact: true }).click();
+    const planDetail = page.locator('.food-plan-detail-modal');
+    await expectVisible(planDetail, `${label} 已记录计划详情`);
+    await expectVisible(planDetail.getByText('已关联餐食记录'), `${label} 餐食关联状态`);
+    const planActionsGeometry = await planDetail.locator('.recipe-plan-detail-actions.is-recorded .ui-form-actions-row').evaluate((element) => {
+      const buttons = Array.from(element.querySelectorAll('button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) };
+      });
+      const row = element.getBoundingClientRect();
+      return { buttons, rowWidth: Math.round(row.width) };
+    });
+    if (
+      planActionsGeometry.buttons.length !== 2
+      || Math.abs(planActionsGeometry.buttons[0].top - planActionsGeometry.buttons[1].top) > 1
+      || planActionsGeometry.buttons[0].width <= planActionsGeometry.buttons[1].width
+      || planActionsGeometry.buttons.some((button) => button.height < 44)
+    ) {
+      throw new Error(`${label} 计划详情按钮布局异常：${JSON.stringify(planActionsGeometry)}`);
+    }
+    if (screenshotDir) {
+      mkdirSync(screenshotDir, { recursive: true });
+      await page.screenshot({
+        path: resolve(screenshotDir, `food-plan-detail-${viewport.width}x${viewport.height}.png`),
+      });
+      if (isPhoneViewport) {
+        await planDetail.locator('.workspace-overlay-footer').scrollIntoViewIfNeeded();
+        await page.screenshot({
+          path: resolve(screenshotDir, `food-plan-detail-actions-${viewport.width}x${viewport.height}.png`),
+        });
+      }
+    }
+    await planDetail.getByRole('button', { name: '餐食记录', exact: true }).click();
+
+    const evaluation = page.locator('.meal-log-enrich-modal');
+    await expectVisible(evaluation, `${label} 整餐评价弹窗`);
+    await expectVisible(evaluation.getByText('评价这顿晚餐'), `${label} 整餐评价标题`);
+    await expectVisible(evaluation.getByText('本餐计划 · 尚未记录').first(), `${label} 待记录计划项`);
+
+    const layout = await evaluation.locator('.meal-enrichment-layout').evaluate((element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const recordedRow = element.querySelector('.meal-dish-rating-row:not(.is-pending-plan)');
+      const rowStyle = recordedRow ? getComputedStyle(recordedRow) : null;
+      return {
+        columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        recordedRowColumns: rowStyle?.gridTemplateColumns.split(' ').filter(Boolean).length ?? 0,
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        viewportWidth: window.innerWidth,
+      };
+    });
+    const expectedColumns = viewport.width > 1120 ? 2 : 1;
+    const expectedRecordedRowColumns = viewport.width > 640 ? 2 : 1;
+    if (
+      layout.columns !== expectedColumns
+      || layout.recordedRowColumns !== expectedRecordedRowColumns
+      || layout.left < -1
+      || layout.right > layout.viewportWidth + 1
+    ) {
+      throw new Error(`${label} 整餐评价布局异常：${JSON.stringify(layout)}`);
+    }
+
+    await evaluation.getByRole('button', { name: `记录${riceFood.name}已吃`, exact: true }).click();
+    await expectVisible(evaluation.getByText(riceFood.name, { exact: true }).last(), `${label} 新增米饭评分行`);
+    await expectVisible(evaluation.getByRole('button', { name: '撤回刚才添加', exact: true }), `${label} 行级撤回`);
+    await evaluation.getByRole('button', { name: '撤回刚才添加', exact: true }).click();
+    await expectVisible(evaluation.getByRole('button', { name: `记录${riceFood.name}已吃`, exact: true }), `${label} 撤回后恢复加号`);
+
+    await evaluation.getByRole('button', { name: '＋ 添加其他实际吃的食物', exact: true }).click();
+    await expectVisible(evaluation.getByRole('searchbox', { name: '搜索食物' }), `${label} 添加其他食物搜索`);
+    const firstRating = evaluation.locator('.meal-dish-rating-row:not(.is-pending-plan) .ui-star-rating-stars').first();
+    await firstRating.click({ position: { x: 24, y: 18 } });
+    await expectVisible(evaluation.getByRole('button', { name: '清除评分', exact: true }).first(), `${label} 清除评分`);
+    await expectNoHorizontalOverflow(page, `${label} 整餐评价`);
+
+    if (screenshotDir) {
+      mkdirSync(screenshotDir, { recursive: true });
+      await page.screenshot({
+        path: resolve(
+          screenshotDir,
+          viewport.width === 375
+            ? 'meal-evaluation-375x812.png'
+            : viewport.width === 1024
+              ? 'meal-evaluation-1024x744.png'
+              : 'meal-evaluation-1440x960.png',
+        ),
+      });
+    }
+    await evaluation.getByRole('button', { name: '清除评分', exact: true }).first().click();
+    await expectVisible(evaluation.getByText('未评分', { exact: true }).first(), `${label} 清除后恢复未评分`);
+    assertClean();
+  } finally {
+    await context.close();
+  }
+}
+
+async function runMealCandidateSelectorSmoke(browser, baseUrl, viewport, label, contextOptions = {}, multi = false) {
+  const isPhoneViewport = isPhoneViewportSize(viewport);
+  const screenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  const soupCover = {
+    ...recipe.images[0],
+    id: 'media-food-soup',
+    name: '冬瓜汤.svg',
+    alt: '冬瓜汤',
+    url: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"%3E%3Crect width="160" height="160" fill="%23e7efe6"/%3E%3Cellipse cx="80" cy="88" rx="58" ry="42" fill="%23fffaf2"/%3E%3Cpath d="M43 87c13-29 61-39 78-8-7 35-62 45-78 8Z" fill="%2395b99a"/%3E%3Ccircle cx="65" cy="83" r="13" fill="%23dbe8cf"/%3E%3Ccircle cx="96" cy="91" r="15" fill="%23c8ddba"/%3E%3C/svg%3E',
+  };
+  const mealCandidates = [
+    {
+      meal_log_id: recordedDinner.id,
+      row_version: recordedDinner.row_version,
+      date: recordedDinner.date,
+      meal_type: 'snack',
+      created_at: recordedDinner.created_at,
+      foods: [
+        {
+          food_id: food.id,
+          name: food.name,
+          food_type: food.type,
+          cover: recipe.images[0] ?? null,
+        },
+        {
+          food_id: riceFood.id,
+          name: riceFood.name,
+          food_type: riceFood.type,
+          cover: null,
+        },
+        {
+          food_id: soupFood.id,
+          name: soupFood.name,
+          food_type: soupFood.type,
+          cover: soupCover,
+        },
+      ],
+      preview_media: null,
+      photo_count: 0,
+    },
+    ...(multi
+      ? [
+          {
+            meal_log_id: 'meal-home-snack-2',
+            row_version: 1,
+            date: homeToday,
+            meal_type: 'snack',
+            created_at: `${homeToday}T13:08:00.000Z`,
+            foods: [
+              {
+                food_id: riceFood.id,
+                name: riceFood.name,
+                food_type: riceFood.type,
+                cover: null,
+              },
+            ],
+            preview_media: null,
+            photo_count: 0,
+          },
+        ]
+      : []),
+  ];
+  const { context, page, assertClean } = await createPage(
+    browser,
+    viewport,
+    true,
+    contextOptions,
+    { mealCandidates },
+  );
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    const homeSurface = homeSurfaceLocator(page, viewport);
+    if (isPhoneViewport) {
+      await homeSurface.getByRole('button', { name: '展开当天安排', exact: true }).click();
+    }
+    await homeSurface.getByRole('button', { name: `${food.name}，待记录`, exact: true }).click();
+    const detail = page.locator('.food-plan-detail-modal');
+    await expectVisible(detail, `${label} 待记录计划详情`);
+    const primaryMealCover = detail.locator('.meal-cover').first();
+    await expectVisible(primaryMealCover, `${label} 餐食组合封面`);
+    const coverState = await primaryMealCover.evaluate((element) => ({
+      mode: element.getAttribute('data-meal-cover-mode'),
+      count: element.getAttribute('data-meal-cover-count'),
+      tileCount: element.querySelectorAll('[data-testid="meal-cover-tile"]').length,
+      placeholderCount: element.querySelectorAll('[data-testid="meal-cover-empty-state"]').length,
+      width: Math.round(element.getBoundingClientRect().width),
+      height: Math.round(element.getBoundingClientRect().height),
+    }));
+    if (
+      coverState.mode !== 'mosaic'
+      || coverState.count !== '3'
+      || coverState.tileCount !== 3
+      || coverState.placeholderCount !== 1
+      || coverState.width < 44
+      || coverState.height < 44
+    ) {
+      throw new Error(`${label} 餐食组合封面异常：${JSON.stringify(coverState)}`);
+    }
+    if (multi) {
+      const list = detail.getByRole('listbox', { name: '候选餐列表' });
+      await expectVisible(list, `${label} 多候选餐列表`);
+      const geometry = await list.evaluate((element) => {
+        const root = element.getBoundingClientRect();
+        const options = Array.from(element.querySelectorAll('[role="option"]')).map((option) => {
+          const rect = option.getBoundingClientRect();
+          return {
+            height: Math.round(rect.height),
+            inside: rect.left >= root.left - 1 && rect.right <= root.right + 1,
+            selected: option.getAttribute('aria-selected'),
+            indicatorVisible: Boolean(option.querySelector('.meal-composer-candidate-option-indicator')),
+          };
+        });
+        return {
+          left: Math.round(root.left),
+          right: Math.round(root.right),
+          viewportWidth: window.innerWidth,
+          options,
+        };
+      });
+      if (
+        geometry.options.length !== 3
+        || geometry.options.some((option) => option.height < 44 || !option.inside || !option.indicatorVisible)
+        || geometry.options.filter((option) => option.selected === 'true').length !== 1
+        || geometry.left < -1
+        || geometry.right > geometry.viewportWidth + 1
+      ) {
+        throw new Error(`${label} 多候选餐布局异常：${JSON.stringify(geometry)}`);
+      }
+      const emptyCoverGeometry = await list.locator('[data-meal-cover-mode="empty"]').evaluate((element) => {
+        const cover = element.getBoundingClientRect();
+        const icon = element.querySelector('.media-placeholder svg')?.getBoundingClientRect();
+        return {
+          coverCenterX: cover.left + cover.width / 2,
+          coverCenterY: cover.top + cover.height / 2,
+          iconCenterX: icon ? icon.left + icon.width / 2 : null,
+          iconCenterY: icon ? icon.top + icon.height / 2 : null,
+        };
+      });
+      if (
+        emptyCoverGeometry.iconCenterX == null
+        || emptyCoverGeometry.iconCenterY == null
+        || Math.abs(emptyCoverGeometry.coverCenterX - emptyCoverGeometry.iconCenterX) > 1
+        || Math.abs(emptyCoverGeometry.coverCenterY - emptyCoverGeometry.iconCenterY) > 1
+      ) {
+        throw new Error(`${label} 无图餐食占位未居中：${JSON.stringify(emptyCoverGeometry)}`);
+      }
+      const firstCandidate = list.getByRole('option').first();
+      await firstCandidate.click();
+      if (await firstCandidate.getAttribute('aria-selected') !== 'true') {
+        throw new Error(`${label} 多候选餐未正确切换`);
+      }
+      await expectNoHorizontalOverflow(page, `${label} 多候选餐`);
+      if (screenshotDir) {
+        mkdirSync(screenshotDir, { recursive: true });
+        await detail.screenshot({
+          path: resolve(screenshotDir, `meal-candidate-list-${viewport.width}x${viewport.height}.png`),
+        });
+      }
+      assertClean();
+      return;
+    }
+    const selector = detail.getByRole('group', { name: '餐食记录方式' });
+    await expectVisible(selector, `${label} 餐食记录方式`);
+    const geometry = await selector.evaluate((element) => {
+      const root = element.getBoundingClientRect();
+      const buttons = Array.from(element.querySelectorAll('button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        return {
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          background: style.backgroundColor,
+          pressed: button.getAttribute('aria-pressed'),
+          indicatorVisible: Boolean(button.querySelector('.meal-composer-candidate-action-indicator')),
+        };
+      });
+      return {
+        left: Math.round(root.left),
+        right: Math.round(root.right),
+        viewportWidth: window.innerWidth,
+        buttons,
+      };
+    });
+    if (
+      geometry.buttons.length !== 2
+      || geometry.buttons.some((button) => button.height < 44 || !button.indicatorVisible)
+      || Math.abs(geometry.buttons[0].width - geometry.buttons[1].width) > 1
+      || geometry.buttons.filter((button) => button.pressed === 'true').length !== 1
+      || geometry.left < -1
+      || geometry.right > geometry.viewportWidth + 1
+    ) {
+      throw new Error(`${label} 餐食记录方式布局异常：${JSON.stringify(geometry)}`);
+    }
+
+    const joinButton = selector.getByRole('button', { name: '记在一起', exact: true });
+    const separateButton = selector.getByRole('button', { name: '另记一顿', exact: true });
+    await separateButton.click();
+    if (await joinButton.getAttribute('aria-pressed') !== 'false' || await separateButton.getAttribute('aria-pressed') !== 'true') {
+      throw new Error(`${label} 餐食记录方式未正确切换`);
+    }
+    await expectNoHorizontalOverflow(page, `${label} 餐食记录方式`);
+    if (screenshotDir) {
+      mkdirSync(screenshotDir, { recursive: true });
+      await detail.screenshot({
+        path: resolve(screenshotDir, `meal-candidate-selector-${viewport.width}x${viewport.height}.png`),
+      });
+    }
+    assertClean();
+  } finally {
+    await context.close();
+  }
+}
+
 async function runUnifiedEatNavigationSmoke(browser, baseUrl) {
   const label = 'PR A 统一吃什么导航';
   const requestedApiPaths = [];
@@ -2541,6 +3141,77 @@ async function runMobileEatTabsSmoke(browser, baseUrl) {
   if (!mealHistoryLayout.pageVisible || !mealHistoryLayout.timelineVisible || !mealHistoryLayout.hasEmptyOrDay) {
     throw new Error(`${label} 吃过的移动时间线表面不可见`);
   }
+  await page.locator('.mobile-log-primary-cta').click();
+  const mobileMealComposer = page.locator('.meal-composer-modal');
+  await expectVisible(mobileMealComposer, `${label} 记一餐弹窗`);
+  await expectVisible(mobileMealComposer.getByRole('heading', { name: '确认时间' }), `${label} 记一餐第一步`);
+  await expectVisible(mobileMealComposer.getByRole('heading', { name: '添加食物' }), `${label} 记一餐第二步`);
+  await page.waitForTimeout(320);
+  const mobileComposerGeometry = await mobileMealComposer.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const removeTargets = Array.from(element.querySelectorAll('.meal-composer-food-remove'));
+    const dateStrip = element.querySelector('.meal-composer-date-strip');
+    const selectedDate = dateStrip?.querySelector('.meal-composer-date-option.is-active');
+    const dateStripRect = dateStrip?.getBoundingClientRect();
+    const selectedDateRect = selectedDate?.getBoundingClientRect();
+    return {
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      removeTargetsValid: removeTargets.every((target) => {
+        const targetRect = target.getBoundingClientRect();
+        return targetRect.width >= 44 && targetRect.height >= 44;
+      }),
+      selectedDateVisible: Boolean(
+        dateStripRect
+        && selectedDateRect
+        && selectedDateRect.left >= dateStripRect.left - 1
+        && selectedDateRect.right <= dateStripRect.right + 1
+      ),
+      dateStripScrollLeft: dateStrip?.scrollLeft ?? null,
+      dateStripScrollWidth: dateStrip?.scrollWidth ?? null,
+      dateStripClientWidth: dateStrip?.clientWidth ?? null,
+      selectedDateLeft: selectedDateRect ? Math.round(selectedDateRect.left) : null,
+      selectedDateRight: selectedDateRect ? Math.round(selectedDateRect.right) : null,
+      dateStripLeft: dateStripRect ? Math.round(dateStripRect.left) : null,
+      dateStripRight: dateStripRect ? Math.round(dateStripRect.right) : null,
+    };
+  });
+  if (
+    mobileComposerGeometry.left < -1
+    || mobileComposerGeometry.right > mobileComposerGeometry.viewportWidth + 1
+    || mobileComposerGeometry.bottom > mobileComposerGeometry.viewportHeight + 1
+    || !mobileComposerGeometry.removeTargetsValid
+    || !mobileComposerGeometry.selectedDateVisible
+  ) {
+    throw new Error(`${label} 记一餐弹窗几何异常：${JSON.stringify(mobileComposerGeometry)}`);
+  }
+  const mobileFoodSearch = mobileMealComposer.getByRole('searchbox', { name: '搜索食物' });
+  await mobileFoodSearch.fill('番茄');
+  const mobileFoodMenu = mobileMealComposer.getByRole('listbox', { name: '食物搜索结果' });
+  await expectVisible(mobileFoodMenu, `${label} 食物搜索下拉框`);
+  const mobileFoodMenuStyle = await mobileFoodMenu.evaluate((element) => {
+    const option = element.querySelector('[role="option"]');
+    const optionStyle = option ? getComputedStyle(option) : null;
+    return {
+      usesDefaultMenu: element.classList.contains('ui-combobox-menu'),
+      optionBorderTopWidth: optionStyle?.borderTopWidth ?? null,
+    };
+  });
+  if (!mobileFoodMenuStyle.usesDefaultMenu || mobileFoodMenuStyle.optionBorderTopWidth !== '0px') {
+    throw new Error(`${label} 食物搜索未使用默认下拉样式：${JSON.stringify(mobileFoodMenuStyle)}`);
+  }
+  const mobileScreenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  if (mobileScreenshotDir) {
+    mkdirSync(mobileScreenshotDir, { recursive: true });
+    await page.screenshot({ path: resolve(mobileScreenshotDir, 'meal-composer-food-menu-375x812.png') });
+    await mobileFoodSearch.clear();
+    await page.screenshot({ path: resolve(mobileScreenshotDir, 'meal-composer-375x812.png') });
+  }
+  await mobileMealComposer.getByLabel('关闭弹窗').click();
+  await mobileMealComposer.waitFor({ state: 'detached', timeout: 10_000 });
   await expectNoHorizontalOverflow(page, label);
   assertClean();
   await context.close();
@@ -2671,6 +3342,95 @@ async function main() {
       console.log('Smoke recon-only passed');
       return;
     }
+    if (process.env.SMOKE_MEAL_EVAL_ONLY === '1') {
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 1440, height: 960 },
+        '1440x960 桌面餐食记录方式',
+      );
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 375, height: 812 },
+        '375x812 手机餐食记录方式',
+        { isMobile: true, hasTouch: true },
+      );
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 1024, height: 768 },
+        '1024x768 Pad 餐食记录方式',
+        { hasTouch: true },
+      );
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 1440, height: 960 },
+        '1440x960 桌面多候选餐',
+        {},
+        true,
+      );
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 375, height: 812 },
+        '375x812 手机多候选餐',
+        { isMobile: true, hasTouch: true },
+        true,
+      );
+      await runMealCandidateSelectorSmoke(
+        browser,
+        preview.url,
+        { width: 1024, height: 768 },
+        '1024x768 Pad 多候选餐',
+        { hasTouch: true },
+        true,
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 1440, height: 960 },
+        '1440x960 桌面整餐评价',
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 350, height: 780 },
+        '350x780 手机整餐评价',
+        { isMobile: true, hasTouch: true },
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 375, height: 812 },
+        '375x812 手机整餐评价',
+        { isMobile: true, hasTouch: true },
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 390, height: 844 },
+        '390x844 手机整餐评价',
+        { isMobile: true, hasTouch: true },
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 430, height: 932 },
+        '430x932 手机整餐评价',
+        { isMobile: true, hasTouch: true },
+      );
+      await runHomeMealEvaluationSmoke(
+        browser,
+        preview.url,
+        { width: 1024, height: 744 },
+        '1024x744 Pad 整餐评价',
+        { hasTouch: true },
+      );
+      console.log('Smoke meal-evaluation-only passed');
+      return;
+    }
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runUnifiedEatNavigationSmoke(browser, preview.url);
@@ -2705,6 +3465,26 @@ async function main() {
       { width: 375, height: 812 },
       '手机完整周菜单',
       { isMobile: true, hasTouch: true }
+    );
+    await runHomeMealEvaluationSmoke(
+      browser,
+      preview.url,
+      { width: 1440, height: 960 },
+      '1440x960 桌面整餐评价'
+    );
+    await runHomeMealEvaluationSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '375x812 手机整餐评价',
+      { isMobile: true, hasTouch: true }
+    );
+    await runHomeMealEvaluationSmoke(
+      browser,
+      preview.url,
+      { width: 1024, height: 744 },
+      '1024x744 Pad 整餐评价',
+      { hasTouch: true }
     );
     await runInventoryActionViewportSmoke(browser, preview.url, { width: 1440, height: 960 }, '1440x960 桌面端');
     await runInventoryActionViewportSmoke(browser, preview.url, { width: 1024, height: 744 }, '1024x744 iPad 横屏');

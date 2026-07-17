@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActivityAction, ActivityHighlightKind, MealLogRecordStatus, UserRole
-from app.models.domain import Food, MealLog, MealLogFood, MealLogRecordOperation, MediaAsset
+from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, MealLogRecordOperation, MediaAsset
 from app.repos.meal_log_record_operations import (
     get_family_record_operation,
     list_active_record_operations_for_actor,
@@ -102,6 +102,15 @@ def _effect_entry_ids(operation: MealLogRecordOperation) -> list[str]:
 
 def _created_food_ids(operation: MealLogRecordOperation) -> list[str]:
     return [str(item) for item in (operation.created_food_ids_json or []) if str(item).strip()]
+
+
+def _completed_plan_item_ids(operation: MealLogRecordOperation) -> list[str]:
+    result = operation.result_json or {}
+    if not isinstance(result, dict):
+        return []
+    return _unique_sorted_ids(
+        [str(item) for item in (result.get("completed_plan_item_ids") or []) if str(item).strip()]
+    )
 
 
 def _discover_effect_entry_food_ids(
@@ -462,6 +471,7 @@ def revert_record_operation(
 
     effect_entry_ids = _effect_entry_ids(operation)
     created_food_ids = _created_food_ids(operation)
+    completed_plan_item_ids = _completed_plan_item_ids(operation)
 
     # Pre-read effect entry Food IDs without row locks, then lock Foods then MealLog.
     effect_food_ids = _discover_effect_entry_food_ids(db, entry_ids=effect_entry_ids)
@@ -484,6 +494,39 @@ def revert_record_operation(
         )
         .with_for_update()
     )
+
+    completed_plan_items = (
+        list(
+            db.scalars(
+                select(FoodPlanItem)
+                .where(
+                    FoodPlanItem.family_id == family_id,
+                    FoodPlanItem.id.in_(completed_plan_item_ids),
+                )
+                .order_by(FoodPlanItem.id.asc())
+                .with_for_update()
+            )
+        )
+        if completed_plan_item_ids
+        else []
+    )
+    if len(completed_plan_items) != len(completed_plan_item_ids):
+        raise MealRecordHistoryError(
+            "meal_record_plan_changed",
+            "本次记录关联的菜单计划已变化，无法撤销",
+            status_code=409,
+        )
+    for plan_item in completed_plan_items:
+        if plan_item.status != "cooked" or plan_item.meal_log_id != operation.meal_log_id:
+            raise MealRecordHistoryError(
+                "meal_record_plan_changed",
+                "本次记录关联的菜单计划已变化，无法撤销",
+                status_code=409,
+            )
+        plan_item.status = "planned"
+        plan_item.completed_at = None
+        plan_item.meal_log_id = None
+        plan_item.updated_by = actor_user_id
 
     remaining_meal_log_payload: dict[str, Any] | None = None
     removed_food_ids: list[str] = []

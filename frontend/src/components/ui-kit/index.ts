@@ -11,6 +11,7 @@ export * from './OptionChipGroup';
 export * from './OperationLoadingOverlay';
 export * from './StatusBadge';
 export * from './StateBlock';
+export * from './StarRatingInput';
 export * from './MobileActionBar';
 export * from './ImageComposer';
 export * from './Layout';

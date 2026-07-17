@@ -35,6 +35,33 @@ function mealLog(overrides: Partial<MealLog> = {}): MealLog {
 }
 
 describe('useMealEnrichmentState 409 recovery', () => {
+  it('merges an immediately recorded food without clearing the unsaved meal draft', () => {
+    const updateMealLog = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ meal }) => useMealEnrichmentState({ meal, isUpdating: false, updateMealLog }),
+      { initialProps: { meal: mealLog() } },
+    );
+
+    act(() => {
+      result.current.setNotes('少油一点');
+      result.current.updateEntryRating('entry-1', '4.5');
+    });
+
+    rerender({
+      meal: mealLog({
+        row_version: 4,
+        food_entries: [
+          ...mealLog().food_entries,
+          { id: 'entry-2', food_id: 'food-2', food_name: '米饭', servings: 1, note: '', rating: null },
+        ],
+      }),
+    });
+
+    expect(result.current.notes).toBe('少油一点');
+    expect(result.current.entryRatings).toEqual({ 'entry-1': '4.5', 'entry-2': '' });
+    expect(result.current.expectedRowVersion).toBe(4);
+  });
+
   it('preserves local draft notes/ratings on 409 and advances expected_row_version', async () => {
     const serverMeal = mealLog({
       notes: '服务器备注',

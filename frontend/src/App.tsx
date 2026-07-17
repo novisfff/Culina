@@ -506,6 +506,7 @@ function App() {
 
   const mealRecordResultState = useMealRecordResultState({
     activeOperations: activeMealRecordOperations,
+    foods,
     revertOperation: (operationId) => revertMealRecordMutation.mutateAsync(operationId),
     rateMeal: (mealLogId, payload) =>
       updateMealMutation.mutateAsync({ mealLogId, payload }),
@@ -1602,12 +1603,24 @@ function App() {
             resetHomePlanDetailForm={resetHomePlanDetailForm}
             submitHomePlanDetail={submitHomePlanDetail}
             startHomePlanDetailCook={startHomePlanDetailCook}
+            openHomeMealRecord={(item) => {
+              closeHomePlanDetail();
+              setHomeMealEnrichmentRequest({ mealLogId: item.meal_log_id ?? undefined, planItem: item });
+            }}
             deleteHomePlanDetail={deleteHomePlanDetail}
             closeHomePlanDetail={closeHomePlanDetail}
             isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
             isCompletingHomePlanDetail={cookRecipeMutation.isPending || completeFoodPlanItemMutation.isPending}
             homeMealEnrichmentMeal={homeMealEnrichmentMeal}
             homeMealEnrichmentMembers={members}
+            foodPlanItems={foodPlanItems}
+            foods={foods}
+            recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
+            revertMealRecord={(operationId) => revertMealRecordMutation.mutateAsync(operationId)}
+            onHomeMealEnrichmentMealChanged={(meal) => setHomeMealEnrichmentRequest((current) => ({
+              mealLog: meal,
+              planItem: current?.planItem,
+            }))}
             closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
             updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}
             onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、评论或照片，再保存这顿饭。' })}

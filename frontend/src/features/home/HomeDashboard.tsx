@@ -991,6 +991,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onAddMeal={openHomePlanAddEmptyDialog}
             onOpenPlanDetail={openHomePlanDetail}
             onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
+            resolvePlanItemCoverUrl={resolvePlanItemCoverUrl}
           />
         </section>
 

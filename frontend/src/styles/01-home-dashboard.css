@@ -1543,7 +1543,7 @@
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-picker,
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-note-field,
-.home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-form-row label {
+.home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-form-field {
   gap: 7px;
 }
 
@@ -1591,11 +1591,12 @@
 }
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-date-strip {
-  grid-auto-columns: 54px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-columns: unset;
 }
 
 .home-dashboard-overlay-root .home-plan-add-modal .recipe-plan-date-strip button {
-  min-width: 54px;
+  min-width: 0;
   min-height: 46px;
   border-radius: 10px;
 }
@@ -2613,10 +2614,18 @@
 }
 
 .home-compact-days > button.has-plan .home-compact-day-status {
-  color: var(--success);
+  color: var(--accent-strong);
 }
 
 .home-compact-days > button.has-plan .home-compact-day-status i {
+  background: var(--accent);
+}
+
+.home-compact-days > button.is-complete .home-compact-day-status {
+  color: var(--success);
+}
+
+.home-compact-days > button.is-complete .home-compact-day-status i {
   background: var(--success);
 }
 
@@ -2746,7 +2755,9 @@
 }
 
 .home-compact-meal-slot-head,
-.home-compact-meal-items {
+.home-compact-meal-items,
+.home-compact-meal-foods,
+.home-compact-meal-actions {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -2772,9 +2783,23 @@
   white-space: nowrap;
 }
 
+.home-compact-meal-status-tablet {
+  display: none;
+}
+
 .home-compact-meal-items {
   gap: 5px;
   overflow: hidden;
+}
+
+.home-compact-meal-foods {
+  flex: 1 1 auto;
+  gap: 5px;
+}
+
+.home-compact-meal-actions {
+  flex: 0 0 auto;
+  gap: 5px;
 }
 
 .home-compact-meal-item,
@@ -2809,6 +2834,15 @@
 .home-compact-meal-item.is-cooked {
   color: var(--success);
   background: var(--success-soft);
+}
+
+.home-compact-meal-item-media,
+.home-compact-meal-item-image {
+  display: none;
+}
+
+.home-compact-meal-slot.has-items .home-compact-meal-add span {
+  display: none;
 }
 
 .home-compact-meal-more {
@@ -2954,5 +2988,169 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 0.6875rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  .home-compact-meal-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 12px;
+    background: #fffdfa;
+  }
+
+  .home-compact-meal-slot {
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+    align-content: stretch;
+    gap: 6px;
+    overflow: hidden;
+    padding: 7px 8px;
+    border: 0;
+    border-right: 1px solid rgba(92, 67, 48, 0.09);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .home-compact-meal-slot:last-child {
+    border-right: 0;
+  }
+
+  .home-compact-meal-slot.has-items {
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .home-compact-meal-slot-head strong {
+    flex: 0 0 auto;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .home-compact-meal-slot-head span {
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.6875rem;
+    text-align: right;
+    text-overflow: ellipsis;
+  }
+
+  .home-compact-meal-items {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 0;
+    align-content: start;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .home-compact-meal-foods {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .home-compact-meal-item,
+  .home-compact-meal-more,
+  .home-compact-meal-add {
+    min-height: 44px;
+  }
+
+  .home-compact-meal-item {
+    padding: 3px 10px 3px 4px;
+    gap: 9px;
+    font-size: 0.8125rem;
+  }
+
+  .home-compact-meal-item-media {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    min-height: 36px;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+
+  .home-compact-meal-item-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .home-compact-meal-actions {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    width: 100%;
+    gap: 5px;
+    justify-content: flex-end;
+    align-self: start;
+  }
+
+  .home-compact-meal-more,
+  .home-compact-meal-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    gap: 4px;
+    padding-inline: 4px;
+    font-size: 0.6875rem;
+  }
+
+  .home-compact-meal-more {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+  }
+
+  .home-compact-meal-slot.has-items .home-compact-meal-add span {
+    display: inline;
+  }
+
+  .home-compact-meal-status-long {
+    display: none;
+  }
+
+  .home-compact-meal-status-tablet {
+    display: block;
+  }
+
+  .home-compact-meal-slot:not(.has-items) {
+    height: auto;
+    min-height: 0;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-items {
+    display: grid;
+    align-content: start;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-actions {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .home-compact-meal-slot.has-items:not(.has-overflow) .home-compact-meal-actions {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-add,
+  .home-compact-meal-slot.has-items:not(.has-overflow) .home-compact-meal-add {
+    width: 100%;
+  }
+
+  .home-compact-meal-slot:not(.has-items) .home-compact-meal-foods {
+    display: none;
   }
 }

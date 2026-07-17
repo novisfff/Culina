@@ -5813,20 +5813,21 @@
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot {
     display: grid;
-    grid-template-columns: 72px minmax(0, 1fr);
-    min-height: 52px;
-    align-content: center;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 8px;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 72px;
+    align-content: stretch;
+    align-items: stretch;
+    gap: 4px;
+    padding: 6px 8px;
     border-radius: 12px;
   }
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot-head {
-    display: grid;
-    justify-content: start;
-    justify-items: start;
-    gap: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
   }
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot-head strong {
@@ -5838,10 +5839,27 @@
   }
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-items {
+    width: 100%;
     min-height: 44px;
     justify-content: flex-end;
     gap: 6px;
-    overflow: visible;
+    overflow: hidden;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-foods {
+    flex: 1 1 auto;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-actions {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-foods .home-compact-meal-item {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-item,
@@ -5854,15 +5872,24 @@
     padding: 0 10px;
   }
 
-  .home-compact-meal-grid.is-mobile-list .home-compact-meal-item.has-image {
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-item.has-media {
     padding-left: 5px;
   }
 
-  .home-compact-meal-item-image {
+  .home-compact-meal-item-media {
+    display: grid;
     width: 32px;
     height: 32px;
     flex: 0 0 32px;
+    min-height: 32px;
+    overflow: hidden;
     border-radius: 8px;
+  }
+
+  .home-compact-meal-item-image {
+    display: block;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
   }
 
@@ -5872,6 +5899,28 @@
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-add {
     min-width: 44px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot.has-items .home-compact-meal-add span {
+    display: none;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot:not(.has-items) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 52px;
+    align-items: center;
+    gap: 8px;
+    padding-block: 4px;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot:not(.has-items) .home-compact-meal-items {
+    width: auto;
+    min-height: 44px;
+    overflow: visible;
+  }
+
+  .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot:not(.has-items) .home-compact-meal-foods {
+    display: none;
   }
 
   .home-compact-meal-grid.is-mobile-list .home-compact-meal-slot:not(.has-items) .home-compact-meal-add {
@@ -6807,7 +6856,7 @@
 
   .food-plan-modal .recipe-plan-picker > label,
   .food-plan-modal .recipe-plan-note-field > span,
-  .food-plan-modal .recipe-plan-form-row label > span {
+  .food-plan-modal .recipe-plan-form-field > span {
     font-size: 0.88rem;
     line-height: 1.25;
   }
@@ -6822,12 +6871,13 @@
   }
 
   .food-plan-modal .recipe-plan-date-strip {
-    grid-auto-columns: 62px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-auto-columns: unset;
     min-height: 58px;
   }
 
   .food-plan-modal .recipe-plan-date-strip button {
-    min-width: 62px;
+    min-width: 0;
     min-height: 46px;
   }
 
@@ -8005,6 +8055,26 @@
     display: inline;
   }
 
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close {
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    max-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
+    max-height: var(--tap-min);
+    padding: 0;
+    border-radius: 50% !important;
+    aspect-ratio: 1;
+  }
+
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-icon {
+    display: grid;
+  }
+
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label {
+    display: none;
+  }
+
   .workspace-overlay-root .workspace-modal > .workspace-overlay-body {
     min-height: 0;
     min-width: 0;
@@ -8909,14 +8979,20 @@
 @media (max-width: 767px) {
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    justify-content: stretch;
+    gap: 10px !important;
   }
 
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row > button {
     grid-column: auto !important;
   }
 
-  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions[data-primary-placement="before-extra"] .ui-form-actions-row > .ui-form-actions-primary {
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions:is(.is-standard, .is-editing) .ui-form-actions-row > .ui-form-actions-primary {
     grid-column: 1 / -1 !important;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions.is-recorded .ui-form-actions-row {
+    grid-template-columns: minmax(0, 1.7fr) minmax(112px, 0.8fr) !important;
   }
 }
 

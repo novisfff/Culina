@@ -118,14 +118,15 @@ describe('Recipe legacy style cleanup', () => {
     expect(recipeStyles).not.toContain('  .recipe-cook-finish-actions {\n    display: grid;');
   });
 
-  it('keeps recipe plan week switcher styles in recipe styles instead of ingredient styles', () => {
+  it('keeps recipe and food sidebar plan switcher styles isolated from ingredient styles', () => {
     const recipeStyles = readFileSync(resolve(repoRoot, 'src/styles/03-recipe-workspace.css'), 'utf8');
     const ingredientStyles = readFileSync(resolve(repoRoot, 'src/styles/04-ingredients-workspace.css'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
     expect(recipeSources).toContain('className="recipe-plan-switcher"');
     expect(recipeStyles).toContain('.recipe-plan-switcher {');
-    expect(foodStyles).toContain('.food-plan-switcher.recipe-plan-switcher');
+    expect(foodStyles).toContain('.food-sidebar-plan-switcher {');
+    expect(foodStyles).not.toContain('.food-plan-switcher.recipe-plan-switcher');
     expect(ingredientStyles).not.toContain('.recipe-plan-switcher');
   });
 

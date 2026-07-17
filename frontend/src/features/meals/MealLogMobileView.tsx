@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
-import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MealCover, type MealCoverFood } from './MealCover';
 import { MealInlineRating } from './MealInlineRating';
 import { MealLogIcon } from './MealLogIcons';
 import { selectMealPreviewMedia } from './MealComposerModel';
@@ -23,6 +22,8 @@ export type MealTimelineRowModel = {
   meal: MealLog;
   title: string;
   preview: MediaAsset | null;
+  mealPhoto: MediaAsset | null;
+  foods: MealCoverFood[];
   extraPhotoCount: number;
   ratingValue: string | null;
   participantCount: number | null;
@@ -42,6 +43,11 @@ export function buildMealTimelineRowModel(args: {
     mealPhotos: args.meal.photos,
     foodCovers,
   });
+  const foods = args.meal.food_entries.map((entry) => ({
+    id: entry.id,
+    name: entry.food_name,
+    cover: args.foodsById.get(entry.food_id)?.images?.[0] ?? null,
+  }));
   const extraPhotoCount = Math.max(0, args.meal.photos.length - 1);
   const recorderId = args.meal.created_by ?? args.meal.updated_by ?? null;
   const recorderName = recorderId ? args.membersById.get(recorderId)?.display_name ?? null : null;
@@ -49,6 +55,8 @@ export function buildMealTimelineRowModel(args: {
     meal: args.meal,
     title: buildMealTitle(args.meal),
     preview,
+    mealPhoto: args.meal.photos[0] ?? null,
+    foods,
     extraPhotoCount,
     ratingValue: getMealRatingValue(args.meal),
     participantCount: getMealParticipantCount(args.meal),
@@ -59,18 +67,17 @@ export function buildMealTimelineRowModel(args: {
 
 export function MealTimelineMedia(props: {
   title: string;
-  preview: MediaAsset | null;
+  mealPhoto: MediaAsset | null;
+  foods: MealCoverFood[];
   extraPhotoCount: number;
   className?: string;
 }) {
   return (
     <span className={['meal-log-row-media', props.className].filter(Boolean).join(' ')}>
-      <MediaWithPlaceholder
-        src={resolveMediaUrl(props.preview, 'thumb')}
-        srcSet={buildMediaSrcSet(props.preview)}
-        sizes={buildMediaSizes('thumb')}
-        alt={props.preview?.alt || props.title}
-        showLabel={false}
+      <MealCover
+        mealPhoto={props.mealPhoto}
+        foods={props.foods}
+        alt={props.mealPhoto?.alt || props.title}
       />
       {props.extraPhotoCount > 0 ? <em className="meal-log-row-media-count">+{props.extraPhotoCount}</em> : null}
     </span>
@@ -218,7 +225,8 @@ export function MealLogMobileView(props: Props) {
                       >
                         <MealTimelineMedia
                           title={row.title}
-                          preview={row.preview}
+                          mealPhoto={row.mealPhoto}
+                          foods={row.foods}
                           extraPhotoCount={row.extraPhotoCount}
                           className="mobile-log-row-media"
                         />

@@ -116,6 +116,21 @@ class RecordMealEntryIn(BaseModel):
         return self
 
 
+class RecordMealPlanCompletionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    food_plan_item_id: str
+    food_plan_item_base_updated_at: datetime
+
+    @field_validator("food_plan_item_id")
+    @classmethod
+    def _normalize_plan_item_id(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("food_plan_item_id 不能为空")
+        return cleaned
+
+
 class RecordMealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +140,7 @@ class RecordMealRequest(BaseModel):
     target: RecordMealTarget
     new_foods: list[RecordMealNewFoodIn] = Field(default_factory=list)
     entries: list[RecordMealEntryIn] = Field(min_length=1)
+    plan_item_completions: list[RecordMealPlanCompletionIn] = Field(default_factory=list)
 
     @field_validator("client_request_id")
     @classmethod
@@ -158,6 +174,10 @@ class RecordMealRequest(BaseModel):
         if len(existing_food_ids) != len(set(existing_food_ids)):
             raise ValueError("同一食物不能重复加入一餐")
 
+        plan_item_ids = [item.food_plan_item_id for item in self.plan_item_completions]
+        if len(plan_item_ids) != len(set(plan_item_ids)):
+            raise ValueError("plan_item_completions 中 food_plan_item_id 必须唯一")
+
         return self
 
 
@@ -175,6 +195,7 @@ class RecordMealResponse(BaseModel):
     created_foods: list[FoodOut]
     outcome: Literal["created", "appended", "replayed"]
     operation: MealLogRecordOperationOut
+    completed_plan_item_ids: list[str] = Field(default_factory=list)
 
 
 class MealLogRecordOperationFoodSummaryOut(BaseModel):

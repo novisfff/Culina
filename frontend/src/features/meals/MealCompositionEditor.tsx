@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isApiError } from '../../api/request';
-import type { MealLog, UpdateMealCompositionPayload } from '../../api/types';
-import { ActionButton, FormActions } from '../../components/ui-kit';
+import type { Food, MealLog, UpdateMealCompositionPayload } from '../../api/types';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
+import { FormActions, SearchableResourceSelect } from '../../components/ui-kit';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import {
   createLocalCompositionEntryId,
   mergeMealComposition,
@@ -11,6 +14,7 @@ import {
 
 export type MealCompositionEditorProps = {
   meal: MealLog;
+  availableFoods?: Food[];
   busy?: boolean;
   onSubmit: (payload: UpdateMealCompositionPayload) => Promise<MealLog>;
   /** Used after network timeout to verify whether the exact draft landed. */
@@ -69,7 +73,7 @@ function sameComposition(left: CompositionEntry[], right: CompositionEntry[]): b
 }
 
 function conflictLabel(conflict: CompositionConflict): string {
-  if (conflict.field === 'servings') return '份量冲突';
+  if (conflict.field === 'servings') return '内容冲突';
   if (conflict.field === 'note') return '备注冲突';
   if (conflict.field === 'food_id') return '菜品冲突';
   return '条目存在性冲突';
@@ -101,6 +105,8 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
   const [needsExplicitResubmit, setNeedsExplicitResubmit] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     const next = entriesFromMeal(props.meal);
@@ -110,6 +116,8 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
     setConflicts([]);
     setNeedsExplicitResubmit(false);
     setError(null);
+    setSearchQuery('');
+    setSearchOpen(false);
   }, [props.meal.id]);
 
   const canRemove = draftEntries.length > 1;
@@ -121,6 +129,39 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
     [conflicts],
   );
 
+  const availableFoodsById = useMemo(
+    () => new Map((props.availableFoods ?? []).map((food) => [food.id, food])),
+    [props.availableFoods],
+  );
+  const selectedFoodIds = useMemo(
+    () => new Set(draftEntries.map((entry) => entry.food_id)),
+    [draftEntries],
+  );
+  const searchOptions = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('zh-CN');
+    return (props.availableFoods ?? [])
+      .filter((food) => !selectedFoodIds.has(food.id))
+      .filter((food) => !query || food.name.toLocaleLowerCase('zh-CN').includes(query))
+      .map((food) => {
+        const cover = food.images[0] ?? null;
+        return {
+          id: food.id,
+          label: food.name,
+          description: FOOD_TYPE_LABELS[food.type] ?? food.category,
+          image: (
+            <MediaWithPlaceholder
+              src={resolveMediaUrl(cover, 'thumb')}
+              srcSet={buildMediaSrcSet(cover)}
+              sizes={buildMediaSizes('thumb')}
+              alt=""
+              ariaHidden
+              showLabel={false}
+            />
+          ),
+        };
+      });
+  }, [props.availableFoods, searchQuery, selectedFoodIds]);
+
   function updateEntry(entryId: string, patch: Partial<CompositionEntry>) {
     setDraftEntries((current) =>
       current.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry)),
@@ -128,17 +169,21 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
     setNeedsExplicitResubmit(false);
   }
 
-  function addEntry() {
+  function addEntry(foodId: string) {
+    const food = availableFoodsById.get(foodId);
+    if (!food || selectedFoodIds.has(food.id)) return;
     setDraftEntries((current) => [
       ...current,
       {
         id: createLocalCompositionEntryId(),
-        food_id: '',
+        food_id: food.id,
         servings: 1,
         note: '',
-        food_name: '',
+        food_name: food.name,
       },
     ]);
+    setSearchQuery('');
+    setSearchOpen(false);
     setNeedsExplicitResubmit(false);
   }
 
@@ -226,82 +271,87 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
 
   return (
     <section className="meal-composition-editor" aria-label="编辑这顿组合">
+      <div className="meal-composition-editor-summary">
+        <strong>这顿包含的食物</strong>
+        <span>共 {draftEntries.length} 道</span>
+      </div>
+      <div className="meal-composition-editor-columns" aria-hidden="true">
+        <span>食物</span>
+        <span>备注</span>
+        <span />
+      </div>
       <div className="meal-composition-editor-list">
-        {draftEntries.map((entry, index) => (
-          <div key={entry.id} className="meal-composition-editor-row">
-            <label>
-              <span>菜品</span>
-              <input
-                className="text-input"
-                aria-label="菜品"
-                value={entry.food_name || entry.food_id}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  updateEntry(entry.id, {
-                    food_name: value,
-                    // Keep food_id in sync when editing a free-text add row.
-                    food_id: entry.id.startsWith('client:') ? value : entry.food_id,
-                  });
-                }}
-                disabled={isBusy || !entry.id.startsWith('client:')}
-              />
-            </label>
-            {entry.id.startsWith('client:') ? (
-              <label>
-                <span>菜品 ID</span>
+        {draftEntries.map((entry) => {
+          const food = availableFoodsById.get(entry.food_id);
+          const cover = food?.images[0] ?? null;
+          const name = entry.food_name || food?.name || '未命名食物';
+          return (
+            <div key={entry.id} className="meal-composition-editor-row" data-entry-id={entry.id}>
+              <div className="meal-composition-editor-identity">
+                <span className="meal-composition-editor-media">
+                  <MediaWithPlaceholder
+                    src={resolveMediaUrl(cover, 'thumb')}
+                    srcSet={buildMediaSrcSet(cover)}
+                    sizes={buildMediaSizes('thumb')}
+                    alt=""
+                    ariaHidden
+                    showLabel={false}
+                  />
+                </span>
+                <span className="meal-composition-editor-copy">
+                  <strong>{name}</strong>
+                  <small>{food ? FOOD_TYPE_LABELS[food.type] ?? food.category : '已有食物'}</small>
+                </span>
+              </div>
+              <label className="meal-composition-editor-note">
+                <span className="sr-only">备注</span>
                 <input
                   className="text-input"
-                  aria-label="菜品 ID"
-                  value={entry.food_id}
-                  onChange={(event) => updateEntry(entry.id, { food_id: event.target.value })}
+                  aria-label="备注"
+                  placeholder="备注"
+                  value={entry.note}
+                  onChange={(event) => updateEntry(entry.id, { note: event.target.value })}
                   disabled={isBusy}
                 />
               </label>
-            ) : null}
-            <label>
-              <span>份量</span>
-              <input
-                className="text-input"
-                aria-label="份量"
-                type="number"
-                min={0.5}
-                step={0.5}
-                value={entry.servings}
-                onChange={(event) =>
-                  updateEntry(entry.id, { servings: Number(event.target.value) || 0 })
-                }
-                disabled={isBusy}
-              />
-            </label>
-            <label>
-              <span>备注</span>
-              <input
-                className="text-input"
-                aria-label="备注"
-                value={entry.note}
-                onChange={(event) => updateEntry(entry.id, { note: event.target.value })}
-                disabled={isBusy}
-              />
-            </label>
-            <ActionButton
-              tone="secondary"
-              size="compact"
-              type="button"
-              disabled={!canRemove || isBusy}
-              onClick={() => removeEntry(entry.id)}
-            >
-              移除
-            </ActionButton>
-            <small className="meal-composition-editor-index">#{index + 1}</small>
-          </div>
-        ))}
+              <button
+                className="meal-composition-editor-remove"
+                type="button"
+                disabled={!canRemove || isBusy}
+                aria-label={`移除${name}`}
+                title={canRemove ? `移除${name}` : '至少保留一道食物'}
+                onClick={() => removeEntry(entry.id)}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="meal-composition-editor-toolbar">
-        <ActionButton tone="secondary" size="compact" type="button" disabled={isBusy} onClick={addEntry}>
-          添加菜品
-        </ActionButton>
-      </div>
+      <SearchableResourceSelect
+        ariaLabel="搜索并添加食物"
+        placeholder="搜索并添加食物"
+        value=""
+        query={searchQuery}
+        options={searchOptions}
+        presentation="popover"
+        listOpen={searchOpen}
+        disabled={isBusy}
+        emptyText={searchQuery.trim() ? '没有找到相关食物' : '所有食物都已添加'}
+        className="meal-composition-editor-search"
+        listClassName="meal-composition-editor-search-results"
+        onQueryChange={(value) => {
+          setSearchQuery(value);
+          setSearchOpen(true);
+        }}
+        onSearchFocus={() => setSearchOpen(true)}
+        onSearchClear={() => {
+          setSearchQuery('');
+          setSearchOpen(false);
+        }}
+        onChange={addEntry}
+      />
 
       {conflicts.length > 0 ? (
         <div className="meal-composition-editor-conflicts" data-conflict-summary={conflictSummary}>
@@ -324,6 +374,7 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
       {error ? <p className="meal-composition-editor-error">{error}</p> : null}
 
       <FormActions
+        className="meal-composition-editor-actions"
         primaryLabel={primaryLabel}
         isSubmitting={isBusy}
         onPrimary={() => {

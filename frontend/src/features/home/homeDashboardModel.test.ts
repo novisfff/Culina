@@ -21,6 +21,7 @@ import {
   buildHomeRestockForm,
   findShoppingIngredient,
   homeHighlightIcon,
+  getDashboardPlanProgress,
   matchIngredientByExactName,
   formatDashboardPlanRange,
   parsePositiveNumber,
@@ -63,6 +64,30 @@ const shoppingItem: ShoppingListItem = {
 };
 
 describe('homeDashboardModel', () => {
+  it('describes planned, partial, and completed meal-plan progress without conflating them', () => {
+    const base: FoodPlanItem = {
+      id: 'plan-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-1',
+      food_name: '番茄炒蛋',
+      food_type: 'selfMade',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: '2026-07-16',
+      meal_type: 'dinner',
+      note: '',
+      status: 'planned',
+      created_at: '2026-07-15T00:00:00Z',
+      updated_at: '2026-07-15T00:00:00Z',
+    };
+
+    expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '待安排', state: 'empty' });
+    expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2' }])).toEqual({ totalCount: 2, recordedCount: 0, pendingCount: 2, label: '2 项安排', state: 'planned' });
+    expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 1, pendingCount: 1, label: '已记录 1 / 2', state: 'partial' });
+    expect(getDashboardPlanProgress([{ ...base, status: 'cooked' }, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 2, pendingCount: 0, label: '2 项已记录', state: 'complete' });
+  });
+
   it('builds restock defaults from matched ingredient', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-01T08:00:00.000Z'));

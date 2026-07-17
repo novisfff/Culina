@@ -850,7 +850,6 @@ export function FoodWorkspace(props: Props) {
     isPlanDialogOpen,
     openPlanDetail,
     openPlanDialog,
-    planDateOptions,
     planDetailForm,
     planFoodSearch,
     planForm,
@@ -1668,6 +1667,10 @@ export function FoodWorkspace(props: Props) {
   const planSurfaceProps: FoodPlanSurfaceProps = {
       weekRange: props.foodPlanWeekRange,
       days: foodPlanDays,
+      getPlanItemCoverAsset: (item) => {
+        const food = props.foods.find((candidate) => candidate.id === item.food_id);
+        return food ? getFoodCoverAsset(food, props.recipes) : null;
+      },
       weekSectionRef: foodPlanWeekRef,
       isUpdatingPlan: props.isUpdatingPlan,
       isStartingPlanItem: Boolean(props.isCompletingPlan || props.isQuickAdding),
@@ -2490,7 +2493,6 @@ export function FoodWorkspace(props: Props) {
         planFoodSearch={planFoodSearch}
         planForm={planForm}
         todayDate={todayDate}
-        planDateOptions={planDateOptions}
         isUpdatingPlan={props.isUpdatingPlan}
         onClose={closePlanDialog}
         onSubmit={submitPlanItem}

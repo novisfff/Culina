@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types';
-import { formatDate, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { formatDate, formatDateTime, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { getFoodPlanDetailFacts } from './FoodPlanDetailModel';
@@ -29,6 +29,8 @@ type Props = {
   onResetEdit: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onComplete: () => void;
+  onRecordEaten?: () => void;
+  onOpenMealRecord?: () => void;
   onDelete: () => void;
   resolveAssetUrl: (url: string) => string;
   overlayRootClassName?: string;
@@ -65,6 +67,7 @@ export function FoodPlanDetailModal(props: Props) {
   const planDetailFormId = 'food-plan-detail-form';
   const facts = getFoodPlanDetailFacts(props.food, todayDate);
   const isBusy = Boolean(props.isUpdatingPlan || props.isCompleting);
+  const isRecorded = props.item.status === 'cooked';
 
   function closeIfAllowed() {
     if (!isBusy) {
@@ -74,7 +77,7 @@ export function FoodPlanDetailModal(props: Props) {
 
   const footerActions = props.isEditing ? (
     <FormActions
-      className="recipe-plan-detail-actions"
+      className="recipe-plan-detail-actions is-editing"
       primaryLabel="保存修改"
       primaryType="submit"
       primaryForm={planDetailFormId}
@@ -91,18 +94,25 @@ export function FoodPlanDetailModal(props: Props) {
     </FormActions>
   ) : (
     <FormActions
-      className="recipe-plan-detail-actions"
-      primaryLabel={props.item.recipe_id ? '开始做' : '记录已吃'}
+      className={`recipe-plan-detail-actions ${isRecorded ? 'is-recorded' : props.item.recipe_id ? 'is-recipe' : 'is-standard'}`}
+      primaryLabel={isRecorded ? '餐食记录' : props.item.recipe_id ? '开始做' : '记录已吃'}
       primaryPlacement="before-extra"
-      primaryDisabled={Boolean(isBusy || props.item.status === 'cooked')}
+      primaryDisabled={Boolean(isBusy || (isRecorded && !props.item.meal_log_id))}
       isSubmitting={Boolean(props.isCompleting)}
-      onPrimary={props.onComplete}
+      onPrimary={isRecorded ? props.onOpenMealRecord : props.onComplete}
     >
-      <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={isBusy || props.item.status === 'cooked'}>
-        修改
-      </ActionButton>
+      {!isRecorded && props.item.recipe_id && props.onRecordEaten ? (
+        <ActionButton tone="secondary" type="button" onClick={props.onRecordEaten} disabled={isBusy}>
+          直接记录已吃
+        </ActionButton>
+      ) : null}
+      {!isRecorded ? (
+        <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={isBusy}>
+          修改
+        </ActionButton>
+      ) : null}
       <ActionButton tone="tertiary" type="button" className="ui-form-actions-danger" onClick={props.onDelete} disabled={isBusy}>
-        删除
+        {isRecorded ? '删除计划' : '删除'}
       </ActionButton>
     </FormActions>
   );
@@ -159,6 +169,16 @@ export function FoodPlanDetailModal(props: Props) {
               <p>{(props.item.note ?? '').trim() || '暂无备注'}</p>
             </div>
           </section>
+
+          {isRecorded && props.item.meal_log_id ? (
+            <section className="food-plan-detail-record-summary">
+              <div>
+                <strong>已关联餐食记录</strong>
+                <span>{props.item.completed_at ? `记录于 ${formatDateTime(props.item.completed_at)}` : '已经记录到这顿饭'}</span>
+              </div>
+              <span aria-hidden="true">✓</span>
+            </section>
+          ) : null}
 
           {facts.length > 0 && (
             <dl className="food-plan-detail-facts">

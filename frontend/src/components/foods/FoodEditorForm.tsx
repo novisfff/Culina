@@ -2,7 +2,7 @@ import type { CSSProperties, Dispatch, FormEventHandler, SetStateAction } from '
 import type { FoodType, MealType, Recipe } from '../../api/types';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
-import { ActionButton, Badge, ImageComposer, WorkspaceSubpageHeader, WorkspaceSubpageShell } from '../ui-kit';
+import { ActionButton, Badge, ImageComposer, StarRatingInput, WorkspaceSubpageHeader, WorkspaceSubpageShell } from '../ui-kit';
 import {
   FOOD_CREATE_TYPE_DETAILS,
   FOOD_CREATE_TYPE_OPTIONS,
@@ -10,7 +10,7 @@ import {
 } from './FoodWorkspaceOptions';
 import type { FoodFormState } from './FoodWorkspaceModel';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { FoodRatingInput, FoodUiIcon } from './FoodWorkspacePrimitives';
+import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
 
 type CompletionItem = {
@@ -214,7 +214,7 @@ export function FoodEditorForm(props: Props) {
                         </label>
                         <label>
                           <span>评分</span>
-                          <FoodRatingInput value={props.form.rating} onChange={(rating) => props.onFormChange((current) => ({ ...current, rating }))} />
+                          <StarRatingInput value={props.form.rating} onChange={(rating) => props.onFormChange((current) => ({ ...current, rating }))} />
                         </label>
                         <div className="food-repurchase-choice-field">
                           <span>复购意愿</span>

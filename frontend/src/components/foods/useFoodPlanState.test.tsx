@@ -153,6 +153,31 @@ afterEach(() => {
 });
 
 describe('useFoodPlanState navigation', () => {
+  it('uses the dialog date window instead of the currently displayed menu week', () => {
+    const state = renderPlanState()!;
+
+    expect(state.planDateOptions).toEqual([
+      '2026-07-16',
+      '2026-07-17',
+      '2026-07-18',
+      '2026-07-19',
+      '2026-07-20',
+      '2026-07-21',
+      '2026-07-22',
+    ]);
+  });
+
+  it('defaults the general add action to today when the displayed week is different', () => {
+    let state = renderPlanState({
+      foodPlanWeekRange: { start: '2026-07-20', end: '2026-07-26' },
+    })!;
+
+    act(() => state.openPlanDialog());
+    state = latestPlanState!;
+
+    expect(state.planForm.planDate).toBe('2026-07-17');
+  });
+
   it('opens the existing plan dialog with Pad date and meal defaults', () => {
     let state = renderPlanState()!;
 

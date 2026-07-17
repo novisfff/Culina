@@ -4,6 +4,7 @@ import type { FoodPlanDetailFormState } from '../../components/foods/FoodPlanDet
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import { todayKey } from '../../lib/ui';
 import { advanceRecommendationCursor, type HomeRestockFormState } from './homeDashboardModel';
+import { resolveFoodPlanDate } from '../../components/foods/foodPlanDateOptions';
 
 export type HomePlanAddFormState = {
   planDate: string;
@@ -230,21 +231,21 @@ export function useHomeDashboardState(input: {
   }
 
   function openHomePlanAddDialog(food: Food, fallbackMealType: MealType = 'dinner') {
-    setIsHomePlanAddDialogOpen(true);
     setHomePlanAddFoodId(food.id);
     setHomePlanAddFoodSearch(food.name);
     setHomePlanAddForm({
-      planDate: selectedDashboardPlanDate,
+      planDate: businessDateKey,
       mealType: getDefaultHomePlanMealType(food, fallbackMealType),
       note: '',
     });
+    setIsHomePlanAddDialogOpen(true);
   }
 
   function openHomePlanAddEmptyDialog(planDate: string, mealType: MealType) {
-    setIsHomePlanAddDialogOpen(true);
     setHomePlanAddFoodId(null);
     setHomePlanAddFoodSearch('');
-    setHomePlanAddForm({ planDate, mealType, note: '' });
+    setHomePlanAddForm({ planDate: resolveFoodPlanDate(planDate, businessDateKey), mealType, note: '' });
+    setIsHomePlanAddDialogOpen(true);
   }
 
   function selectHomePlanAddFood(food: Food) {

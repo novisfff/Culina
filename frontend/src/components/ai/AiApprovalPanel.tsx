@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
-import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
+import { StarRatingInput } from '../ui-kit';
 import { resolveMediaUrl } from '../../lib/assets';
 import { formatFoodStockAmount, parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
@@ -2554,7 +2554,7 @@ export function ApprovalPanel({
                       </p>
                       <div className="ai-resource-field ai-rating-field">
                         <span>新评分</span>
-                        <FoodRatingInput
+                        <StarRatingInput
                           value={ratingInputValue(item.rating)}
                           disabled={readonly}
                           onChange={(value) => updatePayload({ foodEntryRatings: foodRatings.map((ratingItem, ratingIndex) => ratingIndex === index ? { ...ratingItem, rating: Number(value) || null } : ratingItem) })}

@@ -149,8 +149,9 @@ export function useHomeDashboardActions(input: {
       target_meal_log_id?: string | null;
       expected_meal_log_row_version?: number | null;
     },
+    action: 'default' | 'record' = 'default',
   ) {
-    if (item.recipe_id) {
+    if (item.recipe_id && action === 'default') {
       input.closeHomePlanDetail();
       input.startPlanRecipe({
         foodId: item.food_id,

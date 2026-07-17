@@ -57,6 +57,7 @@ function renderDialog(options: {
   const onClose = vi.fn();
   const onFinishAndReturn = vi.fn();
   const onViewMeal = vi.fn();
+  const onUpdateSession = vi.fn();
   const view = attachRoot();
   act(() => {
     root?.render(
@@ -70,7 +71,7 @@ function renderDialog(options: {
         submitDisabled={false}
         statusMessage={options.statusMessage}
         success={options.success}
-        onUpdateSession={vi.fn()}
+        onUpdateSession={onUpdateSession}
         onClose={onClose}
         onSubmit={vi.fn()}
         onFinishAndReturn={onFinishAndReturn}
@@ -78,7 +79,7 @@ function renderDialog(options: {
       />,
     );
   });
-  return { onClose, onFinishAndReturn, onViewMeal, view };
+  return { onClose, onFinishAndReturn, onUpdateSession, onViewMeal, view };
 }
 
 describe('RecipeCookFinishDialog', () => {
@@ -144,5 +145,22 @@ describe('RecipeCookFinishDialog', () => {
     const { view } = renderDialog({ statusMessage: '完成结果不完整，请重试' });
     const status = view.querySelector('[role="status"]');
     expect(status?.textContent).toContain('完成结果不完整，请重试');
+  });
+
+  it('uses the shared sliding star rating for optional satisfaction feedback', () => {
+    const { onUpdateSession, view } = renderDialog();
+
+    act(() => findButton(view, '下一步')?.click());
+    act(() => findButton(view, '下一步')?.click());
+
+    const ratingSlider = view.querySelector<HTMLElement>('[role="slider"][aria-label="满意度"]');
+    expect(ratingSlider).not.toBeNull();
+    expect(ratingSlider?.getAttribute('aria-valuetext')).toBe('不评分');
+
+    act(() => {
+      ratingSlider?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+
+    expect(onUpdateSession).toHaveBeenCalledWith({ rating: '0.5' });
   });
 });

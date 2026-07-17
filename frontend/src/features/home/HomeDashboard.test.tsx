@@ -402,6 +402,76 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*transform:/);
     expect(homeStyles).toMatch(/\.home-question-one \{[\s\S]*?gap: 6px[\s\S]*?padding: 8px 18px/);
     expect(homeStyles).toMatch(/\.home-compact-days > button[\s\S]*?min-height: 60px[\s\S]*?align-content: start/);
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1180px\) \{[\s\S]*?\.home-compact-meal-grid \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-foods \{[^}]*grid-template-columns: minmax\(0, 1fr\);/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-status-long \{[^}]*display: none;[^}]*\}[\s\S]*?\.home-compact-meal-status-tablet \{[^}]*display: block;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-actions \{[^}]*grid-template-columns: 44px minmax\(0, 1fr\);/s,
+    );
+    expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');
+  });
+
+  it('passes food cover images into the desktop and tablet compact meal schedule', () => {
+    const picturedFood = {
+      ...makeFood(0),
+      images: [
+        {
+          id: 'media-plan-food',
+          name: '番茄炒蛋.webp',
+          url: '/media/番茄炒蛋.webp',
+          source: 'upload' as const,
+          alt: '番茄炒蛋',
+          created_at: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+    };
+    const day = makePlanDay(0);
+    day.mealItems = day.mealItems.map((meal) =>
+      meal.mealType === 'dinner'
+        ? {
+            ...meal,
+            items: [
+              {
+                id: 'plan-pictured-food',
+                family_id: 'family-1',
+                user_id: 'user-1',
+                food_id: picturedFood.id,
+                food_name: '番茄炒蛋',
+                food_type: 'dish',
+                recipe_id: null,
+                recipe_title: '',
+                plan_date: day.date,
+                meal_type: 'dinner',
+                note: '',
+                status: 'planned',
+                created_at: '2026-07-01T00:00:00.000Z',
+                updated_at: '2026-07-01T00:00:00.000Z',
+              },
+            ],
+          }
+        : meal,
+    );
+    day.plannedMealCount = 1;
+    day.totalCount = 1;
+
+    const view = renderDashboard({
+      foods: [picturedFood],
+      compactPlanDays: [day],
+      selectedDashboardPlanDay: day,
+    });
+
+    expect(
+      desktopSurface(view)
+        .querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')
+        ?.querySelector<HTMLImageElement>('.home-compact-meal-item-image')
+        ?.getAttribute('src'),
+    ).toBe('/media/番茄炒蛋.webp');
   });
 
   it('renders desktop recommendations, compact week and the two-column lower questions', () => {
@@ -493,6 +563,42 @@ describe('HomeDashboard three-question desktop', () => {
     expect(lunchAdd).not.toBeNull();
     act(() => lunchAdd?.click());
     expect(addMeal).toHaveBeenCalledWith(days[0]!.date, 'lunch');
+  });
+
+  it('distinguishes planned and recorded items in the compact calendar', () => {
+    const days = Array.from({ length: 7 }, (_, index) => makePlanDay(index));
+    const base = {
+      id: 'plan-1',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-1',
+      food_name: '番茄炒蛋',
+      food_type: 'selfMade',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: days[0]!.date,
+      meal_type: 'dinner' as const,
+      note: '',
+      status: 'cooked',
+      meal_log_id: 'meal-1',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-01T00:00:00.000Z',
+    };
+    const items = [base, { ...base, id: 'plan-2', food_id: 'food-2', food_name: '米饭', status: 'planned', meal_log_id: null }];
+    days[0] = {
+      ...days[0]!,
+      mealItems: days[0]!.mealItems.map((meal) => meal.mealType === 'dinner' ? { ...meal, items } : meal),
+      plannedMealCount: 1,
+      totalCount: 2,
+    };
+
+    const view = renderDashboard({ compactPlanDays: days, selectedDashboardPlanDay: days[0] });
+    const desktop = desktopSurface(view);
+
+    expect(desktop.textContent).toContain('已记录 1 / 2');
+    expect(desktop.textContent).toContain('2 项计划 · 已记录 1 项');
+    expect(buttonByText(desktop, '番茄炒蛋').getAttribute('aria-label')).toContain('已记录');
+    expect(buttonByText(desktop, '米饭').getAttribute('aria-label')).toContain('待记录');
   });
 
   it('renders local loading/error/stale states without hiding the other two questions', () => {
