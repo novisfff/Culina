@@ -2091,10 +2091,6 @@
   height: 26px;
 }
 
-.food-editor-recipe-cover .media-placeholder svg {
-  place-self: center;
-}
-
 .food-editor-recipe-copy {
   display: grid;
   gap: 7px;
@@ -2102,7 +2098,7 @@
 }
 
 .food-editor-recipe-card strong,
-.food-editor-recipe-card span,
+.food-editor-recipe-copy span,
 .food-editor-map-summary strong,
 .food-editor-map-summary p {
   min-width: 0;

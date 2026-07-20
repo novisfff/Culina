@@ -120,10 +120,11 @@ describe('Food legacy style cleanup', () => {
     expect(foodStyles).not.toMatch(/(?:^|\n)\s*\.image-composer-/);
   });
 
-  it('centers the recipe cover placeholder icon inside the food editor card', () => {
+  it('does not let the recipe copy typography override its cover placeholder layout', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
-    expect(foodStyles).toMatch(/\.food-editor-recipe-cover \.media-placeholder svg \{[^}]*place-self: center;/);
+    expect(foodStyles).toContain('.food-editor-recipe-copy span,');
+    expect(foodStyles).not.toContain('.food-editor-recipe-card span,');
   });
 
   it('does not keep obsolete food filter toolbar action overrides', () => {
