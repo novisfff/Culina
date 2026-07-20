@@ -950,8 +950,13 @@ describe('EatFoodTaskBody image and scene tag actions', () => {
       />,
     );
 
-    await userEvent.click(screen.getAllByRole('button', { name: '更新库存' })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: '编辑档案' })[0]);
     expect(await screen.findByText('编辑食物')).toBeInTheDocument();
+    const editorForm = document.querySelector<HTMLFormElement>('#eat-food-editor-form');
+    const saveButton = screen.getByRole('button', { name: '保存' });
+    expect(editorForm).not.toBeNull();
+    expect(saveButton).toHaveAttribute('form', 'eat-food-editor-form');
+    expect(saveButton.closest('.workspace-overlay-footer')).not.toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: '基于信息生成主图' }));
     await waitFor(() => {

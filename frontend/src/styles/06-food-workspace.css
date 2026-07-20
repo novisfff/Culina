@@ -2098,7 +2098,7 @@
 }
 
 .food-editor-recipe-card strong,
-.food-editor-recipe-card span,
+.food-editor-recipe-copy span,
 .food-editor-map-summary strong,
 .food-editor-map-summary p {
   min-width: 0;
@@ -2119,7 +2119,7 @@
   font-size: 1.08rem;
 }
 
-.food-editor-recipe-card span {
+.food-editor-recipe-copy span {
   display: block;
   overflow: hidden;
   color: #84776e;
@@ -5242,4 +5242,281 @@
   color: var(--danger, #d94b3d);
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+/* Food editor content layout. Shared modal chrome remains owned by ui-kit. */
+.food-editor-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(246px, 280px);
+  gap: var(--space-7);
+}
+
+.food-editor-main,
+.food-editor-side {
+  gap: var(--space-5);
+}
+
+.food-editor-modal .food-form-panel,
+.food-editor-modal .food-editor-summary,
+.food-editor-shell .food-form-panel,
+.food-editor-shell .food-editor-summary {
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.food-editor-modal .food-editor-identity-panel,
+.food-editor-shell .food-editor-identity-panel {
+  gap: var(--space-5);
+}
+
+.food-editor-modal .section-mini-title,
+.food-editor-shell .section-mini-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.food-editor-recipe-card {
+  grid-template-columns: 104px minmax(0, 1fr) auto;
+  gap: var(--space-5);
+}
+
+.food-editor-recipe-cover {
+  width: 104px;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-color: var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.food-editor-recipe-copy {
+  gap: var(--space-1);
+}
+
+.food-editor-recipe-card strong {
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.food-editor-recipe-copy span,
+.food-editor-recipe-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.food-editor-recipe-copy p {
+  margin-top: var(--space-1);
+  color: var(--text-faint);
+  white-space: normal;
+}
+
+.food-editor-recipe-action {
+  min-width: 0;
+}
+
+.food-editor-recipe-action .ghost-button {
+  min-height: var(--control-height);
+  gap: var(--space-3);
+  border-radius: var(--radius-sm);
+  padding-inline: var(--space-5);
+}
+
+.food-editor-recipe-progress {
+  display: none;
+}
+
+.food-editor-usage-panel .food-editor-meta-grid {
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  gap: var(--space-5) var(--space-6);
+}
+
+.food-editor-usage-panel .food-editor-meal-card {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+}
+
+.food-editor-usage-panel .food-editor-tag-card {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+
+.food-editor-usage-panel .food-editor-favorite-row {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+}
+
+.food-editor-notes-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.food-editor-field-head {
+  gap: var(--space-1);
+}
+
+.food-editor-field-head span,
+.food-repurchase-panel-grid label > span,
+.food-repurchase-choice-field > span,
+.food-name-grid label > span {
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.food-editor-field-head small {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.food-check-pill {
+  min-height: var(--control-height);
+  padding-inline: var(--space-5);
+  border-color: var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.food-check-pill:has(input:checked) {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.food-editor-scene-tags button,
+.food-scene-tag-options button {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.food-editor-scene-tags .food-editor-add-tag {
+  border-style: dashed;
+  background: transparent;
+  color: var(--accent-strong);
+}
+
+.food-editor-favorite-row:has(input:focus-visible) {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.food-editor-note-input input.text-input,
+.food-editor-note-input textarea.text-input,
+.food-name-grid .text-input,
+.food-repurchase-panel-grid .text-input {
+  border-color: var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-body);
+}
+
+.food-editor-note-input textarea.text-input {
+  min-height: 96px;
+}
+
+.food-editor-summary {
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border-color: var(--line-soft);
+}
+
+.food-editor-summary h3 {
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.food-editor-summary .subtle {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.food-editor-completion {
+  gap: var(--space-4);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.food-editor-completion-head span {
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.food-editor-completion-head strong {
+  color: var(--accent-strong);
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.food-editor-completion-bar {
+  background: var(--surface-strong);
+}
+
+.food-editor-completion-bar span {
+  background: var(--accent);
+}
+
+.food-editor-completion-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+.food-editor-completion-list span {
+  min-height: 20px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.food-editor-completion-list span.done {
+  color: var(--success);
+}
+
+@media (max-width: 1023px) {
+  .food-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  .food-editor-side {
+    position: static;
+  }
+
+  .food-editor-summary {
+    position: static;
+  }
+
+  .food-editor-completion-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

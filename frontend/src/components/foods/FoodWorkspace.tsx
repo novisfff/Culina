@@ -36,6 +36,7 @@ import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   EmptyState,
+  FormActions,
   OptionChipGroup,
   SearchField,
   WorkspaceModal,
@@ -149,6 +150,8 @@ import {
   formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
+
+const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
 export { FOOD_CREATE_TYPE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
 export { buildFoodPayloadFromForm, type FoodFormState } from './FoodWorkspaceModel';
@@ -1125,13 +1128,19 @@ export function FoodWorkspace(props: Props) {
     return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
   }, [editorSceneTags, props.foodScenes, props.foods]);
   const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
-  const editorFoodTitle = isSelfMade ? currentRecipe?.title || recipeEditor.form.title || form.name || '新的家常菜谱' : form.name || '新的食物';
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
   const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 个原料 · ${currentRecipe.steps.length} 个步骤` : '还没有菜谱';
   const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
   const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
   const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
   const canSubmit = !props.isSavingFood && !props.isCreatingRecipe && !props.isUpdatingRecipe && (!isSelfMade || Boolean(form.recipeId) || canSaveRecipeEditorDraft);
+  const foodEditorSubmitLabel = isSelfMade
+    ? view === 'create'
+      ? '保存家常菜谱'
+      : '保存菜谱和资料'
+    : view === 'create'
+      ? '保存食物'
+      : '保存修改';
   const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
   const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
@@ -2207,6 +2216,7 @@ export function FoodWorkspace(props: Props) {
         <WorkspaceOverlayFrame
           rootClassName="food-workspace-overlay-root"
           onClose={closeFoodEditorIfAllowed}
+          busy={Boolean(props.isSavingFood)}
           closeOnBackdrop={!props.isSavingFood}
         >
           <WorkspaceModal
@@ -2215,6 +2225,25 @@ export function FoodWorkspace(props: Props) {
             eyebrow="食物资料"
             className="food-editor-modal"
             closeLabel="关闭"
+            busy={Boolean(props.isSavingFood)}
+            footerInfo={(
+              <>
+                <strong>已完成 {editorCompletedCount} / {editorCompletionItems.length} 项资料</strong>
+                <span>保存后仍可继续补充</span>
+              </>
+            )}
+            footerActions={(
+              <FormActions
+                primaryLabel={foodEditorSubmitLabel}
+                submittingLabel="保存中..."
+                primaryType="submit"
+                primaryForm={FOOD_EDITOR_FORM_ID}
+                primaryDisabled={!canSubmit}
+                isSubmitting={Boolean(props.isSavingFood)}
+                secondaryLabel={props.isPhoneViewport ? undefined : '取消'}
+                onSecondary={closeFoodEditorIfAllowed}
+              />
+            )}
             onClose={closeFoodEditorIfAllowed}
           >
             <FoodEditorForm
@@ -2224,10 +2253,10 @@ export function FoodWorkspace(props: Props) {
               completionItems={editorCompletionItems}
               completionPercent={editorCompletionPercent}
               currentRecipe={currentRecipe}
-              editorFoodTitle={editorFoodTitle}
               editorProfile={editorProfile}
               editorRecipeCover={editorRecipeCover}
               editorRecipeMeta={editorRecipeMeta}
+              formId={FOOD_EDITOR_FORM_ID}
               form={form}
               imageState={imageComposer.state}
               isSavingFood={props.isSavingFood}
@@ -2236,7 +2265,8 @@ export function FoodWorkspace(props: Props) {
               isUpdatingScene={props.isUpdatingScene}
               newSceneTagName={newSceneTagName}
               sceneTags={editorSceneTags}
-              submitLabel={isSelfMade ? (view === 'create' ? '保存家常菜谱' : '保存菜谱和资料') : undefined}
+              showActions={false}
+              submitLabel={foodEditorSubmitLabel}
               view={view}
               onAddSceneTag={addSceneTag}
               onBack={closeFoodEditorIfAllowed}
