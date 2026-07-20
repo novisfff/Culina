@@ -120,6 +120,12 @@ describe('Food legacy style cleanup', () => {
     expect(foodStyles).not.toMatch(/(?:^|\n)\s*\.image-composer-/);
   });
 
+  it('centers the recipe cover placeholder icon inside the food editor card', () => {
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+
+    expect(foodStyles).toMatch(/\.food-editor-recipe-cover \.media-placeholder svg \{[^}]*place-self: center;/);
+  });
+
   it('does not keep obsolete food filter toolbar action overrides', () => {
     const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodWorkspace.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
