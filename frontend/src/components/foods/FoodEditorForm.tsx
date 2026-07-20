@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, FormEventHandler, SetStateAction } from 'react';
+import type { Dispatch, FormEventHandler, SetStateAction } from 'react';
 import type { FoodType, MealType, Recipe } from '../../api/types';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
@@ -9,14 +9,13 @@ import {
   MEAL_OPTIONS,
 } from './FoodWorkspaceOptions';
 import type { FoodFormState } from './FoodWorkspaceModel';
-import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
-
-type CompletionItem = {
-  label: string;
-  done: boolean;
-};
+import {
+  FoodEditorCompletion,
+  FoodEditorRecipeSummary,
+  type FoodEditorCompletionItem,
+} from './FoodEditorSections';
 
 type EditorProfile = {
   title: string;
@@ -26,10 +25,9 @@ type EditorProfile = {
 type Props = {
   availableSceneTagOptions: string[];
   canSubmit: boolean;
-  completionItems: CompletionItem[];
+  completionItems: FoodEditorCompletionItem[];
   completionPercent: number;
   currentRecipe?: Recipe | null;
-  editorFoodTitle: string;
   editorProfile: EditorProfile;
   editorRecipeCover?: string;
   editorRecipeMeta: string;
@@ -43,6 +41,8 @@ type Props = {
   view: 'create' | 'edit';
   imageState: ImageGenerationUiState;
   embedded?: boolean;
+  formId?: string;
+  showActions?: boolean;
   submitLabel?: string;
   onAddSceneTag: (tag: string) => void;
   onBack: () => void;
@@ -79,18 +79,15 @@ function storageLocationForType(foodType: FoodType, currentValue: string) {
 }
 
 export function FoodEditorForm(props: Props) {
-  const completionPercent = Math.min(100, Math.max(0, props.completionPercent));
-  const completionBarStyle = {
-    '--food-editor-completion': `${completionPercent}%`,
-  } as CSSProperties;
   const showTypeGrid = props.view === 'create' || !props.isSelfMade;
+  const showActions = props.showActions ?? !props.embedded;
   const typeOptions = props.view === 'create'
     ? FOOD_CREATE_TYPE_OPTIONS
     : FOOD_CREATE_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade');
   const identityTitle = props.isSelfMade
     ? props.view === 'create'
       ? '先选类型，再补菜谱'
-      : '菜谱与用料'
+      : '菜谱'
     : '先选类型，再填名称';
   const editorContent = (
     <WorkspaceSubpageShell className="food-editor-shell">
@@ -105,7 +102,7 @@ export function FoodEditorForm(props: Props) {
           variant="compact"
         />
       )}
-        <form className="food-editor-layout" onSubmit={props.onSubmit}>
+        <form id={props.formId ?? 'food-editor-form'} className="food-editor-layout" onSubmit={props.onSubmit}>
           <section className="food-editor-main">
             <div className="food-form-panel food-editor-identity-panel">
               <div className="section-mini-title">{identityTitle}</div>
@@ -136,22 +133,18 @@ export function FoodEditorForm(props: Props) {
                 </div>
               )}
               {props.isSelfMade ? (
-                <div className="food-editor-recipe-card">
-                  <div className="food-editor-recipe-cover">
-                    <MediaWithPlaceholder
-                      src={props.editorRecipeCover ? props.resolveAssetUrl(props.editorRecipeCover) : undefined}
-                      alt=""
-                    />
-                  </div>
-                  <div className="food-editor-recipe-copy">
-                    <strong>{props.currentRecipe?.title || props.form.name || '还没有菜谱'}</strong>
-                    <span>{props.currentRecipe ? '名称、主图、用料和步骤都归在这份食物下；这里维护餐别、场景和备注。' : '先补一份家常菜谱，保存后会自动出现在食物库。'}</span>
-                  </div>
-                  <ActionButton tone="secondary" size="compact" type="button" onClick={props.onEditRecipe}>
-                    <span>{props.currentRecipe ? '编辑菜谱' : '添加菜谱'}</span>
-                    <FoodUiIcon name="arrowRight" />
-                  </ActionButton>
-                </div>
+                <FoodEditorRecipeSummary
+                  completionPercent={props.completionPercent}
+                  coverUrl={props.editorRecipeCover}
+                  description={props.currentRecipe
+                    ? '名称、主图、用料和步骤统一在这份菜谱中维护。'
+                    : '先补一份家常菜谱，保存后会自动出现在食物库。'}
+                  hasRecipe={Boolean(props.currentRecipe)}
+                  meta={props.editorRecipeMeta}
+                  onEditRecipe={props.onEditRecipe}
+                  resolveAssetUrl={props.resolveAssetUrl}
+                  title={props.currentRecipe?.title || props.form.name || '还没有菜谱'}
+                />
               ) : (
                 <div className="form-grid nested-grid food-name-grid">
                   <label>
@@ -176,20 +169,8 @@ export function FoodEditorForm(props: Props) {
               />
             )}
 
-            <div className={isOutsideType(props.form.type) ? 'food-form-panel food-editor-focus-panel food-editor-repurchase-panel' : 'food-form-panel food-editor-focus-panel'}>
-              {props.isSelfMade ? (
-                <div className="food-editor-map-summary">
-                  <div className="food-editor-map-icon">
-                    <FoodUiIcon name="clipboard" />
-                  </div>
-                  <div>
-                    <div className="section-mini-title">家常菜谱摘要</div>
-                    <strong>{props.editorFoodTitle} · {props.editorRecipeMeta}</strong>
-                    <p className="subtle">用料和步骤在食物里维护，这里补充家庭常用记录。</p>
-                  </div>
-                </div>
-              ) : (
-                <>
+            {!props.isSelfMade && (
+              <div className={isOutsideType(props.form.type) ? 'food-form-panel food-editor-focus-panel food-editor-repurchase-panel' : 'food-form-panel food-editor-focus-panel'}>
                   <div className="food-editor-focus-head">
                     <div>
                       <div className="section-mini-title">{props.editorProfile.title}</div>
@@ -273,12 +254,11 @@ export function FoodEditorForm(props: Props) {
                       </>
                     )}
                   </div>
-                </>
-              )}
-            </div>
+              </div>
+            )}
 
-            <div className={props.isSelfMade ? 'food-form-panel food-editor-notes-panel' : 'food-form-panel'}>
-              <div className="section-mini-title">餐别、场景标签和备注</div>
+            <div className="food-form-panel food-editor-usage-panel">
+              <div className="section-mini-title">{props.isSelfMade ? '如何使用这道菜' : '如何使用这份食物'}</div>
               <div className="food-editor-meta-grid">
                 <section className="food-editor-meta-card food-editor-meal-card">
                   <div className="food-editor-field-head">
@@ -354,8 +334,12 @@ export function FoodEditorForm(props: Props) {
                   <input type="checkbox" checked={props.form.favorite} onChange={(event) => props.onFormChange({ ...props.form, favorite: event.target.checked })} />
                   <i aria-hidden="true" />
                 </label>
+              </div>
+            </div>
 
-
+            <div className="food-form-panel food-editor-notes-panel">
+              <div className="section-mini-title">家庭备注</div>
+              <div className="food-editor-notes-grid">
                 <section className="food-editor-meta-card food-editor-routine-note-card">
                   <div className="food-editor-field-head">
                     <span>常用备注</span>
@@ -383,44 +367,25 @@ export function FoodEditorForm(props: Props) {
 
           <aside className="food-editor-side">
             <div className="food-editor-summary sticky-panel">
-              <p className="eyebrow">即将保存</p>
-              <h3>{props.editorFoodTitle}</h3>
-              <p className="subtle">{props.isSelfMade ? '家常菜会从菜谱同步名称、主图和用料。' : '保存后可从卡片直接加入今天餐食。'}</p>
+              <h3>保存前检查</h3>
+              <p className="subtle">{props.isSelfMade ? '菜谱名称、主图和用料会自动同步，无需重复填写。' : '保存后可从卡片直接加入今天餐食。'}</p>
               {props.isSelfMade && !props.form.recipeId && <div className="workspace-inline-note">先补一份菜谱与用料，保存后会自动出现在食物库。</div>}
-              <div className="food-editor-completion">
-                <div className="food-editor-completion-head">
-                  <span>资料完整度</span>
-                  <strong>{completionPercent}%</strong>
+              <FoodEditorCompletion
+                completionItems={props.completionItems}
+                completionPercent={props.completionPercent}
+              />
+              {showActions && (
+                <div className="workspace-rail-actions">
+                  <ActionButton tone="primary" type="submit" disabled={!props.canSubmit}>
+                    <FoodUiIcon name="save" />
+                    <span>{props.isSavingFood ? '保存中...' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={props.onBack} disabled={props.isSavingFood}>
+                    <FoodUiIcon name="arrowLeft" />
+                    <span>返回食物库</span>
+                  </ActionButton>
                 </div>
-                <div
-                  className="food-editor-completion-bar"
-                  role="progressbar"
-                  aria-label="资料完整度"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={completionPercent}
-                  style={completionBarStyle}
-                >
-                  <span />
-                </div>
-                <div className="food-editor-completion-list">
-                  {props.completionItems.map((item) => (
-                    <span key={item.label} className={item.done ? 'done' : ''}>
-                      {item.label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="workspace-rail-actions">
-                <ActionButton tone="primary" type="submit" disabled={!props.canSubmit}>
-                  <FoodUiIcon name="save" />
-                  <span>{props.isSavingFood ? '保存中...' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
-                </ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={props.onBack} disabled={props.isSavingFood}>
-                  <FoodUiIcon name="arrowLeft" />
-                  <span>返回食物库</span>
-                </ActionButton>
-              </div>
+              )}
             </div>
           </aside>
       </form>

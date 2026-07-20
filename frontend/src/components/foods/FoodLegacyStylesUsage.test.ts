@@ -128,6 +128,21 @@ describe('Food legacy style cleanup', () => {
     expect(foodStyles).not.toMatch(/\.food-editor-recipe-card span\s*\{/);
   });
 
+  it('keeps the food editor responsive rules in the food domain', () => {
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
+
+    expect(foodStyles).toContain('.food-editor-recipe-action');
+    expect(foodStyles).toContain('.food-editor-usage-panel');
+    expect(foodStyles).toContain('.food-editor-recipe-progress');
+    expect(mobileStyles).toContain('.food-editor-modal .food-editor-recipe-action');
+    expect(mobileStyles).toContain('.food-editor-modal .food-editor-recipe-progress');
+    expect(mobileStyles).toContain('.food-editor-modal > .workspace-overlay-footer .ui-form-actions-secondary');
+    expect(mobileStyles).toContain('.food-editor-modal > .workspace-overlay-footer .ui-form-actions-primary');
+    expect(mobileStyles).toMatch(/\.food-editor-modal \.food-editor-focus-head \{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;/);
+    expect(mobileStyles).toMatch(/\.food-editor-modal \.food-editor-focus-head \.badge \{[^}]*min-width: max-content;[^}]*white-space: nowrap;/);
+  });
+
   it('does not keep obsolete food filter toolbar action overrides', () => {
     const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodWorkspace.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');

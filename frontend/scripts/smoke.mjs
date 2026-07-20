@@ -1876,6 +1876,108 @@ async function runResponsiveSmoke(browser, baseUrl, viewport, label, contextOpti
   await context.close();
 }
 
+async function runFoodEditorViewportSmoke(browser, baseUrl, viewport, label, contextOptions = {}) {
+  const mobile = viewport.width <= 767;
+  const { context, page, assertClean } = await createPage(
+    browser,
+    viewport,
+    true,
+    contextOptions,
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await expectVisibleText(page, '家庭厨房工作台', `${label} 工作台标识`);
+  await page.getByRole('button', { name: '吃什么' }).first().click();
+  await expectVisibleText(page, '食物库', `${label} 食物库`);
+
+  const foodCard = page.getByRole('button', { name: `查看详情：${food.name}` }).first();
+  await expectVisible(foodCard, `${label} 家常菜卡片`);
+  await foodCard.click();
+  const detail = page.locator('.food-detail-drawer');
+  await expectVisible(detail, `${label} 食物详情`);
+
+  const editAction = mobile
+    ? detail.locator('.food-detail-actions-mobile').getByRole('button', { name: '编辑档案' })
+    : detail.locator('.workspace-overlay-footer').getByRole('button', { name: '编辑档案' });
+  await expectVisible(editAction, `${label} 编辑档案入口`);
+  await editAction.click();
+
+  const editor = page.locator('.food-editor-modal');
+  await expectVisible(editor, `${label} 编辑食物弹窗`);
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.food-editor-modal');
+    return Boolean(element && element.getAnimations().every((animation) => animation.playState === 'finished'));
+  }, undefined, { timeout: 2_000 });
+  await expectVisible(editor.getByRole('button', { name: '编辑菜谱' }), `${label} 编辑菜谱按钮`);
+  await expectVisible(editor.getByRole('button', { name: '保存菜谱和资料' }), `${label} 保存按钮`);
+
+  const geometry = await editor.evaluate((element) => {
+    const body = element.querySelector('.workspace-overlay-body');
+    const form = element.querySelector('#food-editor-form');
+    const recipeAction = element.querySelector('.food-editor-recipe-action button');
+    const side = element.querySelector('.food-editor-side');
+    const dragZone = element.querySelector('.workspace-overlay-drag-zone');
+    const closeLabel = element.querySelector('.workspace-overlay-close-label');
+    const actionRect = recipeAction?.getBoundingClientRect();
+    const recipeRect = element.querySelector('.food-editor-recipe-card')?.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const editorRect = element.getBoundingClientRect();
+    const footerRect = element.querySelector('.workspace-overlay-footer')?.getBoundingClientRect();
+    return {
+      bodyOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : null,
+      formOverflow: form ? Math.max(0, form.scrollWidth - form.clientWidth) : null,
+      hasSingleRecipeSummary: element.querySelectorAll('.food-editor-recipe-card').length === 1,
+      hasRepeatedRecipeSummary: (element.textContent || '').includes('家常菜谱摘要'),
+      recipeActionWidth: actionRect ? Math.round(actionRect.width) : null,
+      recipeCardWidth: recipeRect ? Math.round(recipeRect.width) : null,
+      sideDisplay: side ? getComputedStyle(side).display : null,
+      dragDisplay: dragZone ? getComputedStyle(dragZone).display : null,
+      closeLabelDisplay: closeLabel ? getComputedStyle(closeLabel).display : null,
+      borderTopLeftRadius: style.borderTopLeftRadius,
+      editorBottom: Math.round(editorRect.bottom),
+      footerBottom: footerRect ? Math.round(footerRect.bottom) : null,
+      viewportHeight: window.innerHeight,
+    };
+  });
+
+  if (geometry.bodyOverflow == null || geometry.bodyOverflow > 1 || geometry.formOverflow == null || geometry.formOverflow > 1) {
+    throw new Error(`${label} 编辑食物横向溢出：${JSON.stringify(geometry)}`);
+  }
+  if (!geometry.hasSingleRecipeSummary || geometry.hasRepeatedRecipeSummary) {
+    throw new Error(`${label} 菜谱摘要重复：${JSON.stringify(geometry)}`);
+  }
+  if (
+    geometry.editorBottom > geometry.viewportHeight + 1
+    || geometry.footerBottom == null
+    || geometry.footerBottom > geometry.viewportHeight + 1
+  ) {
+    throw new Error(`${label} 编辑食物底部操作栏越界：${JSON.stringify(geometry)}`);
+  }
+  if (mobile) {
+    if (
+      geometry.sideDisplay !== 'none'
+      || geometry.dragDisplay !== 'grid'
+      || geometry.closeLabelDisplay === 'none'
+      || geometry.borderTopLeftRadius !== '24px'
+      || geometry.recipeActionWidth == null
+      || geometry.recipeCardWidth == null
+      || geometry.recipeActionWidth < geometry.recipeCardWidth - 34
+    ) {
+      throw new Error(`${label} 手机编辑食物布局异常：${JSON.stringify(geometry)}`);
+    }
+  }
+
+  const screenshotDir = process.env.CULINA_SMOKE_SCREENSHOT_DIR;
+  if (screenshotDir) {
+    mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({
+      path: resolve(screenshotDir, `food-editor-${viewport.width}x${viewport.height}.png`),
+    });
+  }
+
+  assertClean();
+  await context.close();
+}
+
 async function runOrientationLockSmoke(browser, baseUrl, viewport, label, expectedText, contextOptions = {}) {
   const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -3432,6 +3534,35 @@ async function main() {
     }
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
+    await runFoodEditorViewportSmoke(browser, preview.url, { width: 1440, height: 900 }, '1440x900 编辑食物');
+    await runFoodEditorViewportSmoke(
+      browser,
+      preview.url,
+      { width: 1024, height: 768 },
+      '1024x768 编辑食物',
+      { isMobile: true, hasTouch: true },
+    );
+    await runFoodEditorViewportSmoke(
+      browser,
+      preview.url,
+      { width: 430, height: 932 },
+      '430x932 编辑食物',
+      { isMobile: true, hasTouch: true },
+    );
+    await runFoodEditorViewportSmoke(
+      browser,
+      preview.url,
+      { width: 390, height: 844 },
+      '390x844 编辑食物',
+      { isMobile: true, hasTouch: true },
+    );
+    await runFoodEditorViewportSmoke(
+      browser,
+      preview.url,
+      { width: 375, height: 812 },
+      '375x812 编辑食物',
+      { isMobile: true, hasTouch: true },
+    );
     await runUnifiedEatNavigationSmoke(browser, preview.url);
     await runMobileEatTabsSmoke(browser, preview.url);
     await runLegacyStorageRecoverySmoke(browser, preview.url);
@@ -3578,7 +3709,7 @@ async function main() {
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     await runCompatibleAiClientSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, compatible AI client capability header, desktop workspace tabs, unified eat navigation (home food detail/search recipe/plan detail/mobile tabs/storage recovery), home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, compatible AI client capability header, desktop workspace tabs, food editor 1440/1024/430/390/375 layout, unified eat navigation (home food detail/search recipe/plan detail/mobile tabs/storage recovery), home household highlights (loading/error/stale/navigation/week), home action center dialog, inventory reconciliation (exact/presence/food adapters + 375/390/430/desktop responsive task), viewport matrix 1440/1280/1180/1112/1024/430/390/375/350, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

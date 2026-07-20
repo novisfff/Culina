@@ -157,11 +157,8 @@ export function getPrimaryFoodActionLabel(food: Food) {
   return '记到今天';
 }
 
-export function getSecondaryFoodActionLabel(food: Food) {
-  if (normalizeFoodType(food) === 'selfMade') return '编辑档案';
-  if (isReadyLikeFood(food)) return '更新库存';
-  if (isOutsideFood(food)) return '编辑评价';
-  return '编辑资料';
+export function getSecondaryFoodActionLabel(_food: Food) {
+  return '编辑档案';
 }
 
 export function getRepurchaseLabel(food: Food) {

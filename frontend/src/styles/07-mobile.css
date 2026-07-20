@@ -8729,3 +8729,184 @@
     display: none;
   }
 }
+
+/* Food editor body only. The shared mobile sheet remains owned by ui-kit. */
+@media (max-width: 767px) {
+  .food-editor-modal .food-editor-shell,
+  .food-editor-modal .food-editor-layout,
+  .food-editor-modal .food-editor-main,
+  .food-editor-modal .food-form-panel,
+  .food-editor-modal .food-editor-meta-grid,
+  .food-editor-modal .food-editor-meta-card,
+  .food-editor-modal .food-editor-notes-grid {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .food-editor-modal .food-editor-main {
+    gap: var(--space-5);
+  }
+
+  .food-editor-modal .food-form-panel {
+    gap: var(--space-5);
+    padding: var(--space-5);
+    border-radius: var(--radius-md);
+  }
+
+  .food-editor-modal .section-mini-title {
+    font-size: var(--text-base);
+  }
+
+  .food-editor-modal .food-editor-focus-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-3);
+  }
+
+  .food-editor-modal .food-editor-focus-head .badge {
+    min-width: max-content;
+    justify-self: end;
+    padding: var(--space-1) var(--space-4);
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    writing-mode: horizontal-tb;
+  }
+
+  .food-editor-modal .food-editor-recipe-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: center;
+    overflow: visible;
+  }
+
+  .food-editor-modal .food-editor-recipe-cover {
+    width: 76px;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy strong {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: var(--text-body);
+    line-height: 1.4;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy span {
+    overflow: visible;
+    color: var(--text-soft);
+    font-size: var(--text-sm);
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy p {
+    display: none;
+  }
+
+  .food-editor-modal .food-editor-recipe-action {
+    grid-column: 1 / -1;
+  }
+
+  .food-editor-modal .food-editor-recipe-action .ghost-button {
+    width: 100%;
+    min-height: var(--control-height-touch);
+    justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+
+  .food-editor-modal .food-editor-recipe-progress {
+    display: block;
+    height: 5px;
+    margin-top: var(--space-2);
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: var(--surface-strong);
+  }
+
+  .food-editor-modal .food-editor-recipe-progress > span {
+    display: block;
+    width: var(--food-editor-completion, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+  }
+
+  .food-editor-modal .food-editor-side {
+    display: none;
+  }
+
+  .food-editor-modal .food-editor-usage-panel .food-editor-meta-grid,
+  .food-editor-modal .food-editor-notes-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .food-editor-modal .food-editor-usage-panel .food-editor-meal-card,
+  .food-editor-modal .food-editor-usage-panel .food-editor-tag-card,
+  .food-editor-modal .food-editor-usage-panel .food-editor-favorite-row {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .food-editor-modal .food-meal-checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .food-editor-modal .food-check-pill {
+    width: 100%;
+    min-height: var(--tap-min);
+    justify-content: center;
+    padding-inline: var(--space-4);
+  }
+
+  .food-editor-modal .food-editor-scene-tags button,
+  .food-editor-modal .food-scene-tag-options button {
+    min-height: var(--tap-min);
+    padding-inline: var(--space-4);
+  }
+
+  .food-editor-modal .food-scene-tag-picker {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .food-editor-modal .food-scene-tag-create .ghost-button,
+  .food-editor-modal .food-scene-tag-create .text-input,
+  .food-editor-modal .food-editor-note-input input.text-input,
+  .food-editor-modal .food-name-grid .text-input,
+  .food-editor-modal .food-repurchase-panel-grid .text-input {
+    min-height: var(--control-height-touch);
+  }
+
+  .food-editor-modal .food-editor-note-input textarea.text-input {
+    min-height: 96px;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer > .workspace-overlay-footer-info {
+    display: none;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer .ui-form-actions-secondary {
+    display: none;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer .ui-form-actions-primary {
+    grid-column: 1 / -1 !important;
+  }
+}

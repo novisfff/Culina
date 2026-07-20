@@ -115,7 +115,7 @@ function renderDrawer(options: { isQuickAdding?: boolean } = {}) {
         getDefaultMealType={() => 'dinner'}
         getPrimaryFoodActionLabel={() => '记一餐'}
         getRepurchaseLabel={() => '适合复吃'}
-        getSecondaryFoodActionLabel={() => '编辑资料'}
+        getSecondaryFoodActionLabel={() => '编辑档案'}
         getSceneTags={(food) => food.scene_tags ?? []}
         onClose={onClose}
         onOpenPlanDialog={vi.fn()}
@@ -154,7 +154,7 @@ describe('FoodDetailDrawer', () => {
     const { onClose, view } = renderDrawer({ isQuickAdding: true });
 
     expectButtonsDisabled(view, '处理中...');
-    expectButtonsDisabled(view, '编辑资料');
+    expectButtonsDisabled(view, '编辑档案');
     expectButtonsDisabled(view, '加入菜单');
     expectButtonsDisabled(view, '编辑菜谱');
     expectButtonsDisabled(view, '+ 晚餐');

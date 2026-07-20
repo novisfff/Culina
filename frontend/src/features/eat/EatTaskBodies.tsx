@@ -107,6 +107,7 @@ import { MealLogIcon } from '../meals/MealLogIcons';
 import { MealHistorySurface } from '../meals/MealHistorySurface';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
 
+const EAT_FOOD_EDITOR_FORM_ID = 'eat-food-editor-form';
 
 function resolveUrl(url: string) {
   return resolveAssetUrl(url) ?? url;
@@ -307,6 +308,7 @@ export function EatFoodTaskBody(props: {
           onClose={() => {
             if (!props.isSavingFood) setIsEditing(false);
           }}
+          busy={Boolean(props.isSavingFood)}
           closeOnBackdrop={!props.isSavingFood}
         >
           <WorkspaceModal
@@ -314,6 +316,29 @@ export function EatFoodTaskBody(props: {
             description="补充名称、库存和日常信息。"
             eyebrow="食物资料"
             className="food-editor-modal"
+            busy={Boolean(props.isSavingFood)}
+            footerInfo={(
+              <>
+                <strong>
+                  已完成 {completionItems.filter((item) => item.done).length} / {completionItems.length} 项资料
+                </strong>
+                <span>保存后仍可继续补充</span>
+              </>
+            )}
+            footerActions={(
+              <FormActions
+                primaryLabel="保存"
+                submittingLabel="保存中..."
+                primaryType="submit"
+                primaryForm={EAT_FOOD_EDITOR_FORM_ID}
+                primaryDisabled={props.isSavingFood || !Boolean(form.name.trim() || isSelfMade)}
+                isSubmitting={Boolean(props.isSavingFood)}
+                secondaryLabel="取消"
+                onSecondary={() => {
+                  if (!props.isSavingFood) setIsEditing(false);
+                }}
+              />
+            )}
             onClose={() => {
               if (!props.isSavingFood) setIsEditing(false);
             }}
@@ -325,13 +350,13 @@ export function EatFoodTaskBody(props: {
               completionItems={completionItems}
               completionPercent={completionPercent}
               currentRecipe={recipe}
-              editorFoodTitle={form.name || props.food.name}
               editorProfile={{
                 title: isSelfMade ? '家常菜资料' : '食物资料',
                 description: '保存后会更新这份家常菜的基础信息。',
               }}
               editorRecipeCover={recipe?.images[0]?.url}
               editorRecipeMeta={recipe ? `${recipe.ingredient_items.length} 项用料 · ${recipe.steps.length} 步` : '未绑定做法'}
+              formId={EAT_FOOD_EDITOR_FORM_ID}
               form={form}
               imageState={imageComposer.state}
               isSavingFood={props.isSavingFood}
@@ -340,6 +365,7 @@ export function EatFoodTaskBody(props: {
               isUpdatingScene={false}
               newSceneTagName={newSceneTagName}
               sceneTags={sceneTags}
+              showActions={false}
               submitLabel="保存"
               view="edit"
               onAddSceneTag={(tag) =>

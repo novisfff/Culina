@@ -39,6 +39,7 @@ import {
   formatFoodStockQuantity,
   getFoodGovernanceIssueLabels,
   getFoodGovernanceIssues,
+  getSecondaryFoodActionLabel,
 } from './FoodWorkspaceHelpers';
 import {
   buildDirectCookTarget,
@@ -365,6 +366,32 @@ function renderWorkspace(options: {
   return { client, food, recordMeal, loadMealCandidates, completeFoodPlanItem, onRecordSuccess, view };
 }
 
+describe('FoodWorkspace editor composition', () => {
+  it('uses the shared modal footer to submit the food editor form', () => {
+    const selfMadeFood: Food = {
+      ...baseFood,
+      id: 'food-self-made-editor',
+      name: recipe.title,
+      type: 'selfMade',
+      recipe_id: recipe.id,
+    };
+    const { view } = renderWorkspace({
+      food: selfMadeFood,
+      recipes: [recipe],
+      navigationRequest: { foodId: selfMadeFood.id, requestId: 11, target: 'edit' },
+    });
+
+    const form = view.querySelector<HTMLFormElement>('#food-editor-form');
+    const submit = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.includes('保存菜谱和资料'));
+
+    expect(form).not.toBeNull();
+    expect(submit?.getAttribute('form')).toBe('food-editor-form');
+    expect(submit?.closest('.workspace-overlay-footer')).not.toBeNull();
+    expect(form?.querySelector('.workspace-rail-actions')).toBeNull();
+  });
+});
+
 describe('FoodWorkspace meal recording ownership', () => {
   it('owns Food and Ingredient record paths via the Task 15 matrix', () => {
     expect(foodIngredientOwners.foodCardAgain).toBe('recordMeal');
@@ -527,6 +554,14 @@ describe('FoodWorkspace meal recording ownership', () => {
 });
 
 describe('food workspace helpers', () => {
+  it('uses 编辑档案 for the edit-information action across every food type', () => {
+    const foodTypes: Food['type'][] = ['selfMade', 'takeout', 'diningOut', 'readyMade', 'instant'];
+
+    foodTypes.forEach((type) => {
+      expect(getSecondaryFoodActionLabel({ ...baseFood, type })).toBe('编辑档案');
+    });
+  });
+
   it('chunks tablet food cards into two-item swipe columns', () => {
     const items = Array.from({ length: 7 }, (_, index) => index + 1);
 
