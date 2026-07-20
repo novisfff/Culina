@@ -15,7 +15,6 @@ import {
   invalidateAfterRecipeChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterRecipeDeleted,
-  invalidateAfterRecipeFavoriteChanged,
   invalidateAfterShoppingChanged,
 } from '../api/cacheInvalidation';
 
@@ -212,18 +211,6 @@ export function useAppMutations() {
     mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.previewCookRecipe>[1] }) =>
       api.previewCookRecipe(recipeId, payload),
   });
-  const addRecipeFavoriteMutation = useMutation({
-    mutationFn: api.addRecipeFavorite,
-    onSuccess: async () => {
-      await invalidateAfterRecipeFavoriteChanged(queryClient);
-    },
-  });
-  const removeRecipeFavoriteMutation = useMutation({
-    mutationFn: api.removeRecipeFavorite,
-    onSuccess: async () => {
-      await invalidateAfterRecipeFavoriteChanged(queryClient);
-    },
-  });
   const createFoodPlanItemMutation = useMutation({
     mutationFn: api.createFoodPlanItem,
     onSuccess: async () => {
@@ -355,8 +342,6 @@ export function useAppMutations() {
     deleteRecipeMutation,
     cookRecipeMutation,
     previewCookRecipeMutation,
-    addRecipeFavoriteMutation,
-    removeRecipeFavoriteMutation,
     createFoodPlanItemMutation,
     updateFoodPlanItemMutation,
     deleteFoodPlanItemMutation,

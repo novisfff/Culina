@@ -40,14 +40,12 @@ function renderDrawer() {
         selectedReadyCount={0}
         selectedIngredientCount={0}
         selectedShortageCount={0}
-        isSelectedFavorite={false}
         selectedRecentCookLog={null}
         selectedRecipePlanItems={[]}
         onClose={onClose}
         onCook={vi.fn()}
         onPlan={vi.fn()}
         onShopping={vi.fn()}
-        onToggleFavorite={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
       />,

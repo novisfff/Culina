@@ -26,7 +26,6 @@ from app.models.domain import (
     Membership,
     Recipe,
     RecipeCookLog,
-    RecipeFavorite,
     FoodScene,
     ShoppingListItem,
     User,
@@ -335,16 +334,6 @@ def serialize_food_scene(item: FoodScene, media_map: dict[tuple[str, str], list[
         "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
-    }
-
-
-def serialize_recipe_favorite(item: RecipeFavorite) -> dict:
-    return {
-        "id": item.id,
-        "family_id": item.family_id,
-        "user_id": item.user_id,
-        "recipe_id": item.recipe_id,
-        "created_at": _utc_datetime(item.created_at),
     }
 
 

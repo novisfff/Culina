@@ -12,7 +12,7 @@ from app.ai.errors import AIConflictError
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
-from app.models.domain import Recipe, RecipeFavorite, RecipeIngredient, RecipeStep
+from app.models.domain import Recipe, RecipeIngredient, RecipeStep
 from app.schemas.recipes import CreateRecipeRequest, UpdateRecipeRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_recipe_image_request, enqueue_ai_entity_image_generation
@@ -67,38 +67,6 @@ def execute_recipe_draft(
     if recipe is None:
         raise AIConflictError("菜谱不存在或已被删除")
     assert_updated_at_matches(actual=recipe.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"菜谱 {recipe.title}")
-
-    if action == "set_favorite":
-        favorite = bool((payload.get("payload") or {}).get("favorite"))
-        existing = db.scalar(
-            select(RecipeFavorite).where(
-                RecipeFavorite.family_id == family_id,
-                RecipeFavorite.user_id == user_id,
-                RecipeFavorite.recipe_id == recipe.id,
-            )
-        )
-        if favorite and existing is None:
-            db.add(
-                RecipeFavorite(
-                    id=create_id("recipe-favorite"),
-                    family_id=family_id,
-                    user_id=user_id,
-                    recipe_id=recipe.id,
-                )
-            )
-        elif not favorite and existing is not None:
-            db.delete(existing)
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.UPDATE,
-            entity_type="Recipe",
-            entity_id=recipe.id,
-            summary=f"{'收藏' if favorite else '取消收藏'}菜谱 {recipe.title}",
-        )
-        db.flush()
-        return recipe
 
     if action == "delete":
         title = recipe.title

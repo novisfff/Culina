@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import Difficulty, IngredientQuantityTrackingMode
-from app.models.domain import Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, Recipe, RecipeFavorite
+from app.models.domain import Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, Recipe
 from app.services.ingredient_inventory_state import state_is_physically_present
 from app.services.inventory_usage import recipe_availability_summary, remaining_quantity, tracks_quantity
 
@@ -195,14 +195,7 @@ def build_recipe_discovery(
         foods=foods,
         today=today,
     )
-    favorite_recipe_ids = set(
-        db.scalars(
-            select(RecipeFavorite.recipe_id).where(
-                RecipeFavorite.family_id == family_id,
-                RecipeFavorite.user_id == user_id,
-            )
-        )
-    )
+    favorite_recipe_ids = set(db.scalars(select(Food.recipe_id).where(Food.family_id == family_id, Food.favorite.is_(True), Food.recipe_id.is_not(None))))
     planned_recipe_ids = set(
         db.scalars(
             select(Food.recipe_id)

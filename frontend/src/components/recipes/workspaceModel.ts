@@ -1,4 +1,4 @@
-import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeFavorite, RecipeIngredient, FoodPlanItem } from '../../api/types';
+import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeIngredient, FoodPlanItem } from '../../api/types';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';
@@ -294,7 +294,6 @@ export function filterRecipeCards(
     sceneFilter: string;
     difficultyFilter: 'all' | Difficulty;
     sortMode: RecipeSortMode;
-    favoriteRecipeIds?: Set<string>;
     matchedRecipeIds?: readonly string[];
   }
 ) {
@@ -308,8 +307,8 @@ export function filterRecipeCards(
       (options.quickFilter === 'ready' && card.availability === 'ready') ||
       (options.quickFilter === 'missing' && card.availability !== 'ready') ||
       (options.quickFilter === 'common' &&
-        (card.mealUsageCount > 0 || card.linkedFood?.favorite || Boolean(options.favoriteRecipeIds?.has(card.recipe.id)))) ||
-      (options.quickFilter === 'favorite' && Boolean(options.favoriteRecipeIds?.has(card.recipe.id))) ||
+        (card.mealUsageCount > 0 || card.linkedFood?.favorite)) ||
+      (options.quickFilter === 'favorite' && Boolean(card.linkedFood?.favorite)) ||
       (options.quickFilter === 'quick' && card.recipe.prep_minutes <= 20);
     const sceneMatch = options.sceneFilter === 'all';
     const difficultyMatch = options.difficultyFilter === 'all' || card.recipe.difficulty === options.difficultyFilter;
@@ -335,13 +334,12 @@ export function filterRecipeCards(
 
 export function buildRecipeHomeViewModel(
   cards: RecipeCardViewModel[],
-  favorites: RecipeFavorite[],
   planItems: FoodPlanItem[],
   mealLogs: MealLog[],
   foods: Food[],
   dateKey = todayKey()
 ): RecipeHomeViewModel {
-  const favoriteRecipeIds = new Set(favorites.map((item) => item.recipe_id));
+  const favoriteRecipeIds = new Set(cards.filter((card) => card.linkedFood?.favorite).map((card) => card.recipe.id));
   const cardByRecipeId = new Map(cards.map((card) => [card.recipe.id, card]));
   const { start, end } = getRecipeWeekRange(dateKey);
 
@@ -374,11 +372,9 @@ export function buildRecipeHomeViewModel(
     .sort((left, right) => right.count - left.count || right.card.updatedAt.localeCompare(left.card.updatedAt))
     .slice(0, 3);
 
-  const favoriteCreatedAt = new Map(favorites.map((item) => [item.recipe_id, item.created_at]));
-  const favoriteCards = [...favoriteRecipeIds]
-    .map((recipeId) => cardByRecipeId.get(recipeId))
-    .filter((card): card is RecipeCardViewModel => Boolean(card))
-    .sort((left, right) => (favoriteCreatedAt.get(right.recipe.id) ?? '').localeCompare(favoriteCreatedAt.get(left.recipe.id) ?? ''));
+  const favoriteCards = cards
+    .filter((card) => card.linkedFood?.favorite)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   const quickRecipes = cards
     .filter((card) => card.recipe.prep_minutes <= 20)

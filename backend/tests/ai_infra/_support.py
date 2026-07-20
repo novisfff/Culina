@@ -74,7 +74,6 @@ from app.models.domain import (
     Membership,
     Recipe,
     RecipeCookLog,
-    RecipeFavorite,
     RecipeIngredient,
     RecipeStep,
     SearchIndexJob,

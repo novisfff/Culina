@@ -69,7 +69,6 @@ def execute_food_profile_draft(
             summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
         )
         db.flush()
-        enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
         return food
 
     update_payload = payload.get("payload") or {}

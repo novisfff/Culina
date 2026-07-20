@@ -486,8 +486,6 @@ function App() {
     deleteRecipeMutation,
     cookRecipeMutation,
     previewCookRecipeMutation,
-    addRecipeFavoriteMutation,
-    removeRecipeFavoriteMutation,
     createFoodPlanItemMutation,
     updateFoodPlanItemMutation,
     deleteFoodPlanItemMutation,

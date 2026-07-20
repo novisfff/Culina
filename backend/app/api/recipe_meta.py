@@ -12,14 +12,13 @@ from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.ai.images.jobs import attach_image_generation_job_to_entity
-from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavorite
+from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
     CompleteFoodPlanItemRequest,
     CreateFoodPlanItemRequest,
     CreateFoodSceneRequest,
     FoodPlanItemOut,
-    RecipeFavoriteOut,
     FoodSceneOut,
     UpdateFoodPlanItemRequest,
     UpdateFoodSceneRequest,
@@ -40,7 +39,7 @@ from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
 from app.services.search.indexing import delete_search_document
 from app.services.search.jobs import enqueue_search_index_job
-from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
+from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
 
@@ -326,87 +325,6 @@ def delete_food_scene(
         summary=f"删除食物场景 {title}",
     )
     commit_session(db)
-    return None
-
-
-@router.get("/api/recipe-favorites", response_model=list[RecipeFavoriteOut])
-def list_recipe_favorites(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
-    user, membership = auth
-    items = list(
-        db.scalars(
-            select(RecipeFavorite)
-            .where(RecipeFavorite.family_id == membership.family_id, RecipeFavorite.user_id == user.id)
-            .order_by(RecipeFavorite.created_at.desc())
-        )
-    )
-    return [serialize_recipe_favorite(item) for item in items]
-
-
-@router.put("/api/recipe-favorites/{recipe_id}", response_model=RecipeFavoriteOut)
-def add_recipe_favorite(
-    recipe_id: str,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    existing = db.scalar(
-        select(RecipeFavorite).where(
-            RecipeFavorite.family_id == membership.family_id,
-            RecipeFavorite.user_id == user.id,
-            RecipeFavorite.recipe_id == recipe_id,
-        )
-    )
-    if existing is not None:
-        return serialize_recipe_favorite(existing)
-
-    favorite = RecipeFavorite(
-        id=create_id("recipe-favorite"),
-        family_id=membership.family_id,
-        user_id=user.id,
-        recipe_id=recipe_id,
-    )
-    db.add(favorite)
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.UPDATE,
-        entity_type="Recipe",
-        entity_id=recipe.id,
-        summary=f"收藏菜谱 {recipe.title}",
-    )
-    commit_session(db)
-    db.refresh(favorite)
-    return serialize_recipe_favorite(favorite)
-
-
-@router.delete("/api/recipe-favorites/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-def remove_recipe_favorite(
-    recipe_id: str,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> None:
-    user, membership = auth
-    favorite = db.scalar(
-        select(RecipeFavorite).where(
-            RecipeFavorite.family_id == membership.family_id,
-            RecipeFavorite.user_id == user.id,
-            RecipeFavorite.recipe_id == recipe_id,
-        )
-    )
-    if favorite is not None:
-        db.delete(favorite)
-        log_activity(
-            db,
-            family_id=membership.family_id,
-            actor_id=user.id,
-            action=ActivityAction.UPDATE,
-            entity_type="Recipe",
-            entity_id=recipe_id,
-            summary="取消收藏菜谱",
-        )
-        commit_session(db)
     return None
 
 

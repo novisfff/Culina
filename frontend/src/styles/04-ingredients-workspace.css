@@ -1,7 +1,4 @@
 @media (max-width: 1280px) {
-  .recipe-discovery-card-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 .ingredients-inventory-source-chip-group,
@@ -6308,11 +6305,6 @@
   .ingredients-catalog-grid > .ingredient-work-card.is-expanded {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
-
-  .recipe-discovery-layout,
-  .recipe-inspiration-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 1199px) {
@@ -6842,36 +6834,9 @@
     flex-direction: column;
   }
 
-  .recipe-discovery-section-head,
-  .recipe-side-panel-head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .recipe-inspiration-grid {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(236px, 82%);
-    grid-template-columns: none;
-    overflow-x: auto;
-    padding-bottom: 4px;
-    scrollbar-width: none;
-  }
-
-  .recipe-inspiration-grid::-webkit-scrollbar {
-    display: none;
-  }
-
-  .recipe-discovery-card-grid,
   .recipe-search-row,
-  .recipe-plan-form-row,
-  .recipe-side-list-item {
+  .recipe-plan-form-row {
     grid-template-columns: 1fr;
-  }
-
-  .recipe-side-thumb {
-    width: 100%;
-    aspect-ratio: 16 / 9;
   }
 
   .ingredients-restock-identity-media {
@@ -6995,24 +6960,6 @@
   stroke-width: 2.5;
 }
 
-.recipe-inspiration-title::before {
-  display: none;
-  content: none;
-}
-
-.recipe-inspiration-title .recipe-ui-icon {
-  width: 19px;
-  height: 19px;
-  color: #ff7118;
-  stroke-width: 2.35;
-}
-
-.recipe-inspiration-title .recipe-ui-icon path,
-.recipe-inspiration-title .recipe-ui-icon circle,
-.recipe-inspiration-title .recipe-ui-icon rect {
-  vector-effect: non-scaling-stroke;
-}
-
 .recipe-search-input-icon {
   display: grid;
   width: 18px;
@@ -7024,20 +6971,6 @@
 .recipe-search-input-icon .recipe-ui-icon {
   color: #9e938b;
   stroke-width: 2.15;
-}
-
-.recipe-side-icon {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  background: transparent;
-  color: #ff7118;
-  font-size: 1.15rem;
-}
-
-.recipe-side-icon .recipe-ui-icon {
-  stroke-width: 2.2;
 }
 
 .recipe-notice-toast {
@@ -7191,72 +7124,11 @@
   }
 }
 
-.recipe-inspiration-head button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.recipe-inspiration-head button .recipe-ui-icon {
-  width: 14px;
-  height: 14px;
-  stroke-width: 2.35;
-}
-
-.recipe-discovery-section-head h3 {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.recipe-discovery-section-head h3::after,
-.recipe-recommendation-section .recipe-discovery-section-head h3::after {
-  display: none;
-  content: none;
-}
-
 .recipe-heading-icon {
   width: 17px;
   height: 17px;
   color: #ff7118;
   stroke-width: 2.25;
-}
-
-.recipe-discovery-scroll-cue {
-  font-size: 1rem;
-}
-
-.recipe-discovery-scroll-cue .recipe-ui-icon {
-  width: 17px;
-  height: 17px;
-  stroke-width: 2.35;
-}
-
-.recipe-side-panel-head button {
-  display: inline-grid;
-  place-items: center;
-}
-
-.recipe-side-panel-head button .recipe-ui-icon {
-  width: 16px;
-  height: 16px;
-  stroke-width: 2.35;
-}
-
-.recipe-favorite-button {
-  font-size: 1rem;
-}
-
-.recipe-favorite-button .recipe-ui-icon {
-  width: 18px;
-  height: 18px;
-  color: #765f50;
-  stroke-width: 2;
-}
-
-.recipe-favorite-button.active .recipe-ui-icon {
-  color: #f05a4d;
-  fill: currentColor;
 }
 
 /* Recipe icon stroke normalization. */
@@ -7271,24 +7143,9 @@
 }
 
 .recipe-create-button .recipe-ui-icon,
-.recipe-inspiration-title .recipe-ui-icon,
 .recipe-search-input-icon .recipe-ui-icon,
-.recipe-side-icon .recipe-ui-icon,
-.recipe-inspiration-head button .recipe-ui-icon,
-.recipe-heading-icon,
-.recipe-discovery-scroll-cue .recipe-ui-icon,
-.recipe-side-panel-head button .recipe-ui-icon,
-.recipe-favorite-button .recipe-ui-icon {
+.recipe-heading-icon {
   stroke-width: 2.15;
-}
-
-.recipe-inspiration-title .recipe-ui-icon {
-  width: 20px;
-  height: 20px;
-}
-
-.recipe-inspiration-title .recipe-ui-icon.recipe-ui-icon {
-  color: #ff7118;
 }
 
 /* Premium mobile styling overrides for the Inventory Restock modal */

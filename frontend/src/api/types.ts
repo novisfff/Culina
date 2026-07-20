@@ -771,14 +771,6 @@ export interface SearchIndexJobResponse {
   completed_at?: string | null;
 }
 
-export interface RecipeFavorite {
-  id: string;
-  family_id: string;
-  user_id: string;
-  recipe_id: string;
-  created_at: string;
-}
-
 export interface FoodPlanItem {
   id: string;
   family_id: string;

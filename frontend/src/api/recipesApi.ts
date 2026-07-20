@@ -8,7 +8,6 @@ import type {
   Recipe,
   RecipeAvailabilitySummary,
   RecipeDiscovery,
-  RecipeFavorite,
   RecipePayload,
   RecipeStats,
 } from './types';
@@ -67,14 +66,5 @@ export const recipesApi = {
     request<CookRecipePreviewResponse>(`/api/recipes/${recipeId}/cook-preview`, {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
-  getRecipeFavorites: () => request<RecipeFavorite[]>('/api/recipe-favorites'),
-  addRecipeFavorite: (recipeId: string) =>
-    request<RecipeFavorite>(`/api/recipe-favorites/${recipeId}`, {
-      method: 'PUT',
-    }),
-  removeRecipeFavorite: (recipeId: string) =>
-    request<void>(`/api/recipe-favorites/${recipeId}`, {
-      method: 'DELETE',
     }),
 };

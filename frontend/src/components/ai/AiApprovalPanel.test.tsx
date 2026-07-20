@@ -10,7 +10,7 @@ import { approval, mealPlanApproval, qualityMetrics, recipeDraft, shoppingApprov
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+function recipeOperationApproval(action: 'update' | 'delete', overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
   const beforeRecipe = recipeDraft('番茄鸡蛋面');
   const draft = {
     draftType: 'recipe',
@@ -28,9 +28,7 @@ function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', o
         mediaCount: 1,
       },
     },
-    payload: action === 'set_favorite'
-      ? { favorite: true }
-      : action === 'delete'
+    payload: action === 'delete'
         ? { reason: '重复菜谱' }
         : {
             ...recipeDraft('番茄鸡蛋面升级版'),
@@ -44,9 +42,9 @@ function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', o
           },
   };
   return approval({
-    approval_type: action === 'set_favorite' ? 'recipe.favorite' : `recipe.${action}`,
-    title: action === 'delete' ? '确认删除菜谱' : action === 'set_favorite' ? '确认收藏菜谱' : '确认修改菜谱',
-    approve_label: action === 'delete' ? '删除菜谱' : action === 'set_favorite' ? '更新收藏' : '修改菜谱',
+    approval_type: `recipe.${action}`,
+    title: action === 'delete' ? '确认删除菜谱' : '确认修改菜谱',
+    approve_label: action === 'delete' ? '删除菜谱' : '修改菜谱',
     reject_label: '暂不处理',
     draft_schema_version: 'recipe_operation.v1',
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
@@ -1262,17 +1260,6 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('renders recipe favorite operations as compact status cards', async () => {
-    const pending = recipeOperationApproval('set_favorite');
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
-
-    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('当前：未收藏');
-    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('调整后：已收藏');
-    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('番茄鸡蛋面');
-    expect(rendered.container.textContent).not.toContain('食材匹配');
-    rendered.unmount();
-  });
-
   it('renders recipe delete operations as danger impact cards', async () => {
     const pending = recipeOperationApproval('delete');
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
@@ -1282,6 +1269,33 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('关联计划：2 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
+    rendered.unmount();
+  });
+
+  it('blocks retired recipe favorite operations from being approved', async () => {
+    const original = recipeOperationApproval('update');
+    const legacyDraft = original.initial_values.draft as Record<string, unknown>;
+    const pending = {
+      ...original,
+      approval_type: 'recipe.favorite',
+      initial_values: {
+        draft: {
+          ...legacyDraft,
+          action: 'set_favorite',
+          payload: { favorite: true },
+        },
+      },
+    };
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-recipe-favorite-card')).toBeNull();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+
+    expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
 

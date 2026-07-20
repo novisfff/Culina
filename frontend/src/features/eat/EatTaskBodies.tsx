@@ -843,12 +843,10 @@ export function EatRecipeTaskBody(props: {
           selectedReadyCount={selectedReadyCount}
           selectedIngredientCount={selectedIngredientCount}
           selectedShortageCount={selectedShortageCount}
-          isSelectedFavorite={false}
           selectedRecentCookLog={selectedCard.recipe.cook_logs[0] ?? null}
           selectedRecipePlanItems={[]}
           showPlanAction={false}
           showShoppingAction={false}
-          showFavoriteAction={false}
           showEditAction
           showDeleteAction={false}
           compactHeader
@@ -858,7 +856,6 @@ export function EatRecipeTaskBody(props: {
           onCook={() => props.onCook(props.foodId, props.recipeId)}
           onPlan={() => undefined}
           onShopping={() => undefined}
-          onToggleFavorite={() => undefined}
           onEdit={() => props.onEdit(props.recipeId)}
           onDelete={async () => undefined}
         />

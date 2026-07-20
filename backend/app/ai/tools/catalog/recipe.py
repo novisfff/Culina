@@ -23,7 +23,7 @@ from app.ai.workflows.orchestrator.continuation import normalize_continuation
 from app.ai.workflows.orchestrator.product_continuations import ContinuationBuildError, build_recipe_shortage_continuation
 from app.ai.workflows.orchestrator.profiles import MAIN_WORKSPACE_PROFILE
 from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
-from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
+from app.models.domain import Food, FoodPlanItem, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
 from app.services.inventory_usage import build_cook_inventory_plan, serialize_cook_preview_item
@@ -48,7 +48,7 @@ RECIPE_OPERATION_DRAFT_SCHEMA = {
     "properties": {
         "draftType": {"type": "string", "enum": ["recipe"]},
         "schemaVersion": {"type": "string", "enum": ["recipe_operation.v1"]},
-        "action": {"type": "string", "enum": ["create", "update", "delete", "set_favorite"]},
+        "action": {"type": "string", "enum": ["create", "update", "delete"]},
         "targetId": {"type": ["string", "null"]},
         "baseUpdatedAt": {"type": ["string", "null"]},
         "before": {"type": ["object", "null"]},
@@ -90,22 +90,6 @@ RECIPE_DELETE_OPERATION_SCHEMA = {
         },
     },
 }
-RECIPE_FAVORITE_OPERATION_SCHEMA = {
-    **RECIPE_OPERATION_DRAFT_SCHEMA,
-    "required": ["action", "targetId", "baseUpdatedAt", "payload"],
-    "properties": {
-        **RECIPE_OPERATION_DRAFT_SCHEMA["properties"],
-        "action": {"type": "string", "enum": ["set_favorite"]},
-        "targetId": {"type": "string", "minLength": 1},
-        "baseUpdatedAt": {"type": "string", "minLength": 1},
-        "payload": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["favorite"],
-            "properties": {"favorite": {"type": "boolean"}},
-        },
-    },
-}
 RECIPE_TOOL_DRAFT_SCHEMA = {
     **RECIPE_OPERATION_DRAFT_SCHEMA,
     "required": [],
@@ -123,7 +107,6 @@ RECIPE_TOOL_DRAFT_SCHEMA = {
         RECIPE_CREATE_OPERATION_SCHEMA,
         RECIPE_UPDATE_OPERATION_SCHEMA,
         RECIPE_DELETE_OPERATION_SCHEMA,
-        RECIPE_FAVORITE_OPERATION_SCHEMA,
     ],
 }
 
@@ -230,15 +213,7 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
 def _recipe_search_response(context: ToolContext, recipes: list[Recipe], *, limit: int) -> dict[str, Any]:
     has_more = len(recipes) > limit
     recipes = recipes[:limit]
-    favorite_ids = set(
-        context.db.scalars(
-            select(RecipeFavorite.recipe_id).where(
-                RecipeFavorite.family_id == context.family_id,
-                RecipeFavorite.user_id == context.user_id,
-                RecipeFavorite.recipe_id.in_([item.id for item in recipes]),
-            )
-        )
-    )
+    favorite_ids = set(context.db.scalars(select(Food.recipe_id).where(Food.family_id == context.family_id, Food.favorite.is_(True), Food.recipe_id.in_([item.id for item in recipes]))))
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"recipe"}, entity_ids=[item.id for item in recipes])
     return {
         "items": [
@@ -292,13 +267,7 @@ def recipe_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str
             entity_ids=[recipe.id],
         )
     )
-    favorite = context.db.scalar(
-        select(RecipeFavorite.id).where(
-            RecipeFavorite.family_id == context.family_id,
-            RecipeFavorite.user_id == context.user_id,
-            RecipeFavorite.recipe_id == recipe.id,
-        )
-    )
+    favorite = context.db.scalar(select(Food.id).where(Food.family_id == context.family_id, Food.recipe_id == recipe.id, Food.favorite.is_(True)))
     return {
         "item": {
             **serialize_recipe(recipe, media_map),

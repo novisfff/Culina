@@ -136,6 +136,8 @@ function renderPlanState(overrides: Partial<PlanStateInput> = {}) {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-07-17T12:00:00.000Z'));
   latestPlanState = null;
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -150,6 +152,7 @@ afterEach(() => {
   container?.remove();
   container = null;
   latestPlanState = null;
+  vi.useRealTimers();
 });
 
 describe('useFoodPlanState navigation', () => {

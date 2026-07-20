@@ -172,6 +172,65 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             self.assertNotEqual(document.content_hash, old_hash)
             self.assertEqual(document.vector_status, "disabled")
 
+    def test_food_favorite_change_does_not_enqueue_search_index_job(self) -> None:
+        response = self.client.post(
+            "/api/foods",
+            json={
+                "name": "收藏切换测试食物",
+                "type": "instant",
+                "category": "速食",
+                "flavor_tags": [],
+                "suitable_meal_types": ["dinner"],
+                "source_name": "",
+                "purchase_source": "",
+                "scene": "",
+                "notes": "",
+                "routine_note": "",
+                "price": None,
+                "rating": None,
+                "repurchase": False,
+                "expiry_date": None,
+                "stock_quantity": None,
+                "stock_unit": "份",
+                "favorite": False,
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        food = response.json()
+        with self.SessionLocal() as db:
+            initial_job_count = len(
+                list(
+                    db.scalars(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "food",
+                            SearchIndexJob.entity_id == food["id"],
+                        )
+                    )
+                )
+            )
+
+        favorite_response = self.client.patch(
+            f"/api/foods/{food['id']}/favorite",
+            json={"favorite": True, "expected_row_version": food["row_version"]},
+        )
+        self.assertEqual(favorite_response.status_code, 200, favorite_response.text)
+        self.assertTrue(favorite_response.json()["favorite"])
+        with self.SessionLocal() as db:
+            job_count = len(
+                list(
+                    db.scalars(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "food",
+                            SearchIndexJob.entity_id == food["id"],
+                        )
+                    )
+                )
+            )
+        self.assertEqual(job_count, initial_job_count)
+
     def test_food_plan_create_update_and_delete_syncs_search_document(self) -> None:
         food_response = self.client.post(
             "/api/foods",

@@ -96,7 +96,6 @@ export async function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
     queryKeys.recipes,
     queryKeys.recipeDiscovery,
     queryKeys.recipeStats,
-    queryKeys.recipeFavorites,
     queryKeys.foodPlanRoot,
     queryKeys.foods,
     queryKeys.foodRecommendations,
@@ -123,10 +122,6 @@ export async function invalidateAfterRecipeCooked(queryClient: QueryClient) {
     queryKeys.activityLogs,
     queryKeys.activityHighlights,
   ]);
-}
-
-export async function invalidateAfterRecipeFavoriteChanged(queryClient: QueryClient) {
-  await invalidateMany(queryClient, [queryKeys.recipeFavorites, queryKeys.activityLogs]);
 }
 
 export async function invalidateAfterFoodPlanChanged(queryClient: QueryClient) {

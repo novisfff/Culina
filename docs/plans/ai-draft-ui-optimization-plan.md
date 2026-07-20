@@ -29,7 +29,7 @@
 | draftType | 主要 approval_type | 当前成熟度 | 优先级 |
 | --- | --- | --- | --- |
 | `ingredient_profile` | `ingredient.create`, `ingredient.update` | 基准标准 | P0 baseline |
-| `recipe` | `recipe.create`, `recipe.update`, `recipe.delete`, `recipe.favorite` | 已统一创建/更新分区、资源绑定、单位下拉、危险/收藏卡和提交校验 | P0 |
+| `recipe` | `recipe.create`, `recipe.update`, `recipe.delete` | 已统一创建/更新分区、资源绑定、单位下拉、危险卡和提交校验 | P0 |
 | `recipe_cook` | `recipe.cook` | 已补摘要、分区、缺料阻断和可读库存预览 | P0 |
 | `meal_plan` | `meal_plan.create`, `meal_plan.apply` | 已补摘要、统一计划卡、before/after、删除影响和提交校验 | P1 |
 | `shopping_list` | `shopping_list.create`, `shopping_list.apply` | 已补摘要、数量模式下拉、单位 combobox、状态/删除卡和提交校验 | P1 |
@@ -65,14 +65,12 @@
 - `recipe.create`
 - `recipe.update`
 - `recipe.delete`
-- `recipe.favorite`
 
 当前状态：
 
 - `recipe.create` 使用结构化编辑器，按摘要、基础信息、食材匹配、烹饪步骤、补充信息组织。
 - `recipe.update` 已和创建草稿统一为同一套分区，可核对并编辑食材和步骤变更。
 - `recipe.delete` 已使用危险影响卡，展示被删菜谱、同步食物、关联计划、历史烹饪和媒体绑定影响。
-- `recipe.favorite` 已使用紧凑收藏状态卡，并通过有限选项下拉修改收藏状态。
 
 优化说明：
 
@@ -82,8 +80,7 @@
 - 已实现：单位从自由输入优化为可自定义下拉，预设来自食材默认单位和常用单位。
 - 已实现：步骤图标继续使用单选下拉；关键点从自由顿号文本优化为 tag/chip 输入。
 - 已实现：`delete` 使用危险摘要卡，展示被删菜谱、同步食物影响、计划引用、历史烹饪引用和媒体绑定影响；删除原因保留 textarea。
-- 已实现：`favorite` 使用紧凑确认卡，不展示完整菜谱表单。
-- 已实现：已处理状态统一压缩为菜谱摘要卡，显示创建/更新/删除/收藏结果。
+- 已实现：已处理状态统一压缩为菜谱摘要卡，显示创建、更新或删除结果。
 
 前端校验：
 

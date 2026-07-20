@@ -323,10 +323,8 @@ function validateRecipeOperationDraftForSubmit(draft: Record<string, unknown>) {
   const before = typeof draft.before === 'object' && draft.before !== null && !Array.isArray(draft.before)
     ? draft.before as Record<string, unknown>
     : {};
+  if (!['create', 'update', 'delete'].includes(action)) return '菜谱操作类型不正确';
   if (action === 'delete') return '';
-  if (action === 'set_favorite') {
-    return typeof payload.favorite === 'boolean' ? '' : '收藏状态必须从固定选项中选择';
-  }
   return validateRecipeDraftForSubmit(recipeDraftFromRecord(payload, before));
 }
 
@@ -1372,7 +1370,7 @@ export function ApprovalPanel({
       const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
         ? structuredDraft.before as Record<string, unknown>
         : {};
-      const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : action === 'set_favorite' ? '收藏' : '创建';
+      const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : '创建';
       const operationRecipe = recipeDraftFromRecord(payload, before);
       const deleteImpact = typeof before.deleteImpact === 'object' && before.deleteImpact !== null && !Array.isArray(before.deleteImpact)
         ? before.deleteImpact as Record<string, unknown>
@@ -1438,9 +1436,7 @@ export function ApprovalPanel({
                 <span>
                   {action === 'delete'
                     ? '确认后会删除菜谱，并按现有规则处理同步食物和媒体绑定。'
-                    : action === 'set_favorite'
-                      ? '确认后只更新收藏状态，不修改菜谱内容。'
-                      : '确认后会写入菜谱资料，并同步关联的家常菜食物资料。'}
+                    : '确认后会写入菜谱资料，并同步关联的家常菜食物资料。'}
                 </span>
               </div>
               <em>{actionLabel}</em>
@@ -1473,28 +1469,6 @@ export function ApprovalPanel({
                 <span>删除原因</span>
                 <textarea className="text-input" rows={2} value={asText(payload.reason)} disabled={readonly} placeholder="可选，说明删除原因" onChange={(event) => updatePayload({ reason: event.target.value })} />
               </label>
-            </div>
-          ) : action === 'set_favorite' ? (
-            <div className="ai-confirmation-item">
-              <div className="ai-recipe-favorite-card">
-                <div>
-                  <span>当前：{Boolean(before.favorite) ? '已收藏' : '未收藏'}</span>
-                  <strong>{operationRecipe.title || asText(before.title) || '当前菜谱'}</strong>
-                  <p>调整后：{Boolean(payload.favorite) ? '已收藏' : '未收藏'}</p>
-                </div>
-                <em>收藏</em>
-              </div>
-              <ApprovalSelectField
-                label="收藏状态"
-                value={String(Boolean(payload.favorite))}
-                disabled={readonly}
-                options={[
-                  { value: 'true', label: '加入收藏' },
-                  { value: 'false', label: '移出收藏' },
-                ]}
-                icon="type"
-                onChange={(favorite) => updatePayload({ favorite: favorite === 'true' })}
-              />
             </div>
           ) : (
             <div className="ai-confirmation-item">
@@ -3658,7 +3632,7 @@ export function ApprovalPanel({
           ? structuredDraft.before as Record<string, unknown>
           : {};
         const title = asText(payload.title) || asText(before.title);
-        const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : action === 'set_favorite' ? '收藏' : '创建';
+        const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : '创建';
         return [actionLabel, title].filter(Boolean).join(' · ');
       }
       if (draftType === 'inventory_operation') {

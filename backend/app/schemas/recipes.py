@@ -262,14 +262,6 @@ class RecipeStatsOut(BaseModel):
     frequent: list[RecipeStatsItemOut] = Field(default_factory=list)
 
 
-class RecipeFavoriteOut(BaseModel):
-    id: str
-    family_id: str
-    user_id: str
-    recipe_id: str
-    created_at: datetime
-
-
 class FoodPlanItemOut(BaseModel):
     id: str
     family_id: str
@@ -318,5 +310,4 @@ class CompleteFoodPlanItemRequest(BaseModel):
         if self.expected_meal_log_row_version is not None and not self.target_meal_log_id:
             raise ValueError("expected_meal_log_row_version 不能脱离 target_meal_log_id 使用")
         return self
-
 
