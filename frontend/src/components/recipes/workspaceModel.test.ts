@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food, Ingredient, InventoryItem, MealLog, Recipe, RecipeFavorite, FoodPlanItem } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, MealLog, Recipe, FoodPlanItem } from '../../api/types';
 import { buildRecipeCards, buildRecipeHomeViewModel, filterRecipeCards } from './workspaceModel';
 
 const tomato: Ingredient = {
@@ -171,13 +171,6 @@ const weeklyMealLog: MealLog = {
   updated_at: '2026-05-12T10:00:00Z',
 };
 
-const recipeFavorite: RecipeFavorite = {
-  id: 'favorite-1',
-  family_id: 'family-1',
-  user_id: 'user-1',
-  recipe_id: 'recipe-missing',
-  created_at: '2026-05-12T12:00:00Z',
-};
 
 const planItem: FoodPlanItem = {
   id: 'plan-1',
@@ -317,11 +310,10 @@ describe('recipe workspace model', () => {
     vi.setSystemTime(new Date(2026, 4, 13, 8, 0, 0));
     const cards = buildRecipeCards(recipes, [tomato, flour], inventoryItems, [...mealLogs, weeklyMealLog], foods);
 
-    const home = buildRecipeHomeViewModel(cards, [recipeFavorite], [planItem], [...mealLogs, weeklyMealLog], foods, '2026-05-13');
+    const home = buildRecipeHomeViewModel(cards, [planItem], [...mealLogs, weeklyMealLog], foods, '2026-05-13');
 
-    expect(home.favoriteCards.map((card) => card.recipe.id)).toEqual(['recipe-missing']);
-    expect(home.recommendedCards[0]?.recipe.id).toBe('recipe-missing');
-    expect(home.recommendedCards[1]?.recipe.id).toBe('recipe-ready');
+    expect(home.favoriteCards.map((card) => card.recipe.id)).toEqual(['recipe-ready']);
+    expect(home.recommendedCards[0]?.recipe.id).toBe('recipe-ready');
     expect(home.weeklyTop[0]?.card.recipe.id).toBe('recipe-ready');
     expect(home.weeklyTop[0]?.count).toBe(1);
     expect(home.quickRecipes.map((card) => card.recipe.id)).toEqual(['recipe-ready']);
@@ -334,7 +326,7 @@ describe('recipe workspace model', () => {
     vi.setSystemTime(new Date(2026, 4, 13, 8, 0, 0));
     const cards = buildRecipeCards(recipes, [tomato, flour], inventoryItems, mealLogs, foods);
 
-    const home = buildRecipeHomeViewModel(cards, [], [], mealLogs, foods, '2026-05-13');
+    const home = buildRecipeHomeViewModel(cards, [], mealLogs, foods, '2026-05-13');
 
     expect(home.recommendedCards.map((card) => card.recipe.id)).toEqual(['recipe-ready', 'recipe-missing']);
   });

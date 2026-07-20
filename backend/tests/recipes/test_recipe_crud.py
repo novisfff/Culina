@@ -214,11 +214,12 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
             self.assertEqual(linked_food["scene"], "日常")
             self.assertEqual(linked_food["notes"], "少油版")
 
-            favorite_response = self.client.put(f"/api/recipe-favorites/{recipe_id}")
+            favorite_response = self.client.patch(
+                f"/api/foods/{linked_food['id']}/favorite",
+                json={"favorite": True, "expected_row_version": linked_food["row_version"]},
+            )
             self.assertEqual(favorite_response.status_code, 200, favorite_response.text)
-            self.assertEqual(favorite_response.json()["recipe_id"], recipe_id)
-            favorites = self.client.get("/api/recipe-favorites").json()
-            self.assertEqual(len(favorites), 1)
+            self.assertTrue(favorite_response.json()["favorite"])
 
             plan_response = self.client.post(
                 "/api/food-plan",
@@ -256,8 +257,6 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
 
             delete_plan = self.client.delete(f"/api/food-plan/{plan_id}")
             self.assertEqual(delete_plan.status_code, 204, delete_plan.text)
-            delete_favorite = self.client.delete(f"/api/recipe-favorites/{recipe_id}")
-            self.assertEqual(delete_favorite.status_code, 204, delete_favorite.text)
             delete_scene = self.client.delete(f"/api/food-scenes/{scene_id}")
             self.assertEqual(delete_scene.status_code, 204, delete_scene.text)
             delete_recipe = self.client.delete(f"/api/recipes/{recipe_id}")

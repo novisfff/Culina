@@ -787,6 +787,18 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 "payload 至少包含 `title`、`servings`、`prep_minutes`、`difficulty`、`ingredient_items` 和 `steps`",
                 skill_registry.get("recipe_draft").instructions,
             )
+            self.assertNotIn(
+                "set_favorite",
+                skill_registry.get("recipe_draft").instructions,
+            )
+            self.assertNotIn(
+                "收藏番茄炒蛋菜谱。",
+                skill_registry.get("recipe_draft").manifest.examples,
+            )
+            self.assertNotIn(
+                "收藏番茄炒蛋菜谱。",
+                skill_registry.get("recipe_draft").manifest.routing.include_examples,
+            )
             self.assertIn(
                 "预览中有 `shortages` 时，不生成 `recipe_cook` 草稿",
                 skill_registry.get("recipe_cook").instructions,

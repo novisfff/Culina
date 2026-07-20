@@ -6322,8 +6322,7 @@
   opacity: 0.68;
 }
 
-.ai-food-profile-favorite-card,
-.ai-recipe-favorite-card {
+.ai-food-profile-favorite-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -6334,17 +6333,14 @@
   padding: 14px;
 }
 
-.ai-food-profile-favorite-card > div,
-.ai-recipe-favorite-card > div {
+.ai-food-profile-favorite-card > div {
   display: grid;
   gap: 4px;
   min-width: 0;
 }
 
 .ai-food-profile-favorite-card span,
-.ai-food-profile-favorite-card p,
-.ai-recipe-favorite-card span,
-.ai-recipe-favorite-card p {
+.ai-food-profile-favorite-card p {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.8125rem;
@@ -6352,8 +6348,7 @@
   line-height: 1.45;
 }
 
-.ai-food-profile-favorite-card strong,
-.ai-recipe-favorite-card strong {
+.ai-food-profile-favorite-card strong {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text);
@@ -6362,8 +6357,7 @@
   line-height: 1.35;
 }
 
-.ai-food-profile-favorite-card em,
-.ai-recipe-favorite-card em {
+.ai-food-profile-favorite-card em {
   min-height: 28px;
   border: 1px solid rgba(230, 154, 46, 0.22);
   border-radius: var(--radius-pill);

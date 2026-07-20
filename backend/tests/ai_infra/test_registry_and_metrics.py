@@ -1358,12 +1358,6 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ("meal_log", {"action": "rate_food"}, "meal_log.rate_food", "更新评分"),
                 ("recipe", {"action": "update"}, "recipe.update", "更新菜谱"),
                 ("recipe", {"action": "delete"}, "recipe.delete", "删除菜谱"),
-                (
-                    "recipe",
-                    {"action": "set_favorite", "payload": {"favorite": False}},
-                    "recipe.favorite",
-                    "确认更新收藏",
-                ),
                 ("meal_plan", {"operations": [{"action": "create"}]}, "meal_plan.apply", "添加计划"),
                 ("meal_plan", {"operations": [{"action": "set_status"}]}, "meal_plan.apply", "修改计划"),
                 (

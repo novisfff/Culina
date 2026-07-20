@@ -11,16 +11,13 @@ type RecipeDetailViewProps = {
   selectedReadyCount: number;
   selectedIngredientCount: number;
   selectedShortageCount: number;
-  isSelectedFavorite: boolean;
   selectedRecentCookLog: RecipeCardViewModel['recipe']['cook_logs'][number] | null;
   selectedRecipePlanItems: Array<{ id: string }>;
-  isUpdatingFavorite?: boolean;
   isCreatingShopping?: boolean;
   isDeletingRecipe?: boolean;
   compactHeader?: boolean;
   showPlanAction?: boolean;
   showShoppingAction?: boolean;
-  showFavoriteAction?: boolean;
   showEditAction?: boolean;
   showDeleteAction?: boolean;
   showHeroTitle?: boolean;
@@ -29,7 +26,6 @@ type RecipeDetailViewProps = {
   onCook: (card: RecipeCardViewModel) => void;
   onPlan: (card: RecipeCardViewModel) => void;
   onShopping: (card: RecipeCardViewModel) => void;
-  onToggleFavorite: (card: RecipeCardViewModel) => Promise<void> | void;
   onEdit: (card: RecipeCardViewModel) => void;
   onDelete: () => Promise<void> | void;
 };
@@ -39,16 +35,13 @@ export function RecipeDetailView({
   selectedReadyCount,
   selectedIngredientCount,
   selectedShortageCount,
-  isSelectedFavorite,
   selectedRecentCookLog,
   selectedRecipePlanItems,
-  isUpdatingFavorite,
   isCreatingShopping,
   isDeletingRecipe,
   compactHeader = false,
   showPlanAction = false,
   showShoppingAction = true,
-  showFavoriteAction = true,
   showEditAction = true,
   showDeleteAction = true,
   showHeroTitle = true,
@@ -57,7 +50,6 @@ export function RecipeDetailView({
   onCook,
   onPlan,
   onShopping,
-  onToggleFavorite,
   onEdit,
   onDelete,
 }: RecipeDetailViewProps) {
@@ -127,12 +119,6 @@ export function RecipeDetailView({
                     <ActionButton tone="secondary" type="button" onClick={() => onShopping(selectedCard)} disabled={isCreatingShopping}>
                       <RecipeUiIcon name="basket" />
                       加入采购
-                    </ActionButton>
-                  )}
-                  {showFavoriteAction && (
-                    <ActionButton tone="secondary" type="button" onClick={() => void onToggleFavorite(selectedCard)} disabled={isUpdatingFavorite}>
-                      <RecipeUiIcon name="star" />
-                      {isSelectedFavorite ? '已收藏' : '收藏'}
                     </ActionButton>
                   )}
                   {showEditAction && (

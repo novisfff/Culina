@@ -28,8 +28,6 @@ const staleRecipeClasses = [
 describe('Recipe legacy style cleanup', () => {
   const repoRoot = resolve(__dirname, '../../..');
   const recipeSources = [
-    'src/components/recipes/RecipeWorkspace.tsx',
-    'src/components/recipes/RecipeLibraryView.tsx',
     'src/components/recipes/RecipeWorkspaceCards.tsx',
     'src/components/recipes/RecipeDetailView.tsx',
     'src/components/recipes/RecipeCookView.tsx',
@@ -47,10 +45,8 @@ describe('Recipe legacy style cleanup', () => {
     .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
     .join('\n');
 
-  it('keeps current recipe library and cook assistant styles without stale helper classes', () => {
-    expect(recipeSources).toContain('recipe-filter-row');
+  it('keeps current recipe task and cook assistant styles without stale helper classes', () => {
     expect(recipeSources).toContain('recipe-cook-ai-drag-bar');
-    expect(recipeSources).toContain('recipe-plan-item');
 
     for (const className of staleRecipeClasses) {
       expect(recipeSources).not.toContain(className);
@@ -118,62 +114,6 @@ describe('Recipe legacy style cleanup', () => {
     expect(recipeStyles).not.toContain('.recipe-cook-finish-actions .ui-form-actions-spacer');
     expect(recipeStyles).not.toContain('.recipe-cook-finish-actions .ui-form-actions-row {\n  justify-content: flex-end;');
     expect(recipeStyles).not.toContain('  .recipe-cook-finish-actions {\n    display: grid;');
-  });
-
-  it('keeps recipe and food sidebar plan switcher styles isolated from ingredient styles', () => {
-    const recipeStyles = readFileSync(resolve(repoRoot, 'src/styles/03-recipe-workspace.css'), 'utf8');
-    const ingredientStyles = readFileSync(resolve(repoRoot, 'src/styles/04-ingredients-workspace.css'), 'utf8');
-    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-
-    expect(recipeSources).toContain('className="recipe-plan-switcher"');
-    expect(recipeStyles).toContain('.recipe-plan-switcher {');
-    expect(foodStyles).toContain('.food-sidebar-plan-switcher {');
-    expect(foodStyles).not.toContain('.food-plan-switcher.recipe-plan-switcher');
-    expect(ingredientStyles).not.toContain('.recipe-plan-switcher');
-  });
-
-  it('keeps recipe discovery card and plan action styles out of ingredient styles', () => {
-    const ingredientStyles = readFileSync(resolve(repoRoot, 'src/styles/04-ingredients-workspace.css'), 'utf8');
-    const overlayStyles = readFileSync(resolve(repoRoot, 'src/styles/05-workspace-overlays.css'), 'utf8');
-    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-    const recipeStyles = readFileSync(resolve(repoRoot, 'src/styles/03-recipe-workspace.css'), 'utf8');
-
-    expect(recipeSources).toContain('recipe-discovery-card-body');
-    expect(recipeSources).toContain('recipe-discovery-card-hit');
-    expect(recipeSources).toContain('recipe-discovery-side');
-    expect(recipeSources).toContain('recipe-side-list-item');
-    expect(recipeSources).toContain('recipe-plan-add-button');
-    expect(recipeStyles).toContain('.recipe-discovery-side');
-    expect(recipeStyles).toContain('.recipe-side-list-item');
-    expect(recipeStyles).toContain('.recipe-side-thumb');
-    expect(overlayStyles).toContain('.recipe-discovery-card-body');
-    expect(overlayStyles).toContain('.recipe-discovery-card-hit');
-    expect(foodStyles).not.toContain('.recipe-plan-add-button.solid-button');
-    expect(foodStyles).not.toContain('.recipe-discovery-card-hit');
-    expect(foodStyles).not.toContain('.recipe-discovery-side .recipe-side-list-item');
-    expect(foodStyles).not.toContain('.recipe-discovery-side .recipe-side-thumb');
-    expect(ingredientStyles).not.toContain('.recipe-discovery-card-body');
-    expect(ingredientStyles).not.toContain('.recipe-discovery-card-hit');
-    expect(ingredientStyles).not.toContain('.recipe-plan-add-button');
-  });
-
-  it('keeps recipe cover illustration styles in recipe styles instead of ingredient styles', () => {
-    const recipeStyles = readFileSync(resolve(repoRoot, 'src/styles/03-recipe-workspace.css'), 'utf8');
-    const ingredientStyles = readFileSync(resolve(repoRoot, 'src/styles/04-ingredients-workspace.css'), 'utf8');
-    const overlayStyles = readFileSync(resolve(repoRoot, 'src/styles/05-workspace-overlays.css'), 'utf8');
-    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-
-    expect(recipeSources).toContain('recipe-cover-illustration');
-    expect(recipeStyles).toContain('.recipe-work-cover .recipe-cover-illustration');
-    expect(recipeStyles).toContain('.recipe-cover-illustration.tone-fish');
-    expect(recipeStyles).toContain('.recipe-mini-thumb .recipe-cover-illustration small');
-    expect(recipeStyles).toContain('.mobile-recipe-cover .media-placeholder-spark');
-    expect(overlayStyles).toContain('Recipe cover ratio ownership moved out of the food workspace stylesheet.');
-    expect(overlayStyles).toContain('.recipe-work-cover {\n  aspect-ratio: 4 / 3;');
-    expect(overlayStyles).toContain('.recipe-discovery-card .recipe-discovery-card-cover {\n  margin: 10px 10px 0;\n  aspect-ratio: 1.16 / 1;');
-    expect(foodStyles).not.toContain('.recipe-work-cover,\n.recipe-discovery-card .recipe-discovery-card-cover');
-    expect(foodStyles).not.toContain('.mobile-recipe-cover .media-placeholder-spark');
-    expect(ingredientStyles).not.toContain('recipe-cover-illustration');
   });
 
   it('keeps recipe scene cover ratio in overlay styles instead of food workspace media fallbacks', () => {

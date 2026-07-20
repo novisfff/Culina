@@ -628,7 +628,6 @@ def update_food_favorite(
         entity_id=food.id,
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
-    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     _commit_food_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

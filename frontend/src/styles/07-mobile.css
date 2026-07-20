@@ -331,10 +331,6 @@
     font-size: 0.95rem;
   }
 
-  .recipe-discovery-page {
-    display: none;
-  }
-
   .page-glow {
     display: none;
   }
@@ -350,9 +346,7 @@
   .mobile-recipe-topbar,
   .mobile-recipe-brand,
   .mobile-recipe-top-actions,
-  .mobile-recipe-section-head,
-  .mobile-recipe-meta-row,
-  .mobile-recipe-card-actions {
+  .mobile-recipe-section-head {
     display: flex;
     align-items: center;
   }
@@ -865,9 +859,7 @@
     font-weight: 700;
   }
 
-  .mobile-recipe-section-head svg,
-  .mobile-recipe-card-actions svg,
-  .mobile-recipe-favorite svg {
+  .mobile-recipe-section-head svg {
     width: 18px;
     height: 18px;
   }
@@ -881,385 +873,8 @@
     scrollbar-width: none;
   }
 
-  .mobile-recipe-featured-scroller::-webkit-scrollbar,
-  .mobile-recipe-scene-scroller::-webkit-scrollbar {
+  .mobile-recipe-featured-scroller::-webkit-scrollbar {
     display: none;
-  }
-
-  .mobile-recipe-card {
-    min-width: 0;
-    display: grid;
-    overflow: hidden;
-    border: 1px solid rgba(226, 205, 189, 0.86);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.92);
-    transition: transform 0.1s ease;
-  }
-
-  .mobile-recipe-card:active {
-    transform: scale(0.985);
-  }
-
-  .mobile-recipe-card-featured {
-    width: min(82vw, 352px);
-    flex: 0 0 min(82vw, 352px);
-    border-radius: 18px;
-    scroll-snap-align: start;
-  }
-
-  .mobile-recipe-cover {
-    position: relative;
-    width: 100%;
-    display: block;
-    overflow: hidden;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-  }
-
-  .mobile-recipe-cover .recipe-work-cover {
-    min-height: 0;
-    aspect-ratio: 1.46 / 1;
-    border-radius: 0;
-  }
-
-  .mobile-recipe-cover .media-with-placeholder,
-  .mobile-recipe-scene-card .mobile-recipe-scene-media {
-    --media-placeholder-gap: 6px;
-    --media-placeholder-label-font-size: 0.72rem;
-    --media-placeholder-label-padding: 3px 10px;
-    --media-placeholder-glow-size: 64%;
-  }
-
-  .mobile-recipe-card-featured .mobile-recipe-cover .recipe-work-cover {
-    aspect-ratio: 1.64 / 1;
-  }
-
-  .mobile-recipe-status {
-    position: absolute;
-    left: 10px;
-    bottom: 10px;
-    min-height: 28px;
-    display: inline-flex;
-    align-items: center;
-    max-width: calc(100% - 20px);
-    padding: 5px 9px;
-    overflow: hidden;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.88);
-    color: #6e5b4f;
-    font-size: 0.76rem;
-    font-weight: 920;
-    line-height: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    box-shadow: 0 8px 18px rgba(36, 25, 18, 0.13);
-  }
-
-  .mobile-recipe-status.tone-ready {
-    color: #4f7f55;
-  }
-
-  .mobile-recipe-status.tone-partial {
-    color: #986633;
-  }
-
-  .mobile-recipe-status.tone-missing {
-    color: #9b514e;
-  }
-
-  .mobile-recipe-card-body {
-    min-width: 0;
-    display: grid;
-    gap: 8px;
-    padding: 10px;
-  }
-
-  .mobile-recipe-card-featured .mobile-recipe-card-body {
-    gap: 10px;
-    padding: 13px;
-  }
-
-  .mobile-recipe-card-head {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 36px;
-    gap: 8px;
-    align-items: start;
-  }
-
-  .mobile-recipe-card-head button {
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-  }
-
-  .mobile-recipe-card-head strong,
-  .mobile-recipe-card-head small {
-    display: block;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-recipe-card-head strong {
-    color: #2d211b;
-    font-size: 1rem;
-    font-weight: 950;
-    line-height: 1.16;
-  }
-
-  .mobile-recipe-card-featured .mobile-recipe-card-head strong {
-    font-size: 1.18rem;
-  }
-
-  .mobile-recipe-card-head small {
-    margin-top: 4px;
-    color: #857367;
-    font-size: 0.76rem;
-    font-weight: 820;
-  }
-
-  .mobile-recipe-favorite {
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    border: 1px solid rgba(226, 205, 189, 0.92);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.86);
-    color: #8b7568;
-  }
-
-  .mobile-recipe-favorite.active {
-    border-color: rgba(223, 112, 52, 0.26);
-    background: #fff2ea;
-    color: #df6f34;
-  }
-
-  .mobile-recipe-card-body p {
-    min-height: 34px;
-    margin: 0;
-    overflow: hidden;
-    color: #75675e;
-    font-size: 0.8rem;
-    font-weight: 760;
-    line-height: 1.34;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .mobile-recipe-card-featured .mobile-recipe-card-body p {
-    font-size: 0.91rem;
-  }
-
-  .mobile-recipe-meta-row {
-    gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .mobile-recipe-meta-row span {
-    min-height: 26px;
-    max-width: calc((100% - 6px) / 2);
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1 1 0;
-    padding: 4px 8px;
-    overflow: hidden;
-    border: 1px solid rgba(226, 205, 189, 0.72);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.7);
-    color: #806f63;
-    font-size: 0.72rem;
-    font-weight: 850;
-    line-height: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-recipe-card-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 74px;
-    gap: 7px;
-    min-width: 0;
-  }
-
-  .mobile-recipe-card-actions button {
-    min-width: 0;
-    min-height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 0 8px;
-    overflow: hidden;
-    border: 1px solid rgba(226, 205, 189, 0.92);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.9);
-    color: #6e5b4f;
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 900;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-recipe-card-actions .mobile-recipe-primary {
-    border-color: transparent;
-    background: linear-gradient(180deg, #df7838, #d96a2f);
-    color: #fff;
-    box-shadow: 0 14px 30px rgba(211, 101, 43, 0.24);
-  }
-
-  .mobile-recipe-scene-scroller {
-    margin: 0 -6px;
-    overflow-x: auto;
-    padding: 0 6px 4px;
-    scrollbar-width: none;
-  }
-
-  .mobile-recipe-scene-grid {
-    width: max-content;
-    min-width: calc(100% - 12px);
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-rows: repeat(2, 96px);
-    grid-auto-columns: minmax(142px, calc((min(100vw, 480px) - 68px) / 2));
-    gap: 10px;
-  }
-
-  .mobile-recipe-scene-grid:has(.mobile-recipe-scene-card:only-child) {
-    grid-template-rows: 96px;
-  }
-
-  .mobile-recipe-scene-card {
-    position: relative;
-    isolation: isolate;
-    min-width: 0;
-    display: grid;
-    align-content: start;
-    justify-items: start;
-    gap: 5px;
-    overflow: hidden;
-    padding: 13px 13px 46px;
-    border: 0;
-    border-radius: 16px;
-    background: #c9a47d;
-    color: #fff;
-    font: inherit;
-    text-align: left;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 10px 22px rgba(83, 58, 38, 0.06);
-    transition: transform 0.1s ease;
-  }
-
-  .mobile-recipe-scene-card:active {
-    transform: scale(0.985);
-  }
-
-  .mobile-recipe-scene-card::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background:
-      linear-gradient(180deg, rgba(25, 18, 13, 0.58) 0%, rgba(25, 18, 13, 0.18) 44%, rgba(25, 18, 13, 0.4) 100%),
-      linear-gradient(90deg, rgba(38, 28, 20, 0.26) 0%, rgba(38, 28, 20, 0.08) 58%, transparent 100%);
-  }
-
-  .mobile-recipe-scene-card .mobile-recipe-scene-media,
-  .mobile-recipe-scene-card img,
-  .mobile-recipe-scene-card i {
-    position: absolute;
-    inset: 0;
-    z-index: -2;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    border-radius: inherit;
-    object-fit: cover;
-    object-position: center;
-  }
-
-  .mobile-recipe-scene-card .mobile-recipe-scene-media {
-    display: grid;
-  }
-
-  .mobile-recipe-scene-card i {
-    display: grid;
-    place-items: center;
-    background: rgba(223, 122, 57, 0.16);
-    color: #d46b32;
-    font-style: normal;
-    font-size: 1.25rem;
-    font-weight: 950;
-  }
-
-  .mobile-recipe-scene-card span {
-    min-width: 0;
-    max-width: 100%;
-    display: grid;
-    align-content: start;
-    gap: 4px;
-    position: relative;
-    z-index: 1;
-  }
-
-  .mobile-recipe-scene-card strong,
-  .mobile-recipe-scene-card small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .mobile-recipe-scene-card strong {
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 950;
-    line-height: 1.12;
-    text-shadow: 0 2px 8px rgba(34, 22, 14, 0.24);
-    white-space: nowrap;
-  }
-
-  .mobile-recipe-scene-card small {
-    color: rgba(255, 235, 211, 0.92);
-    font-size: 0.78rem;
-    font-weight: 900;
-    white-space: nowrap;
-    text-shadow: 0 2px 8px rgba(34, 22, 14, 0.18);
-  }
-
-  .mobile-recipe-scene-card b {
-    position: absolute;
-    right: 13px;
-    bottom: 12px;
-    z-index: 1;
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-    color: #6a5648;
-    box-shadow: 0 8px 16px rgba(37, 25, 17, 0.1);
-  }
-
-  .mobile-recipe-scene-card b svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .mobile-recipe-library-filters {
-    display: grid;
-    gap: 12px;
   }
 
 
@@ -1299,12 +914,6 @@
     background: #fff2ea;
     color: #df6f34;
     box-shadow: 0 10px 20px rgba(211, 101, 43, 0.1);
-  }
-
-  .mobile-recipe-library-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
   }
 
   .mobile-recipe-empty {
@@ -7711,8 +7320,7 @@
     background: #de7336;
   }
 
-  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover,
-  .mobile-notification-popover {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover, .mobile-notification-popover {
     top: calc(env(safe-area-inset-top, 0px) + 86px);
     right: max(14px, calc((100vw - 480px) / 2 + 14px));
     width: min(360px, calc(100vw - 28px));
@@ -8173,8 +7781,7 @@
     -webkit-overflow-scrolling: auto;
   }
 
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal.workspace-modal,
-  .ingredient-workspace-overlay-root .destroy-expired-modal.workspace-modal {
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal.workspace-modal, .ingredient-workspace-overlay-root .destroy-expired-modal.workspace-modal {
     box-sizing: border-box;
     width: 100%;
     max-width: none;
@@ -8185,22 +7792,17 @@
     overflow-x: hidden;
   }
 
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-head,
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body,
-  .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-head,
-  .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-head, :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-head, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
     box-sizing: border-box;
     width: 100%;
     max-width: 100%;
   }
 
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body,
-  .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
     overflow: hidden;
   }
 
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-form,
-  .ingredient-workspace-overlay-root .destroy-expired-form {
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-form, .ingredient-workspace-overlay-root .destroy-expired-form {
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
@@ -8208,8 +7810,7 @@
     overflow: hidden;
   }
 
-  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-scroll,
-  .ingredient-workspace-overlay-root .destroy-expired-scroll {
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-scroll, .ingredient-workspace-overlay-root .destroy-expired-scroll {
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;

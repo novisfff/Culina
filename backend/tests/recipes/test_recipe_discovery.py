@@ -230,12 +230,6 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                             created_by=self.user.id,
                             updated_by=self.user.id,
                         ),
-                        RecipeFavorite(
-                            id="favorite-ranking",
-                            family_id=self.family.id,
-                            user_id=self.user.id,
-                            recipe_id=favorite["id"],
-                        ),
                         RecipeCookLog(
                             id="cook-recent-today",
                             family_id=self.family.id,
@@ -277,6 +271,10 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                         ),
                     ]
                 )
+                linked_food = db.scalar(select(Food).where(Food.family_id == self.family.id, Food.recipe_id == favorite["id"]))
+                self.assertIsNotNone(linked_food)
+                assert linked_food is not None
+                linked_food.favorite = True
                 db.commit()
 
             response = self.client.get("/api/recipes/discovery?limit=10")

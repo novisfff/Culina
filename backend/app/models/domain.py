@@ -65,7 +65,6 @@ class Family(AuditMixin, Base):
     shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipes: Mapped[list["Recipe"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     food_scenes: Mapped[list["FoodScene"]] = relationship(back_populates="family", cascade="all, delete-orphan")
-    recipe_favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     foods: Mapped[list["Food"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     meal_logs: Mapped[list["MealLog"]] = relationship(back_populates="family", cascade="all, delete-orphan")
@@ -98,7 +97,6 @@ class User(AuditMixin, Base):
 
     credential: Mapped["UserCredential"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    recipe_favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
@@ -442,7 +440,6 @@ class Recipe(AuditMixin, Base):
         order_by="RecipeStep.sort_order",
     )
     foods: Mapped[list["Food"]] = relationship(back_populates="recipe")
-    favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="recipe", cascade="all, delete-orphan")
     cook_logs: Mapped[list["RecipeCookLog"]] = relationship(
         back_populates="recipe",
         cascade="all, delete-orphan",
@@ -496,21 +493,6 @@ class FoodScene(AuditMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="food_scenes")
-
-
-class RecipeFavorite(Base):
-    __tablename__ = "recipe_favorites"
-    __table_args__ = (UniqueConstraint("user_id", "recipe_id", name="uq_recipe_favorites_user_recipe"),)
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("recipe-favorite"))
-    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-    family: Mapped["Family"] = relationship(back_populates="recipe_favorites")
-    user: Mapped["User"] = relationship(back_populates="recipe_favorites")
-    recipe: Mapped["Recipe"] = relationship(back_populates="favorites")
 
 
 class FoodPlanItem(AuditMixin, Base):

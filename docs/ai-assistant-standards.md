@@ -193,7 +193,7 @@ Skill manifest 对模型提供两种记录，不能混用：
 | `meal_plan` | 即时餐食推荐；餐食计划创建和修改 | `today_recommendation` | `meal_plan` |
 | `shopping_list` | 独立购物清单、从计划派生、修改清单 | 无 | `shopping_list` |
 | `meal_log` | 记录已经发生的用餐 | 无 | `meal_log` |
-| `recipe_draft` | 创建、更新、删除和收藏菜谱草稿 | 无 | `recipe` |
+| `recipe_draft` | 创建、更新和删除菜谱草稿 | 无 | `recipe` |
 | `food_profile` | 创建、更新或收藏食物资料 | 无 | `food_profile` |
 | `ingredient_profile` | 创建或更新食材档案 | 无 | `ingredient_profile` |
 | `recipe_cook` | 预览并确认做菜、库存扣减和计划完成 | 无 | `recipe_cook` |

@@ -95,20 +95,6 @@ def _approval_config_for_recipe(payload: dict[str, Any]) -> dict[str, str]:
                 "reject_label": "暂不删除",
             }
         )
-    elif action == "set_favorite":
-        favorite = bool((payload.get("payload") or {}).get("favorite"))
-        config.update(
-            {
-                "value_key": "draft",
-                "widget": "textarea",
-                "approval_type": "recipe.favorite",
-                "operation_type": "recipe.favorite",
-                "title": "确认更新菜谱收藏状态",
-                "instruction": f"确认后会将该菜谱{'加入' if favorite else '移出'}收藏。",
-                "approve_label": "确认更新收藏",
-                "reject_label": "暂不更新",
-            }
-        )
     return config
 
 
@@ -194,7 +180,7 @@ def _preview_recipe(payload: dict[str, Any]) -> str:
             recipe_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
             return f"创建菜谱 · {recipe_payload.get('title') or '未命名菜谱'}"
         before = payload.get("before") if isinstance(payload.get("before"), dict) else {}
-        action_label = {"update": "更新", "delete": "删除", "set_favorite": "收藏"}.get(action, "处理")
+        action_label = {"update": "更新", "delete": "删除"}.get(action, "处理")
         return f"{action_label}菜谱 · {before.get('title') or payload.get('targetId') or '菜谱'}"
     return f"{payload['title']} · {len(payload['ingredient_items'])} 个食材 · {len(payload['steps'])} 个步骤"
 

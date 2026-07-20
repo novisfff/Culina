@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.ai.draft_contracts import RECIPE_COOK_V2, require_recipe_cook_schema_version
 from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryAvailabilityLevel, InventoryStatus, MealType
 from app.core.utils import create_id
-from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
+from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe, ShoppingListItem
 from app.schemas.foods import CreateFoodRequest
 from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest
 from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
@@ -677,7 +677,7 @@ def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, pa
 
 def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     action = str(payload.get("action") or "")
-    if action not in {"create", "update", "delete", "set_favorite"}:
+    if action not in {"create", "update", "delete"}:
         raise ValueError("菜谱操作类型不正确")
     if action == "create":
         normalized = normalize_recipe_draft_for_tools(db, family_id=family_id, payload=payload.get("payload") or {})
@@ -694,17 +694,6 @@ def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: d
     recipe = _load_recipe_target(db, family_id=family_id, recipe_id=target_id)
     base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     before = _serialize_recipe_before(db, family_id=family_id, recipe=recipe)
-    if action == "set_favorite":
-        favorite = bool((payload.get("payload") or {}).get("favorite"))
-        return {
-            "draftType": "recipe",
-            "schemaVersion": "recipe_operation.v1",
-            "action": "set_favorite",
-            "targetId": recipe.id,
-            "baseUpdatedAt": base_updated_at,
-            "before": before,
-            "payload": {"favorite": favorite},
-        }
     if action == "delete":
         return {
             "draftType": "recipe",
@@ -1453,12 +1442,7 @@ def _load_recipe_cook_plan_item(
 def _serialize_recipe_before(db: Session, *, family_id: str, recipe: Recipe) -> dict[str, Any]:
     record = serialize_recipe(recipe, {})
     media_count = len(record.get("images") or [])
-    favorite_count = db.scalar(
-        select(func.count(RecipeFavorite.id)).where(
-            RecipeFavorite.family_id == family_id,
-            RecipeFavorite.recipe_id == recipe.id,
-        )
-    ) or 0
+    favorite_count = db.scalar(select(func.count(Food.id)).where(Food.family_id == family_id, Food.recipe_id == recipe.id, Food.favorite.is_(True))) or 0
     plan_item_count = db.scalar(
         select(func.count(FoodPlanItem.id))
         .join(Food, FoodPlanItem.food_id == Food.id)

@@ -26,7 +26,6 @@ export const queryKeys = {
   recipePickerSearch: (query: string) => ['recipes', 'picker-search', query.trim()] as const,
   recipeDiscovery: ['recipe-discovery'] as const,
   recipeStats: ['recipe-stats'] as const,
-  recipeFavorites: ['recipe-favorites'] as const,
   foodPlanRoot,
   foodPlan: (start: string, end: string, query = '') => ['food-plan', start, end, query.trim()] as const,
   foodPlanDetail: (itemId: string) => [...foodPlanRoot, 'detail', itemId] as const,

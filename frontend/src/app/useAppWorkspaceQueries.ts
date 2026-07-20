@@ -114,11 +114,6 @@ export function useAppWorkspaceQueries(args: {
     queryFn: () => api.getRecipeStats(undefined, undefined, 10),
     enabled: args.isAuthenticated && needsRecipeInsights,
   });
-  const recipeFavoritesQuery = useQuery({
-    queryKey: queryKeys.recipeFavorites,
-    queryFn: api.getRecipeFavorites,
-    enabled: args.isAuthenticated && needsRecipeInsights,
-  });
   const foodPlanQuery = useQuery({
     queryKey: queryKeys.foodPlan(args.foodPlanWeekRange.start, args.foodPlanWeekRange.end),
     queryFn: () => api.getFoodPlan(args.foodPlanWeekRange.start, args.foodPlanWeekRange.end),
@@ -193,7 +188,7 @@ export function useAppWorkspaceQueries(args: {
     (needsShopping && shoppingQuery.isLoading) ||
     (needsRecipes && recipesQuery.isLoading) ||
     (needsRecipeInsights &&
-      (recipeDiscoveryQuery.isLoading || recipeStatsQuery.isLoading || recipeFavoritesQuery.isLoading)) ||
+      (recipeDiscoveryQuery.isLoading || recipeStatsQuery.isLoading)) ||
     (needsFoodPlan && foodPlanQuery.isLoading && !foodPlanQuery.data) ||
     (needsFoodScenes && foodScenesQuery.isLoading) ||
     (needsFoods && foodsQuery.isLoading) ||
@@ -212,7 +207,6 @@ export function useAppWorkspaceQueries(args: {
     recipesQuery,
     recipeDiscoveryQuery,
     recipeStatsQuery,
-    recipeFavoritesQuery,
     foodPlanQuery,
     foodPlanDetailQuery,
     foodScenesQuery,
@@ -234,7 +228,6 @@ export function useAppWorkspaceQueries(args: {
     recipes: recipesQuery.data ?? ([] as Recipe[]),
     recipeDiscovery: recipeDiscoveryQuery.data ?? (null as RecipeDiscovery | null),
     recipeStats: recipeStatsQuery.data ?? (null as RecipeStats | null),
-    recipeFavorites: recipeFavoritesQuery.data ?? [],
     foodPlanItems: foodPlanQuery.data ?? ([] as FoodPlanItem[]),
     foodPlanDetail: foodPlanDetailQuery.data ?? (null as FoodPlanItem | null),
     foodScenes: foodScenesQuery.data ?? ([] as FoodScene[]),

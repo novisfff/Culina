@@ -65,7 +65,6 @@ from app.schemas.recipes import (
     RecipeCookLogOut,
     RecipeDiscoveryOut,
     RecipeDiscoverySectionOut,
-    RecipeFavoriteOut,
     RecipeIngredientIn,
     RecipeIngredientOut,
     RecipeOut,

@@ -835,7 +835,6 @@ const fixtures = {
     recently_cooked: [],
     frequent: [],
   },
-  '/api/recipe-favorites': [],
   '/api/food-plan': homePlanItems,
   [`/api/food-plan/${planItemOutsideWeek.id}`]: planItemOutsideWeek,
   '/api/food-scenes': [],

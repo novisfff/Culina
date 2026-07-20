@@ -813,78 +813,6 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 assert refreshed_draft is not None
                 self.assertEqual(refreshed_draft.version, original_draft_version)
 
-        def test_recipe_favorite_operation_updates_recipe_favorite(self) -> None:
-            with self.SessionLocal() as db:
-                recipe = Recipe(
-                    id="recipe-favorite-target",
-                    family_id=self.family.id,
-                    title="收藏菜谱",
-                    servings=2,
-                    prep_minutes=10,
-                    difficulty=Difficulty.EASY,
-                    tips="",
-                    scene_tags=["家常菜"],
-                    created_by=self.user.id,
-                    updated_by=self.user.id,
-                )
-                db.add(recipe)
-                db.flush()
-                service = AIApplicationService(db, provider=FakeChatProvider())
-                conversation = service._get_or_create_conversation(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id=None,
-                    prompt="收藏菜谱",
-                    quick_task=None,
-                )
-                message = AIMessage(
-                    id="ai-message-recipe-favorite",
-                    family_id=self.family.id,
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content="",
-                    parts=[],
-                    created_by=self.user.id,
-                )
-                db.add(message)
-                db.flush()
-                draft, approval = service._create_draft_approval(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id=conversation.id,
-                    message_id=message.id,
-                    run_id=None,
-                    draft_payload={
-                        "draft_type": "recipe",
-                        "payload": {
-                            "draftType": "recipe",
-                            "schemaVersion": "recipe_operation.v1",
-                            "action": "set_favorite",
-                            "targetId": recipe.id,
-                            "baseUpdatedAt": recipe.updated_at.isoformat(),
-                            "payload": {"favorite": True},
-                        },
-                    },
-                )
-                self.assertEqual(approval.approval_type, "recipe.favorite")
-                service._apply_approval_decision(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id=conversation.id,
-                    approval_id=approval.id,
-                    decision="approved",
-                    draft_version=draft.version,
-                    values=approval.initial_values,
-                )
-                favorite = db.scalar(
-                    select(RecipeFavorite).where(
-                        RecipeFavorite.family_id == self.family.id,
-                        RecipeFavorite.user_id == self.user.id,
-                        RecipeFavorite.recipe_id == recipe.id,
-                    )
-                )
-                self.assertIsNotNone(favorite)
-
         def test_recipe_cook_draft_deducts_inventory_and_completes_plan(self) -> None:
             with self.SessionLocal() as db:
                 recipe = Recipe(
@@ -2921,6 +2849,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 db.refresh(food)
                 self.assertTrue(food.favorite)
+                index_job = db.scalar(
+                    select(SearchIndexJob).where(
+                        SearchIndexJob.family_id == self.family.id,
+                        SearchIndexJob.entity_type == "food",
+                        SearchIndexJob.entity_id == food.id,
+                    )
+                )
+                self.assertIsNone(index_job)
 
         def test_ingredient_profile_update_operation_updates_existing_ingredient(self) -> None:
             with self.SessionLocal() as db:

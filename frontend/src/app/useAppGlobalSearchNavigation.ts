@@ -16,7 +16,7 @@ export type FoodNavigationRequest = {
   quickMealAction?: 'eat' | 'cook';
 };
 
-/** @deprecated Recipe targets open via AppNavigationTarget; retained for RecipeWorkspace embedded requests. */
+/** Recipe targets open via AppNavigationTarget; retained for embedded navigation requests. */
 export type RecipeNavigationRequest = {
   recipeId: string;
   requestId: number;
