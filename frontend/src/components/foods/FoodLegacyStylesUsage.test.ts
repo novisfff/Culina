@@ -125,6 +125,7 @@ describe('Food legacy style cleanup', () => {
 
     expect(foodStyles).toContain('.food-editor-recipe-copy span,');
     expect(foodStyles).not.toContain('.food-editor-recipe-card span,');
+    expect(foodStyles).not.toMatch(/\.food-editor-recipe-card span\s*\{/);
   });
 
   it('does not keep obsolete food filter toolbar action overrides', () => {
