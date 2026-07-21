@@ -125,6 +125,44 @@ Confirm `git status --short` is unchanged.
 
 **Interfaces:** Produces `InventoryIntakeItemRequest`, `InventoryIntakeRequest`, `InventoryIntakeItemResult`, `InventoryIntakeResult`, `shopping_request_to_inventory_request()`, and `inventory_result_to_shopping_result()`.
 
+**Exact contract to implement:**
+
+`InventoryIntakeItemRequest` has these fields and no others:
+
+| Field | Type | Required rule |
+|---|---|---|
+| `line_id` | non-empty string, max 64 | always |
+| `source_kind` | `shopping_item \| direct` | always |
+| `action` | `stock_and_fulfill \| fulfill_without_stock \| stock_only` | always |
+| `shopping_item_id` | string or null | shopping source only |
+| `expected_shopping_item_row_version` | integer ≥ 1 or null | shopping source only |
+| `target_kind` | `exact_ingredient \| presence_ingredient \| food \| none` | always |
+| `target_id` | string or null | every stock action |
+| `expected_ingredient_row_version` | integer ≥ 1 or null | Ingredient targets |
+| `expected_food_row_version` | integer ≥ 1 or null | Food target |
+| `state_id` | string or null | existing presence state only |
+| `expected_state_row_version` | integer ≥ 1 or null | paired with `state_id` |
+| `actual_quantity` | positive Decimal or null | exact Ingredient and Food stock actions |
+| `unit` | string or null | exact Ingredient and Food stock actions |
+| `resulting_availability_level` | `present_unknown \| low \| sufficient` or null | presence Ingredient stock action |
+| `inventory_status` | existing `InventoryStatus` or null | Ingredient stock action |
+| `expiry_date` | real `date` or null | stock action |
+| `storage_location` | string or null | stock action; service validates non-empty |
+| `notes` | string, max 500 | default empty |
+
+Model-validation combinations are exact:
+
+| Source/action | Shopping identity | Inventory target |
+|---|---|---|
+| `shopping_item + stock_and_fulfill` | required | required |
+| `shopping_item + fulfill_without_stock` | required | forbidden; `target_kind=none` |
+| `direct + stock_only` | forbidden | required |
+| every other combination | rejected | rejected |
+
+The request validator rejects duplicate `line_id`, duplicate non-null `shopping_item_id`, and more than 100 rows. The result row keeps `line_id` and optional `shopping_item_id`, so direct rows can be correlated without inventing a shopping ID.
+
+`shopping_request_to_inventory_request()` performs a pure one-to-one mapping. `inventory_result_to_shopping_result()` accepts only `source_kind=shopping_item`, strips `line_id/source_kind`, maps `direct_stocked` as invalid input, and preserves all existing response fields. These adapters are covered separately from service behavior.
+
 - [ ] **Step 1: Write failing Pydantic tests**
 
 ```python
@@ -170,6 +208,23 @@ def test_inventory_intake_rejects_invalid_source_action(source_kind: str, action
 ```
 
 Add named tests for duplicate line IDs, duplicate shopping IDs, fulfill-only requiring `target_kind=none`, direct rows rejecting shopping identity, presence state ID/version pairing, positive exact/Food quantity, and invalid calendar dates.
+
+The test file must contain these exact test functions so failures identify the violated contract directly:
+
+```text
+test_inventory_intake_accepts_shopping_and_direct_rows
+test_inventory_intake_rejects_duplicate_line_ids
+test_inventory_intake_rejects_duplicate_shopping_item_ids
+test_direct_source_rejects_shopping_identity
+test_direct_source_rejects_fulfill_action
+test_shopping_source_rejects_stock_only
+test_fulfill_without_stock_rejects_inventory_target
+test_presence_target_requires_paired_state_identity_and_version
+test_exact_and_food_targets_require_positive_quantity_and_unit
+test_inventory_intake_rejects_invalid_calendar_date
+test_shopping_request_adapter_preserves_every_business_field
+test_inventory_result_adapter_rejects_direct_rows
+```
 
 - [ ] **Step 2: Verify red**
 
@@ -223,6 +278,67 @@ git commit -m "Add generalized inventory intake contracts"
 
 **Interfaces:** Produces `InventoryIntakeValidationError`, `validation_detail()`, and `apply_inventory_intake(db, *, family_id, user_id, request, business_date, user_role)`. Preserves the public shopping HTTP contract and persisted operation/history types.
 
+**Internal service structure:**
+
+Move reusable helpers from `shopping_intake.py` into `inventory_intake.py`, rename shopping-specific helpers, and keep the file organized in this order:
+
+| Unit | Exact responsibility |
+|---|---|
+| `InventoryIntakeValidationError` | stores `code`, `message`, `field_errors`, and `conflicts` |
+| `validation_detail(error)` | returns those four fields as JSON-safe data |
+| `_field_error(line_id, shopping_item_id, field, code, message)` | creates one line-correlated field error |
+| `_raise_validation` | raises the structured exception with one field error |
+| `convert_actual_to_planned_unit` | existing Ingredient unit conversion for partial-purchase math |
+| `_load_operation_with_lines(db, operation_id)` | reloads idempotent operation and ordered lines |
+| `_result_from_operation(operation, user_id, user_role)` | reconstructs mixed row results on replay |
+| `_resolve_target_ids(request)` | returns shopping, Ingredient, Food, required-state, optional-state ID collections |
+| `_ensure_manual_expiry` | preserves existing manual-expiry requirement |
+| `apply_inventory_intake` | performs the complete validation/mutation transaction |
+
+Use a preparation object so validation finishes before the first mutation:
+
+```python
+@dataclass(slots=True)
+class _PreparedIntakeItem:
+    request_item: InventoryIntakeItemRequest
+    shopping: ShoppingListItem | None = None
+    ingredient: Ingredient | None = None
+    food: Food | None = None
+    state: IngredientInventoryState | None = None
+    shopping_before_snapshot: dict[str, object] | None = None
+    ingredient_before_version: int | None = None
+    food_before_snapshot: dict[str, object] | None = None
+    state_before_snapshot: dict[str, object] | None = None
+    is_free_text_shopping: bool = False
+```
+
+**Pre-mutation validation matrix:**
+
+| Target/action | Required checks |
+|---|---|
+| shopping row | shopping exists in family, exact row version, `done=false`, bound target matches unless free-text |
+| exact Ingredient | target exists, tracks quantity, exact Ingredient version, supported/convertible unit, positive quantity, manual expiry rule, expiry ≥ intake date |
+| presence Ingredient | target exists, does not track quantity, Ingredient version, state identity/version pair matches locked state, resulting availability is not absent, expiry rule |
+| Food | current-family ready-made/instant/packaged Food, Food version, quantity precision, actual unit equals non-empty existing stock unit when stock > 0, expiry ≥ intake date |
+| fulfill without stock | shopping validation only; no inventory target or inventory mutation |
+| direct row | no ShoppingListItem lookup, mutation still uses the same target/version validation |
+
+Duplicate targets are handled deliberately: multiple exact Ingredient rows may create multiple physical batches; duplicate presence Ingredient and duplicate Food targets are rejected because each mutates one aggregate row and would make version/snapshot meaning ambiguous.
+
+**Mutation and history rules:**
+
+- Exact Ingredient calls `create_inventory_batch()` and records one `INVENTORY_ITEM` line plus one Ingredient collection guard.
+- Presence Ingredient calls the existing `upsert_inventory_state` with `confirmation_source=SHOPPING_INTAKE` and `record_activity=False`, then records create/update state line plus Ingredient guard.
+- Food calls the existing `apply_food_stock_intake` with `record_activity=False`, then records one Food update line.
+- Shopping rows record one ShoppingListItem update line after inventory mutation; partial quantity keeps `done=false` and writes remaining planned quantity.
+- Direct rows return `result=direct_stocked` and never write a ShoppingListItem operation line.
+- Fulfill-only rows return `completed_without_inventory` and write only ShoppingListItem history.
+- Result order matches request order even though target locks are sorted.
+- Idempotent replay reconstructs direct and shopping result rows from operation-line metadata; therefore target history lines must include `line_id` and `source_kind` metadata.
+- Summary counts stock rows, fully completed shopping rows, and partial shopping rows separately. Activity logging occurs once after all rows succeed.
+
+The service never calls `db.commit()`. The current API and AI approval application transaction boundaries remain the only commit owners.
+
 - [ ] **Step 1: Add failing mixed-transaction tests**
 
 ```python
@@ -273,6 +389,28 @@ def test_mixed_intake_stocks_shopping_and_direct_rows_in_one_operation(context) 
 ```
 
 Add named tests for direct exact Ingredient, direct presence Ingredient, direct Food, fulfill-without-stock, partial shopping quantity, same-key replay, same-key/different-payload conflict, shopping/Ingredient/Food stale, cross-family target, duplicate presence/Food target, and injected failure after first mutation rolling back everything.
+
+Create one module fixture named `context` with these concrete objects: current Family/User/Member, `egg_ingredient` tracking quantity in 个, pending `egg_shopping` bound to it, `milk_food` of type packaged with stock unit 袋, one presence-only Ingredient/state, and an `other_family` copy of each target type. Flush before yielding so every expected row version is real. The fixture exposes only those objects and `db`; it does not hide request construction in helper methods.
+
+Use these exact test names:
+
+```text
+test_direct_exact_ingredient_creates_batch_without_shopping_change
+test_direct_presence_ingredient_updates_state_without_shopping_change
+test_direct_food_increases_stock_without_shopping_change
+test_fulfill_without_stock_completes_only_shopping_item
+test_mixed_intake_stocks_shopping_and_direct_rows_in_one_operation
+test_partial_purchase_updates_remaining_quantity
+test_same_request_id_same_hash_replays_original_result
+test_same_request_id_different_hash_conflicts
+test_shopping_version_conflict_rolls_back_every_row
+test_ingredient_version_conflict_rolls_back_every_row
+test_food_version_conflict_rolls_back_every_row
+test_cross_family_target_is_rejected_before_mutation
+test_duplicate_presence_target_is_rejected
+test_duplicate_food_target_is_rejected
+test_failure_after_first_row_rolls_back_inventory_shopping_history_and_activity
+```
 
 - [ ] **Step 2: Verify red**
 
@@ -329,6 +467,13 @@ result = inventory_result_to_shopping_result(inventory_result)
 
 Update imports/errors and delete the old service module rather than keeping an internal alias.
 
+The HTTP route remains responsible for translating errors:
+
+- Pydantic request errors keep the existing structured `422` detail contract.
+- `InventoryIntakeValidationError` maps to the existing structured `422` response.
+- `InventoryConflictError` and idempotency hash conflict keep the existing `409` response.
+- Successful response is still serialized as `ShoppingIntakeResult`; no direct row can reach this public endpoint.
+
 - [ ] **Step 5: Update MySQL concurrency and verify**
 
 ```bash
@@ -366,6 +511,71 @@ git commit -m "Generalize atomic inventory intake service"
 
 **Interfaces:** Produces normalize, immutable approval validation, execution adapter, and registry spec for the exact new names.
 
+**Exact Draft shape:**
+
+```json
+{
+  "draftType": "inventory_intake",
+  "schemaVersion": "inventory_intake.v1",
+  "clientRequestId": "ai-inventory-intake-example",
+  "sourceType": "receipt_image",
+  "sourceReference": {"mediaId": "media_xxx"},
+  "intakeDate": "2026-07-21",
+  "intakeDateSource": "receipt",
+  "items": [
+    {
+      "lineId": "line-1",
+      "sourceLineId": "receipt-1",
+      "sourceText": "鸡蛋 2个",
+      "sourceKind": "shopping_item",
+      "action": "stock_and_fulfill",
+      "shoppingItemId": "shopping_xxx",
+      "title": "鸡蛋",
+      "expectedShoppingItemRowVersion": 2,
+      "targetKind": "exact_ingredient",
+      "targetId": "ingredient_xxx",
+      "expectedIngredientRowVersion": 4,
+      "expectedFoodRowVersion": null,
+      "stateId": null,
+      "expectedStateRowVersion": null,
+      "plannedQuantity": "2",
+      "plannedUnit": "个",
+      "enteredQuantity": "2",
+      "enteredUnit": "个",
+      "packageConversion": null,
+      "actualQuantity": "2",
+      "actualUnit": "个",
+      "inventoryStatus": "fresh",
+      "resultingAvailabilityLevel": null,
+      "expiryDate": null,
+      "storageLocation": "冷藏",
+      "notes": "",
+      "before": {},
+      "impact": {}
+    }
+  ],
+  "ignoredItems": [
+    {
+      "sourceLineId": "receipt-4",
+      "sourceText": "垃圾袋 1个",
+      "displayName": "垃圾袋",
+      "reasonCode": "non_inventory_item",
+      "reason": "非食品库存对象，本次不会入库"
+    }
+  ],
+  "summary": {}
+}
+```
+
+The model supplies intent fields only: source evidence, line/source text, source kind, action, target/shopping IDs returned by resolver, entered values, and editable inventory details. The normalizer overwrites names, planned values, canonical actual values, expected versions, before snapshots, impact, and summary from real rows.
+
+**Two normalization phases:**
+
+- `phase=draft`: re-read all identities, reject any blocker marker, calculate canonical quantity, stamp versions/snapshots, and generate a new stable request ID.
+- `phase=approval`: preserve original immutable values supplied by the approval record, validate editable values, recalculate canonical quantity/impact without refreshing versions, and reject protected-field changes through `validate_inventory_intake_approval_value()`.
+
+Changing `intakeDate` is allowed, but approval normalization must recompute default expiry and date-range validation using that submitted date. It must not change `intakeDateSource`, because source provenance is historical evidence.
+
 - [ ] **Step 1: Write failing registry/Draft tests**
 
 ```python
@@ -377,6 +587,23 @@ def test_registry_exposes_only_inventory_intake_draft() -> None:
 ```
 
 Add shopping-linked, direct, ignored, mixed, immutable-field, editable-field, all-skip, execution, approval type, and widget tests.
+
+Use exact tests:
+
+```text
+test_registry_exposes_only_inventory_intake_draft
+test_normalizer_stamps_shopping_target_and_versions
+test_normalizer_stamps_direct_food_target_and_versions
+test_normalizer_keeps_ignored_items_read_only
+test_normalizer_rejects_ambiguous_or_unresolved_rows
+test_approval_allows_action_quantity_date_storage_expiry_status_and_notes
+test_approval_rejects_source_identity_target_version_and_before_changes
+test_approval_rejects_added_or_removed_rows
+test_executor_filters_skip_and_calls_service_once
+test_executor_rejects_all_skip
+test_inventory_intake_approval_uses_new_type_schema_and_widget
+test_old_shopping_intake_draft_is_not_registered
+```
 
 - [ ] **Step 2: Verify red**
 
@@ -390,6 +617,8 @@ Expected: FAIL because only the old Draft is registered.
 
 Top-level required fields: `draftType`, `schemaVersion`, `sourceType`, `intakeDate`, `intakeDateSource`, `items`, and `ignoredItems`. Source types are `manual_text|receipt_image|receipt_text|inventory_photo|gift|reconciliation|initial_inventory|historical_entry`. Draft item actions include service actions plus `skip`. Remove `matchLevel` and `unmatchedCandidates`: blockers do not enter approval.
 
+Define `INVENTORY_INTAKE_ITEM_SCHEMA` and `INVENTORY_INTAKE_IGNORED_ITEM_SCHEMA` next to the top-level schema; set `additionalProperties=False` at all three levels. The Tool input accepts no backend-stamped expected-version/before fields as required model inputs, but the output schema includes them after normalization. Reuse the existing `draft_input_schema()`/`draft_output_schema()` wrappers instead of adding new Tool transport logic.
+
 - [ ] **Step 4: Implement normalization and immutable boundaries**
 
 Normalizer re-reads current-family shopping items, Ingredients, states, and Foods; stamps names, planned values, before snapshots, and versions; accepts mixed source kinds; creates `ai-inventory-intake-*`; and normalizes ignored rows read-only.
@@ -399,6 +628,23 @@ Protect top-level `clientRequestId,sourceType,sourceReference,intakeDateSource,i
 - [ ] **Step 5: Implement one service execution**
 
 Filter skip rows, reject an empty executable set, map camelCase to `InventoryIntakeRequest`, call `apply_inventory_intake()` once, and return the InventoryOperation as the business entity. Do not split shopping/direct rows.
+
+Executor mapping is explicit:
+
+| Draft | Service request |
+|---|---|
+| `lineId` | `line_id` |
+| `sourceKind` | `source_kind` |
+| `shoppingItemId` | `shopping_item_id` |
+| `expectedShoppingItemRowVersion` | `expected_shopping_item_row_version` |
+| `targetKind` / `targetId` | `target_kind` / `target_id` |
+| expected target/state versions | same snake_case fields |
+| `actualQuantity` / `actualUnit` | `actual_quantity` / `unit` |
+| `resultingAvailabilityLevel` | `resulting_availability_level` |
+| `inventoryStatus` | `inventory_status` |
+| `expiryDate`, `storageLocation`, `notes` | snake_case equivalents |
+
+`intakeDate` maps to `InventoryIntakeRequest.intake_date`; `clientRequestId` maps unchanged. `ignoredItems` and `skip` rows never reach the service.
 
 - [ ] **Step 6: Register approval metadata**
 
@@ -440,6 +686,94 @@ git commit -m "Replace shopping intake with inventory intake draft"
 
 **Interfaces:** Produces `resolve_intake_lines(context, payload)` and `inventory_intake_create_draft(context, payload)`; reuses purchasable resolution, pending shopping rows, unit helpers, family date, and Task 3 normalizer.
 
+**Resolver input contract:**
+
+```json
+{
+  "sourceType": "receipt_text",
+  "purchaseIntent": "purchase",
+  "dateEvidence": {
+    "userDate": null,
+    "userSaidToday": false,
+    "receiptDate": "2026-07-21"
+  },
+  "lines": [
+    {
+      "sourceLineId": "receipt-1",
+      "rawText": "鸡蛋 2个",
+      "name": "鸡蛋",
+      "quantity": "2",
+      "unit": "个",
+      "confidence": 0.98,
+      "itemKind": "inventory",
+      "targetHint": "ingredient",
+      "shoppingItemId": null,
+      "targetId": null
+    }
+  ]
+}
+```
+
+- `purchaseIntent` is `purchase|non_purchase|unknown` and comes from explicit user/source semantics.
+- `shoppingItemId`/`targetId` are accepted only when copied from a prior resolver result and confirmed through human input; the resolver always revalidates them by family and current state.
+- `confidence < 0.8` with a supplied quantity is `quantity_unreliable`; missing quantity for exact/Food is `quantity_missing`.
+- `itemKind=non_inventory` is model evidence used only to classify an ignored row; the ignored classification remains visible in the final Draft.
+
+**Resolver output record shapes:**
+
+```python
+ready_line = {
+    "sourceLineId": str,
+    "sourceText": str,
+    "sourceKind": "shopping_item" | "direct",
+    "shoppingItem": dict | None,
+    "target": dict,
+    "targetKind": "exact_ingredient" | "presence_ingredient" | "food",
+    "enteredQuantity": str | None,
+    "enteredUnit": str | None,
+    "defaultAction": "stock_and_fulfill" | "stock_only",
+    "matchReason": str,
+}
+blocked_line = {
+    "sourceLineId": str,
+    "sourceText": str,
+    "reasonCode": str,
+    "question": str,
+    "options": list[dict],
+    "resumeHint": dict,
+}
+missing_line = {
+    "sourceLineId": str,
+    "sourceText": str,
+    "targetHint": "ingredient" | "food",
+    "reasonCode": "target_missing",
+    "recommendedActions": ["create_profile", "skip"],
+}
+ignored_line = {
+    "sourceLineId": str,
+    "sourceText": str,
+    "displayName": str,
+    "reasonCode": "non_inventory_item",
+    "reason": str,
+}
+```
+
+Every option ID is a real current-family entity ID. Output preserves input order inside each classification and includes counts only in `summary`.
+
+**Reason-code behavior:**
+
+| Code | Resolver data | Skill next action |
+|---|---|---|
+| `shopping_match_ambiguous` | real pending candidates | choose shopping item |
+| `source_ambiguous` | same-name pending item plus direct option | choose shopping-linked or direct |
+| `target_ambiguous` | real Ingredient/Food candidates | choose target |
+| `unit_not_supported` | entered unit, supported units, target | choose supported unit/conversion/fulfill-only/skip |
+| `quantity_missing` | target and required unit | ask positive quantity |
+| `quantity_unreliable` | recognized quantity/confidence | confirm or replace quantity |
+| `date_conflict` | user and receipt dates | choose one date |
+| `target_missing` | target hint | profile continuation or skip |
+| `non_inventory_item` | explanation | no question; keep ignored |
+
 - [ ] **Step 1: Add failing reported-scenario test**
 
 ```python
@@ -463,6 +797,25 @@ def test_resolver_classifies_reported_receipt(context) -> None:
 
 Add tests for missing/unreliable quantity, multiple shopping/target matches, explicit non-purchase, unknown source with pending match, missing target, date conflict, invalid date, cross-family selected ID, and input order.
 
+Use exact test names:
+
+```text
+test_resolver_classifies_reported_receipt
+test_resolver_returns_quantity_missing_for_exact_target
+test_resolver_returns_quantity_unreliable_below_confidence_threshold
+test_resolver_returns_real_pending_candidates_for_duplicate_name
+test_resolver_returns_real_target_candidates_for_ambiguous_name
+test_non_purchase_source_does_not_touch_same_name_pending_item
+test_unknown_source_with_pending_item_requires_source_choice
+test_exact_extra_purchase_defaults_to_direct_stock_only
+test_missing_target_recommends_profile_or_skip
+test_user_today_and_different_receipt_date_returns_conflict
+test_invalid_calendar_date_is_rejected_as_input_contract_error
+test_selected_cross_family_ids_are_rejected
+test_resolver_preserves_source_line_order
+test_unit_not_supported_is_output_not_tool_failure
+```
+
 - [ ] **Step 2: Verify red**
 
 ```bash
@@ -476,6 +829,20 @@ Expected: FAIL because old candidate preview throws unit errors.
 Return exactly `readyLines,needsResolution,missingTargets,ignoredItems,dateResolution,summary`. No result-card wrapper, selected flag, card ID, or terminal metadata.
 
 Matching order: validated prior selection → pending shopping exact/unique suggestion → bound target → direct purchasable exact target → blocker/missing. Unit, quantity, source, and date problems become reason-coded objects. `itemKind=non_inventory` goes only to ignored rows.
+
+Implement focused helpers in `inventory_intake.py` so the main handler stays readable:
+
+| Function | Exact responsibility |
+|---|---|
+| `_normalize_source_line(raw, index)` | trim/cap text, parse positive Decimal, assign stable sourceLineId, preserve confidence/item kind |
+| `_resolve_intake_date(family_id, evidence)` | strict real-date parsing, precedence, conflict options, family-date fallback |
+| `_load_pending_shopping(db, family_id)` | return current-family `done=false` rows in stable updated/id order |
+| `_match_pending_item(line, pending)` | validate explicit selection, then exact name, then unique containment, otherwise ambiguity/unmatched |
+| `_resolve_inventory_target(context, line)` | use bound target or existing purchasable resolution and serialize real unit/tracking/storage facts |
+| `_validate_target_quantity_unit(line, target)` | return ready canonical fields or one structured quantity/unit blocker |
+| `resolve_intake_lines(context, payload)` | orchestrate helpers and assemble the six top-level output fields |
+
+Each helper is covered through the named handler-level tests above. Keep these helpers in the Tool module; do not add a second read-service abstraction for this one resolver.
 
 - [ ] **Step 4: Register new Tools and remove old Tools**
 
@@ -507,6 +874,71 @@ git commit -m "Add unified inventory intake resolver"
 
 **Interfaces:** Produces `inventory_intake_missing_target.v1` and the stable planning-vs-inventory boundary.
 
+**Target `inventory-analysis/skill.yaml` contract:**
+
+```yaml
+allowed_tools:
+  - ingredient.search
+  - ingredient.read_by_id
+  - ingredient.resolve_candidates
+  - food.search
+  - food.read_by_id
+  - shopping.read_pending
+  - shopping.read_by_id
+  - inventory.read_summary
+  - inventory.read_expiring_items
+  - inventory.read_expired_items
+  - inventory.read_low_stock_items
+  - inventory.read_available_items
+  - inventory.resolve_intake_lines
+  - human.request_input
+  - workspace.read_artifact
+  - inventory.create_intake_draft
+  - inventory.create_operation_draft
+draft_types:
+  - inventory_intake
+  - inventory_operation
+draft_contract:
+  inventory_intake:
+    schema_version: inventory_intake.v1
+    approval_config_key: inventory_intake
+    commit_handler_key: inventory_intake
+  inventory_operation:
+    schema_version: inventory_operation.v1
+    approval_config_key: inventory_operation
+    commit_handler_key: inventory_operation
+```
+
+Do not keep `inventory.create_unit_conversion_operation_draft`; once all intake uses the new Draft, a confirmed one-time conversion is expressed as `packageConversion` on an intake row. Long-term unit saving still hands off to `ingredient_profile` and resumes intake.
+
+The manifest has no intake output card. Inventory query cards remain terminal reads. Resolver is `followup_required`: it must lead to human input, profile handoff, a formal Draft, or a textual explanation when every row was ignored/skipped.
+
+**Human input contract for one blocker:**
+
+```json
+{
+  "question": "三文鱼按公斤识别，但当前库存单位是块。这次要怎样处理？",
+  "inputMode": "choice",
+  "options": [
+    {"id": "convert_once", "label": "提供本次换算"},
+    {"id": "fulfill_without_stock", "label": "只完成采购项，不入库"},
+    {"id": "skip", "label": "本次跳过"}
+  ],
+  "allowMultiple": false,
+  "required": true,
+  "sourceSkills": ["inventory_analysis"],
+  "resumeHint": {
+    "questionType": "inventory_intake_resolution",
+    "sourceLineId": "salmon",
+    "reasonCode": "unit_not_supported",
+    "unsupportedUnit": "公斤",
+    "supportedUnits": ["块"]
+  }
+}
+```
+
+On resume, merge only the answer for that `sourceLineId`, call resolver again with all original lines, and process the next blocker. Do not store a generated Draft inside `resumeHint`.
+
 - [ ] **Step 1: Write failing Skill assertions**
 
 ```python
@@ -523,6 +955,17 @@ def test_inventory_skill_owns_intake_and_shopping_skill_does_not() -> None:
 ```
 
 Add strict continuation tests for valid mixed state, invalid calendar date, >30 lines, and extra fields.
+
+Use exact state tests:
+
+```text
+test_inventory_intake_missing_target_state_round_trips_json
+test_inventory_intake_missing_target_state_rejects_invalid_calendar_date
+test_inventory_intake_missing_target_state_rejects_more_than_thirty_pending_lines
+test_inventory_intake_missing_target_state_rejects_row_versions_and_extra_fields
+test_old_shopping_to_stock_state_is_removed
+test_old_ready_food_stock_handoff_state_is_removed
+```
 
 - [ ] **Step 2: Verify red**
 
@@ -558,6 +1001,8 @@ class InventoryIntakeMissingTargetState(ContinuationStateModel):
 
 Register `inventory_intake_missing_target.v1`. Preserve evidence/user-confirmed IDs, never row versions or executable Draft snapshots. Remove `ShoppingToStockState` and `shopping_to_stock.v1`.
 
+Also remove the inventory Skill’s `ready_food_stock` handoff and `ReadyFoodStockState` / `ready_food_stock.v1`. Existing ready-like Food is now a normal resolver target; missing ready-like Food uses the new intake missing-target continuation through `food_profile` and resumes `inventory_analysis`.
+
 - [ ] **Step 4: Rewrite inventory Skill**
 
 Manifest allows resolver, new Draft Tool, human input, existing query Tools, and consume/dispose Draft Tool. It removes candidate output/terminal policy, adds `inventory_intake`, routes all receipt/manual/photo/gift/purchase intake here, and defines missing Ingredient/Food handoffs that resume this Skill.
@@ -567,6 +1012,19 @@ Instructions specify source/date rules, structured blockers, one-at-a-time quest
 - [ ] **Step 5: Rewrite shopping Skill as planning-only**
 
 Remove intake Tools/Draft/examples/handoffs and legacy-compatibility wording. Retain reads, create/update/delete, restore `done=false`, low-stock and shortage planning, and target-profile handoffs used to create shopping items. Route “买到了”“按小票入库”“朋友送的入库” to `inventory_analysis`.
+
+The target `shopping-list/skill.yaml` must not contain any of these strings:
+
+```text
+shopping.preview_intake_candidates
+shopping.create_intake_draft
+shopping_intake
+shopping_completed_ingredient
+shopping_completed_food
+shopping_to_stock.v1
+```
+
+Its examples that include completion/intake move to the inventory manifest. `shopping.create_draft` continues rejecting new `set_done(done=true)` with a message that the request belongs to `inventory_analysis`; it must not refer to a removed shopping Tool.
 
 - [ ] **Step 6: Replace eval cases**
 
@@ -584,6 +1042,21 @@ inventory.date_conflict_requests_input
 
 Mixed first pass expects resolver→human input. Resumed pass expects resolver→new Draft and checks egg/salmon shopping links, milk direct row, garbage-bag ignored row. Fixtures may not inject hidden unit knowledge.
 
+Each eval declares the Tool order, terminal result category, and critical Draft fields. The resumed mixed case checks:
+
+```json
+{
+  "items.0.sourceKind": "shopping_item",
+  "items.0.action": "stock_and_fulfill",
+  "items.1.sourceKind": "shopping_item",
+  "items.2.sourceKind": "direct",
+  "items.2.action": "stock_only",
+  "ignoredItems.0.reasonCode": "non_inventory_item"
+}
+```
+
+The fixture resolver result includes salmon’s real supported unit so the provider cannot succeed using fixture knowledge unavailable to the model.
+
 - [ ] **Step 7: Verify and commit**
 
 ```bash
@@ -599,6 +1072,7 @@ git commit -m "Move all inventory intake into inventory skill"
 **Files:**
 
 - Modify: `backend/app/ai/tools/schemas.py`
+- Modify: `backend/app/ai/tools/catalog/inventory.py`
 - Modify: `backend/app/ai/tools/draft_validation.py`
 - Modify: `backend/app/services/ai_operations/inventory.py`
 - Modify: `backend/app/services/ai_operations/draft_specs/inventory.py`
@@ -614,7 +1088,25 @@ git commit -m "Move all inventory intake into inventory skill"
 
 **Interfaces:** Produces `inventory_operation.v1` with only `consume|dispose`; inventory-summary quick restock creates `inventory_intake.v1`.
 
+**Per-file cutover:**
+
+| File | Required change |
+|---|---|
+| `ai/tools/schemas.py` | inventory-operation action enum becomes consume/dispose; delete one-time restock schema fields that are unused by those actions |
+| `ai/tools/catalog/inventory.py` | delete `inventory.create_unit_conversion_operation_draft`; keep query and consume/dispose Draft Tool registration |
+| `ai/tools/draft_validation.py` | reject restock before loading batches; delete restock normalization branch |
+| `services/ai_operations/inventory.py` | normalizer/executor handle consume/dispose only |
+| `draft_specs/inventory.py` | preview labels/counts contain no restock |
+| `services/ai_operations/experience.py` | card restock constructs new Draft; consume/dispose keep old Draft |
+| `services/ai_operations/composite.py` | remove inventory restock step label and validation route |
+| `registry_types.py` | remove restock from AI approval result label mapping if no remaining AI consumer |
+| frontend inventory-operation model/editor | completed in Task 8; no restock option or rendering |
+
+Keep `restock` in non-AI product API enums/types where the food/inventory pages still use their own product operations. The forbidden search in Task 9 is intentionally scoped to AI contracts, not the entire repository.
+
 - [ ] **Step 1: Add failing absence and quick-restock tests**
+
+Reuse the existing inventory-card test setup in `test_product_closed_loops.py`. Expose the created message, validated part/card/item IDs, current family/user, and the test’s existing `create_draft_approval` callback through the local fixture object used below; do not create a second fake approval implementation.
 
 ```python
 def test_inventory_operation_rejects_restock_action(db_context) -> None:
@@ -657,19 +1149,73 @@ Expected: FAIL because restock still routes to inventory operation.
 
 Change action sets from `restock|consume|dispose` to `consume|dispose`; old restock input raises `入库请使用 inventory_intake 草稿`. Delete restock purchase/date/storage/presence creation, labels, result metadata, and composite-step support from AI modules. Keep domain/product stock services.
 
+Delete `inventory.create_unit_conversion_operation_draft` and its handler/schema registration. A confirmed one-time conversion now sets `packageConversion` on the formal intake row; saved long-term conversions still use Ingredient profile continuation.
+
 - [ ] **Step 4: Reroute quick restock**
 
 For a real inventory-summary Ingredient, build a formal `inventory_intake.v1` payload with `sourceType=manual_text`, family date, `sourceKind=direct`, `action=stock_only`, target kind derived from tracking mode, quantity 1 only for exact tracking, Ingredient defaults, and card source reference. Let the new normalizer stamp versions.
+
+Exact quick-Draft fields are:
+
+```python
+is_exact = tracks_quantity(ingredient)
+payload = {
+    "draftType": "inventory_intake",
+    "schemaVersion": "inventory_intake.v1",
+    "sourceType": "manual_text",
+    "sourceReference": {
+        "messageId": message.id,
+        "partId": part_id,
+        "cardId": effective_card_id,
+        "itemId": item_id,
+    },
+    "intakeDate": today_for_family(family_id).isoformat(),
+    "intakeDateSource": "family_business_date",
+    "items": [{
+        "lineId": f"card:{item_id}",
+        "sourceLineId": item_id,
+        "sourceText": ingredient.name,
+        "sourceKind": "direct",
+        "action": "stock_only",
+        "targetKind": "exact_ingredient" if is_exact else "presence_ingredient",
+        "targetId": ingredient.id,
+        "enteredQuantity": "1" if is_exact else None,
+        "enteredUnit": ingredient.default_unit if is_exact else None,
+        "inventoryStatus": "fresh",
+        "storageLocation": ingredient.default_storage,
+        "notes": "",
+    }],
+    "ignoredItems": [],
+}
+```
+
+Tests assert the actual fixture IDs, names, and family date emitted by the function.
 
 - [ ] **Step 5: Delete legacy fixtures**
 
 Remove scripted preview Tools, old Draft Tool/type, `shopping_to_stock.v1`, and candidate output. Update supported Draft sets/labels. Remove composite create-Ingredient→restock tests; profile continuation→inventory intake is the replacement.
 
+After cleanup, add explicit absence assertions rather than merely deleting positive tests:
+
+```python
+from typing import get_args
+
+assert "restock" not in INVENTORY_OPERATION_DRAFT_SCHEMA["properties"]["operations"]["items"]["properties"]["action"]["enum"]
+tool_names = {definition.name for definition in build_workspace_tool_registry().list()}
+assert "inventory.preview_intake_candidates" not in tool_names
+assert "shopping.preview_intake_candidates" not in tool_names
+assert "shopping.create_intake_draft" not in tool_names
+assert "inventory.create_unit_conversion_operation_draft" not in tool_names
+assert "inventory_intake_candidates" not in get_args(AIResultCardType)
+assert "shopping_to_stock.v1" not in CONTINUATION_STATE_ADAPTERS
+assert "ready_food_stock.v1" not in CONTINUATION_STATE_ADAPTERS
+```
+
 - [ ] **Step 6: Verify and commit**
 
 ```bash
 cd backend && .venv/bin/python -m pytest tests/ai_infra/test_inventory_operations.py tests/ai_infra/test_composite_operations.py tests/ai_infra/test_product_closed_loops.py tests/ai_infra/test_workspace_approvals.py tests/ai_infra/test_registry_and_metrics.py -q
-git add backend/app/ai/tools/schemas.py backend/app/ai/tools/draft_validation.py backend/app/services/ai_operations/inventory.py backend/app/services/ai_operations/draft_specs/inventory.py backend/app/services/ai_operations/experience.py backend/app/services/ai_operations/composite.py backend/app/services/ai_operations/registry_types.py backend/tests/ai_infra/test_inventory_operations.py backend/tests/ai_infra/test_composite_operations.py backend/tests/ai_infra/test_product_closed_loops.py backend/tests/ai_infra/test_workspace_approvals.py backend/tests/ai_infra/test_registry_and_metrics.py backend/tests/ai_infra/_support.py
+git add backend/app/ai/tools/schemas.py backend/app/ai/tools/catalog/inventory.py backend/app/ai/tools/draft_validation.py backend/app/services/ai_operations/inventory.py backend/app/services/ai_operations/draft_specs/inventory.py backend/app/services/ai_operations/experience.py backend/app/services/ai_operations/composite.py backend/app/services/ai_operations/registry_types.py backend/tests/ai_infra/test_inventory_operations.py backend/tests/ai_infra/test_composite_operations.py backend/tests/ai_infra/test_product_closed_loops.py backend/tests/ai_infra/test_workspace_approvals.py backend/tests/ai_infra/test_registry_and_metrics.py backend/tests/ai_infra/_support.py
 git commit -m "Remove legacy AI restock and intake paths"
 ```
 
@@ -683,6 +1229,55 @@ git commit -m "Remove legacy AI restock and intake paths"
 - Modify: `frontend/src/styles/09-ai-workspace.css`.
 
 **Interfaces:** Produces parsing, grouping, action options, item patching, summaries, submit validation, and a controlled editor with `{draft, readonly, onChange}`.
+
+**Exact model exports:**
+
+```typescript
+export type InventoryIntakeSourceKind = 'shopping_item' | 'direct';
+export type InventoryIntakeAction = 'stock_and_fulfill' | 'fulfill_without_stock' | 'stock_only' | 'skip';
+export type InventoryIntakeTargetKind = 'exact_ingredient' | 'presence_ingredient' | 'food' | 'none';
+
+export type InventoryIntakeDraft = {
+  draftType: 'inventory_intake';
+  schemaVersion: 'inventory_intake.v1';
+  clientRequestId: string;
+  sourceType: string;
+  sourceReference: Record<string, unknown> | null;
+  intakeDate: string;
+  intakeDateSource: 'user' | 'receipt' | 'family_business_date';
+  items: InventoryIntakeDraftItem[];
+  ignoredItems: InventoryIntakeIgnoredItem[];
+  summary: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export function inventoryIntakeDraftFromRecord(value: Record<string, unknown>): InventoryIntakeDraft;
+export function groupInventoryIntakeItems(draft: InventoryIntakeDraft): {
+  shopping: InventoryIntakeDraftItem[];
+  direct: InventoryIntakeDraftItem[];
+  ignored: InventoryIntakeIgnoredItem[];
+};
+export function inventoryIntakeActionOptions(sourceKind: InventoryIntakeSourceKind): Array<{ value: InventoryIntakeAction; label: string }>;
+export function patchInventoryIntakeItem(draft: InventoryIntakeDraft, lineId: string, patch: Partial<InventoryIntakeDraftItem>): InventoryIntakeDraft;
+export function inventoryIntakeItemSummary(item: InventoryIntakeDraftItem): string;
+export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unknown>): string;
+```
+
+`inventoryIntakeDraftFromRecord()` is defensive at the API boundary but never fabricates a missing identity/version. If required identity fields are malformed, the model retains an invalid empty value so submit validation blocks and shows a concrete error; it does not silently switch target/source.
+
+**Submit validation order:**
+
+1. valid top-level date and at least one item;
+2. at least one action other than skip;
+3. source/action combination;
+4. required protected identity present;
+5. exact/Food positive entered quantity and non-empty unit;
+6. package conversion ratio > 0 plus target unit/evidence;
+7. presence availability is present_unknown/low/sufficient;
+8. stock action has storage location;
+9. expiry is a real date and not earlier than intake date.
+
+Return the first concrete Chinese message naming the row, for example `请填写「牛奶」的实际入库数量`.
 
 - [ ] **Step 1: Write failing pure-model tests**
 
@@ -715,6 +1310,21 @@ it('exposes only source-compatible actions', () => {
 
 Add tests for protected-field preservation, package conversion, partial purchase summary, exact/Food positive quantity/unit, presence no-quantity behavior, storage, date, and all-skip rejection.
 
+Use exact test names:
+
+```text
+groups shopping direct and ignored rows in source order
+exposes only source-compatible actions
+patches editable fields without dropping protected server fields
+summarizes partial shopping purchase and remaining quantity
+summarizes direct row without claiming shopping completion
+validates exact and food quantity and unit
+validates package conversion evidence
+allows presence intake without numeric quantity
+validates storage and date range
+rejects all skipped rows
+```
+
 - [ ] **Step 2: Verify red**
 
 ```bash
@@ -731,9 +1341,34 @@ Define `InventoryIntakeSourceKind`, `InventoryIntakeAction`, `InventoryIntakeTar
 
 Render compact intake date/source/count header; groups 采购清单关联、直接入库、已忽略 with counts; row disclosures with real buttons and `aria-expanded`; source-compatible action select; quantity/unit, presence status, conversion, storage, expiry, status, notes; and a summary footer. Direct rows state “只增加库存，不创建或完成采购项”. Ignored rows are read-only. Render no submit button.
 
+Use this component hierarchy so the implementer does not need to redesign the form:
+
+```text
+section.ai-inventory-intake-editor[aria-label="确认入库内容"]
+  header.ai-inventory-intake-overview
+    intake date + source badge
+    stock/shopping counts
+  section.ai-inventory-intake-group (shopping)
+    group header
+    article.ai-inventory-intake-row × N
+      disclosure button
+      expanded field body
+  section.ai-inventory-intake-group (direct)
+    group header + direct explanation
+    rows
+  aside.ai-inventory-intake-ignored
+    read-only ignored rows/reasons
+  footer.ai-inventory-intake-submit-summary
+    one sentence impact summary
+```
+
+Rows needing missing editable information start expanded; complete rows start collapsed. Expansion is the component’s only local state. All business values remain controlled by `draft/onChange`. Changing action to skip retains other values in the Draft so switching back does not erase user input.
+
 - [ ] **Step 5: Replace styles with canonical editor styles**
 
 Delete old candidate and shopping-intake AI classes. Add `.ai-inventory-intake-editor*` using canonical surfaces, borders, radius, text/space/control tokens, no nested card shadow, 44px targets, 48px touch inputs, `min-width:0`, safe wrapping, and one column under 768px. Status groups use text plus semantic color.
+
+Desktop/tablet may use two columns only inside the expanded advanced-field grid. Group and row structure stays one vertical flow at every viewport so the approval container remains the single scroll owner. Do not add sticky actions inside this editor.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -769,9 +1404,46 @@ git commit -m "Build formal inventory intake approval editor"
 
 **Interfaces:** Consumes Task 7 editor/model and existing generic approval decisions; produces no intake result-card renderer or inventory-specific product loop.
 
+**Exact frontend contract changes:**
+
+| Location | Before | After |
+|---|---|---|
+| `AiTaskDraftType` | includes `shopping_intake` | includes `inventory_intake` only |
+| `AiApprovalField.widget` | includes `shopping_intake_editor` | includes `inventory_intake_editor` only |
+| `AiResultCardType` | includes `inventory_intake_candidates` | candidate type removed |
+| candidate interface | `AiInventoryIntakeCandidate` | deleted |
+| approval specialized import | `AiShoppingIntakeApproval` | `AiInventoryIntakeApproval` |
+| submit validator | shopping intake validator | Task 7 intake validator |
+| inventory-operation action | restock/consume/dispose | consume/dispose |
+
+`AiProductLoopPrompt` remains because `AiMealIdeaProposal` still uses it. Do not propagate removal beyond the inventory-specific branch.
+
+**Known dispatch points to edit:**
+
+- `AiApprovalPanel.tsx`: validation branch near the existing `draftType === 'shopping_intake'` check and specialized editor branch near `renderStructuredDraftEditor()`.
+- `AiResultCards.tsx`: remove the `inventory_intake_candidates` renderer and component import.
+- `AiConversationThread.tsx` and `AiMobilePage.tsx`: remove a product-loop prop only if it becomes unused after checking other rendered cards.
+- `AiWorkspace.tsx`: remove only the callback path that submits `source: inventory_intake_candidates`; keep generic composer and meal-idea paths.
+- `aiWorkspaceContracts.ts`: remove candidate result type/renderer entry; `draft` and `approval_request` support remain unchanged.
+- `09-ai-workspace.css`: after Task 7, `rg 'ai-shopping-intake|ai-inventory-intake-card'` must return no old class.
+
 - [ ] **Step 1: Write failing integration tests**
 
 Use `approval_type=inventory_intake.apply`, `draft_schema_version=inventory_intake.v1`, widget `inventory_intake_editor`, and a fixture containing shopping egg/salmon, direct milk, and ignored garbage bag. Assert three group headings, direct-row explanation, ignored explanation, one outer approval button, compatible action options, validation message, and preserved protected fields.
+
+Add/rename these exact ApprovalPanel tests:
+
+```text
+renders inventory intake grouped by business impact
+edits shopping and direct rows through the existing approval payload
+does not render editable controls for ignored rows
+offers source-compatible actions only
+blocks missing quantity unit storage conversion and invalid date
+submits one draft while preserving protected fields
+renders approved inventory intake read only
+```
+
+Update product-loop tests to retain meal-idea coverage and assert no candidate-card button with text `按选中项准备入库` exists.
 
 Update workspace-contract test to assert `inventory_intake_candidates` is absent.
 
@@ -787,6 +1459,8 @@ Expected: FAIL while old types/dispatch remain.
 
 Replace AI Draft/widget names with `inventory_intake`/`inventory_intake_editor`; remove candidate result-card and candidate item types. Keep `AiProductLoopPrompt` for meal-idea/recipe flows. Dispatch `draftType === 'inventory_intake'` to Task 7 editor and validator through existing `AiApprovalPanel`.
 
+The approval panel continues to pass `currentApproval.initial_values.draft` through its existing structured Draft state and submit the existing decision request. Do not add an intake API client, React Query mutation, cache invalidation, or approval hook; those would duplicate the existing AI approval infrastructure.
+
 - [ ] **Step 4: Remove only inventory candidate product loop**
 
 Delete candidate branch/prop use from result cards and workspace, delete the component, and remove the inventory-candidate subject-source composer path. Retain meal-idea product-loop behavior and tests.
@@ -794,6 +1468,8 @@ Delete candidate branch/prop use from result cards and workspace, delete the com
 - [ ] **Step 5: Remove restock from inventory-operation editor**
 
 Frontend inventory-operation action union becomes `consume|dispose`. Remove restock counts, fields, presence-restock logic, and validation. Formal restock UI now belongs only to the intake editor.
+
+Update both pure model and visible editor tests so they assert exactly two categories, consume and dispose. Do not retain hidden restock parsing for compatibility: the removed AI Draft was not released.
 
 - [ ] **Step 6: Verify quality and commit**
 
@@ -820,7 +1496,7 @@ Expected: focused tests, typecheck, full Vitest, build, and bundle budgets pass.
 - [ ] **Step 1: Search for forbidden old AI contracts**
 
 ```bash
-rg -n "shopping_intake|shopping\.create_intake_draft|shopping\.preview_intake_candidates|inventory\.preview_intake_candidates|inventory_intake_candidates|AiInventoryIntakeCandidates|shopping_intake_editor" backend/app/ai backend/app/services/ai_operations backend/tests/ai_infra backend/tests/ai_evals frontend/src/components/ai frontend/src/lib/aiWorkspaceContracts.ts frontend/src/api/types.ts
+rg -n "shopping_intake|shopping\.create_intake_draft|shopping\.preview_intake_candidates|inventory\.preview_intake_candidates|inventory\.create_unit_conversion_operation_draft|inventory_intake_candidates|AiInventoryIntakeCandidates|shopping_intake_editor" backend/app/ai backend/app/services/ai_operations backend/tests/ai_infra backend/tests/ai_evals frontend/src/components/ai frontend/src/lib/aiWorkspaceContracts.ts frontend/src/api/types.ts
 ```
 
 Expected: no output. Product-only `shopping_intake` is allowed only in public shopping API/schema/tests, persisted history enums, and non-AI shopping intake frontend/API files.
@@ -890,6 +1566,31 @@ If no correction was needed, create no empty commit. Otherwise stage explicit re
 ```bash
 git commit -m "Complete unified intake acceptance coverage"
 ```
+
+## Specification Coverage Map
+
+| Approved specification requirement | Implementation task | Primary verification |
+|---|---|---|
+| Skill boundary: shopping planning vs actual inventory facts | Task 5 | Skill contract and routing evals |
+| One resolver for receipt/manual/photo/gift/reconciliation | Task 4 | resolver named test matrix |
+| Expected business problems are structured output | Task 4 | reason-code tests and Tool status assertions |
+| Blockers handled one at a time without losing rows | Task 5 | human-input resume test and mixed eval |
+| Missing Ingredient/Food profile continuation | Task 5 | typed state and approval resume tests |
+| Date precedence and explicit conflict | Tasks 4–5 | resolver date tests and eval |
+| Extra purchase defaults to direct stock only | Tasks 4–5 | resolver and manual-direct eval |
+| Formal `inventory_intake.v1` only | Task 3 | registry, normalizer, approval tests |
+| Shopping-linked/direct/ignored in one Draft | Tasks 3 and 7 | backend normalization and frontend grouping tests |
+| Editable vs immutable approval fields | Tasks 3 and 7 | backend tamper tests and frontend preservation tests |
+| One atomic mixed transaction | Task 2 | mixed service, rollback, stale, replay, MySQL tests |
+| Partial purchase and remaining quantity | Tasks 2 and 7 | service test and summary model test |
+| Existing product shopping endpoint preserved | Tasks 1–2 | public API regression suite |
+| All AI restock uses intake; consume/dispose remain | Tasks 6 and 8 | backend/frontend absence and quick-action tests |
+| Candidate card and second-run path deleted | Tasks 4, 6, and 8 | registry/contract/product-loop absence tests |
+| Existing Draft infrastructure reused | Tasks 3, 7, and 8 | standard Draft registry and ApprovalPanel tests |
+| Grouped, compact, mobile-first approval UI | Tasks 7–9 | component tests, style report, smoke, six viewports |
+| No AI infrastructure or inventory-adjust scope expansion | Global Constraints and Task 9 | changed-path audit against this plan |
+
+An executor should not mark Task 9 complete unless every row above has corresponding fresh evidence. If an implementation discovery requires changing a product decision in this table, stop and return to the specification rather than silently altering the plan.
 
 ## Completion Evidence Checklist
 
