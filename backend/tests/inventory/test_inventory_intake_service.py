@@ -864,6 +864,46 @@ def test_direct_food_increases_stock_without_shopping_change(context: IntakeServ
     assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
 
 
+def test_food_expiry_before_intake_date_is_rejected(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "food-expiry-before-intake-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk-expired",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "expiry_date": "2026-07-20",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    with pytest.raises(InventoryIntakeValidationError) as exc_info:
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    assert exc_info.value.code == "invalid_date_range"
+    assert exc_info.value.field_errors
+    assert exc_info.value.field_errors[0]["field"] == "expiry_date"
+    context.db.rollback()
+    food = context.db.get(Food, context.milk_food.id)
+    assert food is not None
+    assert food.stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
 def test_fulfill_without_stock_completes_only_shopping_item(context: IntakeServiceContext) -> None:
     request = InventoryIntakeRequest.model_validate(
         {

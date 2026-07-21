@@ -735,6 +735,14 @@ def apply_inventory_intake(
                 entity_type="food",
                 entity_id=food.id,
             )
+            if item.expiry_date is not None and item.expiry_date < request.intake_date:
+                _raise_validation(
+                    "到期日不能早于采购日",
+                    code="invalid_date_range",
+                    line_id=item.line_id,
+                    shopping_item_id=item.shopping_item_id,
+                    field="expiry_date",
+                )
             actual_unit = normalize_unit_label(item.unit) or normalize_unit_label(food.stock_unit) or "份"
             if item.source_kind == "shopping_item" and shopping is not None:
                 planned_unit = normalize_unit_label(shopping.unit) or normalize_unit_label(food.stock_unit) or "份"
