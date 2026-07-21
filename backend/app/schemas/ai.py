@@ -123,7 +123,7 @@ AITaskDraftType = Literal[
     "recipe_cook",
     "ingredient_profile",
     "shopping_list",
-    "shopping_intake",
+    "inventory_intake",
     "meal_plan",
     "meal_log",
     "food_profile",
@@ -460,7 +460,7 @@ class AIApprovalFieldDTO(BaseModel):
     name: str
     label: str
     type: Literal["string", "number", "integer", "boolean", "array", "object"]
-    widget: Literal["input", "textarea", "switch", "select", "radio", "checkbox_group", "tag_selector", "date", "time", "recipe_draft_editor", "shopping_intake_editor"]
+    widget: Literal["input", "textarea", "switch", "select", "radio", "checkbox_group", "tag_selector", "date", "time", "recipe_draft_editor", "inventory_intake_editor"]
     options: list[str | dict] | None = None
     allow_custom: bool = False
     placeholder: str | None = None

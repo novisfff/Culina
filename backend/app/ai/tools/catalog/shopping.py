@@ -12,15 +12,12 @@ from app.ai.tools.draft_validation import normalize_shopping_list_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import (
     READ_BY_ID_INPUT,
-    SHOPPING_INTAKE_DRAFT_SCHEMA,
     SHOPPING_LIST_DRAFT_SCHEMA,
     draft_input_schema,
     draft_output_schema,
 )
 from app.core.enums import IngredientQuantityTrackingMode
 from app.models.domain import Food, Ingredient, ShoppingListItem
-from app.services.ai_operations.registry_types import DraftNormalizeContext
-from app.services.ai_operations.shopping_intake import normalize_shopping_intake_draft
 
 
 SHOPPING_ITEM_OUTPUT = {
@@ -335,7 +332,7 @@ def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) ->
         and operation["payload"].get("done") is True
         for operation in draft.get("operations") or []
     ):
-        raise ValueError("完成购物项请改用 shopping.create_intake_draft，在一份审批中同时处理购物状态和库存")
+        raise ValueError("完成购物项请改用 inventory.create_intake_draft，在一份审批中同时处理购物状态和库存")
     normalized = normalize_shopping_list_draft(
         context.db,
         family_id=context.family_id,
@@ -344,21 +341,6 @@ def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) ->
     )
     item_count = len(normalized.get("operations") or normalized.get("items") or [])
     return {"draft": normalized, "itemCount": item_count}
-
-
-def shopping_intake_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    normalized = normalize_shopping_intake_draft(
-        DraftNormalizeContext(
-            db=context.db,
-            draft_type="shopping_intake",
-            family_id=context.family_id,
-            user_id=context.user_id,
-            conversation_id=context.conversation_id,
-            payload=draft,
-        )
-    )
-    return {"draft": normalized, "itemCount": len(normalized["items"])}
 
 
 def register_shopping_tools(registry: ToolRegistry) -> None:
@@ -447,15 +429,4 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         draft_types=["shopping_list"],
-    )
-    register_tool(
-        registry,
-        name="shopping.create_intake_draft",
-        display_name="采购完成与入库确认表单",
-        description="为明确匹配到当前家庭待买项的单项或批量采购生成一体化草稿；额外购买候选只展示建议，不随本次提交。",
-        side_effect="draft",
-        handler=shopping_intake_create_draft,
-        input_schema=draft_input_schema(SHOPPING_INTAKE_DRAFT_SCHEMA),
-        output_schema=draft_output_schema(SHOPPING_INTAKE_DRAFT_SCHEMA),
-        draft_types=["shopping_intake"],
     )
