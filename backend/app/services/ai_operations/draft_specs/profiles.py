@@ -169,7 +169,12 @@ def _normalize_food_profile(context: DraftNormalizeContext) -> dict[str, Any]:
 
 def _normalize_ingredient_profile(context: DraftNormalizeContext) -> dict[str, Any]:
     try:
-        return normalize_ingredient_profile_draft(context.db, family_id=context.family_id, payload=context.payload)
+        return normalize_ingredient_profile_draft(
+            context.db,
+            family_id=context.family_id,
+            payload=context.payload,
+            phase=context.phase,
+        )
     except ValidationError as exc:
         raise ValueError("食材档案草稿字段不完整或格式不正确") from exc
 

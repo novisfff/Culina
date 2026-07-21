@@ -2483,6 +2483,99 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('summarizes shopping intake with the canonical package-converted quantity', async () => {
+    const pending = approval({
+      approval_type: 'shopping_intake.apply',
+      title: '确认完成采购并入库',
+      approve_label: '确认完成并入库',
+      reject_label: '暂不处理',
+      draft_schema_version: 'shopping_intake.v1',
+      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'shopping_intake',
+          schemaVersion: 'shopping_intake.v1',
+          clientRequestId: 'ai-shopping-intake-package-summary',
+          purchaseDate: '2026-07-20',
+          items: [{
+            shoppingItemId: 'shopping-yogurt-case',
+            title: '蓝莓酸奶',
+            expectedShoppingItemRowVersion: 1,
+            matchLevel: 'confirmed',
+            matchReason: '唯一待买项',
+            action: 'stock_and_fulfill',
+            targetKind: 'food',
+            targetId: 'food-yogurt',
+            expectedFoodRowVersion: 1,
+            plannedQuantity: '12',
+            plannedUnit: '盒',
+            enteredQuantity: '1',
+            enteredUnit: '箱',
+            packageConversion: { ratio: '12', targetUnit: '盒', evidence: '包装标注一箱 12 盒' },
+            actualQuantity: '12',
+            actualUnit: '盒',
+            inventoryStatus: 'fresh',
+            storageLocation: '冷藏',
+          }],
+          unmatchedCandidates: [],
+        },
+      },
+    });
+
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
+
+    expect(rendered.container.textContent).toContain('完成并入库 12 盒');
+    expect(rendered.container.textContent).not.toContain('保留 11');
+    rendered.unmount();
+  });
+
+  it('does not claim partial or over-purchase when ingredient units require server conversion', async () => {
+    const pending = approval({
+      approval_type: 'shopping_intake.apply',
+      title: '确认完成采购并入库',
+      approve_label: '确认完成并入库',
+      reject_label: '暂不处理',
+      draft_schema_version: 'shopping_intake.v1',
+      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'shopping_intake',
+          schemaVersion: 'shopping_intake.v1',
+          clientRequestId: 'ai-shopping-intake-unit-summary',
+          purchaseDate: '2026-07-20',
+          items: [{
+            shoppingItemId: 'shopping-flour',
+            title: '面粉',
+            expectedShoppingItemRowVersion: 1,
+            matchLevel: 'confirmed',
+            matchReason: '唯一待买项',
+            action: 'stock_and_fulfill',
+            targetKind: 'exact_ingredient',
+            targetId: 'ingredient-flour',
+            expectedIngredientRowVersion: 1,
+            plannedQuantity: '500',
+            plannedUnit: '克',
+            enteredQuantity: '1',
+            enteredUnit: '斤',
+            packageConversion: null,
+            actualQuantity: '1',
+            actualUnit: '斤',
+            inventoryStatus: 'fresh',
+            storageLocation: '常温',
+          }],
+          unmatchedCandidates: [],
+        },
+      },
+    });
+
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
+
+    expect(rendered.container.textContent).toContain('实际入库 1 斤；计划 500 克，提交时按食材单位换算');
+    expect(rendered.container.textContent).not.toContain('保留 499');
+    expect(rendered.container.textContent).not.toContain('超过计划');
+    rendered.unmount();
+  });
+
   it('renders and submits the dedicated ingredient tracking transition form', async () => {
     const pending = approval({
       approval_type: 'ingredient.transition_tracking_mode',

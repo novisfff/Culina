@@ -32,22 +32,54 @@ function needsAttention(item: DraftRecord) {
   return false;
 }
 
+function displayQuantity(value: number) {
+  return String(Number(value.toFixed(4)));
+}
+
+function canonicalActual(item: DraftRecord) {
+  const rawEntered = quantityValue(item).trim();
+  const entered = Number(rawEntered);
+  if (!rawEntered || !Number.isFinite(entered) || entered <= 0) return null;
+
+  const conversion = item.packageConversion && typeof item.packageConversion === 'object'
+    ? item.packageConversion as DraftRecord
+    : null;
+  if (conversion) {
+    const ratio = Number(conversion.ratio);
+    const targetUnit = asText(conversion.targetUnit);
+    if (Number.isFinite(ratio) && ratio > 0 && targetUnit) {
+      return { quantity: entered * ratio, unit: targetUnit };
+    }
+  }
+  return {
+    quantity: entered,
+    unit: asText(item.enteredUnit) || asText(item.actualUnit) || asText(item.plannedUnit),
+  };
+}
+
 function quantitySummary(item: DraftRecord) {
   if (asText(item.action) === 'complete_without_inventory') return '仅完成购物项，不登记库存';
   if (asText(item.targetKind) === 'presence_ingredient') return '完成购物项并更新为有库存';
-  const rawActual = quantityValue(item).trim();
-  const unit = asText(item.enteredUnit) || asText(item.actualUnit) || asText(item.plannedUnit);
-  if (!rawActual) return '待补实际购买数量';
-  const actual = Number(rawActual);
+  const canonical = canonicalActual(item);
+  if (!canonical) return quantityValue(item).trim() ? '实际数量无效' : '待补实际购买数量';
+  const actual = canonical.quantity;
+  const actualText = displayQuantity(actual);
+  const unit = canonical.unit;
   const planned = Number(item.plannedQuantity);
-  if (!Number.isFinite(actual) || actual <= 0) return '实际数量无效';
+  const plannedUnit = asText(item.plannedUnit);
+  if (Number.isFinite(planned) && plannedUnit && unit && unit !== plannedUnit) {
+    if (asText(item.targetKind) === 'exact_ingredient') {
+      return `实际入库 ${actualText} ${unit}；计划 ${displayQuantity(planned)} ${plannedUnit}，提交时按食材单位换算`;
+    }
+    return `实际入库 ${actualText} ${unit}；计划单位为 ${plannedUnit}，提交前需确认单位`;
+  }
   if (Number.isFinite(planned) && actual < planned) {
-    return `入库 ${rawActual} ${unit}，保留 ${Number((planned - actual).toFixed(4))} ${unit}待买`;
+    return `入库 ${actualText} ${unit}，保留 ${displayQuantity(planned - actual)} ${plannedUnit || unit}待买`;
   }
   if (Number.isFinite(planned) && actual > planned) {
-    return `实际入库 ${rawActual} ${unit}，超过计划 ${planned} ${unit}`;
+    return `实际入库 ${actualText} ${unit}，超过计划 ${displayQuantity(planned)} ${plannedUnit || unit}`;
   }
-  return `完成并入库 ${rawActual} ${unit}`;
+  return `完成并入库 ${actualText} ${unit}`;
 }
 
 function matchLabel(value: string) {
