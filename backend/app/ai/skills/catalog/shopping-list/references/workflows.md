@@ -21,14 +21,16 @@
 ## 修改购物清单
 
 1. 优先通过 `shopping.read_pending` 或 `shopping.read_by_id` 定位真实购物项。
-2. 修改、标记买到、恢复待买或删除正式购物项时，生成 `operations` 草稿；每项必须带真实 `targetId`、`baseUpdatedAt` 和可编辑 payload；create/update payload 必须绑定真实 `ingredientId` 或 ready-like 食物 `foodId`。
-3. `set_done.payload.done` 只能是布尔值：买到为 `true`，恢复待买为 `false`。
+2. 修改、恢复待买或删除正式购物项时，生成 `operations` 草稿；每项必须带真实 `targetId`、`baseUpdatedAt` 和可编辑 payload；create/update payload 必须绑定真实 `ingredientId` 或 ready-like 食物 `foodId`。
+3. 普通草稿只允许 `set_done.payload.done=false` 恢复待买；新的“买到”请求进入下面的一体化采购流程。
 4. 用户修改当前运行中的 `shopping_list` 草稿时，可以基于 artifact 生成新的完整草稿版本，但不能把 `in_run:*` 草稿 ID 当作正式购物项 ID。
 5. 调用 `shopping.create_draft` 返回待确认草稿。
 
-## 购物完成后的入库
+## 购物完成与一体化入库
 
-1. 仅当一份购物草稿中恰好一个 `set_done.payload.done=true` 操作审批并提交成功时，接收后端基于已提交购物项生成的 `shopping_to_stock.v1` continuation；拒绝、恢复待买、更新、删除和批量完成都不进入本流程。用户要求批量完成时先请求选择本次一个目标，其余项目不进入自动队列。
-2. Ingredient 分支按 continuation 的精确 `ingredientId` 调用 `ingredient.read_by_id`；ready-like Food 分支按精确 `foodId` 调用 `food.read_by_id`。不得重新搜索并替换目标，也不得使用其他家庭实体。
-3. 向用户展示本次购物数量和单位。Ingredient 生成第二份 `inventory_operation` restock 草稿；Food 用当前库存数量加本次采购数量，生成第二份 `food_profile` 更新草稿。
-4. 第二份草稿必须再次确认后才写库存；二次审批前只说明购物项已完成、入库待确认，不得声称库存已经增加。
+1. 根据小票、当前卡片/artifact 或用户明确列名确定范围；裸“这些都买到了”先读取 pending 项并请求多选，不能默认全选家庭清单。
+2. 把识别行交给 `shopping.preview_intake_candidates`。confirmed/suggested 可以进入草稿；ambiguous 先选择；unmatched 只放入额外购买候选并给建档、选目标或后续单独入库建议。
+3. 实际数量没有可靠证据时保持为空；不得用计划数量代替。一次性包装换算必须保留倍率、目标单位和证据。
+4. 用 `shopping.create_intake_draft` 生成单项或批量 `shopping_intake` 草稿。每行选择完成并入库或仅完成购物项。
+5. 用户只确认一份审批；执行时复用原子 shopping intake service，同时更新购物状态、库存和操作历史。任一行失败整批回滚。
+6. 部署前已存在的 `shopping_to_stock.v1` continuation 仍可完成，但新请求不再生成两阶段流程。

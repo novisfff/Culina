@@ -45,6 +45,16 @@ def _meal_log_media_ids(payload: Any) -> list[str]:
 
 def _validate_meal_log_approval_value(original: Any, submitted: Any) -> None:
     _validate_single_target_operation_value(original, submitted)
+    if isinstance(original, dict) and original.get("action") == "update_composition":
+        if not isinstance(submitted, dict) or submitted.get("expectedRowVersion") != original.get("expectedRowVersion"):
+            raise ValueError("确认阶段不能修改餐食记录版本基线")
+        original_payload = original.get("payload") if isinstance(original.get("payload"), dict) else {}
+        submitted_payload = submitted.get("payload") if isinstance(submitted.get("payload"), dict) else {}
+        if (
+            original_payload.get("inventoryAdjustment") != "none"
+            or submitted_payload.get("inventoryAdjustment") != "none"
+        ):
+            raise ValueError("餐食组成纠错不能修改历史库存策略")
     validate_submitted_attachment_subset(
         original_media_ids=_meal_log_media_ids(original),
         submitted_media_ids=_meal_log_media_ids(submitted),
@@ -126,6 +136,17 @@ def _approval_config_for_meal_log(payload: dict[str, Any]) -> dict[str, str]:
                 "reject_label": "暂不更新",
             }
         )
+    elif action == "update_composition":
+        config.update(
+            {
+                "approval_type": "meal_log.update_composition",
+                "operation_type": "meal_log.update_composition",
+                "title": "确认纠正餐食内容",
+                "instruction": "确认后只会纠正这条餐食记录的食物、份数和备注；不会补回、追加或重新计算历史库存，也不会改变关联计划事实。",
+                "approve_label": "确认纠正",
+                "reject_label": "暂不修改",
+            }
+        )
     return config
 
 
@@ -203,7 +224,7 @@ def _preview_meal_log(payload: dict[str, Any]) -> str:
     if payload.get("action"):
         before = payload.get("before") if isinstance(payload.get("before"), dict) else {}
         action = str(payload.get("action") or "create")
-        action_label = {"create": "创建", "update_details": "补充", "rate_food": "评分"}.get(action, "处理")
+        action_label = {"create": "创建", "update_details": "补充", "rate_food": "评分", "update_composition": "纠正组成"}.get(action, "处理")
         label = before.get("date") or payload.get("targetId") or payload.get("date")
         return f"{action_label}餐食记录 · {label}"
     return f"{payload.get('date')} · {payload.get('mealType')} · {len(payload.get('foods') or [])} 个食物项"

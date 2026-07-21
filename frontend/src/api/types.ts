@@ -1212,7 +1212,7 @@ export interface AiMealIdeaIngredient {
   unit: string | null;
   available: boolean;
 }
-export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
+export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'shopping_intake' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiRecipeCookSchemaVersion = 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
@@ -1448,7 +1448,7 @@ export interface AiApprovalField {
   name: string;
   label: string;
   type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
-  widget: 'input' | 'textarea' | 'switch' | 'select' | 'radio' | 'checkbox_group' | 'tag_selector' | 'date' | 'time' | 'recipe_draft_editor';
+  widget: 'input' | 'textarea' | 'switch' | 'select' | 'radio' | 'checkbox_group' | 'tag_selector' | 'date' | 'time' | 'recipe_draft_editor' | 'shopping_intake_editor';
   options?: Array<string | { value: string; label: string; description?: string }> | null;
   allow_custom?: boolean;
   placeholder?: string | null;

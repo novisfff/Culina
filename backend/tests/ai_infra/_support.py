@@ -1708,6 +1708,18 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            shopping_completed = ShoppingListItem(
+                id="shopping-completed-item-eval",
+                family_id=self.owner.family.id,
+                food_id=dumpling.id,
+                title=dumpling.name,
+                quantity=Decimal("2"),
+                unit="袋",
+                reason="评估恢复待买",
+                done=True,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
             current_media = MediaAsset(
                 id="media-current-eval",
                 family_id=self.owner.family.id,
@@ -1737,13 +1749,13 @@ class AIEvalContext:
                 source=MediaSource.UPLOAD,
                 alt="其他家庭图片",
             )
-            db.add_all([egg, salt, lettuce, dumpling, other_food, recipe, other_recipe, shopping, shopping_food, current_media, stale_media, other_media])
+            db.add_all([egg, salt, lettuce, dumpling, other_food, recipe, other_recipe, shopping, shopping_food, shopping_completed, current_media, stale_media, other_media])
             db.flush()
             tomato_food = db.get(Food, "food-tomato")
             assert tomato_food is not None
             tomato_food.recipe_id = recipe.id
             db.add_all([
-                InventoryItem(id="inventory-egg-eval", family_id=self.owner.family.id, ingredient_id=egg.id, quantity=Decimal("4"), consumed_quantity=Decimal("0"), unit="个", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏", low_stock_threshold=Decimal("0")),
+                InventoryItem(id="inventory-egg-eval", family_id=self.owner.family.id, ingredient_id=egg.id, quantity=Decimal("4"), consumed_quantity=Decimal("0"), unit="个", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏", low_stock_threshold=Decimal("5")),
                 RecipeIngredient(id="recipe-eval-tomato", recipe_id=recipe.id, ingredient_id="ingredient-tomato", ingredient_name="番茄", quantity=Decimal("2"), unit="个", note="", sort_order=0),
                 RecipeIngredient(id="recipe-eval-egg", recipe_id=recipe.id, ingredient_id=egg.id, ingredient_name="鸡蛋", quantity=Decimal("2"), unit="个", note="", sort_order=1),
             ])
@@ -1758,6 +1770,7 @@ class AIEvalContext:
                 "tomato_egg_recipe": recipe.id,
                 "shopping_item": shopping.id,
                 "shopping_food_item": shopping_food.id,
+                "shopping_completed_item": shopping_completed.id,
                 "current_media": current_media.id,
                 "stale_media": stale_media.id,
                 "other_family_ingredient": "ingredient-secret",
@@ -1855,6 +1868,29 @@ class AIEvalContext:
             "human.request_input": {"question": "请选择具体食物", "inputMode": "choice", "options": [{"id": self.aliases["dumpling"], "label": "速冻饺子"}], "required": True},
             "meal_plan.propose_from_inventory": {"title": "番茄清汤", "ingredientIds": [self.aliases["tomato"]], "reason": "使用现有库存"},
         }
+        if name == "shopping.read_pending":
+            return {
+                "query": "速冻饺子",
+                "exact": True,
+                "status": "completed",
+            }
+        if name == "shopping.preview_intake_candidates":
+            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+            with self.owner.SessionLocal() as db:
+                shopping_item = db.get(ShoppingListItem, shopping_item_id)
+            if shopping_item is None:
+                raise AssertionError(f"{case.id}: shopping fixture is missing")
+            return {
+                "lines": [
+                    {
+                        "clientKey": case.id,
+                        "label": shopping_item.title,
+                        "shoppingItemId": shopping_item.id,
+                        "enteredQuantity": "1" if shopping_item.food_id else "2",
+                        "enteredUnit": shopping_item.unit,
+                    }
+                ]
+            }
         if name in common:
             return common[name]
         continuation_tool = {
@@ -1864,7 +1900,52 @@ class AIEvalContext:
         }.get(case.id)
         continuation = self._continuation_for(case) if name == continuation_tool else None
         if name == "shopping.create_draft":
-            if case.id.startswith("shopping.complete_to_"):
+            if case.id in {"shopping.low_stock_remaining", "shopping.low_stock_zero"}:
+                ingredient_id = (
+                    self.aliases["egg"]
+                    if case.id == "shopping.low_stock_remaining"
+                    else self.aliases["depleted_lettuce"]
+                )
+                with self.owner.SessionLocal() as db:
+                    ingredient = db.get(Ingredient, ingredient_id)
+                if ingredient is None:
+                    raise AssertionError(f"{case.id}: low-stock Ingredient fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list.v1",
+                        "items": [
+                            {
+                                "title": ingredient.name,
+                                "ingredientId": ingredient.id,
+                                "quantity": 1,
+                                "unit": ingredient.default_unit,
+                                "reason": "低库存补货",
+                            }
+                        ],
+                    }
+                }
+            elif case.id == "shopping.restore_completed":
+                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_completed_item"])
+                with self.owner.SessionLocal() as db:
+                    shopping_item = db.get(ShoppingListItem, shopping_item_id)
+                if shopping_item is None:
+                    raise AssertionError(f"{case.id}: completed shopping fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list_operation.v1",
+                        "operations": [
+                            {
+                                "action": "set_done",
+                                "targetId": shopping_item.id,
+                                "baseUpdatedAt": shopping_item.updated_at.isoformat(),
+                                "payload": {"done": False, "reason": "恢复待买"},
+                            }
+                        ],
+                    }
+                }
+            elif case.id.startswith("shopping.complete_to_"):
                 shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
                 with self.owner.SessionLocal() as db:
                     shopping_item = db.get(ShoppingListItem, shopping_item_id)
@@ -1886,6 +1967,43 @@ class AIEvalContext:
                 }
             else:
                 payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
+        elif name == "shopping.create_intake_draft":
+            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+            with self.owner.SessionLocal() as db:
+                shopping_item = db.get(ShoppingListItem, shopping_item_id)
+                if shopping_item is None:
+                    raise AssertionError(f"{case.id}: shopping fixture is missing")
+                if shopping_item.food_id:
+                    target = db.get(Food, shopping_item.food_id)
+                    target_kind = "food"
+                else:
+                    target = db.get(Ingredient, shopping_item.ingredient_id)
+                    target_kind = "exact_ingredient"
+            if target is None:
+                raise AssertionError(f"{case.id}: shopping target fixture is missing")
+            payload = {
+                "draft": {
+                    "draftType": "shopping_intake",
+                    "schemaVersion": "shopping_intake.v1",
+                    "purchaseDate": today,
+                    "items": [
+                        {
+                            "shoppingItemId": shopping_item.id,
+                            "matchLevel": "confirmed",
+                            "matchReason": "用户明确指定真实待买项",
+                            "action": "stock_and_fulfill",
+                            "targetKind": target_kind,
+                            "targetId": target.id,
+                            "enteredQuantity": "1" if target_kind == "food" else "2",
+                            "enteredUnit": shopping_item.unit,
+                            "inventoryStatus": "fresh",
+                            "storageLocation": "冷藏",
+                            "notes": "",
+                        }
+                    ],
+                    "unmatchedCandidates": [],
+                }
+            }
         elif name == "recipe.create_draft":
             step = {"title": "烹饪", "text": "中火烹饪并观察成熟状态，确认熟透后盛出。", "icon": "pan", "summary": "烹饪", "estimated_minutes": 5, "tip": "注意火候", "key_points": ["熟透"]}
             ingredient_items = [{"ingredient_id": self.aliases["tomato"], "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}]

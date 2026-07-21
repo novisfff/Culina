@@ -935,7 +935,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                                         "action": "set_done",
                                         "targetId": other_shopping.id,
                                         "baseUpdatedAt": other_shopping.updated_at.isoformat(),
-                                        "payload": {"done": True},
+                                    "payload": {"done": False},
                                     }
                                 ],
                             }
@@ -993,6 +993,11 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertTrue(food_search.followup_hint)
             food_read = registry.get("food.read_by_id")
             self.assertTrue(food_read.requires_followup)
+            food_read_properties = food_read.output_schema["properties"]["item"]["properties"]
+            self.assertIn("stock_quantity", food_read_properties)
+            self.assertIn("stock_unit", food_read_properties)
+            self.assertIn("expiry_date", food_read_properties)
+            self.assertIn("storage_location", food_read_properties)
             ingredient_search = registry.get("ingredient.search")
             self.assertIn("supportedUnits", ingredient_search.output_schema["properties"]["items"]["items"]["properties"])
             self.assertTrue(ingredient_search.requires_followup)
@@ -1002,6 +1007,11 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertTrue(ingredient_read.requires_followup)
             shopping_pending = registry.get("shopping.read_pending")
             self.assertIn("done", shopping_pending.output_schema["properties"]["items"]["items"]["properties"])
+            self.assertIn("已完成", shopping_pending.description)
+            self.assertEqual(
+                shopping_pending.input_schema["properties"]["status"]["enum"],
+                ["pending", "completed", "all"],
+            )
             self.assertTrue(shopping_pending.requires_followup)
             self.assertTrue(registry.get("shopping.read_by_id").requires_followup)
             meal_plan_existing = registry.get("meal_plan.read_existing")
@@ -1028,6 +1038,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertEqual(meal_plan_draft.input_schema["required"], ["draft"])
             self.assertEqual(meal_plan_draft.input_schema["properties"]["draft"]["properties"]["draftType"]["enum"], ["meal_plan"])
             self.assertIn("operations", meal_plan_draft.input_schema["properties"]["draft"]["properties"])
+
             self.assertIn("items", meal_plan_draft.input_schema["properties"]["draft"]["properties"])
             self.assertIn("anyOf", meal_plan_draft.input_schema["properties"]["draft"])
             self.assertTrue(meal_plan_draft.requires_confirmation)
@@ -1054,6 +1065,60 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 create_recipe_schema["required"],
                 ["title", "servings", "prep_minutes", "difficulty", "ingredient_items", "steps"],
             )
+
+        def test_shopping_completed_items_can_be_found_by_name_and_restored(self) -> None:
+            with self.SessionLocal() as db:
+                completed = ShoppingListItem(
+                    id="shopping-completed-milk",
+                    family_id=self.family.id,
+                    ingredient_id="ingredient-tomato",
+                    title="番茄",
+                    quantity=Decimal("2"),
+                    unit="个",
+                    reason="早餐备用",
+                    done=True,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(completed)
+                db.commit()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-shopping-restore",
+                        run_id="run-shopping-restore",
+                    ),
+                )
+
+                found = executor.call(
+                    "shopping.read_pending",
+                    {"query": "番茄", "exact": True, "status": "completed"},
+                )
+
+                self.assertEqual(found["count"], 1)
+                self.assertTrue(found["items"][0]["done"])
+                restored = executor.call(
+                    "shopping.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list_operation.v1",
+                            "operations": [
+                                {
+                                    "action": "set_done",
+                                    "targetId": found["items"][0]["id"],
+                                    "baseUpdatedAt": found["items"][0]["updatedAt"],
+                                    "payload": {"done": False, "reason": "恢复待买"},
+                                }
+                            ],
+                        }
+                    },
+                )
+
+            self.assertFalse(restored["draft"]["operations"][0]["payload"]["done"])
 
         def test_tool_executor_progress_uses_display_names(self) -> None:
             events: list[dict] = []

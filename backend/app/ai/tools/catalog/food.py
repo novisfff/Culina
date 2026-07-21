@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 
 from app.ai.errors import ToolExecutionError
@@ -46,10 +47,28 @@ FOOD_SEARCH_OUTPUT = {
     },
 }
 
+FOOD_READ_ITEM_OUTPUT = {
+    **FOOD_ITEM_OUTPUT,
+    "required": [
+        *FOOD_ITEM_OUTPUT["required"],
+        "stock_quantity",
+        "stock_unit",
+        "expiry_date",
+        "storage_location",
+    ],
+    "properties": {
+        **FOOD_ITEM_OUTPUT["properties"],
+        "stock_quantity": {"type": ["number", "null"], "minimum": 0},
+        "stock_unit": {"type": ["string", "null"]},
+        "expiry_date": {"type": ["string", "null"], "format": "date"},
+        "storage_location": {"type": ["string", "null"]},
+    },
+}
+
 FOOD_READ_OUTPUT = {
     "type": "object",
     "required": ["item"],
-    "properties": {"item": FOOD_ITEM_OUTPUT},
+    "properties": {"item": FOOD_READ_ITEM_OUTPUT},
 }
 
 
@@ -137,7 +156,7 @@ def food_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, 
             entity_ids=[food.id],
         )
     )
-    return {"item": serialize_food(food, media_map)}
+    return {"item": jsonable_encoder(serialize_food(food, media_map))}
 
 
 def food_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:

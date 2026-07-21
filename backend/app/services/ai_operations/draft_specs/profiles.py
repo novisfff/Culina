@@ -62,6 +62,19 @@ def _validate_food_profile_approval_value(original: Any, submitted: Any) -> None
 
 def _validate_ingredient_profile_approval_value(original: Any, submitted: Any) -> None:
     _validate_ingredient_profile_value(original, submitted)
+    if isinstance(original, dict) and original.get("action") == "transition_tracking_mode":
+        if not isinstance(submitted, dict):
+            raise ValueError("食材跟踪模式草稿格式不正确")
+        original_payload = original.get("payload") if isinstance(original.get("payload"), dict) else {}
+        submitted_payload = submitted.get("payload") if isinstance(submitted.get("payload"), dict) else {}
+        immutable_keys = (
+            "target_mode",
+            "expected_ingredient_row_version",
+            "expected_state_row_version",
+            "observed_batches",
+        )
+        if any(original_payload.get(key) != submitted_payload.get(key) for key in immutable_keys):
+            raise ValueError("确认阶段不能修改跟踪模式目标或并发边界")
     _validate_profile_attachment_value(original, submitted)
 
 
@@ -82,7 +95,18 @@ def _approval_config_for_ingredient_profile(payload: dict[str, Any]) -> dict[str
         )
         return config
     action = str(payload.get("action") or "create")
-    if action == "update":
+    if action == "transition_tracking_mode":
+        config.update(
+            {
+                "approval_type": "ingredient.transition_tracking_mode",
+                "operation_type": "ingredient.transition_tracking_mode",
+                "title": "确认切换数量记录方式",
+                "instruction": "确认后会按所选库存表示原子切换数量记录方式；目标、库存批次和版本边界不能在确认阶段修改。",
+                "approve_label": "确认切换",
+                "reject_label": "暂不切换",
+            }
+        )
+    elif action == "update":
         config.update(
             {
                 "approval_type": "ingredient.update",

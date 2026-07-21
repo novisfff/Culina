@@ -1356,7 +1356,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             db.flush()
             executor = self._inventory_intake_executor(db)
 
-            with self.assertRaisesRegex(ValueError, "一次只能完成一个需要入库的购物项"):
+            with self.assertRaisesRegex(ValueError, "shopping.create_intake_draft"):
                 executor.call(
                     "shopping.create_draft",
                     {
@@ -1487,7 +1487,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
         self.assertEqual(artifact["payload"]["resumeSkillKey"], "inventory_analysis")
         self.assertEqual(artifact["payload"]["businessEntityIds"], [item.id])
 
-    def test_completed_shopping_item_resumes_separate_stock_approval(self) -> None:
+    def test_new_shopping_completion_rejects_legacy_two_approval_provider(self) -> None:
         with self.SessionLocal() as db:
             item = ShoppingListItem(
                 id="shopping-e2e-stock",
@@ -1515,65 +1515,14 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            first_approval = data["included"]["approvals"][0]
-            with self.client.stream(
-                "POST",
-                f"/api/ai/conversations/{data['conversation_id']}/approvals/{first_approval['id']}/decision/stream",
-                json={
-                    "decision": "approved",
-                    "draft_version": first_approval["draft_version"],
-                    "values": first_approval["initial_values"],
-                },
-            ) as stream_response:
-                self.assertEqual(stream_response.status_code, 200)
-                "".join(stream_response.iter_text())
+            self.assertEqual(data["included"]["approvals"], [])
+            self.assertEqual(data["run"]["status"], "failed")
+            with self.SessionLocal() as db:
+                unchanged = db.get(ShoppingListItem, item.id)
+                assert unchanged is not None
+                self.assertFalse(unchanged.done)
 
-        self.assertEqual(provider.calls, 2)
-        self.assertIsNotNone(provider.ready_continuation, provider.current_artifacts)
-        assert provider.ready_continuation is not None
-        self.assertEqual(
-            provider.ready_continuation["payload"]["state"]["shoppingItemId"],
-            item.id,
-        )
-        with self.SessionLocal() as db:
-            db_item = db.get(ShoppingListItem, item.id)
-            assert db_item is not None
-            self.assertTrue(db_item.done)
-            inventory = db.get(InventoryItem, "inventory-tomato")
-            assert inventory is not None
-            self.assertEqual(inventory.quantity, Decimal("3"))
-            drafts = list(
-                db.scalars(
-                    select(AITaskDraft).where(
-                        AITaskDraft.source_run_id == data["run"]["id"],
-                        AITaskDraft.draft_type == "inventory_operation",
-                    )
-                )
-            )
-            self.assertEqual(len(drafts), 1)
-            approvals = list(
-                db.scalars(
-                    select(AIApprovalRequest).where(
-                        AIApprovalRequest.conversation_id == data["conversation_id"],
-                        AIApprovalRequest.status == "pending",
-                    )
-                )
-            )
-            self.assertEqual(len(approvals), 1)
-            self.assertEqual(approvals[0].approval_type, "inventory.operation")
-            continuation_skill_events = list(
-                db.scalars(
-                    select(AIRunEvent).where(
-                        AIRunEvent.run_id == data["run"]["id"],
-                        AIRunEvent.type == "skill",
-                        AIRunEvent.internal_code == "inventory_analysis.start",
-                        AIRunEvent.status == "completed",
-                    )
-                )
-            )
-            self.assertEqual(len(continuation_skill_events), 1)
-
-    def test_completed_food_item_resumes_separate_food_stock_approval(self) -> None:
+    def test_new_food_completion_rejects_legacy_two_approval_provider(self) -> None:
         with self.SessionLocal() as db:
             food = Food(
                 id="food-shopping-e2e-milk",
@@ -1620,51 +1569,11 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            first_approval = data["included"]["approvals"][0]
-            with self.client.stream(
-                "POST",
-                f"/api/ai/conversations/{data['conversation_id']}/approvals/{first_approval['id']}/decision/stream",
-                json={
-                    "decision": "approved",
-                    "draft_version": first_approval["draft_version"],
-                    "values": first_approval["initial_values"],
-                },
-            ) as stream_response:
-                self.assertEqual(stream_response.status_code, 200)
-                "".join(stream_response.iter_text())
-
-        self.assertEqual(provider.calls, 2)
-        self.assertIsNotNone(provider.ready_continuation)
-        assert provider.ready_continuation is not None
-        self.assertEqual(provider.read_food_id, food.id)
-        self.assertEqual(
-            provider.ready_continuation["payload"]["state"]["shoppingItemId"],
-            item.id,
-        )
-        with self.SessionLocal() as db:
-            db_item = db.get(ShoppingListItem, item.id)
-            assert db_item is not None
-            self.assertTrue(db_item.done)
-            db_food = db.get(Food, food.id)
-            assert db_food is not None
-            self.assertEqual(db_food.stock_quantity, Decimal("1"))
-            drafts = list(
-                db.scalars(
-                    select(AITaskDraft).where(
-                        AITaskDraft.source_run_id == data["run"]["id"],
-                        AITaskDraft.draft_type == "food_profile",
-                    )
-                )
-            )
-            self.assertEqual(len(drafts), 1)
-            self.assertEqual(drafts[0].payload["payload"]["stock_quantity"], 4.0)
-            approvals = list(
-                db.scalars(
-                    select(AIApprovalRequest).where(
-                        AIApprovalRequest.conversation_id == data["conversation_id"],
-                        AIApprovalRequest.status == "pending",
-                    )
-                )
-            )
-            self.assertEqual(len(approvals), 1)
-            self.assertEqual(approvals[0].approval_type, "food.update")
+            self.assertEqual(data["included"]["approvals"], [])
+            self.assertEqual(data["run"]["status"], "failed")
+            with self.SessionLocal() as db:
+                unchanged_item = db.get(ShoppingListItem, item.id)
+                unchanged_food = db.get(Food, food.id)
+                assert unchanged_item is not None and unchanged_food is not None
+                self.assertFalse(unchanged_item.done)
+                self.assertEqual(unchanged_food.stock_quantity, Decimal("1"))

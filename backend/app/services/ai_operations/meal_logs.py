@@ -13,11 +13,12 @@ from app.core.enums import ActivityAction, MealType
 from app.core.utils import utcnow
 from app.models.domain import MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn
+from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn, UpdateMealCompositionRequest
 from app.services.activity import log_activity
 from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
 from app.services.meal_log_references import MealLogReferenceError, lock_and_validate_meal_log_references
+from app.services.meal_log_composition import MealCompositionValidationError, update_meal_composition
 from app.services.meal_log_versions import (
     MealLogConflictError,
     bump_meal_log_collection,
@@ -61,6 +62,36 @@ def execute_meal_log_draft(
     assert_updated_at_matches: UpdatedAtValidator,
 ) -> tuple[dict[str, Any], list[str]]:
     action = str(payload.get("action") or "")
+    if action == "update_composition":
+        if (payload.get("payload") or {}).get("inventoryAdjustment") != "none":
+            raise ValueError("餐食组成纠错不能调整历史库存")
+        request = UpdateMealCompositionRequest.model_validate(
+            {
+                "expected_row_version": payload.get("expectedRowVersion"),
+                "food_entries": [
+                    {
+                        "id": item.get("entryId"),
+                        "food_id": item.get("foodId"),
+                        "servings": item.get("servings"),
+                        "note": item.get("note") or "",
+                    }
+                    for item in (payload.get("payload") or {}).get("foods") or []
+                    if isinstance(item, dict)
+                ],
+            }
+        )
+        try:
+            meal_log = update_meal_composition(
+                db,
+                family_id=family_id,
+                actor_user_id=user_id,
+                meal_log_id=str(payload.get("targetId") or ""),
+                expected_row_version=request.expected_row_version,
+                food_entries=request.food_entries,
+            )
+        except MealCompositionValidationError as exc:
+            raise ValueError(exc.message) from exc
+        return _serialize_meal_log(db, family_id=family_id, meal_log_id=meal_log.id), [meal_log.id]
     if action in {"update_details", "rate_food"}:
         meal_log_id = str(payload.get("targetId") or "")
         if not meal_log_id:

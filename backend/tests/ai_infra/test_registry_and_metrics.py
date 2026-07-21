@@ -412,6 +412,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 "recipe",
                 "recipe_cook",
                 "shopping_list",
+                "shopping_intake",
                 "meal_plan",
                 "meal_log",
                 "food_profile",

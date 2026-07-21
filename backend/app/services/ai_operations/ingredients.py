@@ -12,10 +12,10 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.models.domain import Ingredient
-from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest
+from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest, IngredientTrackingModeTransitionRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_ingredient_image_request, enqueue_ai_entity_image_generation
-from app.services.ingredient_inventory_state import TRACKING_TRANSITION_REQUIRED_MESSAGE
+from app.services.ingredient_inventory_state import TRACKING_TRANSITION_REQUIRED_MESSAGE, transition_ingredient_tracking_mode
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
@@ -46,6 +46,24 @@ def execute_ingredient_profile_draft(
     if action == "create":
         ingredient_in = CreateIngredientRequest.model_validate(payload.get("payload") or {})
         return _create_ingredient_from_request(db, family_id=family_id, user_id=user_id, ingredient_in=ingredient_in)
+    if action == "transition_tracking_mode":
+        request = IngredientTrackingModeTransitionRequest.model_validate(payload.get("payload") or {})
+        ingredient = transition_ingredient_tracking_mode(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            ingredient_id=str(payload.get("targetId") or ""),
+            request=request,
+        )
+        enqueue_search_index_job(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+            target_name=ingredient.name,
+        )
+        return ingredient
 
     ingredient = db.scalar(
         select(Ingredient)

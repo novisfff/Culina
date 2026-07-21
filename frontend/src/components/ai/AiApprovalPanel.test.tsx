@@ -2367,4 +2367,230 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-ingredient-profile-summary-card input')).toBeNull();
     rendered.unmount();
   });
+
+  it('renders shopping intake as a compact progressive form and blocks missing evidence quantity', async () => {
+    const pending = approval({
+      approval_type: 'shopping_intake.apply',
+      title: '确认完成采购并入库',
+      instruction: '一份审批同时更新购物项和库存。',
+      approve_label: '确认完成并入库',
+      reject_label: '暂不处理',
+      draft_schema_version: 'shopping_intake.v1',
+      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'shopping_intake',
+          schemaVersion: 'shopping_intake.v1',
+          clientRequestId: 'ai-shopping-intake-test',
+          purchaseDate: '2026-07-20',
+          items: [
+            {
+              shoppingItemId: 'shopping-milk',
+              title: '牛奶',
+              expectedShoppingItemRowVersion: 1,
+              matchLevel: 'confirmed',
+              matchReason: '名称与唯一待买项完全一致',
+              action: 'stock_and_fulfill',
+              targetKind: 'food',
+              targetId: 'food-milk',
+              expectedFoodRowVersion: 1,
+              plannedQuantity: '2',
+              plannedUnit: '盒',
+              enteredQuantity: '2',
+              enteredUnit: '盒',
+              actualQuantity: '2',
+              actualUnit: '盒',
+              inventoryStatus: 'fresh',
+              expiryDate: null,
+              storageLocation: '冷藏',
+              notes: '',
+            },
+            {
+              shoppingItemId: 'shopping-yogurt',
+              title: '蓝莓酸奶',
+              expectedShoppingItemRowVersion: 1,
+              matchLevel: 'suggested',
+              matchReason: '小票标题“蓝莓风味酸奶”只有一个合理待买候选',
+              action: 'stock_and_fulfill',
+              targetKind: 'food',
+              targetId: 'food-yogurt',
+              expectedFoodRowVersion: 1,
+              plannedQuantity: '1',
+              plannedUnit: '盒',
+              enteredQuantity: null,
+              enteredUnit: '盒',
+              actualQuantity: null,
+              actualUnit: '盒',
+              inventoryStatus: 'fresh',
+              expiryDate: null,
+              storageLocation: '冷藏',
+              notes: '',
+            },
+          ],
+          unmatchedCandidates: [
+            {
+              clientKey: 'receipt-soda',
+              label: '盒装苏打水',
+              enteredQuantity: '1',
+              enteredUnit: '箱',
+              recommendationType: 'food_profile',
+              recommendation: '建议先创建包装食品资料，再单独登记库存',
+              candidateIds: [],
+            },
+          ],
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-shopping-intake-editor')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('采购日期 2026-07-20');
+    expect(rendered.container.textContent).toContain('2 项待处理');
+    expect(rendered.container.textContent).toContain('建议匹配');
+    expect(rendered.container.textContent).toContain('额外购买候选');
+    expect(rendered.container.textContent).toContain('不随本次提交');
+    expect(rendered.container.textContent).toContain('建议先创建包装食品资料');
+    expect(rendered.container.querySelector('input[aria-label="蓝莓酸奶实际购买数量"]')).not.toBeNull();
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('蓝莓酸奶');
+    expect(decideSpy).not.toHaveBeenCalled();
+
+    changeInput(
+      rendered.container.querySelector<HTMLInputElement>('input[aria-label="蓝莓酸奶实际购买数量"]') as HTMLInputElement,
+      '1',
+    );
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({ shoppingItemId: 'shopping-yogurt', enteredQuantity: '1' }),
+          ]),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('renders and submits the dedicated ingredient tracking transition form', async () => {
+    const pending = approval({
+      approval_type: 'ingredient.transition_tracking_mode',
+      title: '确认切换数量追踪方式',
+      approve_label: '确认切换',
+      reject_label: '暂不切换',
+      draft_schema_version: 'ingredient_profile_operation.v1',
+      field_schema: [{ name: 'draft', label: '追踪方式切换', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile_operation.v1',
+          action: 'transition_tracking_mode',
+          targetId: 'ingredient-eggs',
+          before: { name: '鸡蛋', quantity_tracking_mode: 'track_quantity' },
+          payload: {
+            target_mode: 'not_track_quantity',
+            expected_ingredient_row_version: 3,
+            expected_state_row_version: null,
+            observed_batches: [{ inventory_item_id: 'inventory-eggs', expected_row_version: 2 }],
+            presence_resolution: {
+              availability_level: 'sufficient',
+              inventory_status: 'fresh',
+              purchase_date: '2026-07-20',
+              expiry_date: null,
+              storage_location: '冷藏',
+              notes: '',
+              mark_inventory_confirmed: false,
+            },
+            exact_resolution: null,
+          },
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-ingredient-tracking-transition')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('精确数量');
+    expect(rendered.container.textContent).toContain('只记有无');
+    expect(rendered.container.textContent).toContain('1 个现有批次将按选择折叠');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      { draft: expect.objectContaining({ action: 'transition_tracking_mode' }) },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('renders meal composition correction with a fixed no-inventory-adjustment warning', async () => {
+    const pending = approval({
+      approval_type: 'meal_log.update_composition',
+      title: '确认纠正餐食内容',
+      approve_label: '确认纠正',
+      reject_label: '暂不修改',
+      draft_schema_version: 'meal_log_operation.v1',
+      field_schema: [{ name: 'draft', label: '餐食组成', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'meal_log',
+          schemaVersion: 'meal_log_operation.v1',
+          action: 'update_composition',
+          targetId: 'meal-log-dinner',
+          baseUpdatedAt: '2026-07-20T12:00:00Z',
+          expectedRowVersion: 2,
+          before: {
+            date: '2026-07-20',
+            mealType: 'dinner',
+            foods: [{ entryId: 'entry-milk', foodId: 'food-milk', name: '牛奶', servings: 1, note: '' }],
+          },
+          payload: {
+            foods: [
+              { entryId: 'entry-bread', foodId: 'food-bread', name: '全麦面包', servings: 0.5, note: '实际半份' },
+            ],
+            inventoryAdjustment: 'none',
+          },
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-meal-composition-correction')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('牛奶');
+    expect(rendered.container.textContent).toContain('全麦面包');
+    expect(rendered.container.textContent).toContain('不会补回、追加或重新计算历史库存');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'update_composition',
+          payload: expect.objectContaining({ inventoryAdjustment: 'none' }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
 });
