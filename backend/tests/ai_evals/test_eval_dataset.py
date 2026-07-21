@@ -68,7 +68,6 @@ def test_core_dataset_has_required_coverage() -> None:
         "inventory.available": ["inventory_summary"],
         "inventory.low_stock_zero": ["inventory_summary"],
         "inventory.expiring": ["inventory_summary"],
-        "inventory.intake_preview": ["inventory_intake_candidates"],
         "meal.plan_empty_library": ["meal_idea_proposal"],
         "cooking.next_step": ["ui_actions"],
     }

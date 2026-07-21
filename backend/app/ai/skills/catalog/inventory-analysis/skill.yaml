@@ -75,6 +75,9 @@ examples:
 - 看这张冰箱照片，整理成可以确认的入库草稿。
 - 按这张小票整理食材，先让我核对再入库。
 - 朋友送了 1 份卤牛肉，帮我直接入库。
+- 鸡蛋已经买到了，帮我标记完成。
+- 这些都买到了，先让我选一个完成并入库。
+- 这些都买到了，按小票一起入库。
 routing:
   modes: [query, restock, consume, dispose]
   include_examples:
@@ -87,6 +90,9 @@ routing:
   - 看这张冰箱照片，整理成可以确认的入库草稿。
   - 按这张小票整理食材，先让我核对再入库。
   - 朋友送了 1 份卤牛肉，帮我直接入库。
+  - 鸡蛋已经买到了，帮我标记完成。
+  - 这些都买到了，先让我选一个完成并入库。
+  - 这些都买到了，按小票一起入库。
   exclude_examples:
   - 新增鸡蛋食材档案。
   - 新增盒装牛奶食物资料并记录剩余数量。
@@ -98,6 +104,9 @@ routing:
   - with: food_profile
     when: 用户操作成品、速食或包装食品自身的库存字段
     route_to: food_profile
+  - with: shopping_list
+    when: 用户要标记买到了、完成并入库或按小票入库
+    route_to: inventory_analysis
 handoffs:
   missing_ingredient:
     target_skill: ingredient_profile

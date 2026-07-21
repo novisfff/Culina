@@ -1415,24 +1415,61 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
             )
 
     def test_non_inventory_hint_with_exact_candidate_is_not_ignored(self) -> None:
-        with self.SessionLocal() as db:
-            ingredient = db.get(Ingredient, "ingredient-tomato")
-            assert ingredient is not None
-            executor = self._executor(db)
-            # Even if the model marks itemKind=non_inventory, exact candidate must still resolve.
-            resolved = executor.call(
-                "purchasable.resolve_candidates",
-                {"items": [{"clientKey": "maybe-trash", "name": "番茄"}]},
-            )
-            exact = resolved["results"][0]
-            self.assertEqual(exact["status"], "exact")
-            self.assertEqual(exact["candidates"][0]["id"], ingredient.id)
+        class NonInventoryHintProvider(BaseChatProvider):
+            model_name = "inventory-intake-non-inventory-hint"
 
-            draft = executor.call(
-                "inventory.create_intake_draft",
-                {
-                    "draft": self._base_draft(
-                        items=[
+            def __init__(self) -> None:
+                self.tool_calls: list[tuple[str, dict]] = []
+                self.created_draft: dict | None = None
+
+            def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools,
+                tool_handler,
+                message_handler=None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, message_handler, max_rounds
+                tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "小票入库"})
+                tools()
+                # Model-side evidence: itemKind=non_inventory. That hint never bypasses resolve.
+                model_line_evidence = {
+                    "clientKey": "maybe-trash",
+                    "name": "番茄",
+                    "itemKind": "non_inventory",
+                    "reason": "模型猜测是非库存杂项",
+                }
+                assert model_line_evidence["itemKind"] == "non_inventory"
+                resolve_payload = {
+                    "items": [
+                        {
+                            "clientKey": model_line_evidence["clientKey"],
+                            "name": model_line_evidence["name"],
+                        }
+                    ]
+                }
+                resolved = tool_handler("purchasable.resolve_candidates", resolve_payload)
+                self.tool_calls.append(("purchasable.resolve_candidates", resolve_payload))
+                assert "error" not in resolved, resolved
+                exact = resolved["results"][0]
+                assert exact["status"] == "exact", exact
+                assert exact["candidates"], exact
+                # Exact Ingredient/Food must become an intake item, not ignoredItems.
+                draft_payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "receipt_image",
+                        "sourceReference": {"mediaId": "media_non_inventory_hint"},
+                        "intakeDate": date.today().isoformat(),
+                        "intakeDateSource": "receipt",
+                        "items": [
                             {
                                 "lineId": "line-1",
                                 "sourceLineId": "maybe-trash",
@@ -1440,20 +1477,60 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                                 "sourceKind": "direct",
                                 "action": "stock_only",
                                 "targetKind": "exact_ingredient",
-                                "targetId": ingredient.id,
+                                "targetId": exact["candidates"][0]["id"],
                                 "enteredQuantity": "1",
                                 "enteredUnit": "个",
                                 "inventoryStatus": "fresh",
                                 "storageLocation": "冷藏",
                             }
                         ],
-                        ignored_items=[],
-                    )
-                },
-            )["draft"]
-            self.assertEqual(len(draft["items"]), 1)
-            self.assertEqual(draft["items"][0]["targetId"], ingredient.id)
-            self.assertEqual(draft["ignoredItems"], [])
+                        "ignoredItems": [],
+                    }
+                }
+                self.created_draft = draft_payload["draft"]
+                self.tool_calls.append(("inventory.create_intake_draft", draft_payload["draft"]))
+                try:
+                    draft_result = tool_handler("inventory.create_intake_draft", draft_payload)
+                    assert "error" not in draft_result, draft_result
+                    self.created_draft = draft_result["draft"]
+                except ApprovalRequired:
+                    pass
+                return ChatProviderResult(
+                    text="番茄虽有非库存提示，但匹配到真实食材，已纳入入库确认。",
+                    status="waiting_approval",
+                    model=self.model_name,
+                )
+
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            ingredient_id = ingredient.id
+            provider = NonInventoryHintProvider()
+            service = AIApplicationService(db, provider=provider)
+            result = service.chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="小票上有一行番茄，模型先标成非库存，也请核对入库",
+            )
+
+        self.assertIn(result["run"]["status"], {"waiting_approval", "completed"})
+        self.assertEqual(
+            [name for name, _ in provider.tool_calls],
+            ["purchasable.resolve_candidates", "inventory.create_intake_draft"],
+        )
+        resolve_payload = provider.tool_calls[0][1]
+        self.assertEqual(resolve_payload["items"][0]["clientKey"], "maybe-trash")
+        self.assertEqual(resolve_payload["items"][0]["name"], "番茄")
+        self.assertIsNotNone(provider.created_draft)
+        draft = provider.created_draft
+        self.assertEqual(len(draft["items"]), 1)
+        self.assertEqual(draft["items"][0]["targetId"], ingredient_id)
+        self.assertEqual(draft["items"][0]["action"], "stock_only")
+        self.assertEqual(draft["ignoredItems"], [])
+        self.assertNotIn(
+            "maybe-trash",
+            {item.get("sourceLineId") for item in draft["ignoredItems"]},
+        )
 
     def test_thirty_rows_use_one_batch_call_and_more_than_thirty_requests_smaller_batch(self) -> None:
         class ThirtyRowProvider(BaseChatProvider):

@@ -1864,33 +1864,21 @@ class AIEvalContext:
             "food.read_by_id": {"id": subject.get("foodId") or self.aliases["dumpling"]},
             "ingredient.read_by_id": {"id": subject.get("ingredientId") or self.aliases["tomato"]},
             "recipe.preview_cook": {"recipeId": subject.get("recipeId") or self.aliases["tomato_egg_recipe"], "servings": 2},
-            "inventory.preview_intake_candidates": {"items": [{"ingredientId": self.aliases["tomato"], "quantity": "2", "unit": "个"}], "unresolvedLabels": []},
             "human.request_input": {"question": "请选择具体食物", "inputMode": "choice", "options": [{"id": self.aliases["dumpling"], "label": "速冻饺子"}], "required": True},
             "meal_plan.propose_from_inventory": {"title": "番茄清汤", "ingredientIds": [self.aliases["tomato"]], "reason": "使用现有库存"},
         }
         if name == "shopping.read_pending":
+            if case.id.startswith("shopping.complete_to_"):
+                return {"status": "pending", "limit": 50}
             return {
                 "query": "速冻饺子",
                 "exact": True,
                 "status": "completed",
             }
-        if name == "shopping.preview_intake_candidates":
-            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
-            with self.owner.SessionLocal() as db:
-                shopping_item = db.get(ShoppingListItem, shopping_item_id)
-            if shopping_item is None:
-                raise AssertionError(f"{case.id}: shopping fixture is missing")
-            return {
-                "lines": [
-                    {
-                        "clientKey": case.id,
-                        "label": shopping_item.title,
-                        "shoppingItemId": shopping_item.id,
-                        "enteredQuantity": "1" if shopping_item.food_id else "2",
-                        "enteredUnit": shopping_item.unit,
-                    }
-                ]
-            }
+        if name == "purchasable.resolve_candidates":
+            if case.id == "shopping.complete_to_food_stock":
+                return {"items": [{"clientKey": case.id, "name": "速冻饺子"}]}
+            return {"items": [{"clientKey": case.id, "name": "番茄"}]}
         if name in common:
             return common[name]
         continuation_tool = {
@@ -1945,65 +1933,83 @@ class AIEvalContext:
                         ],
                     }
                 }
-            elif case.id.startswith("shopping.complete_to_"):
+            else:
+                payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
+        elif name == "inventory.create_intake_draft":
+            if case.id.startswith("shopping.complete_to_"):
                 shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
                 with self.owner.SessionLocal() as db:
                     shopping_item = db.get(ShoppingListItem, shopping_item_id)
-                if shopping_item is None:
-                    raise AssertionError(f"{case.id}: shopping fixture is missing")
+                    if shopping_item is None:
+                        raise AssertionError(f"{case.id}: shopping fixture is missing")
+                    if shopping_item.food_id:
+                        target = db.get(Food, shopping_item.food_id)
+                        target_kind = "food"
+                    else:
+                        target = db.get(Ingredient, shopping_item.ingredient_id)
+                        target_kind = "exact_ingredient"
+                if target is None:
+                    raise AssertionError(f"{case.id}: shopping target fixture is missing")
                 payload = {
                     "draft": {
-                        "draftType": "shopping_list",
-                        "schemaVersion": "shopping_list_operation.v1",
-                        "operations": [
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "manual_text",
+                        "sourceReference": {},
+                        "intakeDate": today,
+                        "intakeDateSource": "user_explicit",
+                        "items": [
                             {
-                                "action": "set_done",
-                                "targetId": shopping_item.id,
-                                "baseUpdatedAt": shopping_item.updated_at.isoformat(),
-                                "payload": {"done": True, "reason": "已采购"},
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": shopping_item.title,
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": shopping_item.id,
+                                "targetKind": target_kind,
+                                "targetId": target.id,
+                                "enteredQuantity": "1" if target_kind == "food" else "2",
+                                "enteredUnit": shopping_item.unit,
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
                             }
                         ],
+                        "ignoredItems": [],
                     }
                 }
             else:
-                payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
-        elif name == "shopping.create_intake_draft":
-            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
-            with self.owner.SessionLocal() as db:
-                shopping_item = db.get(ShoppingListItem, shopping_item_id)
-                if shopping_item is None:
-                    raise AssertionError(f"{case.id}: shopping fixture is missing")
-                if shopping_item.food_id:
-                    target = db.get(Food, shopping_item.food_id)
-                    target_kind = "food"
-                else:
-                    target = db.get(Ingredient, shopping_item.ingredient_id)
-                    target_kind = "exact_ingredient"
-            if target is None:
-                raise AssertionError(f"{case.id}: shopping target fixture is missing")
-            payload = {
-                "draft": {
-                    "draftType": "shopping_intake",
-                    "schemaVersion": "shopping_intake.v1",
-                    "purchaseDate": today,
-                    "items": [
-                        {
-                            "shoppingItemId": shopping_item.id,
-                            "matchLevel": "confirmed",
-                            "matchReason": "用户明确指定真实待买项",
-                            "action": "stock_and_fulfill",
-                            "targetKind": target_kind,
-                            "targetId": target.id,
-                            "enteredQuantity": "1" if target_kind == "food" else "2",
-                            "enteredUnit": shopping_item.unit,
-                            "inventoryStatus": "fresh",
-                            "storageLocation": "冷藏",
-                            "notes": "",
-                        }
-                    ],
-                    "unmatchedCandidates": [],
+                with self.owner.SessionLocal() as db:
+                    ingredient = db.get(Ingredient, self.aliases["tomato"])
+                if ingredient is None:
+                    raise AssertionError(f"{case.id}: tomato Ingredient fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "receipt_image",
+                        "sourceReference": {"mediaId": subject.get("mediaId") or self.aliases["current_media"]},
+                        "intakeDate": today,
+                        "intakeDateSource": "receipt",
+                        "items": [
+                            {
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
                 }
-            }
         elif name == "recipe.create_draft":
             step = {"title": "烹饪", "text": "中火烹饪并观察成熟状态，确认熟透后盛出。", "icon": "pan", "summary": "烹饪", "estimated_minutes": 5, "tip": "注意火候", "key_points": ["熟透"]}
             ingredient_items = [{"ingredient_id": self.aliases["tomato"], "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}]
