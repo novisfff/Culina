@@ -6,11 +6,13 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from app.ai.skills.loader import SkillDirectoryLoader
 from app.ai.skills.base import SkillContext
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.registry import build_workspace_skill_registry
+from app.ai.skills.state_schemas import validate_continuation_state
 from app.ai.tools import ToolContext, ToolExecutor
 from app.ai.tools.registry import build_workspace_tool_registry
 from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
@@ -220,6 +222,8 @@ def test_meal_log_skill_requires_explicit_ready_food_stock_deduction_contract() 
     skill_text = skill_path.read_text(encoding="utf-8")
 
     assert any("扣减" in example and "库存" in example for example in manifest.routing.include_examples)
+    assert "food.read_by_id" in manifest.tools
+    assert "food.read_by_id" in manifest.completion_policy.followup_required_tools
     for required_text in (
         "deductStock",
         "stockQuantity",
@@ -231,6 +235,63 @@ def test_meal_log_skill_requires_explicit_ready_food_stock_deduction_contract() 
         "MealLog 创建和所有已选择的库存扣减必须在同一事务中",
     ):
         assert required_text in skill_text
+
+
+def test_shopping_skill_routes_completed_item_restoration_to_status_filtered_read() -> None:
+    manifest = build_workspace_skill_registry().get("shopping_list").manifest
+    skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "shopping-list" / "SKILL.md"
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert any("恢复" in example and "待买" in example for example in manifest.routing.include_examples)
+    assert "shopping.read_pending(status=completed)" in skill_text
+
+
+@pytest.mark.parametrize(
+    ("schema_key", "state"),
+    [
+        (
+            "food_to_meal_plan.v1",
+            {"targetDate": "2024-02-29", "mealType": "dinner", "instruction": "安排晚餐"},
+        ),
+        (
+            "meal_missing_food.v1",
+            {
+                "targetName": "蓝莓酸奶",
+                "targetDate": "2024-02-29",
+                "mealType": "snack",
+                "instruction": "记录加餐",
+            },
+        ),
+    ],
+)
+def test_continuation_date_state_accepts_real_calendar_dates(
+    schema_key: str,
+    state: dict,
+) -> None:
+    assert validate_continuation_state(schema_key, state)["targetDate"] == "2024-02-29"
+
+
+@pytest.mark.parametrize("target_date", ["2025-02-29", "2026-02-31", "2026-04-31", "2026-2-01"])
+@pytest.mark.parametrize(
+    ("schema_key", "state"),
+    [
+        (
+            "food_to_meal_plan.v1",
+            {"mealType": "dinner", "instruction": "安排晚餐"},
+        ),
+        (
+            "meal_missing_food.v1",
+            {"targetName": "蓝莓酸奶", "mealType": "snack", "instruction": "记录加餐"},
+        ),
+    ],
+)
+def test_continuation_date_state_rejects_invalid_calendar_dates(
+    schema_key: str,
+    state: dict,
+    target_date: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        validate_continuation_state(schema_key, {**state, "targetDate": target_date})
 
 
 def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() -> None:

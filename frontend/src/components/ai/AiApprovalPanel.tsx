@@ -25,6 +25,13 @@ import {
   type InventoryOperationDraftItemPatch,
 } from './aiInventoryOperationDraftModel';
 import { asDraftArray, asNumber, asText, draftNumberFromInput, draftNumberInputValue, nullableDraftNumberFromInput } from './aiDraftValueUtils';
+import { AiShoppingIntakeApproval, validateAiShoppingIntakeDraftForSubmit } from './AiShoppingIntakeApproval';
+import {
+  AiIngredientTrackingTransitionApproval,
+  AiMealCompositionCorrectionApproval,
+  validateIngredientTrackingTransitionForSubmit,
+  validateMealCompositionCorrectionForSubmit,
+} from './AiSpecializedApprovalEditors';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -122,6 +129,7 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   if (approval.approval_type.startsWith('composite_operation.')) return 'composite_operation';
   if (approval.approval_type.startsWith('meal_plan.')) return 'meal_plan';
   if (approval.approval_type.startsWith('shopping_list.')) return 'shopping_list';
+  if (approval.approval_type.startsWith('shopping_intake.')) return 'shopping_intake';
   if (approval.approval_type.startsWith('meal_log.')) return 'meal_log';
   if (approval.approval_type.startsWith('food_profile.')) return 'food_profile';
   if (approval.approval_type.startsWith('ingredient.')) return 'ingredient_profile';
@@ -329,6 +337,9 @@ function validateRecipeOperationDraftForSubmit(draft: Record<string, unknown>) {
 }
 
 function validateIngredientProfileDraftForSubmit(draft: Record<string, unknown>) {
+  if (asText(draft.action) === 'transition_tracking_mode') {
+    return validateIngredientTrackingTransitionForSubmit(draft);
+  }
   const operations = asDraftArray(draft.operations);
   if (operations.length > 0) {
     if (operations.length < 2) return '批量创建食材至少需要 2 项';
@@ -908,6 +919,7 @@ function mealLogStatusTitle(status: AiApprovalRequest['status'], action: string)
 
 function validateMealLogDraftForSubmit(draft: Record<string, unknown>) {
   const action = asText(draft.action);
+  if (action === 'update_composition') return validateMealCompositionCorrectionForSubmit(draft);
   if (action === 'rate_food') {
     const ratings = asDraftArray((draft.payload as Record<string, unknown> | undefined)?.foodEntryRatings);
     if (ratings.length === 0) return '餐食评分至少需要 1 个食物项';
@@ -1140,7 +1152,7 @@ export function ApprovalPanel({
   const recipeCookRequiresRegeneration =
     draftType === 'recipe_cook'
     && recipeCookSchemaVersion !== 'recipe_cook_operation.v2';
-  const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
+  const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'shopping_intake', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
   const inventoryOperationDraft = useMemo(
     () => inventoryOperationDraftFromRecord(structuredDraft),
     [structuredDraft],
@@ -1279,6 +1291,13 @@ export function ApprovalPanel({
 	          return;
 	        }
 	      }
+	      if (draftType === 'shopping_intake') {
+	        const shoppingIntakeError = validateAiShoppingIntakeDraftForSubmit(structuredDraft);
+	        if (shoppingIntakeError) {
+	          setError(shoppingIntakeError);
+	          return;
+	        }
+	      }
 	      if (draftType === 'food_profile') {
 	        const foodProfileError = validateFoodProfileDraftForSubmit(structuredDraft);
 	        if (foodProfileError) {
@@ -1353,6 +1372,21 @@ export function ApprovalPanel({
     updateDraftItem('operations', index, patch as Record<string, unknown>);
   };
   const renderStructuredDraftEditor = () => {
+    if (draftType === 'ingredient_profile' && asText(structuredDraft.action) === 'transition_tracking_mode') {
+      return <AiIngredientTrackingTransitionApproval draft={structuredDraft} readonly={readonly} onChange={setStructuredDraft} />;
+    }
+    if (draftType === 'meal_log' && asText(structuredDraft.action) === 'update_composition') {
+      return <AiMealCompositionCorrectionApproval draft={structuredDraft} readonly={readonly} onChange={setStructuredDraft} />;
+    }
+    if (draftType === 'shopping_intake') {
+      return (
+        <AiShoppingIntakeApproval
+          draft={structuredDraft}
+          readonly={readonly}
+          onChange={setStructuredDraft}
+        />
+      );
+    }
     if (draftType === 'composite_operation') {
       return (
         <AiCompositeOperationPreview
@@ -3569,6 +3603,11 @@ export function ApprovalPanel({
         }
         const items = asDraftArray(structuredDraft.items);
         return `${items.length}个采购项`;
+      }
+      if (draftType === 'shopping_intake') {
+        const items = asDraftArray(structuredDraft.items);
+        const unmatched = asDraftArray(structuredDraft.unmatchedCandidates);
+        return `${items.length}项采购完成与入库${unmatched.length ? ` · ${unmatched.length}项额外候选` : ''}`;
       }
       if (draftType === 'meal_log') {
         const action = asText(structuredDraft.action);

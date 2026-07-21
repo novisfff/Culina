@@ -11,7 +11,7 @@ from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.ai.tools.schemas import INGREDIENT_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
-from app.models.domain import Ingredient
+from app.models.domain import Ingredient, IngredientInventoryState, InventoryItem
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.ingredient_units import get_supported_units, serialize_unit_conversions
 from app.services.search.hybrid import hybrid_search
@@ -57,7 +57,16 @@ INGREDIENT_SEARCH_OUTPUT = {
 INGREDIENT_READ_OUTPUT = {
     "type": "object",
     "required": ["item"],
-    "properties": {"item": INGREDIENT_ITEM_OUTPUT},
+    "properties": {
+        "item": {
+            **INGREDIENT_ITEM_OUTPUT,
+            "required": [*INGREDIENT_ITEM_OUTPUT["required"], "trackingTransitionContext"],
+            "properties": {
+                **INGREDIENT_ITEM_OUTPUT["properties"],
+                "trackingTransitionContext": {"type": "object"},
+            },
+        }
+    },
 }
 
 
@@ -187,6 +196,28 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
         )
     )
     item = serialize_ingredient(ingredient, media_map)
+    state = context.db.scalar(
+        select(IngredientInventoryState).where(
+            IngredientInventoryState.family_id == context.family_id,
+            IngredientInventoryState.ingredient_id == ingredient.id,
+        )
+    )
+    physical_batches = list(
+        context.db.scalars(
+            select(InventoryItem)
+            .where(
+                InventoryItem.family_id == context.family_id,
+                InventoryItem.ingredient_id == ingredient.id,
+                InventoryItem.quantity - InventoryItem.consumed_quantity - InventoryItem.disposed_quantity > 0,
+            )
+            .order_by(InventoryItem.purchase_date.asc(), InventoryItem.id.asc())
+        )
+    )
+    current_mode = (
+        ingredient.quantity_tracking_mode.value
+        if hasattr(ingredient.quantity_tracking_mode, "value")
+        else str(ingredient.quantity_tracking_mode)
+    )
     return {
         "item": {
             **item,
@@ -194,6 +225,44 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
             "quantityTrackingMode": ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else str(ingredient.quantity_tracking_mode),
             "supportedUnits": get_supported_units(ingredient.default_unit, ingredient.unit_conversions),
             "unitConversions": serialize_unit_conversions(ingredient.default_unit, ingredient.unit_conversions),
+            "trackingTransitionContext": {
+                "ingredientRowVersion": int(ingredient.row_version),
+                "currentMode": current_mode,
+                "allowedTargetMode": (
+                    "not_track_quantity"
+                    if current_mode == "track_quantity"
+                    else "track_quantity"
+                ),
+                "state": (
+                    {
+                        "id": state.id,
+                        "rowVersion": int(state.row_version),
+                        "availabilityLevel": state.availability_level.value if hasattr(state.availability_level, "value") else str(state.availability_level),
+                        "inventoryStatus": state.inventory_status.value if hasattr(state.inventory_status, "value") else str(state.inventory_status),
+                        "purchaseDate": state.purchase_date.isoformat() if state.purchase_date else None,
+                        "expiryDate": state.expiry_date.isoformat() if state.expiry_date else None,
+                        "storageLocation": state.storage_location,
+                        "notes": state.notes or "",
+                    }
+                    if state is not None
+                    else None
+                ),
+                "physicalBatches": [
+                    {
+                        "id": batch.id,
+                        "rowVersion": int(batch.row_version),
+                        "remainingQuantity": decimal_text(
+                            batch.quantity - batch.consumed_quantity - batch.disposed_quantity
+                        ),
+                        "unit": batch.unit,
+                        "status": batch.status.value if hasattr(batch.status, "value") else str(batch.status),
+                        "purchaseDate": batch.purchase_date.isoformat(),
+                        "expiryDate": batch.expiry_date.isoformat() if batch.expiry_date else None,
+                        "storageLocation": batch.storage_location,
+                    }
+                    for batch in physical_batches
+                ],
+            },
         }
     }
 
@@ -201,7 +270,7 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
 def ingredient_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_ingredient_profile_draft(context.db, family_id=context.family_id, payload=draft)
-    ingredient_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
+    ingredient_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else None
     if isinstance(ingredient_payload, dict):
         ingredient_payload["media_ids"] = validate_current_attachment_ids(
             context.db,

@@ -14,8 +14,8 @@ from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTra
 from app.core.utils import create_id
 from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, IngredientInventoryState, InventoryItem, MealLog, MealLogFood, Recipe, ShoppingListItem
 from app.schemas.foods import CreateFoodRequest
-from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest
-from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
+from app.schemas.ingredients import CreateIngredientRequest, IngredientPayloadRequest, IngredientTrackingModeTransitionRequest
+from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealCompositionRequest, UpdateMealLogRequest
 from app.schemas.recipes import CookRecipeDraftFields, CreateRecipeRequest, UpdateRecipeRequest
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.repos.media import build_media_map, get_media_assets_for_entities
@@ -428,7 +428,13 @@ def normalize_meal_log_draft(
     if not isinstance(payload, dict):
         raise ValueError("餐食记录草稿格式不正确")
     if payload.get("action"):
-        return _normalize_meal_log_operation_draft(db, family_id=family_id, user_id=user_id, payload=payload)
+        return _normalize_meal_log_operation_draft(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            payload=payload,
+            phase=phase,
+        )
     foods = payload.get("foods")
     if not isinstance(foods, list) or not foods:
         raise ValueError("餐食记录草稿不能为空")
@@ -511,12 +517,25 @@ def normalize_meal_log_draft(
     })
 
 
-def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_meal_log_operation_draft(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str | None,
+    payload: dict[str, Any],
+    phase: str = "proposal",
+) -> dict[str, Any]:
     action = str(payload.get("action") or "")
-    if action not in {"create", "update_details", "rate_food"}:
+    if action not in {"create", "update_details", "rate_food", "update_composition"}:
         raise ValueError("餐食记录操作类型不正确")
     if action == "create":
-        normalized = normalize_meal_log_draft(db, family_id=family_id, user_id=user_id, payload=payload.get("payload") or {})
+        normalized = normalize_meal_log_draft(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            payload=payload.get("payload") or {},
+            phase=phase,
+        )
         return {
             "draftType": "meal_log",
             "schemaVersion": "meal_log_operation.v1",
@@ -528,7 +547,73 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
         raise ValueError("餐食记录操作必须引用真实记录")
     meal_log = _load_meal_log_target(db, family_id=family_id, meal_log_id=target_id)
     base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
-    before = _serialize_meal_log_before(meal_log)
+    if phase == "approval":
+        if not isinstance(payload.get("before"), dict):
+            raise ValueError("确认阶段缺少餐食记录原始快照")
+        before = payload["before"]
+    else:
+        before = _serialize_meal_log_before(meal_log)
+    if action == "update_composition":
+        incoming_foods = (payload.get("payload") or {}).get("foods") or []
+        if not isinstance(incoming_foods, list) or not incoming_foods:
+            raise ValueError("餐食记录至少需要一个食物")
+        request = UpdateMealCompositionRequest.model_validate(
+            {
+                "expected_row_version": (
+                    payload.get("expectedRowVersion")
+                    if phase == "approval"
+                    else int(meal_log.row_version)
+                ),
+                "food_entries": [
+                    {
+                        "id": item.get("entryId") or item.get("entry_id"),
+                        "food_id": item.get("foodId") or item.get("food_id"),
+                        "servings": item.get("servings"),
+                        "note": item.get("note") or "",
+                    }
+                    for item in incoming_foods
+                    if isinstance(item, dict)
+                ],
+            }
+        )
+        if len(request.food_entries) != len(incoming_foods):
+            raise ValueError("餐食记录食物项格式不正确")
+        food_ids = [item.food_id for item in request.food_entries]
+        if len(food_ids) != len(set(food_ids)):
+            raise ValueError("同一食物不能重复加入一餐")
+        foods_by_id = _load_by_id(db, Food, family_id=family_id, ids=food_ids, label="食物")
+        entries_by_id = {entry.id: entry for entry in meal_log.food_entries}
+        normalized_foods: list[dict[str, Any]] = []
+        for item in request.food_entries:
+            if item.id is not None:
+                existing = entries_by_id.get(item.id)
+                if existing is None:
+                    raise ValueError("餐食组成草稿引用了不属于该记录的食物项")
+                if existing.food_id != item.food_id:
+                    raise ValueError("已有餐食条目不能更换食物")
+            food = foods_by_id[item.food_id]
+            normalized_foods.append(
+                {
+                    "entryId": item.id,
+                    "foodId": food.id,
+                    "name": food.name,
+                    "servings": item.servings,
+                    "note": item.note,
+                }
+            )
+        return {
+            "draftType": "meal_log",
+            "schemaVersion": "meal_log_operation.v1",
+            "action": "update_composition",
+            "targetId": meal_log.id,
+            "baseUpdatedAt": base_updated_at,
+            "expectedRowVersion": request.expected_row_version,
+            "before": before,
+            "payload": {
+                "foods": normalized_foods,
+                "inventoryAdjustment": "none",
+            },
+        }
     if action == "update_details":
         incoming_payload = payload.get("payload") or {}
         # AI drafts keep baseUpdatedAt OCC; expected_row_version is only required by the REST update schema.
@@ -853,7 +938,13 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
     }
 
 
-def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
+def normalize_ingredient_profile_draft(
+    db: Session,
+    *,
+    family_id: str,
+    payload: Any,
+    phase: str = "proposal",
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("食材档案草稿格式不正确")
     operations = payload.get("operations")
@@ -890,8 +981,87 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
             "operations": normalized_operations,
         }
     action = str(payload.get("action") or "")
-    if action not in {"create", "update"}:
+    if action not in {"create", "update", "transition_tracking_mode"}:
         raise ValueError("食材档案操作类型不正确")
+    if action == "transition_tracking_mode":
+        target_id = str(payload.get("targetId") or payload.get("target_id") or "")
+        if not target_id:
+            raise ValueError("切换数量记录方式必须引用真实食材")
+        ingredient = _load_by_id(db, Ingredient, family_id=family_id, ids=[target_id], label="食材")[target_id]
+        state = db.scalar(
+            select(IngredientInventoryState).where(
+                IngredientInventoryState.family_id == family_id,
+                IngredientInventoryState.ingredient_id == ingredient.id,
+            )
+        )
+        physical_batches = list(
+            db.scalars(
+                select(InventoryItem)
+                .where(
+                    InventoryItem.family_id == family_id,
+                    InventoryItem.ingredient_id == ingredient.id,
+                    InventoryItem.quantity - InventoryItem.consumed_quantity - InventoryItem.disposed_quantity > 0,
+                )
+                .order_by(InventoryItem.id.asc())
+            )
+        )
+        incoming = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+        target_mode = incoming.get("target_mode") or incoming.get("targetMode")
+        current_mode = (
+            ingredient.quantity_tracking_mode.value
+            if hasattr(ingredient.quantity_tracking_mode, "value")
+            else str(ingredient.quantity_tracking_mode)
+        )
+        if not target_mode or str(target_mode) == current_mode:
+            raise ValueError("目标数量记录方式必须与当前方式不同")
+        request = IngredientTrackingModeTransitionRequest.model_validate(
+            {
+                "expected_ingredient_row_version": (
+                    incoming.get("expected_ingredient_row_version")
+                    if phase == "approval"
+                    else int(ingredient.row_version)
+                ),
+                "target_mode": target_mode,
+                "expected_state_row_version": (
+                    incoming.get("expected_state_row_version")
+                    if phase == "approval"
+                    else int(state.row_version) if state is not None else None
+                ),
+                "observed_batches": (
+                    incoming.get("observed_batches")
+                    if phase == "approval"
+                    else (
+                        [
+                            {
+                                "inventory_item_id": item.id,
+                                "expected_row_version": int(item.row_version),
+                            }
+                            for item in physical_batches
+                        ]
+                        if str(target_mode) == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value
+                        else []
+                    )
+                ),
+                "presence_resolution": incoming.get("presence_resolution") or incoming.get("presenceResolution"),
+                "exact_resolution": incoming.get("exact_resolution") or incoming.get("exactResolution"),
+            }
+        )
+        if phase == "approval":
+            if not isinstance(payload.get("before"), dict):
+                raise ValueError("确认阶段缺少食材原始快照")
+            before = payload["before"]
+        else:
+            before = _serialize_ingredient_before(ingredient)
+            before["quantity_tracking_mode"] = current_mode
+        return {
+            "draftType": "ingredient_profile",
+            "schemaVersion": "ingredient_profile_operation.v1",
+            "action": "transition_tracking_mode",
+            "targetId": ingredient.id,
+            "baseUpdatedAt": _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at")),
+            "before": before,
+            "payload": request.model_dump(mode="json"),
+        }
     request_model = CreateIngredientRequest if action == "create" else IngredientPayloadRequest
     incoming_payload = payload.get("payload") or {}
     ingredient_payload = _strip_transport_fields(request_model.model_validate(incoming_payload).model_dump(mode="json"))

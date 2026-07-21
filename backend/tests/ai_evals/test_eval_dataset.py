@@ -46,7 +46,7 @@ def test_observation_requires_matching_case_id() -> None:
 
 def test_core_dataset_has_required_coverage() -> None:
     cases = load_eval_cases(CORE_CASES)
-    assert len(cases) == 32
+    assert len(cases) == 35
     covered_skills = {skill for case in cases for skill in case.expectedSkills}
     assert covered_skills == {
         "cooking_assistant",
@@ -61,7 +61,7 @@ def test_core_dataset_has_required_coverage() -> None:
     }
     assert sum(case.category == "identity_boundary" for case in cases) == 5
     assert sum(case.category == "attachment_boundary" for case in cases) == 3
-    assert sum(case.category == "continuation" for case in cases) == 5
+    assert sum(case.category == "continuation" for case in cases) == 3
     assert all(case.expectsContinuationCompletion for case in cases if case.category == "continuation")
     assert all(any(entry.get("resume") is True for entry in case.script) for case in cases if case.category == "continuation")
     expected_cards = {

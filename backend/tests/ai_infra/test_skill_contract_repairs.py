@@ -19,6 +19,31 @@ def test_shopping_skill_authorizes_food_target_lookup() -> None:
     assert {"food.search", "food.read_by_id"}.issubset(tools)
 
 
+def test_shopping_skill_authorizes_complete_low_stock_lookup() -> None:
+    manifest = build_workspace_skill_registry().get("shopping_list").manifest
+
+    assert "inventory.read_low_stock_items" in manifest.tools
+    assert (
+        "inventory.read_low_stock_items"
+        in manifest.completion_policy.followup_required_tools
+    )
+
+
+def test_shopping_skill_routes_new_purchase_completion_through_atomic_intake() -> None:
+    manifest = build_workspace_skill_registry().get("shopping_list").manifest
+    skill_text = (BACKEND_DIR / "app/ai/skills/catalog/shopping-list/SKILL.md").read_text(encoding="utf-8")
+
+    assert "shopping.preview_intake_candidates" in manifest.tools
+    assert "shopping.create_intake_draft" in manifest.tools
+    assert "shopping_intake" in manifest.draft_types
+    assert manifest.draft_contract["shopping_intake"]["schemaVersion"] == "shopping_intake.v1"
+    assert "单项或批量" in skill_text
+    assert "一份审批" in skill_text
+    assert "未匹配" in skill_text and "额外购买候选" in skill_text
+    assert "不能默认选择当前家庭全部" in skill_text
+    assert "第二份库存草稿" not in skill_text
+
+
 def test_shopping_tool_item_preserves_food_target_identity() -> None:
     item = ShoppingListItem(
         id="shopping-ready-yogurt",
@@ -50,22 +75,17 @@ def test_food_profile_does_not_default_unknown_stock_to_room_temperature() -> No
     assert "保存位置不明确时留空或追问" in text
 
 
-def test_shopping_to_stock_skills_preserve_separate_approval_boundary() -> None:
+def test_shopping_intake_skill_uses_one_approval_and_keeps_legacy_compatibility_explicit() -> None:
     catalog_dir = BACKEND_DIR / "app/ai/skills/catalog"
     shopping = (catalog_dir / "shopping-list/SKILL.md").read_text(encoding="utf-8")
     workflows = (catalog_dir / "shopping-list/references/workflows.md").read_text(encoding="utf-8")
-    inventory = (catalog_dir / "inventory-analysis/SKILL.md").read_text(encoding="utf-8")
-    food = (catalog_dir / "food-profile/SKILL.md").read_text(encoding="utf-8")
 
-    assert "`shopping_to_stock.v1`" in shopping
-    assert "第二份" in shopping
-    assert "二次审批前" in shopping
-    assert "购物完成后的入库" in workflows
-    assert "`ingredient.read_by_id`" in inventory
-    assert "第二份 `inventory_operation` 草稿" in inventory
-    assert "`food.read_by_id`" in food
-    assert "现有库存数量 + 本次采购数量" in food
-    assert "第二份 `food_profile` 更新草稿" in food
+    assert "一份审批" in shopping
+    assert "一个事务" in shopping
+    assert "部署前遗留" in shopping
+    assert "购物完成与一体化入库" in workflows
+    assert "任一行失败整批回滚" in workflows
+    assert "新请求不再生成两阶段流程" in workflows
 
 
 def test_recipe_shortage_skills_preserve_real_id_shopping_boundary() -> None:

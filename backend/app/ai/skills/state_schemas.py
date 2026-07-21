@@ -1,15 +1,30 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
 
 
 EntityId = Annotated[str, Field(min_length=1, max_length=64)]
 ShortText = Annotated[str, Field(min_length=1, max_length=120)]
 Instruction = Annotated[str, Field(min_length=1, max_length=500)]
-IsoDate = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$")]
 QuantityText = Annotated[str, Field(pattern=r"^[0-9]+(?:\.[0-9]+)?$")]
+
+
+def _parse_iso_date(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("date must be a real calendar date in YYYY-MM-DD format") from exc
+    if parsed.isoformat() != value:
+        raise ValueError("date must use YYYY-MM-DD format")
+    return parsed
+
+
+IsoDate = Annotated[date, BeforeValidator(_parse_iso_date)]
 
 
 class ContinuationStateModel(BaseModel):

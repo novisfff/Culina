@@ -30,7 +30,7 @@ tool_budget:
 completion_policy:
   followup_required_tools:
     ingredient.search: 食材检索后必须说明候选、请求用户选择，或生成 ingredient_profile 草稿。
-    ingredient.read_by_id: 读取食材档案后必须总结现有资料、请求补充信息，或生成更新草稿。
+    ingredient.read_by_id: 读取食材档案后必须总结现有资料和数量记录方式切换所需的真实库存上下文、请求补充信息，或生成 ingredient_profile 草稿。
     workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或生成/调整 ingredient_profile 草稿。
 examples:
 - 新增鸡胸肉食材，默认单位克，冷冻保存。
@@ -38,6 +38,8 @@ examples:
 - 查询鸡蛋支持哪些单位。
 - 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
 - 设置牛奶低库存提醒为 2 盒。
+- 以后香菜只记有没有，不记具体数量。
+- 鸡蛋以后按个数精确记录。
 routing:
   modes: [query, create, update]
   include_examples:
@@ -46,6 +48,8 @@ routing:
   - 查询鸡蛋支持哪些单位。
   - 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
   - 设置牛奶低库存提醒为 2 盒。
+  - 以后香菜只记有没有，不记具体数量。
+  - 鸡蛋以后按个数精确记录。
   exclude_examples:
   - 鸡蛋入库 12 个，冷藏。
   - 新增盒装牛奶食物资料。

@@ -37,6 +37,110 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(search["items"][0]["quantityTrackingMode"], "not_track_quantity")
             self.assertEqual(detail["item"]["quantityTrackingMode"], "not_track_quantity")
 
+        def test_ingredient_detail_exposes_tracking_transition_context(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-transition-context",
+                    family_id=self.family.id,
+                    name="鸡蛋上下文",
+                    category="蛋奶",
+                    default_unit="个",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.DAYS,
+                    default_expiry_days=20,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                batch = InventoryItem(
+                    id="inventory-transition-context",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    quantity=Decimal("12"),
+                    consumed_quantity=Decimal("2"),
+                    disposed_quantity=Decimal("0"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="冷藏",
+                    low_stock_threshold=Decimal("2"),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, batch])
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-transition-context",
+                        run_id="run-transition-context",
+                    ),
+                )
+
+                detail = executor.call("ingredient.read_by_id", {"id": ingredient.id})
+
+            context = detail["item"]["trackingTransitionContext"]
+            self.assertEqual(context["ingredientRowVersion"], ingredient.row_version)
+            self.assertEqual(context["currentMode"], "track_quantity")
+            self.assertEqual(context["allowedTargetMode"], "not_track_quantity")
+            self.assertEqual(context["physicalBatches"][0]["id"], batch.id)
+            self.assertEqual(context["physicalBatches"][0]["remainingQuantity"], "10")
+
+        def test_ingredient_transition_draft_tool_does_not_treat_resolution_as_media_payload(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-transition-tool",
+                    family_id=self.family.id,
+                    name="香菜切换",
+                    category="蔬菜",
+                    default_unit="把",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-transition-tool",
+                        run_id="run-transition-tool",
+                    ),
+                )
+
+                result = executor.call(
+                    "ingredient_profile.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "ingredient_profile",
+                            "schemaVersion": "ingredient_profile_operation.v1",
+                            "action": "transition_tracking_mode",
+                            "targetId": ingredient.id,
+                            "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                            "payload": {
+                                "target_mode": "track_quantity",
+                                "exact_resolution": {"confirm_absent": True},
+                            },
+                        }
+                    },
+                )
+
+            self.assertEqual(result["draft"]["action"], "transition_tracking_mode")
+            self.assertNotIn("media_ids", result["draft"])
+
         def test_inventory_draft_allows_presence_restock_without_quantity(self) -> None:
             with self.SessionLocal() as db:
                 ingredient = Ingredient(

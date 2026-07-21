@@ -28,6 +28,67 @@ def _highlight_meal_plan_payload(*, suffix: str) -> dict[str, Any]:
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
+        def test_meal_log_composition_approval_uses_dedicated_copy_and_immutable_inventory_policy(self) -> None:
+            from app.services.ai_operations.draft_specs.planning import (
+                _approval_config_for_meal_log,
+                _validate_meal_log_approval_value,
+            )
+
+            original = {
+                "draftType": "meal_log",
+                "schemaVersion": "meal_log_operation.v1",
+                "action": "update_composition",
+                "targetId": "meal-log-1",
+                "baseUpdatedAt": "2026-07-20T00:00:00Z",
+                "expectedRowVersion": 3,
+                "before": {"foods": []},
+                "payload": {"foods": [], "inventoryAdjustment": "none"},
+            }
+            config = _approval_config_for_meal_log(original)
+            self.assertEqual(config["approval_type"], "meal_log.update_composition")
+            self.assertIn("不会补回", config["instruction"])
+
+            submitted = json.loads(json.dumps(original))
+            submitted["payload"]["inventoryAdjustment"] = "recalculate"
+            with self.assertRaisesRegex(ValueError, "历史库存"):
+                _validate_meal_log_approval_value(original, submitted)
+
+        def test_ingredient_transition_approval_uses_dedicated_copy_and_immutable_boundaries(self) -> None:
+            from app.services.ai_operations.draft_specs.profiles import (
+                _approval_config_for_ingredient_profile,
+                _validate_ingredient_profile_approval_value,
+            )
+
+            original = {
+                "draftType": "ingredient_profile",
+                "schemaVersion": "ingredient_profile_operation.v1",
+                "action": "transition_tracking_mode",
+                "targetId": "ingredient-1",
+                "baseUpdatedAt": "2026-07-20T00:00:00Z",
+                "before": {"quantity_tracking_mode": "track_quantity"},
+                "payload": {
+                    "target_mode": "not_track_quantity",
+                    "expected_ingredient_row_version": 3,
+                    "expected_state_row_version": None,
+                    "observed_batches": [
+                        {"inventory_item_id": "inventory-1", "expected_row_version": 2}
+                    ],
+                    "presence_resolution": {
+                        "availability_level": "sufficient",
+                        "inventory_status": "fresh",
+                        "storage_location": "冷藏",
+                    },
+                    "exact_resolution": None,
+                },
+            }
+            config = _approval_config_for_ingredient_profile(original)
+            self.assertEqual(config["approval_type"], "ingredient.transition_tracking_mode")
+
+            submitted = json.loads(json.dumps(original))
+            submitted["payload"]["observed_batches"][0]["expected_row_version"] = 4
+            with self.assertRaisesRegex(ValueError, "并发边界"):
+                _validate_ingredient_profile_approval_value(original, submitted)
+
         def test_operation_list_approval_cannot_change_operation_id(self) -> None:
             original = {
                 "draftType": "meal_plan",
@@ -2498,6 +2559,295 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(meal_log.notes, "补充后的备注")
                 self.assertEqual(int(meal_log.row_version), base_version + 1)
 
+        def test_meal_log_composition_draft_normalizes_real_entries_and_inventory_policy(self) -> None:
+            from app.ai.tools.draft_validation import normalize_meal_log_draft
+
+            with self.SessionLocal() as db:
+                tomato = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert tomato is not None
+                bread = Food(
+                    id="food-bread-composition-draft",
+                    family_id=self.family.id,
+                    name="全麦面包",
+                    type=FoodType.PACKAGED,
+                    category="主食",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["breakfast"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    stock_quantity=Decimal("4"),
+                    stock_unit="片",
+                    favorite=False,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                meal_log = MealLog(
+                    id="meal-log-composition-draft",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([bread, meal_log])
+                db.flush()
+                entry = MealLogFood(
+                    id="meal-log-composition-draft-entry",
+                    meal_log_id=meal_log.id,
+                    food_id=tomato.id,
+                    servings=Decimal("1"),
+                    note="原始",
+                    rating=Decimal("4.5"),
+                )
+                db.add(entry)
+                db.flush()
+
+                normalized = normalize_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "draftType": "meal_log",
+                        "schemaVersion": "meal_log_operation.v1",
+                        "action": "update_composition",
+                        "targetId": meal_log.id,
+                        "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                        "payload": {
+                            "foods": [
+                                {
+                                    "entryId": entry.id,
+                                    "foodId": tomato.id,
+                                    "servings": 0.5,
+                                    "note": "半份",
+                                },
+                                {
+                                    "foodId": bread.id,
+                                    "servings": 1,
+                                    "note": "新增",
+                                },
+                            ]
+                        },
+                    },
+                )
+
+                self.assertEqual(normalized["action"], "update_composition")
+                self.assertEqual(normalized["expectedRowVersion"], meal_log.row_version)
+                self.assertEqual(normalized["payload"]["inventoryAdjustment"], "none")
+                self.assertEqual(
+                    [item["name"] for item in normalized["payload"]["foods"]],
+                    [tomato.name, bread.name],
+                )
+                self.assertEqual(normalized["payload"]["foods"][0]["entryId"], entry.id)
+
+        def test_meal_log_composition_approval_preserves_frozen_boundary_after_concurrent_change(self) -> None:
+            from app.ai.tools.draft_validation import normalize_meal_log_draft
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.meal_logs import execute_meal_log_draft
+            from app.services.meal_log_versions import MealLogConflictError, bump_meal_log_collection
+
+            with self.SessionLocal() as db:
+                tomato = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert tomato is not None
+                bread = Food(
+                    id="food-bread-composition-stale",
+                    family_id=self.family.id,
+                    name="并发新增面包",
+                    type=FoodType.PACKAGED,
+                    category="主食",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["breakfast"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    stock_quantity=Decimal("2"),
+                    stock_unit="片",
+                    favorite=False,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                meal_log = MealLog(
+                    id="meal-log-composition-stale",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([bread, meal_log])
+                db.flush()
+                original_entry = MealLogFood(
+                    id="meal-log-composition-stale-original",
+                    meal_log_id=meal_log.id,
+                    food_id=tomato.id,
+                    servings=Decimal("1"),
+                    note="原始",
+                    rating=None,
+                )
+                db.add(original_entry)
+                db.flush()
+
+                proposal = normalize_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "action": "update_composition",
+                        "targetId": meal_log.id,
+                        "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                        "payload": {
+                            "foods": [
+                                {
+                                    "entryId": original_entry.id,
+                                    "foodId": tomato.id,
+                                    "servings": 0.5,
+                                    "note": "半份",
+                                }
+                            ]
+                        },
+                    },
+                )
+                frozen_version = proposal["expectedRowVersion"]
+                frozen_before = json.loads(json.dumps(proposal["before"]))
+
+                concurrent_entry = MealLogFood(
+                    id="meal-log-composition-stale-concurrent",
+                    meal_log_id=meal_log.id,
+                    food_id=bread.id,
+                    servings=Decimal("1"),
+                    note="并发新增",
+                    rating=None,
+                )
+                db.add(concurrent_entry)
+                bump_meal_log_collection(meal_log, user_id=self.user.id)
+                db.flush()
+                self.assertNotEqual(meal_log.row_version, frozen_version)
+
+                approval_payload = normalize_ai_draft_payload(
+                    db,
+                    draft_type="meal_log",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-meal-composition-stale",
+                    payload=proposal,
+                    phase="approval",
+                )
+
+                self.assertEqual(approval_payload["expectedRowVersion"], frozen_version)
+                self.assertEqual(approval_payload["before"], frozen_before)
+                with self.assertRaises(MealLogConflictError):
+                    execute_meal_log_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=approval_payload,
+                        assert_updated_at_matches=lambda **_kwargs: None,
+                    )
+
+        def test_meal_log_composition_executor_updates_entries_without_changing_food_stock(self) -> None:
+            from app.ai.tools.draft_validation import normalize_meal_log_draft
+            from app.services.ai_operations.meal_logs import execute_meal_log_draft
+
+            with self.SessionLocal() as db:
+                tomato = db.scalar(select(Food).where(Food.id == "food-tomato"))
+                assert tomato is not None
+                bread = Food(
+                    id="food-bread-composition-execute",
+                    family_id=self.family.id,
+                    name="全麦面包执行",
+                    type=FoodType.PACKAGED,
+                    category="主食",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["breakfast"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    stock_quantity=Decimal("4"),
+                    stock_unit="片",
+                    favorite=False,
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                meal_log = MealLog(
+                    id="meal-log-composition-execute",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([bread, meal_log])
+                db.flush()
+                entry = MealLogFood(
+                    id="meal-log-composition-execute-entry",
+                    meal_log_id=meal_log.id,
+                    food_id=tomato.id,
+                    servings=Decimal("1"),
+                    note="原始",
+                    rating=Decimal("4.5"),
+                )
+                db.add(entry)
+                db.flush()
+                normalized = normalize_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "action": "update_composition",
+                        "targetId": meal_log.id,
+                        "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                        "payload": {
+                            "foods": [
+                                {
+                                    "entryId": entry.id,
+                                    "foodId": tomato.id,
+                                    "servings": 0.5,
+                                    "note": "半份",
+                                },
+                                {
+                                    "foodId": bread.id,
+                                    "servings": 1,
+                                    "note": "新增",
+                                },
+                            ]
+                        },
+                    },
+                )
+
+                result, entity_ids = execute_meal_log_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload=normalized,
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+
+                db.refresh(bread)
+                db.refresh(entry)
+                self.assertEqual(entity_ids, [meal_log.id])
+                self.assertEqual(len(result["food_entries"]), 2)
+                self.assertEqual(entry.servings, Decimal("0.5"))
+                self.assertEqual(entry.rating, Decimal("4.5"))
+                self.assertEqual(bread.stock_quantity, Decimal("4"))
+
         def test_meal_log_rate_food_bumps_row_version_once(self) -> None:
             with self.SessionLocal() as db:
                 food = db.scalar(select(Food).where(Food.id == "food-tomato"))
@@ -2989,6 +3339,271 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     normalized["payload"]["quantity_tracking_mode"],
                     IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value,
                 )
+
+        def test_ingredient_tracking_transition_draft_stamps_current_inventory_boundaries(self) -> None:
+            from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-tracking-transition-draft",
+                    family_id=self.family.id,
+                    name="鸡蛋",
+                    category="蛋奶",
+                    default_unit="个",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.DAYS,
+                    default_expiry_days=20,
+                    default_low_stock_threshold=2,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                batch = InventoryItem(
+                    id="inventory-tracking-transition-draft",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    quantity=Decimal("12"),
+                    consumed_quantity=Decimal("2"),
+                    disposed_quantity=Decimal("0"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="冷藏",
+                    low_stock_threshold=Decimal("2"),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, batch])
+                db.flush()
+
+                normalized = normalize_ingredient_profile_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "draftType": "ingredient_profile",
+                        "schemaVersion": "ingredient_profile_operation.v1",
+                        "action": "transition_tracking_mode",
+                        "targetId": ingredient.id,
+                        "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                        "payload": {
+                            "target_mode": "not_track_quantity",
+                            "presence_resolution": {
+                                "availability_level": "sufficient",
+                                "inventory_status": "fresh",
+                                "purchase_date": date.today().isoformat(),
+                                "expiry_date": None,
+                                "storage_location": "冷藏",
+                                "notes": "",
+                                "mark_inventory_confirmed": False,
+                            },
+                        },
+                    },
+                )
+
+                self.assertEqual(normalized["action"], "transition_tracking_mode")
+                self.assertEqual(
+                    normalized["payload"]["expected_ingredient_row_version"],
+                    ingredient.row_version,
+                )
+                self.assertIsNone(normalized["payload"]["expected_state_row_version"])
+                self.assertEqual(
+                    normalized["payload"]["observed_batches"],
+                    [
+                        {
+                            "inventory_item_id": batch.id,
+                            "expected_row_version": batch.row_version,
+                        }
+                    ],
+                )
+
+        def test_ingredient_tracking_transition_approval_preserves_frozen_batches_after_concurrent_change(self) -> None:
+            from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
+            from app.services.ai_operations.drafts import normalize_ai_draft_payload
+            from app.services.ai_operations.ingredients import execute_ingredient_profile_draft
+            from app.services.inventory_versions import InventoryConflictError
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-tracking-transition-stale",
+                    family_id=self.family.id,
+                    name="并发鸡蛋",
+                    category="蛋奶",
+                    default_unit="个",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.DAYS,
+                    default_expiry_days=20,
+                    default_low_stock_threshold=2,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                original_batch = InventoryItem(
+                    id="inventory-tracking-transition-stale-original",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    quantity=Decimal("6"),
+                    consumed_quantity=Decimal("0"),
+                    disposed_quantity=Decimal("0"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="冷藏",
+                    low_stock_threshold=Decimal("2"),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, original_batch])
+                db.flush()
+
+                proposal = normalize_ingredient_profile_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "action": "transition_tracking_mode",
+                        "targetId": ingredient.id,
+                        "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                        "payload": {
+                            "target_mode": "not_track_quantity",
+                            "presence_resolution": {
+                                "availability_level": "sufficient",
+                                "inventory_status": "fresh",
+                                "purchase_date": date.today().isoformat(),
+                                "expiry_date": None,
+                                "storage_location": "冷藏",
+                                "notes": "",
+                                "mark_inventory_confirmed": False,
+                            },
+                        },
+                    },
+                )
+                frozen_batches = json.loads(json.dumps(proposal["payload"]["observed_batches"]))
+                frozen_before = json.loads(json.dumps(proposal["before"]))
+
+                db.add(
+                    InventoryItem(
+                        id="inventory-tracking-transition-stale-concurrent",
+                        family_id=self.family.id,
+                        ingredient_id=ingredient.id,
+                        quantity=Decimal("6"),
+                        consumed_quantity=Decimal("0"),
+                        disposed_quantity=Decimal("0"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        expiry_date=None,
+                        storage_location="冷藏",
+                        low_stock_threshold=Decimal("2"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+
+                approval_payload = normalize_ai_draft_payload(
+                    db,
+                    draft_type="ingredient_profile",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-ingredient-transition-stale",
+                    payload=proposal,
+                    phase="approval",
+                )
+
+                self.assertEqual(approval_payload["payload"]["observed_batches"], frozen_batches)
+                self.assertEqual(approval_payload["before"], frozen_before)
+                with self.assertRaises(InventoryConflictError):
+                    execute_ingredient_profile_draft(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload=approval_payload,
+                        assert_updated_at_matches=lambda **_kwargs: None,
+                    )
+
+        def test_ingredient_tracking_transition_executor_reuses_atomic_transition_service(self) -> None:
+            from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
+            from app.services.ai_operations.ingredients import execute_ingredient_profile_draft
+
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-tracking-transition-execute",
+                    family_id=self.family.id,
+                    name="鸡蛋执行",
+                    category="蛋奶",
+                    default_unit="个",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.DAYS,
+                    default_expiry_days=20,
+                    default_low_stock_threshold=2,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                batch = InventoryItem(
+                    id="inventory-tracking-transition-execute",
+                    family_id=self.family.id,
+                    ingredient_id=ingredient.id,
+                    quantity=Decimal("12"),
+                    consumed_quantity=Decimal("2"),
+                    disposed_quantity=Decimal("0"),
+                    unit="个",
+                    status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="冷藏",
+                    low_stock_threshold=Decimal("2"),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, batch])
+                db.flush()
+                normalized = normalize_ingredient_profile_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "action": "transition_tracking_mode",
+                        "targetId": ingredient.id,
+                        "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                        "payload": {
+                            "target_mode": "not_track_quantity",
+                            "presence_resolution": {
+                                "availability_level": "sufficient",
+                                "inventory_status": "fresh",
+                                "purchase_date": date.today().isoformat(),
+                                "expiry_date": None,
+                                "storage_location": "冷藏",
+                                "notes": "",
+                                "mark_inventory_confirmed": False,
+                            },
+                        },
+                    },
+                )
+
+                result = execute_ingredient_profile_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload=normalized,
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                )
+
+                db.refresh(ingredient)
+                db.refresh(batch)
+                self.assertEqual(result.id, ingredient.id)
+                self.assertEqual(
+                    ingredient.quantity_tracking_mode,
+                    IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                )
+                self.assertIsNone(ingredient.default_low_stock_threshold)
+                self.assertEqual(batch.quantity - batch.consumed_quantity, Decimal("10"))
 
         def test_ingredient_profile_draft_rejects_explicit_tracking_mode_change(self) -> None:
             from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
