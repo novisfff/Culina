@@ -357,73 +357,39 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             ),
         )
 
-    def test_inventory_intake_preview_rejects_unknown_ingredient_id(self) -> None:
+    def test_inventory_intake_uses_existing_resolve_candidates_without_preview_tool(self) -> None:
         with self.SessionLocal() as db:
             executor = self._inventory_intake_executor(db)
+            registry = build_workspace_tool_registry()
+            tool_names = {tool.name for tool in registry.list()}
+            self.assertNotIn("inventory.preview_intake_candidates", tool_names)
+            self.assertNotIn("shopping.preview_intake_candidates", tool_names)
+            self.assertIn("purchasable.resolve_candidates", tool_names)
+            self.assertIn("inventory.create_intake_draft", tool_names)
 
-            with self.assertRaisesRegex(ValueError, "ingredient_not_found"):
+            before_count = db.scalar(select(func.count()).select_from(InventoryItem))
+            resolved = executor.call(
+                "purchasable.resolve_candidates",
+                {"items": [{"clientKey": "receipt-tomato", "name": "番茄"}]},
+            )
+            self.assertEqual(resolved["results"][0]["status"], "exact")
+            self.assertEqual(resolved["results"][0]["candidates"][0]["id"], "ingredient-tomato")
+            self.assertEqual(db.scalar(select(func.count()).select_from(InventoryItem)), before_count)
+
+            with self.assertRaises(KeyError):
                 executor.call(
                     "inventory.preview_intake_candidates",
                     {
                         "items": [
                             {
-                                "ingredientId": "ingredient-made-up",
-                                "quantity": "1",
-                                "unit": "盒",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": "2",
+                                "unit": "个",
                             }
                         ],
                         "unresolvedLabels": [],
                     },
                 )
-
-    def test_inventory_intake_preview_returns_review_card_without_writing_inventory(self) -> None:
-        with self.SessionLocal() as db:
-            executor = self._inventory_intake_executor(db)
-            before_count = db.scalar(select(func.count()).select_from(InventoryItem))
-
-            result = executor.call(
-                "inventory.preview_intake_candidates",
-                {
-                    "items": [
-                        {
-                            "ingredientId": "ingredient-tomato",
-                            "quantity": "2",
-                            "unit": "个",
-                            "confidence": 0.93,
-                            "sourceLabel": "小票上的番茄",
-                        },
-                        {
-                            "ingredientId": "ingredient-tomato",
-                            "quantity": "5",
-                            "unit": "个",
-                        },
-                    ],
-                    "unresolvedLabels": ["紫苏", "紫苏"],
-                },
-            )
-
-            self.assertEqual(result["card"]["type"], "inventory_intake_candidates")
-            self.assertEqual(result["card"]["data"]["items"][0]["ingredientId"], "ingredient-tomato")
-            self.assertEqual(result["card"]["data"]["items"][0]["quantity"], "2")
-            self.assertEqual(result["card"]["data"]["unresolvedLabels"], ["紫苏"])
-            self.assertEqual(db.scalar(select(func.count()).select_from(InventoryItem)), before_count)
-            from app.ai.workflows.result_cards import validate_result_cards
-
-            self.assertEqual(validate_result_cards([result["card"]])[0]["type"], "inventory_intake_candidates")
-            invalid_card = {
-                **result["card"],
-                "data": {
-                    **result["card"]["data"],
-                    "items": [
-                        {
-                            **result["card"]["data"]["items"][0],
-                            "unvalidatedLabel": "模型自造名称",
-                        }
-                    ],
-                },
-            }
-            with self.assertRaisesRegex(Exception, "extra_forbidden|Extra inputs"):
-                validate_result_cards([invalid_card])
 
     def test_inventory_intake_missing_ingredient_state_preserves_resolved_candidates(self) -> None:
         from app.ai.skills.state_schemas import validate_continuation_state
@@ -1356,7 +1322,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             db.flush()
             executor = self._inventory_intake_executor(db)
 
-            with self.assertRaisesRegex(ValueError, "shopping.create_intake_draft"):
+            with self.assertRaisesRegex(ValueError, "inventory.create_intake_draft"):
                 executor.call(
                     "shopping.create_draft",
                     {

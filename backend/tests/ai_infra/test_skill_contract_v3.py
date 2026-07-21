@@ -315,16 +315,25 @@ def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() ->
         assert "仅用于识别或理解的图片不写入" in skill_text
 
 
-def test_inventory_skill_declares_reviewable_intake_candidate_terminal_contract() -> None:
+def test_inventory_skill_orchestrates_existing_read_tools_for_intake() -> None:
     manifest = build_workspace_skill_registry().get("inventory_analysis").manifest
     skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "inventory-analysis" / "SKILL.md"
     skill_text = skill_path.read_text(encoding="utf-8")
 
-    assert "inventory.preview_intake_candidates" in manifest.tools
-    assert "inventory_intake_candidates" in manifest.output_types
-    assert "inventory.preview_intake_candidates" in manifest.completion_policy.terminal_tools
-    assert "候选卡本身不写库存" in skill_text
-    assert "intakeCandidates" in skill_text
+    assert "purchasable.resolve_candidates" in manifest.tools
+    assert "shopping.read_pending" in manifest.tools
+    assert "inventory.create_intake_draft" in manifest.tools
+    assert "inventory.resolve_intake_lines" not in manifest.tools
+    assert "inventory.preview_intake_candidates" not in manifest.tools
+    assert "inventory_intake_candidates" not in manifest.output_types
+    assert "inventory.preview_intake_candidates" not in manifest.completion_policy.terminal_tools
+    assert "purchasable.resolve_candidates" in manifest.completion_policy.followup_required_tools
+    assert "inventory_intake" in manifest.draft_types
+    assert "候选卡本身不写库存" not in skill_text
+    assert "intakeCandidates" not in skill_text
+    assert "purchasable.resolve_candidates" in skill_text
+    assert "inventory.create_intake_draft" in skill_text
+    assert "不新增 intake 专用 resolver Tool" in skill_text or "不依赖场景专用 resolver Tool" in skill_text
 
 
 def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> None:
@@ -957,6 +966,8 @@ def test_resolution_tools_are_authorized_by_their_business_skills() -> None:
 
     assert "ingredient.resolve_candidates" in registry.get("recipe_draft").manifest.tools
     assert "purchasable.resolve_candidates" in registry.get("shopping_list").manifest.tools
+    assert "purchasable.resolve_candidates" in registry.get("inventory_analysis").manifest.tools
+    assert "inventory.resolve_intake_lines" not in registry.get("inventory_analysis").manifest.tools
 
 
 def test_continuation_artifact_is_typed_and_deduplicates_business_ids() -> None:

@@ -29,19 +29,17 @@ def test_shopping_skill_authorizes_complete_low_stock_lookup() -> None:
     )
 
 
-def test_shopping_skill_routes_new_purchase_completion_through_atomic_intake() -> None:
+def test_shopping_skill_routes_purchase_completion_to_inventory_analysis() -> None:
     manifest = build_workspace_skill_registry().get("shopping_list").manifest
     skill_text = (BACKEND_DIR / "app/ai/skills/catalog/shopping-list/SKILL.md").read_text(encoding="utf-8")
 
-    assert "shopping.preview_intake_candidates" in manifest.tools
-    assert "shopping.create_intake_draft" in manifest.tools
-    assert "shopping_intake" in manifest.draft_types
-    assert manifest.draft_contract["shopping_intake"]["schemaVersion"] == "shopping_intake.v1"
-    assert "单项或批量" in skill_text
-    assert "一份审批" in skill_text
-    assert "未匹配" in skill_text and "额外购买候选" in skill_text
+    assert "shopping.preview_intake_candidates" not in manifest.tools
+    assert "shopping.create_intake_draft" not in manifest.tools
+    assert "shopping_intake" not in manifest.draft_types
+    assert "inventory_analysis" in skill_text
+    assert "inventory.create_intake_draft" in skill_text or "inventory_intake" in skill_text
     assert "不能默认选择当前家庭全部" in skill_text
-    assert "第二份库存草稿" not in skill_text
+    assert "第二份库存草稿" in skill_text or "统一入库" in skill_text
 
 
 def test_shopping_tool_item_preserves_food_target_identity() -> None:
@@ -79,13 +77,16 @@ def test_shopping_intake_skill_uses_one_approval_and_keeps_legacy_compatibility_
     catalog_dir = BACKEND_DIR / "app/ai/skills/catalog"
     shopping = (catalog_dir / "shopping-list/SKILL.md").read_text(encoding="utf-8")
     workflows = (catalog_dir / "shopping-list/references/workflows.md").read_text(encoding="utf-8")
+    inventory = (catalog_dir / "inventory-analysis/SKILL.md").read_text(encoding="utf-8")
 
-    assert "一份审批" in shopping
-    assert "一个事务" in shopping
+    assert "inventory_analysis" in shopping
+    assert "inventory_intake" in shopping or "inventory.create_intake_draft" in shopping
     assert "部署前遗留" in shopping
     assert "购物完成与一体化入库" in workflows
     assert "任一行失败整批回滚" in workflows
     assert "新请求不再生成两阶段流程" in workflows
+    assert "inventory.create_intake_draft" in inventory
+    assert "purchasable.resolve_candidates" in inventory
 
 
 def test_recipe_shortage_skills_preserve_real_id_shopping_boundary() -> None:

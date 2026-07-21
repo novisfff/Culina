@@ -1,8 +1,13 @@
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+from app.ai.errors import ApprovalRequired
+from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
+from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
+from app.ai.workspace_service import AIApplicationService
 from sqlalchemy import func, select
 
 from app.models.domain import Food, Ingredient, InventoryItem, InventoryOperation, ShoppingListItem
@@ -1051,3 +1056,625 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                 ),
                 1,
             )
+
+    def test_inventory_skill_allows_purchasable_resolution_and_no_intake_resolver(self) -> None:
+        inventory = build_workspace_skill_registry().get("inventory_analysis").manifest
+        tool_names = {tool.name for tool in build_workspace_tool_registry().list()}
+
+        self.assertIn("purchasable.resolve_candidates", inventory.tools)
+        self.assertIn("shopping.read_pending", inventory.tools)
+        self.assertIn("shopping.read_by_id", inventory.tools)
+        self.assertIn("food.read_by_id", inventory.tools)
+        self.assertIn("inventory.create_intake_draft", inventory.tools)
+        self.assertNotIn("inventory.resolve_intake_lines", inventory.tools)
+        self.assertNotIn("inventory.preview_intake_candidates", inventory.tools)
+        self.assertNotIn("inventory_intake_candidates", inventory.output_types)
+        self.assertNotIn("inventory.preview_intake_candidates", inventory.completion_policy.terminal_tools)
+        self.assertIn("purchasable.resolve_candidates", inventory.completion_policy.followup_required_tools)
+        self.assertIn("inventory_intake", inventory.draft_types)
+        self.assertEqual(inventory.draft_contract["inventory_intake"]["schemaVersion"], "inventory_intake.v1")
+        self.assertNotIn("inventory.resolve_intake_lines", tool_names)
+
+    def test_old_intake_preview_and_shopping_draft_tools_are_absent(self) -> None:
+        tool_names = {tool.name for tool in build_workspace_tool_registry().list()}
+        shopping = build_workspace_skill_registry().get("shopping_list").manifest
+        skill_text = (
+            build_workspace_skill_registry().get("inventory_analysis").instructions
+        )
+
+        self.assertNotIn("inventory.preview_intake_candidates", tool_names)
+        self.assertNotIn("shopping.preview_intake_candidates", tool_names)
+        self.assertNotIn("shopping.create_intake_draft", tool_names)
+        self.assertNotIn("inventory.resolve_intake_lines", tool_names)
+        self.assertIn("inventory.create_intake_draft", tool_names)
+        self.assertNotIn("shopping.preview_intake_candidates", shopping.tools)
+        self.assertNotIn("shopping.create_intake_draft", shopping.tools)
+        self.assertNotIn("shopping_intake", shopping.draft_types)
+        self.assertNotIn("inventory.preview_intake_candidates", skill_text)
+        self.assertNotIn("shopping.preview_intake_candidates", skill_text)
+        self.assertIn("purchasable.resolve_candidates", skill_text)
+        self.assertIn("inventory.create_intake_draft", skill_text)
+        self.assertIn("九步合同", skill_text)
+
+    def test_purchase_flow_reads_pending_then_batch_resolves_every_source_line(self) -> None:
+        class PurchaseOrchestrationProvider(BaseChatProvider):
+            model_name = "inventory-intake-purchase-orchestration"
+
+            def __init__(self) -> None:
+                self.tool_calls: list[tuple[str, dict]] = []
+
+            def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools,
+                tool_handler,
+                message_handler=None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, message_handler, max_rounds
+                tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "小票入库"})
+                available = {tool.name for tool in tools()}
+                assert "shopping.read_pending" in available
+                assert "purchasable.resolve_candidates" in available
+                assert "inventory.create_intake_draft" in available
+                assert "inventory.preview_intake_candidates" not in available
+                assert "inventory.resolve_intake_lines" not in available
+
+                pending = tool_handler("shopping.read_pending", {"status": "pending", "limit": 50})
+                self.tool_calls.append(("shopping.read_pending", {"status": "pending"}))
+                assert pending["count"] >= 1
+
+                resolve_payload = {
+                    "items": [
+                        {"clientKey": "receipt-tomato", "name": "番茄"},
+                        {"clientKey": "receipt-milk", "name": "牛奶"},
+                        {"clientKey": "receipt-bags", "name": "垃圾袋"},
+                    ]
+                }
+                resolved = tool_handler("purchasable.resolve_candidates", resolve_payload)
+                self.tool_calls.append(("purchasable.resolve_candidates", resolve_payload))
+                assert len(resolved["results"]) == 3
+                assert {item["clientKey"] for item in resolved["results"]} == {
+                    "receipt-tomato",
+                    "receipt-milk",
+                    "receipt-bags",
+                }
+
+                tomato = next(item for item in pending["items"] if item["title"] == "番茄")
+                tomato_result = next(item for item in resolved["results"] if item["clientKey"] == "receipt-tomato")
+                assert tomato_result["status"] == "exact"
+                assert tomato_result["candidates"][0]["id"] == tomato["ingredientId"]
+
+                draft_payload = {
+                        "draft": {
+                            "draftType": "inventory_intake",
+                            "schemaVersion": "inventory_intake.v1",
+                            "sourceType": "receipt_image",
+                            "sourceReference": {"mediaId": "media_receipt"},
+                            "intakeDate": date.today().isoformat(),
+                            "intakeDateSource": "receipt",
+                            "items": [
+                                {
+                                    "lineId": "line-tomato",
+                                    "sourceLineId": "receipt-tomato",
+                                    "sourceText": "番茄 2个",
+                                    "sourceKind": "shopping_item",
+                                    "action": "stock_and_fulfill",
+                                    "shoppingItemId": tomato["id"],
+                                    "targetKind": "exact_ingredient",
+                                    "targetId": tomato["ingredientId"],
+                                    "enteredQuantity": "2",
+                                    "enteredUnit": "个",
+                                    "inventoryStatus": "fresh",
+                                    "storageLocation": "冷藏",
+                                },
+                                {
+                                    "lineId": "line-milk",
+                                    "sourceLineId": "receipt-milk",
+                                    "sourceText": "牛奶 1袋",
+                                    "sourceKind": "direct",
+                                    "action": "stock_only",
+                                    "targetKind": "food",
+                                    "targetId": "food-ready-milk-extra",
+                                    "enteredQuantity": "1",
+                                    "enteredUnit": "份",
+                                    "storageLocation": "冷藏",
+                                },
+                            ],
+                            "ignoredItems": [
+                                {
+                                    "sourceLineId": "receipt-bags",
+                                    "sourceText": "垃圾袋 1个",
+                                    "displayName": "垃圾袋",
+                                    "reasonCode": "non_inventory_item",
+                                    "reason": "非食品库存对象，本次不会入库",
+                                }
+                            ],
+                        }
+                    }
+                self.tool_calls.append(("inventory.create_intake_draft", draft_payload["draft"]))
+                try:
+                    draft_result = tool_handler("inventory.create_intake_draft", draft_payload)
+                    assert "error" not in draft_result, draft_result
+                except ApprovalRequired:
+                    pass
+                return ChatProviderResult(
+                    text="已整理小票入库确认。",
+                    status="waiting_approval",
+                    model=self.model_name,
+                )
+
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            self._shopping_item(db, item_id="shopping-orch-tomato", ingredient_id=ingredient.id, title="番茄", quantity="3")
+            self._ready_food(db, food_id="food-ready-milk-extra", name="牛奶")
+            db.commit()
+            provider = PurchaseOrchestrationProvider()
+            service = AIApplicationService(db, provider=provider)
+            result = service.chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="按这张小票整理番茄、牛奶和垃圾袋入库",
+            )
+
+        self.assertIn(result["run"]["status"], {"waiting_approval", "completed"})
+        self.assertEqual([name for name, _ in provider.tool_calls[:2]], ["shopping.read_pending", "purchasable.resolve_candidates"])
+        self.assertEqual(provider.tool_calls[1][1]["items"][0]["clientKey"], "receipt-tomato")
+        self.assertEqual(len(provider.tool_calls[1][1]["items"]), 3)
+        self.assertEqual(provider.tool_calls[2][0], "inventory.create_intake_draft")
+        self.assertEqual(len([name for name, _ in provider.tool_calls if name == "purchasable.resolve_candidates"]), 1)
+
+    def test_purchase_flow_joins_pending_and_candidate_by_real_target_id(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            item = self._shopping_item(
+                db,
+                item_id="shopping-join-target",
+                ingredient_id=ingredient.id,
+                title="新鲜番茄",
+                quantity="4",
+            )
+            executor = self._executor(db)
+            pending = executor.call("shopping.read_pending", {"status": "pending", "limit": 50})
+            resolved = executor.call(
+                "purchasable.resolve_candidates",
+                {"items": [{"clientKey": "source-tomato", "name": "番茄"}]},
+            )
+            pending_item = next(row for row in pending["items"] if row["id"] == item.id)
+            exact = next(row for row in resolved["results"] if row["clientKey"] == "source-tomato")
+            self.assertEqual(exact["status"], "exact")
+            self.assertEqual(exact["candidates"][0]["id"], pending_item["ingredientId"])
+            self.assertEqual(pending_item["title"], "新鲜番茄")
+            # Name alone would not match; real ingredientId is the join key.
+            self.assertNotEqual(pending_item["title"], exact["name"])
+
+            draft = executor.call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        items=[
+                            {
+                                "lineId": "line-1",
+                                "sourceLineId": "source-tomato",
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": item.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": exact["candidates"][0]["id"],
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                            }
+                        ]
+                    )
+                },
+            )["draft"]
+            self.assertEqual(draft["items"][0]["shoppingItemId"], item.id)
+            self.assertEqual(draft["items"][0]["targetId"], ingredient.id)
+
+    def test_gift_flow_keeps_same_name_pending_item_untouched(self) -> None:
+        class GiftOrchestrationProvider(BaseChatProvider):
+            model_name = "inventory-intake-gift-orchestration"
+
+            def __init__(self, *, shopping_item_id: str) -> None:
+                self.shopping_item_id = shopping_item_id
+                self.pending_before: list[dict] | None = None
+                self.created_draft: dict | None = None
+
+            def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools,
+                tool_handler,
+                message_handler=None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, message_handler, max_rounds
+                tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "赠送入库"})
+                tools()
+                # Gift/non-purchase: do not auto-use same-name pending.
+                resolved = tool_handler(
+                    "purchasable.resolve_candidates",
+                    {"items": [{"clientKey": "gift-tomato", "name": "番茄"}]},
+                )
+                assert "error" not in resolved, resolved
+                exact = resolved["results"][0]
+                assert exact["status"] == "exact"
+                draft_payload = {
+                        "draft": {
+                            "draftType": "inventory_intake",
+                            "schemaVersion": "inventory_intake.v1",
+                            "sourceType": "gift",
+                            "sourceReference": {},
+                            "intakeDate": date.today().isoformat(),
+                            "intakeDateSource": "user_explicit",
+                            "items": [
+                                {
+                                    "lineId": "line-gift",
+                                    "sourceLineId": "gift-tomato",
+                                    "sourceText": "朋友送的番茄 2个",
+                                    "sourceKind": "direct",
+                                    "action": "stock_only",
+                                    "targetKind": "exact_ingredient",
+                                    "targetId": exact["candidates"][0]["id"],
+                                    "enteredQuantity": "2",
+                                    "enteredUnit": "个",
+                                    "inventoryStatus": "fresh",
+                                    "storageLocation": "冷藏",
+                                }
+                            ],
+                            "ignoredItems": [],
+                        }
+                    }
+                self.created_draft = draft_payload["draft"]
+                try:
+                    tool_handler("inventory.create_intake_draft", draft_payload)
+                except ApprovalRequired:
+                    pass
+                return ChatProviderResult(
+                    text="已整理赠送入库确认。",
+                    status="waiting_approval",
+                    model=self.model_name,
+                )
+
+        with self.SessionLocal() as db:
+            item = self._shopping_item(db, item_id="shopping-gift-pending", title="番茄", quantity="5")
+            db.commit()
+            provider = GiftOrchestrationProvider(shopping_item_id=item.id)
+            service = AIApplicationService(db, provider=provider)
+            result = service.chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="朋友送了 2 个番茄，帮我直接入库，不要动采购清单",
+            )
+            db.refresh(item)
+            self.assertFalse(item.done)
+            self.assertEqual(item.quantity, Decimal("5"))
+            self.assertIsNotNone(provider.created_draft)
+            self.assertEqual(provider.created_draft["items"][0]["sourceKind"], "direct")
+            self.assertIsNone(provider.created_draft["items"][0].get("shoppingItemId"))
+            self.assertIn(result["run"]["status"], {"waiting_approval", "completed"})
+
+    def test_exact_extra_purchase_becomes_direct_stock_only(self) -> None:
+        with self.SessionLocal() as db:
+            food = self._ready_food(db, food_id="food-extra-milk", name="盒装牛奶")
+            executor = self._executor(db)
+            pending = executor.call("shopping.read_pending", {"status": "pending", "limit": 50})
+            self.assertEqual(pending["count"], 0)
+            resolved = executor.call(
+                "purchasable.resolve_candidates",
+                {"items": [{"clientKey": "extra-milk", "name": "盒装牛奶"}]},
+            )
+            exact = resolved["results"][0]
+            self.assertEqual(exact["status"], "exact")
+            self.assertEqual(exact["candidates"][0]["id"], food.id)
+
+            draft = executor.call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        source_type="manual_text",
+                        intake_date_source="user_explicit",
+                        items=[
+                            {
+                                "lineId": "line-extra",
+                                "sourceLineId": "extra-milk",
+                                "sourceText": "盒装牛奶 1盒",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "food",
+                                "targetId": food.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "盒",
+                                "storageLocation": "冷藏",
+                            }
+                        ],
+                    )
+                },
+            )["draft"]
+            self.assertEqual(draft["items"][0]["sourceKind"], "direct")
+            self.assertEqual(draft["items"][0]["action"], "stock_only")
+            self.assertIsNone(draft["items"][0]["shoppingItemId"])
+            self.assertEqual(
+                db.scalar(select(func.count()).select_from(ShoppingListItem).where(ShoppingListItem.family_id == self.family.id)),
+                0,
+            )
+
+    def test_non_inventory_hint_with_exact_candidate_is_not_ignored(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            executor = self._executor(db)
+            # Even if the model marks itemKind=non_inventory, exact candidate must still resolve.
+            resolved = executor.call(
+                "purchasable.resolve_candidates",
+                {"items": [{"clientKey": "maybe-trash", "name": "番茄"}]},
+            )
+            exact = resolved["results"][0]
+            self.assertEqual(exact["status"], "exact")
+            self.assertEqual(exact["candidates"][0]["id"], ingredient.id)
+
+            draft = executor.call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        items=[
+                            {
+                                "lineId": "line-1",
+                                "sourceLineId": "maybe-trash",
+                                "sourceText": "番茄 1个",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                            }
+                        ],
+                        ignored_items=[],
+                    )
+                },
+            )["draft"]
+            self.assertEqual(len(draft["items"]), 1)
+            self.assertEqual(draft["items"][0]["targetId"], ingredient.id)
+            self.assertEqual(draft["ignoredItems"], [])
+
+    def test_thirty_rows_use_one_batch_call_and_more_than_thirty_requests_smaller_batch(self) -> None:
+        class ThirtyRowProvider(BaseChatProvider):
+            model_name = "inventory-intake-thirty-rows"
+
+            def __init__(self, *, row_count: int) -> None:
+                self.row_count = row_count
+                self.resolve_calls = 0
+                self.human_requested = False
+                self.draft_created = False
+
+            def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools,
+                tool_handler,
+                message_handler=None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, message_handler, max_rounds
+                tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "批量入库"})
+                tools()
+                if self.row_count > 30:
+                    self.human_requested = True
+                    tool_handler(
+                        "human.request_input",
+                        {
+                            "question": "本次识别超过 30 行，请选择最多 30 行或拆成更小批次后再入库。",
+                            "inputMode": "text",
+                            "options": [],
+                            "required": True,
+                            "sourceSkills": ["inventory_analysis"],
+                        },
+                    )
+                    return ChatProviderResult(
+                        text="请先缩小批次。",
+                        status="waiting_input",
+                        model=self.model_name,
+                    )
+
+                items = [{"clientKey": f"row-{index}", "name": "番茄"} for index in range(self.row_count)]
+                tool_handler("purchasable.resolve_candidates", {"items": items})
+                self.resolve_calls += 1
+                # Only create a draft for a single resolved representative row in this infra case.
+                try:
+                    tool_handler(
+                        "inventory.create_intake_draft",
+                        {
+                            "draft": {
+                                "draftType": "inventory_intake",
+                                "schemaVersion": "inventory_intake.v1",
+                                "sourceType": "manual_text",
+                                "sourceReference": {},
+                                "intakeDate": date.today().isoformat(),
+                                "intakeDateSource": "user_explicit",
+                                "items": [
+                                    {
+                                        "lineId": "line-1",
+                                        "sourceLineId": "row-0",
+                                        "sourceText": "番茄 1个",
+                                        "sourceKind": "direct",
+                                        "action": "stock_only",
+                                        "targetKind": "exact_ingredient",
+                                        "targetId": "ingredient-tomato",
+                                        "enteredQuantity": "1",
+                                        "enteredUnit": "个",
+                                        "inventoryStatus": "fresh",
+                                        "storageLocation": "冷藏",
+                                    }
+                                ],
+                                "ignoredItems": [],
+                            }
+                        },
+                    )
+                except ApprovalRequired:
+                    pass
+                self.draft_created = True
+                return ChatProviderResult(
+                    text="已整理入库确认。",
+                    status="waiting_approval",
+                    model=self.model_name,
+                )
+
+        with self.SessionLocal() as db:
+            provider_ok = ThirtyRowProvider(row_count=30)
+            ok = AIApplicationService(db, provider=provider_ok).chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="这 30 行都要入库",
+            )
+            self.assertEqual(provider_ok.resolve_calls, 1)
+            self.assertTrue(provider_ok.draft_created)
+            self.assertIn(ok["run"]["status"], {"waiting_approval", "completed"})
+
+            provider_too_many = ThirtyRowProvider(row_count=31)
+            blocked = AIApplicationService(db, provider=provider_too_many).chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="这 31 行都要入库",
+            )
+            self.assertEqual(provider_too_many.resolve_calls, 0)
+            self.assertTrue(provider_too_many.human_requested)
+            self.assertFalse(provider_too_many.draft_created)
+            self.assertEqual(blocked["run"]["status"], "waiting_input")
+
+    def test_all_resolved_rows_create_one_inventory_intake_draft(self) -> None:
+        class OneDraftProvider(BaseChatProvider):
+            model_name = "inventory-intake-one-draft"
+
+            def __init__(self) -> None:
+                self.draft_calls = 0
+                self.last_draft: dict | None = None
+
+            def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools,
+                tool_handler,
+                message_handler=None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, message_handler, max_rounds
+                tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "统一入库"})
+                tools()
+                pending = tool_handler("shopping.read_pending", {"status": "pending", "limit": 50})
+                tomato = next(item for item in pending["items"] if item["title"] == "番茄")
+                resolved = tool_handler(
+                    "purchasable.resolve_candidates",
+                    {
+                        "items": [
+                            {"clientKey": "src-tomato", "name": "番茄"},
+                            {"clientKey": "src-beef", "name": "卤牛肉"},
+                            {"clientKey": "src-bags", "name": "垃圾袋"},
+                        ]
+                    },
+                )
+                tomato_id = next(item for item in resolved["results"] if item["clientKey"] == "src-tomato")["candidates"][0]["id"]
+                beef_id = next(item for item in resolved["results"] if item["clientKey"] == "src-beef")["candidates"][0]["id"]
+                draft_payload = {
+                        "draft": {
+                            "draftType": "inventory_intake",
+                            "schemaVersion": "inventory_intake.v1",
+                            "sourceType": "receipt_image",
+                            "sourceReference": {"mediaId": "media_mixed"},
+                            "intakeDate": date.today().isoformat(),
+                            "intakeDateSource": "receipt",
+                            "items": [
+                                {
+                                    "lineId": "line-1",
+                                    "sourceLineId": "src-tomato",
+                                    "sourceText": "番茄 2个",
+                                    "sourceKind": "shopping_item",
+                                    "action": "stock_and_fulfill",
+                                    "shoppingItemId": tomato["id"],
+                                    "targetKind": "exact_ingredient",
+                                    "targetId": tomato_id,
+                                    "enteredQuantity": "2",
+                                    "enteredUnit": "个",
+                                    "inventoryStatus": "fresh",
+                                    "storageLocation": "冷藏",
+                                },
+                                {
+                                    "lineId": "line-2",
+                                    "sourceLineId": "src-beef",
+                                    "sourceText": "卤牛肉 1份",
+                                    "sourceKind": "direct",
+                                    "action": "stock_only",
+                                    "targetKind": "food",
+                                    "targetId": beef_id,
+                                    "enteredQuantity": "1",
+                                    "enteredUnit": "份",
+                                    "storageLocation": "冷藏",
+                                },
+                            ],
+                            "ignoredItems": [
+                                {
+                                    "sourceLineId": "src-bags",
+                                    "sourceText": "垃圾袋",
+                                    "displayName": "垃圾袋",
+                                    "reasonCode": "non_inventory_item",
+                                    "reason": "非食品库存对象，本次不会入库",
+                                }
+                            ],
+                        }
+                    }
+                self.last_draft = draft_payload["draft"]
+                try:
+                    tool_handler("inventory.create_intake_draft", draft_payload)
+                except ApprovalRequired:
+                    pass
+                self.draft_calls += 1
+                return ChatProviderResult(
+                    text="已生成一份统一入库确认。",
+                    status="waiting_approval",
+                    model=self.model_name,
+                )
+
+        with self.SessionLocal() as db:
+            self._shopping_item(db, item_id="shopping-one-draft-tomato", title="番茄", quantity="2")
+            self._ready_food(db, food_id="food-ready-beef-one", name="卤牛肉")
+            db.commit()
+            provider = OneDraftProvider()
+            result = AIApplicationService(db, provider=provider).chat(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                message="按小票把番茄、卤牛肉入库，垃圾袋忽略",
+            )
+
+        self.assertEqual(provider.draft_calls, 1)
+        self.assertIsNotNone(provider.last_draft)
+        self.assertEqual(provider.last_draft["draftType"], "inventory_intake")
+        self.assertEqual(len(provider.last_draft["items"]), 2)
+        self.assertEqual(len(provider.last_draft["ignoredItems"]), 1)
+        self.assertIn(result["run"]["status"], {"waiting_approval", "completed"})

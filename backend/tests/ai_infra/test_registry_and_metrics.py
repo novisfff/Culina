@@ -737,7 +737,6 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                     "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
                     "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
                     "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
-                    "inventory.preview_intake_candidates": "冰箱照片或小票解析出的可审阅入库候选卡可作为当前轮终态输出，卡片本身不写库存。",
                 },
             )
             self.assertEqual(
@@ -745,7 +744,12 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 {
                     "ingredient.search": "食材检索后必须说明候选库存处理对象、请求用户选择，或继续读取食材/库存并生成库存处理草稿。",
                     "ingredient.read_by_id": "读取食材档案后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。",
-                    "ingredient.resolve_candidates": "批量解析后必须把 exact 候选交给入库候选预览，把 missing 逐项进入食材档案 handoff，并对 ambiguous 请求用户选择。",
+                    "ingredient.resolve_candidates": "批量解析后必须把 exact 候选交给后续入库处理，把 missing 逐项进入食材档案 handoff，并对 ambiguous 请求用户选择。",
+                    "purchasable.resolve_candidates": "批量解析后必须逐项处理：exact 可继续；candidate 或 ambiguous 必须请求用户选择；missing 必须进入资料 handoff、明确非食品忽略或 skip。所有原始行解决后才可创建 inventory_intake 草稿；不得把 Tool 结果显示为候选卡或视为用户已经确认。",
+                    "food.search": "食物检索后必须说明可入库的成品、速食或包装食品候选，请求用户选择，或继续生成入库草稿。",
+                    "food.read_by_id": "读取食物资料后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。",
+                    "shopping.read_pending": "读取待采购清单后必须用于采购关联匹配，或继续请求补充信息/生成统一入库草稿；不得把读取结果当作已确认入库。",
+                    "shopping.read_by_id": "读取购物项详情后必须继续匹配、请求补充信息，或生成统一入库草稿。",
                     "workspace.read_artifact": "读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。",
                 },
             )

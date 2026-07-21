@@ -18,7 +18,6 @@ allowed_tools:
 - purchasable.resolve_candidates
 - shopping.read_pending
 - shopping.read_by_id
-- shopping.preview_intake_candidates
 - inventory.read_low_stock_items
 - inventory.read_available_items
 - shopping.create_draft
@@ -45,9 +44,8 @@ completion_policy:
     food.search: 食物检索后必须说明可采购的成品、速食或包装食品候选，请求用户选择，或生成 shopping_list 草稿。
     food.read_by_id: 读取食物资料后必须确认它属于 readyMade、instant 或 packaged，再说明如何加入清单、请求补充信息，或生成 shopping_list 草稿。
     purchasable.resolve_candidates: 批量解析后必须对 ambiguous 请求用户选择，对 missing 进入对应资料 handoff，再继续 shopping_list 草稿。
-    shopping.read_pending: 购物清单读取后必须按 pending/completed/all 状态说明结果、请求补充信息，或生成 shopping_list 草稿；恢复待买必须先读取 completed 项。
+    shopping.read_pending: 购物清单读取后必须按 pending/completed/all 状态说明结果、请求补充信息，或生成 shopping_list 草稿；恢复待买必须先读取 completed 项。完成并入库请路由到 inventory_analysis。
     shopping.read_by_id: 读取购物清单详情后必须说明可调整项、请求补充信息，或生成 shopping_list 草稿。
-    shopping.preview_intake_candidates: 匹配采购行后必须说明 confirmed/suggested/ambiguous/unmatched 结果；歧义项请求选择，未匹配项作为额外购买候选给出建档或单独入库建议；正式入库请交给 inventory_analysis 生成 inventory_intake 草稿。
     inventory.read_low_stock_items: 低库存读取后必须说明完整补货缺口、结合待买项去重、请求用户选择，或生成 shopping_list 草稿。
     inventory.read_available_items: 可用库存读取后必须说明缺口/不必购买项、请求补充信息，或生成 shopping_list 草稿。
     workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或生成/调整 shopping_list 草稿。
