@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.core.enums import (
     FoodType,
+    IngredientExpiryMode,
     IngredientQuantityTrackingMode,
     InventoryAvailabilityLevel,
     InventoryStatus,
@@ -261,6 +262,78 @@ def _item_impact(*, action: str, source_kind: str, target_kind: str) -> dict[str
     }
 
 
+def _parse_optional_date(value: Any, *, label: str) -> date | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ValueError(f"{label}格式不正确") from exc
+
+
+def _default_expiry_for_ingredient(
+    ingredient: Ingredient,
+    *,
+    intake_date: date,
+    explicit_expiry: date | None,
+) -> date | None:
+    if explicit_expiry is not None:
+        return explicit_expiry
+    mode = ingredient.default_expiry_mode
+    mode_value = mode.value if hasattr(mode, "value") else str(mode)
+    if mode is IngredientExpiryMode.DAYS or mode_value == IngredientExpiryMode.DAYS.value:
+        days = ingredient.default_expiry_days
+        if days:
+            return intake_date + timedelta(days=int(days))
+    return None
+
+
+def _map_executable_service_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Map a normalized draft row to InventoryIntakeRequest item fields.
+
+    Approval display may keep original target identity immutables when the user
+    switches to fulfill_without_stock; the service call must still use target_kind=none
+    and omit inventory target/quantity fields.
+    """
+    action = str(item.get("action") or "")
+    if action == "fulfill_without_stock":
+        mapped: dict[str, Any] = {
+            "line_id": item["lineId"],
+            "source_kind": item["sourceKind"],
+            "action": action,
+            "shopping_item_id": item.get("shoppingItemId"),
+            "expected_shopping_item_row_version": item.get("expectedShoppingItemRowVersion"),
+            "target_kind": "none",
+            "notes": item.get("notes") or "",
+        }
+        return {key: value for key, value in mapped.items() if value is not None or key == "notes"}
+
+    mapped = {
+        "line_id": item["lineId"],
+        "source_kind": item["sourceKind"],
+        "action": action,
+        "shopping_item_id": item.get("shoppingItemId"),
+        "expected_shopping_item_row_version": item.get("expectedShoppingItemRowVersion"),
+        "target_kind": item["targetKind"],
+        "target_id": item.get("targetId"),
+        "expected_ingredient_row_version": item.get("expectedIngredientRowVersion"),
+        "expected_food_row_version": item.get("expectedFoodRowVersion"),
+        "state_id": item.get("stateId"),
+        "expected_state_row_version": item.get("expectedStateRowVersion"),
+        "actual_quantity": item.get("actualQuantity"),
+        "unit": item.get("actualUnit"),
+        "resulting_availability_level": item.get("resultingAvailabilityLevel"),
+        "inventory_status": item.get("inventoryStatus"),
+        "expiry_date": item.get("expiryDate"),
+        "storage_location": item.get("storageLocation"),
+        "notes": item.get("notes") or "",
+    }
+    cleaned = {key: value for key, value in mapped.items() if value is not None}
+    if "notes" not in cleaned:
+        cleaned["notes"] = ""
+    return cleaned
+
+
 def _build_summary(items: list[dict[str, Any]], ignored_items: list[dict[str, Any]]) -> dict[str, Any]:
     skip_count = sum(1 for item in items if item.get("action") == "skip")
     executable_count = len(items) - skip_count
@@ -377,12 +450,11 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
 
         target_kind = str(raw_item.get("targetKind") or "").strip()
         if action == "skip":
+            # Display may keep a resolved target identity; approval restores immutables.
             target_kind = target_kind or "none"
-            if target_kind != "none":
-                # skip may still display a resolved target; keep submitted targetKind if present
-                pass
         elif action == "fulfill_without_stock":
-            target_kind = "none"
+            # Service mapping forces target_kind=none; display immutables may preserve original target.
+            target_kind = target_kind or "none"
         elif target_kind not in {"exact_ingredient", "presence_ingredient", "food"}:
             raise ValueError("入库目标类型不正确")
 
@@ -428,6 +500,7 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
                     if field in raw_item:
                         record[field] = raw_item.get(field)
                 record["action"] = "skip"
+                record["notes"] = str(raw_item.get("notes") or "").strip()
                 record["impact"] = _item_impact(
                     action="skip",
                     source_kind=str(record["sourceKind"]),
@@ -437,19 +510,31 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
             continue
 
         if action == "fulfill_without_stock":
-            record["targetKind"] = "none"
-            record["targetId"] = None
-            record["impact"] = _item_impact(
-                action=action,
-                source_kind=source_kind,
-                target_kind="none",
-            )
+            # Keep original target identity for approval display when present; executor maps to none.
             if is_approval:
                 for field in ITEM_IMMUTABLE_FIELDS:
                     if field in raw_item:
                         record[field] = raw_item.get(field)
                 record["action"] = action
                 record["notes"] = str(raw_item.get("notes") or "").strip()
+                # Clear stock-only editable fields for a clean approval value.
+                record["enteredQuantity"] = None
+                record["enteredUnit"] = None
+                record["packageConversion"] = None
+                record["actualQuantity"] = None
+                record["actualUnit"] = None
+                record["inventoryStatus"] = None
+                record["resultingAvailabilityLevel"] = None
+                record["expiryDate"] = None
+                record["storageLocation"] = None
+            else:
+                record["targetKind"] = "none"
+                record["targetId"] = None
+            record["impact"] = _item_impact(
+                action=action,
+                source_kind=str(record["sourceKind"]),
+                target_kind=str(record.get("targetKind") or "none"),
+            )
             normalized_items.append(record)
             continue
 
@@ -464,6 +549,7 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
                 raw_item,
                 require_complete=require_complete,
             )
+        explicit_expiry = _parse_optional_date(raw_item.get("expiryDate"), label="保质期")
         record.update(
             {
                 "targetId": target_id,
@@ -471,24 +557,17 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
                 "actualQuantity": actual_quantity,
                 "actualUnit": actual_unit,
                 "inventoryStatus": str(raw_item.get("inventoryStatus") or InventoryStatus.FRESH.value),
-                "expiryDate": (
-                    date.fromisoformat(str(raw_item["expiryDate"])).isoformat()
-                    if raw_item.get("expiryDate")
-                    else None
-                ),
+                "expiryDate": explicit_expiry.isoformat() if explicit_expiry else None,
                 "storageLocation": str(raw_item.get("storageLocation") or "").strip() or None,
             }
         )
-        if record.get("expiryDate"):
-            expiry = date.fromisoformat(str(record["expiryDate"]))
-            if expiry < intake_date:
-                raise ValueError("保质期不能早于入库日期")
         if require_complete and target_kind in {"exact_ingredient", "presence_ingredient"} and not record["storageLocation"]:
             raise ValueError("存放位置不能为空")
         if require_complete and target_kind == "food" and not record["storageLocation"]:
             # food may use existing storage; still require for approval clarity when missing
             pass
 
+        ingredient: Ingredient | None = None
         if target_kind in {"exact_ingredient", "presence_ingredient"}:
             ingredient = _load_scoped(
                 context.db,
@@ -506,6 +585,12 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
                 record["title"] = ingredient.name
             record["expectedIngredientRowVersion"] = ingredient.row_version
             record["before"]["ingredient"] = _ingredient_before(ingredient)
+            resolved_expiry = _default_expiry_for_ingredient(
+                ingredient,
+                intake_date=intake_date,
+                explicit_expiry=explicit_expiry,
+            )
+            record["expiryDate"] = resolved_expiry.isoformat() if resolved_expiry else None
             if target_kind == "presence_ingredient":
                 state = context.db.scalar(
                     select(IngredientInventoryState).where(
@@ -568,6 +653,11 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
         else:
             raise ValueError("入库目标类型不正确")
 
+        if record.get("expiryDate"):
+            expiry = date.fromisoformat(str(record["expiryDate"]))
+            if expiry < intake_date:
+                raise ValueError("保质期不能早于入库日期")
+
         record["impact"] = _item_impact(action=action, source_kind=source_kind, target_kind=target_kind)
 
         if is_approval:
@@ -604,11 +694,29 @@ def normalize_inventory_intake_draft(context: DraftNormalizeContext) -> dict[str
                 if target_kind == "food"
                 else str(raw_item.get("inventoryStatus") or InventoryStatus.FRESH.value)
             )
-            record["expiryDate"] = (
-                date.fromisoformat(str(raw_item["expiryDate"])).isoformat()
-                if raw_item.get("expiryDate")
-                else None
-            )
+            approval_explicit_expiry = _parse_optional_date(raw_item.get("expiryDate"), label="保质期")
+            if target_kind in {"exact_ingredient", "presence_ingredient"}:
+                # Prefer already-loaded ingredient; fall back to immutable target identity.
+                approval_ingredient = ingredient
+                if approval_ingredient is None:
+                    approval_target_id = str(record.get("targetId") or target_id)
+                    approval_ingredient = _load_scoped(
+                        context.db,
+                        Ingredient,
+                        family_id=context.family_id,
+                        object_id=approval_target_id,
+                        label="食材",
+                    )
+                resolved_expiry = _default_expiry_for_ingredient(
+                    approval_ingredient,
+                    intake_date=intake_date,
+                    explicit_expiry=approval_explicit_expiry,
+                )
+                record["expiryDate"] = resolved_expiry.isoformat() if resolved_expiry else None
+            else:
+                record["expiryDate"] = (
+                    approval_explicit_expiry.isoformat() if approval_explicit_expiry else None
+                )
             if record.get("expiryDate") and date.fromisoformat(str(record["expiryDate"])) < intake_date:
                 raise ValueError("保质期不能早于入库日期")
             record["storageLocation"] = str(raw_item.get("storageLocation") or "").strip() or None
@@ -707,33 +815,7 @@ def execute_inventory_intake_draft(context: DraftExecuteContext) -> tuple[dict[s
     if not executable_items:
         raise ValueError("全部项目均为 skip，没有可执行的入库行；请拒绝或取消本次确认")
 
-    request_items: list[dict[str, Any]] = []
-    for item in executable_items:
-        mapped: dict[str, Any] = {
-            "line_id": item["lineId"],
-            "source_kind": item["sourceKind"],
-            "action": item["action"],
-            "shopping_item_id": item.get("shoppingItemId"),
-            "expected_shopping_item_row_version": item.get("expectedShoppingItemRowVersion"),
-            "target_kind": item["targetKind"],
-            "target_id": item.get("targetId"),
-            "expected_ingredient_row_version": item.get("expectedIngredientRowVersion"),
-            "expected_food_row_version": item.get("expectedFoodRowVersion"),
-            "state_id": item.get("stateId"),
-            "expected_state_row_version": item.get("expectedStateRowVersion"),
-            "actual_quantity": item.get("actualQuantity"),
-            "unit": item.get("actualUnit"),
-            "resulting_availability_level": item.get("resultingAvailabilityLevel"),
-            "inventory_status": item.get("inventoryStatus"),
-            "expiry_date": item.get("expiryDate"),
-            "storage_location": item.get("storageLocation"),
-            "notes": item.get("notes") or "",
-        }
-        # Drop nulls that would confuse optional validators for fulfill_without_stock / food
-        cleaned = {key: value for key, value in mapped.items() if value is not None}
-        if "notes" not in cleaned:
-            cleaned["notes"] = ""
-        request_items.append(cleaned)
+    request_items = [_map_executable_service_item(item) for item in executable_items]
 
     request = InventoryIntakeRequest.model_validate(
         {

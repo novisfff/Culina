@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -6,7 +6,7 @@ from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registr
 from sqlalchemy import func, select
 
 from app.models.domain import Food, Ingredient, InventoryItem, InventoryOperation, ShoppingListItem
-from app.core.enums import FoodType
+from app.core.enums import FoodType, IngredientExpiryMode
 from app.services.ai_operations.drafts import normalize_ai_draft_payload
 from app.services.ai_operations.executor import execute_ai_operation_draft
 from app.services.ai_operations.registry import draft_operation_registry
@@ -394,29 +394,8 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                 },
             )["draft"]
 
-            submitted = {
-                **draft,
-                "intakeDate": (date.today()).isoformat(),
-                "items": [
-                    {
-                        **draft["items"][0],
-                        "action": "fulfill_without_stock",
-                        "targetKind": "none",
-                        "targetId": None,
-                        "enteredQuantity": None,
-                        "enteredUnit": None,
-                        "actualQuantity": None,
-                        "actualUnit": None,
-                        "inventoryStatus": None,
-                        "storageLocation": None,
-                        "expiryDate": None,
-                        "notes": "改成仅完成采购",
-                        "expectedIngredientRowVersion": draft["items"][0]["expectedIngredientRowVersion"],
-                    }
-                ],
-            }
-            # action can change, but target identity is protected — use stock edits instead
-            submitted = {
+            # Editable stock fields remain mutable on approval.
+            stock_submitted = {
                 **draft,
                 "intakeDate": draft["intakeDate"],
                 "items": [
@@ -432,25 +411,86 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                     }
                 ],
             }
-            validate_inventory_intake_approval_value(draft, submitted)
-            approval_payload = normalize_ai_draft_payload(
+            validate_inventory_intake_approval_value(draft, stock_submitted)
+            stock_payload = normalize_ai_draft_payload(
                 db,
                 draft_type="inventory_intake",
                 family_id=self.family.id,
                 user_id=self.user.id,
                 conversation_id="conversation-inventory-intake",
-                payload=submitted,
+                payload=stock_submitted,
                 phase="approval",
             )
-            row = approval_payload["items"][0]
-            self.assertEqual(row["enteredQuantity"], "1")
-            self.assertEqual(row["actualQuantity"], "1")
-            self.assertEqual(row["inventoryStatus"], "opened")
-            self.assertEqual(row["storageLocation"], "冷冻")
-            self.assertEqual(row["notes"], "用户修改备注")
-            self.assertEqual(row["expectedShoppingItemRowVersion"], draft["items"][0]["expectedShoppingItemRowVersion"])
-            self.assertEqual(row["expectedIngredientRowVersion"], draft["items"][0]["expectedIngredientRowVersion"])
-            self.assertEqual(row["before"], draft["items"][0]["before"])
+            stock_row = stock_payload["items"][0]
+            self.assertEqual(stock_row["enteredQuantity"], "1")
+            self.assertEqual(stock_row["actualQuantity"], "1")
+            self.assertEqual(stock_row["inventoryStatus"], "opened")
+            self.assertEqual(stock_row["storageLocation"], "冷冻")
+            self.assertEqual(stock_row["notes"], "用户修改备注")
+            self.assertEqual(stock_row["action"], "stock_and_fulfill")
+            self.assertEqual(stock_row["targetKind"], draft["items"][0]["targetKind"])
+            self.assertEqual(stock_row["targetId"], draft["items"][0]["targetId"])
+            self.assertEqual(stock_row["expectedShoppingItemRowVersion"], draft["items"][0]["expectedShoppingItemRowVersion"])
+            self.assertEqual(stock_row["expectedIngredientRowVersion"], draft["items"][0]["expectedIngredientRowVersion"])
+            self.assertEqual(stock_row["before"], draft["items"][0]["before"])
+
+            # Action may change to fulfill_without_stock while target identity stays immutable.
+            fulfill_submitted = {
+                **draft,
+                "intakeDate": draft["intakeDate"],
+                "items": [
+                    {
+                        **draft["items"][0],
+                        "action": "fulfill_without_stock",
+                        "notes": "改成仅完成采购",
+                    }
+                ],
+            }
+            validate_inventory_intake_approval_value(draft, fulfill_submitted)
+            fulfill_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=fulfill_submitted,
+                phase="approval",
+            )
+            fulfill_row = fulfill_payload["items"][0]
+            self.assertEqual(fulfill_row["action"], "fulfill_without_stock")
+            self.assertEqual(fulfill_row["targetKind"], draft["items"][0]["targetKind"])
+            self.assertEqual(fulfill_row["targetId"], draft["items"][0]["targetId"])
+            self.assertEqual(fulfill_row["notes"], "改成仅完成采购")
+            self.assertIsNone(fulfill_row.get("actualQuantity"))
+            self.assertIsNone(fulfill_row.get("storageLocation"))
+            self.assertTrue(fulfill_row["impact"]["fulfillsShopping"])
+            self.assertFalse(fulfill_row["impact"]["stocksInventory"])
+
+            # Action may also change to skip.
+            skip_submitted = {
+                **draft,
+                "items": [
+                    {
+                        **draft["items"][0],
+                        "action": "skip",
+                        "notes": "本次跳过",
+                    }
+                ],
+            }
+            validate_inventory_intake_approval_value(draft, skip_submitted)
+            skip_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=skip_submitted,
+                phase="approval",
+            )
+            skip_row = skip_payload["items"][0]
+            self.assertEqual(skip_row["action"], "skip")
+            self.assertEqual(skip_row["targetKind"], draft["items"][0]["targetKind"])
+            self.assertTrue(skip_row["impact"]["skips"])
 
     def test_approval_rejects_source_identity_target_version_and_before_changes(self) -> None:
         with self.SessionLocal() as db:
@@ -660,6 +700,302 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                         operation_idempotency_key="ai-approval-inventory-intake-all-skip",
                         conversation_id="conversation-inventory-intake",
                     )
+                )
+
+    def test_approval_stock_to_fulfill_without_stock_executes(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            item = self._shopping_item(db, item_id="shopping-ai-intake-fulfill-action", quantity="2")
+            draft = self._executor(db).call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        items=[
+                            {
+                                "lineId": "line-1",
+                                "sourceLineId": "receipt-1",
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": item.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                            }
+                        ]
+                    )
+                },
+            )["draft"]
+
+            submitted = {
+                **draft,
+                "items": [
+                    {
+                        **draft["items"][0],
+                        "action": "fulfill_without_stock",
+                        "notes": "只完成采购不入库",
+                    }
+                ],
+            }
+            validate_inventory_intake_approval_value(draft, submitted)
+            approval_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=submitted,
+                phase="approval",
+            )
+            self.assertEqual(approval_payload["items"][0]["action"], "fulfill_without_stock")
+            # Display immutables may keep original target identity.
+            self.assertEqual(approval_payload["items"][0]["targetKind"], "exact_ingredient")
+            self.assertEqual(approval_payload["items"][0]["targetId"], ingredient.id)
+
+            inventory_count_before = db.scalar(select(func.count()).select_from(InventoryItem))
+            with patch(
+                "app.services.ai_operations.inventory_intake.apply_inventory_intake",
+                wraps=__import__(
+                    "app.services.inventory_intake", fromlist=["apply_inventory_intake"]
+                ).apply_inventory_intake,
+            ) as mocked:
+                business_entity, entity_ids = execute_ai_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    draft_type="inventory_intake",
+                    payload=approval_payload,
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                    operation_idempotency_key="ai-approval-inventory-intake-fulfill-only",
+                    conversation_id="conversation-inventory-intake",
+                )
+                self.assertEqual(mocked.call_count, 1)
+                request = mocked.call_args.kwargs["request"]
+                self.assertEqual(len(request.items), 1)
+                service_item = request.items[0]
+                self.assertEqual(service_item.action, "fulfill_without_stock")
+                self.assertEqual(service_item.target_kind, "none")
+                self.assertIsNone(service_item.target_id)
+                self.assertIsNone(service_item.actual_quantity)
+                self.assertIsNone(service_item.storage_location)
+                self.assertIsNone(service_item.expiry_date)
+                self.assertIsNone(service_item.inventory_status)
+
+            db.flush()
+            self.assertTrue(item.done)
+            self.assertEqual(
+                db.scalar(select(func.count()).select_from(InventoryItem)),
+                inventory_count_before,
+            )
+            self.assertIsNotNone(db.get(InventoryOperation, business_entity["operation_id"]))
+            self.assertIn(item.id, entity_ids)
+
+    def test_approval_stock_to_skip_is_filtered_from_service(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            item = self._shopping_item(db, item_id="shopping-ai-intake-skip-action", quantity="2")
+            food = self._ready_food(db, food_id="food-ready-skip-action")
+            draft = self._executor(db).call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        items=[
+                            {
+                                "lineId": "line-1",
+                                "sourceLineId": "receipt-1",
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": item.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                            },
+                            {
+                                "lineId": "line-2",
+                                "sourceLineId": "receipt-2",
+                                "sourceText": "卤牛肉 1份",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "food",
+                                "targetId": food.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "份",
+                                "storageLocation": "冷藏",
+                            },
+                        ]
+                    )
+                },
+            )["draft"]
+
+            submitted = {
+                **draft,
+                "items": [
+                    {
+                        **draft["items"][0],
+                        "action": "skip",
+                        "notes": "这行跳过",
+                    },
+                    draft["items"][1],
+                ],
+            }
+            validate_inventory_intake_approval_value(draft, submitted)
+            approval_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=submitted,
+                phase="approval",
+            )
+            self.assertEqual(approval_payload["items"][0]["action"], "skip")
+            self.assertEqual(approval_payload["summary"]["skipCount"], 1)
+            self.assertEqual(approval_payload["summary"]["executableCount"], 1)
+
+            with patch(
+                "app.services.ai_operations.inventory_intake.apply_inventory_intake",
+                wraps=__import__(
+                    "app.services.inventory_intake", fromlist=["apply_inventory_intake"]
+                ).apply_inventory_intake,
+            ) as mocked:
+                execute_ai_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    draft_type="inventory_intake",
+                    payload=approval_payload,
+                    assert_updated_at_matches=lambda **_kwargs: None,
+                    operation_idempotency_key="ai-approval-inventory-intake-skip-filter",
+                    conversation_id="conversation-inventory-intake",
+                )
+                request = mocked.call_args.kwargs["request"]
+                self.assertEqual(len(request.items), 1)
+                self.assertEqual(request.items[0].line_id, "line-2")
+                self.assertEqual(request.items[0].action, "stock_only")
+
+            db.flush()
+            self.assertFalse(item.done)
+
+    def test_approval_recomputes_default_expiry_when_intake_date_changes(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            ingredient.default_expiry_mode = IngredientExpiryMode.DAYS
+            ingredient.default_expiry_days = 7
+            db.flush()
+
+            item = self._shopping_item(db, item_id="shopping-ai-intake-expiry-shift", quantity="2")
+            original_intake = date.today() - timedelta(days=3)
+            draft = self._executor(db).call(
+                "inventory.create_intake_draft",
+                {
+                    "draft": self._base_draft(
+                        intake_date=original_intake.isoformat(),
+                        items=[
+                            {
+                                "lineId": "line-1",
+                                "sourceLineId": "receipt-1",
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": item.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                            }
+                        ],
+                    )
+                },
+            )["draft"]
+            self.assertEqual(draft["intakeDate"], original_intake.isoformat())
+            self.assertEqual(
+                draft["items"][0]["expiryDate"],
+                (original_intake + timedelta(days=7)).isoformat(),
+            )
+            self.assertEqual(draft["intakeDateSource"], "receipt")
+
+            new_intake = date.today()
+            submitted = {
+                **draft,
+                "intakeDate": new_intake.isoformat(),
+                "items": [
+                    {
+                        **draft["items"][0],
+                        # omit explicit expiry so default can recompute against new intakeDate
+                        "expiryDate": None,
+                    }
+                ],
+            }
+            validate_inventory_intake_approval_value(draft, submitted)
+            approval_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=submitted,
+                phase="approval",
+            )
+            self.assertEqual(approval_payload["intakeDate"], new_intake.isoformat())
+            self.assertEqual(approval_payload["intakeDateSource"], "receipt")
+            self.assertEqual(
+                approval_payload["items"][0]["expiryDate"],
+                (new_intake + timedelta(days=7)).isoformat(),
+            )
+
+            # Explicit expiry is preserved and validated against the new intake date.
+            explicit_expiry = new_intake + timedelta(days=2)
+            explicit_submitted = {
+                **draft,
+                "intakeDate": new_intake.isoformat(),
+                "items": [
+                    {
+                        **draft["items"][0],
+                        "expiryDate": explicit_expiry.isoformat(),
+                    }
+                ],
+            }
+            explicit_payload = normalize_ai_draft_payload(
+                db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-inventory-intake",
+                payload=explicit_submitted,
+                phase="approval",
+            )
+            self.assertEqual(explicit_payload["items"][0]["expiryDate"], explicit_expiry.isoformat())
+
+            with self.assertRaisesRegex(ValueError, "保质期不能早于入库日期"):
+                normalize_ai_draft_payload(
+                    db,
+                    draft_type="inventory_intake",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-inventory-intake",
+                    payload={
+                        **draft,
+                        "intakeDate": new_intake.isoformat(),
+                        "items": [
+                            {
+                                **draft["items"][0],
+                                "expiryDate": (new_intake - timedelta(days=1)).isoformat(),
+                            }
+                        ],
+                    },
+                    phase="approval",
                 )
 
     def test_inventory_intake_approval_uses_new_type_schema_and_widget(self) -> None:
