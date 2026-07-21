@@ -78,6 +78,7 @@ examples:
 - 鸡蛋已经买到了，帮我标记完成。
 - 这些都买到了，先让我选一个完成并入库。
 - 这些都买到了，按小票一起入库。
+- 牛奶实际只买了 1 盒，剩下 1 盒继续待买。
 routing:
   modes: [query, restock, consume, dispose]
   include_examples:
@@ -93,10 +94,12 @@ routing:
   - 鸡蛋已经买到了，帮我标记完成。
   - 这些都买到了，先让我选一个完成并入库。
   - 这些都买到了，按小票一起入库。
+  - 牛奶实际只买了 1 盒，剩下 1 盒继续待买。
   exclude_examples:
   - 新增鸡蛋食材档案。
   - 新增盒装牛奶食物资料并记录剩余数量。
   - 把低库存食材加入购物清单。
+  - 牛奶计划买 2 盒，先改成只买 1 盒。
   conflict_rules:
   - with: ingredient_profile
     when: 用户要管理食材定义、单位换算或低库存规则而非库存批次
@@ -105,7 +108,7 @@ routing:
     when: 用户操作成品、速食或包装食品自身的库存字段
     route_to: food_profile
   - with: shopping_list
-    when: 用户要标记买到了、完成并入库或按小票入库
+    when: 用户要标记买到了、完成并入库、按小票入库或部分采购（实际只买了/剩下继续待买）
     route_to: inventory_analysis
 handoffs:
   missing_ingredient:

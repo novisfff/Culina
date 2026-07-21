@@ -74,9 +74,10 @@ routing:
   - 鸡蛋已经买到了，帮我标记完成。
   - 这些都买到了，先让我选一个完成并入库。
   - 这些都买到了，按小票一起入库。
+  - 牛奶实际只买了 1 盒，剩下 1 盒继续待买。
   conflict_rules:
   - with: inventory_analysis
-    when: 用户要标记买到了、完成并入库、按小票入库，或处理已有库存批次
+    when: 用户要标记买到了、完成并入库、按小票入库、部分采购（实际只买了/剩下继续待买），或处理已有库存批次
     route_to: inventory_analysis
   - with: ingredient_profile
     when: 用户只要创建或修改食材定义
