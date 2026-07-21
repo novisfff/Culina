@@ -1,12 +1,41 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.core.enums import InventoryOperationStatus, InventoryOperationType
+from app.core.enums import (
+    FoodType,
+    IngredientExpiryMode,
+    IngredientQuantityTrackingMode,
+    InventoryAvailabilityLevel,
+    InventoryOperationStatus,
+    InventoryOperationType,
+    InventoryStatus,
+    MembershipStatus,
+    UserRole,
+)
+from app.models.domain import (
+    ActivityLog,
+    Base,
+    Family,
+    Food,
+    Ingredient,
+    IngredientInventoryState,
+    InventoryItem,
+    InventoryOperation,
+    Membership,
+    ShoppingListItem,
+    User,
+)
 from app.schemas.inventory_intake import (
     InventoryIntakeRequest,
     InventoryIntakeResult,
@@ -17,6 +46,219 @@ from app.schemas.inventory_operations import (
     InventoryOperationDisplaySummary,
     ShoppingIntakeRequest,
 )
+from app.services.inventory_intake import (
+    InventoryIntakeValidationError,
+    apply_inventory_intake,
+)
+from app.services.inventory_versions import InventoryConflictError
+
+
+@dataclass
+class IntakeServiceContext:
+    db: Session
+    family: Family
+    other_family: Family
+    user: User
+    egg_ingredient: Ingredient
+    egg_shopping: ShoppingListItem
+    milk_food: Food
+    presence_ingredient: Ingredient
+    presence_state: IngredientInventoryState
+    other_egg_ingredient: Ingredient
+    other_milk_food: Food
+    other_presence_ingredient: Ingredient
+
+
+@pytest.fixture()
+def context() -> Iterator[IntakeServiceContext]:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+        class_=Session,
+    )
+    db = SessionLocal()
+    try:
+        family = Family(id="family-intake-svc", name="入库家庭", motto="", location="")
+        other_family = Family(id="family-other-intake-svc", name="其他家庭", motto="", location="")
+        user = User(
+            id="user-intake-svc",
+            username="intake-svc",
+            display_name="入库员",
+            avatar_seed="",
+            is_active=True,
+        )
+        other_user = User(
+            id="user-other-intake-svc",
+            username="other-intake-svc",
+            display_name="其他",
+            avatar_seed="",
+            is_active=True,
+        )
+        membership = Membership(
+            id="membership-intake-svc",
+            family_id=family.id,
+            user_id=user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        egg_ingredient = Ingredient(
+            id="ingredient-egg-svc",
+            family_id=family.id,
+            name="鸡蛋",
+            category="蛋奶",
+            default_unit="个",
+            default_storage="冷藏",
+            default_expiry_mode=IngredientExpiryMode.DAYS,
+            default_expiry_days=14,
+            unit_conversions=[{"unit": "盒", "ratio_to_default": 10}],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            notes="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        presence_ingredient = Ingredient(
+            id="ingredient-salt-svc",
+            family_id=family.id,
+            name="盐",
+            category="调味",
+            default_unit="袋",
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            notes="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        presence_state = IngredientInventoryState(
+            id="state-salt-svc",
+            family_id=family.id,
+            ingredient_id=presence_ingredient.id,
+            availability_level=InventoryAvailabilityLevel.LOW,
+            inventory_status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 1),
+            expiry_date=None,
+            storage_location="常温",
+            notes="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        milk_food = Food(
+            id="food-milk-svc",
+            family_id=family.id,
+            name="牛奶",
+            type=FoodType.PACKAGED.value,
+            category="乳品",
+            stock_quantity=Decimal("0"),
+            stock_unit="袋",
+            storage_location="冷藏",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        egg_shopping = ShoppingListItem(
+            id="shopping-egg-svc",
+            family_id=family.id,
+            ingredient_id=egg_ingredient.id,
+            title="鸡蛋",
+            quantity=Decimal("6"),
+            unit="个",
+            quantity_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            reason="早餐",
+            done=False,
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        other_egg_ingredient = Ingredient(
+            id="ingredient-other-egg-svc",
+            family_id=other_family.id,
+            name="其他鸡蛋",
+            category="蛋奶",
+            default_unit="个",
+            default_storage="冷藏",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            notes="",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        other_presence_ingredient = Ingredient(
+            id="ingredient-other-salt-svc",
+            family_id=other_family.id,
+            name="其他盐",
+            category="调味",
+            default_unit="袋",
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            notes="",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        other_milk_food = Food(
+            id="food-other-milk-svc",
+            family_id=other_family.id,
+            name="其他牛奶",
+            type=FoodType.PACKAGED.value,
+            category="乳品",
+            stock_quantity=Decimal("1"),
+            stock_unit="袋",
+            storage_location="冷藏",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        db.add_all(
+            [
+                family,
+                other_family,
+                user,
+                other_user,
+                membership,
+                egg_ingredient,
+                presence_ingredient,
+                presence_state,
+                milk_food,
+                egg_shopping,
+                other_egg_ingredient,
+                other_presence_ingredient,
+                other_milk_food,
+            ]
+        )
+        db.commit()
+        db.refresh(egg_ingredient)
+        db.refresh(egg_shopping)
+        db.refresh(milk_food)
+        db.refresh(presence_ingredient)
+        db.refresh(presence_state)
+        yield IntakeServiceContext(
+            db=db,
+            family=family,
+            other_family=other_family,
+            user=user,
+            egg_ingredient=egg_ingredient,
+            egg_shopping=egg_shopping,
+            milk_food=milk_food,
+            presence_ingredient=presence_ingredient,
+            presence_state=presence_state,
+            other_egg_ingredient=other_egg_ingredient,
+            other_milk_food=other_milk_food,
+            other_presence_ingredient=other_presence_ingredient,
+        )
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
 def test_inventory_intake_accepts_shopping_and_direct_rows() -> None:
@@ -502,3 +744,689 @@ def test_inventory_result_adapter_rejects_direct_rows() -> None:
 
     with pytest.raises(ValueError):
         inventory_result_to_shopping_result(inventory_result)
+
+
+def test_direct_exact_ingredient_creates_batch_without_shopping_change(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "direct-exact-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs-direct",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "3",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert [item.result for item in result.items] == ["direct_stocked"]
+    assert result.items[0].inventory_item_id
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).quantity == Decimal("6")
+    batches = list(
+        context.db.scalars(
+            select(InventoryItem).where(InventoryItem.ingredient_id == context.egg_ingredient.id)
+        )
+    )
+    assert len(batches) == 1
+    assert batches[0].quantity == Decimal("3.00")
+
+
+def test_direct_presence_ingredient_updates_state_without_shopping_change(
+    context: IntakeServiceContext,
+) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "direct-presence-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "salt-direct",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "presence_ingredient",
+                    "target_id": context.presence_ingredient.id,
+                    "expected_ingredient_row_version": context.presence_ingredient.row_version,
+                    "state_id": context.presence_state.id,
+                    "expected_state_row_version": context.presence_state.row_version,
+                    "resulting_availability_level": "sufficient",
+                    "inventory_status": "fresh",
+                    "storage_location": "常温",
+                }
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert [item.result for item in result.items] == ["direct_stocked"]
+    assert result.items[0].state_id == context.presence_state.id
+    state = context.db.get(IngredientInventoryState, context.presence_state.id)
+    assert state is not None
+    assert state.availability_level is InventoryAvailabilityLevel.SUFFICIENT
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+
+
+def test_direct_food_increases_stock_without_shopping_change(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "direct-food-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk-direct",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "2",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert [item.result for item in result.items] == ["direct_stocked"]
+    assert result.items[0].food_id == context.milk_food.id
+    food = context.db.get(Food, context.milk_food.id)
+    assert food is not None
+    assert food.stock_quantity == Decimal("2")
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+
+
+def test_fulfill_without_stock_completes_only_shopping_item(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "fulfill-only-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs-fulfill",
+                    "source_kind": "shopping_item",
+                    "action": "fulfill_without_stock",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "none",
+                }
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert [item.result for item in result.items] == ["completed_without_inventory"]
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is True
+    assert context.db.scalar(select(func.count()).select_from(InventoryItem)) == 0
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+
+
+def test_mixed_intake_stocks_shopping_and_direct_rows_in_one_operation(
+    context: IntakeServiceContext,
+) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "mixed-receipt-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "2",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert [item.result for item in result.items] == ["partial", "direct_stocked"]
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).quantity == Decimal("4")
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("1")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 1
+
+
+def test_partial_purchase_updates_remaining_quantity(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "partial-eggs-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "2",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    result = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert result.items[0].result == "partial"
+    assert result.items[0].remaining_planned_quantity == Decimal("4")
+    shopping = context.db.get(ShoppingListItem, context.egg_shopping.id)
+    assert shopping is not None
+    assert shopping.done is False
+    assert shopping.quantity == Decimal("4")
+
+
+def test_same_request_id_same_hash_replays_original_result(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "replay-same-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    first = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    context.db.flush()
+    second = apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=request,
+    )
+    assert second.operation_id == first.operation_id
+    assert [item.result for item in second.items] == ["direct_stocked"]
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("1")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 1
+
+
+def test_same_request_id_different_hash_conflicts(context: IntakeServiceContext) -> None:
+    first_request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "replay-conflict-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    apply_inventory_intake(
+        context.db,
+        family_id=context.family.id,
+        user_id=context.user.id,
+        user_role=UserRole.MEMBER,
+        business_date=date(2026, 7, 21),
+        request=first_request,
+    )
+    context.db.flush()
+    second_request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "replay-conflict-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "2",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    with pytest.raises(InventoryConflictError) as exc_info:
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=second_request,
+        )
+    assert exc_info.value.code == "idempotency_key_reused"
+
+
+def test_shopping_version_conflict_rolls_back_every_row(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "stale-shopping-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version + 5,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "2",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    with pytest.raises(InventoryConflictError):
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    context.db.rollback()
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+    assert context.db.scalar(select(func.count()).select_from(InventoryItem)) == 0
+
+
+def test_ingredient_version_conflict_rolls_back_every_row(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "stale-ingredient-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version + 3,
+                    "actual_quantity": "2",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    with pytest.raises(InventoryConflictError):
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    context.db.rollback()
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
+def test_food_version_conflict_rolls_back_every_row(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "stale-food-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "6",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version + 4,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    with pytest.raises(InventoryConflictError):
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    context.db.rollback()
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryItem)) == 0
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
+def test_cross_family_target_is_rejected_before_mutation(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "cross-family-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.other_egg_ingredient.id,
+                    "expected_ingredient_row_version": context.other_egg_ingredient.row_version,
+                    "actual_quantity": "2",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                }
+            ],
+        }
+    )
+    with pytest.raises(InventoryIntakeValidationError) as exc_info:
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    assert exc_info.value.code == "invalid_target"
+    context.db.rollback()
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.scalar(select(func.count()).select_from(InventoryItem)) == 0
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
+def test_duplicate_presence_target_is_rejected(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "dup-presence-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "salt-1",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "presence_ingredient",
+                    "target_id": context.presence_ingredient.id,
+                    "expected_ingredient_row_version": context.presence_ingredient.row_version,
+                    "state_id": context.presence_state.id,
+                    "expected_state_row_version": context.presence_state.row_version,
+                    "resulting_availability_level": "sufficient",
+                    "inventory_status": "fresh",
+                    "storage_location": "常温",
+                },
+                {
+                    "line_id": "salt-2",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "presence_ingredient",
+                    "target_id": context.presence_ingredient.id,
+                    "expected_ingredient_row_version": context.presence_ingredient.row_version,
+                    "state_id": context.presence_state.id,
+                    "expected_state_row_version": context.presence_state.row_version,
+                    "resulting_availability_level": "low",
+                    "inventory_status": "fresh",
+                    "storage_location": "常温",
+                },
+            ],
+        }
+    )
+    with pytest.raises(InventoryIntakeValidationError) as exc_info:
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    assert exc_info.value.code == "duplicate_request_item"
+    context.db.rollback()
+    state = context.db.get(IngredientInventoryState, context.presence_state.id)
+    assert state is not None
+    assert state.availability_level is InventoryAvailabilityLevel.LOW
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
+def test_duplicate_food_target_is_rejected(context: IntakeServiceContext) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "dup-food-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "milk-1",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk-2",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "2",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    with pytest.raises(InventoryIntakeValidationError) as exc_info:
+        apply_inventory_intake(
+            context.db,
+            family_id=context.family.id,
+            user_id=context.user.id,
+            user_role=UserRole.MEMBER,
+            business_date=date(2026, 7, 21),
+            request=request,
+        )
+    assert exc_info.value.code == "duplicate_request_item"
+    context.db.rollback()
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+
+
+def test_failure_after_first_row_rolls_back_inventory_shopping_history_and_activity(
+    context: IntakeServiceContext,
+) -> None:
+    request = InventoryIntakeRequest.model_validate(
+        {
+            "client_request_id": "rollback-after-first-1",
+            "intake_date": "2026-07-21",
+            "items": [
+                {
+                    "line_id": "eggs",
+                    "source_kind": "shopping_item",
+                    "action": "stock_and_fulfill",
+                    "shopping_item_id": context.egg_shopping.id,
+                    "expected_shopping_item_row_version": context.egg_shopping.row_version,
+                    "target_kind": "exact_ingredient",
+                    "target_id": context.egg_ingredient.id,
+                    "expected_ingredient_row_version": context.egg_ingredient.row_version,
+                    "actual_quantity": "6",
+                    "unit": "个",
+                    "inventory_status": "fresh",
+                    "storage_location": "冷藏",
+                },
+                {
+                    "line_id": "milk",
+                    "source_kind": "direct",
+                    "action": "stock_only",
+                    "target_kind": "food",
+                    "target_id": context.milk_food.id,
+                    "expected_food_row_version": context.milk_food.row_version,
+                    "actual_quantity": "1",
+                    "unit": "袋",
+                    "storage_location": "冷藏",
+                },
+            ],
+        }
+    )
+    with patch(
+        "app.services.inventory_intake.apply_food_stock_intake",
+        side_effect=RuntimeError("injected failure after first row"),
+    ):
+        with pytest.raises(RuntimeError, match="injected failure after first row"):
+            apply_inventory_intake(
+                context.db,
+                family_id=context.family.id,
+                user_id=context.user.id,
+                user_role=UserRole.MEMBER,
+                business_date=date(2026, 7, 21),
+                request=request,
+            )
+    context.db.rollback()
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
+    assert context.db.get(ShoppingListItem, context.egg_shopping.id).quantity == Decimal("6")
+    assert context.db.scalar(select(func.count()).select_from(InventoryItem)) == 0
+    assert context.db.get(Food, context.milk_food.id).stock_quantity == Decimal("0")
+    assert context.db.scalar(select(func.count()).select_from(InventoryOperation)) == 0
+    assert context.db.scalar(select(func.count()).select_from(ActivityLog)) == 0

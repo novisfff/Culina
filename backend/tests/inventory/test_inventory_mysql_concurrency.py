@@ -93,7 +93,8 @@ from app.services.recipe_cook_completion import (
     complete_recipe_cook,
 )
 from app.services.recipe_deletion import RecipeHasHistoryError, delete_recipe_with_guard
-from app.services.shopping_intake import ShoppingIntakeValidationError, apply_shopping_intake
+from app.schemas.inventory_intake import shopping_request_to_inventory_request
+from app.services.inventory_intake import InventoryIntakeValidationError, apply_inventory_intake
 
 
 def _require_test_mysql_url() -> str:
@@ -860,7 +861,7 @@ def _call_result(label: str, fn: Callable[[], Any]) -> tuple[str, str, Any]:
         return label, "ok", value
     except InventoryConflictError as exc:
         return label, "conflict", getattr(exc, "code", "stale_version")
-    except ShoppingIntakeValidationError as exc:
+    except InventoryIntakeValidationError as exc:
         return label, "validation", getattr(exc, "code", "validation")
     except StaleDataError as exc:
         # Concurrent parent collection bump after the other session committed.
@@ -1184,11 +1185,11 @@ def test_two_members_intake_same_shopping_item(mysql_concurrency_context: dict) 
             return _call_result(
                 label,
                 lambda: (
-                    apply_shopping_intake(
+                    apply_inventory_intake(
                         db,
                         family_id=ctx["family_id"],
                         user_id=ctx["user_id"],
-                        request=request,
+                        request=shopping_request_to_inventory_request(request),
                         business_date=ctx["today"],
                     ),
                     db.commit(),
@@ -1240,11 +1241,11 @@ def test_partial_intake_versus_shopping_edit(mysql_concurrency_context: dict) ->
             return _call_result(
                 "intake",
                 lambda: (
-                    apply_shopping_intake(
+                    apply_inventory_intake(
                         db,
                         family_id=ctx["family_id"],
                         user_id=ctx["user_id"],
-                        request=intake_request,
+                        request=shopping_request_to_inventory_request(intake_request),
                         business_date=ctx["today"],
                     ),
                     db.commit(),
@@ -1668,11 +1669,11 @@ def test_concurrent_identical_client_request_id_replays_once(
     def worker(label: str) -> tuple[str, str, Any]:
         with SessionLocal() as db:
             def _run() -> dict:
-                result = apply_shopping_intake(
+                result = apply_inventory_intake(
                     db,
                     family_id=ctx["family_id"],
                     user_id=ctx["user_id"],
-                    request=request,
+                    request=shopping_request_to_inventory_request(request),
                     business_date=ctx["today"],
                 )
                 db.commit()
@@ -1815,11 +1816,11 @@ def test_cook_completion_versus_shopping_intake_no_deadlock(mysql_concurrency_co
             kind_payload = _call_result(
                 "intake",
                 lambda: (
-                    apply_shopping_intake(
+                    apply_inventory_intake(
                         db,
                         family_id=ctx["family_id"],
                         user_id=ctx["user_id"],
-                        request=request,
+                        request=shopping_request_to_inventory_request(request),
                         business_date=ctx["today"],
                     ),
                     db.commit(),

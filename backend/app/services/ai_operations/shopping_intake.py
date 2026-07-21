@@ -17,10 +17,14 @@ from app.core.enums import (
 )
 from app.core.utils import create_id
 from app.models.domain import Food, Ingredient, IngredientInventoryState, Membership, ShoppingListItem
+from app.schemas.inventory_intake import (
+    inventory_result_to_shopping_result,
+    shopping_request_to_inventory_request,
+)
 from app.schemas.inventory_operations import ShoppingIntakeRequest
 from app.services.ai_operations.registry_types import DraftExecuteContext, DraftNormalizeContext
+from app.services.inventory_intake import apply_inventory_intake
 from app.services.inventory_overview import is_ready_like_food
-from app.services.shopping_intake import apply_shopping_intake
 
 
 READY_LIKE_FOOD_TYPES = {
@@ -424,14 +428,15 @@ def execute_shopping_intake_draft(context: DraftExecuteContext) -> tuple[dict[st
         )
     )
     user_role = membership.role if membership is not None else UserRole.MEMBER
-    result = apply_shopping_intake(
+    inventory_result = apply_inventory_intake(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         user_role=user_role,
-        request=request,
+        request=shopping_request_to_inventory_request(request),
         business_date=date.fromisoformat(context.payload["purchaseDate"]),
     )
+    result = inventory_result_to_shopping_result(inventory_result)
     business_entity = result.model_dump(mode="json")
     business_entity["unmatchedCandidates"] = context.payload.get("unmatchedCandidates") or []
     entity_ids = [result.operation_id, *(item.shopping_item_id for item in result.items)]
