@@ -1061,335 +1061,19 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             assert inventory is not None
             self.assertEqual(inventory.consumed_quantity, Decimal("0"))
 
-    def test_completed_ingredient_item_builds_stock_continuation_from_committed_row(self) -> None:
-        from app.ai.workflows.orchestrator.product_continuations import (
-            build_shopping_to_stock_continuation,
+    def test_old_shopping_to_stock_builders_are_removed(self) -> None:
+        import app.ai.workflows.orchestrator.product_continuations as product_continuations
+
+        self.assertFalse(hasattr(product_continuations, "build_shopping_to_stock_continuation"))
+        self.assertFalse(hasattr(product_continuations, "build_shopping_to_stock_continuation_from_decision"))
+        self.assertFalse(
+            any(
+                name.startswith("shopping_to_stock")
+                for name in dir(product_continuations)
+            )
         )
 
-        with self.SessionLocal() as db:
-            item = ShoppingListItem(
-                id="shopping-stock-ingredient",
-                family_id=self.family.id,
-                ingredient_id="ingredient-tomato",
-                title="番茄",
-                quantity=Decimal("2"),
-                unit="盒",
-                reason="补充库存",
-                done=True,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add(item)
-            db.flush()
-
-            continuation = build_shopping_to_stock_continuation(
-                db,
-                family_id=self.family.id,
-                shopping_item_id=item.id,
-            )
-
-        self.assertEqual(continuation["reasonCode"], "shopping_completed_ingredient")
-        self.assertEqual(continuation["resumeSkillKey"], "inventory_analysis")
-        self.assertEqual(continuation["requiredDraftType"], "inventory_operation")
-        self.assertEqual(continuation["stateSchema"], "shopping_to_stock.v1")
-        self.assertEqual(
-            continuation["state"],
-            {
-                "shoppingItemId": item.id,
-                "targetType": "ingredient",
-                "ingredientId": "ingredient-tomato",
-                "foodId": None,
-                "quantity": "2",
-                "unit": "盒",
-                "stockAction": "restock",
-            },
-        )
-
-    def test_completed_ready_food_item_builds_food_stock_continuation(self) -> None:
-        from app.ai.workflows.orchestrator.product_continuations import (
-            build_shopping_to_stock_continuation,
-        )
-
-        with self.SessionLocal() as db:
-            food = Food(
-                id="food-ready-milk",
-                family_id=self.family.id,
-                name="盒装牛奶",
-                type=FoodType.READY_MADE,
-                category="饮品",
-                flavor_tags=[],
-                scene="早餐",
-                notes="",
-                stock_unit="盒",
-            )
-            item = ShoppingListItem(
-                id="shopping-stock-food",
-                family_id=self.family.id,
-                food_id=food.id,
-                title=food.name,
-                quantity=Decimal("3"),
-                unit="盒",
-                reason="早餐",
-                done=True,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add_all([food, item])
-            db.flush()
-
-            continuation = build_shopping_to_stock_continuation(
-                db,
-                family_id=self.family.id,
-                shopping_item_id=item.id,
-            )
-
-        self.assertEqual(continuation["reasonCode"], "shopping_completed_food")
-        self.assertEqual(continuation["resumeSkillKey"], "food_profile")
-        self.assertEqual(continuation["requiredDraftType"], "food_profile")
-        self.assertEqual(continuation["state"]["foodId"], food.id)
-        self.assertIsNone(continuation["state"]["ingredientId"])
-
-    def test_shopping_to_stock_builder_rejects_uncompleted_or_cross_family_rows(self) -> None:
-        from app.ai.workflows.orchestrator.product_continuations import (
-            ContinuationBuildError,
-            build_shopping_to_stock_continuation,
-        )
-
-        with self.SessionLocal() as db:
-            item = ShoppingListItem(
-                id="shopping-not-done",
-                family_id=self.family.id,
-                ingredient_id="ingredient-tomato",
-                title="番茄",
-                quantity=Decimal("1"),
-                unit="个",
-                reason="",
-                done=False,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add(item)
-            db.flush()
-
-            with self.assertRaisesRegex(ContinuationBuildError, "shopping_item_not_completed"):
-                build_shopping_to_stock_continuation(
-                    db,
-                    family_id=self.family.id,
-                    shopping_item_id=item.id,
-                )
-            with self.assertRaisesRegex(ContinuationBuildError, "shopping_item_not_completed"):
-                build_shopping_to_stock_continuation(
-                    db,
-                    family_id=self.other_family.id,
-                    shopping_item_id=item.id,
-                )
-
-    def test_product_continuation_uses_only_one_successful_set_done_operation(self) -> None:
-        from app.ai.workflows.orchestrator.product_continuations import (
-            build_shopping_to_stock_continuation_from_decision,
-        )
-
-        with self.SessionLocal() as db:
-            item = ShoppingListItem(
-                id="shopping-approved-done",
-                family_id=self.family.id,
-                ingredient_id="ingredient-tomato",
-                title="番茄",
-                quantity=Decimal("2"),
-                unit="盒",
-                reason="",
-                done=True,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add(item)
-            db.flush()
-            approved = {
-                "approval": {"id": "approval-shopping-stock", "decision": "approved"},
-                "draft": {
-                    "draft_type": "shopping_list",
-                    "payload": {
-                        "operations": [
-                            {
-                                "action": "set_done",
-                                "targetId": item.id,
-                                "payload": {"done": True},
-                            }
-                        ]
-                    },
-                },
-                "operation": {
-                    "status": "succeeded",
-                    "business_entity_ids": [item.id],
-                },
-            }
-
-            continuation = build_shopping_to_stock_continuation_from_decision(
-                db,
-                family_id=self.family.id,
-                decision_result=approved,
-            )
-
-            self.assertEqual(continuation["state"]["shoppingItemId"], item.id)
-            for operation in [
-                {"action": "set_done", "targetId": item.id, "payload": {"done": False}},
-                {"action": "update", "targetId": item.id, "payload": {}},
-                {"action": "delete", "targetId": item.id},
-            ]:
-                decision = {
-                    **approved,
-                    "draft": {
-                        "draft_type": "shopping_list",
-                        "payload": {"operations": [operation]},
-                    },
-                }
-                self.assertIsNone(
-                    build_shopping_to_stock_continuation_from_decision(
-                        db,
-                        family_id=self.family.id,
-                        decision_result=decision,
-                    )
-                )
-
-            rejected = {
-                **approved,
-                "approval": {"id": "approval-shopping-stock", "decision": "rejected"},
-            }
-            failed = {
-                **approved,
-                "operation": {"status": "failed", "business_entity_ids": [item.id]},
-            }
-            multiple = {
-                **approved,
-                "draft": {
-                    "draft_type": "shopping_list",
-                    "payload": {
-                        "operations": [
-                            {
-                                "action": "set_done",
-                                "targetId": item.id,
-                                "payload": {"done": True},
-                            },
-                            {
-                                "action": "set_done",
-                                "targetId": "shopping-other-done",
-                                "payload": {"done": True},
-                            },
-                        ]
-                    },
-                },
-                "operation": {
-                    "status": "succeeded",
-                    "business_entity_ids": [item.id, "shopping-other-done"],
-                },
-            }
-            for decision in [rejected, failed, multiple]:
-                self.assertIsNone(
-                    build_shopping_to_stock_continuation_from_decision(
-                        db,
-                        family_id=self.family.id,
-                        decision_result=decision,
-                    )
-                )
-
-    def test_shopping_draft_rejects_completing_multiple_stock_targets_at_once(self) -> None:
-        with self.SessionLocal() as db:
-            first = ShoppingListItem(
-                id="shopping-batch-done-first",
-                family_id=self.family.id,
-                ingredient_id="ingredient-tomato",
-                title="番茄",
-                quantity=Decimal("2"),
-                unit="个",
-                reason="",
-                done=False,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            second = ShoppingListItem(
-                id="shopping-batch-done-second",
-                family_id=self.family.id,
-                ingredient_id="ingredient-tomato",
-                title="备用番茄",
-                quantity=Decimal("1"),
-                unit="盒",
-                reason="",
-                done=False,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add_all([first, second])
-            db.flush()
-            executor = self._inventory_intake_executor(db)
-
-            with self.assertRaisesRegex(ValueError, "inventory.create_intake_draft"):
-                executor.call(
-                    "shopping.create_draft",
-                    {
-                        "draft": {
-                            "draftType": "shopping_list",
-                            "schemaVersion": "shopping_list_operation.v1",
-                            "operations": [
-                                {
-                                    "action": "set_done",
-                                    "targetId": item.id,
-                                    "baseUpdatedAt": item.updated_at.isoformat(),
-                                    "payload": {"done": True},
-                                }
-                                for item in (first, second)
-                            ],
-                        }
-                    },
-                )
-
-    def test_invalid_completed_target_does_not_fail_committed_approval_resume(self) -> None:
-        from app.ai.workflows.orchestrator.product_continuations import (
-            build_shopping_to_stock_continuation_from_decision,
-        )
-
-        with self.SessionLocal() as db:
-            item = ShoppingListItem(
-                id="shopping-completed-without-target",
-                family_id=self.family.id,
-                title="旧购物项",
-                quantity=Decimal("1"),
-                unit="份",
-                reason="",
-                done=True,
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            )
-            db.add(item)
-            db.flush()
-            decision = {
-                "approval": {"id": "approval-invalid-stock", "decision": "approved"},
-                "draft": {
-                    "draft_type": "shopping_list",
-                    "payload": {
-                        "operations": [
-                            {
-                                "action": "set_done",
-                                "targetId": item.id,
-                                "payload": {"done": True},
-                            }
-                        ]
-                    },
-                },
-                "operation": {
-                    "status": "succeeded",
-                    "business_entity_ids": [item.id],
-                },
-            }
-
-            self.assertIsNone(
-                build_shopping_to_stock_continuation_from_decision(
-                    db,
-                    family_id=self.family.id,
-                    decision_result=decision,
-                )
-            )
-
-    def test_approval_handler_normalizes_committed_shopping_continuation(self) -> None:
+    def test_approval_handler_does_not_build_shopping_to_stock_continuation(self) -> None:
         from app.ai.workflows.orchestrator.profiles import (
             MAIN_WORKSPACE_PROFILE,
             OrchestratorBudgetConfig,
@@ -1448,10 +1132,57 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                 serialized=decision,
             )
 
-        self.assertEqual(artifact["type"], "workflow.continuation")
-        self.assertEqual(artifact["status"], "ready")
-        self.assertEqual(artifact["payload"]["resumeSkillKey"], "inventory_analysis")
-        self.assertEqual(artifact["payload"]["businessEntityIds"], [item.id])
+        self.assertIsNone(artifact)
+
+    def test_shopping_draft_rejects_completing_multiple_stock_targets_at_once(self) -> None:
+        with self.SessionLocal() as db:
+            first = ShoppingListItem(
+                id="shopping-batch-done-first",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("2"),
+                unit="个",
+                reason="",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            second = ShoppingListItem(
+                id="shopping-batch-done-second",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="备用番茄",
+                quantity=Decimal("1"),
+                unit="盒",
+                reason="",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([first, second])
+            db.flush()
+            executor = self._inventory_intake_executor(db)
+
+            with self.assertRaisesRegex(ValueError, "inventory.create_intake_draft"):
+                executor.call(
+                    "shopping.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list_operation.v1",
+                            "operations": [
+                                {
+                                    "action": "set_done",
+                                    "targetId": item.id,
+                                    "baseUpdatedAt": item.updated_at.isoformat(),
+                                    "payload": {"done": True},
+                                }
+                                for item in (first, second)
+                            ],
+                        }
+                    },
+                )
 
     def test_new_shopping_completion_rejects_legacy_two_approval_provider(self) -> None:
         with self.SessionLocal() as db:

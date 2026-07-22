@@ -70,18 +70,6 @@ EXPECTED_HANDOFFS = {
         ),
     },
     "shopping_list": {
-        "shopping_completed_ingredient": (
-            "inventory_analysis",
-            "inventory_operation",
-            "inventory_analysis",
-            "shopping_to_stock.v1",
-        ),
-        "shopping_completed_food": (
-            "food_profile",
-            "food_profile",
-            "food_profile",
-            "shopping_to_stock.v1",
-        ),
         "missing_ingredient": (
             "ingredient_profile",
             "ingredient_profile",
@@ -108,11 +96,17 @@ EXPECTED_HANDOFFS = {
             "inventory_analysis",
             "inventory_unit_conversion.v1",
         ),
-        "ready_food_stock": (
+        "missing_intake_target": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_analysis",
+            "inventory_intake_missing_target.v1",
+        ),
+        "missing_intake_food_target": (
             "food_profile",
             "food_profile",
-            "food_profile",
-            "ready_food_stock.v1",
+            "inventory_analysis",
+            "inventory_intake_missing_target.v1",
         ),
     },
     "meal_log": {
@@ -355,16 +349,6 @@ def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> No
 def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> None:
     registry = build_workspace_skill_registry()
     expected_edges = {
-        ("shopping_list", "shopping_completed_ingredient"): (
-            "inventory_analysis",
-            "inventory_operation",
-            "shopping_to_stock.v1",
-        ),
-        ("shopping_list", "shopping_completed_food"): (
-            "food_profile",
-            "food_profile",
-            "shopping_to_stock.v1",
-        ),
         ("recipe_cook", "recipe_shortage"): (
             "shopping_list",
             "shopping_list",
@@ -374,6 +358,16 @@ def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> N
             "ingredient_profile",
             "ingredient_profile",
             "inventory_missing_ingredient.v1",
+        ),
+        ("inventory_analysis", "missing_intake_target"): (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_intake_missing_target.v1",
+        ),
+        ("inventory_analysis", "missing_intake_food_target"): (
+            "food_profile",
+            "food_profile",
+            "inventory_intake_missing_target.v1",
         ),
     }
 

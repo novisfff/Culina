@@ -36,10 +36,12 @@ def test_shopping_skill_routes_purchase_completion_to_inventory_analysis() -> No
     assert "shopping.preview_intake_candidates" not in manifest.tools
     assert "shopping.create_intake_draft" not in manifest.tools
     assert "shopping_intake" not in manifest.draft_types
+    assert "shopping_completed_ingredient" not in manifest.handoffs
+    assert "shopping_completed_food" not in manifest.handoffs
     assert "inventory_analysis" in skill_text
     assert "inventory.create_intake_draft" in skill_text or "inventory_intake" in skill_text
     assert "不能默认选择当前家庭全部" in skill_text
-    assert "第二份库存草稿" in skill_text or "统一入库" in skill_text
+    assert "统一入库" in skill_text
 
 
 def test_shopping_tool_item_preserves_food_target_identity() -> None:
@@ -81,12 +83,18 @@ def test_shopping_intake_skill_uses_one_approval_and_keeps_legacy_compatibility_
 
     assert "inventory_analysis" in shopping
     assert "inventory_intake" in shopping or "inventory.create_intake_draft" in shopping
-    assert "部署前遗留" in shopping
+    assert "shopping.preview_intake_candidates" not in shopping
+    assert "shopping.create_intake_draft" not in shopping
+    assert "shopping_to_stock.v1" not in shopping
+    assert "shopping_completed_ingredient" not in shopping
+    assert "shopping_completed_food" not in shopping
     assert "购物完成与一体化入库" in workflows
     assert "任一行失败整批回滚" in workflows
-    assert "新请求不再生成两阶段流程" in workflows
+    assert "shopping_to_stock.v1" not in workflows
     assert "inventory.create_intake_draft" in inventory
     assert "purchasable.resolve_candidates" in inventory
+    assert "inventory_intake_missing_target.v1" in inventory
+    assert "packageConversion" in inventory
 
 
 def test_recipe_shortage_skills_preserve_real_id_shopping_boundary() -> None:

@@ -1755,3 +1755,524 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
         self.assertEqual(len(provider.last_draft["items"]), 2)
         self.assertEqual(len(provider.last_draft["ignoredItems"]), 1)
         self.assertIn(result["run"]["status"], {"waiting_approval", "completed"})
+
+
+from datetime import date as _date
+from decimal import Decimal as _Decimal
+
+import pytest
+from pydantic import ValidationError
+
+from app.ai.skills.state_schemas import (
+    CONTINUATION_STATE_ADAPTERS,
+    validate_continuation_state,
+)
+
+
+def _base_intake_line(
+    *,
+    source_line_id: str = "line-1",
+    source_order: int = 0,
+    name: str = "番茄",
+    disposition: str = "ready",
+    **overrides,
+) -> dict:
+    row = {
+        "sourceLineId": source_line_id,
+        "sourceOrder": source_order,
+        "rawText": f"{name} 2个",
+        "name": name,
+        "quantity": "2",
+        "unit": "个",
+        "itemKind": "inventory",
+        "disposition": disposition,
+    }
+    row.update(overrides)
+    return row
+
+
+def _base_intake_state(*, lines: list[dict] | None = None, **overrides) -> dict:
+    payload = {
+        "sourceType": "receipt_image",
+        "sourceReference": {"mediaId": "media_xxx"},
+        "purchaseIntent": "purchase",
+        "dateEvidence": {
+            "userDate": None,
+            "userSaidToday": False,
+            "receiptDate": _date.today().isoformat(),
+        },
+        "intakeDate": _date.today().isoformat(),
+        "intakeDateSource": "receipt",
+        "lines": lines
+        or [
+            _base_intake_line(
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-tomato",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-tomato",
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="2",
+                confirmedUnit="个",
+            )
+        ],
+        "ignoredItems": [],
+        "currentBlocker": None,
+        "pendingBlockers": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_inventory_intake_missing_target_state_round_trips_json() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                disposition="missing_target",
+                selectedTargetKind=None,
+                selectedTargetId=None,
+            )
+        ],
+        currentMissingSourceLineId="line-1",
+        currentBlocker={"sourceLineId": "line-1", "reasonCode": "target_missing"},
+    )
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    assert validated["currentMissingSourceLineId"] == "line-1"
+    assert validated["lines"][0]["disposition"] == "missing_target"
+    again = validate_continuation_state("inventory_intake_missing_target.v1", validated)
+    assert again == validated
+
+
+def test_inventory_intake_state_preserves_source_date_confidence_package_and_ignored_rows() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-egg",
+                source_order=0,
+                name="鸡蛋",
+                quantity="1",
+                unit="盒",
+                packageCount="1",
+                packageUnit="盒",
+                confidence="0.91",
+                packageConversion={
+                    "sourceQuantity": "1",
+                    "sourceUnit": "盒",
+                    "targetQuantity": "10",
+                    "targetUnit": "个",
+                    "evidence": "user_confirmed_once",
+                },
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="10",
+                confirmedUnit="个",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-egg",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-egg",
+            ),
+            _base_intake_line(
+                source_line_id="line-bag",
+                source_order=1,
+                name="垃圾袋",
+                quantity=None,
+                unit=None,
+                itemKind="non_inventory",
+                disposition="ignored",
+            ),
+        ],
+        ignoredItems=[
+            {
+                "sourceLineId": "line-bag",
+                "reasonCode": "non_inventory_item",
+                "reason": "非食品耗材",
+            }
+        ],
+        dateEvidence={
+            "userDate": "2026-07-20",
+            "userSaidToday": False,
+            "receiptDate": "2026-07-19",
+        },
+        intakeDate="2026-07-20",
+        intakeDateSource="user",
+        currentMissingSourceLineId="line-egg",
+    )
+    # missing target schema requires currentMissingSourceLineId; use continuation base via missing for round-trip of fields
+    # Use missing target state to exercise full model dump while preserving package/ignored fields.
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    assert validated["dateEvidence"]["userDate"] == "2026-07-20"
+    assert validated["dateEvidence"]["receiptDate"] == "2026-07-19"
+    assert validated["lines"][0]["confidence"] == "0.91"
+    assert validated["lines"][0]["packageConversion"]["targetQuantity"] == "10"
+    assert validated["ignoredItems"][0]["reasonCode"] == "non_inventory_item"
+
+
+def test_inventory_intake_state_preserves_conversion_fulfill_without_stock_and_skip_decisions() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-salmon",
+                source_order=0,
+                name="三文鱼",
+                quantity="1",
+                unit="kg",
+                packageConversion={
+                    "sourceQuantity": "1",
+                    "sourceUnit": "kg",
+                    "targetQuantity": "2",
+                    "targetUnit": "块",
+                    "evidence": "user_confirmed_once",
+                },
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="2",
+                confirmedUnit="块",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-salmon",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-salmon",
+            ),
+            _base_intake_line(
+                source_line_id="line-milk",
+                source_order=1,
+                name="牛奶",
+                confirmedAction="fulfill_without_stock",
+                confirmedQuantity="1",
+                confirmedUnit="盒",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-milk",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-milk",
+            ),
+            _base_intake_line(
+                source_line_id="line-skip",
+                source_order=2,
+                name="香菜",
+                disposition="skipped",
+                confirmedAction="skip",
+            ),
+        ],
+        currentMissingSourceLineId="line-salmon",
+    )
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    assert validated["lines"][0]["packageConversion"]["evidence"] == "user_confirmed_once"
+    assert validated["lines"][1]["confirmedAction"] == "fulfill_without_stock"
+    assert validated["lines"][2]["confirmedAction"] == "skip"
+    assert validated["lines"][2]["disposition"] == "skipped"
+
+
+def test_inventory_intake_missing_target_state_rejects_invalid_calendar_date() -> None:
+    state = _base_intake_state(
+        intakeDate="2026-02-30",
+        currentMissingSourceLineId="line-1",
+    )
+    with pytest.raises((ValidationError, ValueError)):
+        validate_continuation_state("inventory_intake_missing_target.v1", state)
+
+
+def test_inventory_intake_state_accepts_thirty_and_rejects_thirty_one_original_lines() -> None:
+    thirty = [
+        _base_intake_line(source_line_id=f"line-{idx}", source_order=idx, name=f"食材{idx}")
+        for idx in range(30)
+    ]
+    ok = _base_intake_state(lines=thirty, currentMissingSourceLineId="line-0")
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", ok)
+    assert len(validated["lines"]) == 30
+
+    thirty_one = thirty + [
+        _base_intake_line(source_line_id="line-30", source_order=30, name="溢出")
+    ]
+    bad = _base_intake_state(lines=thirty_one, currentMissingSourceLineId="line-0")
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", bad)
+
+
+def test_inventory_intake_state_rejects_unknown_or_duplicate_source_line_references() -> None:
+    duplicate_ids = _base_intake_state(
+        lines=[
+            _base_intake_line(source_line_id="line-1", source_order=0),
+            _base_intake_line(source_line_id="line-1", source_order=1, name="重复"),
+        ],
+        currentMissingSourceLineId="line-1",
+    )
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", duplicate_ids)
+
+    unknown_blocker = _base_intake_state(
+        currentBlocker={"sourceLineId": "missing-line", "reasonCode": "unit_mismatch"},
+        currentMissingSourceLineId="line-1",
+    )
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", unknown_blocker)
+
+    unknown_ignored = _base_intake_state(
+        ignoredItems=[
+            {
+                "sourceLineId": "ghost",
+                "reasonCode": "non_inventory_item",
+                "reason": "ghost",
+            }
+        ],
+        currentMissingSourceLineId="line-1",
+    )
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", unknown_ignored)
+
+    ignored_not_disposition = _base_intake_state(
+        lines=[_base_intake_line(disposition="ready")],
+        ignoredItems=[
+            {
+                "sourceLineId": "line-1",
+                "reasonCode": "non_inventory_item",
+                "reason": "not ignored disposition",
+            }
+        ],
+        currentMissingSourceLineId="line-1",
+    )
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", ignored_not_disposition)
+
+
+def test_inventory_intake_missing_target_state_rejects_row_versions_and_extra_fields() -> None:
+    state = _base_intake_state(currentMissingSourceLineId="line-1")
+    state["rowVersions"] = {"shopping": 1}
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", state)
+
+    state = _base_intake_state(currentMissingSourceLineId="line-1")
+    state["lines"][0]["expectedShoppingItemRowVersion"] = 3
+    with pytest.raises(ValidationError):
+        validate_continuation_state("inventory_intake_missing_target.v1", state)
+
+
+def test_old_shopping_to_stock_state_is_removed() -> None:
+    assert "shopping_to_stock.v1" not in CONTINUATION_STATE_ADAPTERS
+    with pytest.raises(ValueError, match="Unknown continuation state schema"):
+        validate_continuation_state(
+            "shopping_to_stock.v1",
+            {
+                "shoppingItemId": "shopping-1",
+                "targetType": "ingredient",
+                "ingredientId": "ingredient-1",
+                "quantity": "1",
+                "unit": "个",
+                "stockAction": "restock",
+            },
+        )
+
+
+def test_old_ready_food_stock_handoff_state_is_removed() -> None:
+    assert "ready_food_stock.v1" not in CONTINUATION_STATE_ADAPTERS
+    with pytest.raises(ValueError, match="Unknown continuation state schema"):
+        validate_continuation_state(
+            "ready_food_stock.v1",
+            {"targetName": "卤牛肉", "instruction": "入库"},
+        )
+
+
+def test_inventory_skill_owns_intake_and_shopping_skill_does_not() -> None:
+    registry = build_workspace_skill_registry()
+    inventory = registry.get("inventory_analysis").manifest
+    shopping = registry.get("shopping_list").manifest
+    assert "purchasable.resolve_candidates" in inventory.tools
+    assert "inventory.resolve_intake_lines" not in inventory.tools
+    assert "inventory.create_intake_draft" in inventory.tools
+    assert inventory.draft_contract["inventory_intake"]["schemaVersion"] == "inventory_intake.v1"
+    assert "inventory.create_unit_conversion_operation_draft" not in inventory.tools
+    assert "ready_food_stock" not in inventory.handoffs
+    assert "missing_intake_target" in inventory.handoffs
+    assert inventory.handoffs["missing_intake_target"].state_schema == "inventory_intake_missing_target.v1"
+    assert "shopping.preview_intake_candidates" not in shopping.tools
+    assert "shopping.create_intake_draft" not in shopping.tools
+    assert "shopping_intake" not in shopping.draft_types
+    assert "shopping_completed_ingredient" not in shopping.handoffs
+    assert "shopping_completed_food" not in shopping.handoffs
+
+
+def test_candidate_and_ambiguous_results_pause_with_full_typed_state() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-ambiguous",
+                source_order=0,
+                name="牛奶",
+                disposition="pending",
+            )
+        ],
+        currentBlocker={"sourceLineId": "line-ambiguous", "reasonCode": "target_ambiguous"},
+        pendingBlockers=[{"sourceLineId": "line-ambiguous", "reasonCode": "quantity_missing"}],
+        currentMissingSourceLineId="line-ambiguous",
+    )
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    human_payload = {
+        "question": "牛奶有多个候选，请选择目标。",
+        "inputMode": "choice",
+        "options": [{"id": "a", "label": "盒装牛奶"}],
+        "allowMultiple": False,
+        "required": True,
+        "sourceSkills": ["inventory_analysis"],
+        "resumeHint": {
+            "questionType": "inventory_intake_resolution",
+            "state": validated,
+        },
+    }
+    restored = validate_continuation_state(
+        "inventory_intake_missing_target.v1",
+        human_payload["resumeHint"]["state"],
+    )
+    assert restored["currentBlocker"]["reasonCode"] == "target_ambiguous"
+    assert restored["pendingBlockers"][0]["reasonCode"] == "quantity_missing"
+    assert restored["lines"][0]["sourceLineId"] == "line-ambiguous"
+
+
+def test_missing_candidate_routes_to_profile_ignore_or_skip_without_losing_other_rows() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-known",
+                source_order=0,
+                name="鸡蛋",
+                disposition="ready",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-egg",
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="12",
+                confirmedUnit="个",
+            ),
+            _base_intake_line(
+                source_line_id="line-missing",
+                source_order=1,
+                name="海带结",
+                disposition="missing_target",
+            ),
+            _base_intake_line(
+                source_line_id="line-bag",
+                source_order=2,
+                name="垃圾袋",
+                itemKind="non_inventory",
+                disposition="ignored",
+            ),
+            _base_intake_line(
+                source_line_id="line-skip",
+                source_order=3,
+                name="未知酱料",
+                disposition="skipped",
+                confirmedAction="skip",
+            ),
+        ],
+        ignoredItems=[
+            {
+                "sourceLineId": "line-bag",
+                "reasonCode": "non_inventory_item",
+                "reason": "非食品",
+            }
+        ],
+        currentMissingSourceLineId="line-missing",
+        currentBlocker={"sourceLineId": "line-missing", "reasonCode": "target_missing"},
+    )
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    assert validated["lines"][0]["confirmedQuantity"] == "12"
+    assert validated["lines"][1]["disposition"] == "missing_target"
+    assert validated["lines"][2]["disposition"] == "ignored"
+    assert validated["lines"][3]["confirmedAction"] == "skip"
+    assert validated["currentMissingSourceLineId"] == "line-missing"
+
+
+def test_unit_mismatch_collects_conversion_choice_then_positive_target_quantity() -> None:
+    after_choice = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-salmon",
+                source_order=0,
+                name="三文鱼",
+                quantity="1",
+                unit="kg",
+                disposition="pending",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-salmon",
+            )
+        ],
+        currentBlocker={
+            "sourceLineId": "line-salmon",
+            "reasonCode": "conversion_quantity_missing",
+        },
+        currentMissingSourceLineId="line-salmon",
+    )
+    choice_state = validate_continuation_state("inventory_intake_missing_target.v1", after_choice)
+    assert choice_state["currentBlocker"]["reasonCode"] == "conversion_quantity_missing"
+
+    after_quantity = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-salmon",
+                source_order=0,
+                name="三文鱼",
+                quantity="1",
+                unit="kg",
+                disposition="ready",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-salmon",
+                packageConversion={
+                    "sourceQuantity": "1",
+                    "sourceUnit": "kg",
+                    "targetQuantity": "2",
+                    "targetUnit": "块",
+                    "evidence": "user_confirmed_once",
+                },
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="2",
+                confirmedUnit="块",
+            )
+        ],
+        currentBlocker=None,
+        pendingBlockers=[],
+        currentMissingSourceLineId="line-salmon",
+    )
+    ready = validate_continuation_state("inventory_intake_missing_target.v1", after_quantity)
+    assert ready["lines"][0]["packageConversion"]["targetQuantity"] == "2"
+    assert ready["currentBlocker"] is None
+
+
+def test_resume_preserves_prior_choices_and_continues_from_next_blocker() -> None:
+    paused = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-egg",
+                source_order=0,
+                name="鸡蛋",
+                disposition="ready",
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="12",
+                confirmedUnit="个",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-egg",
+            ),
+            _base_intake_line(
+                source_line_id="line-salmon",
+                source_order=1,
+                name="三文鱼",
+                disposition="pending",
+                quantity="1",
+                unit="kg",
+            ),
+        ],
+        currentBlocker={"sourceLineId": "line-salmon", "reasonCode": "unit_mismatch"},
+        pendingBlockers=[{"sourceLineId": "line-salmon", "reasonCode": "quantity_missing"}],
+        currentMissingSourceLineId="line-salmon",
+    )
+    validated = validate_continuation_state("inventory_intake_missing_target.v1", paused)
+    # apply conversion answer and move blocker
+    validated["lines"][1]["packageConversion"] = {
+        "sourceQuantity": "1",
+        "sourceUnit": "kg",
+        "targetQuantity": "2",
+        "targetUnit": "块",
+        "evidence": "user_confirmed_once",
+    }
+    validated["lines"][1]["confirmedQuantity"] = "2"
+    validated["lines"][1]["confirmedUnit"] = "块"
+    validated["lines"][1]["confirmedAction"] = "stock_and_fulfill"
+    validated["lines"][1]["disposition"] = "ready"
+    validated["currentBlocker"] = None
+    validated["pendingBlockers"] = []
+    resumed = validate_continuation_state("inventory_intake_missing_target.v1", validated)
+    assert resumed["lines"][0]["confirmedQuantity"] == "12"
+    assert resumed["lines"][1]["packageConversion"]["targetUnit"] == "块"
+    assert resumed["currentBlocker"] is None

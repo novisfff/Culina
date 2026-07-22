@@ -32,4 +32,4 @@
 2. 正式匹配、候选状态处理、忽略行说明和 Draft 创建都交给 `inventory_analysis`，使用 `shopping.read_pending`、`purchasable.resolve_candidates` 和 `inventory.create_intake_draft`。
 3. 实际数量没有可靠证据时保持为空；不得用计划数量代替。一次性包装换算必须保留倍率、目标单位和证据。
 4. 用户只确认一份 `inventory_intake` 审批；执行时复用原子 inventory intake service，同时更新购物状态、库存和操作历史。任一行失败整批回滚。
-5. 部署前遗留的 `shopping_to_stock.v1` continuation 仍可完成，但新请求不再生成两阶段流程。
+5. 本 Skill 不再生成任何采购完成入库 handoff；“买到了 / 小票 / 礼物入库”一律路由到 `inventory_analysis`。

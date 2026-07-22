@@ -810,7 +810,8 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("meal_log.read_by_id", skills["meal_log"]["tools"])
             self.assertIn("ingredient.search", skills["inventory_analysis"]["tools"])
             self.assertIn("ingredient.read_by_id", skills["inventory_analysis"]["tools"])
-            self.assertIn("inventory.create_unit_conversion_operation_draft", skills["inventory_analysis"]["tools"])
+            self.assertIn("inventory.create_intake_draft", skills["inventory_analysis"]["tools"])
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", skills["inventory_analysis"]["tools"])
             self.assertIn("recipe.preview_cook", skills["recipe_cook"]["tools"])
             self.assertIn("recipe.create_cook_draft", skills["recipe_cook"]["tools"])
             self.assertEqual(
@@ -886,11 +887,12 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(tools["meal_log.create_draft"]["draft_types"], ["meal_log"])
             self.assertEqual(tools["meal_log.read_by_id"]["display_name"], "餐食记录详情")
             self.assertEqual(tools["meal_log.read_by_id"]["side_effect"], "read")
-            self.assertEqual(tools["inventory.create_unit_conversion_operation_draft"]["side_effect"], "draft")
+            self.assertEqual(tools["inventory.create_intake_draft"]["side_effect"], "draft")
             self.assertEqual(
-                tools["inventory.create_unit_conversion_operation_draft"]["draft_types"],
-                ["inventory_operation"],
+                tools["inventory.create_intake_draft"]["draft_types"],
+                ["inventory_intake"],
             )
+            self.assertIn("inventory.create_unit_conversion_operation_draft", tools)
             self.assertNotIn("intent." + "request_clarification", tools)
             self.assertEqual(tools["inventory.read_summary"]["output_types"], ["inventory_summary"])
             self.assertEqual(tools["meal_plan.recommend_today"]["output_types"], ["today_recommendation"])

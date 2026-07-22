@@ -23,7 +23,6 @@ allowed_tools:
 - workspace.read_artifact
 - inventory.create_intake_draft
 - inventory.create_operation_draft
-- inventory.create_unit_conversion_operation_draft
 script_files: []
 output_types:
 - inventory_summary
@@ -121,11 +120,16 @@ handoffs:
     required_draft_type: ingredient_profile
     resume_skill: inventory_analysis
     state_schema: inventory_unit_conversion.v1
-  ready_food_stock:
+  missing_intake_target:
+    target_skill: ingredient_profile
+    required_draft_type: ingredient_profile
+    resume_skill: inventory_analysis
+    state_schema: inventory_intake_missing_target.v1
+  missing_intake_food_target:
     target_skill: food_profile
     required_draft_type: food_profile
-    resume_skill: food_profile
-    state_schema: ready_food_stock.v1
+    resume_skill: inventory_analysis
+    state_schema: inventory_intake_missing_target.v1
 attachment_policy:
   accepted_kinds: []
   usages: []
