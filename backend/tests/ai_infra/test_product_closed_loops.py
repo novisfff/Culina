@@ -584,58 +584,43 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                 }
             )
 
-    def test_inventory_intake_subject_rejects_untrusted_candidate_ids_at_api_boundary(self) -> None:
-        for ingredient_id in ("ingredient-secret", "ingredient-deleted"):
-            with self.subTest(ingredient_id=ingredient_id):
-                response = self.client.post(
-                    "/api/ai/chat",
-                    json={
-                        "message": "把选中的采购项加入库存",
-                        "subject": {
-                            "source": "inventory_intake_candidates",
-                            "extra": {
-                                "intakeCandidates": [
-                                    {
-                                        "ingredientId": ingredient_id,
-                                        "quantity": "1",
-                                        "unit": "个",
-                                    }
-                                ],
-                                "unresolvedLabels": [],
-                            },
-                        },
+    def test_inventory_intake_candidate_subject_is_rejected_at_api_boundary(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={
+                "message": "把选中的采购项加入库存",
+                "subject": {
+                    "source": "inventory_intake_candidates",
+                    "extra": {
+                        "intakeCandidates": [
+                            {
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": "1",
+                                "unit": "个",
+                            }
+                        ],
+                        "unresolvedLabels": [],
                     },
-                )
+                },
+            },
+        )
+        self.assertIn(response.status_code, {400, 422}, response.text)
+        detail = str(response.json().get("detail") or response.text)
+        self.assertTrue(
+            "已下线" in detail or "统一入库" in detail or "inventory_intake" in detail,
+            detail,
+        )
 
-                self.assertEqual(response.status_code, 400, response.text)
-                self.assertIn("食材不属于当前家庭或不存在", response.json()["detail"])
-
-    def test_inventory_intake_subject_rejects_overlong_unresolved_label(self) -> None:
+    def test_inventory_intake_candidate_subject_schema_is_rejected(self) -> None:
         from app.schemas.ai import AISubjectIn
+        from pydantic import ValidationError
 
-        with self.assertRaisesRegex(Exception, "unresolved label is too long"):
+        with self.assertRaises((ValidationError, ValueError)):
             AISubjectIn.model_validate(
                 {
                     "source": "inventory_intake_candidates",
                     "extra": {
                         "intakeCandidates": [{"ingredientId": "ingredient-tomato"}],
-                        "unresolvedLabels": ["紫" * 121],
-                    },
-                }
-            )
-
-    def test_inventory_intake_subject_rejects_more_than_card_limit(self) -> None:
-        from app.schemas.ai import AISubjectIn
-
-        with self.assertRaisesRegex(Exception, "at most 30|too_long"):
-            AISubjectIn.model_validate(
-                {
-                    "source": "inventory_intake_candidates",
-                    "extra": {
-                        "intakeCandidates": [
-                            {"ingredientId": f"ingredient-{index}"}
-                            for index in range(31)
-                        ],
                         "unresolvedLabels": [],
                     },
                 }
