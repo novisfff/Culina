@@ -271,10 +271,55 @@ export function patchInventoryIntakeItem(
   };
 }
 
+function addDaysIso(isoDate: string, days: number): string | null {
+  if (!isIsoDateText(isoDate) || !Number.isFinite(days)) return null;
+  const [yearText, monthText, dayText] = isoDate.split('-');
+  const date = new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function ingredientDefaultExpiryDays(item: InventoryIntakeDraftItem): number | null {
+  const before = isDraftRecord(item.before) ? item.before : null;
+  const ingredient = before && isDraftRecord(before.ingredient) ? before.ingredient : null;
+  if (!ingredient) return null;
+  const mode = asText(ingredient.defaultExpiryMode || ingredient.default_expiry_mode).toLowerCase();
+  if (mode !== 'days') return null;
+  const days = optionalNumber(ingredient.defaultExpiryDays ?? ingredient.default_expiry_days);
+  if (days === null || days <= 0) return null;
+  return days;
+}
+
 export function patchInventoryIntakeDate(draft: InventoryIntakeDraft, intakeDate: string): InventoryIntakeDraft {
+  const previousIntakeDate = draft.intakeDate;
+  const nextItems = draft.items.map((item) => {
+    const days = ingredientDefaultExpiryDays(item);
+    if (days === null) return item;
+    if (item.action === 'skip' || item.action === 'fulfill_without_stock') return item;
+    if (item.targetKind !== 'exact_ingredient' && item.targetKind !== 'presence_ingredient') return item;
+
+    const previousAuto = isIsoDateText(previousIntakeDate) ? addDaysIso(previousIntakeDate, days) : null;
+    const currentExpiry = asText(item.expiryDate) || null;
+    // Treat missing expiry or expiry that still matches the previous auto default as auto-derived.
+    // Preserve only true user overrides that differ from the previous auto value.
+    if (currentExpiry && previousAuto && currentExpiry !== previousAuto) {
+      return item;
+    }
+    const nextAuto = isIsoDateText(intakeDate) ? addDaysIso(intakeDate, days) : null;
+    if (!nextAuto || currentExpiry === nextAuto) return item;
+    return {
+      ...item,
+      expiryDate: nextAuto,
+    };
+  });
+
   return {
     ...draft,
     intakeDate,
+    items: nextItems,
   };
 }
 

@@ -193,6 +193,50 @@ describe('aiInventoryIntakeDraftModel', () => {
     expect(patched.items[0].lineId).toBe('egg');
   });
 
+  it('recomputes auto default expiry when intake date changes, but keeps user overrides', () => {
+    const draft = inventoryIntakeDraftFromRecord(baseDraft({
+      intakeDate: '2026-07-21',
+      items: [
+        shoppingExact({
+          lineId: 'auto-egg',
+          title: '自动保质期鸡蛋',
+          // 7 days after 2026-07-21
+          expiryDate: '2026-07-28',
+          before: {
+            ingredient: {
+              id: 'ingredient-egg',
+              defaultExpiryMode: 'days',
+              defaultExpiryDays: 7,
+            },
+          },
+        }),
+        shoppingExact({
+          lineId: 'manual-egg',
+          title: '手填保质期鸡蛋',
+          // user override, not intake+7
+          expiryDate: '2026-08-01',
+          before: {
+            ingredient: {
+              id: 'ingredient-egg-2',
+              defaultExpiryMode: 'days',
+              defaultExpiryDays: 7,
+            },
+          },
+        }),
+        directFood({
+          lineId: 'milk',
+          expiryDate: '2026-07-30',
+        }),
+      ],
+    }));
+
+    const patched = patchInventoryIntakeDate(draft, '2026-07-23');
+    expect(patched.intakeDate).toBe('2026-07-23');
+    expect(patched.items.find((item) => item.lineId === 'auto-egg')?.expiryDate).toBe('2026-07-30');
+    expect(patched.items.find((item) => item.lineId === 'manual-egg')?.expiryDate).toBe('2026-08-01');
+    expect(patched.items.find((item) => item.lineId === 'milk')?.expiryDate).toBe('2026-07-30');
+  });
+
   it('summarizes partial shopping purchase and remaining quantity', () => {
     const draft = inventoryIntakeDraftFromRecord(baseDraft({
       items: [shoppingExact({ enteredQuantity: '1', enteredUnit: '个', plannedQuantity: '2', plannedUnit: '个' })],

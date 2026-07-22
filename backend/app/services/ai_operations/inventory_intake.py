@@ -208,11 +208,15 @@ def _shopping_before(shopping: ShoppingListItem) -> dict[str, Any]:
 
 
 def _ingredient_before(ingredient: Ingredient) -> dict[str, Any]:
+    mode = ingredient.default_expiry_mode
+    mode_value = mode.value if hasattr(mode, "value") else str(mode or "")
     return {
         "id": ingredient.id,
         "name": ingredient.name,
         "defaultUnit": ingredient.default_unit,
         "defaultStorage": ingredient.default_storage,
+        "defaultExpiryMode": mode_value or None,
+        "defaultExpiryDays": ingredient.default_expiry_days,
         "rowVersion": ingredient.row_version,
         "quantityTrackingMode": (
             ingredient.quantity_tracking_mode.value
