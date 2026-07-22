@@ -7410,170 +7410,15 @@
   gap: 8px;
 }
 
-.ai-shopping-intake-editor {
+
+.ai-inventory-intake-editor {
   display: grid;
   gap: var(--space-5);
   min-width: 0;
 }
 
-.ai-ingredient-tracking-transition,
-.ai-meal-composition-correction {
-  display: grid;
-  gap: var(--space-5);
-}
-
-.ai-ingredient-tracking-transition > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--plan-line);
-  border-radius: var(--radius-sm);
-  background: var(--plan-soft);
-}
-
-.ai-ingredient-tracking-transition > header span,
-.ai-ingredient-tracking-transition > header strong {
-  display: block;
-}
-
-.ai-ingredient-tracking-transition > header span,
-.ai-ingredient-tracking-transition > header em {
-  color: var(--text-soft);
-  font-size: var(--text-meta);
-  font-style: normal;
-}
-
-.ai-ingredient-tracking-transition > header strong {
-  color: var(--text);
-  font-size: var(--text-md);
-}
-
-.ai-specialized-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.ai-specialized-full {
-  grid-column: 1 / -1;
-}
-
-.ai-specialized-checkbox {
-  display: flex;
-  min-height: var(--tap-min);
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--text);
-  font-weight: 700;
-}
-
-.ai-specialized-checkbox input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--accent);
-}
-
-.ai-specialized-boundary-copy,
-.ai-meal-composition-inventory-boundary {
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--warning-line);
-  border-radius: var(--radius-sm);
-  background: var(--warning-soft);
-  color: var(--text-soft);
-  font-size: var(--text-meta);
-}
-
-.ai-meal-composition-compare {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.ai-meal-composition-compare > section {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface-warm);
-}
-
-.ai-meal-composition-compare > section > span {
-  color: var(--text-soft);
-  font-size: var(--text-meta);
-  font-weight: 700;
-}
-
-.ai-meal-composition-compare p {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0;
-  color: var(--text);
-  font-size: var(--text-meta);
-}
-
-.ai-meal-composition-compare p em {
-  color: var(--text-soft);
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.ai-meal-composition-edit-list {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.ai-meal-composition-edit-list article {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.ai-meal-composition-edit-list header {
-  display: flex;
-  min-height: var(--tap-min);
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-@media (max-width: 767px) {
-  .ai-ingredient-tracking-transition > header,
-  .ai-specialized-form-grid,
-  .ai-meal-composition-compare {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .ai-ingredient-tracking-transition > header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .ai-specialized-full {
-    grid-column: auto;
-  }
-
-  .ai-meal-composition-compare > span {
-    transform: rotate(90deg);
-    justify-self: center;
-  }
-}
-
-.ai-shopping-intake-overview,
-.ai-shopping-intake-submit-summary {
+.ai-inventory-intake-overview,
+.ai-inventory-intake-submit-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7582,57 +7427,123 @@
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   background: var(--surface-warm);
-}
-
-.ai-shopping-intake-overview > div,
-.ai-shopping-intake-submit-summary {
   min-width: 0;
 }
 
-.ai-shopping-intake-overview span,
-.ai-shopping-intake-submit-summary span {
-  color: var(--text-soft);
-  font-size: var(--text-meta);
+.ai-inventory-intake-overview-main {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
-.ai-shopping-intake-overview strong,
-.ai-shopping-intake-submit-summary strong {
+.ai-inventory-intake-date-field {
+  min-width: 0;
+}
+
+.ai-inventory-intake-source-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  background: var(--plan-soft);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-inventory-intake-overview-counts {
+  min-width: 0;
+  text-align: right;
+}
+
+.ai-inventory-intake-overview-counts strong,
+.ai-inventory-intake-submit-summary strong {
   display: block;
   color: var(--text);
   font-size: var(--text-base);
 }
 
-.ai-shopping-intake-overview p {
+.ai-inventory-intake-overview-counts p,
+.ai-inventory-intake-submit-summary span {
   margin: 0;
-  color: var(--warning);
+  color: var(--text-soft);
   font-size: var(--text-meta);
-  font-weight: 700;
-  text-align: right;
 }
 
-.ai-shopping-intake-list {
+.ai-inventory-intake-overview-counts p {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.ai-inventory-intake-group,
+.ai-inventory-intake-ignored {
   display: grid;
   gap: var(--space-3);
+  min-width: 0;
 }
 
-.ai-shopping-intake-row {
-  overflow: hidden;
+.ai-inventory-intake-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-inventory-intake-group-header strong {
+  color: var(--text);
+  font-size: var(--text-body);
+}
+
+.ai-inventory-intake-group-header span {
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.ai-inventory-intake-group-note,
+.ai-inventory-intake-direct-note,
+.ai-inventory-intake-source-text {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.ai-inventory-intake-group-note,
+.ai-inventory-intake-direct-note {
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
 
-.ai-shopping-intake-row.needs-attention {
+.ai-inventory-intake-group-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ai-inventory-intake-row {
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.ai-inventory-intake-row.needs-attention {
   border-color: var(--warning-line);
 }
 
-.ai-shopping-intake-row-toggle {
+.ai-inventory-intake-row-toggle {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
   min-height: var(--control-height-touch);
+  min-width: 0;
   padding: var(--space-4);
   border: 0;
   background: transparent;
@@ -7640,34 +7551,34 @@
   text-align: left;
 }
 
-.ai-shopping-intake-row-toggle:hover {
+.ai-inventory-intake-row-toggle:hover {
   background: var(--surface-warm);
 }
 
-.ai-shopping-intake-row-copy {
+.ai-inventory-intake-row-copy {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
 }
 
-.ai-shopping-intake-row-copy strong,
-.ai-shopping-intake-row-copy small {
+.ai-inventory-intake-row-copy strong,
+.ai-inventory-intake-row-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ai-shopping-intake-row-copy strong {
+.ai-inventory-intake-row-copy strong {
   color: var(--text);
   font-size: var(--text-body);
 }
 
-.ai-shopping-intake-row-copy small {
+.ai-inventory-intake-row-copy small {
   color: var(--text-soft);
   font-size: var(--text-meta);
 }
 
-.ai-shopping-intake-match {
+.ai-inventory-intake-badge {
   padding: var(--space-1) var(--space-3);
   border-radius: 999px;
   background: var(--success-soft);
@@ -7677,114 +7588,82 @@
   white-space: nowrap;
 }
 
-.ai-shopping-intake-match.match-suggested,
-.ai-shopping-intake-match.match-ambiguous {
-  background: var(--warning-soft);
-  color: var(--warning);
+.ai-inventory-intake-badge.source-direct {
+  background: var(--plan-soft);
+  color: var(--text-soft);
 }
 
-.ai-shopping-intake-chevron {
+.ai-inventory-intake-chevron {
   color: var(--text-faint);
   font-size: var(--text-md);
-  transform: rotate(0deg);
   transition: transform var(--motion-normal) ease;
 }
 
-.ai-shopping-intake-row-toggle[aria-expanded='true'] .ai-shopping-intake-chevron {
+.ai-inventory-intake-row-toggle[aria-expanded='true'] .ai-inventory-intake-chevron {
   transform: rotate(180deg);
 }
 
-.ai-shopping-intake-row-body {
+.ai-inventory-intake-row-body {
   display: grid;
   gap: var(--space-4);
   padding: 0 var(--space-4) var(--space-4);
   border-top: 1px solid var(--line-soft);
+  min-width: 0;
 }
 
-.ai-shopping-intake-match-reason {
-  margin: var(--space-4) 0 0;
-  color: var(--text-soft);
-  font-size: var(--text-meta);
-}
-
-.ai-shopping-intake-field {
+.ai-inventory-intake-field {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
 }
 
-.ai-shopping-intake-field > span {
+.ai-inventory-intake-field > span {
   color: var(--text-soft);
   font-size: var(--text-meta);
   font-weight: 700;
 }
 
-.ai-shopping-intake-quantity-grid,
-.ai-shopping-intake-advanced-grid {
+.ai-inventory-intake-editor .text-input,
+.ai-inventory-intake-editor select.text-input,
+.ai-inventory-intake-editor textarea.text-input {
+  min-height: var(--control-height-touch);
+  min-width: 0;
+}
+
+.ai-inventory-intake-editor textarea.text-input {
+  min-height: calc(var(--control-height-touch) * 1.5);
+}
+
+.ai-inventory-intake-quantity-grid,
+.ai-inventory-intake-advanced-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
+  min-width: 0;
 }
 
-.ai-shopping-intake-notes {
+.ai-inventory-intake-notes {
   grid-column: 1 / -1;
 }
 
-.ai-shopping-intake-conversion,
-.ai-shopping-intake-advanced {
+.ai-inventory-intake-conversion {
+  display: grid;
+  gap: var(--space-4);
   padding: var(--space-4);
   border: 1px solid var(--warning-line);
   border-radius: var(--radius-sm);
   background: var(--warning-soft);
+  min-width: 0;
 }
 
-.ai-shopping-intake-conversion {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.ai-shopping-intake-advanced {
-  border-color: var(--line-soft);
+.ai-inventory-intake-ignored {
+  padding: var(--space-4);
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-sm);
   background: var(--surface-warm);
 }
 
-.ai-shopping-intake-advanced summary {
-  min-height: var(--tap-min);
-  display: flex;
-  align-items: center;
-  color: var(--text-soft);
-  font-size: var(--text-meta);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.ai-shopping-intake-advanced[open] summary {
-  margin-bottom: var(--space-4);
-}
-
-.ai-shopping-intake-unmatched {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: 1px dashed var(--warning-line);
-  border-radius: var(--radius-sm);
-  background: var(--warning-soft);
-}
-
-.ai-shopping-intake-unmatched > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.ai-shopping-intake-unmatched > div span {
-  color: var(--warning);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-.ai-shopping-intake-unmatched ul {
+.ai-inventory-intake-ignored ul {
   display: grid;
   gap: var(--space-3);
   margin: 0;
@@ -7792,54 +7671,56 @@
   list-style: none;
 }
 
-.ai-shopping-intake-unmatched li {
+.ai-inventory-intake-ignored li {
   display: grid;
   gap: var(--space-1);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--warning-line);
+  border-top: 1px solid var(--line-soft);
+  min-width: 0;
 }
 
-.ai-shopping-intake-unmatched li span,
-.ai-shopping-intake-unmatched li p {
+.ai-inventory-intake-ignored li span {
   color: var(--text-soft);
   font-size: var(--text-meta);
 }
 
-.ai-shopping-intake-unmatched li p {
-  margin: 0;
-}
-
 @media (max-width: 767px) {
-  .ai-shopping-intake-overview,
-  .ai-shopping-intake-submit-summary {
+  .ai-inventory-intake-overview,
+  .ai-inventory-intake-submit-summary {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .ai-shopping-intake-overview p {
+  .ai-inventory-intake-overview-main {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-inventory-intake-overview-counts {
     text-align: left;
   }
 
-  .ai-shopping-intake-row-toggle {
+  .ai-inventory-intake-row-toggle {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .ai-shopping-intake-match {
+  .ai-inventory-intake-badge {
     grid-column: 1 / 2;
     width: fit-content;
   }
 
-  .ai-shopping-intake-chevron {
+  .ai-inventory-intake-chevron {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
 
-  .ai-shopping-intake-quantity-grid,
-  .ai-shopping-intake-advanced-grid {
+  .ai-inventory-intake-quantity-grid,
+  .ai-inventory-intake-advanced-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ai-shopping-intake-notes {
+  .ai-inventory-intake-notes {
     grid-column: auto;
   }
 }
@@ -8757,106 +8638,6 @@
   color: var(--text-faint);
 }
 
-.ai-inventory-intake-list {
-  display: grid;
-  gap: 10px;
-}
-
-.ai-inventory-intake-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
-  gap: 10px 14px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: #fff;
-}
-
-.ai-inventory-intake-select {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-  cursor: pointer;
-}
-
-.ai-inventory-intake-select input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.ai-inventory-intake-select > span {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.ai-inventory-intake-select strong {
-  color: var(--text);
-  font-size: 0.9375rem;
-}
-
-.ai-inventory-intake-select small,
-.ai-inventory-intake-warning {
-  color: var(--text-soft);
-  font-size: 0.75rem;
-}
-
-.ai-inventory-intake-quantity {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: end;
-}
-
-.ai-inventory-intake-quantity label {
-  display: grid;
-  gap: 5px;
-  color: var(--text-soft);
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.ai-inventory-intake-quantity input {
-  min-height: 38px;
-}
-
-.ai-inventory-intake-unit {
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-warm);
-  color: var(--text-soft);
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.ai-inventory-intake-warning {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: #a66a33;
-}
-
-.ai-inventory-intake-unresolved {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--butter-soft);
-  color: var(--text-soft);
-  font-size: 0.8125rem;
-}
-
-.ai-inventory-intake-unresolved strong {
-  color: #8d6636;
-}
-
 .ai-meal-idea-ingredients {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9593,10 +9374,6 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
   .ai-query-inventory-list .ai-query-item {
     grid-template-columns: 64px minmax(0, 1fr);
-  }
-
-  .ai-inventory-intake-item {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .ai-meal-idea-ingredients {
