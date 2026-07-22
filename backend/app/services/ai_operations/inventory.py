@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -10,23 +9,21 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.ai.errors import AIConflictError
-from app.core.enums import InventoryAvailabilityLevel, InventoryConfirmationSource, InventoryStatus
 from app.core.utils import utcnow
 from app.ai.tools.catalog.common import entity_media_map
 from app.models.domain import AIMessage, IngredientInventoryState, InventoryItem
 from app.ai.tools.catalog.inventory import inventory_record, inventory_state_record
 from app.services.clock import today_for_family
-from app.services.ingredient_inventory_state import PresenceStateRequiredError, upsert_inventory_state
+from app.services.ingredient_inventory_state import PresenceStateRequiredError
 from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
 from app.services.inventory_operation_locking import (
     InventoryTargetNotFoundError,
     LockedInventoryTargets,
     lock_inventory_targets,
 )
-from app.services.inventory_operations import consume_ingredient_inventory, create_inventory_batch, dispose_inventory_quantity
+from app.services.inventory_operations import consume_ingredient_inventory, dispose_inventory_quantity
 from app.services.inventory_usage import tracks_quantity
 from app.services.inventory_versions import InventoryConflictError, require_expected_version
-from app.services.serializers import serialize_ingredient_inventory_state, serialize_inventory_item
 
 
 MISSING_INVENTORY_BOUNDARY_DETAIL = "库存草稿缺少并发校验信息，请重新生成后确认"
@@ -135,15 +132,8 @@ def _lock_and_validate_inventory_boundaries(
         if str(operation["quantityTrackingMode"]) != actual_tracking_mode:
             raise AIConflictError("食材数量记录方式已变化，请重新生成库存草稿")
         action = str(operation.get("action") or "")
-        if action not in {"restock", "consume", "dispose"}:
+        if action not in {"consume", "dispose"}:
             raise ValueError("不支持的库存操作")
-        if action == "restock" and not tracks_quantity(ingredient):
-            if "availabilityLevel" not in operation or operation.get("availabilityLevel") not in {
-                "present_unknown",
-                "low",
-                "sufficient",
-            }:
-                raise AIConflictError(MISSING_INVENTORY_BOUNDARY_DETAIL)
 
         state_id = operation.get("stateId")
         expected_state_version = _optional_row_version(operation, "expectedStateRowVersion")
@@ -218,74 +208,10 @@ def execute_inventory_operation_draft(
             family_id=family_id,
             operations=operations,
         )
-        runtime_states_by_ingredient_id = dict(locked.states_by_ingredient_id)
         for operation in operations:
             action = str(operation["action"])
             ingredient = locked.ingredients[str(operation["ingredientId"])]
-            if action == "restock":
-                if not tracks_quantity(ingredient):
-                    runtime_state = runtime_states_by_ingredient_id.get(ingredient.id)
-                    availability_level = str(operation["availabilityLevel"])
-                    state = upsert_inventory_state(
-                        db,
-                        family_id=family_id,
-                        user_id=user_id,
-                        ingredient=ingredient,
-                        expected_ingredient_row_version=int(ingredient.row_version),
-                        state_id=runtime_state.id if runtime_state is not None else None,
-                        expected_state_row_version=int(runtime_state.row_version) if runtime_state is not None else None,
-                        availability_level=InventoryAvailabilityLevel(str(availability_level)),
-                        inventory_status=InventoryStatus(str(operation.get("status") or "fresh")),
-                        purchase_date=date.fromisoformat(str(operation["purchaseDate"])) if operation.get("purchaseDate") else None,
-                        expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
-                        storage_location=str(operation.get("storageLocation") or operation.get("storage_location") or ingredient.default_storage or "常温"),
-                        notes=str(operation.get("notes") or ""),
-                        confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
-                        record_activity=True,
-                    )
-                    runtime_states_by_ingredient_id[ingredient.id] = state
-                    result = {
-                        "operation": "restock",
-                        "ingredient_id": ingredient.id,
-                        "ingredient_name": ingredient.name,
-                        "inventory_item_id": None,
-                        "state_id": state.id,
-                        "quantity": None,
-                        "unit": ingredient.default_unit,
-                        "inventory_state": serialize_ingredient_inventory_state(state),
-                    }
-                    entity_ids.append(state.id)
-                else:
-                    item = create_inventory_batch(
-                        db,
-                        family_id=family_id,
-                        user_id=user_id,
-                        ingredient=ingredient,
-                        quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
-                        unit=str(operation.get("unit") or ingredient.default_unit),
-                        status=InventoryStatus(str(operation["status"])),
-                        purchase_date=date.fromisoformat(str(operation["purchaseDate"])),
-                        expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
-                        storage_location=str(operation["storageLocation"]),
-                        notes=str(operation.get("notes") or ""),
-                        low_stock_threshold=(
-                            Decimal(str(operation["lowStockThreshold"]))
-                            if operation.get("lowStockThreshold") is not None
-                            else None
-                        ),
-                        already_locked=True,
-                    )
-                    result = {
-                        "operation": "restock",
-                        "ingredient_id": ingredient.id,
-                        "ingredient_name": ingredient.name,
-                        "inventory_item_id": item.id,
-                        "quantity": float(operation["quantity"]) if operation.get("quantity") is not None else None,
-                        "unit": str(operation.get("unit") or ingredient.default_unit),
-                        "inventory_item": serialize_inventory_item(item),
-                    }
-                    entity_ids.append(item.id)
-            elif action == "consume":
+            if action == "consume":
                 result = consume_ingredient_inventory(
                     db,
                     family_id=family_id,

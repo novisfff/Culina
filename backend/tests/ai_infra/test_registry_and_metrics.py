@@ -214,8 +214,8 @@ def test_unclassified_draft_specs_remain_audit_only() -> None:
         ),
         (
             "inventory_operation",
-            {"operations": [{"action": "restock"}]},
-            {"operations": [{"action": "restock", "inventory_item": {"id": "inv-1"}}]},
+            {"operations": [{"action": "consume"}]},
+            {"operations": [{"action": "consume", "inventory_item": {"id": "inv-1"}}]},
         ),
     ]
     for draft_type, submitted_payload, business_entity in cases:
@@ -449,7 +449,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ),
                 "create",
             )
-            self.assertEqual(draft_operation_registry.operation_label("inventory_operation", "restock"), "补货")
+            self.assertEqual(draft_operation_registry.operation_label("inventory_operation", "consume"), "消耗")
             self.assertIn("直接修改下面的草稿", draft_operation_registry.recovery_hint("meal_plan"))
             self.assertIn("根据当前业务值", draft_operation_registry.recovery_hint("recipe"))
             self.assertIsNone(
@@ -472,7 +472,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ),
                 "inventory_operation",
             )
-            self.assertEqual(approval_result_operation_label("restock"), "补货")
+            self.assertEqual(approval_result_operation_label("consume"), "消耗")
             self.assertEqual(approval_result_workspace_label("unknown_draft"), "对应页面")
             self.assertEqual(approval_result_count_label("unknown_draft", 3), "3 个实体")
             self.assertEqual(fallback_type_label("unknown_draft"), "unknown_draft")
@@ -511,14 +511,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                         "operations": [
                             {
                                 "operationId": "op-1",
-                                "operation": "restock",
+                                "operation": "consume",
                                 "inventory_item": {"id": "inventory-1", "name": "番茄"},
                             }
                         ]
                     },
                     entity_type="InventoryItem",
                 ),
-                [{"id": "inventory-1", "name": "番茄", "_operation": "restock", "_operationId": "op-1"}],
+                [{"id": "inventory-1", "name": "番茄", "_operation": "consume", "_operationId": "op-1"}],
             )
 
         def test_draft_operation_registry_runs_inventory_success_hook(self) -> None:
@@ -892,7 +892,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 tools["inventory.create_intake_draft"]["draft_types"],
                 ["inventory_intake"],
             )
-            self.assertIn("inventory.create_unit_conversion_operation_draft", tools)
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", tools)
             self.assertNotIn("intent." + "request_clarification", tools)
             self.assertEqual(tools["inventory.read_summary"]["output_types"], ["inventory_summary"])
             self.assertEqual(tools["meal_plan.recommend_today"]["output_types"], ["today_recommendation"])

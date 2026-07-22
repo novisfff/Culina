@@ -19,11 +19,6 @@ from app.ai.tools.schemas import (
     draft_input_schema,
     draft_output_schema,
 )
-from app.ai.tools.catalog.inventory_unit_conversion import (
-    build_unit_conversion_candidate,
-    build_unit_mismatch_inventory_payload,
-    unit_mismatch_from_tool_payload,
-)
 from app.core.utils import create_id
 from app.core.enums import IngredientQuantityTrackingMode, InventoryAvailabilityLevel
 from app.models.domain import Ingredient, IngredientInventoryState, InventoryItem
@@ -95,29 +90,6 @@ def inventory_items_output_schema(query_focus: str) -> dict[str, Any]:
             "card": INVENTORY_SUMMARY_OUTPUT["properties"]["card"],
         },
     }
-
-
-UNIT_CONVERSION_OPERATION_INPUT = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["unitMismatch", "ratioToDefault"],
-    "properties": {
-        "unitMismatch": {"type": "object"},
-        "ratioToDefault": {"type": "number", "exclusiveMinimum": 0},
-        "sourceMessage": {"type": ["string", "null"], "maxLength": 300},
-    },
-}
-
-UNIT_CONVERSION_OPERATION_OUTPUT = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["draft", "itemCount", "unitConversionResolution"],
-    "properties": {
-        "draft": INVENTORY_OPERATION_DRAFT_SCHEMA,
-        "itemCount": {"type": "integer", "minimum": 0},
-        "unitConversionResolution": {"type": "object"},
-    },
-}
 
 
 def inventory_record(
@@ -798,30 +770,6 @@ def inventory_create_operation_draft(context: ToolContext, payload: dict[str, An
     return {"draft": normalized, "itemCount": len(normalized["operations"])}
 
 
-def inventory_create_unit_conversion_operation_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    unit_mismatch = unit_mismatch_from_tool_payload(payload)
-    ratio_to_default = Decimal(str(payload.get("ratioToDefault")))
-    if ratio_to_default <= 0:
-        raise ValueError("换算比例必须大于 0")
-    draft = build_unit_mismatch_inventory_payload(
-        context.db,
-        family_id=context.family_id,
-        unit_mismatch=unit_mismatch,
-        ratio_to_default=ratio_to_default,
-    )
-    normalized = normalize_inventory_operation_draft(context.db, family_id=context.family_id, payload=draft)
-    candidate = build_unit_conversion_candidate(
-        unit_mismatch=unit_mismatch,
-        ratio_to_default=ratio_to_default,
-        source_message=str(payload.get("sourceMessage") or ""),
-    )
-    return {
-        "draft": normalized,
-        "itemCount": len(normalized["operations"]),
-        "unitConversionResolution": {"type": "unit_conversion", "payload": candidate},
-    }
-
-
 def register_inventory_tools(registry: ToolRegistry) -> None:
     registry.register(
         ToolDefinition(
@@ -887,25 +835,11 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         registry,
         name="inventory.create_operation_draft",
         display_name="库存处理确认表单",
-        description="生成入库、消耗或销毁库存的可编辑草稿，不直接写入库存。",
+        description="生成消耗或销毁库存的可编辑草稿，不直接写入库存。统一入库请使用 inventory.create_intake_draft。",
         side_effect="draft",
         handler=inventory_create_operation_draft,
         input_schema=draft_input_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
         output_schema=draft_output_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
-        draft_types=["inventory_operation"],
-    )
-    register_tool(
-        registry,
-        name="inventory.create_unit_conversion_operation_draft",
-        display_name="本次单位换算入库确认表单",
-        description=(
-            "当 human.request_input 的 resumeHint.questionType=unit_conversion 且用户已明确本次 1 个不支持单位等于多少主单位时，"
-            "传入 resumeHint.unitMismatch 并按本次换算生成普通库存处理草稿；只用于本次入库，不保存食材副单位。"
-        ),
-        side_effect="draft",
-        handler=inventory_create_unit_conversion_operation_draft,
-        input_schema=UNIT_CONVERSION_OPERATION_INPUT,
-        output_schema=UNIT_CONVERSION_OPERATION_OUTPUT,
         draft_types=["inventory_operation"],
     )
     registry.register(

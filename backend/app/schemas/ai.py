@@ -114,7 +114,6 @@ AIResultCardType = Literal[
     "food_profile_draft",
     "ui_actions",
     "recipe_shortage",
-    "inventory_intake_candidates",
     "meal_idea_proposal",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
@@ -418,8 +417,6 @@ class AIResultCardDTO(BaseModel):
             AIOperationResultCardDataDTO.model_validate(self.data)
         elif self.type == "ui_actions":
             AIUiActionsCardDataDTO.model_validate(self.data)
-        elif self.type == "inventory_intake_candidates":
-            AIInventoryIntakeCandidatesCardDataDTO.model_validate(self.data)
         elif self.type == "meal_idea_proposal":
             AIMealIdeaProposalCardDataDTO.model_validate(self.data)
         return self

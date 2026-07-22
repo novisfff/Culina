@@ -1118,7 +1118,7 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "required": ["action", "ingredientId"],
                 "properties": {
-                    "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
+                    "action": {"type": "string", "enum": ["consume", "dispose"]},
                     "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                     "ingredientName": {"type": "string", "maxLength": 120},
                     "quantityTrackingMode": {
@@ -1154,24 +1154,9 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                         "minimum": 1,
                         "description": "后端归一化显式批次草稿时固化的库存批次版本。",
                     },
-                    "availabilityLevel": {
-                        "type": ["string", "null"],
-                        "enum": ["present_unknown", "low", "sufficient", None],
-                        "description": "不记录精确数量的补货结果；absent 不属于补货操作。",
-                    },
                     "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
-                    "purchaseDate": {"type": ["string", "null"], "maxLength": 10},
-                    "expiryDate": {"type": ["string", "null"], "maxLength": 10},
-                    "storageLocation": {"type": ["string", "null"], "maxLength": 120},
-                    "status": {"type": ["string", "null"], "enum": [*INVENTORY_STATUS_VALUES, None]},
-                    "notes": {"type": "string", "maxLength": 1000},
-                    "lowStockThreshold": {"type": ["number", "null"], "minimum": 0},
                     "reason": {"type": "string", "maxLength": 255},
-                    "sourceQuantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
-                    "sourceUnit": {"type": ["string", "null"], "maxLength": 32},
-                    "conversionRatioToDefault": {"type": ["number", "null"], "exclusiveMinimum": 0},
-                    "conversionNote": {"type": ["string", "null"], "maxLength": 255},
                     "image": {"type": ["object", "null"]},
                     "remainingQuantity": {"type": ["number", "null"], "minimum": 0},
                     "batchOptions": {

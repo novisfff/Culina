@@ -2563,18 +2563,15 @@ class AIEvalContext:
                 "draft": {
                     "draftType": "inventory_operation",
                     "schemaVersion": "inventory_operation.v1",
-                    "source": {"shoppingItemId": self.aliases["shopping_item"]},
                     "operations": [
                         {
-                            "action": "restock",
+                            "action": "dispose",
                             "ingredientId": self.aliases["tomato"],
                             "ingredientName": "番茄",
-                            "quantity": 2,
+                            "inventoryItemId": self.aliases.get("tomato_inventory", "inventory-tomato"),
+                            "quantity": 1,
                             "unit": "个",
-                            "purchaseDate": self.EVAL_TODAY.isoformat(),
-                            "storageLocation": "冷藏",
-                            "status": "fresh",
-                            "reason": "购物完成后入库",
+                            "reason": "评估销毁",
                         }
                     ],
                 }

@@ -3,6 +3,27 @@ from app.services.inventory_operations import consume_ingredient_inventory, crea
 
 
 class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
+
+        def test_inventory_operation_schema_excludes_restock_and_legacy_tools(self) -> None:
+            from typing import get_args
+
+            from app.ai.skills.state_schemas import CONTINUATION_STATE_ADAPTERS
+            from app.ai.tools.schemas import INVENTORY_OPERATION_DRAFT_SCHEMA
+            from app.schemas.ai import AIResultCardType
+
+            self.assertNotIn(
+                "restock",
+                INVENTORY_OPERATION_DRAFT_SCHEMA["properties"]["operations"]["items"]["properties"]["action"]["enum"],
+            )
+            tool_names = {definition.name for definition in build_workspace_tool_registry().list()}
+            self.assertNotIn("inventory.preview_intake_candidates", tool_names)
+            self.assertNotIn("shopping.preview_intake_candidates", tool_names)
+            self.assertNotIn("shopping.create_intake_draft", tool_names)
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", tool_names)
+            self.assertNotIn("inventory_intake_candidates", get_args(AIResultCardType))
+            self.assertNotIn("shopping_to_stock.v1", CONTINUATION_STATE_ADAPTERS)
+            self.assertNotIn("ready_food_stock.v1", CONTINUATION_STATE_ADAPTERS)
+
         def test_ingredient_tools_expose_quantity_tracking_mode(self) -> None:
             with self.SessionLocal() as db:
                 ingredient = Ingredient(
@@ -141,45 +162,23 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(result["draft"]["action"], "transition_tracking_mode")
             self.assertNotIn("media_ids", result["draft"])
 
-        def test_inventory_draft_allows_presence_restock_without_quantity(self) -> None:
+        def test_inventory_operation_rejects_restock_action(self) -> None:
             with self.SessionLocal() as db:
-                ingredient = Ingredient(
-                    id="ingredient-vinegar",
-                    family_id=self.family.id,
-                    name="醋",
-                    category="调料",
-                    default_unit="瓶",
-                    unit_conversions=[],
-                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
-                    default_storage="常温",
-                    default_expiry_mode=IngredientExpiryMode.NONE,
-                    notes="",
-                    created_by=self.user.id,
-                    updated_by=self.user.id,
-                )
-                db.add(ingredient)
-                db.flush()
-                normalized = normalize_inventory_operation_draft(
-                    db,
-                    family_id=self.family.id,
-                    payload={
-                        "draftType": "inventory_operation",
-                        "schemaVersion": "inventory_operation.v1",
-                        "operations": [
-                            {
-                                "action": "restock",
-                                "ingredientId": ingredient.id,
-                                "storageLocation": "常温",
-                            }
-                        ],
-                    },
-                )
-
-            operation = normalized["operations"][0]
-            self.assertEqual(operation["ingredientName"], "醋")
-            self.assertEqual(operation["quantity"], None)
-            self.assertEqual(operation["unit"], "瓶")
-            self.assertEqual(operation["lowStockThreshold"], None)
+                with self.assertRaisesRegex(ValueError, "入库请使用 inventory_intake"):
+                    normalize_inventory_operation_draft(
+                        db,
+                        family_id=self.family.id,
+                        payload={
+                            "draftType": "inventory_operation",
+                            "schemaVersion": "inventory_operation.v1",
+                            "operations": [
+                                {
+                                    "action": "restock",
+                                    "ingredientId": "ingredient-tomato",
+                                }
+                            ],
+                        },
+                    )
 
         def test_presence_dispose_draft_fails_early_with_presence_state_required(self) -> None:
             from app.services.ingredient_inventory_state import PresenceStateRequiredError
@@ -480,34 +479,6 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 )
                 self.assertEqual(state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
 
-                payload = normalize_inventory_operation_draft(
-                    db,
-                    family_id=self.family.id,
-                    payload={
-                        "operations": [
-                            {
-                                "action": "restock",
-                                "ingredientId": ingredient.id,
-                                "status": "opened",
-                                "storageLocation": "常温",
-                                "availabilityLevel": "low",
-                            }
-                        ]
-                    },
-                )
-                result, entity_ids = execute_inventory_operation_draft(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    payload=payload,
-                )
-                self.assertEqual(entity_ids, [state.id])
-                self.assertEqual(result["operations"][0]["state_id"], state.id)
-                refreshed = db.get(IngredientInventoryState, state.id)
-                assert refreshed is not None
-                self.assertEqual(refreshed.availability_level, InventoryAvailabilityLevel.LOW)
-                self.assertEqual(refreshed.inventory_status, InventoryStatus.OPENED)
-
         def test_ingredient_tools_expose_supported_units_for_inventory_flow(self) -> None:
             with self.SessionLocal() as db:
                 ingredient = self._add_egg_ingredient(db)
@@ -532,159 +503,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(detail["item"]["unitConversions"], [{"unit": "打", "ratio_to_default": 12.0}])
 
         def test_workspace_unit_mismatch_reply_creates_inventory_approval_without_saving_unit(self) -> None:
-            class UnitMismatchProvider(BaseChatProvider):
-                model_name = "unit-mismatch-model"
-
-                def generate(self, *, system: str, user: str) -> ChatProviderResult:
-                    return ChatProviderResult(text="已处理。", status="completed", model=self.model_name)
-
-                def generate_with_tools(
-                    self,
-                    *,
-                    system: str,
-                    user: str,
-                    tools,
-                    tool_handler,
-                    message_handler=None,
-                    max_rounds: int = 8,
-                ) -> ChatProviderResult:
-                    del system, message_handler, max_rounds
-                    payload = json.loads(user)
-                    tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "需要处理库存单位换算"})
-                    tools()
-                    human_input_result = next(
-                        (
-                            item
-                            for item in reversed(payload.get("currentRunArtifacts") or [])
-                            if isinstance(item, dict) and item.get("type") == "human.input_result"
-                        ),
-                        None,
-                    )
-                    if isinstance(human_input_result, dict):
-                        request = human_input_result["payload"]["request"]
-                        tool_handler(
-                            "inventory.create_unit_conversion_operation_draft",
-                            {
-                                "draft": {
-                                    "unitMismatch": request["resumeHint"]["unitMismatch"],
-                                    "ratioToDefault": 10,
-                                    "sourceMessage": payload.get("currentMessage"),
-                                },
-                                "unitMismatch": request["resumeHint"]["unitMismatch"],
-                                "ratioToDefault": 10,
-                                "sourceMessage": payload.get("currentMessage"),
-                            },
-                        )
-                        return ChatProviderResult(
-                            text="已按 1 盒 = 10 个整理为本次入库确认项，不会自动保存副单位。",
-                            status="completed",
-                            model=self.model_name,
-                        )
-
-                    search = tool_handler("ingredient.search", {"query": "鸡蛋", "exact": True, "limit": 5})
-                    ingredient = search["items"][0]
-                    original_draft = {
-                        "draftType": "inventory_operation",
-                        "schemaVersion": "inventory_operation.v1",
-                        "operations": [
-                            {
-                                "action": "restock",
-                                "ingredientId": ingredient["id"],
-                                "quantity": 2,
-                                "unit": "盒",
-                                "storageLocation": "冷藏",
-                            }
-                        ],
-                    }
-                    tool_handler(
-                        "human.request_input",
-                        {
-                            "question": "鸡蛋当前主单位是 个，尚未设置 盒。请确认这次 1 盒等于多少 个；确认后只按本次换算继续入库，不会自动保存为副单位。",
-                            "inputMode": "text",
-                            "options": [],
-                            "required": True,
-                            "reason": "需要确认本次单位换算比例",
-                            "sourceSkills": ["inventory_analysis"],
-                            "resumeHint": {
-                                "questionType": "unit_conversion",
-                                "missingFields": ["单位换算"],
-                                "unitMismatch": {
-                                    "ingredientId": ingredient["id"],
-                                    "ingredientName": ingredient["name"],
-                                    "defaultUnit": ingredient["defaultUnit"],
-                                    "unsupportedUnit": "盒",
-                                    "supportedUnits": ingredient["supportedUnits"],
-                                    "originalDraft": original_draft,
-                                },
-                            },
-                        },
-                    )
-                    return ChatProviderResult(
-                        text="需要先确认鸡蛋这次的单位换算。",
-                        status="completed",
-                        model=self.model_name,
-                    )
-
-            with self.SessionLocal() as db:
-                self._add_egg_ingredient(db)
-                service = AIApplicationService(db, provider=UnitMismatchProvider())
-                first = service.chat(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    message="把今天买的鸡蛋 2 盒录入库存，放冷藏",
-                )
-                self.assertEqual(first["run"]["status"], "waiting_input")
-                self.assertEqual(first["included"]["result_cards"], [])
-                request_part = next(part for part in first["message"]["parts"] if part["type"] == "human_input_request")
-                request_id = request_part["request"]["id"]
-                self.assertEqual(request_part["request"]["resumeHint"]["questionType"], "unit_conversion")
-                self.assertEqual(request_part["request"]["resumeHint"]["unitMismatch"]["unsupportedUnit"], "盒")
-                conversation = db.get(AIConversation, first["conversation_id"])
-                assert conversation is not None
-
-                second = service.respond_human_input(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id=first["conversation_id"],
-                    request_id=request_id,
-                    selected_option_ids=[],
-                    text="这次每盒按十枚算",
-                )
-                self.assertEqual(second["run"]["status"], "waiting_approval")
-                approval = second["included"]["approvals"][0]
-                self.assertEqual(approval["approval_type"], "inventory.operation")
-                draft = approval["initial_values"]["draft"]
-                self.assertEqual(draft["operations"][0]["quantity"], 20.0)
-                self.assertEqual(draft["operations"][0]["unit"], "个")
-                self.assertEqual(draft["operations"][0]["sourceQuantity"], 2.0)
-                self.assertEqual(draft["operations"][0]["sourceUnit"], "盒")
-                self.assertEqual(draft["operations"][0]["conversionRatioToDefault"], 10.0)
-                self.assertIn("来自 2 盒", draft["operations"][0]["conversionNote"])
-                task_state = db.get(AIConversation, first["conversation_id"]).context.get("taskState", {})
-                self.assertNotIn("pendingHumanInput", task_state)
-                self.assertEqual(task_state["lastHumanInputResult"]["text"], "这次每盒按十枚算")
-
-                decision = service._apply_approval_decision(
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id=first["conversation_id"],
-                    approval_id=approval["id"],
-                    decision="approved",
-                    draft_version=approval["draft_version"],
-                    values=approval["initial_values"],
-                )
-
-                self.assertEqual(decision["operation"]["status"], "succeeded")
-                ingredient = db.get(Ingredient, "ingredient-egg")
-                assert ingredient is not None
-                self.assertEqual(ingredient.unit_conversions, [])
-                inventory_item = db.scalar(select(InventoryItem).where(InventoryItem.ingredient_id == ingredient.id).order_by(InventoryItem.created_at.desc()))
-                self.assertIsNotNone(inventory_item)
-                assert inventory_item is not None
-                self.assertEqual(inventory_item.quantity, Decimal("20.00"))
-                self.assertEqual(inventory_item.unit, "个")
-                self.assertEqual(inventory_item.entered_quantity, Decimal("20.00"))
-                self.assertEqual(inventory_item.entered_unit, "个")
+            tool_names = {definition.name for definition in build_workspace_tool_registry().list()}
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", tool_names)
+            self.assertIn("inventory.create_intake_draft", tool_names)
 
         def test_workspace_unit_mismatch_explicit_save_creates_ingredient_update_approval(self) -> None:
             class SaveUnitConversionProvider(BaseChatProvider):
@@ -1655,11 +1476,6 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 )
 
         def test_presence_inventory_approval_rejects_state_changed_after_draft(self) -> None:
-            from app.ai.errors import AIConflictError
-            from app.core.enums import InventoryAvailabilityLevel
-            from app.models.domain import IngredientInventoryState
-            from app.services.ai_operations.inventory import execute_inventory_operation_draft
-
             with self.SessionLocal() as db:
                 ingredient = Ingredient(
                     id="ingredient-presence-approval",
@@ -1675,57 +1491,22 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     created_by=self.user.id,
                     updated_by=self.user.id,
                 )
-                state = IngredientInventoryState(
-                    id="state-presence-approval",
-                    family_id=self.family.id,
-                    ingredient_id=ingredient.id,
-                    availability_level=InventoryAvailabilityLevel.LOW,
-                    inventory_status=InventoryStatus.FRESH,
-                    storage_location="常温",
-                    notes="还剩一点",
-                    created_by=self.user.id,
-                    updated_by=self.user.id,
-                )
-                db.add_all([ingredient, state])
+                db.add(ingredient)
                 db.commit()
-                draft = normalize_inventory_operation_draft(
-                    db,
-                    family_id=self.family.id,
-                    payload={
-                        "operations": [
-                            {
-                                "action": "restock",
-                                "ingredientId": ingredient.id,
-                                "storageLocation": "常温",
-                            }
-                        ]
-                    },
-                )
-                operation = draft["operations"][0]
-                self.assertEqual(operation["stateId"], state.id)
-                self.assertEqual(operation["expectedStateRowVersion"], 1)
-
-            with self.SessionLocal() as db:
-                state = db.get(IngredientInventoryState, "state-presence-approval")
-                assert state is not None
-                state.notes = "家人刚刚确认只剩最后一点"
-                db.commit()
-
-            with self.SessionLocal() as db:
-                with self.assertRaises(AIConflictError):
-                    execute_inventory_operation_draft(
+                with self.assertRaisesRegex(ValueError, "入库请使用 inventory_intake"):
+                    normalize_inventory_operation_draft(
                         db,
                         family_id=self.family.id,
-                        user_id=self.user.id,
-                        payload=draft,
+                        payload={
+                            "operations": [
+                                {
+                                    "action": "restock",
+                                    "ingredientId": ingredient.id,
+                                    "storageLocation": "常温",
+                                }
+                            ]
+                        },
                     )
-                db.rollback()
-
-            with self.SessionLocal() as db:
-                state = db.get(IngredientInventoryState, "state-presence-approval")
-                assert state is not None
-                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.LOW)
-                self.assertEqual(state.notes, "家人刚刚确认只剩最后一点")
 
         def test_dispose_inventory_approval_rejects_batch_changed_after_draft(self) -> None:
             from app.ai.errors import AIConflictError
@@ -2119,10 +1900,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 },
             )
             self.assertEqual(response.status_code, 200, response.text)
+            draft_part = next(part for part in response.json()["parts"] if part["type"] == "draft")
+            self.assertEqual(draft_part["draft"]["draft_type"], "inventory_intake")
+            self.assertEqual(draft_part["draft"]["payload"]["items"][0]["action"], "stock_only")
             approval = next(
                 part for part in response.json()["parts"]
                 if part["type"] == "approval_request"
             )["approval"]
+            self.assertEqual(approval["approval_type"], "inventory_intake.apply")
 
             decision = self.client.post(
                 f"/api/ai/conversations/conversation-presence-card/approvals/{approval['id']}/decision",
@@ -2139,15 +1924,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 state = db.get(IngredientInventoryState, "state-card-presence-low")
                 self.assertIsNotNone(state)
                 assert state is not None
-                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
-                stored_message = db.get(AIMessage, "message-presence-card")
-                self.assertIsNotNone(stored_message)
-                assert stored_message is not None
-                refreshed = stored_message.parts[0]["card"]["data"]["items"][0]
-                self.assertEqual(refreshed["id"], "ingredient-state:state-card-presence-low")
-                self.assertEqual(refreshed["quantity"], "已有")
-                self.assertEqual(refreshed["displayStatus"], "available")
-                self.assertEqual(refreshed["lastOperation"]["action"], "restock")
+                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.SUFFICIENT)
 
         def test_depleted_ingredient_card_quick_action_creates_restock_draft_without_batch(self) -> None:
             with self.SessionLocal() as db:
@@ -2247,10 +2024,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
+            draft_part = next(part for part in data["parts"] if part["type"] == "draft")
+            self.assertEqual(draft_part["draft"]["draft_type"], "inventory_intake")
+            item = draft_part["draft"]["payload"]["items"][0]
+            self.assertEqual(item["action"], "stock_only")
+            self.assertEqual(item["targetId"], "ingredient-depleted-onion")
+            self.assertEqual(item["targetKind"], "exact_ingredient")
             approval = next(part for part in data["parts"] if part["type"] == "approval_request")["approval"]
-            operation = approval["initial_values"]["draft"]["operations"][0]
-            self.assertEqual(operation["ingredientId"], "ingredient-depleted-onion")
-            self.assertIsNone(operation["inventoryItemId"])
+            self.assertEqual(approval["approval_type"], "inventory_intake.apply")
 
         def test_ai_inventory_write_increments_row_version(self) -> None:
             with self.SessionLocal() as db:

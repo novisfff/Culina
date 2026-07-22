@@ -1117,6 +1117,9 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
         raise ValueError("库存操作草稿不能为空")
     if len(operations) > 50:
         raise ValueError("库存操作一次不能超过 50 项")
+    for operation in operations:
+        if isinstance(operation, dict) and str(operation.get("action") or "") == "restock":
+            raise ValueError("入库请使用 inventory_intake 草稿")
 
     ingredient_ids = _string_ids(
         operation.get("ingredientId") or operation.get("ingredient_id")
@@ -1160,7 +1163,7 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
         if not isinstance(operation, dict):
             raise ValueError("库存操作项格式不正确")
         action = str(operation.get("action") or "")
-        if action not in {"restock", "consume", "dispose"}:
+        if action not in {"consume", "dispose"}:
             raise ValueError("库存操作类型不正确")
         ingredient_id = str(operation.get("ingredientId") or operation.get("ingredient_id") or "")
         ingredient = ingredients[ingredient_id]
@@ -1192,10 +1195,8 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             "expectedStateRowVersion": int(inventory_state.row_version) if inventory_state is not None else None,
             "inventoryItemId": inventory_item.id if inventory_item is not None else None,
             "expectedInventoryItemRowVersion": int(inventory_item.row_version) if inventory_item is not None else None,
-            "availabilityLevel": None,
             "quantity": float(quantity) if quantity is not None else None,
             "unit": unit,
-            "notes": str(operation.get("notes") or ""),
             "reason": str(operation.get("reason") or "").strip(),
             "image": _serialize_draft_media(media_map[("ingredient", ingredient.id)][0])
             if media_map.get(("ingredient", ingredient.id))
@@ -1203,63 +1204,8 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             "remainingQuantity": None,
             "batchOptions": [],
         }
-        if operation.get("sourceQuantity") is not None:
-            record["sourceQuantity"] = float(Decimal(str(operation.get("sourceQuantity"))))
-        if operation.get("sourceUnit") is not None:
-            record["sourceUnit"] = normalize_unit_label(str(operation.get("sourceUnit") or ""))
-        if operation.get("conversionRatioToDefault") is not None:
-            record["conversionRatioToDefault"] = float(Decimal(str(operation.get("conversionRatioToDefault"))))
-        if operation.get("conversionNote") is not None:
-            record["conversionNote"] = str(operation.get("conversionNote") or "").strip()
 
-        if action == "restock":
-            if quantity is None and tracks_quantity(ingredient):
-                raise ValueError("入库数量不能为空")
-            if tracks_quantity(ingredient):
-                try:
-                    convert_quantity_to_default_unit(quantity, ingredient.default_unit, ingredient.unit_conversions, unit)
-                except UnitConversionError as exc:
-                    raise ValueError(str(exc)) from exc
-            else:
-                record["quantity"] = float(quantity) if quantity is not None else None
-                record["unit"] = ingredient.default_unit
-                availability_level = InventoryAvailabilityLevel(
-                    str(
-                        operation.get("availabilityLevel")
-                        or operation.get("availability_level")
-                        or InventoryAvailabilityLevel.PRESENT_UNKNOWN.value
-                    )
-                )
-                if availability_level is InventoryAvailabilityLevel.ABSENT:
-                    raise ValueError("补货操作不能把库存状态设为没有了")
-                record["availabilityLevel"] = availability_level.value
-            purchase_date = date.fromisoformat(str(operation.get("purchaseDate") or today.isoformat()))
-            expiry_value = operation.get("expiryDate")
-            if expiry_value:
-                expiry_date = date.fromisoformat(str(expiry_value))
-            elif ingredient.default_expiry_mode == IngredientExpiryMode.DAYS and ingredient.default_expiry_days:
-                expiry_date = purchase_date + timedelta(days=ingredient.default_expiry_days)
-            else:
-                expiry_date = None
-            storage = str(operation.get("storageLocation") or ingredient.default_storage or "常温").strip()
-            status_value = operation.get("status")
-            if status_value:
-                status = InventoryStatus(str(status_value))
-            elif "冻" in storage:
-                status = InventoryStatus.FROZEN
-            else:
-                status = InventoryStatus.FRESH
-            threshold = operation.get("lowStockThreshold")
-            record.update(
-                {
-                    "purchaseDate": purchase_date.isoformat(),
-                    "expiryDate": expiry_date.isoformat() if expiry_date else None,
-                    "storageLocation": storage,
-                    "status": status.value,
-                    "lowStockThreshold": float(threshold) if threshold is not None else None,
-                }
-            )
-        elif action == "consume":
+        if action == "consume":
             if quantity is None and tracks_quantity(ingredient):
                 raise ValueError("消耗数量不能为空")
             if not tracks_quantity(ingredient):
