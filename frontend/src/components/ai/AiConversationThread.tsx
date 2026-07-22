@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import type {
   AiHumanInputRequest,
   AiHumanInputResponse,
-  AiInventoryOperationAction,
+  AiInventoryCardAction,
   AiInventoryResultItem,
   AiMessage,
   AiMessageImagePartData,
@@ -646,7 +646,7 @@ export function MessageBubble({
   onAddRecommendationToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
   onInventoryAction?: (
     item: AiInventoryResultItem,
-    action: AiInventoryOperationAction,
+    action: AiInventoryCardAction,
     card: AiResultCard,
     messageId: string,
     partId: string,

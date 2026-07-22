@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from decimal import Decimal, InvalidOperation
-
 from sqlalchemy import or_, select
 
 from app.ai.tools.base import ToolContext
@@ -12,15 +10,11 @@ from app.ai.tools.draft_validation import normalize_shopping_list_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import (
     READ_BY_ID_INPUT,
-    SHOPPING_INTAKE_DRAFT_SCHEMA,
     SHOPPING_LIST_DRAFT_SCHEMA,
     draft_input_schema,
     draft_output_schema,
 )
-from app.core.enums import IngredientQuantityTrackingMode
-from app.models.domain import Food, Ingredient, ShoppingListItem
-from app.services.ai_operations.registry_types import DraftNormalizeContext
-from app.services.ai_operations.shopping_intake import normalize_shopping_intake_draft
+from app.models.domain import ShoppingListItem
 
 
 SHOPPING_ITEM_OUTPUT = {
@@ -57,210 +51,6 @@ SHOPPING_ITEM_READ_OUTPUT = {
     "required": ["item"],
     "properties": {"item": SHOPPING_ITEM_OUTPUT},
 }
-
-SHOPPING_INTAKE_MATCH_OUTPUT = {
-    "type": "object",
-    "additionalProperties": True,
-    "required": ["clientKey", "label", "matchLevel", "matchReason"],
-    "properties": {
-        "clientKey": {"type": "string"},
-        "label": {"type": "string"},
-        "matchLevel": {"type": "string", "enum": ["confirmed", "suggested", "ambiguous", "unmatched"]},
-        "matchReason": {"type": "string"},
-    },
-}
-
-SHOPPING_INTAKE_CANDIDATES_OUTPUT = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["confirmedMatches", "suggestedMatches", "ambiguousMatches", "unmatchedCandidates"],
-    "properties": {
-        "confirmedMatches": {"type": "array", "items": SHOPPING_INTAKE_MATCH_OUTPUT},
-        "suggestedMatches": {"type": "array", "items": SHOPPING_INTAKE_MATCH_OUTPUT},
-        "ambiguousMatches": {"type": "array", "items": SHOPPING_INTAKE_MATCH_OUTPUT},
-        "unmatchedCandidates": {"type": "array", "items": SHOPPING_INTAKE_MATCH_OUTPUT},
-    },
-}
-
-
-def _candidate_decimal(value: Any) -> str | None:
-    if value is None or str(value).strip() == "":
-        return None
-    try:
-        parsed = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError("小票行数量格式不正确") from exc
-    if parsed <= 0:
-        raise ValueError("小票行数量必须大于 0")
-    return format(parsed.normalize(), "f")
-
-
-def _normalized_match_label(value: Any) -> str:
-    return "".join(str(value or "").strip().lower().split())
-
-
-def _shopping_candidate_payload(context: ToolContext, item: ShoppingListItem) -> dict[str, Any]:
-    target: dict[str, Any] | None = None
-    if item.ingredient_id:
-        ingredient = context.db.scalar(
-            select(Ingredient).where(
-                Ingredient.family_id == context.family_id,
-                Ingredient.id == item.ingredient_id,
-            )
-        )
-        if ingredient is not None:
-            target = {
-                "targetKind": (
-                    "exact_ingredient"
-                    if ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY
-                    else "presence_ingredient"
-                ),
-                "targetId": ingredient.id,
-                "targetName": ingredient.name,
-                "expectedTargetRowVersion": ingredient.row_version,
-                "defaultStorageLocation": ingredient.default_storage,
-            }
-    elif item.food_id:
-        food = context.db.scalar(
-            select(Food).where(Food.family_id == context.family_id, Food.id == item.food_id)
-        )
-        if food is not None:
-            target = {
-                "targetKind": "food",
-                "targetId": food.id,
-                "targetName": food.name,
-                "expectedTargetRowVersion": food.row_version,
-                "defaultStorageLocation": food.storage_location or "",
-            }
-    return {
-        "id": item.id,
-        "title": item.title,
-        "quantity": format(Decimal(str(item.quantity)).normalize(), "f"),
-        "unit": item.unit,
-        "expectedRowVersion": item.row_version,
-        "target": target,
-    }
-
-
-def shopping_preview_intake_candidates(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    lines = payload.get("lines")
-    if not isinstance(lines, list) or not lines:
-        raise ValueError("采购识别行不能为空")
-    pending = list(
-        context.db.scalars(
-            select(ShoppingListItem)
-            .where(
-                ShoppingListItem.family_id == context.family_id,
-                ShoppingListItem.done.is_(False),
-            )
-            .order_by(ShoppingListItem.updated_at.desc(), ShoppingListItem.id)
-        )
-    )
-    pending_by_id = {item.id: item for item in pending}
-    results: dict[str, list[dict[str, Any]]] = {
-        "confirmedMatches": [],
-        "suggestedMatches": [],
-        "ambiguousMatches": [],
-        "unmatchedCandidates": [],
-    }
-    for offset, line in enumerate(lines):
-        if not isinstance(line, dict):
-            raise ValueError("采购识别行格式不正确")
-        client_key = str(line.get("clientKey") or f"line-{offset + 1}").strip()[:64]
-        label = str(line.get("label") or "").strip()
-        if not label:
-            raise ValueError("采购识别行名称不能为空")
-        common = {
-            "clientKey": client_key,
-            "label": label[:120],
-            "enteredQuantity": _candidate_decimal(line.get("enteredQuantity")),
-            "enteredUnit": str(line.get("enteredUnit") or "").strip()[:32] or None,
-        }
-        explicit_id = str(line.get("shoppingItemId") or "").strip()
-        if explicit_id:
-            explicit = pending_by_id.get(explicit_id)
-            if explicit is None:
-                raise ValueError("指定购物项不存在、已完成或不属于当前家庭")
-            results["confirmedMatches"].append(
-                {
-                    **common,
-                    "matchLevel": "confirmed",
-                    "matchReason": "用户、卡片或当前会话明确指定了真实待买项",
-                    "shoppingItem": _shopping_candidate_payload(context, explicit),
-                }
-            )
-            continue
-
-        normalized_label = _normalized_match_label(label)
-        exact = [item for item in pending if _normalized_match_label(item.title) == normalized_label]
-        if len(exact) == 1:
-            results["confirmedMatches"].append(
-                {
-                    **common,
-                    "matchLevel": "confirmed",
-                    "matchReason": "名称与唯一待买项完全一致",
-                    "shoppingItem": _shopping_candidate_payload(context, exact[0]),
-                }
-            )
-            continue
-        if len(exact) > 1:
-            results["ambiguousMatches"].append(
-                {
-                    **common,
-                    "matchLevel": "ambiguous",
-                    "matchReason": "存在多个同名待买项，需要按单位或真实目标选择",
-                    "shoppingCandidates": [_shopping_candidate_payload(context, item) for item in exact],
-                }
-            )
-            continue
-        fuzzy = [
-            item
-            for item in pending
-            if _normalized_match_label(item.title)
-            and (
-                _normalized_match_label(item.title) in normalized_label
-                or normalized_label in _normalized_match_label(item.title)
-            )
-        ]
-        if len(fuzzy) == 1:
-            results["suggestedMatches"].append(
-                {
-                    **common,
-                    "matchLevel": "suggested",
-                    "matchReason": "标题不完全一致，但只有一个名称包含关系明确的待买项",
-                    "shoppingItem": _shopping_candidate_payload(context, fuzzy[0]),
-                }
-            )
-            continue
-        if len(fuzzy) > 1:
-            results["ambiguousMatches"].append(
-                {
-                    **common,
-                    "matchLevel": "ambiguous",
-                    "matchReason": "存在多个名称相近的待买项，需要用户选择",
-                    "shoppingCandidates": [_shopping_candidate_payload(context, item) for item in fuzzy],
-                }
-            )
-            continue
-
-        target_hint = str(line.get("targetHint") or "ingredient")
-        if target_hint == "food":
-            recommendation_type = "food_profile"
-            recommendation = "未匹配到现有待买项；建议先创建对应成品食物资料，再单独登记库存"
-        else:
-            recommendation_type = "ingredient_profile"
-            recommendation = "未匹配到现有待买项；建议先创建对应食材档案，再单独登记库存"
-        results["unmatchedCandidates"].append(
-            {
-                **common,
-                "matchLevel": "unmatched",
-                "matchReason": "没有可匹配的当前待买项，不进入本次事务",
-                "recommendationType": recommendation_type,
-                "recommendation": recommendation,
-                "candidateIds": [],
-            }
-        )
-    return results
 
 
 def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -335,7 +125,7 @@ def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) ->
         and operation["payload"].get("done") is True
         for operation in draft.get("operations") or []
     ):
-        raise ValueError("完成购物项请改用 shopping.create_intake_draft，在一份审批中同时处理购物状态和库存")
+        raise ValueError("完成采购并入库请改由 inventory_analysis 处理，使用统一入库草稿同时更新购物状态和库存")
     normalized = normalize_shopping_list_draft(
         context.db,
         family_id=context.family_id,
@@ -346,58 +136,7 @@ def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) ->
     return {"draft": normalized, "itemCount": item_count}
 
 
-def shopping_intake_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    normalized = normalize_shopping_intake_draft(
-        DraftNormalizeContext(
-            db=context.db,
-            draft_type="shopping_intake",
-            family_id=context.family_id,
-            user_id=context.user_id,
-            conversation_id=context.conversation_id,
-            payload=draft,
-        )
-    )
-    return {"draft": normalized, "itemCount": len(normalized["items"])}
-
-
 def register_shopping_tools(registry: ToolRegistry) -> None:
-    register_tool(
-        registry,
-        name="shopping.preview_intake_candidates",
-        display_name="采购小票匹配预览",
-        description="将小票或用户列出的采购行与当前家庭真实待买项匹配，分为确认、建议、歧义和未匹配四组；不会修改数据。",
-        side_effect="read",
-        handler=shopping_preview_intake_candidates,
-        input_schema={
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["lines"],
-            "properties": {
-                "lines": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 100,
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["label"],
-                        "properties": {
-                            "clientKey": {"type": "string", "maxLength": 64},
-                            "label": {"type": "string", "minLength": 1, "maxLength": 120},
-                            "shoppingItemId": {"type": "string", "maxLength": 64},
-                            "enteredQuantity": {"type": ["string", "number", "null"]},
-                            "enteredUnit": {"type": ["string", "null"], "maxLength": 32},
-                            "targetHint": {"type": "string", "enum": ["ingredient", "food"]},
-                        },
-                    },
-                }
-            },
-        },
-        output_schema=SHOPPING_INTAKE_CANDIDATES_OUTPUT,
-        requires_followup=True,
-        followup_hint="匹配预览后必须让用户处理歧义项、说明未匹配额外购买候选，或继续生成 shopping_intake 草稿。",
-    )
     register_tool(
         registry,
         name="shopping.read_pending",
@@ -447,15 +186,4 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         draft_types=["shopping_list"],
-    )
-    register_tool(
-        registry,
-        name="shopping.create_intake_draft",
-        display_name="采购完成与入库确认表单",
-        description="为明确匹配到当前家庭待买项的单项或批量采购生成一体化草稿；额外购买候选只展示建议，不随本次提交。",
-        side_effect="draft",
-        handler=shopping_intake_create_draft,
-        input_schema=draft_input_schema(SHOPPING_INTAKE_DRAFT_SCHEMA),
-        output_schema=draft_output_schema(SHOPPING_INTAKE_DRAFT_SCHEMA),
-        draft_types=["shopping_intake"],
     )

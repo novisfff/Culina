@@ -22,15 +22,14 @@
 
 1. 优先通过 `shopping.read_pending` 或 `shopping.read_by_id` 定位真实购物项。
 2. 修改、恢复待买或删除正式购物项时，生成 `operations` 草稿；每项必须带真实 `targetId`、`baseUpdatedAt` 和可编辑 payload；create/update payload 必须绑定真实 `ingredientId` 或 ready-like 食物 `foodId`。
-3. 普通草稿只允许 `set_done.payload.done=false` 恢复待买；新的“买到”请求进入下面的一体化采购流程。
+3. 普通草稿只允许 `set_done.payload.done=false` 恢复待买；新的“买到”请求进入 `inventory_analysis` 的统一入库流程。
 4. 用户修改当前运行中的 `shopping_list` 草稿时，可以基于 artifact 生成新的完整草稿版本，但不能把 `in_run:*` 草稿 ID 当作正式购物项 ID。
 5. 调用 `shopping.create_draft` 返回待确认草稿。
 
 ## 购物完成与一体化入库
 
 1. 根据小票、当前卡片/artifact 或用户明确列名确定范围；裸“这些都买到了”先读取 pending 项并请求多选，不能默认全选家庭清单。
-2. 把识别行交给 `shopping.preview_intake_candidates`。confirmed/suggested 可以进入草稿；ambiguous 先选择；unmatched 只放入额外购买候选并给建档、选目标或后续单独入库建议。
+2. 正式匹配、候选状态处理、忽略行说明和 Draft 创建都交给 `inventory_analysis`，使用 `shopping.read_pending`、`purchasable.resolve_candidates` 和 `inventory.create_intake_draft`。
 3. 实际数量没有可靠证据时保持为空；不得用计划数量代替。一次性包装换算必须保留倍率、目标单位和证据。
-4. 用 `shopping.create_intake_draft` 生成单项或批量 `shopping_intake` 草稿。每行选择完成并入库或仅完成购物项。
-5. 用户只确认一份审批；执行时复用原子 shopping intake service，同时更新购物状态、库存和操作历史。任一行失败整批回滚。
-6. 部署前已存在的 `shopping_to_stock.v1` continuation 仍可完成，但新请求不再生成两阶段流程。
+4. 用户只确认一份 `inventory_intake` 审批；执行时复用原子 inventory intake service，同时更新购物状态、库存和操作历史。任一行失败整批回滚。
+5. 本 Skill 不再生成任何采购完成入库 handoff；“买到了 / 小票 / 礼物入库”一律路由到 `inventory_analysis`。

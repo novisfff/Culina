@@ -434,24 +434,33 @@ SHOPPING_LIST_DRAFT_SCHEMA.update(
     }
 )
 
-SHOPPING_INTAKE_ITEM_SCHEMA: dict[str, Any] = {
+INVENTORY_INTAKE_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
-        "shoppingItemId",
-        "matchLevel",
-        "matchReason",
+        "lineId",
+        "sourceLineId",
+        "sourceText",
+        "sourceKind",
         "action",
         "targetKind",
     ],
     "properties": {
-        "shoppingItemId": {"type": "string", "minLength": 1, "maxLength": 64},
-        "title": {"type": "string", "maxLength": 120},
-        "expectedShoppingItemRowVersion": {"type": "integer", "minimum": 1},
-        "matchLevel": {"type": "string", "enum": ["confirmed", "suggested", "ambiguous"]},
-        "matchReason": {"type": "string", "minLength": 1, "maxLength": 255},
-        "action": {"type": "string", "enum": ["stock_and_fulfill", "complete_without_inventory"]},
-        "targetKind": {"type": "string", "enum": ["exact_ingredient", "presence_ingredient", "food", "none"]},
+        "lineId": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sourceLineId": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sourceText": {"type": "string", "minLength": 1, "maxLength": 255},
+        "sourceKind": {"type": "string", "enum": ["shopping_item", "direct"]},
+        "action": {
+            "type": "string",
+            "enum": ["stock_and_fulfill", "fulfill_without_stock", "stock_only", "skip"],
+        },
+        "shoppingItemId": {"type": ["string", "null"], "maxLength": 64},
+        "title": {"type": ["string", "null"], "maxLength": 120},
+        "expectedShoppingItemRowVersion": {"type": ["integer", "null"], "minimum": 1},
+        "targetKind": {
+            "type": "string",
+            "enum": ["exact_ingredient", "presence_ingredient", "food", "none"],
+        },
         "targetId": {"type": ["string", "null"], "maxLength": 64},
         "expectedIngredientRowVersion": {"type": ["integer", "null"], "minimum": 1},
         "expectedFoodRowVersion": {"type": ["integer", "null"], "minimum": 1},
@@ -472,45 +481,83 @@ SHOPPING_INTAKE_ITEM_SCHEMA: dict[str, Any] = {
         },
         "actualQuantity": {"type": ["string", "null"]},
         "actualUnit": {"type": ["string", "null"], "maxLength": 32},
-        "inventoryStatus": {"type": ["string", "null"], "enum": ["fresh", "opened", "frozen", "expiring", None]},
-        "resultingAvailabilityLevel": {"type": ["string", "null"], "enum": ["present_unknown", "low", "sufficient", None]},
+        "inventoryStatus": {
+            "type": ["string", "null"],
+            "enum": ["fresh", "opened", "frozen", "expiring", None],
+        },
+        "resultingAvailabilityLevel": {
+            "type": ["string", "null"],
+            "enum": ["present_unknown", "low", "sufficient", None],
+        },
         "expiryDate": {"type": ["string", "null"], "format": "date"},
         "storageLocation": {"type": ["string", "null"], "maxLength": 120},
         "notes": {"type": "string", "maxLength": 500},
+        "before": {"type": "object"},
+        "impact": {"type": "object"},
     },
 }
 
-SHOPPING_INTAKE_DRAFT_SCHEMA: dict[str, Any] = {
+INVENTORY_INTAKE_IGNORED_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "purchaseDate", "items"],
+    "required": ["sourceLineId", "sourceText", "displayName", "reasonCode", "reason"],
     "properties": {
-        "draftType": {"type": "string", "enum": ["shopping_intake"]},
-        "schemaVersion": {"type": "string", "enum": ["shopping_intake.v1"]},
+        "sourceLineId": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sourceText": {"type": "string", "minLength": 1, "maxLength": 255},
+        "displayName": {"type": "string", "minLength": 1, "maxLength": 120},
+        "reasonCode": {"type": "string", "minLength": 1, "maxLength": 64},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 255},
+    },
+}
+
+INVENTORY_INTAKE_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "draftType",
+        "schemaVersion",
+        "sourceType",
+        "intakeDate",
+        "intakeDateSource",
+        "items",
+        "ignoredItems",
+    ],
+    "properties": {
+        "draftType": {"type": "string", "enum": ["inventory_intake"]},
+        "schemaVersion": {"type": "string", "enum": ["inventory_intake.v1"]},
         "clientRequestId": {"type": ["string", "null"], "maxLength": 120},
-        "purchaseDate": {"type": "string", "format": "date"},
-        "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": SHOPPING_INTAKE_ITEM_SCHEMA},
-        "unmatchedCandidates": {
-            "type": "array",
-            "maxItems": 100,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["label", "recommendation"],
-                "properties": {
-                    "clientKey": {"type": ["string", "null"], "maxLength": 64},
-                    "label": {"type": "string", "minLength": 1, "maxLength": 120},
-                    "enteredQuantity": {"type": ["string", "number", "null"]},
-                    "enteredUnit": {"type": ["string", "null"], "maxLength": 32},
-                    "recommendationType": {
-                        "type": "string",
-                        "enum": ["inventory_intake", "ingredient_profile", "food_profile", "choose_target"],
-                    },
-                    "recommendation": {"type": "string", "minLength": 1, "maxLength": 255},
-                    "candidateIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 64}},
-                },
-            },
+        "sourceType": {
+            "type": "string",
+            "enum": [
+                "manual_text",
+                "receipt_image",
+                "receipt_text",
+                "inventory_photo",
+                "gift",
+                "reconciliation",
+                "initial_inventory",
+                "historical_entry",
+            ],
         },
+        "sourceReference": {"type": ["object", "null"]},
+        "intakeDate": {"type": "string", "format": "date"},
+        "intakeDateSource": {
+            "type": "string",
+            "enum": ["user_explicit", "receipt", "family_today", "historical"],
+        },
+        "items": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 30,
+            "items": INVENTORY_INTAKE_ITEM_SCHEMA,
+        },
+        "ignoredItems": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 30,
+            "items": INVENTORY_INTAKE_IGNORED_ITEM_SCHEMA,
+        },
+        "summary": {"type": "object"},
     },
 }
 SHOPPING_OPERATION_ITEM_SCHEMA["anyOf"] = [
@@ -1071,7 +1118,7 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "required": ["action", "ingredientId"],
                 "properties": {
-                    "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
+                    "action": {"type": "string", "enum": ["consume", "dispose"]},
                     "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                     "ingredientName": {"type": "string", "maxLength": 120},
                     "quantityTrackingMode": {
@@ -1107,24 +1154,9 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                         "minimum": 1,
                         "description": "后端归一化显式批次草稿时固化的库存批次版本。",
                     },
-                    "availabilityLevel": {
-                        "type": ["string", "null"],
-                        "enum": ["present_unknown", "low", "sufficient", None],
-                        "description": "不记录精确数量的补货结果；absent 不属于补货操作。",
-                    },
                     "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
-                    "purchaseDate": {"type": ["string", "null"], "maxLength": 10},
-                    "expiryDate": {"type": ["string", "null"], "maxLength": 10},
-                    "storageLocation": {"type": ["string", "null"], "maxLength": 120},
-                    "status": {"type": ["string", "null"], "enum": [*INVENTORY_STATUS_VALUES, None]},
-                    "notes": {"type": "string", "maxLength": 1000},
-                    "lowStockThreshold": {"type": ["number", "null"], "minimum": 0},
                     "reason": {"type": "string", "maxLength": 255},
-                    "sourceQuantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
-                    "sourceUnit": {"type": ["string", "null"], "maxLength": 32},
-                    "conversionRatioToDefault": {"type": ["number", "null"], "exclusiveMinimum": 0},
-                    "conversionNote": {"type": ["string", "null"], "maxLength": 255},
                     "image": {"type": ["object", "null"]},
                     "remainingQuantity": {"type": ["number", "null"], "minimum": 0},
                     "batchOptions": {

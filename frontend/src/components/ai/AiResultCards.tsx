@@ -1,6 +1,6 @@
 import type {
   AiGeneratedRecipeDraft,
-  AiInventoryOperationAction,
+  AiInventoryCardAction,
   AiInventoryResultItem,
   AiOperationResultEntity,
   AiProductLoopPrompt,
@@ -14,7 +14,6 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
-import { AiInventoryIntakeCandidates } from './AiInventoryIntakeCandidates';
 import { AiMealIdeaProposal } from './AiMealIdeaProposal';
 import {
   AI_RESULT_PLACEHOLDER,
@@ -76,7 +75,7 @@ export function ResultImage({ asset, alt }: { asset?: MediaAsset | null; alt: st
   );
 }
 
-const INVENTORY_ACTION_LABELS: Record<AiInventoryOperationAction, string> = {
+const INVENTORY_ACTION_LABELS: Record<AiInventoryCardAction, string> = {
   restock: '补货',
   consume: '消耗',
   dispose: '销毁',
@@ -88,7 +87,7 @@ function InventoryCard({
   isInventoryActionPending,
 }: {
   card: AiResultCard;
-  onInventoryAction?: (item: AiInventoryResultItem, action: AiInventoryOperationAction, card: AiResultCard) => void;
+  onInventoryAction?: (item: AiInventoryResultItem, action: AiInventoryCardAction, card: AiResultCard) => void;
   isInventoryActionPending?: boolean;
 }) {
   const items = inventoryItems(card);
@@ -350,23 +349,30 @@ function OperationResultCard({
             const target = navigateTargetForOperationEntity(item);
             const canOpen = Boolean(target && onNavigate);
             return (
-              <section key={item.id} className="ai-recommendation-item">
-                {canOpen ? (
-                  <button
-                    type="button"
-                    className="ai-entity-open-button"
-                    onClick={() => {
-                      if (target) onNavigate?.(target);
-                    }}
-                  >
+              <section key={item.id} className="ai-recommendation-item ai-operation-result-item">
+                <span className="ai-operation-result-state" aria-label="已完成">
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m5 10 3 3 7-7" />
+                  </svg>
+                </span>
+                <div className="ai-operation-result-item-copy">
+                  {canOpen ? (
+                    <button
+                      type="button"
+                      className="ai-entity-open-button"
+                      onClick={() => {
+                        if (target) onNavigate?.(target);
+                      }}
+                    >
+                      <strong>{operationResultEntityLabel(item)}</strong>
+                    </button>
+                  ) : (
                     <strong>{operationResultEntityLabel(item)}</strong>
-                  </button>
-                ) : (
-                  <strong>{operationResultEntityLabel(item)}</strong>
-                )}
-                <p>
-                  {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
-                </p>
+                  )}
+                  <p>
+                    {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
               </section>
             );
           })}
@@ -471,7 +477,7 @@ export function ResultCard({
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
-  onInventoryAction?: (item: AiInventoryResultItem, action: AiInventoryOperationAction, card: AiResultCard) => void;
+  onInventoryAction?: (item: AiInventoryResultItem, action: AiInventoryCardAction, card: AiResultCard) => void;
   isInventoryActionPending?: boolean;
   onPromptAction?: (prompt: string) => void;
   isPromptActionPending?: boolean;
@@ -499,15 +505,6 @@ export function ResultCard({
         card={card}
         onPromptAction={onPromptAction}
         isPromptActionPending={isPromptActionPending}
-      />
-    );
-  }
-  if (card.type === 'inventory_intake_candidates') {
-    return (
-      <AiInventoryIntakeCandidates
-        card={card}
-        onProductLoopPrompt={onProductLoopPrompt}
-        disabled={isPromptActionPending}
       />
     );
   }

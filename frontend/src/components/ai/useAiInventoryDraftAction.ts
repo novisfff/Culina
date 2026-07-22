@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
-  AiInventoryOperationAction,
+  AiInventoryCardAction,
   AiInventoryResultItem,
   AiMessage,
   AiResultCard,
@@ -11,13 +11,13 @@ import type {
 
 type InventoryDraftRequest = {
   item: AiInventoryResultItem;
-  action: AiInventoryOperationAction;
+  action: AiInventoryCardAction;
   card: AiResultCard;
   messageId: string;
   partId: string;
 };
 
-const ACTION_LABELS: Record<AiInventoryOperationAction, string> = {
+const ACTION_LABELS: Record<AiInventoryCardAction, string> = {
   restock: '补货',
   consume: '消耗',
   dispose: '销毁',

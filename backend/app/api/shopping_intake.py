@@ -9,14 +9,18 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.db.transactions import commit_session
+from app.schemas.inventory_intake import (
+    inventory_result_to_shopping_result,
+    shopping_request_to_inventory_request,
+)
 from app.schemas.inventory_operations import ShoppingIntakeRequest, ShoppingIntakeResult
 from app.services.clock import today_for_family
-from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail
-from app.services.shopping_intake import (
-    ShoppingIntakeValidationError,
-    apply_shopping_intake,
+from app.services.inventory_intake import (
+    InventoryIntakeValidationError,
+    apply_inventory_intake,
     validation_detail,
 )
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail
 
 router = APIRouter(tags=["shopping-intake"])
 
@@ -103,14 +107,16 @@ def create_shopping_intake(
 ) -> ShoppingIntakeResult:
     user, membership = auth
     try:
-        result = apply_shopping_intake(
+        inventory_request = shopping_request_to_inventory_request(payload)
+        inventory_result = apply_inventory_intake(
             db,
             family_id=membership.family_id,
             user_id=user.id,
             user_role=membership.role,
-            request=payload,
+            request=inventory_request,
             business_date=today_for_family(membership.family_id),
         )
+        result = inventory_result_to_shopping_result(inventory_result)
     except InventoryConflictError as exc:
         db.rollback()
         detail = conflict_detail(exc)
@@ -129,7 +135,7 @@ def create_shopping_intake(
                 "field_errors": detail.get("field_errors", []),
             }
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
-    except ShoppingIntakeValidationError as exc:
+    except InventoryIntakeValidationError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

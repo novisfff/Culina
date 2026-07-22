@@ -12,16 +12,7 @@ from app.ai.workflows.runner_support.approval_resume import (
     approval_resolved_state_patch,
     approval_waiting_state_patch,
     continuation_resume_state,
-    continuation_artifact,
     continuation_skill_start_event,
-)
-from app.ai.workflows.orchestrator.continuation import normalize_continuation
-from app.ai.workflows.orchestrator.product_continuations import (
-    build_shopping_to_stock_continuation_from_decision,
-)
-from app.ai.workflows.orchestrator.profiles import (
-    OrchestratorCapabilityPolicy,
-    profile_state_value,
 )
 from app.ai.workflows.runner_support.run_summary import (
     record_approval_outcome_summary,
@@ -527,44 +518,9 @@ class ApprovalResumeHandler:
         state: WorkspaceGraphState,
         serialized: dict[str, Any],
     ) -> dict[str, Any] | None:
-        existing = self.runner._consume_resume_after_approval(state, serialized)
-        if self._is_typed_continuation(existing):
-            return existing
-        continuation = build_shopping_to_stock_continuation_from_decision(
-            self.runner.db,
-            family_id=state["family_id"],
-            decision_result=serialized,
-        )
-        if continuation is None:
-            return existing
-        profile_state = state.get("orchestrator_profile") or {}
-        capability_policy = OrchestratorCapabilityPolicy.from_state(
-            profile_state_value(
-                profile_state,
-                "capabilityPolicy",
-                "capability_policy",
-            )
-        )
-        normalized = normalize_continuation(
-            payload=continuation,
-            source_skill_key="shopping_list",
-            skill_registry=self.runner.skill_registry,
-            capability_policy=capability_policy,
-        )
-        approval = serialized.get("approval") if isinstance(serialized.get("approval"), dict) else {}
-        operation = serialized.get("operation") if isinstance(serialized.get("operation"), dict) else {}
-        entity_ids = operation.get("business_entity_ids")
-        return continuation_artifact(
-            run_id=state["run_id"],
-            approval_id=str(approval.get("id") or ""),
-            continuation=normalized,
-            decision_status=str(approval.get("decision") or approval.get("status") or ""),
-            business_entity_ids=(
-                [str(item) for item in entity_ids if str(item).strip()]
-                if isinstance(entity_ids, list)
-                else []
-            ),
-        )
+        # Shopping completion no longer auto-builds shopping_to_stock continuations.
+        # Purchase intake is owned by inventory_analysis via inventory_intake.
+        return self.runner._consume_resume_after_approval(state, serialized)
 
     @staticmethod
     def _resolve_typed_continuation(

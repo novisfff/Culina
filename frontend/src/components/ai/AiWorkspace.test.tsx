@@ -1875,94 +1875,47 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
-  it('forwards inventory intake card selections with quick task and subject', async () => {
+  it('does not render inventory intake candidate product-loop buttons', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {
-        id: 'message-intake-card',
+        id: 'message-inventory-summary',
         conversation_id: 'conversation-1',
         role: 'assistant',
-        content: '请核对入库候选。',
+        content: '库存摘要。',
         content_type: 'parts',
         parts: [
           {
-            id: 'part-intake-card',
+            id: 'part-inventory-summary',
             type: 'result_card',
             card: {
-              id: 'inventory-intake-card',
-              type: 'inventory_intake_candidates',
-              title: '识别到 1 个可入库食材',
+              id: 'inventory-summary-card',
+              type: 'inventory_summary',
+              title: '库存摘要',
               data: {
-                items: [
-                  {
-                    ingredientId: 'ingredient-tomato',
-                    name: '番茄',
-                    quantityMode: 'track_quantity',
-                    quantity: '2',
-                    unit: '个',
-                    selected: true,
-                    warnings: [],
-                  },
-                ],
-                unresolvedLabels: [],
+                items: [],
+                availableCount: 0,
+                expiringCount: 0,
+                expiredCount: 0,
+                lowStockCount: 0,
               },
             },
           },
         ],
-        run_id: 'run-intake-card',
+        run_id: 'run-inventory-summary',
         status: 'completed',
         metadata: {},
         created_at: '2026-05-30T00:00:00Z',
       },
     ] as AiMessage[]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
-    const streamSpy = vi.spyOn(api, 'streamChatAi').mockResolvedValue({
-      conversation_id: 'conversation-1',
-      message: {
-        id: 'message-intake-next',
-        conversation_id: 'conversation-1',
-        role: 'assistant',
-        content: '已准备入库草稿。',
-        content_type: 'parts',
-        parts: [{ id: 'part-intake-next', type: 'text', text: '已准备入库草稿。' }],
-        run_id: 'run-intake-next',
-        status: 'completed',
-        metadata: {},
-        created_at: '2026-05-30T00:01:00Z',
-      },
-      run: {
-        id: 'run-intake-next',
-        agent_key: 'inventory_agent',
-        intent: 'inventory',
-        status: 'completed',
-        model: 'rules',
-        created_at: '2026-05-30T00:01:00Z',
-      },
-      events: [],
-      included: { result_cards: [], drafts: [], approvals: [] },
-    });
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flushAsync();
 
-    const action = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.includes('按选中项准备入库'));
-    await act(async () => action?.click());
-    await flushAsync();
-
-    expect(streamSpy).toHaveBeenCalled();
-    expect(streamSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      message: '按这些项目准备入库',
-      quick_task: 'inventory_analysis',
-      subject: {
-        source: 'inventory_intake_candidates',
-        extra: {
-          intakeCandidates: [
-            { ingredientId: 'ingredient-tomato', quantity: '2', unit: '个' },
-          ],
-          unresolvedLabels: [],
-        },
-      },
-      attachments: [],
-    }));
+    expect(rendered.container.textContent || '').not.toContain('按选中项准备入库');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button'))
+        .some((button) => button.textContent?.includes('按选中项准备入库')),
+    ).toBe(false);
     rendered.unmount();
   });
 });

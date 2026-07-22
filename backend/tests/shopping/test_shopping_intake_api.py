@@ -581,6 +581,7 @@ def test_food_quantity_precision_is_rejected_before_any_intake_mutation(
     assert detail["code"] == "invalid_quantity"
     assert detail["field_errors"] == [
         {
+            "line_id": f"shopping:{intake_api_context.food_shopping_id}",
             "shopping_item_id": intake_api_context.food_shopping_id,
             "field": "actual_quantity",
             "code": "invalid_quantity",
@@ -680,6 +681,7 @@ def test_food_current_stock_unit_is_validated_before_any_intake_mutation(
     assert detail["code"] == "incompatible_unit"
     assert detail["field_errors"] == [
         {
+            "line_id": f"shopping:{intake_api_context.food_shopping_id}",
             "shopping_item_id": intake_api_context.food_shopping_id,
             "field": "unit",
             "code": "incompatible_unit",

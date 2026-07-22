@@ -67,10 +67,11 @@ DEFAULT_OPERATION_LABELS: dict[str, str] = {
     "update_details": "补充详情",
     "rate_food": "评分",
     "cook": "做菜",
-    "restock": "补货",
     "consume": "消耗",
     "dispose": "销毁",
     "inventory_operation": "库存处理",
+    "inventory_intake": "统一入库",
+    "stock_only": "入库",
 }
 
 APPROVAL_TYPE_DEFAULT_ACTION_SUFFIXES: tuple[tuple[str, str], ...] = (

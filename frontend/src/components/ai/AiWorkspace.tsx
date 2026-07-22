@@ -9,7 +9,7 @@ import type {
   AiChatResponse,
   AiConversation,
   AiConversationVisibility,
-  AiInventoryOperationAction,
+  AiInventoryCardAction,
   AiInventoryResultItem,
   AiMessage,
   AiMessagePart,
@@ -1313,7 +1313,7 @@ export function AiWorkspace({
   }
   function createInventoryOperationDraft(
     item: AiInventoryResultItem,
-    action: AiInventoryOperationAction,
+    action: AiInventoryCardAction,
     card: AiResultCard,
     messageId: string,
     partId: string,

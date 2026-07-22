@@ -1638,6 +1638,20 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            salmon = Ingredient(
+                id="ingredient-salmon-eval",
+                family_id=self.owner.family.id,
+                name="三文鱼",
+                category="海鲜",
+                default_unit="块",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
             dumpling = Food(
                 id="food-dumpling-eval",
                 family_id=self.owner.family.id,
@@ -1649,6 +1663,20 @@ class AIEvalContext:
                 notes="",
                 stock_quantity=Decimal("2"),
                 stock_unit="袋",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            milk = Food(
+                id="food-milk-eval",
+                family_id=self.owner.family.id,
+                name="牛奶",
+                type=FoodType.PACKAGED,
+                category="乳品",
+                flavor_tags=[],
+                scene="",
+                notes="",
+                stock_quantity=Decimal("0"),
+                stock_unit="盒",
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
@@ -1696,6 +1724,30 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            shopping_egg = ShoppingListItem(
+                id="shopping-egg-item-eval",
+                family_id=self.owner.family.id,
+                ingredient_id=egg.id,
+                title="鸡蛋",
+                quantity=Decimal("12"),
+                unit="个",
+                reason="评估小票入库",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            shopping_salmon = ShoppingListItem(
+                id="shopping-salmon-item-eval",
+                family_id=self.owner.family.id,
+                ingredient_id=salmon.id,
+                title="三文鱼",
+                quantity=Decimal("1"),
+                unit="kg",
+                reason="评估小票入库",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
             shopping_food = ShoppingListItem(
                 id="shopping-food-item-eval",
                 family_id=self.owner.family.id,
@@ -1704,6 +1756,18 @@ class AIEvalContext:
                 quantity=Decimal("1"),
                 unit="袋",
                 reason="评估",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            shopping_milk = ShoppingListItem(
+                id="shopping-milk-item-eval",
+                family_id=self.owner.family.id,
+                food_id=milk.id,
+                title="牛奶",
+                quantity=Decimal("2"),
+                unit="盒",
+                reason="评估部分采购",
                 done=False,
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
@@ -1749,13 +1813,33 @@ class AIEvalContext:
                 source=MediaSource.UPLOAD,
                 alt="其他家庭图片",
             )
-            db.add_all([egg, salt, lettuce, dumpling, other_food, recipe, other_recipe, shopping, shopping_food, shopping_completed, current_media, stale_media, other_media])
+            db.add_all([
+                egg,
+                salt,
+                lettuce,
+                salmon,
+                dumpling,
+                milk,
+                other_food,
+                recipe,
+                other_recipe,
+                shopping,
+                shopping_egg,
+                shopping_salmon,
+                shopping_food,
+                shopping_milk,
+                shopping_completed,
+                current_media,
+                stale_media,
+                other_media,
+            ])
             db.flush()
             tomato_food = db.get(Food, "food-tomato")
             assert tomato_food is not None
             tomato_food.recipe_id = recipe.id
             db.add_all([
                 InventoryItem(id="inventory-egg-eval", family_id=self.owner.family.id, ingredient_id=egg.id, quantity=Decimal("4"), consumed_quantity=Decimal("0"), unit="个", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏", low_stock_threshold=Decimal("5")),
+                InventoryItem(id="inventory-salmon-eval", family_id=self.owner.family.id, ingredient_id=salmon.id, quantity=Decimal("1"), consumed_quantity=Decimal("0"), unit="块", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏"),
                 RecipeIngredient(id="recipe-eval-tomato", recipe_id=recipe.id, ingredient_id="ingredient-tomato", ingredient_name="番茄", quantity=Decimal("2"), unit="个", note="", sort_order=0),
                 RecipeIngredient(id="recipe-eval-egg", recipe_id=recipe.id, ingredient_id=egg.id, ingredient_name="鸡蛋", quantity=Decimal("2"), unit="个", note="", sort_order=1),
             ])
@@ -1765,11 +1849,16 @@ class AIEvalContext:
                 "egg": egg.id,
                 "salt": salt.id,
                 "depleted_lettuce": lettuce.id,
+                "salmon": salmon.id,
                 "dumpling": dumpling.id,
+                "milk": milk.id,
                 "tomato_egg_food": "food-tomato",
                 "tomato_egg_recipe": recipe.id,
                 "shopping_item": shopping.id,
+                "shopping_egg_item": shopping_egg.id,
+                "shopping_salmon_item": shopping_salmon.id,
                 "shopping_food_item": shopping_food.id,
+                "shopping_milk_item": shopping_milk.id,
                 "shopping_completed_item": shopping_completed.id,
                 "current_media": current_media.id,
                 "stale_media": stale_media.id,
@@ -1864,33 +1953,183 @@ class AIEvalContext:
             "food.read_by_id": {"id": subject.get("foodId") or self.aliases["dumpling"]},
             "ingredient.read_by_id": {"id": subject.get("ingredientId") or self.aliases["tomato"]},
             "recipe.preview_cook": {"recipeId": subject.get("recipeId") or self.aliases["tomato_egg_recipe"], "servings": 2},
-            "inventory.preview_intake_candidates": {"items": [{"ingredientId": self.aliases["tomato"], "quantity": "2", "unit": "个"}], "unresolvedLabels": []},
             "human.request_input": {"question": "请选择具体食物", "inputMode": "choice", "options": [{"id": self.aliases["dumpling"], "label": "速冻饺子"}], "required": True},
             "meal_plan.propose_from_inventory": {"title": "番茄清汤", "ingredientIds": [self.aliases["tomato"]], "reason": "使用现有库存"},
         }
         if name == "shopping.read_pending":
+            if case.id.startswith("shopping.complete_to_") or case.id.startswith("inventory."):
+                return {"status": "pending", "limit": 50}
             return {
                 "query": "速冻饺子",
                 "exact": True,
                 "status": "completed",
             }
-        if name == "shopping.preview_intake_candidates":
-            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
-            with self.owner.SessionLocal() as db:
-                shopping_item = db.get(ShoppingListItem, shopping_item_id)
-            if shopping_item is None:
-                raise AssertionError(f"{case.id}: shopping fixture is missing")
-            return {
-                "lines": [
-                    {
-                        "clientKey": case.id,
-                        "label": shopping_item.title,
-                        "shoppingItemId": shopping_item.id,
-                        "enteredQuantity": "1" if shopping_item.food_id else "2",
-                        "enteredUnit": shopping_item.unit,
-                    }
-                ]
-            }
+        if name == "purchasable.resolve_candidates":
+            if case.id == "shopping.complete_to_food_stock":
+                return {"items": [{"clientKey": case.id, "name": "速冻饺子"}]}
+            if case.id == "inventory.manual_direct_intake":
+                return {"items": [{"clientKey": case.id, "name": "鸡蛋"}]}
+            if case.id in {
+                "inventory.receipt_mixed_requires_unit_input",
+                "inventory.receipt_mixed_creates_one_draft",
+            }:
+                # Tool input is names only; exact egg/salmon/milk fixtures exist so
+                # the real resolver can return exact matches for scripted drafts.
+                return {
+                    "items": [
+                        {"clientKey": "line-egg", "name": "鸡蛋"},
+                        {"clientKey": "line-salmon", "name": "三文鱼"},
+                        {"clientKey": "line-milk", "name": "牛奶"},
+                        {"clientKey": "line-bag", "name": "垃圾袋"},
+                    ]
+                }
+            if case.id in {
+                "inventory.purchase_source_disambiguation",
+                "inventory.partial_purchase_keeps_remainder",
+            }:
+                return {"items": [{"clientKey": case.id, "name": "牛奶"}]}
+            if case.id == "inventory.gift_ignores_pending_shopping":
+                return {"items": [{"clientKey": case.id, "name": "番茄"}]}
+            if case.id == "inventory.date_conflict_requests_input":
+                return {"items": [{"clientKey": case.id, "name": "番茄"}]}
+            return {"items": [{"clientKey": case.id, "name": "番茄"}]}
+        if name == "human.request_input":
+            if case.id == "inventory.purchase_source_disambiguation":
+                return {
+                    "question": "牛奶是关联采购清单还是直接入库？",
+                    "inputMode": "choice",
+                    "options": [
+                        {"id": "link_shopping", "label": "关联采购清单"},
+                        {"id": "direct", "label": "直接入库"},
+                    ],
+                    "allowMultiple": False,
+                    "required": True,
+                    "sourceSkills": ["inventory_analysis"],
+                    "resumeHint": {"questionType": "inventory_intake_resolution"},
+                }
+            if case.id == "inventory.receipt_mixed_requires_unit_input":
+                continuation_state = {
+                    "sourceType": "receipt_image",
+                    "sourceReference": {
+                        "mediaId": subject.get("mediaId") or self.aliases["current_media"]
+                    },
+                    "purchaseIntent": "purchase",
+                    "dateEvidence": {
+                        "userDate": None,
+                        "userSaidToday": False,
+                        "receiptDate": today,
+                    },
+                    "intakeDate": today,
+                    "intakeDateSource": "receipt",
+                    "lines": [
+                        {
+                            "sourceLineId": "line-egg",
+                            "sourceOrder": 0,
+                            "rawText": "鸡蛋 12个",
+                            "name": "鸡蛋",
+                            "quantity": "12",
+                            "unit": "个",
+                            "itemKind": "inventory",
+                            "targetHint": "ingredient",
+                            "resolvedSourceKind": "shopping_item",
+                            "selectedShoppingItemId": self.aliases["shopping_egg_item"],
+                            "selectedTargetKind": "exact_ingredient",
+                            "selectedTargetId": self.aliases["egg"],
+                            "confirmedAction": "stock_and_fulfill",
+                            "confirmedQuantity": "12",
+                            "confirmedUnit": "个",
+                            "disposition": "ready",
+                        },
+                        {
+                            "sourceLineId": "line-salmon",
+                            "sourceOrder": 1,
+                            "rawText": "三文鱼 1kg",
+                            "name": "三文鱼",
+                            "quantity": "1",
+                            "unit": "kg",
+                            "itemKind": "inventory",
+                            "targetHint": "ingredient",
+                            "resolvedSourceKind": "shopping_item",
+                            "selectedShoppingItemId": self.aliases["shopping_salmon_item"],
+                            "selectedTargetKind": "exact_ingredient",
+                            "selectedTargetId": self.aliases["salmon"],
+                            "disposition": "pending",
+                        },
+                        {
+                            "sourceLineId": "line-milk",
+                            "sourceOrder": 2,
+                            "rawText": "牛奶 1盒",
+                            "name": "牛奶",
+                            "quantity": "1",
+                            "unit": "盒",
+                            "itemKind": "inventory",
+                            "targetHint": "food",
+                            "resolvedSourceKind": "direct",
+                            "selectedTargetKind": "food",
+                            "selectedTargetId": self.aliases["milk"],
+                            "confirmedAction": "stock_only",
+                            "confirmedQuantity": "1",
+                            "confirmedUnit": "盒",
+                            "disposition": "ready",
+                        },
+                        {
+                            "sourceLineId": "line-bag",
+                            "sourceOrder": 3,
+                            "rawText": "垃圾袋",
+                            "name": "垃圾袋",
+                            "itemKind": "non_inventory",
+                            "disposition": "ignored",
+                        },
+                    ],
+                    "ignoredItems": [
+                        {
+                            "sourceLineId": "line-bag",
+                            "reasonCode": "non_inventory_item",
+                            "reason": "非食品库存对象，本次不会入库",
+                        }
+                    ],
+                    "currentBlocker": {
+                        "sourceLineId": "line-salmon",
+                        "reasonCode": "unit_mismatch",
+                    },
+                    "pendingBlockers": [
+                        {
+                            "sourceLineId": "line-salmon",
+                            "reasonCode": "conversion_quantity_missing",
+                        }
+                    ],
+                }
+                return {
+                    "question": "三文鱼按公斤识别，但当前库存单位是块。这次要怎样处理？",
+                    "inputMode": "choice",
+                    "options": [
+                        {"id": "convert_once", "label": "提供本次换算"},
+                        {"id": "fulfill_without_stock", "label": "只完成采购项，不入库"},
+                        {"id": "skip", "label": "本次跳过"},
+                    ],
+                    "allowMultiple": False,
+                    "required": True,
+                    "sourceSkills": ["inventory_analysis"],
+                    "resumeHint": {
+                        "questionType": "inventory_intake_resolution",
+                        "stateSchema": "inventory_intake_continuation.v1",
+                        "state": continuation_state,
+                    },
+                }
+            if case.id == "inventory.date_conflict_requests_input":
+                return {
+                    "question": "小票日期与你说的今天不一致，以哪个日期入库？",
+                    "inputMode": "choice",
+                    "options": [
+                        {"id": "user_today", "label": "按今天"},
+                        {"id": "receipt_date", "label": "按小票日期"},
+                    ],
+                    "allowMultiple": False,
+                    "required": True,
+                    "sourceSkills": ["inventory_analysis"],
+                    "resumeHint": {"questionType": "inventory_intake_resolution"},
+                }
+            return common["human.request_input"]
         if name in common:
             return common[name]
         continuation_tool = {
@@ -1945,65 +2184,275 @@ class AIEvalContext:
                         ],
                     }
                 }
-            elif case.id.startswith("shopping.complete_to_"):
-                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+            else:
+                payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
+        elif name == "inventory.create_intake_draft":
+            if case.id == "inventory.manual_direct_intake":
                 with self.owner.SessionLocal() as db:
-                    shopping_item = db.get(ShoppingListItem, shopping_item_id)
-                if shopping_item is None:
-                    raise AssertionError(f"{case.id}: shopping fixture is missing")
+                    ingredient = db.get(Ingredient, self.aliases["egg"])
+                if ingredient is None:
+                    raise AssertionError(f"{case.id}: egg Ingredient fixture is missing")
                 payload = {
                     "draft": {
-                        "draftType": "shopping_list",
-                        "schemaVersion": "shopping_list_operation.v1",
-                        "operations": [
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "manual_text",
+                        "sourceReference": {},
+                        "intakeDate": today,
+                        "intakeDateSource": "user_explicit",
+                        "items": [
                             {
-                                "action": "set_done",
-                                "targetId": shopping_item.id,
-                                "baseUpdatedAt": shopping_item.updated_at.isoformat(),
-                                "payload": {"done": True, "reason": "已采购"},
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": "鸡蛋 12个",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "12",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
+                }
+            elif case.id == "inventory.gift_ignores_pending_shopping":
+                with self.owner.SessionLocal() as db:
+                    ingredient = db.get(Ingredient, self.aliases["tomato"])
+                if ingredient is None:
+                    raise AssertionError(f"{case.id}: tomato Ingredient fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "gift",
+                        "sourceReference": {},
+                        "intakeDate": today,
+                        "intakeDateSource": "user_explicit",
+                        "items": [
+                            {
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "朋友赠送",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
+                }
+            elif case.id == "inventory.partial_purchase_keeps_remainder":
+                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_milk_item"])
+                with self.owner.SessionLocal() as db:
+                    shopping_item = db.get(ShoppingListItem, shopping_item_id)
+                    if shopping_item is None:
+                        raise AssertionError(f"{case.id}: shopping fixture is missing")
+                    if shopping_item.food_id:
+                        target = db.get(Food, shopping_item.food_id)
+                        target_kind = "food"
+                    else:
+                        target = db.get(Ingredient, shopping_item.ingredient_id)
+                        target_kind = "exact_ingredient"
+                if target is None:
+                    raise AssertionError(f"{case.id}: shopping target fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "manual_text",
+                        "sourceReference": {},
+                        "intakeDate": today,
+                        "intakeDateSource": "user_explicit",
+                        "items": [
+                            {
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": shopping_item.title,
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": shopping_item.id,
+                                "targetKind": target_kind,
+                                "targetId": target.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": shopping_item.unit,
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "部分采购",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
+                }
+            elif case.id == "inventory.receipt_mixed_creates_one_draft":
+                with self.owner.SessionLocal() as db:
+                    egg = db.get(Ingredient, self.aliases["egg"])
+                    salmon = db.get(Ingredient, self.aliases["salmon"])
+                    milk = db.get(Food, self.aliases["milk"])
+                    shopping_egg = db.get(ShoppingListItem, self.aliases["shopping_egg_item"])
+                    shopping_salmon = db.get(ShoppingListItem, self.aliases["shopping_salmon_item"])
+                if (
+                    egg is None
+                    or salmon is None
+                    or milk is None
+                    or shopping_egg is None
+                    or shopping_salmon is None
+                ):
+                    raise AssertionError(f"{case.id}: mixed intake fixtures missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "receipt_image",
+                        "sourceReference": {
+                            "mediaId": subject.get("mediaId") or self.aliases["current_media"]
+                        },
+                        "intakeDate": today,
+                        "intakeDateSource": "receipt",
+                        "items": [
+                            {
+                                "lineId": "line-egg",
+                                "sourceLineId": "line-egg",
+                                "sourceText": "鸡蛋 12个",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": shopping_egg.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": egg.id,
+                                "enteredQuantity": "12",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            },
+                            {
+                                "lineId": "line-salmon",
+                                "sourceLineId": "line-salmon",
+                                "sourceText": "三文鱼 1kg",
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": shopping_salmon.id,
+                                "targetKind": "exact_ingredient",
+                                "targetId": salmon.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "kg",
+                                "packageConversion": {
+                                    "ratio": "2",
+                                    "targetUnit": "块",
+                                    "evidence": "user_confirmed_once",
+                                },
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            },
+                            {
+                                "lineId": "line-milk",
+                                "sourceLineId": "line-milk",
+                                "sourceText": "牛奶 1盒",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "food",
+                                "targetId": milk.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "盒",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            },
+                        ],
+                        "ignoredItems": [
+                            {
+                                "sourceLineId": "line-bag",
+                                "sourceText": "垃圾袋",
+                                "displayName": "垃圾袋",
+                                "reasonCode": "non_inventory_item",
+                                "reason": "非食品库存对象，本次不会入库",
                             }
                         ],
                     }
                 }
-            else:
-                payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
-        elif name == "shopping.create_intake_draft":
-            shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
-            with self.owner.SessionLocal() as db:
-                shopping_item = db.get(ShoppingListItem, shopping_item_id)
-                if shopping_item is None:
-                    raise AssertionError(f"{case.id}: shopping fixture is missing")
-                if shopping_item.food_id:
-                    target = db.get(Food, shopping_item.food_id)
-                    target_kind = "food"
-                else:
-                    target = db.get(Ingredient, shopping_item.ingredient_id)
-                    target_kind = "exact_ingredient"
-            if target is None:
-                raise AssertionError(f"{case.id}: shopping target fixture is missing")
-            payload = {
-                "draft": {
-                    "draftType": "shopping_intake",
-                    "schemaVersion": "shopping_intake.v1",
-                    "purchaseDate": today,
-                    "items": [
-                        {
-                            "shoppingItemId": shopping_item.id,
-                            "matchLevel": "confirmed",
-                            "matchReason": "用户明确指定真实待买项",
-                            "action": "stock_and_fulfill",
-                            "targetKind": target_kind,
-                            "targetId": target.id,
-                            "enteredQuantity": "1" if target_kind == "food" else "2",
-                            "enteredUnit": shopping_item.unit,
-                            "inventoryStatus": "fresh",
-                            "storageLocation": "冷藏",
-                            "notes": "",
-                        }
-                    ],
-                    "unmatchedCandidates": [],
+            elif case.id.startswith("shopping.complete_to_"):
+                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+                with self.owner.SessionLocal() as db:
+                    shopping_item = db.get(ShoppingListItem, shopping_item_id)
+                    if shopping_item is None:
+                        raise AssertionError(f"{case.id}: shopping fixture is missing")
+                    if shopping_item.food_id:
+                        target = db.get(Food, shopping_item.food_id)
+                        target_kind = "food"
+                    else:
+                        target = db.get(Ingredient, shopping_item.ingredient_id)
+                        target_kind = "exact_ingredient"
+                if target is None:
+                    raise AssertionError(f"{case.id}: shopping target fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "manual_text",
+                        "sourceReference": {},
+                        "intakeDate": today,
+                        "intakeDateSource": "user_explicit",
+                        "items": [
+                            {
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": shopping_item.title,
+                                "sourceKind": "shopping_item",
+                                "action": "stock_and_fulfill",
+                                "shoppingItemId": shopping_item.id,
+                                "targetKind": target_kind,
+                                "targetId": target.id,
+                                "enteredQuantity": "1" if target_kind == "food" else "2",
+                                "enteredUnit": shopping_item.unit,
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
                 }
-            }
+            else:
+                with self.owner.SessionLocal() as db:
+                    ingredient = db.get(Ingredient, self.aliases["tomato"])
+                if ingredient is None:
+                    raise AssertionError(f"{case.id}: tomato Ingredient fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "inventory_intake",
+                        "schemaVersion": "inventory_intake.v1",
+                        "sourceType": "receipt_image",
+                        "sourceReference": {"mediaId": subject.get("mediaId") or self.aliases["current_media"]},
+                        "intakeDate": today,
+                        "intakeDateSource": "receipt",
+                        "items": [
+                            {
+                                "lineId": f"line-{case.id}",
+                                "sourceLineId": case.id,
+                                "sourceText": "番茄 2个",
+                                "sourceKind": "direct",
+                                "action": "stock_only",
+                                "targetKind": "exact_ingredient",
+                                "targetId": ingredient.id,
+                                "enteredQuantity": "2",
+                                "enteredUnit": "个",
+                                "inventoryStatus": "fresh",
+                                "storageLocation": "冷藏",
+                                "notes": "",
+                            }
+                        ],
+                        "ignoredItems": [],
+                    }
+                }
         elif name == "recipe.create_draft":
             step = {"title": "烹饪", "text": "中火烹饪并观察成熟状态，确认熟透后盛出。", "icon": "pan", "summary": "烹饪", "estimated_minutes": 5, "tip": "注意火候", "key_points": ["熟透"]}
             ingredient_items = [{"ingredient_id": self.aliases["tomato"], "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}]
@@ -2114,18 +2563,15 @@ class AIEvalContext:
                 "draft": {
                     "draftType": "inventory_operation",
                     "schemaVersion": "inventory_operation.v1",
-                    "source": {"shoppingItemId": self.aliases["shopping_item"]},
                     "operations": [
                         {
-                            "action": "restock",
+                            "action": "dispose",
                             "ingredientId": self.aliases["tomato"],
                             "ingredientName": "番茄",
-                            "quantity": 2,
+                            "inventoryItemId": self.aliases.get("tomato_inventory", "inventory-tomato"),
+                            "quantity": 1,
                             "unit": "个",
-                            "purchaseDate": self.EVAL_TODAY.isoformat(),
-                            "storageLocation": "冷藏",
-                            "status": "fresh",
-                            "reason": "购物完成后入库",
+                            "reason": "评估销毁",
                         }
                     ],
                 }
@@ -2141,15 +2587,46 @@ class AIEvalContext:
         if not schema:
             return None
         mapping = {
-            "shopping_to_stock.v1": ("shopping_completed_ingredient", "inventory_analysis", "inventory_analysis", "inventory_operation", {"shoppingItemId": self.aliases["shopping_item"], "targetType": "ingredient", "ingredientId": self.aliases["tomato"], "quantity": "2", "unit": "个", "stockAction": "restock"}),
             "recipe_shortage_to_shopping.v1": ("recipe_shortage", "shopping_list", "shopping_list", "shopping_list", {"recipeId": self.aliases["tomato_egg_recipe"], "shortages": [{"ingredientId": self.aliases["egg"], "ingredientName": "鸡蛋", "shortageType": "quantity", "quantity": "2", "unit": "个"}]}),
             "food_to_meal_plan.v1": ("plan_after_create", "meal_plan", "meal_plan", "meal_plan", {"targetDate": self.EVAL_TODAY.isoformat(), "mealType": "dinner", "instruction": "安排晚餐"}),
             "recipe_missing_ingredient.v1": ("missing_ingredient", "ingredient_profile", "recipe_draft", "ingredient_profile", {"recipeTitle": "番茄炒蛋", "currentIngredient": "鸡蛋", "pendingIngredientNames": [], "completedIngredientIds": [self.aliases["tomato"]]}),
+            "inventory_intake_missing_target.v1": (
+                "missing_intake_target",
+                "ingredient_profile",
+                "inventory_analysis",
+                "ingredient_profile",
+                {
+                    "sourceType": "receipt_image",
+                    "sourceReference": {"mediaId": self.aliases["current_media"]},
+                    "purchaseIntent": "purchase",
+                    "dateEvidence": {
+                        "userDate": None,
+                        "userSaidToday": False,
+                        "receiptDate": self.EVAL_TODAY.isoformat(),
+                    },
+                    "intakeDate": self.EVAL_TODAY.isoformat(),
+                    "intakeDateSource": "receipt",
+                    "lines": [
+                        {
+                            "sourceLineId": "line-missing",
+                            "sourceOrder": 0,
+                            "rawText": "海带结",
+                            "name": "海带结",
+                            "itemKind": "inventory",
+                            "disposition": "missing_target",
+                        }
+                    ],
+                    "ignoredItems": [],
+                    "currentBlocker": {
+                        "sourceLineId": "line-missing",
+                        "reasonCode": "target_missing",
+                    },
+                    "pendingBlockers": [],
+                    "currentMissingSourceLineId": "line-missing",
+                },
+            ),
         }
         reason, next_skill, resume_skill, draft_type, state = mapping[schema]
-        if case.id == "shopping.complete_to_food_stock":
-            reason, next_skill, resume_skill, draft_type = "shopping_completed_food", "food_profile", "food_profile", "food_profile"
-            state = {"shoppingItemId": self.aliases["shopping_item"], "targetType": "food", "foodId": self.aliases["dumpling"], "quantity": "1", "unit": "袋", "stockAction": "restock"}
         return {"workflowId": f"eval-{case.id}", "stepKey": "draft", "reasonCode": reason, "nextSkillKey": next_skill, "resumeSkillKey": resume_skill, "requiredDraftType": draft_type, "stateSchema": schema, "state": state}
 
     def run_case(self, case):

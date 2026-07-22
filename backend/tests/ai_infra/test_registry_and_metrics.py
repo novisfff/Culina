@@ -214,8 +214,8 @@ def test_unclassified_draft_specs_remain_audit_only() -> None:
         ),
         (
             "inventory_operation",
-            {"operations": [{"action": "restock"}]},
-            {"operations": [{"action": "restock", "inventory_item": {"id": "inv-1"}}]},
+            {"operations": [{"action": "consume"}]},
+            {"operations": [{"action": "consume", "inventory_item": {"id": "inv-1"}}]},
         ),
     ]
     for draft_type, submitted_payload, business_entity in cases:
@@ -412,7 +412,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 "recipe",
                 "recipe_cook",
                 "shopping_list",
-                "shopping_intake",
+                "inventory_intake",
                 "meal_plan",
                 "meal_log",
                 "food_profile",
@@ -449,7 +449,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ),
                 "create",
             )
-            self.assertEqual(draft_operation_registry.operation_label("inventory_operation", "restock"), "补货")
+            self.assertEqual(draft_operation_registry.operation_label("inventory_operation", "consume"), "消耗")
             self.assertIn("直接修改下面的草稿", draft_operation_registry.recovery_hint("meal_plan"))
             self.assertIn("根据当前业务值", draft_operation_registry.recovery_hint("recipe"))
             self.assertIsNone(
@@ -472,7 +472,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ),
                 "inventory_operation",
             )
-            self.assertEqual(approval_result_operation_label("restock"), "补货")
+            self.assertEqual(approval_result_operation_label("consume"), "消耗")
             self.assertEqual(approval_result_workspace_label("unknown_draft"), "对应页面")
             self.assertEqual(approval_result_count_label("unknown_draft", 3), "3 个实体")
             self.assertEqual(fallback_type_label("unknown_draft"), "unknown_draft")
@@ -511,14 +511,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                         "operations": [
                             {
                                 "operationId": "op-1",
-                                "operation": "restock",
+                                "operation": "consume",
                                 "inventory_item": {"id": "inventory-1", "name": "番茄"},
                             }
                         ]
                     },
                     entity_type="InventoryItem",
                 ),
-                [{"id": "inventory-1", "name": "番茄", "_operation": "restock", "_operationId": "op-1"}],
+                [{"id": "inventory-1", "name": "番茄", "_operation": "consume", "_operationId": "op-1"}],
             )
 
         def test_draft_operation_registry_runs_inventory_success_hook(self) -> None:
@@ -737,7 +737,6 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                     "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
                     "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
                     "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
-                    "inventory.preview_intake_candidates": "冰箱照片或小票解析出的可审阅入库候选卡可作为当前轮终态输出，卡片本身不写库存。",
                 },
             )
             self.assertEqual(
@@ -745,7 +744,12 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 {
                     "ingredient.search": "食材检索后必须说明候选库存处理对象、请求用户选择，或继续读取食材/库存并生成库存处理草稿。",
                     "ingredient.read_by_id": "读取食材档案后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。",
-                    "ingredient.resolve_candidates": "批量解析后必须把 exact 候选交给入库候选预览，把 missing 逐项进入食材档案 handoff，并对 ambiguous 请求用户选择。",
+                    "ingredient.resolve_candidates": "批量解析后必须把 exact 候选交给后续入库处理，把 missing 逐项进入食材档案 handoff，并对 ambiguous 请求用户选择。",
+                    "purchasable.resolve_candidates": "批量解析后必须逐项处理：exact 可继续；candidate 或 ambiguous 必须请求用户选择；missing 必须进入资料 handoff、明确非食品忽略或 skip。所有原始行解决后才可创建 inventory_intake 草稿；不得把 Tool 结果显示为候选卡或视为用户已经确认。",
+                    "food.search": "食物检索后必须说明可入库的成品、速食或包装食品候选，请求用户选择，或继续生成入库草稿。",
+                    "food.read_by_id": "读取食物资料后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。",
+                    "shopping.read_pending": "读取待采购清单后必须用于采购关联匹配，或继续请求补充信息/生成统一入库草稿；不得把读取结果当作已确认入库。",
+                    "shopping.read_by_id": "读取购物项详情后必须继续匹配、请求补充信息，或生成统一入库草稿。",
                     "workspace.read_artifact": "读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。",
                 },
             )
@@ -806,7 +810,8 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("meal_log.read_by_id", skills["meal_log"]["tools"])
             self.assertIn("ingredient.search", skills["inventory_analysis"]["tools"])
             self.assertIn("ingredient.read_by_id", skills["inventory_analysis"]["tools"])
-            self.assertIn("inventory.create_unit_conversion_operation_draft", skills["inventory_analysis"]["tools"])
+            self.assertIn("inventory.create_intake_draft", skills["inventory_analysis"]["tools"])
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", skills["inventory_analysis"]["tools"])
             self.assertIn("recipe.preview_cook", skills["recipe_cook"]["tools"])
             self.assertIn("recipe.create_cook_draft", skills["recipe_cook"]["tools"])
             self.assertEqual(
@@ -882,11 +887,12 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(tools["meal_log.create_draft"]["draft_types"], ["meal_log"])
             self.assertEqual(tools["meal_log.read_by_id"]["display_name"], "餐食记录详情")
             self.assertEqual(tools["meal_log.read_by_id"]["side_effect"], "read")
-            self.assertEqual(tools["inventory.create_unit_conversion_operation_draft"]["side_effect"], "draft")
+            self.assertEqual(tools["inventory.create_intake_draft"]["side_effect"], "draft")
             self.assertEqual(
-                tools["inventory.create_unit_conversion_operation_draft"]["draft_types"],
-                ["inventory_operation"],
+                tools["inventory.create_intake_draft"]["draft_types"],
+                ["inventory_intake"],
             )
+            self.assertNotIn("inventory.create_unit_conversion_operation_draft", tools)
             self.assertNotIn("intent." + "request_clarification", tools)
             self.assertEqual(tools["inventory.read_summary"]["output_types"], ["inventory_summary"])
             self.assertEqual(tools["meal_plan.recommend_today"]["output_types"], ["today_recommendation"])

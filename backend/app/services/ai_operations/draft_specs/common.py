@@ -54,15 +54,15 @@ DRAFT_APPROVAL_BASE_CONFIGS: dict[str, dict[str, str]] = {
         "approve_label": "加入购物清单",
         "reject_label": "暂不加入",
     },
-    "shopping_intake": {
+    "inventory_intake": {
         "value_key": "draft",
-        "widget": "shopping_intake_editor",
-        "approval_type": "shopping_intake.apply",
-        "operation_type": "shopping_intake.apply",
+        "widget": "inventory_intake_editor",
+        "approval_type": "inventory_intake.apply",
+        "operation_type": "inventory_intake.apply",
         "business_entity_type": "InventoryOperation",
-        "title": "确认完成采购并入库",
-        "instruction": "确认后会在一个事务中更新所选购物项并登记实际库存；额外购买候选不会随本次提交。",
-        "approve_label": "确认完成并入库",
+        "title": "确认入库",
+        "instruction": "确认后会统一登记库存，并按草稿更新关联采购项。",
+        "approve_label": "确认入库",
         "reject_label": "暂不处理",
     },
     "meal_plan": {

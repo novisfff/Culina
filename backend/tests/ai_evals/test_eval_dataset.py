@@ -46,7 +46,7 @@ def test_observation_requires_matching_case_id() -> None:
 
 def test_core_dataset_has_required_coverage() -> None:
     cases = load_eval_cases(CORE_CASES)
-    assert len(cases) == 35
+    assert len(cases) == 42
     covered_skills = {skill for case in cases for skill in case.expectedSkills}
     assert covered_skills == {
         "cooking_assistant",
@@ -62,13 +62,22 @@ def test_core_dataset_has_required_coverage() -> None:
     assert sum(case.category == "identity_boundary" for case in cases) == 5
     assert sum(case.category == "attachment_boundary" for case in cases) == 3
     assert sum(case.category == "continuation" for case in cases) == 3
+    required_intake_ids = {
+        "inventory.manual_direct_intake",
+        "inventory.purchase_source_disambiguation",
+        "inventory.gift_ignores_pending_shopping",
+        "inventory.receipt_mixed_requires_unit_input",
+        "inventory.receipt_mixed_creates_one_draft",
+        "inventory.partial_purchase_keeps_remainder",
+        "inventory.date_conflict_requests_input",
+    }
+    assert required_intake_ids <= {case.id for case in cases}
     assert all(case.expectsContinuationCompletion for case in cases if case.category == "continuation")
     assert all(any(entry.get("resume") is True for entry in case.script) for case in cases if case.category == "continuation")
     expected_cards = {
         "inventory.available": ["inventory_summary"],
         "inventory.low_stock_zero": ["inventory_summary"],
         "inventory.expiring": ["inventory_summary"],
-        "inventory.intake_preview": ["inventory_intake_candidates"],
         "meal.plan_empty_library": ["meal_idea_proposal"],
         "cooking.next_step": ["ui_actions"],
     }

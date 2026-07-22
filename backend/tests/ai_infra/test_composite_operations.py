@@ -348,10 +348,10 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                         "operation": {"action": "create", "payload": {"name": "鸡胸肉"}},
                     },
                     {
-                        "stepId": "restock",
+                        "stepId": "consume",
                         "domain": "inventory",
                         "dependsOn": ["create-ingredient"],
-                        "operation": {"action": "restock", "ingredientRef": "$create-ingredient.entityId"},
+                        "operation": {"action": "consume", "ingredientRef": "$create-ingredient.entityId"},
                     },
                 ],
             }
@@ -359,7 +359,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
             normalized = validate_composite_operation_plan(payload)
 
             self.assertEqual(normalized["schemaVersion"], "composite_operation.v1")
-            self.assertEqual([step["stepId"] for step in normalized["steps"]], ["create-ingredient", "restock"])
+            self.assertEqual([step["stepId"] for step in normalized["steps"]], ["create-ingredient", "consume"])
             self.assertEqual(normalized["steps"][1]["dependsOn"], ["create-ingredient"])
 
         def test_composite_operation_protocol_validator_rejects_invalid_dependencies(self) -> None:
@@ -370,10 +370,10 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                         "schemaVersion": "composite_operation.v1",
                         "steps": [
                             {
-                                "stepId": "restock",
+                                "stepId": "consume",
                                 "domain": "inventory",
                                 "dependsOn": ["missing"],
-                                "operation": {"action": "restock"},
+                                "operation": {"action": "consume"},
                             }
                         ],
                     }
@@ -398,10 +398,10 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                     "schemaVersion": "composite_operation.v1",
                     "steps": [
                         {
-                            "stepId": "restock",
+                            "stepId": "consume",
                             "domain": "inventory",
                             "dependsOn": ["create-ingredient"],
-                            "operation": {"action": "restock"},
+                            "operation": {"action": "consume"},
                         },
                         {
                             "stepId": "create-ingredient",
@@ -412,15 +412,15 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                 }
             )
 
-            self.assertEqual([step["stepId"] for step in ordered], ["create-ingredient", "restock"])
+            self.assertEqual([step["stepId"] for step in ordered], ["create-ingredient", "consume"])
 
         def test_composite_operation_resolves_declared_dependency_references(self) -> None:
             step = {
-                "stepId": "restock",
+                "stepId": "consume",
                 "domain": "inventory",
                 "dependsOn": ["create-ingredient"],
                 "operation": {
-                    "action": "restock",
+                    "action": "consume",
                     "ingredientId": "$create-ingredient.entityId",
                     "summary": "$create-ingredient.payload.name",
                 },
@@ -442,7 +442,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
             with self.assertRaisesRegex(ValueError, "只能引用自己的依赖步骤"):
                 resolve_composite_step_operation(
                     {
-                        "stepId": "restock",
+                        "stepId": "consume",
                         "domain": "inventory",
                         "dependsOn": [],
                         "operation": {"ingredientId": "$create-ingredient.entityId"},
@@ -457,15 +457,14 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                     "schemaVersion": "composite_operation.v1",
                     "steps": [
                         {
-                            "stepId": "restock",
+                            "stepId": "consume",
                             "domain": "inventory",
                             "dependsOn": ["create-ingredient"],
                             "operation": {
-                                "action": "restock",
+                                "action": "consume",
                                 "ingredientId": "$create-ingredient.entityId",
                                 "quantity": 500,
                                 "unit": "克",
-                                "storageLocation": "冷冻",
                             },
                         },
                         {
@@ -486,16 +485,16 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(preview["schemaVersion"], "composite_operation.v1")
             self.assertEqual(preview["stepCount"], 2)
-            self.assertEqual([step["stepId"] for step in preview["steps"]], ["create-ingredient", "restock"])
+            self.assertEqual([step["stepId"] for step in preview["steps"]], ["create-ingredient", "consume"])
             self.assertEqual(preview["steps"][0]["title"], "新增食材档案 · 鸡胸肉")
             self.assertEqual(preview["steps"][0]["impact"]["creates"], 1)
-            restock = preview["steps"][1]
-            self.assertEqual(restock["domainLabel"], "库存")
-            self.assertEqual(restock["actionLabel"], "入库")
-            self.assertEqual(restock["dependsOn"], ["create-ingredient"])
-            self.assertEqual(restock["dependencyRefs"], [{"stepId": "create-ingredient", "path": "entityId", "ref": "$create-ingredient.entityId"}])
-            self.assertTrue(restock["impact"]["usesDependencyResult"])
-            self.assertEqual(restock["impact"]["operationCount"], 1)
+            consume = preview["steps"][1]
+            self.assertEqual(consume["domainLabel"], "库存")
+            self.assertEqual(consume["actionLabel"], "消耗")
+            self.assertEqual(consume["dependsOn"], ["create-ingredient"])
+            self.assertEqual(consume["dependencyRefs"], [{"stepId": "create-ingredient", "path": "entityId", "ref": "$create-ingredient.entityId"}])
+            self.assertTrue(consume["impact"]["usesDependencyResult"])
+            self.assertEqual(consume["impact"]["operationCount"], 1)
 
         def test_composite_operation_step_preview_rejects_undeclared_dependency_reference(self) -> None:
             with self.assertRaisesRegex(ValueError, "只能引用自己的依赖步骤"):
@@ -505,10 +504,10 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                         "schemaVersion": "composite_operation.v1",
                         "steps": [
                             {
-                                "stepId": "restock",
+                                "stepId": "consume",
                                 "domain": "inventory",
                                 "operation": {
-                                    "action": "restock",
+                                    "action": "consume",
                                     "ingredientId": "$create-ingredient.entityId",
                                     "quantity": 500,
                                     "unit": "克",
@@ -553,7 +552,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                     owner_user_id=self.user.id,
                     visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
-                    prompt="新增鸡胸肉并入库",
+                    prompt="新增鸡胸肉并消耗番茄",
                     response="",
                     context={"workspace": True},
                     title="复合操作",
@@ -595,20 +594,20 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                             },
                         },
                         {
-                            "stepId": "restock",
+                            "stepId": "consume-stock",
                             "domain": "inventory",
-                            "dependsOn": ["create-ingredient"],
+                            "dependsOn": [],
                             "operation": {
-                                "action": "restock",
-                                "ingredientId": "$create-ingredient.entityId",
-                                "quantity": 500,
-                                "unit": "克",
-                                "purchaseDate": date.today().isoformat(),
-                                "expiryDate": (date.today() + timedelta(days=30)).isoformat(),
-                                "storageLocation": "冷冻",
-                                "status": "frozen",
-                                "notes": "AI 复合操作入库",
-                                "lowStockThreshold": 100,
+                                "operations": [
+                                    {
+                                        "action": "dispose",
+                                        "ingredientId": "ingredient-tomato",
+                                        "inventoryItemId": "inventory-tomato",
+                                        "quantity": 1,
+                                        "unit": "个",
+                                        "reason": "AI 复合操作销毁",
+                                    }
+                                ]
                             },
                         },
                     ],
@@ -643,13 +642,13 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(decision["draft"]["status"], "confirmed")
                 self.assertEqual(decision["business_entity"]["schemaVersion"], "composite_operation.v1")
                 ingredient_id = decision["business_entity"]["stepResults"]["create-ingredient"]["entityId"]
-                inventory_ids = decision["business_entity"]["stepResults"]["restock"]["entityIds"]
+                inventory_ids = decision["business_entity"]["stepResults"]["consume-stock"]["entityIds"]
                 ingredient = db.get(Ingredient, ingredient_id)
                 inventory_item = db.get(InventoryItem, inventory_ids[0])
                 self.assertIsNotNone(ingredient)
                 self.assertIsNotNone(inventory_item)
                 self.assertEqual(ingredient.name, "鸡胸肉")
-                self.assertEqual(inventory_item.ingredient_id, ingredient_id)
+                self.assertEqual(inventory_item.id, "inventory-tomato")
                 refreshed = db.get(AIMessage, message.id)
                 self.assertTrue(
                     any(
@@ -768,64 +767,48 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
 
         def test_composite_executor_creates_ingredient_then_restock_inventory(self) -> None:
             with self.SessionLocal() as db:
-                result = execute_composite_operation_plan(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    payload={
-                        "draftType": "composite_operation",
-                        "schemaVersion": "composite_operation.v1",
-                        "steps": [
-                            {
-                                "stepId": "create-ingredient",
-                                "domain": "ingredient",
-                                "operation": {
-                                    "action": "create",
-                                    "payload": {
-                                        "name": "鸡胸肉",
-                                        "category": "肉类",
-                                        "default_unit": "克",
-                                        "unit_conversions": [],
-                                        "default_storage": "冷冻",
-                                        "default_expiry_mode": "days",
-                                        "default_expiry_days": 90,
-                                        "default_low_stock_threshold": 100,
-                                        "notes": "适合备餐",
-                                        "media_ids": [],
+                with self.assertRaisesRegex(ValueError, "入库请使用 inventory_intake"):
+                    execute_composite_operation_plan(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        payload={
+                            "draftType": "composite_operation",
+                            "schemaVersion": "composite_operation.v1",
+                            "steps": [
+                                {
+                                    "stepId": "create-ingredient",
+                                    "domain": "ingredient",
+                                    "operation": {
+                                        "action": "create",
+                                        "payload": {
+                                            "name": "鸡胸肉",
+                                            "category": "肉类",
+                                            "default_unit": "克",
+                                            "unit_conversions": [],
+                                            "default_storage": "冷冻",
+                                            "default_expiry_mode": "days",
+                                            "default_expiry_days": 90,
+                                            "default_low_stock_threshold": 100,
+                                            "notes": "适合备餐",
+                                            "media_ids": [],
+                                        },
                                     },
                                 },
-                            },
-                            {
-                                "stepId": "restock",
-                                "domain": "inventory",
-                                "dependsOn": ["create-ingredient"],
-                                "operation": {
-                                    "action": "restock",
-                                    "ingredientId": "$create-ingredient.entityId",
-                                    "quantity": 500,
-                                    "unit": "克",
-                                    "purchaseDate": date.today().isoformat(),
-                                    "expiryDate": (date.today() + timedelta(days=30)).isoformat(),
-                                    "storageLocation": "冷冻",
-                                    "status": "frozen",
-                                    "notes": "AI 复合操作入库",
-                                    "lowStockThreshold": 100,
+                                {
+                                    "stepId": "restock",
+                                    "domain": "inventory",
+                                    "dependsOn": ["create-ingredient"],
+                                    "operation": {
+                                        "action": "restock",
+                                        "ingredientId": "$create-ingredient.entityId",
+                                        "quantity": 500,
+                                        "unit": "克",
+                                    },
                                 },
-                            },
-                        ],
-                    },
-                )
-
-                ingredient_id = result["stepResults"]["create-ingredient"]["entityId"]
-                inventory_ids = result["stepResults"]["restock"]["entityIds"]
-                ingredient = db.get(Ingredient, ingredient_id)
-                inventory_item = db.get(InventoryItem, inventory_ids[0])
-
-                self.assertIsNotNone(ingredient)
-                self.assertIsNotNone(inventory_item)
-                self.assertEqual(ingredient.name, "鸡胸肉")
-                self.assertEqual(inventory_item.ingredient_id, ingredient_id)
-                self.assertEqual(result["steps"][1]["payload"]["operations"][0]["ingredient_id"], ingredient_id)
+                            ],
+                        },
+                    )
 
         def test_composite_executor_rolls_back_completed_steps_when_later_step_fails(self) -> None:
             with self.SessionLocal() as db:
@@ -859,17 +842,14 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                                         },
                                     },
                                     {
-                                        "stepId": "restock",
+                                        "stepId": "consume-stock",
                                         "domain": "inventory",
                                         "dependsOn": ["create-ingredient"],
                                         "operation": {
-                                            "action": "restock",
+                                            "action": "consume",
                                             "ingredientId": "$create-ingredient.entityId",
                                             "quantity": 0,
                                             "unit": "克",
-                                            "purchaseDate": date.today().isoformat(),
-                                            "storageLocation": "冷藏",
-                                            "status": "fresh",
                                         },
                                     },
                                 ],
@@ -935,20 +915,14 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                             },
                         },
                         {
-                            "stepId": "restock",
+                            "stepId": "consume-stock",
                             "domain": "inventory",
                             "dependsOn": ["create-ingredient"],
                             "operation": {
-                                "action": "restock",
+                                "action": "consume",
                                 "ingredientId": "$create-ingredient.entityId",
                                 "quantity": 500,
                                 "unit": "克",
-                                "purchaseDate": date.today().isoformat(),
-                                "expiryDate": (date.today() + timedelta(days=30)).isoformat(),
-                                "storageLocation": "冷冻",
-                                "status": "frozen",
-                                "notes": "AI 复合操作入库",
-                                "lowStockThreshold": 100,
                             },
                         },
                     ],

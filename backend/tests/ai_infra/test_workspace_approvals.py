@@ -1619,23 +1619,21 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "MealLog", ActivityLog.entity_id == meal_log.id))
                     )
 
-                with self.subTest("inventory_operation.restock"):
+                with self.subTest("inventory_operation.dispose"):
                     result = approve_case(
-                        suffix="inventory-restock",
+                        suffix="inventory-dispose",
                         draft_type="inventory_operation",
                         payload={
                             "draftType": "inventory_operation",
                             "schemaVersion": "inventory_operation.v1",
                             "operations": [
                                 {
-                                    "action": "restock",
+                                    "action": "dispose",
                                     "ingredientId": "ingredient-tomato",
-                                    "quantity": 2,
+                                    "inventoryItemId": "inventory-tomato",
+                                    "quantity": 1,
                                     "unit": "个",
-                                    "status": "fresh",
-                                    "purchaseDate": date.today().isoformat(),
-                                    "storageLocation": "冷藏",
-                                    "notes": "AI 审计入库",
+                                    "reason": "AI 审计销毁",
                                 }
                             ],
                         },
@@ -1643,7 +1641,6 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     inventory_id = result["business_entity"]["operations"][0]["inventory_item_id"]
                     inventory = db.get(InventoryItem, inventory_id)
                     assert inventory is not None
-                    self.assertEqual(inventory.created_by, self.user.id)
                     self.assertEqual(inventory.updated_by, self.user.id)
                     self.assertIsNotNone(
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "InventoryItem", ActivityLog.entity_id == inventory.id))
@@ -3796,7 +3793,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         "draft_type": "inventory_operation",
                         "payload": {
                             "draftType": "inventory_operation",
-                            "operations": [{"action": "restock"}],
+                            "operations": [{"action": "dispose"}],
                         },
                     },
                     "operation": {
@@ -3807,8 +3804,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     "business_entity": {
                         "operations": [
                             {
-                                "operationId": "op-restock-1",
-                                "operation": "restock",
+                                "operationId": "op-dispose-1",
+                                "operation": "dispose",
                                 "inventory_item": {
                                     "id": "inventory-egg",
                                     "ingredient_name": "鸡蛋",
@@ -3827,7 +3824,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             assert card is not None
             self.assertEqual(card["data"]["entityCountLabel"], "1 项库存变更")
             self.assertEqual(card["data"]["entities"][0]["label"], "鸡蛋")
-            self.assertEqual(card["data"]["entities"][0]["operationLabel"], "补货")
+            self.assertEqual(card["data"]["entities"][0]["operationLabel"], "销毁")
 
         def test_workspace_service_loads_current_value_for_failed_meal_plan_operation(self) -> None:
             with self.SessionLocal() as db:

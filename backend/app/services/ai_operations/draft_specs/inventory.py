@@ -22,11 +22,6 @@ INVENTORY_APPROVAL_PROTECTED_FIELDS = (
     "stateId",
     "expectedStateRowVersion",
     "expectedInventoryItemRowVersion",
-    "availabilityLevel",
-    "sourceQuantity",
-    "sourceUnit",
-    "conversionRatioToDefault",
-    "conversionNote",
     "image",
     "remainingQuantity",
     "batchOptions",
@@ -148,7 +143,7 @@ def _refresh_inventory_operation_result_card(context: DraftPostExecuteContext) -
 
 def _preview_inventory_operation(payload: dict[str, Any]) -> str:
     operations = payload.get("operations") or []
-    labels = {"restock": "入库", "consume": "消耗", "dispose": "销毁"}
+    labels = {"consume": "消耗", "dispose": "销毁"}
     counts: dict[str, int] = {}
     for operation in operations:
         action = labels.get(str(operation.get("action") or ""), "处理")

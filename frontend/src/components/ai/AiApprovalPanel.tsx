@@ -25,7 +25,7 @@ import {
   type InventoryOperationDraftItemPatch,
 } from './aiInventoryOperationDraftModel';
 import { asDraftArray, asNumber, asText, draftNumberFromInput, draftNumberInputValue, nullableDraftNumberFromInput } from './aiDraftValueUtils';
-import { AiShoppingIntakeApproval, validateAiShoppingIntakeDraftForSubmit } from './AiShoppingIntakeApproval';
+import { AiInventoryIntakeApproval, validateInventoryIntakeDraftForSubmit } from './AiInventoryIntakeApproval';
 import {
   AiIngredientTrackingTransitionApproval,
   AiMealCompositionCorrectionApproval,
@@ -63,7 +63,6 @@ const MEAL_LOG_MOOD_OPTIONS = [
 ];
 const READY_LIKE_FOOD_TYPES = new Set(['readyMade', 'instant', 'packaged']);
 const INVENTORY_ACTION_OPTIONS = [
-  { value: 'restock', label: '补货' },
   { value: 'consume', label: '消耗' },
   { value: 'dispose', label: '销毁' },
 ];
@@ -129,7 +128,7 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   if (approval.approval_type.startsWith('composite_operation.')) return 'composite_operation';
   if (approval.approval_type.startsWith('meal_plan.')) return 'meal_plan';
   if (approval.approval_type.startsWith('shopping_list.')) return 'shopping_list';
-  if (approval.approval_type.startsWith('shopping_intake.')) return 'shopping_intake';
+  if (approval.approval_type.startsWith('inventory_intake.')) return 'inventory_intake';
   if (approval.approval_type.startsWith('meal_log.')) return 'meal_log';
   if (approval.approval_type.startsWith('food_profile.')) return 'food_profile';
   if (approval.approval_type.startsWith('ingredient.')) return 'ingredient_profile';
@@ -1152,7 +1151,7 @@ export function ApprovalPanel({
   const recipeCookRequiresRegeneration =
     draftType === 'recipe_cook'
     && recipeCookSchemaVersion !== 'recipe_cook_operation.v2';
-  const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'shopping_intake', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
+  const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'inventory_intake', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
   const inventoryOperationDraft = useMemo(
     () => inventoryOperationDraftFromRecord(structuredDraft),
     [structuredDraft],
@@ -1291,10 +1290,10 @@ export function ApprovalPanel({
 	          return;
 	        }
 	      }
-	      if (draftType === 'shopping_intake') {
-	        const shoppingIntakeError = validateAiShoppingIntakeDraftForSubmit(structuredDraft);
-	        if (shoppingIntakeError) {
-	          setError(shoppingIntakeError);
+	      if (draftType === 'inventory_intake') {
+	        const inventoryIntakeError = validateInventoryIntakeDraftForSubmit(structuredDraft);
+	        if (inventoryIntakeError) {
+	          setError(inventoryIntakeError);
 	          return;
 	        }
 	      }
@@ -1378,9 +1377,9 @@ export function ApprovalPanel({
     if (draftType === 'meal_log' && asText(structuredDraft.action) === 'update_composition') {
       return <AiMealCompositionCorrectionApproval draft={structuredDraft} readonly={readonly} onChange={setStructuredDraft} />;
     }
-    if (draftType === 'shopping_intake') {
+    if (draftType === 'inventory_intake') {
       return (
-        <AiShoppingIntakeApproval
+        <AiInventoryIntakeApproval
           draft={structuredDraft}
           readonly={readonly}
           onChange={setStructuredDraft}
@@ -3604,10 +3603,11 @@ export function ApprovalPanel({
         const items = asDraftArray(structuredDraft.items);
         return `${items.length}个采购项`;
       }
-      if (draftType === 'shopping_intake') {
+      if (draftType === 'inventory_intake') {
         const items = asDraftArray(structuredDraft.items);
-        const unmatched = asDraftArray(structuredDraft.unmatchedCandidates);
-        return `${items.length}项采购完成与入库${unmatched.length ? ` · ${unmatched.length}项额外候选` : ''}`;
+        const ignored = asDraftArray(structuredDraft.ignoredItems);
+        const executable = items.filter((item) => asText(item.action) !== 'skip');
+        return `${executable.length}项确认入库${ignored.length ? ` · ${ignored.length}项已忽略` : ''}`;
       }
       if (draftType === 'meal_log') {
         const action = asText(structuredDraft.action);

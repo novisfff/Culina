@@ -70,18 +70,6 @@ EXPECTED_HANDOFFS = {
         ),
     },
     "shopping_list": {
-        "shopping_completed_ingredient": (
-            "inventory_analysis",
-            "inventory_operation",
-            "inventory_analysis",
-            "shopping_to_stock.v1",
-        ),
-        "shopping_completed_food": (
-            "food_profile",
-            "food_profile",
-            "food_profile",
-            "shopping_to_stock.v1",
-        ),
         "missing_ingredient": (
             "ingredient_profile",
             "ingredient_profile",
@@ -108,11 +96,17 @@ EXPECTED_HANDOFFS = {
             "inventory_analysis",
             "inventory_unit_conversion.v1",
         ),
-        "ready_food_stock": (
+        "missing_intake_target": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_analysis",
+            "inventory_intake_missing_target.v1",
+        ),
+        "missing_intake_food_target": (
             "food_profile",
             "food_profile",
-            "food_profile",
-            "ready_food_stock.v1",
+            "inventory_analysis",
+            "inventory_intake_missing_target.v1",
         ),
     },
     "meal_log": {
@@ -315,16 +309,25 @@ def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() ->
         assert "仅用于识别或理解的图片不写入" in skill_text
 
 
-def test_inventory_skill_declares_reviewable_intake_candidate_terminal_contract() -> None:
+def test_inventory_skill_orchestrates_existing_read_tools_for_intake() -> None:
     manifest = build_workspace_skill_registry().get("inventory_analysis").manifest
     skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "inventory-analysis" / "SKILL.md"
     skill_text = skill_path.read_text(encoding="utf-8")
 
-    assert "inventory.preview_intake_candidates" in manifest.tools
-    assert "inventory_intake_candidates" in manifest.output_types
-    assert "inventory.preview_intake_candidates" in manifest.completion_policy.terminal_tools
-    assert "候选卡本身不写库存" in skill_text
-    assert "intakeCandidates" in skill_text
+    assert "purchasable.resolve_candidates" in manifest.tools
+    assert "shopping.read_pending" in manifest.tools
+    assert "inventory.create_intake_draft" in manifest.tools
+    assert "inventory.resolve_intake_lines" not in manifest.tools
+    assert "inventory.preview_intake_candidates" not in manifest.tools
+    assert "inventory_intake_candidates" not in manifest.output_types
+    assert "inventory.preview_intake_candidates" not in manifest.completion_policy.terminal_tools
+    assert "purchasable.resolve_candidates" in manifest.completion_policy.followup_required_tools
+    assert "inventory_intake" in manifest.draft_types
+    assert "候选卡本身不写库存" not in skill_text
+    assert "intakeCandidates" not in skill_text
+    assert "purchasable.resolve_candidates" in skill_text
+    assert "inventory.create_intake_draft" in skill_text
+    assert "不新增 intake 专用 resolver Tool" in skill_text or "不依赖场景专用 resolver Tool" in skill_text
 
 
 def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> None:
@@ -346,16 +349,6 @@ def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> No
 def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> None:
     registry = build_workspace_skill_registry()
     expected_edges = {
-        ("shopping_list", "shopping_completed_ingredient"): (
-            "inventory_analysis",
-            "inventory_operation",
-            "shopping_to_stock.v1",
-        ),
-        ("shopping_list", "shopping_completed_food"): (
-            "food_profile",
-            "food_profile",
-            "shopping_to_stock.v1",
-        ),
         ("recipe_cook", "recipe_shortage"): (
             "shopping_list",
             "shopping_list",
@@ -365,6 +358,16 @@ def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> N
             "ingredient_profile",
             "ingredient_profile",
             "inventory_missing_ingredient.v1",
+        ),
+        ("inventory_analysis", "missing_intake_target"): (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_intake_missing_target.v1",
+        ),
+        ("inventory_analysis", "missing_intake_food_target"): (
+            "food_profile",
+            "food_profile",
+            "inventory_intake_missing_target.v1",
         ),
     }
 
@@ -957,6 +960,8 @@ def test_resolution_tools_are_authorized_by_their_business_skills() -> None:
 
     assert "ingredient.resolve_candidates" in registry.get("recipe_draft").manifest.tools
     assert "purchasable.resolve_candidates" in registry.get("shopping_list").manifest.tools
+    assert "purchasable.resolve_candidates" in registry.get("inventory_analysis").manifest.tools
+    assert "inventory.resolve_intake_lines" not in registry.get("inventory_analysis").manifest.tools
 
 
 def test_continuation_artifact_is_typed_and_deduplicates_business_ids() -> None:

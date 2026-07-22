@@ -114,7 +114,6 @@ AIResultCardType = Literal[
     "food_profile_draft",
     "ui_actions",
     "recipe_shortage",
-    "inventory_intake_candidates",
     "meal_idea_proposal",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
@@ -123,7 +122,7 @@ AITaskDraftType = Literal[
     "recipe_cook",
     "ingredient_profile",
     "shopping_list",
-    "shopping_intake",
+    "inventory_intake",
     "meal_plan",
     "meal_log",
     "food_profile",
@@ -143,14 +142,6 @@ class AIMealIdeaSubjectDTO(BaseModel):
     ingredientIds: list[str] = Field(min_length=1, max_length=30)
     reason: str = Field(min_length=1, max_length=500)
     preparationSummary: str | None = Field(default=None, max_length=500)
-
-
-class AIInventoryIntakeSubjectCandidateDTO(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ingredientId: str = Field(min_length=1, max_length=64)
-    quantity: str | None = Field(default=None, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
-    unit: str | None = Field(default=None, max_length=32)
 
 
 class AISubjectIn(BaseModel):
@@ -188,33 +179,7 @@ class AISubjectIn(BaseModel):
                 raise ValueError("meal idea ingredient_ids must match")
             self.extra = {**self.extra, "mealIdea": meal_idea.model_dump(mode="json")}
         elif self.source == "inventory_intake_candidates":
-            raw_candidates = self.extra.get("intakeCandidates")
-            if not isinstance(raw_candidates, list) or not raw_candidates:
-                raise ValueError("intakeCandidates must be a non-empty list")
-            if len(raw_candidates) > 30:
-                raise ValueError("intakeCandidates must contain at most 30 items")
-            candidates = [
-                AIInventoryIntakeSubjectCandidateDTO.model_validate(item, strict=True)
-                for item in raw_candidates
-            ]
-            raw_unresolved_labels = self.extra.get("unresolvedLabels") or []
-            if not isinstance(raw_unresolved_labels, list):
-                raise ValueError("unresolvedLabels must be a list")
-            if len(raw_unresolved_labels) > 30:
-                raise ValueError("unresolvedLabels must contain at most 30 items")
-            unresolved_labels = [
-                str(label).strip()
-                for label in raw_unresolved_labels
-                if str(label).strip()
-            ]
-            if any(len(label) > 120 for label in unresolved_labels):
-                raise ValueError("unresolved label is too long")
-            self.ingredient_ids = list(dict.fromkeys(item.ingredientId for item in candidates))
-            self.extra = {
-                **self.extra,
-                "intakeCandidates": [item.model_dump(mode="json") for item in candidates],
-                "unresolvedLabels": list(dict.fromkeys(unresolved_labels)),
-            }
+            raise ValueError("inventory_intake_candidates 已下线，请改用 inventory_intake 正式草稿")
         return self
 
 
@@ -418,8 +383,6 @@ class AIResultCardDTO(BaseModel):
             AIOperationResultCardDataDTO.model_validate(self.data)
         elif self.type == "ui_actions":
             AIUiActionsCardDataDTO.model_validate(self.data)
-        elif self.type == "inventory_intake_candidates":
-            AIInventoryIntakeCandidatesCardDataDTO.model_validate(self.data)
         elif self.type == "meal_idea_proposal":
             AIMealIdeaProposalCardDataDTO.model_validate(self.data)
         return self
@@ -460,7 +423,7 @@ class AIApprovalFieldDTO(BaseModel):
     name: str
     label: str
     type: Literal["string", "number", "integer", "boolean", "array", "object"]
-    widget: Literal["input", "textarea", "switch", "select", "radio", "checkbox_group", "tag_selector", "date", "time", "recipe_draft_editor", "shopping_intake_editor"]
+    widget: Literal["input", "textarea", "switch", "select", "radio", "checkbox_group", "tag_selector", "date", "time", "recipe_draft_editor", "inventory_intake_editor"]
     options: list[str | dict] | None = None
     allow_custom: bool = False
     placeholder: str | None = None

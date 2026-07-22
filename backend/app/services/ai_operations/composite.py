@@ -422,7 +422,6 @@ def _action_label(action: str) -> str:
         "set_status": "状态变更",
         "set_done": "状态变更",
         "set_favorite": "收藏",
-        "restock": "入库",
         "consume": "消耗",
         "dispose": "销毁",
         "apply": "应用",

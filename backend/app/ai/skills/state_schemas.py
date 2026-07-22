@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
@@ -24,7 +25,14 @@ def _parse_iso_date(value: Any) -> Any:
     return parsed
 
 
+def _parse_decimal(value: Any) -> Any:
+    if isinstance(value, str):
+        return Decimal(value)
+    return value
+
+
 IsoDate = Annotated[date, BeforeValidator(_parse_iso_date)]
+Confidence = Annotated[Decimal, BeforeValidator(_parse_decimal), Field(ge=0, le=1)]
 
 
 class ContinuationStateModel(BaseModel):
@@ -83,28 +91,124 @@ class InventoryUnitConversionState(ContinuationStateModel):
     instruction: Instruction
 
 
-class ReadyFoodStockState(ContinuationStateModel):
-    targetName: ShortText
-    instruction: Instruction
+class InventoryIntakeDateEvidence(ContinuationStateModel):
+    userDate: IsoDate | None = None
+    userSaidToday: bool = False
+    receiptDate: IsoDate | None = None
 
 
-class ShoppingToStockState(ContinuationStateModel):
-    shoppingItemId: EntityId
-    targetType: Literal["ingredient", "food"]
-    ingredientId: EntityId | None = None
-    foodId: EntityId | None = None
-    quantity: QuantityText
-    unit: ShortText
-    stockAction: Literal["restock"]
+class InventoryIntakePackageConversion(ContinuationStateModel):
+    sourceQuantity: QuantityText
+    sourceUnit: ShortText
+    targetQuantity: QuantityText
+    targetUnit: ShortText
+    evidence: Literal["user_confirmed_once"]
+
+
+class InventoryIntakeContinuationLine(ContinuationStateModel):
+    sourceLineId: ShortText
+    sourceOrder: Annotated[int, Field(ge=0, le=29)]
+    rawText: ShortText
+    name: ShortText
+    quantity: QuantityText | None = None
+    unit: ShortText | None = None
+    packageCount: QuantityText | None = None
+    packageUnit: ShortText | None = None
+    confidence: Confidence | None = None
+    itemKind: Literal["inventory", "non_inventory"]
+    targetHint: Literal["ingredient", "food"] | None = None
+    resolvedSourceKind: Literal["shopping_item", "direct"] | None = None
+    selectedShoppingItemId: EntityId | None = None
+    selectedTargetKind: Literal["exact_ingredient", "presence_ingredient", "food"] | None = None
+    selectedTargetId: EntityId | None = None
+    confirmedAction: Literal["stock_and_fulfill", "fulfill_without_stock", "stock_only", "skip"] | None = None
+    confirmedQuantity: QuantityText | None = None
+    confirmedUnit: ShortText | None = None
+    packageConversion: InventoryIntakePackageConversion | None = None
+    disposition: Literal["pending", "ready", "missing_target", "ignored", "skipped"]
+
+
+class InventoryIntakeIgnoredLine(ContinuationStateModel):
+    sourceLineId: ShortText
+    reasonCode: Literal["non_inventory_item"]
+    reason: ShortText
+
+
+class InventoryIntakeBlockerRef(ContinuationStateModel):
+    sourceLineId: ShortText | None = None
+    reasonCode: Literal[
+        "unit_mismatch",
+        "conversion_quantity_missing",
+        "quantity_missing",
+        "quantity_unreliable",
+        "target_ambiguous",
+        "shopping_match_ambiguous",
+        "source_ambiguous",
+        "date_conflict",
+        "target_missing",
+    ]
+
+
+class InventoryIntakeContinuationState(ContinuationStateModel):
+    sourceType: Literal[
+        "manual_text",
+        "receipt_image",
+        "receipt_text",
+        "inventory_photo",
+        "gift",
+        "reconciliation",
+        "initial_inventory",
+        "historical_entry",
+    ]
+    sourceReference: dict[str, str] | None = None
+    purchaseIntent: Literal["purchase", "non_purchase", "unknown"]
+    dateEvidence: InventoryIntakeDateEvidence
+    intakeDate: IsoDate
+    intakeDateSource: Literal["user", "receipt", "family_business_date"]
+    lines: Annotated[list[InventoryIntakeContinuationLine], Field(min_length=1, max_length=30)]
+    ignoredItems: Annotated[list[InventoryIntakeIgnoredLine], Field(max_length=30)]
+    currentBlocker: InventoryIntakeBlockerRef | None = None
+    pendingBlockers: Annotated[list[InventoryIntakeBlockerRef], Field(max_length=30)]
 
     @model_validator(mode="after")
-    def validate_target_identity(self) -> "ShoppingToStockState":
-        if self.targetType == "ingredient":
-            valid = self.ingredientId is not None and self.foodId is None
-        else:
-            valid = self.foodId is not None and self.ingredientId is None
-        if not valid:
-            raise ValueError("targetType must match exactly one target ID")
+    def validate_intake_invariants(self) -> "InventoryIntakeContinuationState":
+        line_ids = [line.sourceLineId for line in self.lines]
+        if len(line_ids) != len(set(line_ids)):
+            raise ValueError("sourceLineId values must be unique")
+
+        orders = sorted(line.sourceOrder for line in self.lines)
+        expected = list(range(len(self.lines)))
+        if orders != expected:
+            raise ValueError("sourceOrder values must be unique and contiguous from 0")
+
+        line_by_id = {line.sourceLineId: line for line in self.lines}
+
+        for ignored in self.ignoredItems:
+            line = line_by_id.get(ignored.sourceLineId)
+            if line is None:
+                raise ValueError("ignoredItems sourceLineId must exist in lines")
+            if line.disposition != "ignored":
+                raise ValueError("ignoredItems must reference lines with disposition=ignored")
+
+        blocker_refs: list[InventoryIntakeBlockerRef] = list(self.pendingBlockers)
+        if self.currentBlocker is not None:
+            blocker_refs.append(self.currentBlocker)
+        for blocker in blocker_refs:
+            if blocker.sourceLineId is None:
+                continue
+            if blocker.sourceLineId not in line_by_id:
+                raise ValueError("blocker sourceLineId must exist in lines")
+
+        return self
+
+
+class InventoryIntakeMissingTargetState(InventoryIntakeContinuationState):
+    currentMissingSourceLineId: ShortText
+
+    @model_validator(mode="after")
+    def validate_missing_target_ref(self) -> "InventoryIntakeMissingTargetState":
+        if self.currentMissingSourceLineId not in {line.sourceLineId for line in self.lines}:
+            raise ValueError("currentMissingSourceLineId must exist in lines")
         return self
 
 
@@ -140,8 +244,8 @@ CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
         InventoryOperationMissingIngredientState | InventoryMissingIngredientState
     ),
     "inventory_unit_conversion.v1": TypeAdapter(InventoryUnitConversionState),
-    "ready_food_stock.v1": TypeAdapter(ReadyFoodStockState),
-    "shopping_to_stock.v1": TypeAdapter(ShoppingToStockState),
+    "inventory_intake_continuation.v1": TypeAdapter(InventoryIntakeContinuationState),
+    "inventory_intake_missing_target.v1": TypeAdapter(InventoryIntakeMissingTargetState),
     "recipe_shortage_to_shopping.v1": TypeAdapter(RecipeShortageToShoppingState),
 }
 

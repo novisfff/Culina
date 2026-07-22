@@ -8,7 +8,6 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import InventoryStatus
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIApprovalRequest,
@@ -21,6 +20,7 @@ from app.models.domain import (
 )
 from app.services.clock import today_for_family
 from app.services.inventory_operations import require_inventory_item
+from app.services.inventory_usage import tracks_quantity
 from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
 
 CreateDraftApproval = Callable[..., tuple[AITaskDraft, AIApprovalRequest]]
@@ -33,31 +33,21 @@ def build_batch_backed_quick_operation(
     action: str,
     family_id: str,
 ) -> dict[str, Any]:
+    del family_id
     available = max(Decimal(str(matched_item.get("quantity") or 0)), Decimal("0"))
-    if action != "restock" and available <= 0:
+    if available <= 0:
         raise ValueError("该库存批次已无剩余数量")
     quantity = Decimal("1") if action != "dispose" else available
     if action == "consume":
         quantity = min(quantity, available)
-    operation: dict[str, Any] = {
+    return {
         "action": action,
         "ingredientId": item.ingredient_id,
-        "inventoryItemId": item.id if action != "restock" else None,
+        "inventoryItemId": item.id,
         "quantity": float(quantity),
         "unit": str(matched_item.get("unit") or item.unit),
         "reason": "用户从库存卡发起销毁" if action == "dispose" else "",
     }
-    if action == "restock":
-        operation.update(
-            {
-                "purchaseDate": today_for_family(family_id).isoformat(),
-                "storageLocation": item.storage_location,
-                "status": item.status.value if hasattr(item.status, "value") else str(item.status),
-                "notes": "",
-                "lowStockThreshold": float(item.low_stock_threshold or 0),
-            }
-        )
-    return operation
 
 
 def record_recommendation_selection_for_card(
@@ -209,11 +199,10 @@ def create_inventory_quick_draft_from_card(
     if action not in {"restock", "consume", "dispose"}:
         raise ValueError("不支持的库存操作")
 
-    inventory_item_id = str(matched_item.get("inventoryItemId") or "").strip()
-    if not inventory_item_id:
-        if action != "restock" or matched_item.get("sourceType") != "ingredient":
-            raise ValueError("该卡片项目不支持此库存操作")
+    if action == "restock":
         ingredient_id = str(matched_item.get("ingredientId") or "").strip()
+        if not ingredient_id or matched_item.get("sourceType") != "ingredient":
+            raise ValueError("该卡片项目不支持此库存操作")
         ingredient = db.scalar(
             select(Ingredient).where(
                 Ingredient.family_id == family_id,
@@ -222,20 +211,51 @@ def create_inventory_quick_draft_from_card(
         )
         if ingredient is None:
             raise ValueError("食材不存在或不属于当前家庭")
-        raw_operation = {
-            "action": "restock",
+        is_exact = tracks_quantity(ingredient)
+        intake_payload = {
+            "draftType": "inventory_intake",
+            "schemaVersion": "inventory_intake.v1",
+            "sourceType": "manual_text",
+            "sourceReference": {
+                "messageId": message.id,
+                "partId": part_id,
+                "cardId": effective_card_id,
+                "itemId": item_id,
+            },
+            "intakeDate": today_for_family(family_id).isoformat(),
+            "intakeDateSource": "family_today",
+            "items": [
+                {
+                    "lineId": f"card:{item_id}",
+                    "sourceLineId": item_id,
+                    "sourceText": ingredient.name,
+                    "sourceKind": "direct",
+                    "action": "stock_only",
+                    "targetKind": "exact_ingredient" if is_exact else "presence_ingredient",
+                    "targetId": ingredient.id,
+                    "enteredQuantity": "1" if is_exact else None,
+                    "enteredUnit": ingredient.default_unit if is_exact else None,
+                    "inventoryStatus": "fresh",
+                    "storageLocation": ingredient.default_storage,
+                    "notes": "",
+                }
+            ],
+            "ignoredItems": [],
+        }
+        draft_payload = {
+            "draft_type": "inventory_intake",
+            "schema_version": "inventory_intake.v1",
+            "payload": intake_payload,
+        }
+        metadata_extra = {
+            "action": action,
             "ingredientId": ingredient.id,
-            "inventoryItemId": None,
-            "quantity": 1,
-            "unit": ingredient.default_unit,
-            "purchaseDate": today_for_family(family_id).isoformat(),
-            "storageLocation": ingredient.default_storage,
-            "status": InventoryStatus.FRESH.value,
-            "notes": "",
-            "lowStockThreshold": float(ingredient.default_low_stock_threshold or 0),
-            "reason": "",
+            "inventoryItemId": matched_item.get("inventoryItemId"),
         }
     else:
+        inventory_item_id = str(matched_item.get("inventoryItemId") or "").strip()
+        if not inventory_item_id:
+            raise ValueError("该卡片项目不支持此库存操作")
         inventory_item = require_inventory_item(
             db,
             family_id=family_id,
@@ -247,22 +267,28 @@ def create_inventory_quick_draft_from_card(
             action=action,
             family_id=family_id,
         )
-    draft_payload = {
-        "draft_type": "inventory_operation",
-        "schema_version": "inventory_operation.v1",
-        "payload": {
-            "draftType": "inventory_operation",
-            "schemaVersion": "inventory_operation.v1",
-            "operations": [raw_operation],
-            "source": {
-                "messageId": message.id,
-                "partId": part_id,
-                "cardId": effective_card_id,
-                "itemId": item_id,
-                "action": action,
+        draft_payload = {
+            "draft_type": "inventory_operation",
+            "schema_version": "inventory_operation.v1",
+            "payload": {
+                "draftType": "inventory_operation",
+                "schemaVersion": "inventory_operation.v1",
+                "operations": [raw_operation],
+                "source": {
+                    "messageId": message.id,
+                    "partId": part_id,
+                    "cardId": effective_card_id,
+                    "itemId": item_id,
+                    "action": action,
+                },
             },
-        },
-    }
+        }
+        metadata_extra = {
+            "action": action,
+            "ingredientId": raw_operation["ingredientId"],
+            "inventoryItemId": raw_operation.get("inventoryItemId"),
+        }
+
     draft, approval = create_draft_approval(
         family_id=family_id,
         user_id=user_id,
@@ -288,9 +314,7 @@ def create_inventory_quick_draft_from_card(
     metadata["lastInventoryDraft"] = {
         "draftId": draft.id,
         "approvalId": approval.id,
-        "action": action,
-        "ingredientId": raw_operation["ingredientId"],
-        "inventoryItemId": raw_operation.get("inventoryItemId"),
+        **metadata_extra,
     }
     message.message_metadata = metadata
     db.flush()
