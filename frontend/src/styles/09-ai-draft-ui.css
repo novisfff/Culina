@@ -140,7 +140,9 @@
 .ai-draft-summary-card.ai-recipe-summary-card,
 .ai-draft-resolved-summary.ai-recipe-summary-card,
 .ai-draft-summary-card.ai-shopping-list-summary-card,
-.ai-draft-resolved-summary.ai-shopping-list-summary-card {
+.ai-draft-resolved-summary.ai-shopping-list-summary-card,
+.ai-draft-summary-card.ai-meal-log-summary-card,
+.ai-draft-resolved-summary.ai-meal-log-summary-card {
   border-color: var(--line-soft);
   background: var(--surface-2);
 }
@@ -152,7 +154,9 @@
 .ai-draft-item-card.ai-meal-plan-item-card,
 .ai-draft-item-card.ai-meal-plan-preview-card,
 .ai-draft-item-card.ai-shopping-list-item-card,
-.ai-draft-item-card.ai-shopping-list-preview-card {
+.ai-draft-item-card.ai-shopping-list-preview-card,
+.ai-draft-item-card.ai-meal-log-food-item,
+.ai-draft-item-card.ai-meal-log-rating-card {
   border-color: var(--line-soft);
   background: var(--surface-muted);
   padding: var(--space-5);
@@ -173,6 +177,18 @@
   border-color: var(--danger-line);
   border-inline-start-color: var(--danger);
   background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-meal-log-stock-control {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-meal-log-summary-context {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
 }
 
 .ai-recipe-operation-compare .ai-draft-impact-note-body {

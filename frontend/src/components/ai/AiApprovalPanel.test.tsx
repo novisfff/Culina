@@ -1727,6 +1727,9 @@ describe('ApprovalPanel', () => {
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
     expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item').length).toBeGreaterThan(3);
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-log-summary-card')).not.toBeNull();
+    const mealLogSections = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-draft-section h3')).map((heading) => heading.textContent);
+    expect(mealLogSections).toEqual(expect.arrayContaining(['餐食信息', '食物项', '参与人和照片', '备注与心情']));
     expect(rendered.container.textContent).toContain('2026-06-10');
     expect(rendered.container.textContent).toContain('晚餐');
     expect(rendered.container.textContent).toContain('食物1 项');
@@ -1805,6 +1808,7 @@ describe('ApprovalPanel', () => {
 
     const stockToggles = rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-log-stock-toggle input[type="checkbox"]');
     expect(stockToggles).toHaveLength(1);
+    expect(rendered.container.querySelector('[role="note"][aria-label="库存扣减说明"]')).not.toBeNull();
     expect(rendered.container.textContent).toContain('当前库存 3 盒');
     expect(rendered.container.querySelector('.ai-meal-log-stock-fields')).toBeNull();
 
@@ -1936,6 +1940,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).not.toContain('2026-06-10 · dinner');
     expect(rendered.container.textContent).toContain('番茄炒蛋 · 当前评分 4');
     expect(rendered.container.textContent).toContain('评分备注');
+    expect(rendered.container.querySelector('.ai-draft-item-card.ai-meal-log-rating-card')).not.toBeNull();
     expect(rendered.container.querySelector<HTMLInputElement>('.ai-rating-field input[type="number"]')).toBeNull();
     const ratingSlider = rendered.container.querySelector<HTMLDivElement>('.ai-rating-field .ui-star-rating-stars');
     expect(ratingSlider).not.toBeNull();

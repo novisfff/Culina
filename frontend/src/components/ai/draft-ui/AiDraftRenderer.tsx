@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Ingredient } from '../../../api/types';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
 import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
+import { AiMealLogDraftView } from './views/AiMealLogDraftView';
 import { AiMealPlanDraftView } from './views/AiMealPlanDraftView';
 import { AiRecipeCookDraftView } from './views/AiRecipeCookDraftView';
 import { AiRecipeOperationDraftView } from './views/AiRecipeOperationDraftView';
@@ -88,7 +89,21 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'inventory_intake':
+      return <>{props.renderLegacyFallback()}</>;
     case 'meal_log':
+      if (props.structuredDraft.action === 'update_composition') {
+        return <>{props.renderLegacyFallback()}</>;
+      }
+      return (
+        <AiMealLogDraftView
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          foodOptions={props.foodOptions}
+          onDraftChange={props.onStructuredDraftChange}
+          onLoadResourceOptions={props.onLoadResourceOptions}
+        />
+      );
     case 'food_profile':
     case 'ingredient_profile':
     case 'inventory_operation':

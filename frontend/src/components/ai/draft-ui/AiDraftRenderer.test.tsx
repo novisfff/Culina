@@ -93,4 +93,62 @@ describe('AiDraftRenderer', () => {
     expect(view.querySelector('.ai-draft-summary-card.ai-shopping-list-summary-card')).not.toBeNull();
     expect(view.textContent).toContain('待确认购物清单');
   });
+
+  it('routes meal log Drafts through the shared view but preserves composition correction', () => {
+    const fallback = vi.fn(() => <p>餐食组成修正</p>);
+    const view = renderRenderer(
+      <AiDraftRenderer
+        approval={approval()}
+        draftType="meal_log"
+        recipeApproval={false}
+        recipe={recipeDraft('番茄炒蛋')}
+        structuredDraft={{
+          draftType: 'meal_log',
+          date: '2026-06-10',
+          mealType: 'dinner',
+          foods: [{ foodId: 'food-tomato-egg', name: '番茄炒蛋', servings: 1 }],
+        }}
+        readonly={false}
+        foodOptions={[]}
+        ingredientOptions={[]}
+        ingredients={[]}
+        recipeCookSchemaVersion="unknown"
+        recipeCookRequiresRegeneration={false}
+        onRecipeChange={vi.fn()}
+        onStructuredDraftChange={vi.fn()}
+        onLoadResourceOptions={async () => []}
+        renderLegacyFallback={fallback}
+      />,
+    );
+
+    expect(fallback).not.toHaveBeenCalled();
+    expect(view.querySelector('.ai-draft-summary-card.ai-meal-log-summary-card')).not.toBeNull();
+    expect(view.textContent).toContain('待确认餐食记录');
+
+    const correctionFallback = vi.fn(() => <p>餐食组成修正</p>);
+    act(() => {
+      root?.render(
+        <AiDraftRenderer
+          approval={approval()}
+          draftType="meal_log"
+          recipeApproval={false}
+          recipe={recipeDraft('番茄炒蛋')}
+          structuredDraft={{ draftType: 'meal_log', action: 'update_composition' }}
+          readonly={false}
+          foodOptions={[]}
+          ingredientOptions={[]}
+          ingredients={[]}
+          recipeCookSchemaVersion="unknown"
+          recipeCookRequiresRegeneration={false}
+          onRecipeChange={vi.fn()}
+          onStructuredDraftChange={vi.fn()}
+          onLoadResourceOptions={async () => []}
+          renderLegacyFallback={correctionFallback}
+        />,
+      );
+    });
+
+    expect(correctionFallback).toHaveBeenCalledOnce();
+    expect(view.textContent).toContain('餐食组成修正');
+  });
 });
