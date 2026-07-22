@@ -50,6 +50,7 @@ describe('AiDraftRenderer', () => {
         readonly={false}
         foodOptions={[]}
         ingredientOptions={[]}
+        ingredients={[]}
         onRecipeChange={vi.fn()}
         onStructuredDraftChange={vi.fn()}
         onLoadResourceOptions={async () => []}

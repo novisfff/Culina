@@ -121,7 +121,53 @@
 .ai-draft-item-card-body,
 .ai-draft-summary-extra,
 .ai-draft-resolved-summary-body {
+  display: grid;
+  gap: var(--space-4);
   min-width: 0;
+}
+
+.ai-draft-summary-card.ai-confirmation-item,
+.ai-draft-section.ai-confirmation-item {
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-inline-start: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: none;
+  padding: var(--space-6);
+}
+
+.ai-draft-summary-card.ai-recipe-summary-card,
+.ai-draft-resolved-summary.ai-recipe-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-item-card.ai-recipe-ingredient-card,
+.ai-draft-item-card.ai-recipe-step-card {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-recipe-ingredient-card.is-unbound {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-recipe-danger-impact {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-recipe-operation-compare .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-draft-impact-note-body > p {
+  margin: 0;
 }
 
 .ai-draft-item-card h4,
@@ -259,7 +305,8 @@
 @media (max-width: 767px) {
   .ai-draft-summary-card,
   .ai-draft-item-card,
-  .ai-draft-resolved-summary {
+  .ai-draft-resolved-summary,
+  .ai-draft-section.ai-confirmation-item {
     padding: var(--space-5);
   }
 

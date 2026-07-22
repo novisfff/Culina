@@ -1135,6 +1135,10 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('创建菜谱');
     expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
     expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
+    expect(rendered.container.textContent).toContain('菜谱信息');
+    expect(rendered.container.textContent).toContain('食材');
+    expect(rendered.container.textContent).toContain('烹饪步骤');
+    expect(rendered.container.textContent).toContain('补充信息');
 
     const difficultyField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
       .find((field) => field.textContent?.includes('难度'));
@@ -1156,6 +1160,10 @@ describe('ApprovalPanel', () => {
       tomatoOption?.click();
     });
     await flushAsync();
+    const ingredientQuantityInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-ingredient-card input[type="number"]');
+    const stepKeyPointsInput = rendered.container.querySelector<HTMLInputElement>('input[aria-label="关键点"]');
+    changeInput(ingredientQuantityInput as HTMLInputElement, '3');
+    changeInput(stepKeyPointsInput as HTMLInputElement, '中火、收汁');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
@@ -1166,8 +1174,8 @@ describe('ApprovalPanel', () => {
       {
         recipe: expect.objectContaining({
           difficulty: 'medium',
-          ingredient_items: [expect.objectContaining({ ingredient_id: 'ingredient-tomato', ingredient_name: '番茄' })],
-          steps: expect.arrayContaining([expect.objectContaining({ icon: 'timer' })]),
+          ingredient_items: [expect.objectContaining({ ingredient_id: 'ingredient-tomato', ingredient_name: '番茄', quantity: 3 })],
+          steps: expect.arrayContaining([expect.objectContaining({ icon: 'timer', key_points: ['中火', '收汁'] })]),
         }),
       },
       '',
@@ -1207,6 +1215,8 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('食材匹配');
     expect(rendered.container.textContent).toContain('烹饪步骤');
     expect(rendered.container.textContent).toContain('关键点');
+    expect(rendered.container.textContent).toContain('当前：番茄鸡蛋面 · 2人份 · 简单');
+    expect(rendered.container.textContent).toContain('调整后：番茄鸡蛋面升级版 · 2人份 · 简单');
     expect(rendered.container.textContent).not.toContain('食材和步骤变更会在摘要里计数');
     expect(rendered.container.querySelector<HTMLInputElement>('input[role="combobox"]')?.value).toBe('个');
 
@@ -1274,6 +1284,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('关联计划：2 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
     rendered.unmount();
   });
 

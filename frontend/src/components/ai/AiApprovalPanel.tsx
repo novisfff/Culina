@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
+import type { AiApprovalRequest, AiGeneratedRecipeDraft, Food, Ingredient } from '../../api/types';
 import { StarRatingInput } from '../ui-kit';
 import { resolveMediaUrl } from '../../lib/assets';
 import { formatFoodStockAmount, parseFoodStockQuantity } from '../../lib/foodStockQuantity';
-import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
-import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { getIngredientEditorCategoryPresets } from '../ingredients/workspaceModel';
 import {
@@ -35,6 +33,7 @@ import {
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftRenderer } from './draft-ui/AiDraftRenderer';
 import { AiDraftTagInput, normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
+import { RECIPE_DIFFICULTY_OPTIONS as DIFFICULTY_OPTIONS, recipeDraftFromRecord } from './draft-ui/views/aiRecipeDraftViewModel';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -43,11 +42,6 @@ const MEAL_TYPE_OPTIONS = [
   { value: 'lunch', label: '午餐' },
   { value: 'dinner', label: '晚餐' },
   { value: 'snack', label: '加餐' },
-];
-const DIFFICULTY_OPTIONS = [
-  { value: 'easy', label: '简单' },
-  { value: 'medium', label: '适中' },
-  { value: 'hard', label: '较难' },
 ];
 const FOOD_TYPE_OPTIONS = [
   { value: 'selfMade', label: '家常菜' },
@@ -226,73 +220,6 @@ function ingredientUnitConversionSummary(value: unknown, defaultUnit: string) {
     const ratioText = typeof ratio === 'number' && Number.isFinite(ratio) ? String(ratio) : asText(ratio);
     return `${unit || '副单位'} = ${ratioText || '?'}${defaultUnit ? ` ${defaultUnit}` : ''}`;
   }).join('、');
-}
-
-function difficultyLabel(value: unknown) {
-  const text = asText(value);
-  return DIFFICULTY_OPTIONS.find((option) => option.value === text)?.label ?? text;
-}
-
-function recipeDraftSummaryItems(recipe: AiGeneratedRecipeDraft) {
-  return [
-    { label: '菜谱名', value: recipe.title || '未命名菜谱' },
-    { label: '份量', value: `${asNumber(recipe.servings, 0) || '?'} 人份` },
-    { label: '预计时间', value: `${asNumber(recipe.prep_minutes, 0) || '?'} 分钟` },
-    { label: '难度', value: difficultyLabel(recipe.difficulty) || '未设置' },
-    { label: '食材', value: `${recipe.ingredient_items.length} 种` },
-    { label: '步骤', value: `${recipe.steps.length} 步` },
-  ];
-}
-
-function recipeDraftUnitOptions(unit: string) {
-  return buildUnitPresetOptions(unit).map((item) => ({ value: item, label: item }));
-}
-
-function recipeIngredientUsesPresenceQuantity(
-  item: AiGeneratedRecipeDraft['ingredient_items'][number],
-  ingredients: Ingredient[],
-) {
-  if (!item.ingredient_id) return false;
-  const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
-  return Boolean(ingredient && !tracksIngredientQuantity(ingredient));
-}
-
-function recipeIngredientItemsFromUnknown(value: unknown): AiGeneratedRecipeDraft['ingredient_items'] {
-  return asDraftArray(value).map((item) => ({
-    ingredient_id: asText(item.ingredient_id) || asText(item.ingredientId) || null,
-    ingredient_name: asText(item.ingredient_name) || asText(item.ingredientName) || asText(item.name),
-    quantity: draftNumberInputValue(item.quantity, 1) as number,
-    unit: asText(item.unit, '份'),
-    note: asText(item.note),
-  }));
-}
-
-function recipeStepsFromUnknown(value: unknown): AiGeneratedRecipeDraft['steps'] {
-  return asDraftArray(value).map((item, index) => ({
-    title: asText(item.title, `步骤 ${index + 1}`),
-    text: asText(item.text),
-    icon: asText(item.icon, 'pan'),
-    summary: asText(item.summary),
-    estimated_minutes: item.estimated_minutes === null ? null : asNumber(item.estimated_minutes, 5),
-    tip: asText(item.tip),
-    key_points: Array.isArray(item.key_points) ? item.key_points.map(String).filter(Boolean) : [],
-  }));
-}
-
-function recipeDraftFromRecord(record: Record<string, unknown>, fallback?: Record<string, unknown>): AiGeneratedRecipeDraft {
-  const fallbackRecord = fallback ?? {};
-  const difficulty = asText(record.difficulty) || asText(fallbackRecord.difficulty) || 'easy';
-  return {
-    title: asText(record.title) || asText(fallbackRecord.title),
-    servings: draftNumberInputValue(record.servings, asNumber(fallbackRecord.servings, 1)) as number,
-    prep_minutes: draftNumberInputValue(record.prep_minutes, asNumber(fallbackRecord.prep_minutes, 0)) as number,
-    difficulty: (DIFFICULTY_OPTIONS.some((option) => option.value === difficulty) ? difficulty : 'easy') as Difficulty,
-    ingredient_items: recipeIngredientItemsFromUnknown(record.ingredient_items ?? fallbackRecord.ingredient_items),
-    steps: recipeStepsFromUnknown(record.steps ?? fallbackRecord.steps),
-    tips: asText(record.tips) || asText(fallbackRecord.tips),
-    scene_tags: Array.isArray(record.scene_tags) ? record.scene_tags.map(String).filter(Boolean) : Array.isArray(fallbackRecord.scene_tags) ? fallbackRecord.scene_tags.map(String).filter(Boolean) : [],
-    media_ids: Array.isArray(record.media_ids) ? record.media_ids.map(String).filter(Boolean) : [],
-  };
 }
 
 function validateRecipeDraftForSubmit(recipe: AiGeneratedRecipeDraft) {
@@ -1157,18 +1084,6 @@ export function ApprovalPanel({
     });
     return nextOptions;
   }, [resourceOptionLoader, staticFoodOptions, staticIngredientOptions]);
-  const updateIngredient = (index: number, patch: Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      ingredient_items: current.ingredient_items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
-  const updateStep = (index: number, patch: Partial<AiGeneratedRecipeDraft['steps'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      steps: current.steps.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
   const submitDecision = async (decision: 'approved' | 'rejected') => {
     if (isSubmitting) return;
     setError(null);
@@ -1349,285 +1264,6 @@ export function ApprovalPanel({
           status={currentApproval.status}
           readonly={readonly}
         />
-      );
-    }
-    if (draftType === 'recipe') {
-      const action = asText(structuredDraft.action);
-      const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
-        ? structuredDraft.payload as Record<string, unknown>
-        : {};
-      const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
-        ? structuredDraft.before as Record<string, unknown>
-        : {};
-      const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : '创建';
-      const operationRecipe = recipeDraftFromRecord(payload, before);
-      const deleteImpact = typeof before.deleteImpact === 'object' && before.deleteImpact !== null && !Array.isArray(before.deleteImpact)
-        ? before.deleteImpact as Record<string, unknown>
-        : {};
-      const updatePayload = (patch: Record<string, unknown>) => updateDraft({ payload: { ...payload, ...patch } });
-      const updateOperationIngredient = (index: number, patch: Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>) => {
-        updatePayload({
-          ingredient_items: operationRecipe.ingredient_items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-        });
-      };
-      const updateOperationStep = (index: number, patch: Partial<AiGeneratedRecipeDraft['steps'][number]>) => {
-        updatePayload({
-          steps: operationRecipe.steps.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-        });
-      };
-      const mediaCount = Array.isArray(before.media_ids)
-        ? before.media_ids.length
-        : Array.isArray(before.mediaIds)
-          ? before.mediaIds.length
-          : 0;
-      if (currentApproval.status !== 'pending') {
-        return (
-          <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
-            <section className="ai-confirmation-item ai-recipe-summary-card" aria-label="菜谱摘要">
-              <div className="ai-recipe-summary-head">
-                <div>
-                  <strong>
-                    {currentApproval.status === 'approved'
-                      ? `${actionLabel}菜谱已确认`
-                      : currentApproval.status === 'rejected'
-                        ? '未写入的菜谱草稿'
-                        : '已过期的菜谱草稿'}
-                  </strong>
-                  <span>{operationRecipe.title || '菜谱'}</span>
-                </div>
-                <em>{actionLabel}</em>
-              </div>
-              <dl className="ai-recipe-summary-grid">
-                {recipeDraftSummaryItems(operationRecipe).map((item) => (
-                  <div key={item.label}>
-                    <dt>{item.label}</dt>
-                    <dd>{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {operationRecipe.tips && <p className="ai-recipe-summary-note">{operationRecipe.tips}</p>}
-            </section>
-          </div>
-        );
-      }
-      return (
-        <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
-          <div className="ai-draft-editor-head">
-            <div>
-              <strong>{actionLabel}菜谱</strong>
-              <span>{operationRecipe.title || '菜谱'}</span>
-            </div>
-          </div>
-          <section className="ai-confirmation-item ai-recipe-summary-card" aria-label="菜谱摘要">
-            <div className="ai-recipe-summary-head">
-              <div>
-                <strong>{operationRecipe.title || '待确认菜谱'}</strong>
-                <span>
-                  {action === 'delete'
-                    ? '确认后会删除菜谱，并按现有规则处理同步食物和媒体绑定。'
-                    : '确认后会写入菜谱资料，并同步关联的家常菜食物资料。'}
-                </span>
-              </div>
-              <em>{actionLabel}</em>
-            </div>
-            <dl className="ai-recipe-summary-grid">
-              {recipeDraftSummaryItems(operationRecipe).map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-          {action !== 'create' && (
-            <p className="ai-approval-compare-copy">
-              当前：{[asText(before.title), `${asNumber(before.servings)}人份`, difficultyLabel(before.difficulty)].filter(Boolean).join(' · ')}
-            </p>
-          )}
-          {action === 'delete' ? (
-            <div className="ai-confirmation-item">
-              <div className="ai-confirmation-summary-card ai-recipe-danger-impact">
-                <strong>删除影响</strong>
-                <p>被删菜谱：{operationRecipe.title || asText(before.title) || '当前菜谱'}</p>
-                <p>同步食物：{asNumber(deleteImpact.linkedFoodCount, 0)} 个</p>
-                <p>关联计划：{asNumber(deleteImpact.planItemCount, 0)} 条</p>
-                <p>历史烹饪：{asNumber(deleteImpact.cookLogCount, 0)} 条</p>
-                <p>媒体绑定：{asNumber(deleteImpact.mediaCount, mediaCount)} 个</p>
-              </div>
-              <label className="ai-resource-field ai-confirmation-copy-field">
-                <span>删除原因</span>
-                <textarea className="text-input" rows={2} value={asText(payload.reason)} disabled={readonly} placeholder="可选，说明删除原因" onChange={(event) => updatePayload({ reason: event.target.value })} />
-              </label>
-            </div>
-          ) : (
-            <div className="ai-confirmation-item">
-              <div className="ai-recipe-draft-section">
-                <div className="ai-recipe-draft-section-head">
-                  <strong>基础信息</strong>
-                  <span>用于菜谱库展示、搜索和后续餐食计划。</span>
-                </div>
-                <label className="ai-resource-field">
-                  <span>菜谱名</span>
-                  <input className="text-input" value={operationRecipe.title} disabled={readonly} onChange={(event) => updatePayload({ title: event.target.value })} />
-                </label>
-                <div className="ai-confirmation-grid ai-confirmation-grid-three">
-                  <label className="ai-resource-field">
-                    <span>份量</span>
-                    <input className="text-input" type="number" min={1} value={draftNumberInputValue(operationRecipe.servings, 1)} disabled={readonly} onChange={(event) => updatePayload({ servings: draftNumberFromInput(event.target.value) })} />
-                  </label>
-                  <label className="ai-resource-field">
-                    <span>时间（分钟）</span>
-                    <input className="text-input" type="number" min={0} value={draftNumberInputValue(operationRecipe.prep_minutes, 0)} disabled={readonly} onChange={(event) => updatePayload({ prep_minutes: draftNumberFromInput(event.target.value) })} />
-                  </label>
-                  <ApprovalSelectField
-                    label="难度"
-                    value={operationRecipe.difficulty}
-                    disabled={readonly}
-                    options={DIFFICULTY_OPTIONS}
-                    icon="difficulty"
-                    onChange={(difficulty) => updatePayload({ difficulty })}
-                  />
-                </div>
-                <AiDraftTagInput
-                  label="场景标签"
-                  values={operationRecipe.scene_tags ?? []}
-                  disabled={readonly}
-                  placeholder="家常菜、快手菜"
-                  className="ai-resource-field ai-tag-input-field"
-                  onChange={(sceneTags) => updatePayload({ scene_tags: sceneTags })}
-                />
-                <label className="ai-resource-field ai-confirmation-copy-field">
-                  <span>小贴士</span>
-                  <textarea className="text-input" rows={2} value={operationRecipe.tips} disabled={readonly} placeholder="补充火候、替换食材等提示" onChange={(event) => updatePayload({ tips: event.target.value })} />
-                </label>
-              </div>
-              <div className="ai-recipe-draft-section">
-                <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                  <div>
-                    <strong>食材匹配</strong>
-                    <span>{operationRecipe.ingredient_items.length} 种食材，必须绑定到家庭食材库。</span>
-                  </div>
-                  {!readonly && (
-                    <button className="ghost-button ai-draft-add-button" type="button" onClick={() => updatePayload({ ingredient_items: [...operationRecipe.ingredient_items, { ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }] })}>
-                      添加食材
-                    </button>
-                  )}
-                </div>
-                {operationRecipe.ingredient_items.map((item, index) => {
-                  const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
-                  return (
-                    <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                      <AiSearchableResourceSelect
-                        kind="ingredient"
-                        label={`食材 ${index + 1}`}
-                        value={item.ingredient_id ?? ''}
-                        selectedLabel={item.ingredient_name}
-                        placeholder="从食材库选择"
-                        disabled={readonly}
-                        selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
-                        loadOptions={loadApprovalResourceOptions}
-                        onSelect={(option) => updateOperationIngredient(index, {
-                          ingredient_id: option.id,
-                          ingredient_name: option.label,
-                          unit: option.unit || item.unit || '',
-                        })}
-                      />
-                      {!item.ingredient_id && (
-                        <p className="ai-recipe-binding-warning">
-                          未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
-                        </p>
-                      )}
-                      {usesPresenceQuantity ? (
-                        <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
-                      ) : (
-                        <div className="ai-confirmation-grid ai-confirmation-grid-compact">
-                          <label className="ai-resource-field">
-                            <span>数量</span>
-                            <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(item.quantity)} disabled={readonly} onChange={(event) => updateOperationIngredient(index, { quantity: draftNumberFromInput(event.target.value) as number })} />
-                          </label>
-                          <ApprovalComboboxField
-                            label="单位"
-                            value={item.unit ?? ''}
-                            disabled={readonly}
-                            options={recipeDraftUnitOptions(item.unit ?? '')}
-                            placeholder="选择单位"
-                            icon="step"
-                            onChange={(unit) => updateOperationIngredient(index, { unit })}
-                          />
-                        </div>
-                      )}
-                      <label className="ai-resource-field">
-                        <span>处理备注</span>
-                        <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateOperationIngredient(index, { note: event.target.value })} />
-                      </label>
-                      {!readonly && operationRecipe.ingredient_items.length > 1 && (
-                        <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => updatePayload({ ingredient_items: operationRecipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                          删除食材
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="ai-recipe-draft-section">
-                <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                  <div>
-                    <strong>烹饪步骤</strong>
-                    <span>{operationRecipe.steps.length} 步，标题或说明至少填写一项。</span>
-                  </div>
-                  {!readonly && (
-                    <button className="ghost-button ai-draft-add-button" type="button" onClick={() => updatePayload({ steps: [...operationRecipe.steps, { title: `步骤 ${operationRecipe.steps.length + 1}`, text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }] })}>
-                      添加步骤
-                    </button>
-                  )}
-                </div>
-                {operationRecipe.steps.map((step, index) => (
-                  <div className="ai-recipe-step-card" key={`${step.title}-${index}`}>
-                    <label className="ai-resource-field">
-                      <span>步骤 {index + 1}</span>
-                      <input className="text-input ai-confirmation-title-input" value={step.title} disabled={readonly} placeholder={`步骤 ${index + 1}`} onChange={(event) => updateOperationStep(index, { title: event.target.value })} />
-                    </label>
-                    <div className="ai-confirmation-grid ai-confirmation-grid-three">
-                      <label className="ai-resource-field">
-                        <span>摘要</span>
-                        <input className="text-input" value={step.summary ?? ''} disabled={readonly} placeholder="简短概括" onChange={(event) => updateOperationStep(index, { summary: event.target.value })} />
-                      </label>
-                      <label className="ai-resource-field">
-                        <span>预计用时（分钟）</span>
-                        <input className="text-input" type="number" min={1} value={draftNumberInputValue(step.estimated_minutes)} disabled={readonly} placeholder="分钟" onChange={(event) => updateOperationStep(index, { estimated_minutes: nullableDraftNumberFromInput(event.target.value) })} />
-                      </label>
-                      <ApprovalSelectField
-                        label="步骤图标"
-                        value={step.icon ?? 'pan'}
-                        disabled={readonly}
-                        options={RECIPE_STEP_ICON_OPTIONS}
-                        icon="step"
-                        onChange={(icon) => updateOperationStep(index, { icon })}
-                      />
-                    </div>
-                    <label className="ai-resource-field ai-confirmation-copy-field">
-                      <span>步骤说明</span>
-                      <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="详细说明操作方法" onChange={(event) => updateOperationStep(index, { text: event.target.value })} />
-                    </label>
-                    <AiDraftTagInput
-                      label="关键点"
-                      values={step.key_points ?? []}
-                      disabled={readonly}
-                      placeholder="火候、状态、注意点"
-                      className="ai-resource-field ai-tag-input-field"
-                      onChange={(keyPoints) => updateOperationStep(index, { key_points: keyPoints })}
-                    />
-                    {!readonly && operationRecipe.steps.length > 1 && (
-                      <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => updatePayload({ steps: operationRecipe.steps.filter((_, itemIndex) => itemIndex !== index) })}>
-                        删除步骤
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       );
     }
     if (draftType === 'inventory_operation') {
@@ -3757,237 +3393,12 @@ export function ApprovalPanel({
               readonly={readonly}
               foodOptions={foodOptions}
               ingredientOptions={ingredientOptions}
+              ingredients={ingredients}
               onRecipeChange={setRecipe}
               onStructuredDraftChange={setStructuredDraft}
               onLoadResourceOptions={loadApprovalResourceOptions}
               renderLegacyFallback={() => null}
-            >
-              <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
-              <div className="ai-draft-editor-head">
-                <div>
-                  <strong>{currentApproval.status === 'pending' ? '菜谱草稿' : '菜谱摘要'}</strong>
-                  <span>{recipe.title || '未命名菜谱'}</span>
-                </div>
-              </div>
-              <section className="ai-confirmation-item ai-recipe-summary-card" aria-label="菜谱摘要">
-                <div className="ai-recipe-summary-head">
-                  <div>
-                    <strong>
-                      {currentApproval.status === 'approved'
-                        ? '已创建菜谱'
-                        : currentApproval.status === 'rejected'
-                          ? '未写入的菜谱草稿'
-                          : currentApproval.status === 'expired'
-                            ? '已过期的菜谱草稿'
-                            : recipe.title || '待确认菜谱'}
-                    </strong>
-                    <span>
-                      {currentApproval.status === 'pending'
-                        ? '确认后会创建菜谱，并同步关联的家常菜食物资料。'
-                        : '以下为本次审批保留的菜谱摘要。'}
-                    </span>
-                  </div>
-                  <em>{difficultyLabel(recipe.difficulty) || '未设置难度'}</em>
-                </div>
-                <dl className="ai-recipe-summary-grid">
-                  {recipeDraftSummaryItems(recipe).map((item) => (
-                    <div key={item.label}>
-                      <dt>{item.label}</dt>
-                      <dd>{item.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {recipe.tips && (
-                  <p className="ai-recipe-summary-note">{recipe.tips}</p>
-                )}
-              </section>
-              {currentApproval.status !== 'pending' ? null : (
-                <>
-                  <section className="ai-confirmation-item">
-                    <p className="ai-recipe-draft-intent">
-                      请先核对菜谱基础信息、食材绑定和步骤。未绑定到食材库的食材不能直接写入菜谱。
-                    </p>
-                    <div className="ai-recipe-draft-section">
-                      <div className="ai-recipe-draft-section-head">
-                        <strong>基础信息</strong>
-                        <span>用于菜谱库展示、搜索和后续餐食计划。</span>
-                      </div>
-                      <label className="ai-resource-field">
-                        <span>菜谱名</span>
-                        <input className="text-input" value={recipe.title} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, title: event.target.value })} />
-                      </label>
-                      <div className="ai-confirmation-grid ai-confirmation-grid-three">
-                        <label className="ai-resource-field">
-                          <span>份量</span>
-                          <input className="text-input" type="number" min={1} value={draftNumberInputValue(recipe.servings, 1)} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, servings: draftNumberFromInput(event.target.value) as number })} />
-                        </label>
-                        <label className="ai-resource-field">
-                          <span>时间（分钟）</span>
-                          <input className="text-input" type="number" min={0} value={draftNumberInputValue(recipe.prep_minutes, 0)} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, prep_minutes: draftNumberFromInput(event.target.value) as number })} />
-                        </label>
-                        <ApprovalSelectField
-                          label="难度"
-                          value={recipe.difficulty}
-                          disabled={readonly}
-                          options={DIFFICULTY_OPTIONS}
-                          icon="difficulty"
-                          onChange={(difficulty) => setRecipe({ ...recipe, difficulty: difficulty as Difficulty })}
-                        />
-                      </div>
-                    </div>
-                  </section>
-                  <section className="ai-confirmation-item">
-                    <div className="ai-recipe-draft-section">
-                      <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                        <div>
-                          <strong>食材匹配</strong>
-                          <span>{recipe.ingredient_items.length} 种食材，必须绑定到家庭食材库。</span>
-                        </div>
-                        {!readonly && (
-                          <button className="ghost-button ai-draft-add-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: [...recipe.ingredient_items, { ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }] })}>
-                            添加食材
-                          </button>
-                        )}
-                      </div>
-                      {recipe.ingredient_items.map((item, index) => {
-                        const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
-                        return (
-                          <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                            <AiSearchableResourceSelect
-                              kind="ingredient"
-                              label={`食材 ${index + 1}`}
-                              value={item.ingredient_id ?? ''}
-                              selectedLabel={item.ingredient_name}
-                              placeholder="从食材库选择"
-                              disabled={readonly}
-                              selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
-                              loadOptions={loadApprovalResourceOptions}
-                              onSelect={(option) => updateIngredient(index, {
-                                ingredient_id: option.id,
-                                ingredient_name: option.label,
-                                unit: option.unit || item.unit || '',
-                              })}
-                            />
-                            {!item.ingredient_id && (
-                              <p className="ai-recipe-binding-warning">
-                                未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
-                              </p>
-                            )}
-                            {usesPresenceQuantity ? (
-                              <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
-                            ) : (
-                              <div className="ai-confirmation-grid ai-confirmation-grid-compact">
-                                <label className="ai-resource-field">
-                                  <span>数量</span>
-                                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(item.quantity)} disabled={readonly} onChange={(event) => updateIngredient(index, { quantity: draftNumberFromInput(event.target.value) as number })} />
-                                </label>
-                                <ApprovalComboboxField
-                                  label="单位"
-                                  value={item.unit ?? ''}
-                                  disabled={readonly}
-                                  options={recipeDraftUnitOptions(item.unit ?? '')}
-                                  placeholder="选择单位"
-                                  icon="step"
-                                  onChange={(unit) => updateIngredient(index, { unit })}
-                                />
-                              </div>
-                            )}
-                            <label className="ai-resource-field">
-                              <span>处理备注</span>
-                              <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateIngredient(index, { note: event.target.value })} />
-                            </label>
-                            {!readonly && recipe.ingredient_items.length > 1 && (
-                              <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                                删除食材
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                  <section className="ai-confirmation-item">
-                    <div className="ai-recipe-draft-section">
-                      <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                        <div>
-                          <strong>烹饪步骤</strong>
-                          <span>{recipe.steps.length} 步，标题或说明至少填写一项。</span>
-                        </div>
-                        {!readonly && (
-                          <button className="ghost-button ai-draft-add-button" type="button" onClick={() => setRecipe({ ...recipe, steps: [...recipe.steps, { title: `步骤 ${recipe.steps.length + 1}`, text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }] })}>
-                            添加步骤
-                          </button>
-                        )}
-                      </div>
-                      {recipe.steps.map((step, index) => (
-                        <div className="ai-recipe-step-card" key={`${step.title}-${index}`}>
-                          <label className="ai-resource-field">
-                            <span>步骤 {index + 1}</span>
-                            <input className="text-input ai-confirmation-title-input" value={step.title} disabled={readonly} placeholder={`步骤 ${index + 1}`} onChange={(event) => updateStep(index, { title: event.target.value })} />
-                          </label>
-                          <div className="ai-confirmation-grid ai-confirmation-grid-three">
-                            <label className="ai-resource-field">
-                              <span>摘要</span>
-                              <input className="text-input" value={step.summary ?? ''} disabled={readonly} placeholder="简短概括" onChange={(event) => updateStep(index, { summary: event.target.value })} />
-                            </label>
-                            <label className="ai-resource-field">
-                              <span>预计用时（分钟）</span>
-                              <input className="text-input" type="number" min={1} value={draftNumberInputValue(step.estimated_minutes)} disabled={readonly} placeholder="分钟" onChange={(event) => updateStep(index, { estimated_minutes: nullableDraftNumberFromInput(event.target.value) })} />
-                            </label>
-                            <ApprovalSelectField
-                              label="步骤图标"
-                              value={step.icon ?? 'pan'}
-                              disabled={readonly}
-                              options={RECIPE_STEP_ICON_OPTIONS}
-                              icon="step"
-                              onChange={(icon) => updateStep(index, { icon })}
-                            />
-                          </div>
-                          <label className="ai-resource-field ai-confirmation-copy-field">
-                            <span>步骤说明</span>
-                            <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="详细说明操作方法" onChange={(event) => updateStep(index, { text: event.target.value })} />
-                          </label>
-                          <AiDraftTagInput
-                            label="关键点"
-                            values={step.key_points ?? []}
-                            disabled={readonly}
-                            placeholder="火候、状态、注意点"
-                            className="ai-resource-field ai-tag-input-field"
-                            onChange={(keyPoints) => updateStep(index, { key_points: keyPoints })}
-                          />
-                          {!readonly && recipe.steps.length > 1 && (
-                            <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => setRecipe({ ...recipe, steps: recipe.steps.filter((_, itemIndex) => itemIndex !== index) })}>
-                              删除步骤
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                  <section className="ai-confirmation-item">
-                    <div className="ai-recipe-draft-section">
-                      <div className="ai-recipe-draft-section-head">
-                        <strong>补充信息</strong>
-                        <span>用于后续筛选和家庭做菜备注。</span>
-                      </div>
-                      <AiDraftTagInput
-                        label="场景标签"
-                        values={recipe.scene_tags ?? []}
-                        disabled={readonly}
-                        placeholder="家常菜、快手菜"
-                        className="ai-resource-field ai-tag-input-field"
-                        onChange={(sceneTags) => setRecipe({ ...recipe, scene_tags: sceneTags })}
-                      />
-                      <label className="ai-resource-field ai-confirmation-copy-field">
-                        <span>小贴士</span>
-                        <textarea className="text-input" rows={2} value={recipe.tips} disabled={readonly} placeholder="补充火候、替换食材等提示" onChange={(event) => setRecipe({ ...recipe, tips: event.target.value })} />
-                      </label>
-                    </div>
-                  </section>
-                </>
-              )}
-              </div>
-            </AiDraftRenderer>
+            />
           ) : usesStructuredDraftEditor ? (
             <AiDraftRenderer
               approval={currentApproval}
@@ -3998,6 +3409,7 @@ export function ApprovalPanel({
               readonly={readonly}
               foodOptions={foodOptions}
               ingredientOptions={ingredientOptions}
+              ingredients={ingredients}
               onRecipeChange={setRecipe}
               onStructuredDraftChange={setStructuredDraft}
               onLoadResourceOptions={loadApprovalResourceOptions}
