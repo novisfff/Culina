@@ -1576,6 +1576,9 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
 
     expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('待确认计划变更');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-plan-summary-card')?.textContent).toContain('变更');
+    expect(Array.from(rendered.container.querySelectorAll('[role="note"]')).some((note) => note.textContent?.includes('缺料提醒'))).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll('[role="alert"]')).some((note) => note.textContent?.includes('删除影响'))).toBe(true);
     expect(rendered.container.textContent).toContain('变更新增1、修改1、状态变更1、删除1');
     expect(rendered.container.textContent).toContain('当前：2026-06-12 · 晚餐 · 番茄炒蛋');
     expect(rendered.container.textContent).toContain('调整后：2026-06-12 · 午餐 · 牛肉面');

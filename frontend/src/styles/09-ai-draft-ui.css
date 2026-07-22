@@ -146,13 +146,20 @@
 .ai-draft-item-card.ai-recipe-ingredient-card,
 .ai-draft-item-card.ai-recipe-step-card,
 .ai-draft-item-card.ai-recipe-cook-preview-card,
-.ai-draft-item-card.ai-recipe-cook-shortage-card {
+.ai-draft-item-card.ai-recipe-cook-shortage-card,
+.ai-draft-item-card.ai-meal-plan-item-card,
+.ai-draft-item-card.ai-meal-plan-preview-card {
   border-color: var(--line-soft);
   background: var(--surface-muted);
   padding: var(--space-5);
 }
 
 .ai-draft-item-card.ai-recipe-ingredient-card.is-unbound {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-meal-plan-item-card.is-danger {
   border-color: var(--danger-line);
   background: var(--danger-soft);
 }
