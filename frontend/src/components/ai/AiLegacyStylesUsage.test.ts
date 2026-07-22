@@ -39,6 +39,15 @@ function collectNonTestSourceFiles(dir: string): string[] {
 }
 
 describe('AI legacy style cleanup', () => {
+  it('loads shared AI Draft styles from the dedicated stylesheet', () => {
+    const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+
+    expect(entry).toContain("@import './styles/09-ai-draft-ui.css';");
+    expect(draftStyles).toContain('.ai-draft-summary-card');
+    expect(draftStyles).toContain('.ai-draft-section');
+  });
+
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {
     const sourceByFile = collectNonTestSourceFiles(srcRoot).map((path) => ({
       label: relative(repoRoot, path),

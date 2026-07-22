@@ -39,6 +39,7 @@ description: Use when modifying or reviewing Culina frontend pages, components, 
 - 色彩搭配、字体、间距、圆角、边框、阴影、图片、图标、密度或动效层级：读取 `references/visual-system.md`。
 - 页面结构、卡片、列表、表单、状态面、操作层级、首页或 AI 工作区：读取 `references/component-patterns.md`。
 - 移动端、平板、弹窗、抽屉、表单、触控、键盘或无障碍变化：读取 `references/responsive-and-overlays.md`。
+- AI Draft、approval Draft、approval-card、Draft-component 或 Draft-CSS 工作：读取 `references/ai-draft-patterns.md`。
 - 同一任务涉及多类判断时组合读取对应 reference，不用其中一份替代其他维度。
 - 涉及复杂状态流、异步流程、表单编排、TypeScript 拆分或验证策略：**REQUIRED SUB-SKILL:** Use `frontend-ui-engineering`。
 

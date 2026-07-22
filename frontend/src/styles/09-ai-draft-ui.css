@@ -1,0 +1,10 @@
+/* Shared semantic structure for AI approval Drafts.
+ * Type-specific layouts remain in their owning Draft View styles.
+ */
+.ai-draft-summary-card,
+.ai-draft-section,
+.ai-draft-impact-note,
+.ai-draft-item-card,
+.ai-draft-resolved-summary {
+  min-width: 0;
+}
