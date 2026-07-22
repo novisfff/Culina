@@ -120,6 +120,26 @@ describe('AiInventoryIntakeApproval', () => {
     expect(Array.from(node.querySelectorAll('button')).some((button) => /确认入库|提交/.test(button.textContent || ''))).toBe(false);
   });
 
+  it('presents a compact overview and defers ignored details', async () => {
+    const { container: node } = await renderApproval(baseDraft());
+    expect(node.querySelector('[aria-label="本次入库概览"]')).not.toBeNull();
+    expect(node.querySelector('[aria-label="入库项清单"]')).not.toBeNull();
+    const ignored = node.querySelector('details.ai-inventory-intake-ignored');
+    expect(ignored).not.toBeNull();
+    expect(ignored?.hasAttribute('open')).toBe(false);
+    expect(ignored?.textContent).toContain('不会写入库存');
+  });
+
+  it('labels complete and attention rows with actionable state copy', async () => {
+    const { container: node } = await renderApproval(baseDraft());
+    const eggToggle = Array.from(node.querySelectorAll('button[aria-expanded]'))
+      .find((button) => button.textContent?.includes('鸡蛋'));
+    const milkToggle = Array.from(node.querySelectorAll('button[aria-expanded]'))
+      .find((button) => button.textContent?.includes('牛奶'));
+    expect(eggToggle?.textContent).toContain('已就绪');
+    expect(milkToggle?.textContent).toContain('需补充');
+  });
+
   it('starts incomplete rows expanded and complete rows collapsed', async () => {
     const { container: node } = await renderApproval(baseDraft());
     const eggToggle = Array.from(node.querySelectorAll('button[aria-expanded]'))

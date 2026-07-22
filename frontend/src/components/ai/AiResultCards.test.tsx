@@ -366,6 +366,43 @@ describe('AI query result cards', () => {
     expect(view.querySelector('.ai-operation-result-footer')).not.toBeNull();
   });
 
+  it('renders inventory intake results as a meaningful completed checklist', async () => {
+    const view = await renderCard({
+      id: 'inventory-intake-result-card',
+      type: 'operation_result',
+      title: '已入库',
+      data: {
+        actionSummary: '已入库',
+        entityCount: 2,
+        entityCountLabel: '2 项入库',
+        workspaceLabel: '库存',
+        workspaceHint: '可前往库存查看',
+        entities: [
+          {
+            id: 'intake-milk',
+            label: '牛奶 · 1 袋 · 冷藏',
+            operation: 'stock_only',
+            operationLabel: '直接入库',
+          },
+          {
+            id: 'intake-eggs',
+            label: '鸡蛋 · 12 个 · 冷藏',
+            operation: 'stock_and_fulfill',
+            operationLabel: '入库并完成采购项',
+          },
+        ],
+      },
+    });
+
+    expect(view.textContent).toContain('牛奶 · 1 袋 · 冷藏');
+    expect(view.textContent).toContain('直接入库');
+    expect(view.textContent).toContain('鸡蛋 · 12 个 · 冷藏');
+    expect(view.textContent).toContain('入库并完成采购项');
+    const states = view.querySelectorAll('.ai-operation-result-state');
+    expect(states).toHaveLength(2);
+    expect(Array.from(states).every((state) => state.getAttribute('aria-label') === '已完成')).toBe(true);
+  });
+
   it('localizes legacy operation result entity fallback labels', async () => {
     const view = await renderCard({
       id: 'inventory-operation-result-card',

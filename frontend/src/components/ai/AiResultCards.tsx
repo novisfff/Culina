@@ -349,23 +349,30 @@ function OperationResultCard({
             const target = navigateTargetForOperationEntity(item);
             const canOpen = Boolean(target && onNavigate);
             return (
-              <section key={item.id} className="ai-recommendation-item">
-                {canOpen ? (
-                  <button
-                    type="button"
-                    className="ai-entity-open-button"
-                    onClick={() => {
-                      if (target) onNavigate?.(target);
-                    }}
-                  >
+              <section key={item.id} className="ai-recommendation-item ai-operation-result-item">
+                <span className="ai-operation-result-state" aria-label="已完成">
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m5 10 3 3 7-7" />
+                  </svg>
+                </span>
+                <div className="ai-operation-result-item-copy">
+                  {canOpen ? (
+                    <button
+                      type="button"
+                      className="ai-entity-open-button"
+                      onClick={() => {
+                        if (target) onNavigate?.(target);
+                      }}
+                    >
+                      <strong>{operationResultEntityLabel(item)}</strong>
+                    </button>
+                  ) : (
                     <strong>{operationResultEntityLabel(item)}</strong>
-                  </button>
-                ) : (
-                  <strong>{operationResultEntityLabel(item)}</strong>
-                )}
-                <p>
-                  {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
-                </p>
+                  )}
+                  <p>
+                    {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
               </section>
             );
           })}

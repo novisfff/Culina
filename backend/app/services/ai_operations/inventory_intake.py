@@ -846,6 +846,32 @@ def execute_inventory_intake_draft(context: DraftExecuteContext) -> tuple[dict[s
         business_date=date.fromisoformat(str(payload["intakeDate"])),
     )
     business_entity = result.model_dump(mode="json")
+    display_items_by_line = {
+        str(item.get("lineId") or ""): item
+        for item in executable_items
+        if str(item.get("lineId") or "")
+    }
+    for result_item in business_entity.get("items") or []:
+        if not isinstance(result_item, dict):
+            continue
+        display_item = display_items_by_line.get(str(result_item.get("line_id") or ""))
+        if display_item is None:
+            continue
+        title_parts = [
+            str(display_item.get("title") or display_item.get("sourceText") or "入库项").strip(),
+        ]
+        action = str(display_item.get("action") or "").strip()
+        if action in {"stock_and_fulfill", "stock_only"}:
+            quantity = str(display_item.get("enteredQuantity") or "").strip()
+            unit = str(display_item.get("enteredUnit") or "").strip()
+            quantity_text = " ".join(part for part in (quantity, unit) if part)
+            if quantity_text:
+                title_parts.append(quantity_text)
+            storage_location = str(display_item.get("storageLocation") or "").strip()
+            if storage_location:
+                title_parts.append(storage_location)
+        result_item["title"] = " · ".join(part for part in title_parts if part)
+        result_item["_operation"] = action
     entity_ids = [result.operation_id]
     for item in result.items:
         if item.shopping_item_id:

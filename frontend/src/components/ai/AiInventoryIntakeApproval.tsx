@@ -45,12 +45,6 @@ function isStockAction(item: InventoryIntakeDraftItem) {
   return item.action === 'stock_and_fulfill' || item.action === 'stock_only';
 }
 
-function sourceBadge(sourceKind: string) {
-  if (sourceKind === 'shopping_item') return '采购关联';
-  if (sourceKind === 'direct') return '直接入库';
-  return '入库行';
-}
-
 function InventoryIntakeRow({
   item,
   intakeDate,
@@ -96,8 +90,8 @@ function InventoryIntakeRow({
           <strong>{title}</strong>
           <small>{inventoryIntakeItemSummary(item)}</small>
         </span>
-        <span className={`ai-inventory-intake-badge source-${item.sourceKind || 'unknown'}`}>
-          {sourceBadge(item.sourceKind)}
+        <span className={`ai-inventory-intake-badge${needsAttention ? ' needs-attention' : ' is-ready'}`}>
+          {needsAttention ? '需补充' : '已就绪'}
         </span>
         <span className="ai-inventory-intake-chevron" aria-hidden="true">⌄</span>
       </button>
@@ -108,12 +102,8 @@ function InventoryIntakeRow({
             <p className="ai-inventory-intake-source-text">{item.sourceText}</p>
           ) : null}
 
-          {item.sourceKind === 'direct' ? (
-            <p className="ai-inventory-intake-direct-note">只增加库存，不创建或完成采购项</p>
-          ) : null}
-
           <label className="ai-inventory-intake-field">
-            <span>本行处理方式</span>
+            <span>处理方式</span>
             <select
               className="text-input"
               value={item.action || ''}
@@ -311,7 +301,7 @@ export function AiInventoryIntakeApproval({
 
   return (
     <section className="ai-inventory-intake-editor" aria-label="确认入库内容">
-      <header className="ai-inventory-intake-overview">
+      <header className="ai-inventory-intake-overview" aria-label="本次入库概览">
         <div className="ai-inventory-intake-overview-main">
           <label className="ai-inventory-intake-field ai-inventory-intake-date-field">
             <span>入库日期</span>
@@ -326,69 +316,95 @@ export function AiInventoryIntakeApproval({
           <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
         </div>
         <div className="ai-inventory-intake-overview-counts">
-          <strong>
-            {groups.shopping.length} 采购关联 · {groups.direct.length} 直接入库
-            {groups.ignored.length > 0 ? ` · ${groups.ignored.length} 已忽略` : ''}
-          </strong>
-          <p>
-            {attentionIds.size > 0
-              ? `${attentionIds.size} 项需要补充或复核`
-              : '信息完整，可统一确认'}
-          </p>
+          <span>
+            <strong>{groups.shopping.length + groups.direct.length}</strong>
+            项入库
+          </span>
+          {groups.ignored.length > 0 ? (
+            <span>
+              <strong>{groups.ignored.length}</strong>
+              项忽略
+            </span>
+          ) : null}
+        </div>
+        <div className={`ai-inventory-intake-readiness${attentionIds.size > 0 ? ' needs-attention' : ' is-ready'}`}>
+          <span className="ai-inventory-intake-readiness-dot" aria-hidden="true" />
+          <span>
+            <strong>
+              {attentionIds.size > 0
+                ? `${attentionIds.size} 项需要补充`
+                : '信息完整，可以确认'}
+            </strong>
+            <small>
+              {attentionIds.size > 0
+                ? '补齐标记项后即可统一入库'
+                : '确认后统一登记库存'}
+            </small>
+          </span>
         </div>
       </header>
 
-      {groups.shopping.length > 0 ? (
-        <section className="ai-inventory-intake-group" aria-label="采购清单关联">
-          <header className="ai-inventory-intake-group-header">
-            <strong>采购清单关联</strong>
-            <span>{groups.shopping.length} 项</span>
-          </header>
-          <div className="ai-inventory-intake-group-list">
-            {groups.shopping.map((item) => (
-              <InventoryIntakeRow
-                key={item.lineId}
-                item={item}
-                intakeDate={draft.intakeDate}
-                readonly={readonly}
-                expanded={expandedIds.has(item.lineId)}
-                onToggle={() => toggleExpanded(item.lineId)}
-                onPatch={(patch) => handleItemPatch(item.lineId, patch)}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <div className="ai-inventory-intake-groups" aria-label="入库项清单">
+        {groups.shopping.length > 0 ? (
+          <section className="ai-inventory-intake-group" aria-label="采购清单关联">
+            <header className="ai-inventory-intake-group-header">
+              <span>
+                <strong>采购清单关联</strong>
+                <small>入库后同步完成对应采购项</small>
+              </span>
+              <em>{groups.shopping.length} 项</em>
+            </header>
+            <div className="ai-inventory-intake-group-list">
+              {groups.shopping.map((item) => (
+                <InventoryIntakeRow
+                  key={item.lineId}
+                  item={item}
+                  intakeDate={draft.intakeDate}
+                  readonly={readonly}
+                  expanded={expandedIds.has(item.lineId)}
+                  onToggle={() => toggleExpanded(item.lineId)}
+                  onPatch={(patch) => handleItemPatch(item.lineId, patch)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-      {groups.direct.length > 0 ? (
-        <section className="ai-inventory-intake-group" aria-label="直接入库">
-          <header className="ai-inventory-intake-group-header">
-            <strong>直接入库</strong>
-            <span>{groups.direct.length} 项</span>
-          </header>
-          <p className="ai-inventory-intake-group-note">只增加库存，不创建或完成采购项</p>
-          <div className="ai-inventory-intake-group-list">
-            {groups.direct.map((item) => (
-              <InventoryIntakeRow
-                key={item.lineId}
-                item={item}
-                intakeDate={draft.intakeDate}
-                readonly={readonly}
-                expanded={expandedIds.has(item.lineId)}
-                onToggle={() => toggleExpanded(item.lineId)}
-                onPatch={(patch) => handleItemPatch(item.lineId, patch)}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
+        {groups.direct.length > 0 ? (
+          <section className="ai-inventory-intake-group" aria-label="直接入库">
+            <header className="ai-inventory-intake-group-header">
+              <span>
+                <strong>直接入库</strong>
+                <small>只增加库存，不创建或完成采购项</small>
+              </span>
+              <em>{groups.direct.length} 项</em>
+            </header>
+            <div className="ai-inventory-intake-group-list">
+              {groups.direct.map((item) => (
+                <InventoryIntakeRow
+                  key={item.lineId}
+                  item={item}
+                  intakeDate={draft.intakeDate}
+                  readonly={readonly}
+                  expanded={expandedIds.has(item.lineId)}
+                  onToggle={() => toggleExpanded(item.lineId)}
+                  onPatch={(patch) => handleItemPatch(item.lineId, patch)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
 
       {groups.ignored.length > 0 ? (
-        <aside className="ai-inventory-intake-ignored" aria-label="已忽略">
-          <header className="ai-inventory-intake-group-header">
-            <strong>已忽略</strong>
-            <span>{groups.ignored.length} 项 · 只读说明，无需确认</span>
-          </header>
+        <details className="ai-inventory-intake-ignored" aria-label="已忽略">
+          <summary>
+            <span>
+              <strong>已忽略</strong>
+              <small>不会写入库存，无需确认</small>
+            </span>
+            <em>{groups.ignored.length} 项</em>
+          </summary>
           <ul>
             {groups.ignored.map((item, index) => (
               <li key={item.sourceLineId || `ignored-${index}`}>
@@ -397,12 +413,12 @@ export function AiInventoryIntakeApproval({
               </li>
             ))}
           </ul>
-        </aside>
+        </details>
       ) : null}
 
       <footer className="ai-inventory-intake-submit-summary">
-        <strong>本次统一提交</strong>
-        <span>{inventoryIntakeSubmitSummary(draft)}</span>
+        <span>确认后将</span>
+        <strong>{inventoryIntakeSubmitSummary(draft)}</strong>
       </footer>
     </section>
   );

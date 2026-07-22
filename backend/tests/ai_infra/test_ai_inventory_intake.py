@@ -673,6 +673,8 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
             )
             self.assertIsNotNone(db.get(InventoryOperation, business_entity["operation_id"]))
             self.assertIn(item.id, entity_ids)
+            self.assertEqual(business_entity["items"][0]["title"], "番茄 · 2 个 · 冷藏")
+            self.assertEqual(business_entity["items"][0]["_operation"], "stock_and_fulfill")
 
     def test_executor_rejects_all_skip(self) -> None:
         with self.SessionLocal() as db:

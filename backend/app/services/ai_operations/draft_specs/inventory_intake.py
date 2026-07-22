@@ -34,6 +34,11 @@ def inventory_intake_operation_specs() -> list[DraftOperationSpec]:
                 count_noun="项入库",
                 fallback_label="统一入库",
                 default_action="inventory_intake",
+                action_labels={
+                    "stock_and_fulfill": "入库并完成采购项",
+                    "fulfill_without_stock": "仅完成采购项",
+                    "stock_only": "直接入库",
+                },
                 recovery_hint="请按冲突行刷新真实采购项和库存目标后重新生成整份草稿；本次不会部分提交。",
             ),
         )
