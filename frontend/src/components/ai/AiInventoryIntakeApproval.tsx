@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { ApprovalSelectField } from './AiApprovalFields';
 import { asText } from './aiDraftValueUtils';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
+import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
 import { AiDraftSection } from './draft-ui/AiDraftSection';
 import { AiDraftSummaryCard } from './draft-ui/AiDraftSummaryCard';
 import {
@@ -18,6 +19,7 @@ import {
   type InventoryIntakeDraft,
   type InventoryIntakeDraftItem,
   type InventoryIntakeEditableItemPatch,
+  type InventoryIntakeIgnoredItem,
   type InventoryIntakePackageConversion,
   type InventoryIntakeSourceKind,
 } from './aiInventoryIntakeDraftModel';
@@ -27,8 +29,23 @@ type DraftRecord = Record<string, unknown>;
 type AiInventoryIntakeApprovalProps = {
   draft: DraftRecord | InventoryIntakeDraft;
   readonly?: boolean;
+  status?: string;
   onChange: (draft: InventoryIntakeDraft) => void;
 };
+
+function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
+  if (status === 'approved' || status === 'rejected' || status === 'expired' || status === 'cancelled' || status === 'canceled') {
+    return status;
+  }
+  return 'expired';
+}
+
+function resolvedTitle(status: string) {
+  if (status === 'approved') return '入库已确认';
+  if (status === 'rejected') return '未写入的入库草稿';
+  if (status === 'expired') return '已过期的入库草稿';
+  return '已处理的入库草稿';
+}
 
 const PRESENCE_LEVEL_OPTIONS = [
   { value: 'sufficient', label: '充足' },
@@ -271,6 +288,7 @@ function InventoryIntakeRow({
 export function AiInventoryIntakeApproval({
   draft: rawDraft,
   readonly = false,
+  status = 'pending',
   onChange,
 }: AiInventoryIntakeApprovalProps) {
   const draft = inventoryIntakeDraftFromRecord(rawDraft as Record<string, unknown>);
@@ -313,6 +331,53 @@ export function AiInventoryIntakeApproval({
     { label: '直接入库', value: `${groups.direct.length} 项` },
     { label: '已忽略', value: `${groups.ignored.length} 项` },
   ];
+
+  if (status !== 'pending') {
+    const resolvedGroup = (
+      title: string,
+      description: string,
+      items: Array<InventoryIntakeDraftItem | InventoryIntakeIgnoredItem>,
+    ) => (
+      <AiDraftSection
+        title={title}
+        description={description}
+        action={<span className="ai-inventory-intake-group-count">{items.length} 项</span>}
+        className="ai-inventory-intake-resolved-group"
+      >
+        <ul className="ai-inventory-intake-resolved-list">
+          {items.map((item, index) => (
+            <li key={asText(item.lineId) || asText(item.sourceLineId) || `${title}-${index}`}>
+              <strong>{asText(item.displayName) || asText(item.title) || asText(item.sourceText) || '未命名入库项'}</strong>
+              <span>{asText(item.reason) || (asText(item.lineId) ? inventoryIntakeItemSummary(item as InventoryIntakeDraftItem) : '本次不会入库')}</span>
+            </li>
+          ))}
+        </ul>
+      </AiDraftSection>
+    );
+
+    return (
+      <section className="ai-inventory-intake-editor" aria-label="确认入库内容">
+        <AiDraftResolvedSummary
+          status={resolvedStatus(status)}
+          title={resolvedTitle(status)}
+          summary="保留本次入库范围与处理结果，便于后续核对。"
+          className="ai-inventory-intake-summary-card"
+        >
+          <dl className="ai-draft-summary-items">
+            {overviewItems.map((item) => (
+              <div key={item.label} className="ai-draft-summary-item">
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {groups.shopping.length > 0 ? resolvedGroup('采购清单关联', '对应采购项的入库结果。', groups.shopping) : null}
+          {groups.direct.length > 0 ? resolvedGroup('直接入库', '本次直接写入库存的项目。', groups.direct) : null}
+          {groups.ignored.length > 0 ? resolvedGroup('已忽略', '不会写入库存的项目。', groups.ignored) : null}
+        </AiDraftResolvedSummary>
+      </section>
+    );
+  }
 
   return (
     <section className="ai-inventory-intake-editor" aria-label="确认入库内容">

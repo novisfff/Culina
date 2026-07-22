@@ -1,6 +1,14 @@
-import type { ReactNode } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Ingredient } from '../../../api/types';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
+import { AiCompositeOperationPreview } from '../AiCompositeOperationPreview';
+import { AiInventoryIntakeApproval } from '../AiInventoryIntakeApproval';
+import { AiInventoryOperationEditor } from '../AiInventoryOperationEditor';
+import { inventoryOperationDraftFromRecord } from '../aiInventoryOperationDraftModel';
+import { asDraftArray, asText } from '../aiDraftValueUtils';
+import {
+  AiIngredientTrackingTransitionApproval,
+  AiMealCompositionCorrectionApproval,
+} from '../AiSpecializedApprovalEditors';
 import { AiFoodProfileDraftView } from './views/AiFoodProfileDraftView';
 import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
 import { AiIngredientProfileDraftView } from './views/AiIngredientProfileDraftView';
@@ -26,7 +34,6 @@ export type AiDraftRendererProps = {
   onRecipeChange: (next: AiGeneratedRecipeDraft) => void;
   onStructuredDraftChange: (next: Record<string, unknown>) => void;
   onLoadResourceOptions: AiResourceOptionLoader;
-  renderLegacyFallback: () => ReactNode;
 };
 
 export function AiDraftRenderer(props: AiDraftRendererProps) {
@@ -92,10 +99,24 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'inventory_intake':
-      return <>{props.renderLegacyFallback()}</>;
+      return (
+        <AiInventoryIntakeApproval
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          onChange={props.onStructuredDraftChange}
+        />
+      );
     case 'meal_log':
-      if (props.structuredDraft.action === 'update_composition') {
-        return <>{props.renderLegacyFallback()}</>;
+      if (asText(props.structuredDraft.action) === 'update_composition') {
+        return (
+          <AiMealCompositionCorrectionApproval
+            draft={props.structuredDraft}
+            readonly={props.readonly}
+            status={props.approval.status}
+            onChange={props.onStructuredDraftChange}
+          />
+        );
       }
       return (
         <AiMealLogDraftView
@@ -118,8 +139,15 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'ingredient_profile':
-      if (props.structuredDraft.action === 'transition_tracking_mode') {
-        return <>{props.renderLegacyFallback()}</>;
+      if (asText(props.structuredDraft.action) === 'transition_tracking_mode') {
+        return (
+          <AiIngredientTrackingTransitionApproval
+            draft={props.structuredDraft}
+            readonly={props.readonly}
+            status={props.approval.status}
+            onChange={props.onStructuredDraftChange}
+          />
+        );
       }
       return (
         <AiIngredientProfileDraftView
@@ -129,10 +157,42 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
           onDraftChange={props.onStructuredDraftChange}
         />
       );
-    case 'inventory_operation':
+    case 'inventory_operation': {
+      const draft = inventoryOperationDraftFromRecord(props.structuredDraft);
+      return (
+        <AiInventoryOperationEditor
+          draft={draft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          onUpdateItem={(index, patch) => {
+            const operations = asDraftArray(props.structuredDraft.operations);
+            props.onStructuredDraftChange({
+              ...props.structuredDraft,
+              operations: operations.map((item, itemIndex) => (
+                itemIndex === index ? { ...item, ...patch } : item
+              )),
+            });
+          }}
+          onRemoveItem={(index) => {
+            const operations = asDraftArray(props.structuredDraft.operations);
+            if (operations.length <= 1) return;
+            props.onStructuredDraftChange({
+              ...props.structuredDraft,
+              operations: operations.filter((_, itemIndex) => itemIndex !== index),
+            });
+          }}
+        />
+      );
+    }
     case 'composite_operation':
-      return <>{props.renderLegacyFallback()}</>;
+      return (
+        <AiCompositeOperationPreview
+          draft={props.structuredDraft}
+          status={props.approval.status}
+          readonly={props.readonly}
+        />
+      );
     default:
-      return <>{props.renderLegacyFallback()}</>;
+      return null;
   }
 }

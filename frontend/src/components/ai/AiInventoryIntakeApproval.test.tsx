@@ -87,6 +87,7 @@ async function renderApproval(
   draft: Record<string, unknown>,
   onChange = vi.fn(),
   readonly = false,
+  status = 'pending',
 ) {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -96,6 +97,7 @@ async function renderApproval(
       <AiInventoryIntakeApproval
         draft={draft}
         readonly={readonly}
+        status={status}
         onChange={onChange}
       />,
     );
@@ -133,6 +135,13 @@ describe('AiInventoryIntakeApproval', () => {
     expect(ignored).not.toBeNull();
     expect(ignored?.hasAttribute('open')).toBe(false);
     expect(ignored?.textContent).toContain('不会写入库存');
+  });
+
+  it('renders resolved intake as a compact summary without editor controls', async () => {
+    const { container: node } = await renderApproval(baseDraft(), vi.fn(), true, 'approved');
+
+    expect(node.querySelector('.ai-draft-resolved-summary.ai-inventory-intake-summary-card')?.textContent).toContain('入库已确认');
+    expect(node.querySelector('input, select, textarea')).toBeNull();
   });
 
   it('labels complete and attention rows with actionable state copy', async () => {

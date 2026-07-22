@@ -3,18 +3,14 @@ import type { AiApprovalRequest, AiGeneratedRecipeDraft, Food, Ingredient } from
 import { resolveMediaUrl } from '../../lib/assets';
 import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import type { AiResourceKind, AiResourceOption, AiResourceOptionLoader } from './AiApprovalFields';
-import { AiCompositeOperationPreview, validateCompositeOperationDraftForSubmit } from './AiCompositeOperationPreview';
-import { AiInventoryOperationEditor } from './AiInventoryOperationEditor';
+import { validateCompositeOperationDraftForSubmit } from './AiCompositeOperationPreview';
 import {
   inventoryOperationDraftFromRecord,
   validateInventoryOperationDraftForSubmit,
-  type InventoryOperationDraftItemPatch,
 } from './aiInventoryOperationDraftModel';
 import { asDraftArray, asNumber, asText, draftNumberFromInput, draftNumberInputValue, nullableDraftNumberFromInput } from './aiDraftValueUtils';
-import { AiInventoryIntakeApproval, validateInventoryIntakeDraftForSubmit } from './AiInventoryIntakeApproval';
+import { validateInventoryIntakeDraftForSubmit } from './AiInventoryIntakeApproval';
 import {
-  AiIngredientTrackingTransitionApproval,
-  AiMealCompositionCorrectionApproval,
   validateIngredientTrackingTransitionForSubmit,
   validateMealCompositionCorrectionForSubmit,
 } from './AiSpecializedApprovalEditors';
@@ -894,80 +890,6 @@ export function ApprovalPanel({
     }
   };
 
-  const updateDraft = (patch: Record<string, unknown>) => {
-    setStructuredDraft((current) => ({ ...current, ...patch }));
-  };
-  const updateDraftItem = (key: string, index: number, patch: Record<string, unknown>) => {
-    setStructuredDraft((current) => {
-      const items = asDraftArray(current[key]);
-      return { ...current, [key]: items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)) };
-    });
-  };
-  const addDraftItem = (key: string, item: Record<string, unknown>) => {
-    setStructuredDraft((current) => ({ ...current, [key]: [...asDraftArray(current[key]), item] }));
-  };
-  const removeDraftItem = (key: string, index: number) => {
-    setStructuredDraft((current) => {
-      const items = asDraftArray(current[key]);
-      if (items.length <= 1) return current;
-      return { ...current, [key]: items.filter((_, itemIndex) => itemIndex !== index) };
-    });
-  };
-  const updateOperationPayloadItem = (index: number, patch: Record<string, unknown>) => {
-    setStructuredDraft((current) => {
-      const items = asDraftArray(current.operations);
-      return {
-        ...current,
-        operations: items.map((item, itemIndex) => (
-          itemIndex === index
-            ? { ...item, payload: { ...(typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload) ? item.payload as Record<string, unknown> : {}), ...patch } }
-            : item
-        )),
-      };
-    });
-  };
-  const updateInventoryOperationItem = (index: number, patch: InventoryOperationDraftItemPatch) => {
-    updateDraftItem('operations', index, patch as Record<string, unknown>);
-  };
-  const renderStructuredDraftEditor = () => {
-    if (draftType === 'ingredient_profile' && asText(structuredDraft.action) === 'transition_tracking_mode') {
-      return <AiIngredientTrackingTransitionApproval draft={structuredDraft} readonly={readonly} onChange={setStructuredDraft} />;
-    }
-    if (draftType === 'meal_log' && asText(structuredDraft.action) === 'update_composition') {
-      return <AiMealCompositionCorrectionApproval draft={structuredDraft} readonly={readonly} onChange={setStructuredDraft} />;
-    }
-    if (draftType === 'inventory_intake') {
-      return (
-        <AiInventoryIntakeApproval
-          draft={structuredDraft}
-          readonly={readonly}
-          onChange={setStructuredDraft}
-        />
-      );
-    }
-    if (draftType === 'composite_operation') {
-      return (
-        <AiCompositeOperationPreview
-          draft={structuredDraft}
-          status={currentApproval.status}
-          readonly={readonly}
-        />
-      );
-    }
-    if (draftType === 'inventory_operation') {
-      return (
-        <AiInventoryOperationEditor
-          draft={inventoryOperationDraft}
-          readonly={readonly}
-          status={currentApproval.status}
-          onUpdateItem={updateInventoryOperationItem}
-          onRemoveItem={(index) => removeDraftItem('operations', index)}
-        />
-      );
-    }
-    return null;
-  };
-
   const briefSummary = useMemo(() => {
     if (recipeApproval) {
       const servings = recipe.servings ? `${recipe.servings}人份` : '';
@@ -1194,7 +1116,7 @@ export function ApprovalPanel({
               </section>
             </AiDraftImpactNote>
           )}
-          {recipeApproval ? (
+          {recipeApproval || usesStructuredDraftEditor ? (
             <AiDraftRenderer
               approval={currentApproval}
               draftType={draftType}
@@ -1211,26 +1133,6 @@ export function ApprovalPanel({
               onRecipeChange={setRecipe}
               onStructuredDraftChange={setStructuredDraft}
               onLoadResourceOptions={loadApprovalResourceOptions}
-              renderLegacyFallback={() => null}
-            />
-          ) : usesStructuredDraftEditor ? (
-            <AiDraftRenderer
-              approval={currentApproval}
-              draftType={draftType}
-              recipeApproval={recipeApproval}
-              recipe={recipe}
-              structuredDraft={structuredDraft}
-              readonly={readonly}
-              foodOptions={foodOptions}
-              foodCategoryOptions={foodCategoryOptions}
-              ingredientOptions={ingredientOptions}
-              ingredients={ingredients}
-              recipeCookSchemaVersion={recipeCookSchemaVersion}
-              recipeCookRequiresRegeneration={recipeCookRequiresRegeneration}
-              onRecipeChange={setRecipe}
-              onStructuredDraftChange={setStructuredDraft}
-              onLoadResourceOptions={loadApprovalResourceOptions}
-              renderLegacyFallback={renderStructuredDraftEditor}
             />
           ) : (
             <div className="ai-recipe-editor">

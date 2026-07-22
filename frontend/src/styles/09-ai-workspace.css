@@ -4506,23 +4506,6 @@
   color: var(--danger, #D94B3D);
 }
 
-.ai-draft-editor-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 46px;
-  border: 0;
-  border-bottom: 2px solid rgba(210, 107, 51, 0.12);
-  background: transparent;
-  padding: 4px 2px 8px;
-  margin-bottom: 12px;
-  box-shadow: none;
-}
-
 .ai-draft-editor-head > div {
   display: flex;
   align-items: center;
@@ -4547,47 +4530,6 @@
   font-size: 0.76rem;
   font-weight: 850;
   margin-left: 8px;
-}
-
-.ai-draft-add-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  border-radius: 10px;
-  padding-inline: 10px;
-  font-size: 0.82rem;
-  font-weight: 850;
-  white-space: nowrap;
-}
-
-.ai-confirmation-editor .ai-draft-editor-head {
-  position: static;
-}
-
-.ai-confirmation-item {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-  border: 1px solid var(--line-soft);
-  border-left: 4px solid var(--accent);
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  padding: 18px 20px;
-  box-shadow: 0 4px 16px rgba(74, 54, 40, 0.02);
-  margin-bottom: 16px;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.ai-confirmation-item:hover {
-  border-color: rgba(210, 107, 51, 0.2);
-  box-shadow: var(--shadow-xs);
-}
-
-.ai-confirmation-summary-card {
-  border-left-color: var(--success);
-  background: linear-gradient(180deg, #ffffff, #fafdfa);
 }
 
 /* Specificity override to ensure compact inputs have their own borders, matching the system style */
@@ -4659,21 +4601,6 @@
   border-color: var(--danger, #D94B3D);
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(217, 75, 61, 0.18);
-}
-
-.ai-confirmation-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.ai-confirmation-grid-three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.ai-confirmation-grid-compact {
-  grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr);
-  max-width: 320px;
 }
 
 .ai-confirmation-item .text-input,
@@ -4948,48 +4875,6 @@
   border-radius: var(--radius-sm);
   background: rgba(252, 250, 247, 0.72);
   padding: 12px;
-}
-
-.ai-resource-field {
-  position: relative;
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-soft);
-  font-size: 0.8125rem;
-  font-weight: 600;
-}
-
-.ai-resource-select {
-  position: relative;
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 18px;
-  align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  border: 1px solid rgba(212, 190, 173, 0.76);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #fffbf7 100%);
-  padding: 5px 9px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 4px 12px rgba(74, 54, 40, 0.025);
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-}
-
-.ai-resource-select:hover {
-  border-color: rgba(210, 107, 51, 0.3);
-  background: #ffffff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 6px 16px rgba(74, 54, 40, 0.04);
-}
-
-.ai-resource-select:focus-within,
-.ai-resource-select.is-open {
-  border-color: rgba(216, 122, 67, 0.56);
-  box-shadow: 0 0 0 3px rgba(216, 122, 67, 0.12), 0 8px 18px rgba(74, 54, 40, 0.055);
-  background: #ffffff;
-}
-
-.ai-resource-select.is-disabled {
-  background: rgba(249, 245, 241, 0.76);
 }
 
 .ai-resource-select > svg,
@@ -5439,13 +5324,6 @@
   padding: 12px 16px;
 }
 
-.ai-draft-editor-head {
-  min-height: 38px;
-  border-bottom-width: 1px;
-  padding: 0 0 8px;
-  margin-bottom: 2px;
-}
-
 .ai-draft-editor-head strong {
   font-size: 0.9375rem;
   font-weight: 850;
@@ -5461,31 +5339,6 @@
   white-space: normal;
 }
 
-.ai-draft-add-button,
-.ai-draft-remove-button {
-  min-height: 36px;
-  border-radius: 12px;
-}
-
-.ai-confirmation-item {
-  gap: 12px;
-  margin-bottom: 0;
-  border-color: var(--ai-card-line);
-  border-left-width: 3px;
-  border-radius: 18px;
-  background: #ffffff;
-  padding: 14px 16px;
-  box-shadow: none;
-}
-
-.ai-confirmation-item + .ai-confirmation-item {
-  margin-top: 2px;
-}
-
-.ai-confirmation-summary-card {
-  background: linear-gradient(180deg, #ffffff, #fbfdfb);
-}
-
 .ai-approval-compare-copy {
   max-width: none !important;
   margin: 0 !important;
@@ -5496,37 +5349,6 @@
   padding: 9px 11px;
   font-size: 0.8125rem !important;
   line-height: 1.45 !important;
-}
-
-.ai-confirmation-grid,
-.ai-confirmation-grid-three,
-.ai-confirmation-grid-compact {
-  gap: 10px;
-}
-
-.ai-resource-field {
-  gap: 5px;
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.ai-resource-select {
-  min-height: 40px;
-  border-color: rgba(147, 96, 63, 0.16);
-  border-radius: 12px;
-  background: #fffdfb;
-  padding: 5px 9px;
-}
-
-.ai-resource-select input,
-.ai-resource-select select,
-.ai-multi-select-trigger {
-  font-size: 0.875rem;
-  font-weight: 720;
-}
-
-.ai-resource-select input {
-  font-size: 1rem;
 }
 
 .ai-confirmation-item .text-input,
