@@ -420,7 +420,7 @@ export function AiInventoryIntakeApproval({
             title="采购清单关联"
             description="入库后同步完成对应采购项。"
             action={<span className="ai-inventory-intake-group-count">{groups.shopping.length} 项</span>}
-            className="ai-confirmation-item ai-inventory-intake-group"
+            className="ai-inventory-intake-group"
           >
             <div className="ai-inventory-intake-group-list">
               {groups.shopping.map((item) => (
@@ -443,7 +443,7 @@ export function AiInventoryIntakeApproval({
             title="直接入库"
             description="只增加库存，不创建或完成采购项。"
             action={<span className="ai-inventory-intake-group-count">{groups.direct.length} 项</span>}
-            className="ai-confirmation-item ai-inventory-intake-group"
+            className="ai-inventory-intake-group"
           >
             <div className="ai-inventory-intake-group-list">
               {groups.direct.map((item) => (

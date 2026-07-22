@@ -134,6 +134,7 @@ export function AiInventoryOperationEditor({
               title={item.ingredientName || '食材'}
               summary={operationDescription(action, item, batchOptions, inventoryItemId)}
               status={`${ACTION_LABELS[action] ?? '处理'} · ${formatInventoryQuantity(item.quantity, item.unit)}`}
+              tone={action === 'dispose' ? 'danger' : 'warning'}
               className={`ai-inventory-operation-resolved-item action-${action}`}
             >
               {action === 'dispose' && item.reason ? <p>销毁原因：{item.reason}</p> : null}
@@ -163,14 +164,15 @@ export function AiInventoryOperationEditor({
             {resultCards}
           </AiDraftResolvedSummary>
         ) : (
-          <AiDraftSummaryCard
-            title="库存处理草稿"
-            items={summaryItems}
-            tone="neutral"
-            className="ai-inventory-operation-summary-card"
-          >
+          <>
+            <AiDraftSummaryCard
+              title="库存处理草稿"
+              items={summaryItems}
+              tone="neutral"
+              className="ai-inventory-operation-summary-card"
+            />
             {resultCards}
-          </AiDraftSummaryCard>
+          </>
         )}
       </div>
     );
@@ -182,16 +184,15 @@ export function AiInventoryOperationEditor({
         title="待确认库存处理"
         items={summaryItems}
         className="ai-inventory-operation-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后将" className="ai-inventory-operation-submit-summary">
-          <p>{operations.length} 项库存处理会正式修改家庭库存。</p>
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+      />
+      <AiDraftImpactNote tone="plan" title="确认后将" className="ai-inventory-operation-submit-summary">
+        <p>{operations.length} 项库存处理会正式修改家庭库存。</p>
+      </AiDraftImpactNote>
 
       <AiDraftSection
         title="主要处理项"
         description="核对食材、动作和库存信息。"
-        className="ai-confirmation-item ai-inventory-operation-items-section"
+        className="ai-inventory-operation-items-section"
       >
         <div className="ai-inventory-operation-list">
           {operations.map((item, index) => {
@@ -217,6 +218,7 @@ export function AiInventoryOperationEditor({
                 title={item.ingredientName || '食材'}
                 summary={operationDescription(action, item, batchOptions, inventoryItemId)}
                 status={<span className={`ai-inventory-operation-kind action-${action}`}>{ACTION_LABELS[action] ?? '处理'}</span>}
+                tone={action === 'dispose' ? 'danger' : 'warning'}
                 className={`ai-inventory-operation-item action-${action}`}
                 footer={operations.length > 1 ? (
                   <button

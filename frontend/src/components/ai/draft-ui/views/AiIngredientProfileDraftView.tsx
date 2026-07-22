@@ -142,7 +142,7 @@ function IngredientProfileFields(props: {
       <AiDraftSection
         title="核心信息"
         description="用于食材库检索和后续菜谱、库存匹配。"
-        className="ai-confirmation-item ai-ingredient-profile-section"
+        className="ai-ingredient-profile-section"
       >
         <div className="ai-confirmation-grid">
           <label className="ai-resource-field ai-confirmation-full-width">
@@ -175,7 +175,7 @@ function IngredientProfileFields(props: {
       <AiDraftSection
         title="库存与追踪"
         description="保存与提醒作为新增库存时的默认建议，入库时仍可单独调整。"
-        className="ai-confirmation-item ai-ingredient-profile-section"
+        className="ai-ingredient-profile-section"
       >
         <div className="ai-confirmation-grid ai-confirmation-grid-three">
           <ApprovalComboboxField
@@ -243,7 +243,7 @@ function IngredientProfileFields(props: {
       <AiDraftSection
         title="高级设置"
         description="副单位用于以后入库换算，含义不确定时建议先留空。"
-        className="ai-confirmation-item ai-ingredient-profile-section"
+        className="ai-ingredient-profile-section"
       >
         <div className="ai-ingredient-profile-conversion-list">
           {unitConversions.length > 0 ? unitConversions.map((item, index) => (
@@ -369,21 +369,14 @@ function AiIngredientProfileBatchDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>批量创建食材档案</strong>
-          <span>一次确认创建 {props.operations.length} 个食材，不会登记库存数量。</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title="待确认批量食材档案"
         items={batchItems}
-        className="ai-confirmation-item ai-ingredient-profile-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          <p>会一次创建 {props.operations.length} 个食材档案，不会登记库存数量。</p>
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-ingredient-profile-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        <p>会一次创建 {props.operations.length} 个食材档案，不会登记库存数量。</p>
+      </AiDraftImpactNote>
       {props.operations.map((operation, index) => {
         const payload = recordFrom(operation.payload);
         return (
@@ -392,7 +385,7 @@ function AiIngredientProfileBatchDraftView(props: {
             title={`食材 ${index + 1}`}
             summary={asText(payload.name) || '待填写名称'}
             status="待创建"
-            className="ai-confirmation-item ai-ingredient-profile-batch-item"
+            className="ai-ingredient-profile-batch-item"
           >
             <IngredientProfileFields
               payload={payload}
@@ -464,22 +457,16 @@ export function AiIngredientProfileDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>{actionLabel(action)}食材档案</strong>
-          <span>{asText(payload.name) || asText(before.name) || '食材档案'}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={`待确认${actionLabel(action)}食材档案`}
         items={items}
-        className="ai-confirmation-item ai-ingredient-profile-summary-card"
+        className="ai-ingredient-profile-summary-card"
       >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          <p>{confirmationCopy}</p>
-        </AiDraftImpactNote>
         {asText(payload.notes) ? <p className="ai-ingredient-profile-summary-note">{asText(payload.notes)}</p> : null}
       </AiDraftSummaryCard>
+      <AiDraftImpactNote tone="plan" title="确认后">
+        <p>{confirmationCopy}</p>
+      </AiDraftImpactNote>
       {action === 'update' ? (
         <AiDraftImpactNote tone="plan" title="当前与调整后" className="ai-ingredient-profile-before-after">
           <p>当前：{[asText(before.name), asText(before.category), asText(before.default_unit), asText(before.default_storage)].filter(Boolean).join(' · ') || '未记录'}</p>

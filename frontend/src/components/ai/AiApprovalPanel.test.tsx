@@ -1009,6 +1009,7 @@ describe('ApprovalPanel', () => {
     };
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button.danger-button')?.textContent).toContain('确认处理库存');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .ghost-button')?.click();
     });
@@ -1173,7 +1174,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('确认创建菜谱');
     expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('创建菜谱');
     expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
-    expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
+    expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item')).toHaveLength(0);
     expect(rendered.container.textContent).toContain('菜谱信息');
     expect(rendered.container.textContent).toContain('食材');
     expect(rendered.container.textContent).toContain('烹饪步骤');
@@ -1324,6 +1325,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button.danger-button')?.textContent).toContain('删除菜谱');
     rendered.unmount();
   });
 
@@ -1806,7 +1808,7 @@ describe('ApprovalPanel', () => {
       { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
-    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item').length).toBeGreaterThan(3);
+    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(0);
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-log-summary-card')).not.toBeNull();
     const mealLogSections = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-draft-section h3')).map((heading) => heading.textContent);
     expect(mealLogSections).toEqual(expect.arrayContaining(['餐食信息', '食物项', '参与人和照片', '备注与心情']));

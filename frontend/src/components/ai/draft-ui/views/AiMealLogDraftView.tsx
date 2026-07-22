@@ -195,19 +195,21 @@ export function AiMealLogDraftView(props: {
   );
 
   const renderPendingSummary = (record: Record<string, unknown>, recordAction: string) => (
-    <AiDraftSummaryCard
-      title={pendingTitle(recordAction)}
-      items={mealLogSummaryItems(record)}
-      className="ai-confirmation-item ai-meal-log-summary-card"
-    >
-      <p className="ai-meal-log-summary-context">
-        {[asText(record.date), mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '餐食记录'}
-      </p>
+    <>
+      <AiDraftSummaryCard
+        title={pendingTitle(recordAction)}
+        items={mealLogSummaryItems(record)}
+        className="ai-meal-log-summary-card"
+      >
+        <p className="ai-meal-log-summary-context">
+          {[asText(record.date), mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '餐食记录'}
+        </p>
+        {renderSummaryNotes(record)}
+      </AiDraftSummaryCard>
       <AiDraftImpactNote tone="plan" title="确认后">
         <p>{recordAction === 'update_details' ? '只补充本餐详情，不会修改食物项。' : recordAction === 'rate_food' ? '会更新下方食物评分。' : '会写入这条餐食记录。'}</p>
       </AiDraftImpactNote>
-      {renderSummaryNotes(record)}
-    </AiDraftSummaryCard>
+    </>
   );
 
   const renderCreateEditor = () => {
@@ -233,7 +235,6 @@ export function AiMealLogDraftView(props: {
         <AiDraftSection
           title="餐食信息"
           description="确认日期、餐别和是否关联计划。"
-          className="ai-confirmation-item"
         >
           <div className="ai-confirmation-grid">
             <label className="ai-resource-field ai-resource-field-date">
@@ -264,7 +265,6 @@ export function AiMealLogDraftView(props: {
         <AiDraftSection
           title="食物项"
           description="每个食物都必须从食物库选择，新食物先创建食物资料。"
-          className="ai-confirmation-item"
           action={!props.readonly ? (
             <button className="ghost-button ai-draft-add-button" type="button" onClick={addFood}>
               添加食物
@@ -416,7 +416,6 @@ export function AiMealLogDraftView(props: {
         <AiDraftSection
           title="参与人和照片"
           description="当前审批内先只读核对成员和照片引用。"
-          className="ai-confirmation-item"
         >
           <div className="ai-meal-log-reference-grid">
             {renderReferenceChips('参与人', createRecord.participantUserIds, '未指定')}
@@ -426,7 +425,6 @@ export function AiMealLogDraftView(props: {
         <AiDraftSection
           title="备注与心情"
           description="补充这一餐的主观记录。"
-          className="ai-confirmation-item"
         >
           <ApprovalComboboxField
             label="心情"
@@ -458,7 +456,6 @@ export function AiMealLogDraftView(props: {
       <AiDraftSection
         title="参与人和照片"
         description="当前审批内先只读核对成员和照片引用。"
-        className="ai-confirmation-item"
       >
         <div className="ai-meal-log-reference-grid">
           {renderReferenceChips('参与人', payload.participantUserIds, '不变更')}
@@ -468,7 +465,6 @@ export function AiMealLogDraftView(props: {
       <AiDraftSection
         title="备注与心情"
         description="只补充餐食记录细节，不修改食物项。"
-        className="ai-confirmation-item"
       >
         <ApprovalComboboxField
           label="心情"
@@ -501,7 +497,6 @@ export function AiMealLogDraftView(props: {
         <AiDraftSection
           title="食物评分"
           description="逐项确认本次评分变化。"
-          className="ai-confirmation-item"
         >
           {foodRatings.map((item, index) => {
             const food = asDraftArray(before.foods).find((entry) => asText(entry.id) === asText(item.id));

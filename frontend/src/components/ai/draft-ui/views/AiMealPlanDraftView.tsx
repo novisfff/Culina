@@ -260,7 +260,7 @@ export function AiMealPlanDraftView(props: {
             ))}
           </dl>
         </AiDraftResolvedSummary>
-        <AiDraftSection title="计划项预览" description="已处理状态只保留核对摘要，不展示禁用长表单。" className="ai-confirmation-item">
+        <AiDraftSection title="计划项预览" description="已处理状态只保留核对摘要，不展示禁用长表单。">
           {previews.map((entry, index) => {
             if (!hasOperations) return renderPlanPreviewCard(entry, index, '计划');
             const operation = entry;
@@ -273,25 +273,17 @@ export function AiMealPlanDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-meal-plan-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>{hasOperations ? '计划变更' : '创建餐食计划'}</strong>
-          <span>{hasOperations ? `${operations.length} 条操作` : `${items.length} 条计划`}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={resolvedTitle(props.status, hasOperations)}
         items={summaryItems}
-        className="ai-confirmation-item ai-meal-plan-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          {hasOperations ? '会按下方操作创建、修改、删除或更新计划状态。' : '会写入正式餐食计划，不会创建新食物资料。'}
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-meal-plan-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        {hasOperations ? '会按下方操作创建、修改、删除或更新计划状态。' : '会写入正式餐食计划，不会创建新食物资料。'}
+      </AiDraftImpactNote>
       <AiDraftSection
         title="计划项"
         description={hasOperations ? '按操作逐项核对会写入的计划变更。' : '每个计划项都需要绑定食物库中的食物。'}
-        className="ai-confirmation-item"
         action={!hasOperations && !props.readonly ? (
           <button className="ghost-button ai-draft-add-button" type="button" onClick={() => addDraftItem('items', { date: new Date().toISOString().slice(0, 10), mealType: 'dinner', title: '', foodId: '', reason: '', missingIngredients: [] })}>添加计划</button>
         ) : null}
@@ -325,6 +317,7 @@ export function AiMealPlanDraftView(props: {
                 title={asText(before.title) || asText(operation.targetId) || '计划项'}
                 summary={[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '计划项'}
                 status={mealPlanActionLabel(action)}
+                tone="danger"
                 className="ai-meal-plan-item-card is-danger"
               >
                 <p>确认后只删除这条计划，不删除食物资料。</p>

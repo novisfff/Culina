@@ -5377,21 +5377,6 @@
   padding: 12px 16px;
 }
 
-.ai-draft-editor-head strong {
-  font-size: 0.9375rem;
-  font-weight: 850;
-}
-
-.ai-draft-editor-head span {
-  max-width: 100%;
-  min-height: 26px;
-  margin-left: 8px;
-  padding: 3px 9px;
-  font-size: 0.75rem;
-  line-height: 1.25;
-  white-space: normal;
-}
-
 .ai-approval-compare-copy {
   max-width: none !important;
   margin: 0 !important;
@@ -5404,19 +5389,12 @@
   line-height: 1.45 !important;
 }
 
-.ai-confirmation-item .text-input,
-.ai-confirmation-copy-field .text-input,
 .ai-approval-comment-field .text-input {
   min-height: 40px;
   border-color: rgba(147, 96, 63, 0.16);
   border-radius: 12px;
   background: #fffdfb;
   font-size: 0.875rem;
-}
-
-.ai-confirmation-copy-field textarea.text-input {
-  min-height: 58px;
-  padding: 9px 11px;
 }
 
 .ai-approval-failure-summary {
@@ -6273,13 +6251,6 @@
   white-space: nowrap;
 }
 
-.ai-meal-plan-draft-editor .ai-confirmation-item > input.text-input {
-  min-height: 44px;
-  color: #2f251e;
-  font-size: 0.98rem;
-  font-weight: 850;
-}
-
 .ai-meal-plan-item-top {
   display: grid;
   grid-template-columns: minmax(142px, 1fr) minmax(116px, 0.68fr);
@@ -6927,34 +6898,6 @@
   width: 100%;
 }
 
-.ai-confirmation-item .ai-inventory-dispose-reason textarea.compact-reason-textarea {
-  width: 100% !important;
-  height: 52px !important;
-  min-height: 52px !important;
-  padding: 7px 12px !important;
-  font-size: 0.875rem !important;
-  box-sizing: border-box !important;
-  border: 1px solid rgba(147, 96, 63, 0.16) !important;
-  border-radius: var(--radius-sm) !important;
-  background: #fbfaf8 !important;
-  transition: all 0.2s ease !important;
-  resize: none !important;
-  overflow: hidden !important;
-  line-height: 1.4 !important;
-  outline: none !important;
-}
-
-.ai-confirmation-item .ai-inventory-dispose-reason textarea.compact-reason-textarea:hover {
-  border-color: rgba(147, 96, 63, 0.35) !important;
-  background: #ffffff !important;
-}
-
-.ai-confirmation-item .ai-inventory-dispose-reason textarea.compact-reason-textarea:focus {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12) !important;
-  background: #ffffff !important;
-}
-
 .ai-inventory-progressive-section {
   display: grid;
   justify-items: start;
@@ -7085,13 +7028,6 @@
 
 .ai-inventory-operation-inputs {
   gap: 5px;
-}
-
-.ai-confirmation-item .compact-input,
-.ai-confirmation-item .ai-draft-remove-button.compact-remove {
-  height: 36px !important;
-  min-height: 36px !important;
-  border-radius: 12px !important;
 }
 
 .ai-inventory-operation-details {
@@ -7288,27 +7224,6 @@
     padding: 10px 12px;
   }
 
-  .ai-draft-editor-head {
-    min-height: 0;
-    gap: 8px;
-    padding-bottom: 7px;
-  }
-
-  .ai-draft-editor-head > div {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .ai-draft-editor-head span {
-    margin-left: 0;
-  }
-
-  .ai-confirmation-item {
-    gap: 10px;
-    border-radius: 16px;
-    padding: 12px;
-  }
-
   .ai-confirmation-grid,
   .ai-confirmation-grid-three,
   .ai-confirmation-grid-compact,
@@ -7376,13 +7291,10 @@
   }
 
   .ai-resource-select,
-  .ai-confirmation-item .text-input,
-  .ai-confirmation-copy-field .text-input,
   .ai-approval-comment-field .text-input {
     min-height: 44px;
   }
 
-  .ai-confirmation-copy-field textarea.text-input,
   .ai-meal-plan-reason-field textarea.text-input {
     min-height: 58px;
   }
@@ -7393,80 +7305,6 @@
 
   .ai-inventory-operation-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .ai-inventory-operation-main-row {
-    display: grid !important;
-    grid-template-areas:
-      "img info remove"
-      ". inputs inputs" !important;
-    grid-template-columns: 48px 1fr auto !important;
-    align-items: center !important;
-    gap: 10px !important;
-    width: 100% !important;
-  }
-
-  .ai-inventory-operation-img,
-  .ai-inventory-operation-placeholder {
-    grid-area: img !important;
-    width: 42px !important;
-    height: 42px !important;
-  }
-
-  .ai-inventory-operation-info {
-    grid-area: info !important;
-    width: 100% !important;
-  }
-
-  .ai-inventory-operation-inputs {
-    grid-area: inputs !important;
-    width: 100% !important;
-    align-items: stretch;
-    justify-content: flex-start !important;
-    padding-left: 0 !important;
-    box-sizing: border-box !important;
-  }
-
-  .ai-resource-inputs-flex {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(64px, 0.65fr);
-    flex-grow: 1 !important;
-    width: 100% !important;
-  }
-
-  .ai-resource-inputs-flex .compact-input {
-    flex-grow: 1 !important;
-  }
-
-  .ai-confirmation-item .compact-input,
-  .ai-confirmation-item .ai-draft-remove-button.compact-remove {
-    min-height: 40px !important;
-    height: 40px !important;
-  }
-
-  .ai-confirmation-item .ai-draft-remove-button.compact-remove {
-    grid-area: remove !important;
-    height: 32px !important;
-    min-height: 32px !important;
-    padding: 0 10px !important;
-    font-size: 0.75rem !important;
-    align-self: start !important;
-    margin-top: 2px !important;
-    border-radius: var(--radius-xs) !important;
-  }
-
-  .ai-inventory-unit-field {
-    width: min(34vw, 112px) !important;
-    min-width: 82px !important;
-  }
-
-  .ai-inventory-dispose-fields {
-    grid-template-columns: minmax(0, 1fr) !important;
-    gap: 10px !important;
-  }
-
-  .ai-inventory-batch-summary.compact-batch {
-    width: 100% !important;
   }
 
   .ai-inventory-resolved-card {
@@ -9894,5 +9732,258 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-suggestion-grid-card {
     padding: 12px 14px;
     border-radius: 16px;
+  }
+}
+
+/* Unified approval shell: one focused card around the Draft body. */
+.ai-approval-panel {
+  width: min(100%, 900px);
+  max-height: min(78vh, 680px);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-md);
+}
+
+.ai-approval-panel.is-expanded {
+  box-shadow: var(--shadow-md);
+}
+
+.ai-approval-panel.is-collapsed {
+  box-shadow: var(--shadow-sm);
+}
+
+.ai-approval-panel.is-collapsed:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.ai-approval-head {
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--surface-warm);
+  padding: var(--space-6);
+}
+
+.ai-approval-panel.is-collapsed .ai-approval-head {
+  border-bottom-color: transparent;
+  background: var(--surface-2);
+}
+
+.ai-approval-head:focus-visible {
+  box-shadow: inset 0 0 0 3px var(--focus-ring);
+}
+
+.ai-approval-title-row,
+.ai-approval-head-actions {
+  gap: var(--space-3);
+}
+
+.ai-approval-panel h3 {
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-approval-panel p {
+  margin-top: var(--space-1);
+  color: var(--text-soft);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.ai-approval-brief-badge,
+.ai-approval-status {
+  min-height: 28px;
+  border: 1px solid var(--plan-line);
+  border-radius: var(--radius-pill);
+  background: var(--plan-soft);
+  color: var(--plan);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ai-approval-status.status-pending {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--plan);
+}
+
+.ai-approval-status.status-approved {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-approval-status.status-rejected,
+.ai-approval-status.status-cancelled,
+.ai-approval-status.status-canceled {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+}
+
+.ai-approval-status.status-expired {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-approval-toggle-icon {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-soft);
+  box-shadow: none;
+}
+
+.ai-approval-head:hover .ai-approval-toggle-icon {
+  border-color: var(--accent-line);
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: none;
+  transform: none;
+}
+
+.ai-approval-panel.is-expanded .ai-approval-body-wrapper {
+  max-height: min(62vh, 610px);
+}
+
+.ai-approval-body-content {
+  gap: 0;
+}
+
+.ai-approval-panel .ai-recipe-editor,
+.ai-approval-panel .ai-inventory-intake-editor {
+  gap: var(--space-6);
+  padding: var(--space-6);
+}
+
+.ai-approval-failure-summary {
+  margin: var(--space-5) var(--space-6) 0;
+}
+
+.ai-approval-comment-field {
+  gap: var(--space-2);
+  margin: var(--space-5) var(--space-6);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.ai-approval-comment-field .text-input {
+  min-height: var(--control-height);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
+  font-size: var(--text-body);
+}
+
+.ai-approval-comment-field .text-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.ai-approval-comment-field textarea.text-input {
+  min-height: 6rem;
+}
+
+.ai-approval-submit-hint {
+  margin: calc(-1 * var(--space-3)) var(--space-6) var(--space-4);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.ai-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  padding: var(--space-4) var(--space-6) var(--space-5);
+  box-shadow: none;
+}
+
+.ai-approval-actions .ghost-button,
+.ai-approval-actions .solid-button {
+  min-height: var(--control-height);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+
+.ai-approval-actions .solid-button.danger-button {
+  background: var(--danger);
+  box-shadow: var(--shadow-sm);
+}
+
+.ai-approval-actions .solid-button.danger-button:hover:not(:disabled) {
+  background: var(--danger);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 1023px) {
+  .ai-approval-panel {
+    max-height: none;
+  }
+
+  .ai-approval-panel.is-expanded .ai-approval-body-wrapper {
+    max-height: none;
+  }
+
+  .ai-approval-actions .ghost-button,
+  .ai-approval-actions .solid-button {
+    min-height: var(--control-height-touch);
+  }
+}
+
+@media (max-width: 767px) {
+  .ai-approval-panel {
+    border-radius: var(--radius-md);
+  }
+
+  .ai-approval-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    padding: var(--space-5);
+  }
+
+  .ai-approval-panel h3 {
+    font-size: var(--text-base);
+  }
+
+  .ai-approval-head-actions {
+    align-items: flex-start;
+  }
+
+  .ai-approval-status {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .ai-approval-panel .ai-recipe-editor,
+  .ai-approval-panel .ai-inventory-intake-editor {
+    gap: var(--space-5);
+    padding: var(--space-5);
+  }
+
+  .ai-approval-failure-summary,
+  .ai-approval-comment-field {
+    margin-inline: var(--space-5);
+  }
+
+  .ai-approval-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-4) var(--space-5) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ai-approval-actions .ghost-button,
+  .ai-approval-actions .solid-button {
+    width: 100%;
   }
 }

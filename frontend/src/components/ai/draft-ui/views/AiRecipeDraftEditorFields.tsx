@@ -43,7 +43,6 @@ export function AiRecipeDraftEditorFields(props: {
       <AiDraftSection
         title="菜谱信息"
         description="用于菜谱库展示、搜索和后续餐食计划。"
-        className="ai-confirmation-item"
       >
         <label className="ai-resource-field">
           <span>菜谱名</span>
@@ -91,7 +90,6 @@ export function AiRecipeDraftEditorFields(props: {
       <AiDraftSection
         title={props.ingredientSectionTitle ?? '食材'}
         description={`${props.recipe.ingredient_items.length} 种食材，必须绑定到家庭食材库。`}
-        className="ai-confirmation-item"
         action={props.readonly ? null : (
           <button
             className="ghost-button ai-draft-add-button"
@@ -112,6 +110,7 @@ export function AiRecipeDraftEditorFields(props: {
               key={`${item.ingredient_name}-${index}`}
               title={`食材 ${index + 1}`}
               summary={item.ingredient_name || '请从食材库选择'}
+              tone={item.ingredient_id ? 'neutral' : 'warning'}
               className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`}
               footer={!props.readonly && props.recipe.ingredient_items.length > 1 ? (
                 <button
@@ -191,7 +190,6 @@ export function AiRecipeDraftEditorFields(props: {
       <AiDraftSection
         title="烹饪步骤"
         description={`${props.recipe.steps.length} 步，标题或说明至少填写一项。`}
-        className="ai-confirmation-item"
         action={props.readonly ? null : (
           <button
             className="ghost-button ai-draft-add-button"
@@ -292,7 +290,6 @@ export function AiRecipeDraftEditorFields(props: {
       <AiDraftSection
         title="补充信息"
         description="用于后续筛选和家庭做菜备注。"
-        className="ai-confirmation-item"
       >
         <AiDraftTagInput
           label="场景标签"

@@ -320,7 +320,6 @@ export function AiShoppingListDraftView(props: {
         <AiDraftSection
           title="采购项预览"
           description="已处理状态只保留核对摘要，不展示禁用长表单。"
-          className="ai-confirmation-item"
         >
           {entries.map((entry, index) => (
             hasOperations
@@ -338,27 +337,19 @@ export function AiShoppingListDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-shopping-list-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>{hasOperations ? '清单变更' : '创建购物清单'}</strong>
-          <span>{hasOperations ? `${operations.length} 条操作` : `${items.length} 条采购项`}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={resolvedTitle(props.status, hasOperations)}
         items={draftSummaryItems}
-        className="ai-confirmation-item ai-shopping-list-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          {hasOperations
-            ? '会按下方操作创建、修改、删除或更新采购状态。'
-            : '会写入购物清单，缺失食材需要先创建食材档案。'}
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-shopping-list-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        {hasOperations
+          ? '会按下方操作创建、修改、删除或更新采购状态。'
+          : '会写入购物清单，缺失食材需要先创建食材档案。'}
+      </AiDraftImpactNote>
       <AiDraftSection
         title={hasOperations ? '清单操作' : '采购项'}
         description={hasOperations ? '按操作逐项核对会写入的购物清单变更。' : '每个采购项都需要绑定食材库中的食材。'}
-        className="ai-confirmation-item"
         action={!hasOperations && !props.readonly ? (
           <button
             className="ghost-button ai-draft-add-button"
@@ -422,6 +413,7 @@ export function AiShoppingListDraftView(props: {
                 title={beforeRecord.title || asText(operation.targetId) || '采购项'}
                 summary={quantitySummary(beforeRecord)}
                 status={actionLabel(action)}
+                tone="danger"
                 className="ai-shopping-list-item-card is-danger"
               >
                 <p>确认后只删除这条采购项，不影响食材档案和库存。</p>

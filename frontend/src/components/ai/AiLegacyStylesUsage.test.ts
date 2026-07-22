@@ -43,6 +43,7 @@ describe('AI legacy style cleanup', () => {
     const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
     const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
 
     expect(entry).toContain("@import './styles/09-ai-draft-ui.css';");
     expect(draftStyles).toContain('.ai-draft-summary-card');
@@ -55,11 +56,17 @@ describe('AI legacy style cleanup', () => {
     expect(draftStyles).toContain('.ai-confirmation-grid');
     expect(draftStyles).toContain('.ai-resource-field');
     expect(draftStyles).toContain('.ai-resource-select');
+    expect(draftStyles).toMatch(/\.ai-draft-section \+ \.ai-draft-section\s*\{/);
+    expect(draftStyles).toMatch(/\.ai-draft-item-card\.tone-danger\s*\{/);
+    expect(draftStyles).toContain('.ai-draft-summary-card.ai-confirmation-item');
+    expect(draftStyles).toContain('.ai-draft-section.ai-confirmation-item');
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-editor-head\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-add-button\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-confirmation-item\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-field\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-select\s*\{/m);
+    expect(aiWorkspaceStyles).toContain('.ai-confirmation-item .compact-input');
+    expect(mobileStyles).not.toContain('ai-confirmation-item');
   });
 
   it('keeps AI Draft single-line controls aligned without double-height comboboxes', () => {

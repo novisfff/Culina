@@ -100,6 +100,15 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   return '';
 }
 
+function draftContainsDestructiveAction(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const draft = value as Record<string, unknown>;
+  if (['delete', 'dispose'].includes(asText(draft.action))) return true;
+
+  return ['operations', 'items', 'stepPreviews', 'steps']
+    .some((key) => asDraftArray(draft[key]).some((item) => draftContainsDestructiveAction(item)));
+}
+
 function joinTextList(value: unknown) {
   return Array.isArray(value) ? value.map(String).join('、') : '';
 }
@@ -723,6 +732,9 @@ export function ApprovalPanel({
     () => inventoryOperationDraftFromRecord(structuredDraft),
     [structuredDraft],
   );
+  const isDestructiveConfirmation = !readonly
+    && usesStructuredDraftEditor
+    && draftContainsDestructiveAction(structuredDraft);
   const staticFoodOptions = useMemo<AiResourceOption[]>(() => foods.map((food) => ({
     id: food.id,
     label: food.name,
@@ -1158,7 +1170,7 @@ export function ApprovalPanel({
                 {currentApproval.reject_label}
               </button>
               <button
-                className="solid-button"
+                className={`solid-button${isDestructiveConfirmation ? ' danger-button' : ''}`}
                 type="button"
                 disabled={isSubmitting || recipeCookRequiresRegeneration}
                 onClick={() => submitDecision('approved')}
