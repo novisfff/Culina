@@ -1,4 +1,5 @@
 import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
+import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 
 type DraftRecord = Record<string, unknown>;
 
@@ -76,6 +77,14 @@ export function AiIngredientTrackingTransitionApproval({
         </div>
         <em>{targetMode === 'not_track_quantity' ? `${batchCount} 个现有批次将按选择折叠` : '需要填写当前真实数量'}</em>
       </header>
+      <AiDraftImpactNote tone="danger" title="数量追踪方式切换影响" className="ai-ingredient-tracking-impact">
+        <p>确认后会改变这个食材的数量追踪方式。</p>
+        <p>
+          {targetMode === 'not_track_quantity'
+            ? `${batchCount} 个现有批次将按选择折叠，精确数量不会继续保留。`
+            : '需要依据当前真实库存重新建立精确数量状态。'}
+        </p>
+      </AiDraftImpactNote>
 
       {targetMode === 'not_track_quantity' ? (
         <div className="ai-specialized-form-grid">

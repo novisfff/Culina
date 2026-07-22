@@ -130,6 +130,71 @@ describe('AiDraftRenderer', () => {
     expect(view.textContent).toContain('核心信息');
   });
 
+  it('routes ingredient profile Drafts through the shared view but preserves tracking transitions', () => {
+    const fallback = vi.fn(() => <p>数量追踪方式切换</p>);
+    const view = renderRenderer(
+      <AiDraftRenderer
+        approval={approval()}
+        draftType="ingredient_profile"
+        recipeApproval={false}
+        recipe={recipeDraft('番茄炒蛋')}
+        structuredDraft={{
+          draftType: 'ingredient_profile',
+          action: 'create',
+          payload: {
+            name: '鸡蛋',
+            default_unit: '盒',
+            default_storage: '冷藏',
+            default_expiry_mode: 'none',
+            unit_conversions: [],
+          },
+        }}
+        readonly={false}
+        foodOptions={[]}
+        foodCategoryOptions={[]}
+        ingredientOptions={[]}
+        ingredients={[]}
+        recipeCookSchemaVersion="unknown"
+        recipeCookRequiresRegeneration={false}
+        onRecipeChange={vi.fn()}
+        onStructuredDraftChange={vi.fn()}
+        onLoadResourceOptions={async () => []}
+        renderLegacyFallback={fallback}
+      />,
+    );
+
+    expect(fallback).not.toHaveBeenCalled();
+    expect(view.querySelector('.ai-draft-summary-card.ai-ingredient-profile-summary-card')).not.toBeNull();
+    expect(view.textContent).toContain('库存与追踪');
+
+    const transitionFallback = vi.fn(() => <p>数量追踪方式切换</p>);
+    act(() => {
+      root?.render(
+        <AiDraftRenderer
+          approval={approval()}
+          draftType="ingredient_profile"
+          recipeApproval={false}
+          recipe={recipeDraft('番茄炒蛋')}
+          structuredDraft={{ draftType: 'ingredient_profile', action: 'transition_tracking_mode' }}
+          readonly={false}
+          foodOptions={[]}
+          foodCategoryOptions={[]}
+          ingredientOptions={[]}
+          ingredients={[]}
+          recipeCookSchemaVersion="unknown"
+          recipeCookRequiresRegeneration={false}
+          onRecipeChange={vi.fn()}
+          onStructuredDraftChange={vi.fn()}
+          onLoadResourceOptions={async () => []}
+          renderLegacyFallback={transitionFallback}
+        />,
+      );
+    });
+
+    expect(transitionFallback).toHaveBeenCalledOnce();
+    expect(view.textContent).toContain('数量追踪方式切换');
+  });
+
   it('routes meal log Drafts through the shared view but preserves composition correction', () => {
     const fallback = vi.fn(() => <p>餐食组成修正</p>);
     const view = renderRenderer(

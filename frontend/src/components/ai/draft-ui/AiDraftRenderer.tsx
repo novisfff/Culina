@@ -3,6 +3,7 @@ import type { AiApprovalRequest, AiGeneratedRecipeDraft, Ingredient } from '../.
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
 import { AiFoodProfileDraftView } from './views/AiFoodProfileDraftView';
 import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
+import { AiIngredientProfileDraftView } from './views/AiIngredientProfileDraftView';
 import { AiMealLogDraftView } from './views/AiMealLogDraftView';
 import { AiMealPlanDraftView } from './views/AiMealPlanDraftView';
 import { AiRecipeCookDraftView } from './views/AiRecipeCookDraftView';
@@ -117,6 +118,17 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'ingredient_profile':
+      if (props.structuredDraft.action === 'transition_tracking_mode') {
+        return <>{props.renderLegacyFallback()}</>;
+      }
+      return (
+        <AiIngredientProfileDraftView
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          onDraftChange={props.onStructuredDraftChange}
+        />
+      );
     case 'inventory_operation':
     case 'composite_operation':
       return <>{props.renderLegacyFallback()}</>;

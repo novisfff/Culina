@@ -216,6 +216,42 @@
   line-height: 1.4;
 }
 
+.ai-draft-summary-card.ai-ingredient-profile-summary-card,
+.ai-draft-resolved-summary.ai-ingredient-profile-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-item-card.ai-ingredient-profile-batch-item,
+.ai-draft-item-card.ai-ingredient-profile-conversion-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  padding: var(--space-5);
+}
+
+.ai-ingredient-profile-conversion-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-draft-impact-note.ai-ingredient-profile-before-after {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-impact-note.ai-ingredient-profile-before-after .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-ingredient-tracking-transition .ai-ingredient-tracking-impact {
+  margin-top: var(--space-4);
+}
+
 .ai-meal-log-summary-context {
   margin: 0;
   color: var(--text-soft);
@@ -392,6 +428,10 @@
   }
 
   .ai-draft-summary-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-ingredient-profile-conversion-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 

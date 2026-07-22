@@ -2218,8 +2218,12 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('当前：鸡蛋 · 蛋奶 · 盒 · 冷藏');
     expect(rendered.container.textContent).toContain('调整后：鸡蛋 · 蛋奶 · 盒 · 冷藏');
     expect(rendered.container.textContent).toContain('只更新食材档案默认值，不直接修改已有库存批次。');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-ingredient-profile-summary-card')).not.toBeNull();
+    expect(Array.from(rendered.container.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
+      expect.arrayContaining(['核心信息', '库存与追踪', '高级设置']),
+    );
     expect(rendered.container.textContent).toContain('核心信息');
-    expect(rendered.container.textContent).toContain('保存与提醒');
+    expect(rendered.container.textContent).toContain('库存与追踪');
     expect(rendered.container.textContent).toContain('高级设置');
     expect(rendered.container.textContent).toContain('默认单位');
     expect(rendered.container.textContent).toContain('默认保存');
@@ -2237,7 +2241,7 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.textContent).toContain('确认后会创建新的家庭食材档案，不会登记库存数量。');
     expect(rendered.container.textContent).toContain('核心信息');
-    expect(rendered.container.textContent).toContain('保存与提醒');
+    expect(rendered.container.textContent).toContain('库存与追踪');
     expect(rendered.container.textContent).toContain('高级设置');
     expect(rendered.container.textContent).toContain('低库存阈值');
     expect(rendered.container.textContent).toContain('当可用库存低于这个数量时提醒');
@@ -2245,6 +2249,7 @@ describe('ApprovalPanel', () => {
 
     const conversionRows = rendered.container.querySelectorAll('.ai-ingredient-profile-conversion-row');
     expect(conversionRows).toHaveLength(1);
+    expect(conversionRows[0]?.classList.contains('ai-draft-item-card')).toBe(true);
     const conversionUnitInput = conversionRows[0]?.querySelector<HTMLInputElement>('.ai-resource-field-combobox input[role="combobox"]');
     const conversionRatioInput = conversionRows[0]?.querySelector<HTMLInputElement>('input.text-input');
     changeInput(conversionUnitInput as HTMLInputElement, '袋');
@@ -2307,6 +2312,77 @@ describe('ApprovalPanel', () => {
           payload: expect.objectContaining({
             default_storage: '阳台储物柜',
           }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('renders and submits batch ingredient profile drafts through shared item cards', async () => {
+    const pending = ingredientProfileApproval({
+      initial_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile.v1',
+          operations: [
+            {
+              operationId: 'ingredient-egg',
+              action: 'create',
+              payload: {
+                name: '鸡蛋',
+                category: '蛋奶',
+                default_unit: '盒',
+                unit_conversions: [],
+                default_storage: '冷藏',
+                default_expiry_mode: 'none',
+                default_expiry_days: null,
+                default_low_stock_threshold: null,
+                notes: '',
+              },
+            },
+            {
+              operationId: 'ingredient-milk',
+              action: 'create',
+              payload: {
+                name: '牛奶',
+                category: '乳制品',
+                default_unit: '盒',
+                unit_conversions: [],
+                default_storage: '冷藏',
+                default_expiry_mode: 'days',
+                default_expiry_days: 7,
+                default_low_stock_threshold: 1,
+                notes: '',
+              },
+            },
+          ],
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-ingredient-profile-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelectorAll('.ai-draft-item-card.ai-ingredient-profile-batch-item')).toHaveLength(2);
+    const firstNameInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-ingredient-profile-batch-item input.text-input'))
+      .find((input) => input.closest('label')?.textContent?.includes('食材名称'));
+    changeInput(firstNameInput as HTMLInputElement, '土鸡蛋');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          operations: [
+            expect.objectContaining({ payload: expect.objectContaining({ name: '土鸡蛋' }) }),
+            expect.objectContaining({ payload: expect.objectContaining({ name: '牛奶' }) }),
+          ],
         }),
       },
       '',
@@ -2416,7 +2492,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('180 天');
     expect(rendered.container.textContent).toContain('50 克');
     expect(rendered.container.textContent).toContain('斤 = 500 克');
-    expect(rendered.container.querySelector('.ai-ingredient-profile-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-ingredient-profile-summary-card')).not.toBeNull();
     expect(rendered.container.querySelector('.ai-ingredient-profile-summary-card input')).toBeNull();
     rendered.unmount();
   });
@@ -2817,6 +2893,7 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
     expect(rendered.container.querySelector('.ai-ingredient-tracking-transition')).not.toBeNull();
+    expect(rendered.container.querySelector('[role="alert"][aria-label="数量追踪方式切换影响"]')).not.toBeNull();
     expect(rendered.container.textContent).toContain('精确数量');
     expect(rendered.container.textContent).toContain('只记有无');
     expect(rendered.container.textContent).toContain('1 个现有批次将按选择折叠');
