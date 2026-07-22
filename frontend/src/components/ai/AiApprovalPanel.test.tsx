@@ -844,6 +844,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('删除采购项');
     expect(rendered.container.textContent).toContain('删除采购项：三文鱼 · 1 块 · 待买');
     expect(rendered.container.textContent).toContain('不会删除食材档案，也不会调整库存数量');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
     expect(rendered.container.textContent).not.toContain('删除原因');
     expect(rendered.container.textContent).not.toContain('为什么需要采购');
     expect(rendered.container.querySelector('textarea.text-input')).toBeNull();
@@ -1071,6 +1072,8 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('待确认购物清单');
     expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('已绑定食材2 项');
     expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('只提醒补充1 项');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-shopping-list-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-section')?.textContent).toContain('采购项');
     const quantityModeField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-shopping-list-draft-editor .ai-resource-field-choice'))
       .find((field) => field.textContent?.includes('数量模式'));
     expect(quantityModeField?.textContent).toContain('记录数量');
@@ -1118,6 +1121,7 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
 
     expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('购物清单已确认');
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-shopping-list-summary-card')).not.toBeNull();
     expect(rendered.container.textContent).toContain('采购项预览');
     expect(rendered.container.querySelector('.ai-shopping-list-draft-editor input')).toBeNull();
     rendered.unmount();

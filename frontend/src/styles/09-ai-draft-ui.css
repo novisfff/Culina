@@ -138,7 +138,9 @@
 }
 
 .ai-draft-summary-card.ai-recipe-summary-card,
-.ai-draft-resolved-summary.ai-recipe-summary-card {
+.ai-draft-resolved-summary.ai-recipe-summary-card,
+.ai-draft-summary-card.ai-shopping-list-summary-card,
+.ai-draft-resolved-summary.ai-shopping-list-summary-card {
   border-color: var(--line-soft);
   background: var(--surface-2);
 }
@@ -148,7 +150,9 @@
 .ai-draft-item-card.ai-recipe-cook-preview-card,
 .ai-draft-item-card.ai-recipe-cook-shortage-card,
 .ai-draft-item-card.ai-meal-plan-item-card,
-.ai-draft-item-card.ai-meal-plan-preview-card {
+.ai-draft-item-card.ai-meal-plan-preview-card,
+.ai-draft-item-card.ai-shopping-list-item-card,
+.ai-draft-item-card.ai-shopping-list-preview-card {
   border-color: var(--line-soft);
   background: var(--surface-muted);
   padding: var(--space-5);
@@ -159,7 +163,8 @@
   background: var(--danger-soft);
 }
 
-.ai-draft-item-card.ai-meal-plan-item-card.is-danger {
+.ai-draft-item-card.ai-meal-plan-item-card.is-danger,
+.ai-draft-item-card.ai-shopping-list-item-card.is-danger {
   border-color: var(--danger-line);
   background: var(--danger-soft);
 }

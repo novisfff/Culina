@@ -5,6 +5,7 @@ import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
 import { AiMealPlanDraftView } from './views/AiMealPlanDraftView';
 import { AiRecipeCookDraftView } from './views/AiRecipeCookDraftView';
 import { AiRecipeOperationDraftView } from './views/AiRecipeOperationDraftView';
+import { AiShoppingListDraftView } from './views/AiShoppingListDraftView';
 
 export type AiDraftRendererProps = {
   approval: AiApprovalRequest;
@@ -76,6 +77,16 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'shopping_list':
+      return (
+        <AiShoppingListDraftView
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          ingredientOptions={props.ingredientOptions}
+          onDraftChange={props.onStructuredDraftChange}
+          onLoadResourceOptions={props.onLoadResourceOptions}
+        />
+      );
     case 'inventory_intake':
     case 'meal_log':
     case 'food_profile':
