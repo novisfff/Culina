@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 
+import { ApprovalSelectField } from './AiApprovalFields';
 import { asText } from './aiDraftValueUtils';
+import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
+import { AiDraftSection } from './draft-ui/AiDraftSection';
+import { AiDraftSummaryCard } from './draft-ui/AiDraftSummaryCard';
 import {
   groupInventoryIntakeItems,
   intakeDateSourceLabel,
@@ -25,6 +29,19 @@ type AiInventoryIntakeApprovalProps = {
   readonly?: boolean;
   onChange: (draft: InventoryIntakeDraft) => void;
 };
+
+const PRESENCE_LEVEL_OPTIONS = [
+  { value: 'sufficient', label: '充足' },
+  { value: 'present_unknown', label: '还在，数量不确定' },
+  { value: 'low', label: '少量' },
+];
+
+const INVENTORY_STATUS_OPTIONS = [
+  { value: 'fresh', label: '新鲜' },
+  { value: 'opened', label: '已开封' },
+  { value: 'frozen', label: '冷冻' },
+  { value: 'expiring', label: '临期' },
+];
 
 function quantityInputValue(value: string | number | null | undefined) {
   if (value === null || value === undefined) return '';
@@ -102,19 +119,15 @@ function InventoryIntakeRow({
             <p className="ai-inventory-intake-source-text">{item.sourceText}</p>
           ) : null}
 
-          <label className="ai-inventory-intake-field">
-            <span>处理方式</span>
-            <select
-              className="text-input"
-              value={item.action || ''}
-              disabled={readonly || !item.sourceKind}
-              onChange={(event) => onPatch({ action: event.target.value as InventoryIntakeDraftItem['action'] })}
-            >
-              {actionOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
+          <ApprovalSelectField
+            label="处理方式"
+            value={item.action || ''}
+            disabled={readonly || !item.sourceKind}
+            options={actionOptions}
+            icon="type"
+            className="ai-inventory-intake-field"
+            onChange={(action) => onPatch({ action: action as InventoryIntakeDraftItem['action'] })}
+          />
 
           {isQuantityTarget(item) ? (
             <div className="ai-inventory-intake-quantity-grid">
@@ -145,19 +158,15 @@ function InventoryIntakeRow({
           ) : null}
 
           {isPresenceTarget(item) ? (
-            <label className="ai-inventory-intake-field">
-              <span>入库后的库存状态</span>
-              <select
-                className="text-input"
-                value={asText(item.resultingAvailabilityLevel, 'sufficient')}
-                disabled={readonly}
-                onChange={(event) => onPatch({ resultingAvailabilityLevel: event.target.value })}
-              >
-                <option value="sufficient">充足</option>
-                <option value="present_unknown">还在，数量不确定</option>
-                <option value="low">少量</option>
-              </select>
-            </label>
+            <ApprovalSelectField
+              label="入库后的库存状态"
+              value={asText(item.resultingAvailabilityLevel, 'sufficient')}
+              disabled={readonly}
+              options={PRESENCE_LEVEL_OPTIONS}
+              icon="type"
+              className="ai-inventory-intake-field"
+              onChange={(resultingAvailabilityLevel) => onPatch({ resultingAvailabilityLevel })}
+            />
           ) : null}
 
           {conversion && showStockFields && item.targetKind !== 'presence_ingredient' ? (
@@ -220,20 +229,15 @@ function InventoryIntakeRow({
                 />
               </label>
               {item.targetKind !== 'food' && item.targetKind !== 'presence_ingredient' ? (
-                <label className="ai-inventory-intake-field">
-                  <span>库存状态</span>
-                  <select
-                    className="text-input"
-                    value={asText(item.inventoryStatus, 'fresh')}
-                    disabled={readonly}
-                    onChange={(event) => onPatch({ inventoryStatus: event.target.value })}
-                  >
-                    <option value="fresh">新鲜</option>
-                    <option value="opened">已开封</option>
-                    <option value="frozen">冷冻</option>
-                    <option value="expiring">临期</option>
-                  </select>
-                </label>
+                <ApprovalSelectField
+                  label="库存状态"
+                  value={asText(item.inventoryStatus, 'fresh')}
+                  disabled={readonly}
+                  options={INVENTORY_STATUS_OPTIONS}
+                  icon="type"
+                  className="ai-inventory-intake-field"
+                  onChange={(inventoryStatus) => onPatch({ inventoryStatus })}
+                />
               ) : null}
               <label className="ai-inventory-intake-field ai-inventory-intake-notes">
                 <span>备注</span>
@@ -299,9 +303,24 @@ export function AiInventoryIntakeApproval({
     onChange(patchInventoryIntakeDate(draft, intakeDate));
   };
 
+  const activeCount = groups.shopping.length + groups.direct.length;
+  const attentionItems = draft.items.filter((item) => inventoryIntakeNeedsAttention(item, draft.intakeDate));
+  const overviewItems = [
+    { label: '入库日期', value: draft.intakeDate || '未填写' },
+    { label: '日期来源', value: intakeDateSourceLabel(String(draft.intakeDateSource)) },
+    { label: '待处理', value: `${activeCount} 项` },
+    { label: '采购关联', value: `${groups.shopping.length} 项` },
+    { label: '直接入库', value: `${groups.direct.length} 项` },
+    { label: '已忽略', value: `${groups.ignored.length} 项` },
+  ];
+
   return (
     <section className="ai-inventory-intake-editor" aria-label="确认入库内容">
-      <header className="ai-inventory-intake-overview" aria-label="本次入库概览">
+      <AiDraftSummaryCard
+        title="本次入库概览"
+        items={overviewItems}
+        className="ai-inventory-intake-overview ai-inventory-intake-summary-card"
+      >
         <div className="ai-inventory-intake-overview-main">
           <label className="ai-inventory-intake-field ai-inventory-intake-date-field">
             <span>入库日期</span>
@@ -315,45 +334,23 @@ export function AiInventoryIntakeApproval({
           </label>
           <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
         </div>
-        <div className="ai-inventory-intake-overview-counts">
-          <span>
-            <strong>{groups.shopping.length + groups.direct.length}</strong>
-            项入库
-          </span>
-          {groups.ignored.length > 0 ? (
-            <span>
-              <strong>{groups.ignored.length}</strong>
-              项忽略
-            </span>
-          ) : null}
-        </div>
-        <div className={`ai-inventory-intake-readiness${attentionIds.size > 0 ? ' needs-attention' : ' is-ready'}`}>
-          <span className="ai-inventory-intake-readiness-dot" aria-hidden="true" />
-          <span>
-            <strong>
-              {attentionIds.size > 0
-                ? `${attentionIds.size} 项需要补充`
-                : '信息完整，可以确认'}
-            </strong>
-            <small>
-              {attentionIds.size > 0
-                ? '补齐标记项后即可统一入库'
-                : '确认后统一登记库存'}
-            </small>
-          </span>
-        </div>
-      </header>
+      </AiDraftSummaryCard>
+
+      {attentionItems.length > 0 ? (
+        <AiDraftImpactNote tone="warning" title="还需补充" className="ai-inventory-intake-attention">
+          <p>{attentionItems.map((item) => item.title || item.sourceText || '未命名入库项').join('、')} 仍缺少入库信息。</p>
+          <p>补齐标记项后即可统一入库。</p>
+        </AiDraftImpactNote>
+      ) : null}
 
       <div className="ai-inventory-intake-groups" aria-label="入库项清单">
         {groups.shopping.length > 0 ? (
-          <section className="ai-inventory-intake-group" aria-label="采购清单关联">
-            <header className="ai-inventory-intake-group-header">
-              <span>
-                <strong>采购清单关联</strong>
-                <small>入库后同步完成对应采购项</small>
-              </span>
-              <em>{groups.shopping.length} 项</em>
-            </header>
+          <AiDraftSection
+            title="采购清单关联"
+            description="入库后同步完成对应采购项。"
+            action={<span className="ai-inventory-intake-group-count">{groups.shopping.length} 项</span>}
+            className="ai-confirmation-item ai-inventory-intake-group"
+          >
             <div className="ai-inventory-intake-group-list">
               {groups.shopping.map((item) => (
                 <InventoryIntakeRow
@@ -367,18 +364,16 @@ export function AiInventoryIntakeApproval({
                 />
               ))}
             </div>
-          </section>
+          </AiDraftSection>
         ) : null}
 
         {groups.direct.length > 0 ? (
-          <section className="ai-inventory-intake-group" aria-label="直接入库">
-            <header className="ai-inventory-intake-group-header">
-              <span>
-                <strong>直接入库</strong>
-                <small>只增加库存，不创建或完成采购项</small>
-              </span>
-              <em>{groups.direct.length} 项</em>
-            </header>
+          <AiDraftSection
+            title="直接入库"
+            description="只增加库存，不创建或完成采购项。"
+            action={<span className="ai-inventory-intake-group-count">{groups.direct.length} 项</span>}
+            className="ai-confirmation-item ai-inventory-intake-group"
+          >
             <div className="ai-inventory-intake-group-list">
               {groups.direct.map((item) => (
                 <InventoryIntakeRow
@@ -392,12 +387,12 @@ export function AiInventoryIntakeApproval({
                 />
               ))}
             </div>
-          </section>
+          </AiDraftSection>
         ) : null}
       </div>
 
       {groups.ignored.length > 0 ? (
-        <details className="ai-inventory-intake-ignored" aria-label="已忽略">
+        <details className="ai-draft-resolved-summary tone-neutral ai-inventory-intake-ignored" aria-label="已忽略">
           <summary>
             <span>
               <strong>已忽略</strong>
@@ -416,10 +411,9 @@ export function AiInventoryIntakeApproval({
         </details>
       ) : null}
 
-      <footer className="ai-inventory-intake-submit-summary">
-        <span>确认后将</span>
-        <strong>{inventoryIntakeSubmitSummary(draft)}</strong>
-      </footer>
+      <AiDraftImpactNote tone="plan" title="确认后将" className="ai-inventory-intake-submit-summary">
+        <p>{inventoryIntakeSubmitSummary(draft)}</p>
+      </AiDraftImpactNote>
     </section>
   );
 }

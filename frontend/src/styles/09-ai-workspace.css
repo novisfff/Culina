@@ -7691,7 +7691,6 @@
 }
 
 .ai-inventory-intake-editor .text-input,
-.ai-inventory-intake-editor select.text-input,
 .ai-inventory-intake-editor textarea.text-input {
   min-height: var(--control-height);
   min-width: 0;
@@ -7835,8 +7834,7 @@
     padding: var(--space-4);
   }
 
-  .ai-inventory-intake-editor .text-input,
-  .ai-inventory-intake-editor select.text-input {
+  .ai-inventory-intake-editor .text-input {
     min-height: var(--control-height-touch);
   }
 

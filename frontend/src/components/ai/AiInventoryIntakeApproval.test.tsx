@@ -107,6 +107,11 @@ describe('AiInventoryIntakeApproval', () => {
   it('renders grouped shopping direct and ignored sections without submit button', async () => {
     const { container: node } = await renderApproval(baseDraft());
     expect(node.querySelector('[aria-label="确认入库内容"]')).not.toBeNull();
+    expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次入库概览');
+    expect(Array.from(node.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
+      expect.arrayContaining(['采购清单关联', '直接入库']),
+    );
+    expect(node.querySelector('[role="note"][aria-label="还需补充"]')).not.toBeNull();
     expect(node.textContent).toContain('采购清单关联');
     expect(node.textContent).toContain('直接入库');
     expect(node.textContent).toContain('已忽略');
@@ -122,9 +127,9 @@ describe('AiInventoryIntakeApproval', () => {
 
   it('presents a compact overview and defers ignored details', async () => {
     const { container: node } = await renderApproval(baseDraft());
-    expect(node.querySelector('[aria-label="本次入库概览"]')).not.toBeNull();
+    expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')).not.toBeNull();
     expect(node.querySelector('[aria-label="入库项清单"]')).not.toBeNull();
-    const ignored = node.querySelector('details.ai-inventory-intake-ignored');
+    const ignored = node.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
     expect(ignored).not.toBeNull();
     expect(ignored?.hasAttribute('open')).toBe(false);
     expect(ignored?.textContent).toContain('不会写入库存');
@@ -210,10 +215,30 @@ describe('AiInventoryIntakeApproval', () => {
       ],
       ignoredItems: [],
     });
-    const { container: node } = await renderApproval(incompleteShopping);
-    const select = node.querySelector('select') as HTMLSelectElement;
-    const values = Array.from(select.options).map((option) => option.value);
-    expect(values).toEqual(['stock_and_fulfill', 'fulfill_without_stock', 'skip']);
-    expect(values).not.toContain('stock_only');
+    const onChange = vi.fn();
+    const { container: node } = await renderApproval(incompleteShopping, onChange);
+    const actionField = Array.from(node.querySelectorAll<HTMLElement>('.ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('处理方式'));
+    const trigger = actionField?.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+    await act(async () => {
+      trigger?.click();
+    });
+    const labels = Array.from(actionField?.querySelectorAll<HTMLButtonElement>('.ai-single-select-menu button') ?? [])
+      .map((button) => button.textContent?.replace('✓', '').trim());
+    expect(labels).toEqual(expect.arrayContaining(['完成并登记库存', '仅完成采购项，不入库', '跳过本行']));
+    expect(labels).not.toContain('直接入库');
+    expect(node.querySelector('select')).toBeNull();
+    const skipOption = Array.from(actionField?.querySelectorAll<HTMLButtonElement>('.ai-single-select-menu button') ?? [])
+      .find((button) => button.textContent?.includes('跳过本行'));
+    await act(async () => {
+      skipOption?.click();
+    });
+    const next = onChange.mock.calls.at(-1)?.[0] as InventoryIntakeDraft;
+    expect(next.items[0]).toMatchObject({
+      lineId: 'egg',
+      action: 'skip',
+      shoppingItemId: 'shopping-egg',
+      expectedShoppingItemRowVersion: 3,
+    });
   });
 });

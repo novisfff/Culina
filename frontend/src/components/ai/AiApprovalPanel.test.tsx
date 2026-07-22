@@ -2599,6 +2599,11 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
     expect(rendered.container.querySelector('.ai-inventory-intake-editor')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次入库概览');
+    expect(Array.from(rendered.container.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
+      expect.arrayContaining(['采购清单关联', '直接入库']),
+    );
+    expect(rendered.container.querySelector('[role="note"][aria-label="还需补充"]')).not.toBeNull();
     expect(rendered.container.textContent).toContain('采购清单关联');
     expect(rendered.container.textContent).toContain('直接入库');
     expect(rendered.container.textContent).toContain('已忽略');
@@ -2611,7 +2616,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
     // ignored rows have no editable controls
-    const ignoredSection = rendered.container.querySelector('[aria-label="已忽略"]');
+    const ignoredSection = rendered.container.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
     expect(ignoredSection).not.toBeNull();
     expect(ignoredSection?.querySelector('input, select, textarea')).toBeNull();
 
