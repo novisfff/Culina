@@ -1183,25 +1183,12 @@ export type AiResultCardType =
   | 'food_profile_draft'
   | 'ui_actions'
   | 'recipe_shortage'
-  | 'inventory_intake_candidates'
   | 'meal_idea_proposal';
 
 export interface AiProductLoopPrompt {
   message: string;
   quick_task: 'inventory_analysis' | 'recipe_draft';
   subject: Record<string, unknown>;
-}
-
-export interface AiInventoryIntakeCandidate {
-  ingredientId: string;
-  name: string;
-  quantityMode: 'track_quantity' | 'not_track_quantity';
-  quantity: string | null;
-  unit: string | null;
-  selected: boolean;
-  warnings: string[];
-  confidence?: number | null;
-  sourceLabel?: string | null;
 }
 
 export interface AiMealIdeaIngredient {
@@ -1212,7 +1199,7 @@ export interface AiMealIdeaIngredient {
   unit: string | null;
   available: boolean;
 }
-export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'shopping_intake' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
+export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'inventory_intake' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiRecipeCookSchemaVersion = 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
@@ -1225,7 +1212,9 @@ export interface AiEvidenceItem {
 }
 
 export type AiInventoryDisplayStatus = 'available' | 'low_stock' | 'expiring' | 'expired';
-export type AiInventoryOperationAction = 'restock' | 'consume' | 'dispose';
+export type AiInventoryOperationAction = 'consume' | 'dispose';
+/** Inventory summary card quick actions. restock creates inventory_intake on the backend. */
+export type AiInventoryCardAction = 'restock' | 'consume' | 'dispose';
 export type AiInventoryQueryFocus = 'overview' | 'available' | 'expiring' | 'expired' | 'low_stock';
 
 export type AiCookPageAction =
@@ -1253,7 +1242,7 @@ export interface AiUiActionsCardData {
 }
 
 export interface AiInventoryOperationResult {
-  action: AiInventoryOperationAction;
+  action: AiInventoryCardAction;
   quantity?: number | null;
   unit?: string | null;
   reason?: string | null;
@@ -1279,7 +1268,7 @@ export interface AiInventoryResultItem {
   lowStockThreshold?: string | null;
   purchaseDate?: string | null;
   storageLocation?: string | null;
-  suggestedAction?: AiInventoryOperationAction | null;
+  suggestedAction?: AiInventoryCardAction | null;
   lastOperation?: AiInventoryOperationResult | null;
 }
 
@@ -1400,7 +1389,7 @@ export interface AiResultCard {
     targetDate?: string | null;
     mealType?: MealType | null;
     contextSummary?: AiTodayRecommendationCardData['contextSummary'];
-    items?: AiInventoryResultItem[] | AiInventoryIntakeCandidate[];
+    items?: AiInventoryResultItem[];
     queryFocus?: AiInventoryQueryFocus;
     availableCount?: number;
     expiringCount?: number;
@@ -1448,7 +1437,7 @@ export interface AiApprovalField {
   name: string;
   label: string;
   type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
-  widget: 'input' | 'textarea' | 'switch' | 'select' | 'radio' | 'checkbox_group' | 'tag_selector' | 'date' | 'time' | 'recipe_draft_editor' | 'shopping_intake_editor';
+  widget: 'input' | 'textarea' | 'switch' | 'select' | 'radio' | 'checkbox_group' | 'tag_selector' | 'date' | 'time' | 'recipe_draft_editor' | 'inventory_intake_editor';
   options?: Array<string | { value: string; label: string; description?: string }> | null;
   allow_custom?: boolean;
   placeholder?: string | null;

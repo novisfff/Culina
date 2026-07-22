@@ -71,135 +71,7 @@ describe('inventory operation approval', () => {
     expect(container.querySelector('.ai-inventory-operation-item.action-dispose')).not.toBeNull();
   });
 
-  it('keeps restock details collapsed until requested', async () => {
-    const approval: AiApprovalRequest = {
-      id: 'approval-restock',
-      conversation_id: 'conversation-1',
-      message_id: 'message-1',
-      run_id: 'run-1',
-      draft_id: 'draft-restock',
-      draft_version: 1,
-      draft_schema_version: 'inventory_operation.v1',
-      approval_type: 'inventory.operation',
-      status: 'pending',
-      title: '确认补货',
-      instruction: '确认后会正式修改家庭库存。',
-      approve_label: '确认补货',
-      reject_label: '暂不处理',
-      require_reject_comment: false,
-      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
-      initial_values: {
-        draft: {
-          draftType: 'inventory_operation',
-          schemaVersion: 'inventory_operation.v1',
-          operations: [{
-            action: 'restock',
-            ingredientId: 'ingredient-tomato',
-            ingredientName: '番茄',
-            quantity: 1,
-            unit: '个',
-            purchaseDate: '2026-06-14',
-            expiryDate: '2026-06-20',
-            storageLocation: '冷藏',
-            status: 'fresh',
-            notes: '',
-            reason: '',
-          }],
-        },
-      },
-      submitted_values: {},
-      created_at: '2026-06-14T10:00:00Z',
-    };
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
-    });
 
-    expect(container.textContent).toContain('更多入库信息');
-    expect(container.querySelector('input[type="date"]')).toBeNull();
-    const toggle = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '更多入库信息');
-    await act(async () => toggle?.click());
-    expect(container.textContent).toContain('采购日期');
-    expect(container.textContent).toContain('存放位置');
-    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
-  });
-
-  it('allows presence-only restock without inventing an exact quantity', async () => {
-    const onDecision = vi.fn().mockResolvedValue(undefined);
-    const approval: AiApprovalRequest = {
-      id: 'approval-presence-restock',
-      conversation_id: 'conversation-1',
-      message_id: 'message-1',
-      run_id: 'run-1',
-      draft_id: 'draft-presence-restock',
-      draft_version: 1,
-      draft_schema_version: 'inventory_operation.v1',
-      approval_type: 'inventory.operation',
-      status: 'pending',
-      title: '确认补货',
-      instruction: '确认后会正式修改家庭库存。',
-      approve_label: '确认补货',
-      reject_label: '暂不处理',
-      require_reject_comment: false,
-      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
-      initial_values: {
-        draft: {
-          draftType: 'inventory_operation',
-          schemaVersion: 'inventory_operation.v1',
-          operations: [{
-            action: 'restock',
-            ingredientId: 'ingredient-vinegar',
-            ingredientName: '香醋',
-            quantityTrackingMode: 'not_track_quantity',
-            expectedIngredientRowVersion: 3,
-            stateId: 'state-vinegar',
-            expectedStateRowVersion: 2,
-            expectedInventoryItemRowVersion: null,
-            availabilityLevel: 'present_unknown',
-            inventoryItemId: null,
-            quantity: null,
-            unit: '瓶',
-            purchaseDate: '2026-06-14',
-            expiryDate: null,
-            storageLocation: '常温',
-            status: 'fresh',
-            notes: '',
-            reason: '',
-            batchOptions: [],
-          }],
-        },
-      },
-      submitted_values: {},
-      created_at: '2026-06-14T10:00:00Z',
-    };
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<ApprovalPanel approval={approval} onDecision={onDecision} />);
-    });
-
-    expect(container.textContent).toContain('只记录有无');
-    expect(container.textContent).toContain('确认后会把库存状态更新为已有');
-    expect(container.querySelector('.quantity-input')).toBeNull();
-
-    const approve = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '确认补货');
-    await act(async () => approve?.click());
-
-    expect(onDecision).toHaveBeenCalledTimes(1);
-    const submitted = onDecision.mock.calls[0][2] as { draft: { operations: Array<Record<string, unknown>> } };
-    expect(submitted.draft.operations[0]).toMatchObject({
-      quantityTrackingMode: 'not_track_quantity',
-      expectedIngredientRowVersion: 3,
-      stateId: 'state-vinegar',
-      expectedStateRowVersion: 2,
-      expectedInventoryItemRowVersion: null,
-      availabilityLevel: 'present_unknown',
-      quantity: null,
-    });
-  });
 
   it('preserves hidden concurrency boundaries when editing an exact quantity', async () => {
     const onDecision = vi.fn().mockResolvedValue(undefined);
@@ -425,17 +297,14 @@ describe('inventory operation approval', () => {
           schemaVersion: 'inventory_operation.v1',
           operations: [
             {
-              action: 'restock',
+              action: 'consume',
               ingredientId: 'ingredient-tomato',
               ingredientName: '番茄',
+              inventoryItemId: null,
               quantity: 3,
               unit: '个',
               defaultUnit: '个',
-              storageLocation: '冷藏',
-              storageLocationOptions: ['冷藏', '阳台储物柜'],
-              purchaseDate: '2026-06-14',
-              expiryDate: '2026-06-20',
-              status: 'fresh',
+              batchOptions: [{ id: 'inventory-tomato', label: '到期 2026-06-20 · 冷藏', remainingQuantity: 5, unit: '个' }],
             },
             {
               action: 'consume',
@@ -471,70 +340,14 @@ describe('inventory operation approval', () => {
     });
 
     expect(container.textContent).toContain('待确认库存处理');
-    expect(container.textContent).toContain('补货1 项');
-    expect(container.textContent).toContain('消耗1 项');
+    expect(container.textContent).not.toContain('补货');
+    expect(container.textContent).toContain('消耗2 项');
     expect(container.textContent).toContain('销毁1 项');
     expect(container.textContent).toContain('涉及食材3 种');
     expect(container.querySelectorAll('input[role="combobox"]').length).toBeGreaterThanOrEqual(3);
-
-    const toggle = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '更多入库信息');
-    await act(async () => toggle?.click());
-    const storageCombobox = Array.from(container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')).find((input) => input.value === '冷藏');
-    expect(storageCombobox).toBeTruthy();
-    await act(async () => storageCombobox?.focus());
-    expect(container.querySelector('.ai-combobox-menu')?.textContent).toContain('阳台储物柜');
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === '更多入库信息')).toBe(false);
   });
 
-  it('blocks restock drafts when expiry date is before purchase date', async () => {
-    const onDecision = vi.fn();
-    const approval: AiApprovalRequest = {
-      id: 'approval-invalid-date',
-      conversation_id: 'conversation-1',
-      message_id: 'message-1',
-      run_id: 'run-1',
-      draft_id: 'draft-invalid-date',
-      draft_version: 1,
-      draft_schema_version: 'inventory_operation.v1',
-      approval_type: 'inventory.operation',
-      status: 'pending',
-      title: '确认补货',
-      instruction: '确认后会正式修改家庭库存。',
-      approve_label: '确认补货',
-      reject_label: '暂不处理',
-      require_reject_comment: false,
-      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
-      initial_values: {
-        draft: {
-          draftType: 'inventory_operation',
-          schemaVersion: 'inventory_operation.v1',
-          operations: [{
-            action: 'restock',
-            ingredientId: 'ingredient-tomato',
-            ingredientName: '番茄',
-            quantity: 1,
-            unit: '个',
-            purchaseDate: '2026-06-20',
-            expiryDate: '2026-06-14',
-            storageLocation: '冷藏',
-            status: 'fresh',
-          }],
-        },
-      },
-      submitted_values: {},
-      created_at: '2026-06-14T10:00:00Z',
-    };
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<ApprovalPanel approval={approval} onDecision={onDecision} />);
-    });
-
-    const approve = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '确认补货');
-    await act(async () => approve?.click());
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('到期日期不能早于采购日期');
-    expect(onDecision).not.toHaveBeenCalled();
-  });
 
   it('blocks manual consume batch ids that are not from the batch dropdown', async () => {
     const onDecision = vi.fn();

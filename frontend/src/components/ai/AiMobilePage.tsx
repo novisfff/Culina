@@ -2,7 +2,7 @@ import { useRef, useEffect, useLayoutEffect, type ClipboardEventHandler, type Dr
 import type {
   AiConversation,
   AiConversationVisibility,
-  AiInventoryOperationAction,
+  AiInventoryCardAction,
   AiInventoryResultItem,
   AiMessage,
   AiProductLoopPrompt,
@@ -72,7 +72,7 @@ type Props = {
   onAddRecommendationToPlan: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
   onInventoryAction: (
     item: AiInventoryResultItem,
-    action: AiInventoryOperationAction,
+    action: AiInventoryCardAction,
     card: AiResultCard,
     messageId: string,
     partId: string,

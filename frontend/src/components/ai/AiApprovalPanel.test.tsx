@@ -512,7 +512,7 @@ function unitMismatchInventoryApproval(): AiApprovalRequest {
     schemaVersion: 'inventory_operation.v1',
     operations: [
       {
-        action: 'restock',
+        action: 'consume',
         ingredientId: 'ingredient-egg',
         ingredientName: '鸡蛋',
         quantity: 20,
@@ -2368,102 +2368,256 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('renders shopping intake as a compact progressive form and blocks missing evidence quantity', async () => {
+  it('renders inventory intake grouped by business impact', async () => {
     const pending = approval({
-      approval_type: 'shopping_intake.apply',
-      title: '确认完成采购并入库',
-      instruction: '一份审批同时更新购物项和库存。',
-      approve_label: '确认完成并入库',
+      approval_type: 'inventory_intake.apply',
+      title: '确认入库',
+      instruction: '确认后会统一登记库存，并按草稿更新关联采购项。',
+      approve_label: '确认入库',
       reject_label: '暂不处理',
-      draft_schema_version: 'shopping_intake.v1',
-      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
+      draft_schema_version: 'inventory_intake.v1',
+      field_schema: [{ name: 'draft', label: '统一入库草稿', type: 'object', widget: 'inventory_intake_editor', required: true }],
       initial_values: {
         draft: {
-          draftType: 'shopping_intake',
-          schemaVersion: 'shopping_intake.v1',
-          clientRequestId: 'ai-shopping-intake-test',
-          purchaseDate: '2026-07-20',
+          draftType: 'inventory_intake',
+          schemaVersion: 'inventory_intake.v1',
+          clientRequestId: 'ai-inventory-intake-test',
+          sourceType: 'receipt_image',
+          sourceReference: { mediaId: 'media-1' },
+          intakeDate: '2026-07-21',
+          intakeDateSource: 'receipt',
           items: [
             {
-              shoppingItemId: 'shopping-milk',
-              title: '牛奶',
-              expectedShoppingItemRowVersion: 1,
-              matchLevel: 'confirmed',
-              matchReason: '名称与唯一待买项完全一致',
+              lineId: 'egg',
+              sourceLineId: 'receipt-1',
+              sourceText: '鸡蛋 2个',
+              sourceKind: 'shopping_item',
               action: 'stock_and_fulfill',
+              shoppingItemId: 'shopping-egg',
+              title: '鸡蛋',
+              expectedShoppingItemRowVersion: 2,
+              targetKind: 'exact_ingredient',
+              targetId: 'ingredient-egg',
+              expectedIngredientRowVersion: 4,
+              plannedQuantity: '2',
+              plannedUnit: '个',
+              enteredQuantity: '2',
+              enteredUnit: '个',
+              packageConversion: null,
+              inventoryStatus: 'fresh',
+              storageLocation: '冷藏',
+              notes: '',
+              before: { shoppingDone: false },
+            },
+            {
+              lineId: 'salmon',
+              sourceLineId: 'receipt-2',
+              sourceText: '三文鱼 1公斤',
+              sourceKind: 'shopping_item',
+              action: 'stock_and_fulfill',
+              shoppingItemId: 'shopping-salmon',
+              title: '三文鱼',
+              expectedShoppingItemRowVersion: 1,
+              targetKind: 'exact_ingredient',
+              targetId: 'ingredient-salmon',
+              expectedIngredientRowVersion: 1,
+              plannedQuantity: '1',
+              plannedUnit: '公斤',
+              enteredQuantity: '1',
+              enteredUnit: '公斤',
+              packageConversion: { ratio: '2', targetUnit: '块', evidence: 'user_confirmed_once' },
+              inventoryStatus: 'fresh',
+              storageLocation: '冷藏',
+              notes: '',
+              before: {},
+            },
+            {
+              lineId: 'milk',
+              sourceLineId: 'receipt-3',
+              sourceText: '牛奶 1袋',
+              sourceKind: 'direct',
+              action: 'stock_only',
+              shoppingItemId: null,
+              title: '牛奶',
+              expectedShoppingItemRowVersion: null,
               targetKind: 'food',
               targetId: 'food-milk',
-              expectedFoodRowVersion: 1,
-              plannedQuantity: '2',
-              plannedUnit: '盒',
-              enteredQuantity: '2',
-              enteredUnit: '盒',
-              actualQuantity: '2',
-              actualUnit: '盒',
-              inventoryStatus: 'fresh',
-              expiryDate: null,
-              storageLocation: '冷藏',
-              notes: '',
-            },
-            {
-              shoppingItemId: 'shopping-yogurt',
-              title: '蓝莓酸奶',
-              expectedShoppingItemRowVersion: 1,
-              matchLevel: 'suggested',
-              matchReason: '小票标题“蓝莓风味酸奶”只有一个合理待买候选',
-              action: 'stock_and_fulfill',
-              targetKind: 'food',
-              targetId: 'food-yogurt',
-              expectedFoodRowVersion: 1,
-              plannedQuantity: '1',
-              plannedUnit: '盒',
+              expectedFoodRowVersion: 3,
+              plannedQuantity: null,
+              plannedUnit: null,
               enteredQuantity: null,
-              enteredUnit: '盒',
-              actualQuantity: null,
-              actualUnit: '盒',
-              inventoryStatus: 'fresh',
-              expiryDate: null,
+              enteredUnit: '袋',
+              packageConversion: null,
               storageLocation: '冷藏',
               notes: '',
+              before: {},
             },
           ],
-          unmatchedCandidates: [
+          ignoredItems: [
             {
-              clientKey: 'receipt-soda',
-              label: '盒装苏打水',
-              enteredQuantity: '1',
-              enteredUnit: '箱',
-              recommendationType: 'food_profile',
-              recommendation: '建议先创建包装食品资料，再单独登记库存',
-              candidateIds: [],
+              sourceLineId: 'receipt-4',
+              sourceText: '垃圾袋 1个',
+              displayName: '垃圾袋',
+              reasonCode: 'non_inventory_item',
+              reason: '非食品库存对象，本次不会入库',
             },
           ],
+          summary: {},
         },
       },
     });
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.querySelector('.ai-shopping-intake-editor')).not.toBeNull();
-    expect(rendered.container.textContent).toContain('采购日期 2026-07-20');
-    expect(rendered.container.textContent).toContain('2 项待处理');
-    expect(rendered.container.textContent).toContain('建议匹配');
-    expect(rendered.container.textContent).toContain('额外购买候选');
-    expect(rendered.container.textContent).toContain('不随本次提交');
-    expect(rendered.container.textContent).toContain('建议先创建包装食品资料');
-    expect(rendered.container.querySelector('input[aria-label="蓝莓酸奶实际购买数量"]')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-inventory-intake-editor')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('采购清单关联');
+    expect(rendered.container.textContent).toContain('直接入库');
+    expect(rendered.container.textContent).toContain('已忽略');
+    expect(rendered.container.textContent).toContain('只增加库存，不创建或完成采购项');
+    expect(rendered.container.textContent).toContain('非食品库存对象');
+    expect(rendered.container.textContent).not.toContain('还需确认');
+    expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
+    // ignored rows have no editable controls
+    const ignoredSection = rendered.container.querySelector('[aria-label="已忽略"]');
+    expect(ignoredSection).not.toBeNull();
+    expect(ignoredSection?.querySelector('input, select, textarea')).toBeNull();
+
+    // source-compatible actions only
+    const shoppingSelect = rendered.container.querySelector<HTMLSelectElement>('select[aria-label="鸡蛋处理方式"]')
+      ?? Array.from(rendered.container.querySelectorAll('select')).find((el) => el.closest('*')?.textContent?.includes('鸡蛋'));
+    // direct row explanation present; milk missing quantity should block submit
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toMatch(/牛奶/);
     expect(decideSpy).not.toHaveBeenCalled();
 
-    changeInput(
-      rendered.container.querySelector<HTMLInputElement>('input[aria-label="蓝莓酸奶实际购买数量"]') as HTMLInputElement,
-      '1',
+    const milkToggle = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent?.includes('牛奶'));
+    if (milkToggle && !rendered.container.querySelector('input[aria-label="牛奶实际入库数量"]')) {
+      await act(async () => milkToggle.click());
+      await flushAsync();
+    }
+    const milkQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛奶实际入库数量"]');
+    expect(milkQty).not.toBeNull();
+    changeInput(milkQty as HTMLInputElement, '1');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          draftType: 'inventory_intake',
+          schemaVersion: 'inventory_intake.v1',
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              lineId: 'egg',
+              shoppingItemId: 'shopping-egg',
+              expectedShoppingItemRowVersion: 2,
+              targetId: 'ingredient-egg',
+              expectedIngredientRowVersion: 4,
+            }),
+            expect.objectContaining({
+              lineId: 'milk',
+              sourceKind: 'direct',
+              action: 'stock_only',
+              enteredQuantity: '1',
+            }),
+          ]),
+          ignoredItems: expect.arrayContaining([
+            expect.objectContaining({ displayName: '垃圾袋', reasonCode: 'non_inventory_item' }),
+          ]),
+        }),
+      },
+      '',
     );
+    rendered.unmount();
+  });
+
+  it('edits shopping and direct rows through the existing approval payload', async () => {
+    const pending = approval({
+      approval_type: 'inventory_intake.apply',
+      title: '确认入库',
+      approve_label: '确认入库',
+      reject_label: '暂不处理',
+      draft_schema_version: 'inventory_intake.v1',
+      field_schema: [{ name: 'draft', label: '统一入库草稿', type: 'object', widget: 'inventory_intake_editor', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'inventory_intake',
+          schemaVersion: 'inventory_intake.v1',
+          clientRequestId: 'ai-inventory-intake-edit',
+          sourceType: 'manual_text',
+          sourceReference: null,
+          intakeDate: '2026-07-21',
+          intakeDateSource: 'user',
+          items: [
+            {
+              lineId: 'egg',
+              sourceLineId: 'line-egg',
+              sourceText: '鸡蛋',
+              sourceKind: 'shopping_item',
+              action: 'stock_and_fulfill',
+              shoppingItemId: 'shopping-egg',
+              title: '鸡蛋',
+              expectedShoppingItemRowVersion: 1,
+              targetKind: 'exact_ingredient',
+              targetId: 'ingredient-egg',
+              expectedIngredientRowVersion: 1,
+              plannedQuantity: '6',
+              plannedUnit: '个',
+              enteredQuantity: '6',
+              enteredUnit: '个',
+              packageConversion: null,
+              inventoryStatus: 'fresh',
+              storageLocation: '冷藏',
+              notes: '',
+              before: {},
+            },
+            {
+              lineId: 'milk',
+              sourceLineId: 'line-milk',
+              sourceText: '牛奶',
+              sourceKind: 'direct',
+              action: 'stock_only',
+              shoppingItemId: null,
+              title: '牛奶',
+              expectedShoppingItemRowVersion: null,
+              targetKind: 'food',
+              targetId: 'food-milk',
+              expectedFoodRowVersion: 1,
+              plannedQuantity: null,
+              plannedUnit: null,
+              enteredQuantity: '1',
+              enteredUnit: '袋',
+              packageConversion: null,
+              storageLocation: '冷藏',
+              notes: '',
+              before: {},
+            },
+          ],
+          ignoredItems: [],
+          summary: {},
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    // expand the egg row if collapsed
+    const eggToggle = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent?.includes('鸡蛋'));
+    if (eggToggle && !rendered.container.querySelector('input[aria-label="鸡蛋实际入库数量"]')) {
+      await act(async () => eggToggle.click());
+      await flushAsync();
+    }
+    const eggQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="鸡蛋实际入库数量"]');
+    expect(eggQty).not.toBeNull();
+    changeInput(eggQty as HTMLInputElement, '4');
+
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
@@ -2474,7 +2628,8 @@ describe('ApprovalPanel', () => {
       {
         draft: expect.objectContaining({
           items: expect.arrayContaining([
-            expect.objectContaining({ shoppingItemId: 'shopping-yogurt', enteredQuantity: '1' }),
+            expect.objectContaining({ lineId: 'egg', enteredQuantity: '4', shoppingItemId: 'shopping-egg', expectedShoppingItemRowVersion: 1 }),
+            expect.objectContaining({ lineId: 'milk', sourceKind: 'direct', targetId: 'food-milk' }),
           ]),
         }),
       },
@@ -2483,96 +2638,88 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('summarizes shopping intake with the canonical package-converted quantity', async () => {
-    const pending = approval({
-      approval_type: 'shopping_intake.apply',
-      title: '确认完成采购并入库',
-      approve_label: '确认完成并入库',
+  it('renders approved inventory intake read only', async () => {
+    const approved = approval({
+      approval_type: 'inventory_intake.apply',
+      title: '确认入库',
+      approve_label: '确认入库',
       reject_label: '暂不处理',
-      draft_schema_version: 'shopping_intake.v1',
-      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
+      status: 'approved',
+      draft_schema_version: 'inventory_intake.v1',
+      field_schema: [{ name: 'draft', label: '统一入库草稿', type: 'object', widget: 'inventory_intake_editor', required: true }],
       initial_values: {
         draft: {
-          draftType: 'shopping_intake',
-          schemaVersion: 'shopping_intake.v1',
-          clientRequestId: 'ai-shopping-intake-package-summary',
-          purchaseDate: '2026-07-20',
+          draftType: 'inventory_intake',
+          schemaVersion: 'inventory_intake.v1',
+          clientRequestId: 'ai-inventory-intake-readonly',
+          sourceType: 'gift',
+          sourceReference: null,
+          intakeDate: '2026-07-21',
+          intakeDateSource: 'user',
           items: [{
-            shoppingItemId: 'shopping-yogurt-case',
-            title: '蓝莓酸奶',
-            expectedShoppingItemRowVersion: 1,
-            matchLevel: 'confirmed',
-            matchReason: '唯一待买项',
-            action: 'stock_and_fulfill',
+            lineId: 'milk',
+            sourceLineId: 'line-milk',
+            sourceText: '牛奶',
+            sourceKind: 'direct',
+            action: 'stock_only',
+            shoppingItemId: null,
+            title: '牛奶',
+            expectedShoppingItemRowVersion: null,
             targetKind: 'food',
-            targetId: 'food-yogurt',
+            targetId: 'food-milk',
             expectedFoodRowVersion: 1,
-            plannedQuantity: '12',
-            plannedUnit: '盒',
+            plannedQuantity: null,
+            plannedUnit: null,
             enteredQuantity: '1',
-            enteredUnit: '箱',
-            packageConversion: { ratio: '12', targetUnit: '盒', evidence: '包装标注一箱 12 盒' },
-            actualQuantity: '12',
-            actualUnit: '盒',
-            inventoryStatus: 'fresh',
-            storageLocation: '冷藏',
-          }],
-          unmatchedCandidates: [],
-        },
-      },
-    });
-
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
-
-    expect(rendered.container.textContent).toContain('完成并入库 12 盒');
-    expect(rendered.container.textContent).not.toContain('保留 11');
-    rendered.unmount();
-  });
-
-  it('does not claim partial or over-purchase when ingredient units require server conversion', async () => {
-    const pending = approval({
-      approval_type: 'shopping_intake.apply',
-      title: '确认完成采购并入库',
-      approve_label: '确认完成并入库',
-      reject_label: '暂不处理',
-      draft_schema_version: 'shopping_intake.v1',
-      field_schema: [{ name: 'draft', label: '采购入库草稿', type: 'object', widget: 'shopping_intake_editor', required: true }],
-      initial_values: {
-        draft: {
-          draftType: 'shopping_intake',
-          schemaVersion: 'shopping_intake.v1',
-          clientRequestId: 'ai-shopping-intake-unit-summary',
-          purchaseDate: '2026-07-20',
-          items: [{
-            shoppingItemId: 'shopping-flour',
-            title: '面粉',
-            expectedShoppingItemRowVersion: 1,
-            matchLevel: 'confirmed',
-            matchReason: '唯一待买项',
-            action: 'stock_and_fulfill',
-            targetKind: 'exact_ingredient',
-            targetId: 'ingredient-flour',
-            expectedIngredientRowVersion: 1,
-            plannedQuantity: '500',
-            plannedUnit: '克',
-            enteredQuantity: '1',
-            enteredUnit: '斤',
+            enteredUnit: '袋',
             packageConversion: null,
-            actualQuantity: '1',
-            actualUnit: '斤',
-            inventoryStatus: 'fresh',
-            storageLocation: '常温',
+            storageLocation: '冷藏',
+            notes: '',
+            before: {},
           }],
-          unmatchedCandidates: [],
+          ignoredItems: [],
+          summary: {},
+        },
+      },
+      submitted_values: {
+        draft: {
+          draftType: 'inventory_intake',
+          schemaVersion: 'inventory_intake.v1',
+          clientRequestId: 'ai-inventory-intake-readonly',
+          sourceType: 'gift',
+          sourceReference: null,
+          intakeDate: '2026-07-21',
+          intakeDateSource: 'user',
+          items: [{
+            lineId: 'milk',
+            sourceLineId: 'line-milk',
+            sourceText: '牛奶',
+            sourceKind: 'direct',
+            action: 'stock_only',
+            shoppingItemId: null,
+            title: '牛奶',
+            expectedShoppingItemRowVersion: null,
+            targetKind: 'food',
+            targetId: 'food-milk',
+            expectedFoodRowVersion: 1,
+            plannedQuantity: null,
+            plannedUnit: null,
+            enteredQuantity: '1',
+            enteredUnit: '袋',
+            packageConversion: null,
+            storageLocation: '冷藏',
+            notes: '',
+            before: {},
+          }],
+          ignoredItems: [],
+          summary: {},
         },
       },
     });
-
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
-
-    expect(rendered.container.textContent).toContain('实际入库 1 斤；计划 500 克，提交时按食材单位换算');
-    expect(rendered.container.textContent).not.toContain('保留 499');
-    expect(rendered.container.textContent).not.toContain('超过计划');
+    const rendered = await renderWithQuery(<ApprovalPanel approval={approved} onDecision={() => undefined} />);
+    expect(rendered.container.textContent).toContain('直接入库');
+    expect(rendered.container.textContent).toContain('牛奶');
+    expect(rendered.container.querySelector('.ai-inventory-intake-editor input:not([disabled])')).toBeNull();
     rendered.unmount();
   });
 

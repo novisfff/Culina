@@ -8,7 +8,7 @@ import type {
 } from '../../api/types';
 import { asDraftArray, asNumber, asText, isDraftRecord } from './aiDraftValueUtils';
 
-const INVENTORY_ACTIONS: AiInventoryOperationAction[] = ['restock', 'consume', 'dispose'];
+const INVENTORY_ACTIONS: AiInventoryOperationAction[] = ['consume', 'dispose'];
 const INVENTORY_STATUSES: InventoryStatus[] = ['fresh', 'opened', 'frozen', 'expiring'];
 
 export type InventoryOperationDraftItemViewModel = Omit<AiInventoryOperationDraftItem, 'action' | 'batchOptions' | 'quantity' | 'status'> & {
@@ -131,10 +131,6 @@ export function inventoryOperationDraftFromRecord(draft: Record<string, unknown>
   };
 }
 
-function isIsoDateText(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
-
 export function validateInventoryOperationDraftForSubmit(draft: InventoryOperationDraftViewModel) {
   if (draft.operations.length === 0) return '库存处理草稿至少需要 1 项处理';
   for (const item of draft.operations) {
@@ -142,8 +138,7 @@ export function validateInventoryOperationDraftForSubmit(draft: InventoryOperati
     if (!item.action) {
       return `${ingredientName} 的库存处理方式无效`;
     }
-    const isPresenceRestock = item.action === 'restock' && item.quantityTrackingMode === 'not_track_quantity';
-    if (!isPresenceRestock && (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+    if (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
       return `${ingredientName} 的处理数量需要大于 0`;
     }
     if (!item.unit.trim()) {
@@ -151,13 +146,6 @@ export function validateInventoryOperationDraftForSubmit(draft: InventoryOperati
     }
     if (item.action === 'dispose' && !item.reason.trim()) {
       return '销毁库存必须填写原因';
-    }
-    if (item.action === 'restock') {
-      const purchaseDate = item.purchaseDate ?? '';
-      const expiryDate = item.expiryDate ?? '';
-      if (purchaseDate && expiryDate && isIsoDateText(purchaseDate) && isIsoDateText(expiryDate) && expiryDate < purchaseDate) {
-        return `${ingredientName} 的到期日期不能早于采购日期`;
-      }
     }
     if (item.action === 'consume' && item.inventoryItemId) {
       const hasBatch = item.batchOptions.some((option) => option.id === item.inventoryItemId);

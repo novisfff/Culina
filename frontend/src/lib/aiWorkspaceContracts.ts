@@ -14,7 +14,6 @@ export const AI_RESULT_CARD_TYPES = [
   'food_profile_draft',
   'ui_actions',
   'recipe_shortage',
-  'inventory_intake_candidates',
   'meal_idea_proposal',
 ] as const satisfies readonly AiResultCardType[];
 
@@ -42,6 +41,5 @@ export const AI_RESULT_CARD_RENDERERS = {
   food_profile_draft: true,
   ui_actions: true,
   recipe_shortage: true,
-  inventory_intake_candidates: true,
   meal_idea_proposal: true,
 } as const satisfies Record<AiResultCardType, true>;
