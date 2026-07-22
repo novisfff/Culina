@@ -802,6 +802,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('鸡蛋');
     expect(rendered.container.textContent).toContain('1 盒 · 待购买');
     expect(rendered.container.textContent).toContain('按最新值调整草稿后重试');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('上次写入失败');
     rendered.unmount();
   });
 
@@ -1129,6 +1130,10 @@ describe('ApprovalPanel', () => {
       { id: 'ingredient-tomato', name: '番茄', category: '蔬菜', default_unit: '个', image: { url: '/ingredient-tomato.jpg' } },
     ] as Ingredient[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('确认创建菜谱');
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('创建菜谱');
+    expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
     expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
 
     const difficultyField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
@@ -2475,6 +2480,9 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('只增加库存，不创建或完成采购项');
     expect(rendered.container.textContent).toContain('非食品库存对象');
     expect(rendered.container.textContent).not.toContain('还需确认');
+    expect(rendered.container.textContent).toContain('确认入库');
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('确认入库');
+    expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
     // ignored rows have no editable controls

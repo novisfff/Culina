@@ -32,6 +32,8 @@ import {
   validateIngredientTrackingTransitionForSubmit,
   validateMealCompositionCorrectionForSubmit,
 } from './AiSpecializedApprovalEditors';
+import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
+import { AiDraftRenderer } from './draft-ui/AiDraftRenderer';
 import { AiDraftTagInput, normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
@@ -3690,61 +3692,77 @@ export function ApprovalPanel({
       <div className="ai-approval-body-wrapper">
         <div className="ai-approval-body-content">
           {failureSummary && (
-            <section className="ai-approval-failure-summary" aria-label="上次失败详情">
-              <div className="ai-approval-failure-head">
-                <strong>
-                  {failureSummary.failedOperationSummaries.length > 0
-                    ? `上次写入失败，以下 ${failureSummary.failedOperationSummaries.length} 项需要重新确认`
-                    : '上次写入失败，请先核对后再重试'}
-                </strong>
-                {failureSummary.failedOperationIds.length > 0 && (
-                  <span className="ai-approval-failure-badge">{failureSummary.failedOperationIds.length} 项失败</span>
+            <AiDraftImpactNote tone="danger" title="上次写入失败">
+              <section className="ai-approval-failure-summary" aria-label="上次失败详情">
+                <div className="ai-approval-failure-head">
+                  <strong>
+                    {failureSummary.failedOperationSummaries.length > 0
+                      ? `上次写入失败，以下 ${failureSummary.failedOperationSummaries.length} 项需要重新确认`
+                      : '上次写入失败，请先核对后再重试'}
+                  </strong>
+                  {failureSummary.failedOperationIds.length > 0 && (
+                    <span className="ai-approval-failure-badge">{failureSummary.failedOperationIds.length} 项失败</span>
+                  )}
+                </div>
+                {failureSummary.errorMessage && (
+                  <p className="ai-approval-failure-copy">{failureSummary.errorMessage}</p>
                 )}
-              </div>
-              {failureSummary.errorMessage && (
-                <p className="ai-approval-failure-copy">{failureSummary.errorMessage}</p>
-              )}
-              {failureSummary.hasConflictHint && (
-                <p className="ai-approval-failure-copy">
-                  检测到版本或基线冲突，建议先核对当前业务值，再决定直接重试还是修改草稿。
-                </p>
-              )}
-              {failureSummary.failedOperationSummaries.length > 0 && (
-                <ul className="ai-approval-failure-list">
-                  {failureSummary.failedOperationSummaries.map((item, index) => (
-                    <li
-                      className="ai-approval-failure-item"
-                      key={item.operationId || `${item.summary}-${item.targetId}-${index}`}
-                    >
-                      <div className="ai-approval-failure-item-main">
-                        <strong>{item.summary || '未识别操作'}</strong>
-                        {(item.targetId || item.action) && (
-                          <span>
-                            {[item.action && `动作 ${item.action}`, item.targetId && `目标 ${item.targetId}`].filter(Boolean).join(' · ')}
-                          </span>
-                        )}
-                      </div>
-                      {item.operationId && (
-                        <span className="ai-approval-failure-opid">操作 ID · {item.operationId}</span>
-                      )}
-                      {item.currentValue && (
-                        <div className="ai-approval-failure-current">
-                          <strong>当前业务值</strong>
-                          <span>{item.currentValue.label || '当前对象'}</span>
-                          {item.currentValue.summary && <p>{item.currentValue.summary}</p>}
+                {failureSummary.hasConflictHint && (
+                  <p className="ai-approval-failure-copy">
+                    检测到版本或基线冲突，建议先核对当前业务值，再决定直接重试还是修改草稿。
+                  </p>
+                )}
+                {failureSummary.failedOperationSummaries.length > 0 && (
+                  <ul className="ai-approval-failure-list">
+                    {failureSummary.failedOperationSummaries.map((item, index) => (
+                      <li
+                        className="ai-approval-failure-item"
+                        key={item.operationId || `${item.summary}-${item.targetId}-${index}`}
+                      >
+                        <div className="ai-approval-failure-item-main">
+                          <strong>{item.summary || '未识别操作'}</strong>
+                          {(item.targetId || item.action) && (
+                            <span>
+                              {[item.action && `动作 ${item.action}`, item.targetId && `目标 ${item.targetId}`].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      {item.recoveryHint && (
-                        <p className="ai-approval-failure-recovery">{item.recoveryHint}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                        {item.operationId && (
+                          <span className="ai-approval-failure-opid">操作 ID · {item.operationId}</span>
+                        )}
+                        {item.currentValue && (
+                          <div className="ai-approval-failure-current">
+                            <strong>当前业务值</strong>
+                            <span>{item.currentValue.label || '当前对象'}</span>
+                            {item.currentValue.summary && <p>{item.currentValue.summary}</p>}
+                          </div>
+                        )}
+                        {item.recoveryHint && (
+                          <p className="ai-approval-failure-recovery">{item.recoveryHint}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </AiDraftImpactNote>
           )}
           {recipeApproval ? (
-            <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
+            <AiDraftRenderer
+              approval={currentApproval}
+              draftType={draftType}
+              recipeApproval={recipeApproval}
+              recipe={recipe}
+              structuredDraft={structuredDraft}
+              readonly={readonly}
+              foodOptions={foodOptions}
+              ingredientOptions={ingredientOptions}
+              onRecipeChange={setRecipe}
+              onStructuredDraftChange={setStructuredDraft}
+              onLoadResourceOptions={loadApprovalResourceOptions}
+              renderLegacyFallback={() => null}
+            >
+              <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
               <div className="ai-draft-editor-head">
                 <div>
                   <strong>{currentApproval.status === 'pending' ? '菜谱草稿' : '菜谱摘要'}</strong>
@@ -3968,9 +3986,23 @@ export function ApprovalPanel({
                   </section>
                 </>
               )}
-            </div>
+              </div>
+            </AiDraftRenderer>
           ) : usesStructuredDraftEditor ? (
-            renderStructuredDraftEditor()
+            <AiDraftRenderer
+              approval={currentApproval}
+              draftType={draftType}
+              recipeApproval={recipeApproval}
+              recipe={recipe}
+              structuredDraft={structuredDraft}
+              readonly={readonly}
+              foodOptions={foodOptions}
+              ingredientOptions={ingredientOptions}
+              onRecipeChange={setRecipe}
+              onStructuredDraftChange={setStructuredDraft}
+              onLoadResourceOptions={loadApprovalResourceOptions}
+              renderLegacyFallback={renderStructuredDraftEditor}
+            />
           ) : (
             <div className="ai-recipe-editor">
               <label>
