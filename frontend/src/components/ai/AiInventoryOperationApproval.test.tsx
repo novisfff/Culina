@@ -67,8 +67,11 @@ describe('inventory operation approval', () => {
     expect(container.textContent).toContain('销毁原因');
     expect(container.textContent).not.toContain('处理方式');
     expect(container.querySelector('select')).toBeNull();
+    expect(container.querySelector('.ai-draft-summary-card.ai-inventory-operation-summary-card')).not.toBeNull();
+    expect(container.querySelector('.ai-draft-section.ai-inventory-operation-items-section')).not.toBeNull();
+    expect(container.querySelector('.ai-draft-item-card.ai-inventory-operation-item.action-dispose')).not.toBeNull();
+    expect(container.querySelector('.ai-draft-impact-note.tone-danger.ai-inventory-operation-dispose-impact')).not.toBeNull();
     expect(container.querySelector<HTMLTextAreaElement>('.ai-inventory-dispose-reason textarea')?.value).toBe('包装破损');
-    expect(container.querySelector('.ai-inventory-operation-item.action-dispose')).not.toBeNull();
   });
 
 
@@ -444,7 +447,8 @@ describe('inventory operation approval', () => {
 
     expect(container.textContent).toContain('库存处理结果');
     expect(container.textContent).toContain('处理结果');
-    expect(container.querySelector('.ai-inventory-resolved-card')).not.toBeNull();
+    expect(container.querySelector('.ai-draft-resolved-summary.ai-inventory-operation-resolved-summary')).not.toBeNull();
+    expect(container.querySelector('.ai-draft-item-card.ai-inventory-operation-resolved-item')).not.toBeNull();
     expect(container.querySelector('.ai-inventory-operation-item')).toBeNull();
   });
 });

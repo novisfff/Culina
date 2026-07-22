@@ -914,6 +914,9 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.textContent).toContain('主要处理项');
     expect(rendered.container.textContent).toContain('鸡蛋');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-inventory-operation-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-section.ai-inventory-operation-items-section')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-item-card.ai-inventory-operation-item')).not.toBeNull();
     expect((rendered.container.querySelector('.quantity-input') as HTMLInputElement | null)?.value).toBe('20');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLInputElement>('input[role="combobox"]'))
@@ -978,7 +981,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .ghost-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('销毁库存必须填写原因');
+    expect(rendered.container.querySelector('.form-error')?.textContent ?? '').not.toContain('销毁库存必须填写原因');
     expect(decideSpy).toHaveBeenCalledWith(pending, 'rejected', {}, '');
     rendered.unmount();
   });

@@ -959,6 +959,7 @@ export function ApprovalPanel({
         <AiInventoryOperationEditor
           draft={inventoryOperationDraft}
           readonly={readonly}
+          status={currentApproval.status}
           onUpdateItem={updateInventoryOperationItem}
           onRemoveItem={(index) => removeDraftItem('operations', index)}
         />

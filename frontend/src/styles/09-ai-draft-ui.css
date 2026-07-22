@@ -446,6 +446,153 @@
   line-height: 1.4;
 }
 
+.ai-draft-summary-card.ai-inventory-operation-summary-card,
+.ai-draft-resolved-summary.ai-inventory-operation-resolved-summary {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-impact-note.ai-inventory-operation-submit-summary {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-section.ai-inventory-operation-items-section {
+  gap: var(--space-5);
+}
+
+.ai-inventory-operation-list,
+.ai-inventory-operation-result-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item,
+.ai-draft-item-card.ai-inventory-operation-resolved-item {
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item.action-consume,
+.ai-draft-item-card.ai-inventory-operation-resolved-item.action-consume {
+  border-color: var(--warning-line);
+  border-inline-start-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item.action-dispose,
+.ai-draft-item-card.ai-inventory-operation-resolved-item.action-dispose {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item .ai-draft-item-card-body {
+  gap: var(--space-4);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-main-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(10rem, auto);
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.ai-inventory-operation-info {
+  gap: var(--space-1);
+}
+
+.ai-inventory-operation-info small,
+.ai-inventory-conversion-note {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-inventory-operation-inputs,
+.ai-resource-inputs-flex,
+.ai-inventory-quantity-field {
+  min-width: 0;
+}
+
+.ai-inventory-operation-inputs {
+  align-items: stretch;
+}
+
+.ai-resource-inputs-flex {
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.ai-inventory-quantity-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-inventory-quantity-field > span {
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-inventory-quantity-field .quantity-input {
+  min-width: 5.5rem;
+}
+
+.ai-inventory-unit-field {
+  min-width: 5.5rem;
+}
+
+.ai-inventory-operation-details {
+  margin: 0;
+  padding-top: var(--space-4);
+}
+
+.ai-draft-impact-note.ai-inventory-operation-dispose-impact {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-inventory-operation-dispose-impact .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-inventory-operation-detail-copy,
+.ai-inventory-operation-result-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ai-inventory-operation-detail-copy strong,
+.ai-inventory-operation-result-copy h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-inventory-operation-detail-copy span,
+.ai-inventory-operation-result-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ai-draft-item-card.ai-inventory-operation-resolved-item .ai-draft-item-card-status {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-soft);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 @media (max-width: 767px) {
   .ai-draft-summary-card,
   .ai-draft-item-card,
@@ -476,6 +623,36 @@
 
   .ai-draft-summary-card.ai-inventory-intake-summary-card {
     padding: var(--space-5);
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-main-row {
+    display: grid !important;
+    grid-template-areas:
+      "image detail"
+      "inputs inputs" !important;
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    align-items: start !important;
+    gap: var(--space-3) !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-img,
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-placeholder {
+    grid-area: image !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-info {
+    grid-area: detail !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-inputs {
+    grid-area: inputs !important;
+    width: 100% !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-resource-inputs-flex {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 0.7fr);
+    width: 100%;
   }
 
   .ai-draft-resource-list.ai-resource-menu button {
