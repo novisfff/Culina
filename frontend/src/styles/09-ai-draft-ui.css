@@ -2,9 +2,184 @@
  * Type-specific layouts remain in their owning Draft View styles.
  */
 .ai-draft-summary-card,
-.ai-draft-section,
-.ai-draft-impact-note,
 .ai-draft-item-card,
+.ai-draft-impact-note,
 .ai-draft-resolved-summary {
+  display: grid;
+  gap: var(--space-4);
   min-width: 0;
+  padding: var(--space-6);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.ai-draft-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ai-draft-summary-card.tone-plan {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-summary-card.tone-warning,
+.ai-draft-impact-note.tone-warning {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-draft-summary-card.tone-danger,
+.ai-draft-impact-note.tone-danger,
+.ai-draft-resolved-summary.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-summary-card.tone-neutral,
+.ai-draft-impact-note.tone-neutral,
+.ai-draft-resolved-summary.tone-neutral {
+  background: var(--surface-muted);
+}
+
+.ai-draft-summary-card.tone-success,
+.ai-draft-resolved-summary.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+}
+
+.ai-draft-summary-card-head,
+.ai-draft-section-head,
+.ai-draft-item-card-head,
+.ai-draft-impact-note-head,
+.ai-draft-resolved-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ai-draft-summary-card h3,
+.ai-draft-section h3,
+.ai-draft-resolved-summary h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-draft-summary-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.ai-draft-summary-item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ai-draft-summary-item dt,
+.ai-draft-item-card-copy p,
+.ai-draft-section-copy p,
+.ai-draft-resolved-summary p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-draft-summary-item dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ai-draft-section-copy,
+.ai-draft-item-card-copy,
+.ai-draft-resolved-summary-head > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ai-draft-section-action,
+.ai-draft-item-card-status {
+  flex: 0 0 auto;
+}
+
+.ai-draft-section-body,
+.ai-draft-item-card-body,
+.ai-draft-summary-extra,
+.ai-draft-resolved-summary-body {
+  min-width: 0;
+}
+
+.ai-draft-item-card h4,
+.ai-draft-impact-note h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-item-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.ai-draft-impact-note {
+  padding: var(--space-5);
+}
+
+.ai-draft-impact-note.tone-plan {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-impact-note-head {
+  justify-content: flex-start;
+}
+
+.ai-draft-impact-note-body {
+  color: var(--text-soft);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+@media (max-width: 767px) {
+  .ai-draft-summary-card,
+  .ai-draft-item-card,
+  .ai-draft-resolved-summary {
+    padding: var(--space-5);
+  }
+
+  .ai-draft-impact-note {
+    padding: var(--space-4);
+  }
+
+  .ai-draft-summary-card-head,
+  .ai-draft-section-head,
+  .ai-draft-item-card-head,
+  .ai-draft-resolved-summary-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-draft-summary-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
