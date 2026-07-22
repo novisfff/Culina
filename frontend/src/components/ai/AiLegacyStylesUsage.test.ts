@@ -39,6 +39,29 @@ function collectNonTestSourceFiles(dir: string): string[] {
 }
 
 describe('AI legacy style cleanup', () => {
+  it('loads shared AI Draft styles from the dedicated stylesheet', () => {
+    const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+    const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(entry).toContain("@import './styles/09-ai-draft-ui.css';");
+    expect(draftStyles).toContain('.ai-draft-summary-card');
+    expect(draftStyles).toContain('.ai-draft-section');
+    expect(draftStyles).toContain('.ai-draft-impact-note');
+    expect(draftStyles).toContain('.ai-draft-item-card');
+    expect(draftStyles).toContain('.ai-draft-resolved-summary');
+    expect(draftStyles).toContain('.ai-draft-editor-head');
+    expect(draftStyles).toContain('.ai-draft-add-button');
+    expect(draftStyles).toContain('.ai-confirmation-grid');
+    expect(draftStyles).toContain('.ai-resource-field');
+    expect(draftStyles).toContain('.ai-resource-select');
+    expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-editor-head\s*\{/m);
+    expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-add-button\s*\{/m);
+    expect(aiWorkspaceStyles).not.toMatch(/^\.ai-confirmation-item\s*\{/m);
+    expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-field\s*\{/m);
+    expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-select\s*\{/m);
+  });
+
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {
     const sourceByFile = collectNonTestSourceFiles(srcRoot).map((path) => ({
       label: relative(repoRoot, path),
@@ -127,9 +150,9 @@ describe('AI legacy style cleanup', () => {
   it('keeps AI approval editor chrome styles out of the food workspace stylesheet', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
     const aiStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
 
     expect(aiStyles).toContain('.ai-recipe-editor');
-    expect(aiStyles).toContain('.ai-draft-editor-head');
     expect(aiStyles).toContain('.ai-approval-failure-summary');
     expect(aiStyles).toContain('.ai-composite-operation-editor');
     expect(aiStyles).toContain('.ai-composite-operation-summary-card');
@@ -145,9 +168,10 @@ describe('AI legacy style cleanup', () => {
     expect(aiStyles).toContain('.ai-inventory-operation-summary-card');
     expect(aiStyles).toContain('.ai-inventory-operation-main-row');
     expect(aiStyles).toContain('.ai-inventory-resolved-card');
-    expect(aiStyles).toContain('.ai-confirmation-grid');
-    expect(aiStyles).toContain('.ai-resource-field');
-    expect(aiStyles).toContain('.ai-resource-select');
+    expect(draftStyles).toContain('.ai-draft-editor-head');
+    expect(draftStyles).toContain('.ai-confirmation-grid');
+    expect(draftStyles).toContain('.ai-resource-field');
+    expect(draftStyles).toContain('.ai-resource-select');
     expect(foodStyles).not.toContain('.ai-recipe-editor');
     expect(foodStyles).not.toContain('.ai-draft-editor-head');
     expect(foodStyles).not.toContain('.ai-approval-failure-summary');

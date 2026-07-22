@@ -1,4 +1,9 @@
 import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
+import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
+import { AiDraftItemCard } from './draft-ui/AiDraftItemCard';
+import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
+import { AiDraftSection } from './draft-ui/AiDraftSection';
+import { AiDraftSummaryCard } from './draft-ui/AiDraftSummaryCard';
 
 export function getCompositeSteps(draft: Record<string, unknown>) {
   const fromPreview = Array.isArray(draft.stepPreviews)
@@ -178,6 +183,13 @@ function compositeResolvedTitle(status: string) {
   return '待确认复合操作';
 }
 
+function compositeResolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
+  if (status === 'approved' || status === 'rejected' || status === 'expired' || status === 'cancelled' || status === 'canceled') {
+    return status;
+  }
+  return 'expired';
+}
+
 export function validateCompositeOperationDraftForSubmit(draft: Record<string, unknown>) {
   const steps = getCompositeSteps(draft);
   if (steps.length === 0) return '复合操作至少需要 1 个步骤';
@@ -198,100 +210,132 @@ export function AiCompositeOperationPreview({
   const steps = getCompositeSteps(draft);
   const summaryItems = compositeSummaryItems(steps);
   const hasDanger = steps.some(isDangerousCompositeStep);
-
-  return (
-    <div className="ai-recipe-editor ai-confirmation-editor ai-composite-operation-editor">
-      <section className="ai-composite-operation-summary-card" aria-label="复合操作总览">
-        <div className="ai-recipe-summary-head">
-          <div>
-            <strong>{compositeResolvedTitle(status)}</strong>
-            <span>{readonly ? '保留执行结果摘要，便于回看每一步影响。' : '第一阶段只支持整体确认或拒绝；子步骤暂不单独编辑。'}</span>
-          </div>
-          <em>复合</em>
-        </div>
-        <dl className="ai-recipe-summary-grid ai-composite-operation-summary-grid">
-          {summaryItems.map((item) => (
-            <div key={item.label}>
-              <dt>{item.label}</dt>
-              <dd>{item.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <div className="ai-composite-section-heading">
-        <strong>{readonly ? '执行结果' : '执行顺序'}</strong>
-        <span>{steps.length > 0 ? '按下方顺序依次执行，依赖步骤会等待前置结果。' : '当前草稿没有可执行步骤。'}</span>
-      </div>
-
-      <p className="ai-composite-operation-note">
-        {readonly ? '这是一份只读的执行摘要。' : '请按顺序核对每一步影响。确认后会按顺序执行已接入的基础业务步骤，任一步失败都会回滚已完成步骤。'}
-      </p>
-
+  const isResolved = status !== 'pending';
+  const summaryCopy = readonly
+    ? '保留执行结果摘要，便于回看每一步影响。'
+    : '第一阶段只支持整体确认或拒绝；子步骤暂不单独编辑。';
+  const executionCopy = readonly
+    ? '这是一份只读的执行摘要。'
+    : '请按顺序核对每一步影响。确认后会按顺序执行已接入的基础业务步骤，任一步失败都会回滚已完成步骤。';
+  const stepSection = (
+    <AiDraftSection
+      title={readonly ? '执行结果' : '执行顺序'}
+      description={steps.length > 0 ? '按下方顺序依次执行，依赖步骤会等待前置结果。' : '当前草稿没有可执行步骤。'}
+      className="ai-confirmation-item ai-composite-operation-steps-section"
+    >
+      <AiDraftImpactNote tone="plan" title="执行说明" className="ai-composite-operation-note">
+        <p>{executionCopy}</p>
+      </AiDraftImpactNote>
       <div className="ai-composite-operation-list">
         {steps.length > 0 ? steps.map((step, index) => {
           const dependencyRefs = getDependencyRefs(step);
           const dependencyText = compositeDependencyText(step);
           const dangerous = isDangerousCompositeStep(step);
+          const actionLabel = asText(step.actionLabel) || compositeStepActionLabel(step.action);
           return (
-            <article className={`ai-composite-operation-step${dangerous ? ' is-danger' : ''}`} key={asText(step.stepId) || `${index}`}>
-              <div className="ai-composite-operation-step-order" aria-hidden="true">{index + 1}</div>
-              <div className="ai-composite-operation-step-content">
-                <div className="ai-composite-operation-step-head">
-                  <div>
-                    <strong>{compositeStepUserTitle(step, index)}</strong>
-                    <span>{compositeDomainLabel(step.domain)}</span>
+            <AiDraftItemCard
+              key={asText(step.stepId) || `${index}`}
+              title={compositeStepUserTitle(step, index)}
+              summary={compositeDomainLabel(step.domain)}
+              status={<span className={`ai-composite-operation-step-action${dangerous ? ' is-danger' : ''}`}>{actionLabel}</span>}
+              className={`ai-composite-operation-step${dangerous ? ' is-danger' : ''}`}
+            >
+              <div className="ai-composite-operation-step-body">
+                <div className="ai-composite-operation-step-order" aria-hidden="true">{index + 1}</div>
+                <div className="ai-composite-operation-step-content">
+                  {asText(step.summary) ? <p className="ai-composite-operation-step-summary">{asText(step.summary)}</p> : null}
+                  {dependencyText ? <p className="ai-composite-operation-step-dependency">{dependencyText}</p> : null}
+                  <div className="ai-composite-operation-step-impact" aria-label="每步影响">
+                    {compositeStepImpactChips(step).map((chip) => (
+                      <span className={chip === '需重点核对' ? 'is-danger' : ''} key={chip}>{chip}</span>
+                    ))}
                   </div>
-                  <span className={`ai-composite-operation-step-action${dangerous ? ' is-danger' : ''}`}>
-                    {asText(step.actionLabel) || compositeStepActionLabel(step.action)}
-                  </span>
-                </div>
-                {asText(step.summary) && <p className="ai-composite-operation-step-summary">{asText(step.summary)}</p>}
-                {dependencyText && <p className="ai-composite-operation-step-dependency">{dependencyText}</p>}
-                <div className="ai-composite-operation-step-impact" aria-label="每步影响">
-                  {compositeStepImpactChips(step).map((chip) => (
-                    <span className={chip === '需重点核对' ? 'is-danger' : ''} key={chip}>{chip}</span>
-                  ))}
-                </div>
-                <details className="ai-composite-operation-technical-details">
-                  <summary>工程详情</summary>
-                  <div className="ai-composite-operation-step-meta">
-                    <span>步骤 ID · {asText(step.stepId) || `step-${index + 1}`}</span>
-                    <span>影响对象 · {compositeEntityLabel(step.affectedEntityType)}</span>
-                    {getDependsOn(step).length > 0 && <span>依赖步骤 · {getDependsOn(step).join('、')}</span>}
-                  </div>
-                  {dependencyRefs.length > 0 && (
-                    <div className="ai-composite-operation-step-deps" aria-label="依赖引用">
-                      {dependencyRefs.map((item, depIndex) => (
-                        <span key={`${asText(item.stepId)}-${asText(item.path)}-${depIndex}`}>
-                          {asText(item.stepId)} · {asText(item.path)}
-                        </span>
-                      ))}
+                  <details className="ai-composite-operation-technical-details">
+                    <summary>工程详情</summary>
+                    <div className="ai-composite-operation-step-meta">
+                      <span>步骤 ID · {asText(step.stepId) || `step-${index + 1}`}</span>
+                      <span>影响对象 · {compositeEntityLabel(step.affectedEntityType)}</span>
+                      {getDependsOn(step).length > 0 ? <span>依赖步骤 · {getDependsOn(step).join('、')}</span> : null}
                     </div>
-                  )}
-                </details>
+                    {dependencyRefs.length > 0 ? (
+                      <div className="ai-composite-operation-step-deps" aria-label="依赖引用">
+                        {dependencyRefs.map((item, depIndex) => (
+                          <span key={`${asText(item.stepId)}-${asText(item.path)}-${depIndex}`}>
+                            {asText(item.stepId)} · {asText(item.path)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </details>
+                </div>
               </div>
-            </article>
+              {dangerous ? (
+                <AiDraftImpactNote tone="danger" title="需要重点核对" className="ai-composite-operation-danger-impact">
+                  <p>此步骤包含删除、销毁或批量处理影响，确认后会纳入整体回滚边界。</p>
+                </AiDraftImpactNote>
+              ) : null}
+            </AiDraftItemCard>
           );
         }) : (
-          <div className="ai-confirmation-summary-card">
-            <strong>暂无步骤预览</strong>
+          <AiDraftImpactNote tone="warning" title="暂无步骤预览">
             <p>当前草稿没有可展示的分步影响信息。</p>
-          </div>
+          </AiDraftImpactNote>
         )}
       </div>
+    </AiDraftSection>
+  );
+  const riskSection = (
+    <AiDraftSection
+      title="风险与回滚"
+      description={compositeRiskText(steps)}
+      className="ai-confirmation-item ai-composite-operation-risk-section"
+    >
+      <AiDraftImpactNote
+        tone={hasDanger ? 'danger' : 'plan'}
+        title={hasDanger ? '需要重点核对' : '风险较低'}
+        className={`ai-composite-risk-card${hasDanger ? ' is-danger' : ''}`}
+      >
+        <p>{compositeRiskText(steps)}</p>
+        <p className="ai-composite-risk-label">{hasDanger ? '危险步骤' : '可整体确认'}</p>
+      </AiDraftImpactNote>
+    </AiDraftSection>
+  );
 
-      <div className="ai-composite-section-heading">
-        <strong>风险与回滚</strong>
-        <span>{compositeRiskText(steps)}</span>
-      </div>
-      <div className={`ai-composite-risk-card${hasDanger ? ' is-danger' : ''}`}>
-        <div>
-          <strong>{hasDanger ? '需要重点核对' : '风险较低'}</strong>
-          <span>{compositeRiskText(steps)}</span>
-        </div>
-        <em>{hasDanger ? '危险步骤' : '可整体确认'}</em>
-      </div>
+  return (
+    <div className="ai-recipe-editor ai-confirmation-editor ai-composite-operation-editor">
+      {isResolved ? (
+        <AiDraftResolvedSummary
+          status={compositeResolvedStatus(status)}
+          title={compositeResolvedTitle(status)}
+          summary={summaryCopy}
+          className="ai-composite-operation-summary-card"
+        >
+          <dl className="ai-draft-summary-items">
+            {summaryItems.map((item) => (
+              <div key={item.label} className="ai-draft-summary-item">
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {stepSection}
+          {riskSection}
+        </AiDraftResolvedSummary>
+      ) : (
+        <>
+          <AiDraftSummaryCard
+            title={compositeResolvedTitle(status)}
+            items={summaryItems}
+            className="ai-composite-operation-summary-card"
+          >
+            <AiDraftImpactNote tone="plan" title="确认前说明">
+              <p>{summaryCopy}</p>
+            </AiDraftImpactNote>
+          </AiDraftSummaryCard>
+          {stepSection}
+          {riskSection}
+        </>
+      )}
     </div>
   );
 }
