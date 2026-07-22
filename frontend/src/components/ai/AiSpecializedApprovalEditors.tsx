@@ -181,7 +181,9 @@ export function AiMealCompositionCorrectionApproval({ draft, readonly, onChange 
           </article>
         ))}
       </div>
-      <p className="ai-meal-composition-inventory-boundary">不会补回、追加或重新计算历史库存，也不会改变关联餐食计划事实。</p>
+      <AiDraftImpactNote tone="warning" title="库存调整边界" className="ai-meal-composition-inventory-boundary">
+        <p>不会补回、追加或重新计算历史库存，也不会改变关联餐食计划事实。</p>
+      </AiDraftImpactNote>
     </section>
   );
 }

@@ -593,6 +593,132 @@
   line-height: 1.4;
 }
 
+.ai-draft-summary-card.ai-composite-operation-summary-card,
+.ai-draft-resolved-summary.ai-composite-operation-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-section.ai-composite-operation-steps-section,
+.ai-draft-section.ai-composite-operation-risk-section {
+  gap: var(--space-5);
+}
+
+.ai-draft-impact-note.ai-composite-operation-note {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  border-color: var(--plan-line);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-2);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-composite-operation-step.is-danger {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-draft-item-card-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-composite-operation-step-body {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-order {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-pill);
+  background: var(--plan-soft);
+  color: var(--plan);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.ai-draft-item-card.ai-composite-operation-step.is-danger .ai-composite-operation-step-order {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-content {
+  gap: var(--space-3);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-action {
+  border: 1px solid var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--plan);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-action.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-summary {
+  color: var(--text-soft);
+  font-size: var(--text-body);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-dependency {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--text-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-impact span {
+  border: 1px solid var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-impact span.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-technical-details {
+  border-color: var(--line-soft);
+}
+
+.ai-draft-impact-note.ai-composite-operation-danger-impact,
+.ai-draft-impact-note.ai-composite-risk-card.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-composite-risk-card {
+  gap: var(--space-3);
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-composite-risk-label {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-impact-note.ai-meal-composition-inventory-boundary {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
 @media (max-width: 767px) {
   .ai-draft-summary-card,
   .ai-draft-item-card,
@@ -653,6 +779,10 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 0.7fr);
     width: 100%;
+  }
+
+  .ai-composite-operation-step-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ai-draft-resource-list.ai-resource-menu button {

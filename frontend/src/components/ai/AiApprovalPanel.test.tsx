@@ -869,10 +869,42 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('风险与回滚');
     expect(rendered.container.textContent).toContain('风险较低');
     expect(rendered.container.textContent).not.toContain('依赖 · create-ingredient');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-composite-operation-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-section.ai-composite-operation-steps-section')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-item-card.ai-composite-operation-step')).not.toBeNull();
 
     const details = rendered.container.querySelector('details.ai-composite-operation-technical-details') as HTMLDetailsElement | null;
     expect(details).not.toBeNull();
     expect(details?.open).toBe(false);
+    rendered.unmount();
+  });
+
+  it('surfaces dangerous composite steps through the shared impact note', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={compositeOperationApproval({
+          stepPreviews: [{
+            stepId: 'dispose-expired-milk',
+            stepIndex: 1,
+            domain: 'inventory',
+            domainLabel: '库存',
+            action: 'dispose',
+            actionLabel: '销毁',
+            title: '销毁过期牛奶',
+            summary: '处理已过期的库存批次',
+            dependsOn: [],
+            dependencyRefs: [],
+            affectedEntityType: 'InventoryItem',
+            impact: { writesBusinessData: true, requiresApproval: true, usesDependencyResult: false, operationCount: 1, dangerous: true },
+          }],
+        })}
+        onDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-draft-impact-note.tone-danger.ai-composite-operation-danger-impact')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('销毁过期牛奶');
+    expect(rendered.container.textContent).toContain('包含 1 个高风险步骤');
     rendered.unmount();
   });
 
@@ -2956,6 +2988,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('牛奶');
     expect(rendered.container.textContent).toContain('全麦面包');
     expect(rendered.container.textContent).toContain('不会补回、追加或重新计算历史库存');
+    expect(rendered.container.querySelector('.ai-draft-impact-note.tone-warning.ai-meal-composition-inventory-boundary')).not.toBeNull();
 
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
