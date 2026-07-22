@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ComboboxField, DropdownSelect } from '../ui-kit';
+import type { SearchableResourceOption } from '../ui-kit';
 import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { asNumber, asText, draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
+import { AiDraftField } from './draft-ui/AiDraftField';
+import { AiDraftResourceField } from './draft-ui/AiDraftResourceField';
 
 function textFromUnknownItem(value: unknown) {
   if (typeof value === 'string') return value;
@@ -129,8 +132,7 @@ export function ApprovalSelectField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
-      <span>{label}</span>
+    <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
       <DropdownSelect
         ariaLabel={label}
         placeholder="请选择"
@@ -143,7 +145,7 @@ export function ApprovalSelectField({
         leadingIcon={<ResourceSelectIcon kind={icon} />}
         onChange={(nextValue) => onChange(nextValue)}
       />
-    </label>
+    </AiDraftField>
   );
 }
 
@@ -169,8 +171,7 @@ export function ApprovalComboboxField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className={`ai-resource-field ai-resource-field-choice ai-resource-field-combobox ${className}`.trim()}>
-      <span>{label}</span>
+    <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ai-resource-field-combobox ${className}`.trim()}>
       <ComboboxField
         ariaLabel={label}
         placeholder={placeholder ?? '请选择或输入'}
@@ -184,7 +185,7 @@ export function ApprovalComboboxField({
         leadingIcon={<ResourceSelectIcon kind={icon} />}
         onChange={(nextValue) => onChange(String(nextValue))}
       />
-    </label>
+    </AiDraftField>
   );
 }
 
@@ -204,8 +205,7 @@ export function ApprovalMultiSelectField({
   const [isOpen, setIsOpen] = useState(false);
   const selectedLabels = options.filter((option) => values.includes(option.value)).map((option) => option.label);
   return (
-    <label className="ai-resource-field ai-resource-field-multi">
-      <span>{label}</span>
+    <AiDraftField label={label} className="ai-resource-field ai-resource-field-multi">
       <div className={`ai-resource-select ai-choice-select${isOpen ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}`}>
         <ResourceSelectIcon kind="meal" />
         <button
@@ -215,6 +215,9 @@ export function ApprovalMultiSelectField({
           aria-expanded={isOpen}
           onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
           onClick={() => setIsOpen((current) => !current)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setIsOpen(false);
+          }}
         >
           {selectedLabels.length > 0 ? selectedLabels.join('、') : '请选择'}
         </button>
@@ -240,7 +243,7 @@ export function ApprovalMultiSelectField({
           </div>
         )}
       </div>
-    </label>
+    </AiDraftField>
   );
 }
 
@@ -276,9 +279,14 @@ export function AiSearchableResourceSelect({
   const [loadError, setLoadError] = useState(false);
   const requestVersionRef = useRef(0);
   const selected = selectedOption && (selectedOption.id === value || (!value && selectedOption.label === selectedLabel)) ? selectedOption : null;
-  const displayValue = isOpen ? query : selected?.label ?? selectedLabel ?? '';
   const excludedIdSet = useMemo(() => new Set(excludeIds), [excludeIds]);
   const visibleOptions = loadedOptions.filter((option) => !excludedIdSet.has(option.id) || option.id === value);
+  const resourceOptions: SearchableResourceOption<string>[] = visibleOptions.map((option) => ({
+    id: option.id,
+    label: option.label,
+    description: option.description,
+    image: <ResourceThumbnail option={option} />,
+  }));
 
   const loadPage = useCallback(async (reset: boolean) => {
     if (disabled || (!reset && (isLoading || !hasMore))) return;
@@ -323,69 +331,39 @@ export function AiSearchableResourceSelect({
   }, [isOpen, query]);
 
   return (
-    <label className={`ai-resource-field ai-resource-field-${kind}`}>
-      <span>{label}</span>
-      <div className={`ai-resource-select${isOpen ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}`}>
-        <ResourceThumbnail option={selected} />
-        <input
-          type="text"
-          value={displayValue}
-          disabled={disabled}
-          placeholder={placeholder}
-          onFocus={() => setIsOpen(true)}
-          onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setIsOpen(true);
-          }}
-        />
-        <span className="ai-resource-select-chevron" aria-hidden="true" />
-        {!disabled && isOpen && (
-          <div
-            className="ai-resource-menu"
-            role="listbox"
-            onScroll={(event) => {
-              const menu = event.currentTarget;
-              if (menu.scrollHeight - menu.scrollTop - menu.clientHeight <= 36) {
-                void loadPage(false);
-              }
-            }}
-          >
-            {visibleOptions.length > 0 ? (
-              visibleOptions.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={option.id === value ? 'is-selected' : ''}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    onSelect(option);
-                    setIsOpen(false);
-                  }}
-                >
-                  <ResourceThumbnail option={option} />
-                  <span>
-                    <strong>{option.label}</strong>
-                    {option.description && <small>{option.description}</small>}
-                  </span>
-                </button>
-              ))
-            ) : isLoading ? (
-              <p className="ai-resource-menu-state">正在加载...</p>
-            ) : loadError ? (
-              <p className="ai-resource-menu-state">加载失败，请关闭后重试</p>
-            ) : (
-              <p className="ai-resource-menu-state">没有匹配项</p>
-            )}
-            {visibleOptions.length > 0 && (
-              <p className="ai-resource-menu-state">
-                {isLoading ? '继续加载...' : loadError ? '加载失败，请关闭后重试' : hasMore ? '向下滚动加载更多' : '已加载全部'}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </label>
+    <AiDraftResourceField
+      label={label}
+      value={value}
+      selectedLabel={selected?.label ?? selectedLabel}
+      query={query}
+      options={resourceOptions}
+      loading={isLoading && loadedOptions.length === 0}
+      loadingMore={isLoading && loadedOptions.length > 0}
+      hasMore={hasMore}
+      disabled={disabled}
+      emptyText={loadError ? '加载失败，请关闭后重试' : '没有匹配项'}
+      placeholder={placeholder}
+      listOpen={!disabled && isOpen}
+      className={`ai-resource-field ai-resource-field-${kind}`}
+      onQueryChange={(nextQuery) => {
+        setQuery(nextQuery);
+        setIsOpen(true);
+      }}
+      onChange={(nextId) => {
+        const option = visibleOptions.find((item) => item.id === nextId);
+        if (!option) return;
+        onSelect(option);
+        setIsOpen(false);
+      }}
+      onLoadMore={() => void loadPage(false)}
+      onSearchFocus={() => setIsOpen(true)}
+      onSearchClear={() => {
+        setQuery('');
+        setIsOpen(true);
+      }}
+    >
+      {selected ? <ResourceThumbnail option={selected} /> : null}
+    </AiDraftResourceField>
   );
 }
 

@@ -32,6 +32,7 @@ import {
   validateIngredientTrackingTransitionForSubmit,
   validateMealCompositionCorrectionForSubmit,
 } from './AiSpecializedApprovalEditors';
+import { AiDraftTagInput, normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -138,10 +139,6 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
 
 function joinTextList(value: unknown) {
   return Array.isArray(value) ? value.map(String).join('、') : '';
-}
-
-function splitTextList(value: string) {
-  return value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function normalizeSearchText(value: string) {
@@ -759,15 +756,6 @@ function validateShoppingListDraftForSubmit(draft: Record<string, unknown>) {
   return '';
 }
 
-function uniqueTextList(value: unknown) {
-  const values = Array.isArray(value)
-    ? value.map(String)
-    : typeof value === 'string'
-      ? splitTextList(value)
-      : [];
-  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)));
-}
-
 function foodProfileActionLabel(action: string) {
   switch (action) {
     case 'create':
@@ -793,8 +781,8 @@ function foodProfileRecord(value: Record<string, unknown>, fallback: Record<stri
     name: asText(value.name) || asText(fallback.name),
     type,
     category: asText(value.category) || asText(fallback.category),
-    suitableMealTypes: uniqueTextList(value.suitable_meal_types ?? value.suitableMealTypes ?? fallback.suitable_meal_types ?? fallback.suitableMealTypes),
-    flavorTags: uniqueTextList(value.flavor_tags ?? value.flavorTags ?? fallback.flavor_tags ?? fallback.flavorTags),
+    suitableMealTypes: normalizeAiDraftTagValues(value.suitable_meal_types ?? value.suitableMealTypes ?? fallback.suitable_meal_types ?? fallback.suitableMealTypes),
+    flavorTags: normalizeAiDraftTagValues(value.flavor_tags ?? value.flavorTags ?? fallback.flavor_tags ?? fallback.flavorTags),
     sourceName: asText(value.source_name) || asText(value.sourceName) || asText(fallback.source_name) || asText(fallback.sourceName),
     notes: asText(value.notes) || asText(fallback.notes),
     stockQuantity: value.stock_quantity ?? value.stockQuantity ?? fallback.stock_quantity ?? fallback.stockQuantity ?? null,
@@ -954,40 +942,6 @@ function validateMealLogDraftForSubmit(draft: Record<string, unknown>) {
     }
   }
   return '';
-}
-
-function ApprovalTagInput({
-  label,
-  values,
-  disabled,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  values: string[];
-  disabled: boolean;
-  placeholder: string;
-  onChange: (values: string[]) => void;
-}) {
-  return (
-    <label className="ai-resource-field ai-tag-input-field">
-      <span>{label}</span>
-      <input
-        className="text-input"
-        value={values.join('、')}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(event) => onChange(splitTextList(event.target.value))}
-      />
-      {values.length > 0 && (
-        <div className="ai-tag-preview" aria-label={`${label}预览`}>
-          {values.map((item) => (
-            <span key={item}>{item}</span>
-          ))}
-        </div>
-      )}
-    </label>
-  );
 }
 
 function countLabel(value: unknown, unit: string) {
@@ -1532,11 +1486,12 @@ export function ApprovalPanel({
                     onChange={(difficulty) => updatePayload({ difficulty })}
                   />
                 </div>
-                <ApprovalTagInput
+                <AiDraftTagInput
                   label="场景标签"
                   values={operationRecipe.scene_tags ?? []}
                   disabled={readonly}
                   placeholder="家常菜、快手菜"
+                  className="ai-resource-field ai-tag-input-field"
                   onChange={(sceneTags) => updatePayload({ scene_tags: sceneTags })}
                 />
                 <label className="ai-resource-field ai-confirmation-copy-field">
@@ -1652,11 +1607,12 @@ export function ApprovalPanel({
                       <span>步骤说明</span>
                       <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="详细说明操作方法" onChange={(event) => updateOperationStep(index, { text: event.target.value })} />
                     </label>
-                    <ApprovalTagInput
+                    <AiDraftTagInput
                       label="关键点"
                       values={step.key_points ?? []}
                       disabled={readonly}
                       placeholder="火候、状态、注意点"
+                      className="ai-resource-field ai-tag-input-field"
                       onChange={(keyPoints) => updateOperationStep(index, { key_points: keyPoints })}
                     />
                     {!readonly && operationRecipe.steps.length > 1 && (
@@ -2886,11 +2842,12 @@ export function ApprovalPanel({
                 options={MEAL_TYPE_OPTIONS}
                 onChange={(suitableMealTypes) => updateFoodPayload({ suitable_meal_types: suitableMealTypes })}
               />
-              <ApprovalTagInput
+              <AiDraftTagInput
                 label="口味标签"
                 values={record.flavorTags}
                 disabled={readonly}
                 placeholder="清淡、酸甜、香辣"
+                className="ai-resource-field ai-tag-input-field"
                 onChange={(flavorTags) => updateFoodPayload({ flavor_tags: flavorTags })}
               />
               <div className="ai-food-profile-tag-presets" aria-label="口味标签预设">
@@ -3972,11 +3929,12 @@ export function ApprovalPanel({
                             <span>步骤说明</span>
                             <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="详细说明操作方法" onChange={(event) => updateStep(index, { text: event.target.value })} />
                           </label>
-                          <ApprovalTagInput
+                          <AiDraftTagInput
                             label="关键点"
                             values={step.key_points ?? []}
                             disabled={readonly}
                             placeholder="火候、状态、注意点"
+                            className="ai-resource-field ai-tag-input-field"
                             onChange={(keyPoints) => updateStep(index, { key_points: keyPoints })}
                           />
                           {!readonly && recipe.steps.length > 1 && (
@@ -3994,11 +3952,12 @@ export function ApprovalPanel({
                         <strong>补充信息</strong>
                         <span>用于后续筛选和家庭做菜备注。</span>
                       </div>
-                      <ApprovalTagInput
+                      <AiDraftTagInput
                         label="场景标签"
                         values={recipe.scene_tags ?? []}
                         disabled={readonly}
                         placeholder="家常菜、快手菜"
+                        className="ai-resource-field ai-tag-input-field"
                         onChange={(sceneTags) => setRecipe({ ...recipe, scene_tags: sceneTags })}
                       />
                       <label className="ai-resource-field ai-confirmation-copy-field">

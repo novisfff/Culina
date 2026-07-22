@@ -1649,7 +1649,7 @@ describe('ApprovalPanel', () => {
     });
     await waitForAsync();
     expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 0, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(6);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(6);
 
     const menu = rendered.container.querySelector<HTMLElement>('.ai-resource-field-food .ai-resource-menu');
     expect(menu).not.toBeNull();
@@ -1663,12 +1663,12 @@ describe('ApprovalPanel', () => {
     });
     await waitForAsync();
     expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 6, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(12);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(12);
 
     changeInput(foodInput as HTMLInputElement, '番茄');
     await waitForAsync(240);
     expect(loader).toHaveBeenLastCalledWith('food', { query: '番茄', offset: 0, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(1);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(1);
     expect(rendered.container.textContent).toContain('番茄烩饭');
     rendered.unmount();
   });
@@ -2316,8 +2316,7 @@ describe('ApprovalPanel', () => {
     await flushAsync();
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('默认单位不能为空');
 
-    const unitInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-ingredient-profile-draft-editor input[role="combobox"]'))
-      .find((input) => input.closest('label')?.textContent?.includes('默认单位'));
+    const unitInput = rendered.container.querySelector<HTMLInputElement>('.ai-ingredient-profile-draft-editor input[aria-label="默认单位"]');
     changeInput(unitInput as HTMLInputElement, '克');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
