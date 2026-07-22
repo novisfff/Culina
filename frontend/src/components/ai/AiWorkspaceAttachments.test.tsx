@@ -129,4 +129,75 @@ describe('AiWorkspace attachments', () => {
       }
     }
   });
+
+  it('hides sent image attachments when the message starts a new conversation', async () => {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    const createObjectURLSpy = vi.fn(() => 'blob:ai-new-conversation-preview');
+    const revokeObjectURLSpy = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURLSpy });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURLSpy });
+
+    try {
+      vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+      vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+      vi.spyOn(api, 'uploadMedia').mockResolvedValue({
+        id: 'media-image-new',
+        name: 'receipt.png',
+        url: '/media/family-1/receipt.png',
+        source: 'upload',
+        alt: 'receipt.png',
+        variants: {
+          thumb: {
+            url: '/media/family-1/variants/media-image-new/thumb.webp',
+            width: 240,
+            height: 180,
+            content_type: 'image/webp',
+            byte_size: 1024,
+          },
+        },
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      const streamSpy = vi.spyOn(api, 'streamChatAi').mockImplementation(async () => new Promise<AiChatResponse>(() => undefined));
+      const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+      await flushAsync();
+
+      const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+      const fileInput = desktopView.querySelector<HTMLInputElement>('input[type="file"]') as HTMLInputElement;
+      const imageFile = new File(['image'], 'receipt.png', { type: 'image/png' });
+      await act(async () => {
+        Object.defineProperty(fileInput, 'files', { configurable: true, value: [imageFile] });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await flushAsync();
+
+      changeInputValue(desktopView.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '整理这张小票');
+      await act(async () => {
+        desktopView.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      await flushAsync();
+
+      expect(streamSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: '整理这张小票',
+          attachments: [{ type: 'image', media_id: 'media-image-new', client_attachment_id: expect.any(String) }],
+        }),
+        expect.any(Object),
+      );
+      expect(desktopView.querySelector('.ai-composer-attachments')).toBeNull();
+      expect(desktopView.querySelector('.ai-message-image-grid img')).not.toBeNull();
+      rendered.unmount();
+    } finally {
+      if (originalCreateObjectURL) {
+        Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      } else {
+        delete (URL as unknown as Record<string, unknown>).createObjectURL;
+      }
+      if (originalRevokeObjectURL) {
+        Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      } else {
+        delete (URL as unknown as Record<string, unknown>).revokeObjectURL;
+      }
+    }
+  });
 });

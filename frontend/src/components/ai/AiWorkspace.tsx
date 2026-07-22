@@ -1240,6 +1240,7 @@ export function AiWorkspace({
     streamProgressRef.current = { ...streamProgressRef.current, [clientRunId]: [] };
     setStreamProgressByRunId((current) => ({ ...current, [clientRunId]: [] }));
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
+    attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     if (sourceComposerScope !== conversationKey) {
       moveComposerScope(sourceComposerScope, conversationKey);
       moveAttachmentScope(sourceComposerScope, conversationKey);
@@ -1248,7 +1249,6 @@ export function AiWorkspace({
     setIsStartingNewConversation(false);
     if (!options?.preserveDraft) setDraft('');
     const sendAttachmentScope = conversationKey;
-    attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
       await startChat({
         message: text,
@@ -1621,7 +1621,6 @@ export function AiWorkspace({
             </button>
           ) : null}
           <div className="ai-composer-dock">
-            {effectiveComposerPaused && <p className="ai-composer-pause-note">{effectiveComposerPauseMessage}</p>}
             {isVisionUnavailableForAttachments && <p className="ai-composer-pause-note">当前 AI 模型暂不支持图片识别，请移除图片或切换支持视觉输入的模型。</p>}
             <AiComposerAttachments
               attachments={attachmentState.attachments}

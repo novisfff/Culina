@@ -180,7 +180,12 @@ describe('AiWorkspace pending approval restore', () => {
     });
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flushAsync();
-    expect(rendered.container.textContent).toContain('请先确认上面的草稿，确认后可以继续对话。');
+    const pauseMessage = '请先确认上面的草稿，确认后可以继续对话。';
+    expect(rendered.container.textContent).not.toContain(pauseMessage);
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === pauseMessage),
+    ).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => !button.disabled)).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.getAttribute('aria-label') === '中止生成')).toBe(true);
@@ -213,7 +218,11 @@ describe('AiWorkspace pending approval restore', () => {
     await flushAsync();
 
     expect(rendered.container.textContent).toContain('AI 未配置');
-    expect(rendered.container.textContent).toContain('AI 模型未配置。');
+    expect(rendered.container.textContent).not.toContain('AI 模型未配置。');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === 'AI 模型未配置。'),
+    ).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     await act(async () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -319,7 +328,12 @@ describe('AiWorkspace pending approval restore', () => {
     await flushAsync();
 
     expect(rendered.container.textContent).toContain('手动输入');
-    expect(rendered.container.textContent).toContain('请先回答上面的问题，AI 会接着处理当前任务。');
+    const pauseMessage = '请先回答上面的问题，AI 会接着处理当前任务。';
+    expect(rendered.container.textContent).not.toContain(pauseMessage);
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === pauseMessage),
+    ).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => !button.disabled)).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.getAttribute('aria-label') === '中止生成')).toBe(true);
@@ -333,7 +347,7 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
-  it('shows the current human input submission state instead of the background conversation pause', async () => {
+  it('keeps the human input submission status in composer placeholders only', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {
         id: 'message-human-input',
@@ -380,7 +394,12 @@ describe('AiWorkspace pending approval restore', () => {
     });
     await advanceTimers(300);
 
-    expect(desktopView.textContent).toContain('正在提交你的回答，AI 会接着处理当前任务。');
+    const submitStatus = '正在提交你的回答，AI 会接着处理当前任务。';
+    expect(desktopView.textContent).not.toContain(submitStatus);
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === submitStatus),
+    ).toBe(true);
     expect(desktopView.querySelector('.ai-thinking-cue')?.textContent).toContain('正在思考');
     expect(rendered.container.querySelector('.ai-mobile-page .ai-thinking-cue')?.textContent).toContain('正在思考');
     expect(desktopView.textContent).not.toContain('另一个会话正在后台回复');

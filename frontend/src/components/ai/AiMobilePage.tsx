@@ -287,7 +287,6 @@ export function AiMobilePage(props: Props) {
       ) : null}
 
       <div className="ai-composer-dock" ref={composerDockRef}>
-        {props.isComposerPaused && <p className="ai-composer-pause-note">{props.composerPauseMessage ?? '请先确认上面的草稿，确认后可以继续对话。'}</p>}
         <AiComposerAttachments attachments={props.attachments} disabled={props.isComposerPaused || props.isSending} onRemove={props.onRemoveAttachment} />
         <form className="ai-composer" onSubmit={props.onSubmit} onDrop={props.onDropFiles} onDragOver={(event) => event.preventDefault()}>
           <input
