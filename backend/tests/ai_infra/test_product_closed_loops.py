@@ -1164,7 +1164,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             db.flush()
             executor = self._inventory_intake_executor(db)
 
-            with self.assertRaisesRegex(ValueError, "inventory.create_intake_draft"):
+            with self.assertRaisesRegex(ValueError, "inventory_analysis"):
                 executor.call(
                     "shopping.create_draft",
                     {

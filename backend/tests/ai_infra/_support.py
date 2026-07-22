@@ -1760,6 +1760,18 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            shopping_milk = ShoppingListItem(
+                id="shopping-milk-item-eval",
+                family_id=self.owner.family.id,
+                food_id=milk.id,
+                title="牛奶",
+                quantity=Decimal("2"),
+                unit="盒",
+                reason="评估部分采购",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
             shopping_completed = ShoppingListItem(
                 id="shopping-completed-item-eval",
                 family_id=self.owner.family.id,
@@ -1815,6 +1827,7 @@ class AIEvalContext:
                 shopping_egg,
                 shopping_salmon,
                 shopping_food,
+                shopping_milk,
                 shopping_completed,
                 current_media,
                 stale_media,
@@ -1845,6 +1858,7 @@ class AIEvalContext:
                 "shopping_egg_item": shopping_egg.id,
                 "shopping_salmon_item": shopping_salmon.id,
                 "shopping_food_item": shopping_food.id,
+                "shopping_milk_item": shopping_milk.id,
                 "shopping_completed_item": shopping_completed.id,
                 "current_media": current_media.id,
                 "stale_media": stale_media.id,
@@ -2238,12 +2252,17 @@ class AIEvalContext:
                     }
                 }
             elif case.id == "inventory.partial_purchase_keeps_remainder":
-                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_milk_item"])
                 with self.owner.SessionLocal() as db:
                     shopping_item = db.get(ShoppingListItem, shopping_item_id)
                     if shopping_item is None:
                         raise AssertionError(f"{case.id}: shopping fixture is missing")
-                    target = db.get(Ingredient, shopping_item.ingredient_id)
+                    if shopping_item.food_id:
+                        target = db.get(Food, shopping_item.food_id)
+                        target_kind = "food"
+                    else:
+                        target = db.get(Ingredient, shopping_item.ingredient_id)
+                        target_kind = "exact_ingredient"
                 if target is None:
                     raise AssertionError(f"{case.id}: shopping target fixture is missing")
                 payload = {
@@ -2262,7 +2281,7 @@ class AIEvalContext:
                                 "sourceKind": "shopping_item",
                                 "action": "stock_and_fulfill",
                                 "shoppingItemId": shopping_item.id,
-                                "targetKind": "exact_ingredient",
+                                "targetKind": target_kind,
                                 "targetId": target.id,
                                 "enteredQuantity": "1",
                                 "enteredUnit": shopping_item.unit,
