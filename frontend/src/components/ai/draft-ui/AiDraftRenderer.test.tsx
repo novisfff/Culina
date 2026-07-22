@@ -51,6 +51,8 @@ describe('AiDraftRenderer', () => {
         foodOptions={[]}
         ingredientOptions={[]}
         ingredients={[]}
+        recipeCookSchemaVersion="unknown"
+        recipeCookRequiresRegeneration={false}
         onRecipeChange={vi.fn()}
         onStructuredDraftChange={vi.fn()}
         onLoadResourceOptions={async () => []}

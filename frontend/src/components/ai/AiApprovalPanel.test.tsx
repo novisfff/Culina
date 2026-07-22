@@ -1319,6 +1319,9 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={recipeCookApproval()} onDecision={() => undefined} />);
 
     expect(rendered.container.querySelector('.ai-recipe-cook-summary-card')?.textContent).toContain('番茄炒蛋');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-recipe-cook-summary-card')?.textContent).toContain('日期');
+    expect(rendered.container.textContent).toContain('做菜结果');
+    expect(rendered.container.textContent).toContain('食材与库存');
     expect(rendered.container.textContent).toContain('执行设置');
     expect(rendered.container.textContent).toContain('库存扣减预览');
     expect(rendered.container.textContent).toContain('缺料与阻断');
@@ -1426,6 +1429,7 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.textContent).toContain('当前草稿不能确认执行');
     expect(rendered.container.textContent).toContain('鸡蛋');
+    expect(Array.from(rendered.container.querySelectorAll('[role="note"]')).some((note) => note.textContent?.includes('库存提醒'))).toBe(true);
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
@@ -1433,6 +1437,24 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('当前做菜草稿包含缺料项');
     expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('shows resolved recipe cook Drafts as compact summaries', async () => {
+    const pending = recipeCookApproval();
+    const resolved = {
+      ...pending,
+      status: 'approved',
+      decision: 'approved' as const,
+      submitted_values: pending.initial_values,
+    };
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} isLatest />);
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-recipe-cook-summary-card')?.textContent).toContain('做菜执行已确认');
+    expect(rendered.container.querySelector('.ai-recipe-cook-draft-editor input, .ai-recipe-cook-draft-editor textarea')).toBeNull();
     rendered.unmount();
   });
 

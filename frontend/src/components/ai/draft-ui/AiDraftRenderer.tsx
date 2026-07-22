@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Ingredient } from '../../../api/types';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
 import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
+import { AiRecipeCookDraftView } from './views/AiRecipeCookDraftView';
 import { AiRecipeOperationDraftView } from './views/AiRecipeOperationDraftView';
 
 export type AiDraftRendererProps = {
@@ -14,6 +15,8 @@ export type AiDraftRendererProps = {
   foodOptions: readonly AiResourceOption[];
   ingredientOptions: readonly AiResourceOption[];
   ingredients: readonly Ingredient[];
+  recipeCookSchemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' | 'unknown';
+  recipeCookRequiresRegeneration: boolean;
   onRecipeChange: (next: AiGeneratedRecipeDraft) => void;
   onStructuredDraftChange: (next: Record<string, unknown>) => void;
   onLoadResourceOptions: AiResourceOptionLoader;
@@ -49,6 +52,16 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'recipe_cook':
+      return (
+        <AiRecipeCookDraftView
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          schemaVersion={props.recipeCookSchemaVersion}
+          requiresRegeneration={props.recipeCookRequiresRegeneration}
+          onDraftChange={props.onStructuredDraftChange}
+        />
+      );
     case 'meal_plan':
     case 'shopping_list':
     case 'inventory_intake':

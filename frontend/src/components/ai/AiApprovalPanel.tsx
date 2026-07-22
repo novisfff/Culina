@@ -321,21 +321,6 @@ function validateIngredientProfilePayloadForSubmit(payload: Record<string, unkno
   return '';
 }
 
-function formatDraftQuantity(quantity: unknown, unit: unknown) {
-  const numeric = asNumber(quantity, 0);
-  const display = Number.isInteger(numeric) ? String(numeric) : String(Number(numeric.toFixed(2)));
-  return `${display}${asText(unit) ? ` ${asText(unit)}` : ''}`;
-}
-
-function recipeCookLinkedPlanSummary(value: Record<string, unknown> | undefined) {
-  if (!value) return '未关联计划';
-  const date = asText(value.plan_date) || asText(value.date);
-  const meal = mealTypeLabel(value.meal_type ?? value.mealType);
-  const food = asText(value.food_name) || asText(value.title) || asText(value.name);
-  const status = asText(value.status) ? mealPlanStatusLabel(value.status) : '';
-  return [date, meal, food, status].filter(Boolean).join(' · ') || '已关联计划';
-}
-
 type RecipeCookSchemaVersion = 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' | 'unknown';
 
 function resolveRecipeCookSchemaVersion(
@@ -356,32 +341,6 @@ function resolveRecipeCookSchemaVersion(
     return 'recipe_cook_operation.v1';
   }
   return 'unknown';
-}
-
-function recipeCookMealLogSummary(schemaVersion: RecipeCookSchemaVersion) {
-  if (schemaVersion === 'recipe_cook_operation.v2') {
-    return '完成后会记录这餐';
-  }
-  return '旧草稿需要刷新后重新确认';
-}
-
-function recipeCookSummaryItems(
-  draft: Record<string, unknown>,
-  previewItems: Record<string, unknown>[],
-  shortages: Record<string, unknown>[],
-  linkedPlanItem: Record<string, unknown> | undefined,
-  schemaVersion: RecipeCookSchemaVersion,
-) {
-  const mealType = asText(draft.mealType, 'dinner');
-  return [
-    { label: '菜谱', value: asText(draft.title) || '菜谱' },
-    { label: '份数', value: `${formatServingCount(draft.servings)} 份` },
-    { label: '餐别', value: MEAL_TYPE_OPTIONS.find((option) => option.value === mealType)?.label || mealType },
-    { label: '库存扣减', value: previewItems.length > 0 ? `${previewItems.length} 种食材` : '无扣减项' },
-    { label: '餐食记录', value: recipeCookMealLogSummary(schemaVersion) },
-    { label: '关联计划', value: recipeCookLinkedPlanSummary(linkedPlanItem) },
-    { label: '缺料', value: shortages.length > 0 ? `${shortages.length} 项需补齐` : '库存充足' },
-  ];
 }
 
 function validateRecipeCookDraftForSubmit(
@@ -2181,218 +2140,6 @@ export function ApprovalPanel({
         </div>
       );
     }
-    if (draftType === 'recipe_cook') {
-      const previewItems = asDraftArray(structuredDraft.previewItems);
-      const shortages = asDraftArray(structuredDraft.shortages);
-      const linkedPlanItem = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
-        ? (structuredDraft.before as Record<string, unknown>).linkedPlanItem as Record<string, unknown> | undefined
-        : undefined;
-      const summaryItems = recipeCookSummaryItems(structuredDraft, previewItems, shortages, linkedPlanItem, recipeCookSchemaVersion);
-      const mealLogCopy = recipeCookMealLogSummary(recipeCookSchemaVersion);
-      const executionCopy = recipeCookSchemaVersion === 'recipe_cook_operation.v2'
-        ? '确认后会按预览扣减库存，并同时写入餐食记录。'
-        : '这份旧草稿需要刷新后重新确认；当前不会执行扣库存或写入餐食记录。';
-      if (currentApproval.status !== 'pending') {
-        return (
-          <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-cook-draft-editor">
-            <section className="ai-confirmation-item ai-recipe-summary-card ai-recipe-cook-summary-card" aria-label="做菜执行摘要">
-              <div className="ai-recipe-summary-head">
-                <div>
-                  <strong>
-                    {currentApproval.status === 'approved'
-                      ? '做菜执行已确认'
-                      : currentApproval.status === 'rejected'
-                        ? '未执行的做菜草稿'
-                        : '已过期的做菜草稿'}
-                  </strong>
-                  <span>{asText(structuredDraft.title) || '菜谱'}</span>
-                </div>
-                <em>{shortages.length > 0 ? '有缺料' : '可执行'}</em>
-              </div>
-              <dl className="ai-recipe-summary-grid">
-                {summaryItems.map((item) => (
-                  <div key={item.label}>
-                    <dt>{item.label}</dt>
-                    <dd>{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {asText(structuredDraft.resultNote) && <p className="ai-recipe-summary-note">{asText(structuredDraft.resultNote)}</p>}
-            </section>
-          </div>
-        );
-      }
-      return (
-        <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-cook-draft-editor">
-          <div className="ai-draft-editor-head">
-            <div>
-              <strong>做菜执行</strong>
-              <span>{asText(structuredDraft.title) || '菜谱'}</span>
-            </div>
-          </div>
-          <section className="ai-confirmation-item ai-recipe-summary-card ai-recipe-cook-summary-card" aria-label="做菜执行摘要">
-            <div className="ai-recipe-summary-head">
-              <div>
-                <strong>{asText(structuredDraft.title) || '待确认做菜'}</strong>
-                <span>{executionCopy}</span>
-              </div>
-              <em>{shortages.length > 0 || recipeCookRequiresRegeneration ? (recipeCookRequiresRegeneration ? '需刷新' : '有缺料') : '可执行'}</em>
-            </div>
-            <dl className="ai-recipe-summary-grid">
-              {summaryItems.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-          {recipeCookRequiresRegeneration && (
-            <section className="ai-confirmation-item">
-              <div className="ai-recipe-danger-impact" role="status">
-                <strong>这份旧草稿需要刷新后重新确认</strong>
-                <p className="ai-approval-compare-copy">
-                  仅支持始终记录餐食的 v2 做菜草稿。请刷新会话并重新生成草稿后再确认。
-                </p>
-              </div>
-            </section>
-          )}
-          <section className="ai-confirmation-item">
-            <div className="ai-recipe-draft-section">
-              <div className="ai-recipe-draft-section-head">
-                <strong>执行设置</strong>
-                <span>确认本次做菜份数、日期、餐别和关联计划。</span>
-              </div>
-              <div className="ai-confirmation-grid">
-                <label className="ai-resource-field">
-                  <span>份数</span>
-                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(structuredDraft.servings, 1)} disabled />
-                  <small>份数会改变库存扣减预览，如需调整请重新生成草稿</small>
-                </label>
-                <label className="ai-resource-field ai-resource-field-date">
-                  <span>日期</span>
-                  <div className="ai-resource-select">
-                    <ResourceSelectIcon kind="calendar" />
-                    <input type="date" value={asText(structuredDraft.date)} disabled={readonly || recipeCookRequiresRegeneration} onChange={(event) => updateDraft({ date: event.target.value })} />
-                  </div>
-                </label>
-                <ApprovalSelectField
-                  label="餐别"
-                  value={asText(structuredDraft.mealType, 'dinner')}
-                  disabled={readonly || recipeCookRequiresRegeneration}
-                  options={MEAL_TYPE_OPTIONS}
-                  icon="meal"
-                  onChange={(mealType) => updateDraft({ mealType })}
-                />
-                {recipeCookSchemaVersion === 'recipe_cook_operation.v2' ? (
-                  <div className="ai-resource-field">
-                    <span>餐食记录</span>
-                    <p className="ai-recipe-summary-note">完成后会记录这餐</p>
-                  </div>
-                ) : (
-                  <div className="ai-resource-field">
-                    <span>餐食记录</span>
-                    <p className="ai-recipe-summary-note">{mealLogCopy}</p>
-                  </div>
-                )}
-              </div>
-              <p className="ai-approval-compare-copy">
-                关联计划：{recipeCookLinkedPlanSummary(linkedPlanItem)}
-              </p>
-            </div>
-          </section>
-          <section className="ai-confirmation-item">
-            <div className="ai-recipe-draft-section">
-              <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                <div>
-                  <strong>库存扣减预览</strong>
-                  <span>按食材核对请求数量和实际扣减批次。</span>
-                </div>
-                <span>{previewItems.length} 项</span>
-              </div>
-              {previewItems.length > 0 ? previewItems.map((item, index) => {
-                const batches = asDraftArray(item.batches);
-                return (
-                  <div className="ai-recipe-cook-preview-card" key={`${asText(item.ingredient_name)}-${index}`}>
-                    <div className="ai-recipe-cook-preview-head">
-                      <strong>{asText(item.ingredient_name) || `食材 ${index + 1}`}</strong>
-                      <span>需要 {formatDraftQuantity(item.requested_quantity, item.unit)}</span>
-                    </div>
-                    <div className="ai-recipe-cook-batch-list">
-                      {batches.length > 0 ? batches.map((batch, batchIndex) => (
-                        <p className="ai-approval-compare-copy" key={`${asText(batch.inventory_item_id)}-${batchIndex}`}>
-                          批次 {batchIndex + 1}：扣 {formatDraftQuantity(batch.quantity, batch.unit)}
-                          {asText(batch.storage_location) ? ` · ${asText(batch.storage_location)}` : ''}
-                          {asText(batch.purchase_date) ? ` · 购于 ${asText(batch.purchase_date)}` : ''}
-                          {asText(batch.expiry_date) ? ` · 到期 ${asText(batch.expiry_date)}` : ''}
-                        </p>
-                      )) : (
-                        <p className="ai-recipe-summary-note">没有具体批次明细，确认前建议重新预览库存。</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              }) : (
-                <p className="ai-recipe-summary-note">没有库存扣减项，确认前建议检查菜谱食材或重新生成草稿。</p>
-              )}
-            </div>
-          </section>
-          <section className="ai-confirmation-item">
-            <div className="ai-recipe-draft-section">
-              <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
-                <div>
-                  <strong>缺料与阻断</strong>
-                  <span>有缺料时不能直接执行做菜扣库存。</span>
-                </div>
-                <span>{shortages.length > 0 ? `${shortages.length} 项` : '库存充足'}</span>
-              </div>
-              {shortages.length > 0 ? (
-                <div className="ai-recipe-danger-impact">
-                  <strong>当前草稿不能确认执行</strong>
-                  <p className="ai-approval-compare-copy">
-                    请先补齐库存或调整份数后重新生成做菜草稿；确认按钮会被前端阻断。
-                  </p>
-                </div>
-              ) : (
-                <p className="ai-recipe-summary-note">预览没有发现缺料，可以按上方批次扣减库存。</p>
-              )}
-              {shortages.map((item, index) => (
-                <div className="ai-recipe-cook-shortage-card" key={`${asText(item.ingredient_name)}-${index}`}>
-                  <strong>{asText(item.ingredient_name) || `缺料 ${index + 1}`}</strong>
-                  <span>
-                    缺 {formatDraftQuantity(item.missing_quantity, item.unit)} · 现有 {formatDraftQuantity(item.available_quantity, item.unit)} · 需要 {formatDraftQuantity(item.required_quantity, item.unit)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="ai-confirmation-item">
-            <div className="ai-recipe-draft-section">
-              <div className="ai-recipe-draft-section-head">
-                <strong>餐食记录补充</strong>
-                <span>
-                  {recipeCookSchemaVersion === 'recipe_cook_operation.v2'
-                    ? '完成后会自动写入餐食记录；这里补充备注与结果说明。'
-                    : '这份旧草稿需要刷新后重新确认，当前不会写入餐食记录。'}
-                </span>
-              </div>
-              <label className="ai-resource-field ai-confirmation-copy-field">
-                <span>餐食备注</span>
-                <textarea className="text-input" rows={2} value={asText(structuredDraft.notes)} disabled={readonly || recipeCookRequiresRegeneration} placeholder="生成餐食记录时附带说明" onChange={(event) => updateDraft({ notes: event.target.value })} />
-              </label>
-              <label className="ai-resource-field ai-confirmation-copy-field">
-                <span>结果备注</span>
-                <textarea className="text-input" rows={2} value={asText(structuredDraft.resultNote)} disabled={readonly || recipeCookRequiresRegeneration} placeholder="记录成品效果、口味等" onChange={(event) => updateDraft({ resultNote: event.target.value })} />
-              </label>
-              <label className="ai-resource-field ai-confirmation-copy-field">
-                <span>调整说明</span>
-                <textarea className="text-input" rows={2} value={asText(structuredDraft.adjustments)} disabled={readonly || recipeCookRequiresRegeneration} placeholder="记录替换食材或临时调整" onChange={(event) => updateDraft({ adjustments: event.target.value })} />
-              </label>
-            </div>
-          </section>
-        </div>
-      );
-    }
     if (draftType === 'food_profile') {
       const action = asText(structuredDraft.action);
       const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
@@ -3394,6 +3141,8 @@ export function ApprovalPanel({
               foodOptions={foodOptions}
               ingredientOptions={ingredientOptions}
               ingredients={ingredients}
+              recipeCookSchemaVersion={recipeCookSchemaVersion}
+              recipeCookRequiresRegeneration={recipeCookRequiresRegeneration}
               onRecipeChange={setRecipe}
               onStructuredDraftChange={setStructuredDraft}
               onLoadResourceOptions={loadApprovalResourceOptions}
@@ -3410,6 +3159,8 @@ export function ApprovalPanel({
               foodOptions={foodOptions}
               ingredientOptions={ingredientOptions}
               ingredients={ingredients}
+              recipeCookSchemaVersion={recipeCookSchemaVersion}
+              recipeCookRequiresRegeneration={recipeCookRequiresRegeneration}
               onRecipeChange={setRecipe}
               onStructuredDraftChange={setStructuredDraft}
               onLoadResourceOptions={loadApprovalResourceOptions}

@@ -144,7 +144,9 @@
 }
 
 .ai-draft-item-card.ai-recipe-ingredient-card,
-.ai-draft-item-card.ai-recipe-step-card {
+.ai-draft-item-card.ai-recipe-step-card,
+.ai-draft-item-card.ai-recipe-cook-preview-card,
+.ai-draft-item-card.ai-recipe-cook-shortage-card {
   border-color: var(--line-soft);
   background: var(--surface-muted);
   padding: var(--space-5);
@@ -168,6 +170,13 @@
 
 .ai-draft-impact-note-body > p {
   margin: 0;
+}
+
+.ai-recipe-cook-batch-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 .ai-draft-item-card h4,
