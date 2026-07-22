@@ -1745,17 +1745,17 @@
   height: 54px;
   border: 0;
   border-radius: 999px;
-  background: linear-gradient(135deg, #ff8437 0%, #e84f19 100%);
+  background: var(--brand-button-bg);
   color: #fff;
   font-size: 1.35rem;
   font-weight: 900;
   cursor: pointer;
-  box-shadow: 0 12px 24px rgba(225, 82, 27, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  box-shadow: var(--brand-button-shadow);
 }
 
 .ai-send-button.is-sending {
-  background: linear-gradient(135deg, #d26b33 0%, #b35122 100%);
-  box-shadow: 0 12px 24px rgba(210, 107, 51, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  background: var(--brand-button-bg-hover);
+  box-shadow: var(--brand-button-shadow-hover);
 }
 
 .ai-send-button.is-sending::before {
@@ -1769,7 +1769,7 @@
 }
 
 .ai-send-button:disabled {
-  opacity: 0.62;
+  opacity: 0.58;
   cursor: not-allowed;
 }
 
@@ -2213,7 +2213,7 @@
     height: 38px;
     border-radius: 999px;
     font-size: 1.05rem;
-    box-shadow: 0 4px 12px rgba(225, 82, 27, 0.2);
+    box-shadow: var(--brand-button-shadow);
   }
 
   .ai-mobile-history-root {
@@ -2734,17 +2734,26 @@
   max-height: 38px;
   padding: 0;
   border-radius: 50%;
-  background: #17191d;
+  background: var(--brand-button-bg);
   color: #fff;
-  box-shadow: 0 5px 14px rgba(23, 25, 29, 0.18);
-  transition: all 0.15s ease;
+  box-shadow: var(--brand-button-shadow);
+  transition:
+    background var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+}
+
+.ai-send-button:hover:not(:disabled),
+.ai-send-button.is-sending {
+  background: var(--brand-button-bg-hover);
+  box-shadow: var(--brand-button-shadow-hover);
 }
 
 .ai-send-button:disabled {
-  background: rgba(92, 67, 48, 0.08);
-  color: #c4bbb4;
+  background: var(--surface-muted);
+  color: var(--text-faint);
   box-shadow: none;
-  opacity: 0.72;
+  opacity: 0.58;
   cursor: not-allowed;
 }
 

@@ -1643,7 +1643,12 @@ describe('AiWorkspace live sync and conversation migration', () => {
     });
     await flushAsync();
     expect(api.streamAiApprovalDecision).toHaveBeenCalled();
-    expect(rendered.container.textContent).toContain('正在提交确认结果，AI 会接着处理当前任务。');
+    const submitStatus = '正在提交确认结果，AI 会接着处理当前任务。';
+    expect(rendered.container.textContent).not.toContain(submitStatus);
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === submitStatus),
+    ).toBe(true);
 
     // Switch to A and start a stream. A must not inherit B's submitting approval UI.
     await sendInConversation(rendered, 'conversation-a', '问题 A');
