@@ -125,7 +125,7 @@ def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) ->
         and operation["payload"].get("done") is True
         for operation in draft.get("operations") or []
     ):
-        raise ValueError("完成购物项请改用 inventory.create_intake_draft，在一份审批中同时处理购物状态和库存")
+        raise ValueError("完成采购并入库请改由 inventory_analysis 处理，使用统一入库草稿同时更新购物状态和库存")
     normalized = normalize_shopping_list_draft(
         context.db,
         family_id=context.family_id,

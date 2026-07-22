@@ -244,6 +244,7 @@ CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
         InventoryOperationMissingIngredientState | InventoryMissingIngredientState
     ),
     "inventory_unit_conversion.v1": TypeAdapter(InventoryUnitConversionState),
+    "inventory_intake_continuation.v1": TypeAdapter(InventoryIntakeContinuationState),
     "inventory_intake_missing_target.v1": TypeAdapter(InventoryIntakeMissingTargetState),
     "recipe_shortage_to_shopping.v1": TypeAdapter(RecipeShortageToShoppingState),
 }

@@ -1638,6 +1638,20 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            salmon = Ingredient(
+                id="ingredient-salmon-eval",
+                family_id=self.owner.family.id,
+                name="三文鱼",
+                category="海鲜",
+                default_unit="块",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
             dumpling = Food(
                 id="food-dumpling-eval",
                 family_id=self.owner.family.id,
@@ -1649,6 +1663,20 @@ class AIEvalContext:
                 notes="",
                 stock_quantity=Decimal("2"),
                 stock_unit="袋",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            milk = Food(
+                id="food-milk-eval",
+                family_id=self.owner.family.id,
+                name="牛奶",
+                type=FoodType.PACKAGED,
+                category="乳品",
+                flavor_tags=[],
+                scene="",
+                notes="",
+                stock_quantity=Decimal("0"),
+                stock_unit="盒",
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
@@ -1692,6 +1720,30 @@ class AIEvalContext:
                 quantity=Decimal("2"),
                 unit="个",
                 reason="评估",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            shopping_egg = ShoppingListItem(
+                id="shopping-egg-item-eval",
+                family_id=self.owner.family.id,
+                ingredient_id=egg.id,
+                title="鸡蛋",
+                quantity=Decimal("12"),
+                unit="个",
+                reason="评估小票入库",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            shopping_salmon = ShoppingListItem(
+                id="shopping-salmon-item-eval",
+                family_id=self.owner.family.id,
+                ingredient_id=salmon.id,
+                title="三文鱼",
+                quantity=Decimal("1"),
+                unit="kg",
+                reason="评估小票入库",
                 done=False,
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
@@ -1749,13 +1801,32 @@ class AIEvalContext:
                 source=MediaSource.UPLOAD,
                 alt="其他家庭图片",
             )
-            db.add_all([egg, salt, lettuce, dumpling, other_food, recipe, other_recipe, shopping, shopping_food, shopping_completed, current_media, stale_media, other_media])
+            db.add_all([
+                egg,
+                salt,
+                lettuce,
+                salmon,
+                dumpling,
+                milk,
+                other_food,
+                recipe,
+                other_recipe,
+                shopping,
+                shopping_egg,
+                shopping_salmon,
+                shopping_food,
+                shopping_completed,
+                current_media,
+                stale_media,
+                other_media,
+            ])
             db.flush()
             tomato_food = db.get(Food, "food-tomato")
             assert tomato_food is not None
             tomato_food.recipe_id = recipe.id
             db.add_all([
                 InventoryItem(id="inventory-egg-eval", family_id=self.owner.family.id, ingredient_id=egg.id, quantity=Decimal("4"), consumed_quantity=Decimal("0"), unit="个", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏", low_stock_threshold=Decimal("5")),
+                InventoryItem(id="inventory-salmon-eval", family_id=self.owner.family.id, ingredient_id=salmon.id, quantity=Decimal("1"), consumed_quantity=Decimal("0"), unit="块", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏"),
                 RecipeIngredient(id="recipe-eval-tomato", recipe_id=recipe.id, ingredient_id="ingredient-tomato", ingredient_name="番茄", quantity=Decimal("2"), unit="个", note="", sort_order=0),
                 RecipeIngredient(id="recipe-eval-egg", recipe_id=recipe.id, ingredient_id=egg.id, ingredient_name="鸡蛋", quantity=Decimal("2"), unit="个", note="", sort_order=1),
             ])
@@ -1765,10 +1836,14 @@ class AIEvalContext:
                 "egg": egg.id,
                 "salt": salt.id,
                 "depleted_lettuce": lettuce.id,
+                "salmon": salmon.id,
                 "dumpling": dumpling.id,
+                "milk": milk.id,
                 "tomato_egg_food": "food-tomato",
                 "tomato_egg_recipe": recipe.id,
                 "shopping_item": shopping.id,
+                "shopping_egg_item": shopping_egg.id,
+                "shopping_salmon_item": shopping_salmon.id,
                 "shopping_food_item": shopping_food.id,
                 "shopping_completed_item": shopping_completed.id,
                 "current_media": current_media.id,
@@ -1884,6 +1959,8 @@ class AIEvalContext:
                 "inventory.receipt_mixed_requires_unit_input",
                 "inventory.receipt_mixed_creates_one_draft",
             }:
+                # Tool input is names only; exact egg/salmon/milk fixtures exist so
+                # the real resolver can return exact matches for scripted drafts.
                 return {
                     "items": [
                         {"clientKey": "line-egg", "name": "鸡蛋"},
@@ -1916,10 +1993,98 @@ class AIEvalContext:
                     "sourceSkills": ["inventory_analysis"],
                     "resumeHint": {"questionType": "inventory_intake_resolution"},
                 }
-            if case.id in {
-                "inventory.receipt_mixed_requires_unit_input",
-                "inventory.receipt_mixed_creates_one_draft",
-            }:
+            if case.id == "inventory.receipt_mixed_requires_unit_input":
+                continuation_state = {
+                    "sourceType": "receipt_image",
+                    "sourceReference": {
+                        "mediaId": subject.get("mediaId") or self.aliases["current_media"]
+                    },
+                    "purchaseIntent": "purchase",
+                    "dateEvidence": {
+                        "userDate": None,
+                        "userSaidToday": False,
+                        "receiptDate": today,
+                    },
+                    "intakeDate": today,
+                    "intakeDateSource": "receipt",
+                    "lines": [
+                        {
+                            "sourceLineId": "line-egg",
+                            "sourceOrder": 0,
+                            "rawText": "鸡蛋 12个",
+                            "name": "鸡蛋",
+                            "quantity": "12",
+                            "unit": "个",
+                            "itemKind": "inventory",
+                            "targetHint": "ingredient",
+                            "resolvedSourceKind": "shopping_item",
+                            "selectedShoppingItemId": self.aliases["shopping_egg_item"],
+                            "selectedTargetKind": "exact_ingredient",
+                            "selectedTargetId": self.aliases["egg"],
+                            "confirmedAction": "stock_and_fulfill",
+                            "confirmedQuantity": "12",
+                            "confirmedUnit": "个",
+                            "disposition": "ready",
+                        },
+                        {
+                            "sourceLineId": "line-salmon",
+                            "sourceOrder": 1,
+                            "rawText": "三文鱼 1kg",
+                            "name": "三文鱼",
+                            "quantity": "1",
+                            "unit": "kg",
+                            "itemKind": "inventory",
+                            "targetHint": "ingredient",
+                            "resolvedSourceKind": "shopping_item",
+                            "selectedShoppingItemId": self.aliases["shopping_salmon_item"],
+                            "selectedTargetKind": "exact_ingredient",
+                            "selectedTargetId": self.aliases["salmon"],
+                            "disposition": "pending",
+                        },
+                        {
+                            "sourceLineId": "line-milk",
+                            "sourceOrder": 2,
+                            "rawText": "牛奶 1盒",
+                            "name": "牛奶",
+                            "quantity": "1",
+                            "unit": "盒",
+                            "itemKind": "inventory",
+                            "targetHint": "food",
+                            "resolvedSourceKind": "direct",
+                            "selectedTargetKind": "food",
+                            "selectedTargetId": self.aliases["milk"],
+                            "confirmedAction": "stock_only",
+                            "confirmedQuantity": "1",
+                            "confirmedUnit": "盒",
+                            "disposition": "ready",
+                        },
+                        {
+                            "sourceLineId": "line-bag",
+                            "sourceOrder": 3,
+                            "rawText": "垃圾袋",
+                            "name": "垃圾袋",
+                            "itemKind": "non_inventory",
+                            "disposition": "ignored",
+                        },
+                    ],
+                    "ignoredItems": [
+                        {
+                            "sourceLineId": "line-bag",
+                            "reasonCode": "non_inventory_item",
+                            "reason": "非食品库存对象，本次不会入库",
+                        }
+                    ],
+                    "currentBlocker": {
+                        "sourceLineId": "line-salmon",
+                        "reasonCode": "unit_mismatch",
+                    },
+                    "pendingBlockers": [
+                        {
+                            "sourceLineId": "line-salmon",
+                            "reasonCode": "conversion_quantity_missing",
+                        }
+                    ],
+                }
                 return {
                     "question": "三文鱼按公斤识别，但当前库存单位是块。这次要怎样处理？",
                     "inputMode": "choice",
@@ -1931,7 +2096,11 @@ class AIEvalContext:
                     "allowMultiple": False,
                     "required": True,
                     "sourceSkills": ["inventory_analysis"],
-                    "resumeHint": {"questionType": "inventory_intake_resolution"},
+                    "resumeHint": {
+                        "questionType": "inventory_intake_resolution",
+                        "stateSchema": "inventory_intake_continuation.v1",
+                        "state": continuation_state,
+                    },
                 }
             if case.id == "inventory.date_conflict_requests_input":
                 return {
@@ -2108,13 +2277,18 @@ class AIEvalContext:
             elif case.id == "inventory.receipt_mixed_creates_one_draft":
                 with self.owner.SessionLocal() as db:
                     egg = db.get(Ingredient, self.aliases["egg"])
-                    tomato = db.get(Ingredient, self.aliases["tomato"])
-                    shopping_item = db.get(ShoppingListItem, self.aliases["shopping_item"])
-                    shopping_food = db.get(ShoppingListItem, self.aliases["shopping_food_item"])
-                if egg is None or tomato is None or shopping_item is None:
+                    salmon = db.get(Ingredient, self.aliases["salmon"])
+                    milk = db.get(Food, self.aliases["milk"])
+                    shopping_egg = db.get(ShoppingListItem, self.aliases["shopping_egg_item"])
+                    shopping_salmon = db.get(ShoppingListItem, self.aliases["shopping_salmon_item"])
+                if (
+                    egg is None
+                    or salmon is None
+                    or milk is None
+                    or shopping_egg is None
+                    or shopping_salmon is None
+                ):
                     raise AssertionError(f"{case.id}: mixed intake fixtures missing")
-                # Use existing shopping item as eggs link and tomato as salmon stand-in target
-                # so the draft can be created without inventing hidden unit knowledge.
                 payload = {
                     "draft": {
                         "draftType": "inventory_intake",
@@ -2132,7 +2306,7 @@ class AIEvalContext:
                                 "sourceText": "鸡蛋 12个",
                                 "sourceKind": "shopping_item",
                                 "action": "stock_and_fulfill",
-                                "shoppingItemId": shopping_item.id,
+                                "shoppingItemId": shopping_egg.id,
                                 "targetKind": "exact_ingredient",
                                 "targetId": egg.id,
                                 "enteredQuantity": "12",
@@ -2147,17 +2321,13 @@ class AIEvalContext:
                                 "sourceText": "三文鱼 1kg",
                                 "sourceKind": "shopping_item",
                                 "action": "stock_and_fulfill",
-                                "shoppingItemId": (
-                                    shopping_food.id if shopping_food is not None else shopping_item.id
-                                ),
+                                "shoppingItemId": shopping_salmon.id,
                                 "targetKind": "exact_ingredient",
-                                "targetId": tomato.id,
-                                "enteredQuantity": "2",
-                                "enteredUnit": "块",
+                                "targetId": salmon.id,
+                                "enteredQuantity": "1",
+                                "enteredUnit": "kg",
                                 "packageConversion": {
-                                    "sourceQuantity": "1",
-                                    "sourceUnit": "kg",
-                                    "targetQuantity": "2",
+                                    "ratio": "2",
                                     "targetUnit": "块",
                                     "evidence": "user_confirmed_once",
                                 },
@@ -2171,11 +2341,10 @@ class AIEvalContext:
                                 "sourceText": "牛奶 1盒",
                                 "sourceKind": "direct",
                                 "action": "stock_only",
-                                "targetKind": "exact_ingredient",
-                                "targetId": tomato.id,
+                                "targetKind": "food",
+                                "targetId": milk.id,
                                 "enteredQuantity": "1",
                                 "enteredUnit": "盒",
-                                "inventoryStatus": "fresh",
                                 "storageLocation": "冷藏",
                                 "notes": "",
                             },
@@ -2184,8 +2353,9 @@ class AIEvalContext:
                             {
                                 "sourceLineId": "line-bag",
                                 "sourceText": "垃圾袋",
+                                "displayName": "垃圾袋",
                                 "reasonCode": "non_inventory_item",
-                                "reason": "非食品耗材",
+                                "reason": "非食品库存对象，本次不会入库",
                             }
                         ],
                     }

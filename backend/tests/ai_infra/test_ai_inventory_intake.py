@@ -1842,6 +1842,43 @@ def test_inventory_intake_missing_target_state_round_trips_json() -> None:
     assert again == validated
 
 
+def test_inventory_intake_continuation_state_round_trips_json() -> None:
+    state = _base_intake_state(
+        lines=[
+            _base_intake_line(
+                source_line_id="line-egg",
+                source_order=0,
+                name="鸡蛋",
+                disposition="ready",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-egg",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-egg",
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="12",
+                confirmedUnit="个",
+            ),
+            _base_intake_line(
+                source_line_id="line-salmon",
+                source_order=1,
+                name="三文鱼",
+                quantity="1",
+                unit="kg",
+                disposition="pending",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-salmon",
+            ),
+        ],
+        currentBlocker={"sourceLineId": "line-salmon", "reasonCode": "unit_mismatch"},
+        pendingBlockers=[{"sourceLineId": "line-salmon", "reasonCode": "conversion_quantity_missing"}],
+    )
+    validated = validate_continuation_state("inventory_intake_continuation.v1", state)
+    assert "currentMissingSourceLineId" not in validated
+    assert validated["currentBlocker"]["reasonCode"] == "unit_mismatch"
+    again = validate_continuation_state("inventory_intake_continuation.v1", validated)
+    assert again == validated
+
+
 def test_inventory_intake_state_preserves_source_date_confidence_package_and_ignored_rows() -> None:
     state = _base_intake_state(
         lines=[
@@ -1893,16 +1930,14 @@ def test_inventory_intake_state_preserves_source_date_confidence_package_and_ign
         },
         intakeDate="2026-07-20",
         intakeDateSource="user",
-        currentMissingSourceLineId="line-egg",
     )
-    # missing target schema requires currentMissingSourceLineId; use continuation base via missing for round-trip of fields
-    # Use missing target state to exercise full model dump while preserving package/ignored fields.
-    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    validated = validate_continuation_state("inventory_intake_continuation.v1", state)
     assert validated["dateEvidence"]["userDate"] == "2026-07-20"
     assert validated["dateEvidence"]["receiptDate"] == "2026-07-19"
     assert validated["lines"][0]["confidence"] == "0.91"
     assert validated["lines"][0]["packageConversion"]["targetQuantity"] == "10"
     assert validated["ignoredItems"][0]["reasonCode"] == "non_inventory_item"
+    assert "currentMissingSourceLineId" not in validated
 
 
 def test_inventory_intake_state_preserves_conversion_fulfill_without_stock_and_skip_decisions() -> None:
@@ -1949,9 +1984,8 @@ def test_inventory_intake_state_preserves_conversion_fulfill_without_stock_and_s
                 confirmedAction="skip",
             ),
         ],
-        currentMissingSourceLineId="line-salmon",
     )
-    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    validated = validate_continuation_state("inventory_intake_continuation.v1", state)
     assert validated["lines"][0]["packageConversion"]["evidence"] == "user_confirmed_once"
     assert validated["lines"][1]["confirmedAction"] == "fulfill_without_stock"
     assert validated["lines"][2]["confirmedAction"] == "skip"
@@ -1972,16 +2006,16 @@ def test_inventory_intake_state_accepts_thirty_and_rejects_thirty_one_original_l
         _base_intake_line(source_line_id=f"line-{idx}", source_order=idx, name=f"食材{idx}")
         for idx in range(30)
     ]
-    ok = _base_intake_state(lines=thirty, currentMissingSourceLineId="line-0")
-    validated = validate_continuation_state("inventory_intake_missing_target.v1", ok)
+    ok = _base_intake_state(lines=thirty)
+    validated = validate_continuation_state("inventory_intake_continuation.v1", ok)
     assert len(validated["lines"]) == 30
 
     thirty_one = thirty + [
         _base_intake_line(source_line_id="line-30", source_order=30, name="溢出")
     ]
-    bad = _base_intake_state(lines=thirty_one, currentMissingSourceLineId="line-0")
+    bad = _base_intake_state(lines=thirty_one)
     with pytest.raises(ValidationError):
-        validate_continuation_state("inventory_intake_missing_target.v1", bad)
+        validate_continuation_state("inventory_intake_continuation.v1", bad)
 
 
 def test_inventory_intake_state_rejects_unknown_or_duplicate_source_line_references() -> None:
@@ -1990,17 +2024,15 @@ def test_inventory_intake_state_rejects_unknown_or_duplicate_source_line_referen
             _base_intake_line(source_line_id="line-1", source_order=0),
             _base_intake_line(source_line_id="line-1", source_order=1, name="重复"),
         ],
-        currentMissingSourceLineId="line-1",
     )
     with pytest.raises(ValidationError):
-        validate_continuation_state("inventory_intake_missing_target.v1", duplicate_ids)
+        validate_continuation_state("inventory_intake_continuation.v1", duplicate_ids)
 
     unknown_blocker = _base_intake_state(
         currentBlocker={"sourceLineId": "missing-line", "reasonCode": "unit_mismatch"},
-        currentMissingSourceLineId="line-1",
     )
     with pytest.raises(ValidationError):
-        validate_continuation_state("inventory_intake_missing_target.v1", unknown_blocker)
+        validate_continuation_state("inventory_intake_continuation.v1", unknown_blocker)
 
     unknown_ignored = _base_intake_state(
         ignoredItems=[
@@ -2010,10 +2042,9 @@ def test_inventory_intake_state_rejects_unknown_or_duplicate_source_line_referen
                 "reason": "ghost",
             }
         ],
-        currentMissingSourceLineId="line-1",
     )
     with pytest.raises(ValidationError):
-        validate_continuation_state("inventory_intake_missing_target.v1", unknown_ignored)
+        validate_continuation_state("inventory_intake_continuation.v1", unknown_ignored)
 
     ignored_not_disposition = _base_intake_state(
         lines=[_base_intake_line(disposition="ready")],
@@ -2024,10 +2055,9 @@ def test_inventory_intake_state_rejects_unknown_or_duplicate_source_line_referen
                 "reason": "not ignored disposition",
             }
         ],
-        currentMissingSourceLineId="line-1",
     )
     with pytest.raises(ValidationError):
-        validate_continuation_state("inventory_intake_missing_target.v1", ignored_not_disposition)
+        validate_continuation_state("inventory_intake_continuation.v1", ignored_not_disposition)
 
 
 def test_inventory_intake_missing_target_state_rejects_row_versions_and_extra_fields() -> None:
@@ -2079,6 +2109,8 @@ def test_inventory_skill_owns_intake_and_shopping_skill_does_not() -> None:
     assert "ready_food_stock" not in inventory.handoffs
     assert "missing_intake_target" in inventory.handoffs
     assert inventory.handoffs["missing_intake_target"].state_schema == "inventory_intake_missing_target.v1"
+    assert "inventory_intake_continuation.v1" in CONTINUATION_STATE_ADAPTERS
+    assert "inventory_intake_missing_target.v1" in CONTINUATION_STATE_ADAPTERS
     assert "shopping.preview_intake_candidates" not in shopping.tools
     assert "shopping.create_intake_draft" not in shopping.tools
     assert "shopping_intake" not in shopping.draft_types
@@ -2090,17 +2122,45 @@ def test_candidate_and_ambiguous_results_pause_with_full_typed_state() -> None:
     state = _base_intake_state(
         lines=[
             _base_intake_line(
-                source_line_id="line-ambiguous",
+                source_line_id="line-egg",
                 source_order=0,
+                name="鸡蛋",
+                disposition="ready",
+                selectedTargetKind="exact_ingredient",
+                selectedTargetId="ingredient-egg",
+                resolvedSourceKind="shopping_item",
+                selectedShoppingItemId="shopping-egg",
+                confirmedAction="stock_and_fulfill",
+                confirmedQuantity="12",
+                confirmedUnit="个",
+            ),
+            _base_intake_line(
+                source_line_id="line-ambiguous",
+                source_order=1,
                 name="牛奶",
                 disposition="pending",
-            )
+            ),
+            _base_intake_line(
+                source_line_id="line-bag",
+                source_order=2,
+                name="垃圾袋",
+                quantity=None,
+                unit=None,
+                itemKind="non_inventory",
+                disposition="ignored",
+            ),
+        ],
+        ignoredItems=[
+            {
+                "sourceLineId": "line-bag",
+                "reasonCode": "non_inventory_item",
+                "reason": "非食品库存对象，本次不会入库",
+            }
         ],
         currentBlocker={"sourceLineId": "line-ambiguous", "reasonCode": "target_ambiguous"},
         pendingBlockers=[{"sourceLineId": "line-ambiguous", "reasonCode": "quantity_missing"}],
-        currentMissingSourceLineId="line-ambiguous",
     )
-    validated = validate_continuation_state("inventory_intake_missing_target.v1", state)
+    validated = validate_continuation_state("inventory_intake_continuation.v1", state)
     human_payload = {
         "question": "牛奶有多个候选，请选择目标。",
         "inputMode": "choice",
@@ -2110,16 +2170,24 @@ def test_candidate_and_ambiguous_results_pause_with_full_typed_state() -> None:
         "sourceSkills": ["inventory_analysis"],
         "resumeHint": {
             "questionType": "inventory_intake_resolution",
+            "stateSchema": "inventory_intake_continuation.v1",
             "state": validated,
         },
     }
+    assert human_payload["resumeHint"]["stateSchema"] == "inventory_intake_continuation.v1"
     restored = validate_continuation_state(
-        "inventory_intake_missing_target.v1",
+        human_payload["resumeHint"]["stateSchema"],
         human_payload["resumeHint"]["state"],
     )
+    assert "currentMissingSourceLineId" not in restored
     assert restored["currentBlocker"]["reasonCode"] == "target_ambiguous"
     assert restored["pendingBlockers"][0]["reasonCode"] == "quantity_missing"
-    assert restored["lines"][0]["sourceLineId"] == "line-ambiguous"
+    assert restored["lines"][0]["sourceLineId"] == "line-egg"
+    assert restored["lines"][0]["confirmedQuantity"] == "12"
+    assert restored["lines"][0]["disposition"] == "ready"
+    assert restored["lines"][1]["sourceLineId"] == "line-ambiguous"
+    assert restored["lines"][2]["disposition"] == "ignored"
+    assert restored["ignoredItems"][0]["sourceLineId"] == "line-bag"
 
 
 def test_missing_candidate_routes_to_profile_ignore_or_skip_without_losing_other_rows() -> None:
@@ -2193,10 +2261,10 @@ def test_unit_mismatch_collects_conversion_choice_then_positive_target_quantity(
             "sourceLineId": "line-salmon",
             "reasonCode": "conversion_quantity_missing",
         },
-        currentMissingSourceLineId="line-salmon",
     )
-    choice_state = validate_continuation_state("inventory_intake_missing_target.v1", after_choice)
+    choice_state = validate_continuation_state("inventory_intake_continuation.v1", after_choice)
     assert choice_state["currentBlocker"]["reasonCode"] == "conversion_quantity_missing"
+    assert "currentMissingSourceLineId" not in choice_state
 
     after_quantity = _base_intake_state(
         lines=[
@@ -2223,11 +2291,11 @@ def test_unit_mismatch_collects_conversion_choice_then_positive_target_quantity(
         ],
         currentBlocker=None,
         pendingBlockers=[],
-        currentMissingSourceLineId="line-salmon",
     )
-    ready = validate_continuation_state("inventory_intake_missing_target.v1", after_quantity)
+    ready = validate_continuation_state("inventory_intake_continuation.v1", after_quantity)
     assert ready["lines"][0]["packageConversion"]["targetQuantity"] == "2"
     assert ready["currentBlocker"] is None
+    assert "currentMissingSourceLineId" not in ready
 
 
 def test_resume_preserves_prior_choices_and_continues_from_next_blocker() -> None:
@@ -2255,9 +2323,9 @@ def test_resume_preserves_prior_choices_and_continues_from_next_blocker() -> Non
         ],
         currentBlocker={"sourceLineId": "line-salmon", "reasonCode": "unit_mismatch"},
         pendingBlockers=[{"sourceLineId": "line-salmon", "reasonCode": "quantity_missing"}],
-        currentMissingSourceLineId="line-salmon",
     )
-    validated = validate_continuation_state("inventory_intake_missing_target.v1", paused)
+    validated = validate_continuation_state("inventory_intake_continuation.v1", paused)
+    assert "currentMissingSourceLineId" not in validated
     # apply conversion answer and move blocker
     validated["lines"][1]["packageConversion"] = {
         "sourceQuantity": "1",
@@ -2272,7 +2340,9 @@ def test_resume_preserves_prior_choices_and_continues_from_next_blocker() -> Non
     validated["lines"][1]["disposition"] = "ready"
     validated["currentBlocker"] = None
     validated["pendingBlockers"] = []
-    resumed = validate_continuation_state("inventory_intake_missing_target.v1", validated)
+    resumed = validate_continuation_state("inventory_intake_continuation.v1", validated)
     assert resumed["lines"][0]["confirmedQuantity"] == "12"
+    assert resumed["lines"][0]["disposition"] == "ready"
     assert resumed["lines"][1]["packageConversion"]["targetUnit"] == "块"
     assert resumed["currentBlocker"] is None
+    assert "currentMissingSourceLineId" not in resumed
