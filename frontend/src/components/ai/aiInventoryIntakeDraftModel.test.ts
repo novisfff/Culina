@@ -256,6 +256,33 @@ describe('aiInventoryIntakeDraftModel', () => {
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>)).toBe('');
   });
 
+  it('rejects presence stock without expected ingredient row version', () => {
+    const draft = inventoryIntakeDraftFromRecord(baseDraft({
+      items: [presenceItem({ expectedIngredientRowVersion: null })],
+    }));
+    expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
+      .toBe('「食用油」缺少食材版本信息，请重新生成草稿');
+  });
+
+  it('rejects presence stock with stateId but missing state row version', () => {
+    const draft = inventoryIntakeDraftFromRecord(baseDraft({
+      items: [presenceItem({ expectedStateRowVersion: null })],
+    }));
+    expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
+      .toBe('「食用油」缺少库存状态版本信息，请重新生成草稿');
+  });
+
+  it('rejects empty action with row-named message even when another row is valid', () => {
+    const draft = inventoryIntakeDraftFromRecord(baseDraft({
+      items: [
+        shoppingExact(),
+        directFood({ action: '' }),
+      ],
+    }));
+    expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
+      .toBe('请选择「牛奶」的处理方式');
+  });
+
   it('validates storage and date range', () => {
     const noStorage = inventoryIntakeDraftFromRecord(baseDraft({
       items: [shoppingExact({ storageLocation: '' })],
@@ -297,6 +324,6 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [directFood({ action: 'stock_and_fulfill' })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
-      .toMatch(/「牛奶」/);
+      .toBe('「牛奶」的处理方式不正确');
   });
 });

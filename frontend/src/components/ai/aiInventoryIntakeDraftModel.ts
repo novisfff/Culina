@@ -359,13 +359,16 @@ export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unkn
 
   for (const item of parsed.items) {
     const title = itemTitle(item);
-    if (item.action === 'skip' || !item.action) continue;
+    if (item.action === 'skip') continue;
+    if (!item.action) {
+      return `请选择「${title}」的处理方式`;
+    }
 
     if (!item.sourceKind || !isSourceKind(item.sourceKind)) {
       return `「${title}」的来源类型不正确`;
     }
     if (!VALID_ACTIONS_BY_SOURCE[item.sourceKind].includes(item.action as InventoryIntakeAction)) {
-      return `「${title}」的处理方式与来源不匹配`;
+      return `「${title}」的处理方式不正确`;
     }
 
     if (item.sourceKind === 'shopping_item') {
@@ -377,11 +380,21 @@ export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unkn
       if (!item.targetKind || item.targetKind === 'none' || !item.targetId) {
         return `「${title}」缺少库存目标身份信息，请重新生成草稿`;
       }
-      if (item.targetKind === 'exact_ingredient' && item.expectedIngredientRowVersion === null) {
+      if (
+        (item.targetKind === 'exact_ingredient' || item.targetKind === 'presence_ingredient')
+        && item.expectedIngredientRowVersion === null
+      ) {
         return `「${title}」缺少食材版本信息，请重新生成草稿`;
       }
       if (item.targetKind === 'food' && item.expectedFoodRowVersion === null) {
         return `「${title}」缺少食物版本信息，请重新生成草稿`;
+      }
+      if (
+        item.targetKind === 'presence_ingredient'
+        && item.stateId
+        && item.expectedStateRowVersion === null
+      ) {
+        return `「${title}」缺少库存状态版本信息，请重新生成草稿`;
       }
     }
 
