@@ -2018,8 +2018,11 @@ describe('ApprovalPanel', () => {
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
 
-    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
-    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('来源常买品牌');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-food-profile-summary-card')?.textContent).toContain('来源常买品牌');
+    expect(Array.from(rendered.container.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
+      expect.arrayContaining(['核心信息', '适用场景', '来源与备注']),
+    );
     expect(rendered.container.textContent).toContain('核心信息');
     expect(rendered.container.textContent).toContain('适用场景');
     expect(rendered.container.textContent).toContain('来源与备注');
@@ -2095,7 +2098,8 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.querySelector('.ai-draft-item-card.ai-food-profile-favorite-card')).not.toBeNull();
     expect(rendered.container.textContent).toContain('当前：未收藏');
     expect(rendered.container.textContent).toContain('调整后：已收藏');
     expect(rendered.container.textContent).not.toContain('核心信息');
@@ -2164,7 +2168,7 @@ describe('ApprovalPanel', () => {
     };
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
 
-    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('新增食物资料已确认');
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-food-profile-summary-card')?.textContent).toContain('新增食物资料已确认');
     expect(rendered.container.querySelector('.ai-food-profile-draft-editor input')).toBeNull();
     expect(rendered.container.textContent).not.toContain('核心信息');
     rendered.unmount();

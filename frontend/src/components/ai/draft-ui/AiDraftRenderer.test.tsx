@@ -49,6 +49,7 @@ describe('AiDraftRenderer', () => {
         structuredDraft={{ draftType: 'unknown' }}
         readonly={false}
         foodOptions={[]}
+        foodCategoryOptions={[]}
         ingredientOptions={[]}
         ingredients={[]}
         recipeCookSchemaVersion="unknown"
@@ -78,6 +79,7 @@ describe('AiDraftRenderer', () => {
         }}
         readonly={false}
         foodOptions={[]}
+        foodCategoryOptions={[]}
         ingredientOptions={[]}
         ingredients={[]}
         recipeCookSchemaVersion="unknown"
@@ -92,6 +94,40 @@ describe('AiDraftRenderer', () => {
     expect(fallback).not.toHaveBeenCalled();
     expect(view.querySelector('.ai-draft-summary-card.ai-shopping-list-summary-card')).not.toBeNull();
     expect(view.textContent).toContain('待确认购物清单');
+  });
+
+  it('routes food profile Drafts through the shared structured view', () => {
+    const fallback = vi.fn(() => <p>原始草稿</p>);
+    const view = renderRenderer(
+      <AiDraftRenderer
+        approval={approval()}
+        draftType="food_profile"
+        recipeApproval={false}
+        recipe={recipeDraft('番茄炒蛋')}
+        structuredDraft={{
+          draftType: 'food_profile',
+          name: '蓝莓酸奶',
+          type: 'readyMade',
+          category: '饮品',
+          suitable_meal_types: ['breakfast'],
+        }}
+        readonly={false}
+        foodOptions={[]}
+        foodCategoryOptions={[{ value: '饮品', label: '饮品' }]}
+        ingredientOptions={[]}
+        ingredients={[]}
+        recipeCookSchemaVersion="unknown"
+        recipeCookRequiresRegeneration={false}
+        onRecipeChange={vi.fn()}
+        onStructuredDraftChange={vi.fn()}
+        onLoadResourceOptions={async () => []}
+        renderLegacyFallback={fallback}
+      />,
+    );
+
+    expect(fallback).not.toHaveBeenCalled();
+    expect(view.querySelector('.ai-draft-summary-card.ai-food-profile-summary-card')).not.toBeNull();
+    expect(view.textContent).toContain('核心信息');
   });
 
   it('routes meal log Drafts through the shared view but preserves composition correction', () => {
@@ -110,6 +146,7 @@ describe('AiDraftRenderer', () => {
         }}
         readonly={false}
         foodOptions={[]}
+        foodCategoryOptions={[]}
         ingredientOptions={[]}
         ingredients={[]}
         recipeCookSchemaVersion="unknown"
@@ -136,6 +173,7 @@ describe('AiDraftRenderer', () => {
           structuredDraft={{ draftType: 'meal_log', action: 'update_composition' }}
           readonly={false}
           foodOptions={[]}
+          foodCategoryOptions={[]}
           ingredientOptions={[]}
           ingredients={[]}
           recipeCookSchemaVersion="unknown"

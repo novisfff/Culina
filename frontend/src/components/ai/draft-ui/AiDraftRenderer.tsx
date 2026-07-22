@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Ingredient } from '../../../api/types';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
+import { AiFoodProfileDraftView } from './views/AiFoodProfileDraftView';
 import { AiGeneratedRecipeDraftView } from './views/AiGeneratedRecipeDraftView';
 import { AiMealLogDraftView } from './views/AiMealLogDraftView';
 import { AiMealPlanDraftView } from './views/AiMealPlanDraftView';
@@ -16,6 +17,7 @@ export type AiDraftRendererProps = {
   structuredDraft: Record<string, unknown>;
   readonly: boolean;
   foodOptions: readonly AiResourceOption[];
+  foodCategoryOptions: Array<{ value: string; label: string; description?: string }>;
   ingredientOptions: readonly AiResourceOption[];
   ingredients: readonly Ingredient[];
   recipeCookSchemaVersion: 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' | 'unknown';
@@ -105,6 +107,15 @@ export function AiDraftRenderer(props: AiDraftRendererProps) {
         />
       );
     case 'food_profile':
+      return (
+        <AiFoodProfileDraftView
+          draft={props.structuredDraft}
+          readonly={props.readonly}
+          status={props.approval.status}
+          categoryOptions={props.foodCategoryOptions}
+          onDraftChange={props.onStructuredDraftChange}
+        />
+      );
     case 'ingredient_profile':
     case 'inventory_operation':
     case 'composite_operation':

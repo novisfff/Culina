@@ -184,6 +184,38 @@
   background: var(--warning-soft);
 }
 
+.ai-draft-summary-card.ai-food-profile-summary-card,
+.ai-draft-resolved-summary.ai-food-profile-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-food-profile-summary-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ai-draft-item-card.ai-food-profile-favorite-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-food-profile-favorite-card .ai-draft-item-card-status {
+  border: 1px solid var(--warning-line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--warning);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .ai-meal-log-summary-context {
   margin: 0;
   color: var(--text-soft);

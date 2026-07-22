@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Food, Ingredient } from '../../api/types';
 import { resolveMediaUrl } from '../../lib/assets';
-import { formatFoodStockAmount, parseFoodStockQuantity } from '../../lib/foodStockQuantity';
+import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { getIngredientEditorCategoryPresets } from '../ingredients/workspaceModel';
 import {
@@ -31,7 +31,7 @@ import {
 } from './AiSpecializedApprovalEditors';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftRenderer } from './draft-ui/AiDraftRenderer';
-import { AiDraftTagInput, normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
+import { normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
 import { RECIPE_DIFFICULTY_OPTIONS as DIFFICULTY_OPTIONS, recipeDraftFromRecord } from './draft-ui/views/aiRecipeDraftViewModel';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
@@ -73,7 +73,6 @@ const SHOPPING_DONE_OPTIONS = [
   { value: 'true', label: '已买到' },
 ];
 const FOOD_CATEGORY_PRESETS = ['主食', '饮品', '早餐', '便当', '零食', '甜品', '汤粥', '小吃', '外卖', '速食'];
-const FOOD_FLAVOR_PRESETS = ['清淡', '酸甜', '香辣', '咸鲜', '奶香', '酥脆', '软糯', '孩子喜欢'];
 const AI_RESOURCE_IMAGE_FALLBACK = '/assets/ai-food-ingredient-placeholder.png';
 
 function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
@@ -513,23 +512,6 @@ function validateShoppingListDraftForSubmit(draft: Record<string, unknown>) {
   return '';
 }
 
-function foodProfileActionLabel(action: string) {
-  switch (action) {
-    case 'create':
-      return '新增';
-    case 'update':
-      return '修改';
-    case 'set_favorite':
-      return '收藏';
-    default:
-      return action || '创建';
-  }
-}
-
-function foodFavoriteLabel(value: unknown) {
-  return Boolean(value) ? '已收藏' : '未收藏';
-}
-
 function foodProfileRecord(value: Record<string, unknown>, fallback: Record<string, unknown> = {}) {
   const type = asText(value.type) || asText(fallback.type) || 'readyMade';
   return {
@@ -547,40 +529,6 @@ function foodProfileRecord(value: Record<string, unknown>, fallback: Record<stri
     storageLocation: asText(value.storage_location) || asText(value.storageLocation) || asText(fallback.storage_location) || asText(fallback.storageLocation),
     favorite: Boolean(value.favorite ?? fallback.favorite),
   };
-}
-
-function isReadyLikeFoodProfileType(value: string) {
-  return value === 'readyMade' || value === 'instant' || value === 'packaged';
-}
-
-function foodProfileStockLabel(record: ReturnType<typeof foodProfileRecord>) {
-  const quantity = draftNumberInputValue(record.stockQuantity, '');
-  return typeof quantity === 'number' ? formatFoodStockAmount(quantity, record.stockUnit || '份') : '未填写';
-}
-
-function foodProfileSummaryItems(record: ReturnType<typeof foodProfileRecord>) {
-  return [
-    { label: '食物名', value: record.name || '未命名食物' },
-    { label: '类型', value: FOOD_TYPE_OPTIONS.find((option) => option.value === record.type)?.label || foodTypeText(record.type) || '未设置' },
-    { label: '分类', value: record.category || '未填写' },
-    { label: '适合餐别', value: record.suitableMealTypes.map(mealTypeLabel).filter(Boolean).join('、') || '未设置' },
-    { label: '口味标签', value: record.flavorTags.join('、') || '未设置' },
-    { label: '来源', value: record.sourceName || '未填写' },
-    ...(isReadyLikeFoodProfileType(record.type)
-      ? [
-          { label: '库存', value: foodProfileStockLabel(record) },
-          { label: '存放位置', value: record.storageLocation || '常温' },
-        ]
-      : []),
-  ];
-}
-
-function foodProfileResolvedTitle(status: AiApprovalRequest['status'], action: string) {
-  const actionLabel = foodProfileActionLabel(action);
-  if (status === 'approved') return `${actionLabel}食物资料已确认`;
-  if (status === 'rejected') return '未写入的食物资料草稿';
-  if (status === 'expired') return '已过期的食物资料草稿';
-  return `${actionLabel}食物资料`;
 }
 
 function validateFoodProfilePayloadForSubmit(payload: Record<string, unknown>) {
@@ -1074,213 +1022,6 @@ export function ApprovalPanel({
           onUpdateItem={updateInventoryOperationItem}
           onRemoveItem={(index) => removeDraftItem('operations', index)}
         />
-      );
-    }
-    if (draftType === 'food_profile') {
-      const action = asText(structuredDraft.action);
-      const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
-        ? structuredDraft.payload as Record<string, unknown>
-        : structuredDraft;
-      const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
-        ? structuredDraft.before as Record<string, unknown>
-        : {};
-      const record = foodProfileRecord(payload, before);
-      const actionLabel = foodProfileActionLabel(action || 'create');
-      const updateFoodPayload = (patch: Record<string, unknown>) => {
-        if (action) {
-          updateDraft({ payload: { ...payload, ...patch } });
-        } else {
-          updateDraft(patch);
-        }
-      };
-      const renderFoodProfileSummary = () => (
-        <section className="ai-confirmation-item ai-food-profile-summary-card" aria-label="食物资料摘要">
-          <div className="ai-recipe-summary-head">
-            <div>
-              <strong>{foodProfileResolvedTitle(currentApproval.status, action || 'create')}</strong>
-              <span>
-                {action === 'set_favorite'
-                  ? '确认后只更新收藏状态，不修改食物资料内容。'
-                  : '确认后会写入食物资料，用于餐食记录、计划和推荐。'}
-              </span>
-            </div>
-            <em>{actionLabel}</em>
-          </div>
-          <dl className="ai-recipe-summary-grid">
-            {foodProfileSummaryItems(record).map((item) => (
-              <div key={item.label}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {record.notes && <p className="ai-recipe-summary-note">{record.notes}</p>}
-        </section>
-      );
-      const renderFoodProfileForm = () => (
-        <>
-          <section className="ai-confirmation-item">
-            <div className="ai-food-profile-section">
-              <div className="ai-food-profile-section-head">
-                <strong>核心信息</strong>
-                <span>确认名称、类型和家庭分类，分类可选择已有值或自定义。</span>
-              </div>
-              <label className="ai-resource-field">
-                <span>食物名称</span>
-                <input className="text-input" value={record.name} disabled={readonly} onChange={(event) => updateFoodPayload({ name: event.target.value })} />
-              </label>
-              <div className="ai-confirmation-grid">
-                <ApprovalSelectField
-                  label="类型"
-                  value={record.type}
-                  disabled={readonly}
-                  options={FOOD_TYPE_OPTIONS}
-                  icon="type"
-                  onChange={(type) => updateFoodPayload({ type })}
-                />
-                <ApprovalComboboxField
-                  label="分类"
-                  value={record.category}
-                  disabled={readonly}
-                  options={foodCategoryOptions}
-                  placeholder="选择或输入分类"
-                  icon="type"
-                  onChange={(category) => updateFoodPayload({ category })}
-                />
-              </div>
-            </div>
-          </section>
-          <section className="ai-confirmation-item">
-            <div className="ai-food-profile-section">
-              <div className="ai-food-profile-section-head">
-                <strong>适用场景</strong>
-                <span>餐别是固定多选；口味标签会去重并过滤空值。</span>
-              </div>
-              <ApprovalMultiSelectField
-                label="适合餐别"
-                values={record.suitableMealTypes}
-                disabled={readonly}
-                options={MEAL_TYPE_OPTIONS}
-                onChange={(suitableMealTypes) => updateFoodPayload({ suitable_meal_types: suitableMealTypes })}
-              />
-              <AiDraftTagInput
-                label="口味标签"
-                values={record.flavorTags}
-                disabled={readonly}
-                placeholder="清淡、酸甜、香辣"
-                className="ai-resource-field ai-tag-input-field"
-                onChange={(flavorTags) => updateFoodPayload({ flavor_tags: flavorTags })}
-              />
-              <div className="ai-food-profile-tag-presets" aria-label="口味标签预设">
-                {FOOD_FLAVOR_PRESETS.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    className={record.flavorTags.includes(tag) ? 'is-selected' : ''}
-                    disabled={readonly}
-                    onClick={() => updateFoodPayload({
-                      flavor_tags: record.flavorTags.includes(tag)
-                        ? record.flavorTags.filter((item) => item !== tag)
-                        : [...record.flavorTags, tag],
-                    })}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-          <section className="ai-confirmation-item">
-            <div className="ai-food-profile-section">
-              <div className="ai-food-profile-section-head">
-                <strong>来源与备注</strong>
-                <span>来源属于开放信息，作为补充字段保留。</span>
-              </div>
-              <label className="ai-resource-field">
-                <span>来源</span>
-                <input className="text-input" value={record.sourceName} disabled={readonly} placeholder="店铺、品牌或来源" onChange={(event) => updateFoodPayload({ source_name: event.target.value })} />
-              </label>
-              <label className="ai-resource-field ai-confirmation-copy-field">
-                <span>备注</span>
-                <textarea className="text-input" rows={3} value={record.notes} disabled={readonly} placeholder="补充食用场景或偏好" onChange={(event) => updateFoodPayload({ notes: event.target.value })} />
-              </label>
-              {isReadyLikeFoodProfileType(record.type) && (
-                <ApprovalSelectField
-                  label="存放位置"
-                  value={record.storageLocation || '常温'}
-                  disabled={readonly}
-                  options={INGREDIENT_STORAGE_OPTIONS}
-                  icon="type"
-                  onChange={(storageLocation) => updateFoodPayload({ storage_location: storageLocation })}
-                />
-              )}
-            </div>
-          </section>
-        </>
-      );
-      if (currentApproval.status !== 'pending') {
-        return (
-          <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
-            {renderFoodProfileSummary()}
-          </div>
-        );
-      }
-      if (action) {
-        return (
-          <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
-            <div className="ai-draft-editor-head">
-              <div>
-                <strong>{actionLabel}食物资料</strong>
-                <span>{record.name || '食物资料'}</span>
-              </div>
-            </div>
-            {renderFoodProfileSummary()}
-            {action === 'set_favorite' ? (
-              <section className="ai-confirmation-item">
-                <div className="ai-food-profile-favorite-card">
-                  <div>
-                    <span>当前：{foodFavoriteLabel(before.favorite)}</span>
-                    <strong>{record.name || asText(structuredDraft.targetId) || '食物资料'}</strong>
-                    <p>调整后：{foodFavoriteLabel(payload.favorite)}</p>
-                  </div>
-                  <em>{actionLabel}</em>
-                </div>
-                <ApprovalSelectField
-                  label="收藏状态"
-                  value={String(Boolean(payload.favorite))}
-                  disabled={readonly}
-                  options={[
-                    { value: 'true', label: '加入收藏' },
-                    { value: 'false', label: '移出收藏' },
-                  ]}
-                  icon="type"
-                  onChange={(favorite) => updateFoodPayload({ favorite: favorite === 'true' })}
-                />
-              </section>
-            ) : (
-              <>
-                {action === 'update' && (
-                  <p className="ai-approval-compare-copy">
-                    当前：{[asText(before.name), foodTypeText(before.type), asText(before.category)].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-                {renderFoodProfileForm()}
-              </>
-            )}
-          </div>
-        );
-      }
-      return (
-        <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
-          <div className="ai-draft-editor-head">
-            <div>
-              <strong>食物资料</strong>
-              <span>确认名称、类型与适合餐别</span>
-            </div>
-          </div>
-          {renderFoodProfileSummary()}
-          {renderFoodProfileForm()}
-        </div>
       );
     }
     if (draftType === 'ingredient_profile') {
@@ -2075,6 +1816,7 @@ export function ApprovalPanel({
               structuredDraft={structuredDraft}
               readonly={readonly}
               foodOptions={foodOptions}
+              foodCategoryOptions={foodCategoryOptions}
               ingredientOptions={ingredientOptions}
               ingredients={ingredients}
               recipeCookSchemaVersion={recipeCookSchemaVersion}
@@ -2093,6 +1835,7 @@ export function ApprovalPanel({
               structuredDraft={structuredDraft}
               readonly={readonly}
               foodOptions={foodOptions}
+              foodCategoryOptions={foodCategoryOptions}
               ingredientOptions={ingredientOptions}
               ingredients={ingredients}
               recipeCookSchemaVersion={recipeCookSchemaVersion}
