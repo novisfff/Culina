@@ -1704,6 +1704,7 @@ describe('AiWorkspace pending approval restore', () => {
 
     const stoppingButton = active.rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button');
     expect(stoppingButton?.getAttribute('aria-label')).toContain('正在停止');
+    expect(stoppingButton?.getAttribute('aria-busy')).toBe('true');
     expect(stoppingButton?.disabled).toBe(true);
     expect(active.rendered.container.textContent).not.toContain('已取消这次任务');
     expect(active.streamSignal?.aborted).toBe(true);
