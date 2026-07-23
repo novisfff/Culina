@@ -111,6 +111,53 @@ afterEach(() => {
 });
 
 describe('useCookingRealtimeVoiceSession', () => {
+  it('waits for turn cancellation acknowledgement before returning to listening', async () => {
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    let cancelPromise: Promise<void> | undefined;
+    act(() => {
+      cancelPromise = latest?.cancelTurn();
+    });
+    expect(latestSocket?.readyState).toBe(FakeWebSocket.OPEN);
+    expect(latestSocket?.sentMessages.at(-1)).toEqual({ type: 'cancel_turn', turn_id: turn.turn_id });
+    expect(latest?.status).toBe('thinking');
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'turn_cancelled', turn_id: turn.turn_id });
+      await cancelPromise;
+    });
+    expect(latestSocket?.readyState).toBe(FakeWebSocket.OPEN);
+    expect(latest?.status).toBe('listening');
+  });
+
+  it('waits for active turn cancellation acknowledgement before hangup closes locally', async () => {
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    let hangupPromise: Promise<void> | undefined;
+    act(() => {
+      hangupPromise = latest?.hangup();
+    });
+    expect(latestSocket?.readyState).toBe(FakeWebSocket.OPEN);
+    expect(latestSocket?.sentMessages.at(-1)).toEqual({ type: 'hangup', turn_id: turn.turn_id });
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'turn_cancelled', turn_id: turn.turn_id });
+      await hangupPromise;
+    });
+    expect(latestSocket?.readyState).toBe(3);
+    expect(latest?.status).toBe('closed');
+  });
+
   it.each<CookingRealtimeVoiceStatus>(['listening', 'recording', 'transcribing', 'thinking', 'speaking'])(
     'keeps the call microphone available while status is %s',
     (status) => {
