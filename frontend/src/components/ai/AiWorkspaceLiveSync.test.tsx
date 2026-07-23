@@ -1541,7 +1541,20 @@ describe('AiWorkspace live sync and conversation migration', () => {
       pending.set(conversationId, resolve);
     }));
     vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
-      run: { id: 'run-cancelled', status: 'cancelled' },
+      outcome: 'cancelled',
+      request: {
+        run_id: 'run-cancelled',
+        status: 'applied',
+        requested_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-cancelled',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'cancelled',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
       events: [],
     });
 

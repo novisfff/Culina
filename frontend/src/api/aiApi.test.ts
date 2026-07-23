@@ -147,6 +147,46 @@ describe('aiApi', () => {
     vi.restoreAllMocks();
   });
 
+  it('test_cancel_ai_run_uses_post_path', async () => {
+    const cancellation = {
+      outcome: 'cancelled',
+      request: {
+        run_id: 'run-1',
+        status: 'applied',
+        requested_at: '2026-07-23T00:00:00Z',
+        resolved_at: '2026-07-23T00:00:01Z',
+      },
+      run: { ...emptyChatResponse.run, status: 'cancelled' },
+      events: [],
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(cancellation));
+
+    await expect(aiApi.cancelAiRun('run-1')).resolves.toEqual(cancellation);
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/runs/run-1/cancel');
+    expect((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.method).toBe('POST');
+  });
+
+  it('test_get_ai_run_cancellation_uses_get_path', async () => {
+    const cancellation = {
+      outcome: 'cancel_requested',
+      request: {
+        run_id: 'run-1',
+        status: 'requested',
+        requested_at: '2026-07-23T00:00:00Z',
+        resolved_at: null,
+      },
+      run: { ...emptyChatResponse.run, status: 'cancelling' },
+      events: [],
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(cancellation));
+
+    await expect(aiApi.getAiRunCancellation('run-1')).resolves.toEqual(cancellation);
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/runs/run-1/cancellation');
+    expect((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.method ?? 'GET').toBe('GET');
+  });
+
   it.each(CAPABILITY_METHODS)('%s sends both recipe-cook capabilities', async (method) => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(method === 'chatAi' || method === 'retryAiRun' || method === 'respondAiHumanInput' ? emptyChatResponse : method === 'getAiConversations' ? [] : method === 'getAiMessages' ? [] : method === 'getPendingAiApprovals' ? [] : method === 'updateAiConversationVisibility' ? {
       id: 'conversation-1',

@@ -165,7 +165,20 @@ describe('AiWorkspace pending approval restore', () => {
       included: { result_cards: [], drafts: [], approvals: [] },
     });
     const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
-      run: { id: 'run-1', status: 'cancelled' },
+      outcome: 'cancelled',
+      request: {
+        run_id: 'run-1',
+        status: 'applied',
+        requested_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-1',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'cancelled',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
       events: [
         {
           id: 'cancel-event',
@@ -173,7 +186,7 @@ describe('AiWorkspace pending approval restore', () => {
           type: 'cancel',
           internal_code: 'user_cancel',
           user_message: '已取消这次任务',
-          status: 'failed',
+          status: 'cancelled',
           created_at: '2026-05-30T00:00:00Z',
         },
       ],
@@ -311,7 +324,20 @@ describe('AiWorkspace pending approval restore', () => {
     ]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
-      run: { id: 'run-human-input', status: 'cancelled' },
+      outcome: 'cancelled',
+      request: {
+        run_id: 'run-human-input',
+        status: 'applied',
+        requested_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-human-input',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'cancelled',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
       events: [
         {
           id: 'cancel-event',
@@ -319,7 +345,7 @@ describe('AiWorkspace pending approval restore', () => {
           type: 'cancel',
           internal_code: 'user_cancel',
           user_message: '已取消这次任务',
-          status: 'failed',
+          status: 'cancelled',
           created_at: '2026-05-30T00:00:00Z',
         },
       ],
@@ -1583,7 +1609,20 @@ describe('AiWorkspace pending approval restore', () => {
       throw new Error('stream unexpectedly resolved');
     });
     const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
-      run: { id: 'agent_run-client', status: 'cancelled' },
+      outcome: 'cancelled',
+      request: {
+        run_id: 'agent_run-client',
+        status: 'applied',
+        requested_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'agent_run-client',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'cancelled',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
       events: [
         {
           id: 'cancel-event',
@@ -1591,7 +1630,7 @@ describe('AiWorkspace pending approval restore', () => {
           type: 'cancel',
           internal_code: 'user_cancel',
           user_message: '已取消这次任务',
-          status: 'failed',
+          status: 'cancelled',
           created_at: '2026-05-30T00:00:00Z',
         },
       ],
