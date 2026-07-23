@@ -137,21 +137,28 @@ def apply_ai_approval_decision(
     )
     if conversation is None:
         raise LookupError("会话不存在")
-    approval_ref = db.scalar(
-        select(AIApprovalRequest).where(
-            AIApprovalRequest.id == approval_id,
-            AIApprovalRequest.family_id == family_id,
-            AIApprovalRequest.conversation_id == conversation_id,
+    try:
+        approval_ref = db.scalar(
+            select(AIApprovalRequest).where(
+                AIApprovalRequest.id == approval_id,
+                AIApprovalRequest.family_id == family_id,
+                AIApprovalRequest.conversation_id == conversation_id,
+            )
         )
-    )
+    except OperationalError as exc:
+        if is_database_lock_conflict(exc):
+            raise AIConflictError("确认请求正在处理，请稍后刷新或重试") from exc
+        raise
     if approval_ref is None:
         raise LookupError("确认请求不存在")
-    if not approval_ref.run_id:
-        raise AIConflictError("确认请求关联的运行状态已变化，请刷新后重试")
-    run = lock_run_for_transition(
-        db,
-        family_id=family_id,
-        run_id=approval_ref.run_id,
+    run = (
+        lock_run_for_transition(
+            db,
+            family_id=family_id,
+            run_id=approval_ref.run_id,
+        )
+        if approval_ref.run_id
+        else None
     )
     try:
         approval = db.scalar(
@@ -163,7 +170,7 @@ def apply_ai_approval_decision(
         )
         if approval is None:
             raise LookupError("确认请求不存在")
-        if approval.run_id != run.id:
+        if (run is None and approval.run_id is not None) or (run is not None and approval.run_id != run.id):
             raise AIConflictError("确认请求关联的运行状态已变化，请刷新后重试")
         draft = db.scalar(
             select(AITaskDraft)
@@ -182,7 +189,7 @@ def apply_ai_approval_decision(
         raise AIConflictError("草稿已处理，不能重复提交")
     if draft_version != draft.version or approval.draft_version != draft.version:
         raise AIConflictError("草稿已更新，请重新确认")
-    if cancellation_wins(db, run=run, lock_request=False):
+    if run is not None and cancellation_wins(db, run=run, lock_request=False):
         finalize_run_cancellation(db, run=run)
         raise AIConflictError("运行任务已取消，不能继续提交确认")
     if decision == "rejected" and approval.request_payload.get("requireRejectComment") and not (comment or "").strip():
@@ -373,7 +380,7 @@ def apply_ai_approval_decision(
             entity_ids,
         )
     except Exception as exc:
-        if cancellation_wins(db, run=run):
+        if run is not None and cancellation_wins(db, run=run):
             raise
         failure_summary = build_failure_summary(
             db,
@@ -447,7 +454,7 @@ def apply_ai_approval_decision(
         ),
     )
 
-    if cancellation_wins(db, run=run):
+    if run is not None and cancellation_wins(db, run=run):
         finalize_run_cancellation(db, run=run)
         decision_result["suppress_continuation"] = True
 
