@@ -64,6 +64,7 @@ describe('AiMobilePage viewport', () => {
           hasUploadingAttachment={false}
           hasFailedAttachment={false}
           isSending={false}
+          isCancellationInFlight={false}
           voiceInputStatus="idle"
           isComposerPaused={false}
           messagesLoading={false}

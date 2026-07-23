@@ -365,6 +365,7 @@ function HumanInputRequestPanel({
   request,
   isLatest,
   isPending,
+  isCancelled,
   response,
   onResponse,
 }: {
@@ -372,6 +373,7 @@ function HumanInputRequestPanel({
   request: AiHumanInputRequest;
   isLatest: boolean;
   isPending: boolean;
+  isCancelled: boolean;
   response?: AiHumanInputResponse | null;
   onResponse?: AiHumanInputResponseSubmit;
 }) {
@@ -389,17 +391,30 @@ function HumanInputRequestPanel({
   const canType = request.inputMode === 'text' || request.inputMode === 'choice_or_text';
   const manualText = text.trim();
   const hasManualAnswer = manualText.length > 0 || !request.required;
-  const isResolved = isAnswered || !isPending;
+  const isResolved = isCancelled || isAnswered || !isPending;
   const isInteractive = isLatest && isPending && !isResolved && Boolean(onResponse);
   const isDisabled = !isInteractive || isSubmitting;
-  const answerSummary = submittedAnswerSummary || persistedAnswerSummary || (isResolved ? '已提交回答' : '');
+  const answerSummary = isCancelled
+    ? ''
+    : submittedAnswerSummary || persistedAnswerSummary || (isResolved ? '已提交回答' : '');
 
   useEffect(() => {
+    if (isCancelled) {
+      setSelectedIds([]);
+      setText('');
+      setSubmittedAnswerSummary('');
+      setIsSubmitting(false);
+      setIsAnswered(false);
+      setIsExpanded(false);
+      setPendingOption(null);
+      setError('');
+      return;
+    }
     if (!isPending) {
       setIsAnswered(true);
       setIsExpanded(false);
     }
-  }, [isPending]);
+  }, [isCancelled, isPending]);
   useEffect(() => {
     if (!response) return;
     setSelectedIds(response.selectedOptionIds ?? []);
@@ -500,7 +515,9 @@ function HumanInputRequestPanel({
               <h3>{request.question}</h3>
             </div>
             {request.reason ? <p>{request.reason}</p> : null}
-            {isResolved ? (
+            {isCancelled ? (
+              <p className="ai-human-input-cancelled-summary">任务已取消，未提交回答</p>
+            ) : isResolved ? (
               <p className="ai-human-input-answer-summary">
                 <span>回答</span>
                 <strong>{answerSummary}</strong>
@@ -509,7 +526,9 @@ function HumanInputRequestPanel({
           </div>
           {isResolved ? (
             <div className="ai-approval-head-actions">
-              <span className="ai-approval-status status-approved">已提交</span>
+              <span className={`ai-approval-status ${isCancelled ? 'status-cancelled' : 'status-approved'}`}>
+                {isCancelled ? '已取消' : '已提交'}
+              </span>
               <span className={`ai-approval-toggle-icon ${isExpanded ? 'is-expanded' : ''}`} aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="6 9 12 15 18 9"></polyline>
@@ -819,6 +838,7 @@ export function MessageBubble({
             }
             if (part.type === 'human_input_request' && part.request) {
               const isPendingHumanInput = isPendingHumanInputPart(part);
+              const isCancelledHumanInput = part.status === 'cancelled';
               return (
                 <HumanInputRequestPanel
                   key={item.key}
@@ -827,6 +847,7 @@ export function MessageBubble({
                   response={part.response}
                   isLatest={isLatestAssistant && isPendingHumanInput}
                   isPending={isPendingHumanInput}
+                  isCancelled={isCancelledHumanInput}
                   onResponse={onHumanInputResponse}
                 />
               );

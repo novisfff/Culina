@@ -8,6 +8,7 @@ import type {
   AiMessagePart,
   AiRunEvent,
 } from '../../api/types';
+import { isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import type { AiApprovalDecisionSubmit } from './AiConversationThread';
 
 type StreamProgressEvent = {
@@ -148,23 +149,20 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       context.applyChatResponse(response, conversationKey, payload.client_run_id);
       return response;
     } catch (error) {
-      // cancelStreamingChat already marks the assistant stopped before aborting.
-      // Do not overwrite cancel UX with a failure surface for abort errors.
-      const isAbort = controller.signal.aborted
-        || (error instanceof DOMException && error.name === 'AbortError')
-        || (error instanceof Error && /aborted/i.test(error.message));
-      if (!isAbort) {
-        const conversationId = payload.conversation_id ?? conversationKey;
-        if (handleInaccessibleStreamError(context, error, conversationId)) {
-          throw error;
-        }
-        const message = context.streamFailureMessage(error);
-        context.stopThinking(payload.client_run_id);
-        context.markStreamingAssistantStopped(
-          payload.client_run_id,
-          `AI 后续处理失败：${message}`,
-        );
+      if (isExpectedAiStreamAbort(error, controller.signal)) {
+        await context.refreshAfterApprovalSettled();
+        throw error;
       }
+      const conversationId = payload.conversation_id ?? conversationKey;
+      if (handleInaccessibleStreamError(context, error, conversationId)) {
+        throw error;
+      }
+      const message = context.streamFailureMessage(error);
+      context.stopThinking(payload.client_run_id);
+      context.markStreamingAssistantStopped(
+        payload.client_run_id,
+        `AI 后续处理失败：${message}`,
+      );
       throw error;
     } finally {
       context.stopThinking(payload.client_run_id);
@@ -257,7 +255,12 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       ).then((response) => {
         context.applyChatResponse(response, payload.approval.conversation_id, runId ?? response.run.id);
         settleDecisionVisible();
-      }).catch((error) => {
+      }).catch(async (error) => {
+        if (isExpectedAiStreamAbort(error, controller.signal)) {
+          await context.refreshAfterApprovalSettled();
+          rejectDecisionVisible(error);
+          return;
+        }
         if (!handleInaccessibleStreamError(context, error, payload.approval.conversation_id)) {
           const message = context.streamFailureMessage(error);
           context.stopThinking(runId);
@@ -329,6 +332,10 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       context.applyChatResponse(response, payload.message.conversation_id, runId ?? response.run.id);
       return response;
     } catch (error) {
+      if (isExpectedAiStreamAbort(error, controller.signal)) {
+        await context.refreshAfterApprovalSettled();
+        throw error;
+      }
       if (!handleInaccessibleStreamError(context, error, conversationKey)) {
         const message = context.streamFailureMessage(error);
         context.stopThinking(runId);

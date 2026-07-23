@@ -1,7 +1,8 @@
 import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../../api/client';
-import type { AiChatResponse, AiMessage, AiResultCard, AiRunEvent } from '../../api/types';
+import { aiApi } from '../../api/aiApi';
+import { api, ApiError } from '../../api/client';
+import type { AiChatResponse, AiMessage, AiResultCard, AiRunCancellationResponse, AiRunEvent } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiWorkspace } from './AiWorkspace';
 import { approval, conversation, qualityMetrics } from './aiWorkspaceTestFixtures';
@@ -15,6 +16,79 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
     valueSetter?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function cancellationResponse(
+  runId: string,
+  outcome: AiRunCancellationResponse['outcome'],
+): AiRunCancellationResponse {
+  const cancelled = outcome !== 'cancel_requested';
+  return {
+    outcome,
+    request: {
+      run_id: runId,
+      status: cancelled ? 'applied' : 'requested',
+      requested_at: '2026-07-23T00:00:00Z',
+      resolved_at: cancelled ? '2026-07-23T00:00:01Z' : null,
+    },
+    run: {
+      id: runId,
+      agent_key: 'workspace_orchestrator',
+      intent: 'general_chat',
+      status: cancelled ? 'cancelled' : 'cancelling',
+      model: 'fake-model',
+      created_at: '2026-07-23T00:00:00Z',
+    },
+    events: cancelled
+      ? [{
+        id: `cancel-event-${runId}`,
+        run_id: runId,
+        type: 'cancel',
+        internal_code: 'user_cancel',
+        user_message: '已取消这次任务',
+        status: 'cancelled',
+        created_at: '2026-07-23T00:00:01Z',
+      }]
+      : [],
+  };
+}
+
+async function renderActiveWorkspaceStream() {
+  vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+  vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+  let streamSignal: AbortSignal | undefined;
+  let runId = '';
+  vi.spyOn(api, 'streamChatAi').mockImplementation((payload, handlers) => {
+    runId = payload.client_run_id ?? '';
+    streamSignal = handlers?.signal;
+    return new Promise<AiChatResponse>((_resolve, reject) => {
+      handlers?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      });
+    });
+  });
+  const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+  await flushAsync();
+  changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+  await act(async () => {
+    rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  await flushAsync();
+  return {
+    rendered,
+    get runId() { return runId; },
+    get streamSignal() { return streamSignal; },
+  };
 }
 
 afterEach(() => {
@@ -164,7 +238,7 @@ describe('AiWorkspace pending approval restore', () => {
       events: [],
       included: { result_cards: [], drafts: [], approvals: [] },
     });
-    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+    const cancelSpy = vi.spyOn(aiApi, 'cancelAiRun').mockResolvedValue({
       outcome: 'cancelled',
       request: {
         run_id: 'run-1',
@@ -323,7 +397,7 @@ describe('AiWorkspace pending approval restore', () => {
       },
     ]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
-    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+    const cancelSpy = vi.spyOn(aiApi, 'cancelAiRun').mockResolvedValue({
       outcome: 'cancelled',
       request: {
         run_id: 'run-human-input',
@@ -1586,6 +1660,259 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('deduplicates rapid stop clicks for one run', async () => {
+    const pendingCancellation = deferred<AiRunCancellationResponse>();
+    const cancel = vi.fn(() => pendingCancellation.promise);
+    vi.spyOn(api, 'cancelAiRun').mockImplementation(cancel);
+    vi.spyOn(aiApi, 'cancelAiRun').mockImplementation(cancel);
+    const active = await renderActiveWorkspaceStream();
+    const stopButton = active.rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button');
+
+    act(() => {
+      stopButton?.click();
+      stopButton?.click();
+    });
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(active.streamSignal?.aborted).toBe(false);
+    await act(async () => {
+      pendingCancellation.resolve(cancellationResponse(active.runId, 'cancelled'));
+      await pendingCancellation.promise;
+    });
+    await flushAsync();
+    expect(active.streamSignal?.aborted).toBe(true);
+    active.rendered.unmount();
+  });
+
+  it('shows cancelling for 202 and waits for backend cancelled status', async () => {
+    const post = deferred<AiRunCancellationResponse>();
+    const get = deferred<AiRunCancellationResponse>();
+    const cancel = vi.fn(() => post.promise);
+    vi.spyOn(api, 'cancelAiRun').mockImplementation(cancel);
+    vi.spyOn(aiApi, 'cancelAiRun').mockImplementation(cancel);
+    vi.spyOn(aiApi, 'getAiRunCancellation').mockReturnValue(get.promise);
+    const active = await renderActiveWorkspaceStream();
+    vi.useFakeTimers();
+
+    act(() => {
+      active.rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+    });
+    await act(async () => {
+      post.resolve(cancellationResponse(active.runId, 'cancel_requested'));
+      await Promise.resolve();
+    });
+
+    const stoppingButton = active.rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button');
+    expect(stoppingButton?.getAttribute('aria-label')).toContain('正在停止');
+    expect(stoppingButton?.disabled).toBe(true);
+    expect(active.rendered.container.textContent).not.toContain('已取消这次任务');
+    expect(active.streamSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      get.resolve(cancellationResponse(active.runId, 'cancelled'));
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
+    await flushAsync();
+    expect(active.rendered.container.textContent).toContain('已取消这次任务');
+    active.rendered.unmount();
+  });
+
+  it.each([404, 409, 500])('keeps the stream alive when cancel returns %s', async (status) => {
+    const error = new ApiError({
+      status,
+      detail: `停止失败 ${status}`,
+      path: '/api/ai/runs/run-failure/cancel',
+      payload: {},
+    });
+    const cancel = vi.fn().mockRejectedValue(error);
+    vi.spyOn(api, 'cancelAiRun').mockImplementation(cancel);
+    vi.spyOn(aiApi, 'cancelAiRun').mockImplementation(cancel);
+    const active = await renderActiveWorkspaceStream();
+
+    await act(async () => {
+      active.rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+
+    expect(active.streamSignal?.aborted).toBe(false);
+    expect(active.rendered.container.querySelector('[role="alert"]')?.textContent).toContain(`停止失败 ${status}`);
+    expect(active.rendered.container.textContent).not.toContain('已取消这次任务');
+    expect(active.rendered.container.textContent).not.toContain('user_cancel');
+    active.rendered.unmount();
+  });
+
+  it('does not render approval AbortError after accepted cancellation', async () => {
+    const pending = approval();
+    const pendingMessage: AiMessage = {
+      id: pending.message_id as string,
+      conversation_id: pending.conversation_id,
+      role: 'assistant',
+      content: '菜谱草稿已经生成，请确认。',
+      content_type: 'parts',
+      parts: [
+        { id: 'approval-text', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+        { id: 'approval-part', type: 'approval_request', approval: pending },
+      ],
+      run_id: pending.run_id,
+      status: 'waiting_approval',
+      metadata: {},
+      created_at: '2026-07-23T00:00:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([pendingMessage]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([pending]);
+    let approvalSignal: AbortSignal | undefined;
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation((_conversationId, _approvalId, _payload, handlers) => {
+      approvalSignal = handlers?.signal;
+      return new Promise<AiChatResponse>((_resolve, reject) => {
+        handlers?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+      });
+    });
+    vi.spyOn(aiApi, 'cancelAiRun').mockImplementation((runId) => Promise.resolve(cancellationResponse(runId, 'cancelled')));
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-approval-actions .solid-button')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+
+    expect(approvalSignal?.aborted).toBe(true);
+    expect(rendered.container.textContent).not.toContain('AbortError');
+    expect(rendered.container.textContent).not.toContain('The operation was aborted');
+    expect(rendered.container.textContent).not.toContain('AI 后续处理失败');
+    rendered.unmount();
+  });
+
+  it('does not render human input AbortError or a submitted answer after accepted cancellation', async () => {
+    const requestPart: AiMessage['parts'][number] = {
+      id: 'human-input-part-cancel',
+      type: 'human_input_request',
+      status: 'pending',
+      request: {
+        id: 'human-input-cancel',
+        question: '你想安排几天？',
+        inputMode: 'choice',
+        options: [{ id: 'three-days', label: '三天' }],
+        allowMultiple: false,
+        required: true,
+        reason: null,
+        sourceSkills: ['meal_plan'],
+        resumeHint: {},
+      },
+    };
+    const pendingMessage: AiMessage = {
+      id: 'message-human-input-cancel',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '你想安排几天？',
+      content_type: 'parts',
+      parts: [{ id: 'human-input-text-cancel', type: 'text', text: '你想安排几天？' }, requestPart],
+      run_id: 'run-human-input-cancel',
+      status: 'waiting_input',
+      metadata: {},
+      created_at: '2026-07-23T00:00:00Z',
+    };
+    const cancelledMessage: AiMessage = {
+      ...pendingMessage,
+      status: 'cancelled',
+      parts: pendingMessage.parts.map((part) => (
+        part.type === 'human_input_request'
+          ? { ...part, status: 'cancelled' as const }
+          : part
+      )),
+    };
+    let messageReads = 0;
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async () => {
+      messageReads += 1;
+      return messageReads === 1 ? [pendingMessage] : [cancelledMessage];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let inputSignal: AbortSignal | undefined;
+    vi.spyOn(api, 'streamAiHumanInputResponse').mockImplementation((_conversationId, _requestId, _payload, handlers) => {
+      inputSignal = handlers?.signal;
+      return new Promise<AiChatResponse>((_resolve, reject) => {
+        handlers?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+      });
+    });
+    vi.spyOn(aiApi, 'cancelAiRun').mockImplementation((runId) => Promise.resolve(cancellationResponse(runId, 'cancelled')));
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-clarification-option')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+    expect(rendered.container.querySelector('.ai-desktop-view .ai-human-input-answer-summary')?.textContent).toContain('三天');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+    await flushAsync();
+
+    expect(inputSignal?.aborted).toBe(true);
+    expect(rendered.container.textContent).not.toContain('AbortError');
+    expect(rendered.container.textContent).not.toContain('The operation was aborted');
+    expect(rendered.container.querySelector('.ai-desktop-view .ai-human-input-answer-summary')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('restores cancelled status from refreshed messages', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([{
+      id: 'message-refreshed-cancelled',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '你想安排几天？',
+      content_type: 'parts',
+      parts: [{
+        id: 'human-input-refreshed-cancelled',
+        type: 'human_input_request',
+        status: 'cancelled',
+        request: {
+          id: 'request-refreshed-cancelled',
+          question: '你想安排几天？',
+          inputMode: 'choice',
+          options: [{ id: 'three-days', label: '三天' }],
+          allowMultiple: false,
+          required: true,
+          reason: null,
+          sourceSkills: ['meal_plan'],
+          resumeHint: {},
+        },
+      }],
+      run_id: 'run-refreshed-cancelled',
+      status: 'cancelled',
+      metadata: {},
+      created_at: '2026-07-23T00:00:00Z',
+    }]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[conversation({ context: {}, last_run_status: 'cancelled' })]}
+        isLoading={false}
+      />,
+    );
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('任务已取消，未提交回答');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-clarification-option'))
+        .every((button) => button.disabled),
+    ).toBe(true);
+    expect(rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.getAttribute('aria-label')).toBe('发送消息');
+    rendered.unmount();
+  });
+
   it('cancels the server run for an in-flight streamed message', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
@@ -1608,7 +1935,7 @@ describe('AiWorkspace pending approval restore', () => {
       });
       throw new Error('stream unexpectedly resolved');
     });
-    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+    const cancelSpy = vi.spyOn(aiApi, 'cancelAiRun').mockResolvedValue({
       outcome: 'cancelled',
       request: {
         run_id: 'agent_run-client',

@@ -23,6 +23,7 @@ import type {
 } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { resolveMediaUrl } from '../../lib/assets';
+import { abortAiStream } from '../../lib/aiStreamAbort';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import {
   AiDesktopConversationHistory,
@@ -60,6 +61,7 @@ import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './use
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
+import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
   conversations: AiConversation[];
@@ -287,6 +289,7 @@ export function AiWorkspace({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
   const [streamProgressByRunId, setStreamProgressByRunId] = useState<Record<string, AiRunEvent[]>>({});
+  const [cancellationTargetRunId, setCancellationTargetRunId] = useState<string | null>(null);
   const streamProgressRef = useRef<Record<string, AiRunEvent[]>>({});
   const streamMessageTargetRef = useRef<Record<string, string>>({});
   const streamConversationTargetRef = useRef<Record<string, string>>({});
@@ -401,7 +404,10 @@ export function AiWorkspace({
       delete streamMessageTargetRef.current[inaccessibleRunId];
       // Abort before delete so an in-flight approval/chat stream cannot settle
       // after access is revoked and rehydrate local messages via applyChatResponse.
-      chatAbortByRunIdRef.current[inaccessibleRunId]?.abort();
+      const controller = chatAbortByRunIdRef.current[inaccessibleRunId];
+      if (controller) {
+        abortAiStream(controller, { type: 'conversation_inaccessible', conversationId });
+      }
       delete chatAbortByRunIdRef.current[inaccessibleRunId];
     }
     const fallbackConversation = conversations.find((item) => item.id !== conversationId) ?? null;
@@ -930,6 +936,27 @@ export function AiWorkspace({
   function streamFailureMessage(error: unknown) {
     return error instanceof Error && error.message.trim() ? error.message : 'AI 后续处理失败，请稍后重试。';
   }
+  const runCancellation = useAiRunCancellation({
+    onConfirmed: (runId, response) => {
+      setRunEventsById((current) => ({ ...current, [runId]: response.events }));
+      setStreamProgressByRunId((current) => {
+        const backendEventIds = new Set(response.events.map((event) => event.id));
+        const nextEvents = [
+          ...(current[runId] ?? []).filter((event) => !backendEventIds.has(event.id)),
+          ...response.events,
+        ];
+        streamProgressRef.current = { ...streamProgressRef.current, [runId]: nextEvents };
+        return { ...current, [runId]: nextEvents };
+      });
+      stopThinking(runId);
+      delete streamMessageTargetRef.current[runId];
+      delete chatAbortByRunIdRef.current[runId];
+      void refreshAfterApprovalSettled();
+    },
+    onConflict: () => {
+      void refreshAfterApprovalSettled();
+    },
+  });
   function upsertStreamProgressEvent(nextEvent: AiRunEvent) {
     const currentItems = streamProgressRef.current[nextEvent.run_id] ?? [];
     const nextEventKey = runActivityCollapseKey(nextEvent) || nextEvent.id;
@@ -1101,7 +1128,20 @@ export function AiWorkspace({
     waitingConversationKeys,
   ]);
   const effectiveComposerPaused = isComposerPaused;
-  const isAssistantBusy = isCurrentConversationBusy;
+  const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
+  const cancellationTargetState = cancellationTargetRunId
+    ? runCancellation.getCancellationState(cancellationTargetRunId)
+    : { phase: 'idle' as const, error: '' };
+  const shouldRetainCancellationTarget = cancellationTargetState.phase === 'requesting' || cancellationTargetState.phase === 'cancelling';
+  const cancellationRunId = activeCancellableRunId ?? (shouldRetainCancellationTarget ? cancellationTargetRunId : null);
+  const cancellationState = cancellationRunId
+    ? cancellationRunId === cancellationTargetRunId
+      ? cancellationTargetState
+      : runCancellation.getCancellationState(cancellationRunId)
+    : { phase: 'idle' as const, error: '' };
+  const isCancellationInFlight = cancellationState.phase === 'requesting' || cancellationState.phase === 'cancelling';
+  const cancellationError = cancellationState.phase === 'failed' ? cancellationState.error : '';
+  const isAssistantBusy = isCurrentConversationBusy || isCancellationInFlight;
   const thinkingMessageIds = useMemo(() => {
     if (!isSubmittingActiveHumanInput || !humanInputMutationMessageId || !humanInputMutationRequestId) {
       return new Set<string>();
@@ -1126,7 +1166,6 @@ export function AiWorkspace({
     : isSubmittingActiveApproval
       ? '正在提交确认结果，AI 会接着处理当前任务。'
       : composerPauseMessage;
-  const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
   const readyAttachments = attachmentState.readyAttachments;
   const hasReadyAttachments = readyAttachments.length > 0;
   const hasAnyAttachments = attachmentState.attachments.length > 0;
@@ -1349,53 +1388,16 @@ export function AiWorkspace({
   }
   async function cancelStreamingChat() {
     const runId = activeCancellableRunId;
-    if (runId) {
-      stopThinking(runId);
-      try {
-        const result = await api.cancelAiRun(runId);
-        setRunEventsById((current) => ({ ...current, [runId]: result.events }));
-        setStreamProgressByRunId((current) => ({ ...current, [runId]: [...(current[runId] ?? []), ...result.events] }));
-      } catch {
-        setStreamProgressByRunId((current) => ({
-          ...current,
-          [runId]: [
-            ...(current[runId] ?? []),
-            {
-            id: `stream-cancel-fallback-${Date.now()}`,
-            run_id: runId,
-            type: 'cancel',
-            internal_code: 'server_cancel_unavailable',
-            user_message: '已停止等待这次任务',
-            status: 'failed',
-            created_at: new Date().toISOString(),
-            },
-          ],
-        }));
-      }
+    if (!runId) return;
+    setCancellationTargetRunId(runId);
+    const controller = chatAbortByRunIdRef.current[runId] ?? new AbortController();
+    chatAbortByRunIdRef.current[runId] = controller;
+    try {
+      await runCancellation.cancelRun(runId, controller);
+    } catch {
+      // The shared cancellation controller keeps the stream alive and exposes
+      // the backend error through cancellationState.
     }
-    markStreamingAssistantStopped(runId);
-    if (runId) {
-      chatAbortByRunIdRef.current[runId]?.abort();
-    }
-    if (runId) {
-      delete streamMessageTargetRef.current[runId];
-    }
-    setStreamProgressByRunId((current) => ({
-      ...current,
-      [runId ?? 'pending']: [
-        ...(current[runId ?? 'pending'] ?? []),
-        {
-        id: `stream-cancel-${Date.now()}`,
-        run_id: runId ?? 'pending',
-        type: 'cancel',
-        internal_code: 'client_abort',
-        user_message: '已取消这次任务',
-        status: 'failed',
-        created_at: new Date().toISOString(),
-        },
-      ],
-    }));
-    void refreshAfterApprovalSettled();
   }
   async function refreshAfterApprovalSettled() {
     if (activeConversationId) {
@@ -1468,6 +1470,8 @@ export function AiWorkspace({
         hasUploadingAttachment={attachmentState.hasUploadingAttachment}
         hasFailedAttachment={attachmentState.hasFailedAttachment || isVisionUnavailableForAttachments}
         isSending={isAssistantBusy}
+        isCancellationInFlight={isCancellationInFlight}
+        cancellationError={cancellationError}
         voiceInputStatus={voiceInputStatus}
         isComposerPaused={effectiveComposerPaused}
         composerPauseMessage={effectiveComposerPauseMessage}
@@ -1621,6 +1625,9 @@ export function AiWorkspace({
             </button>
           ) : null}
           <div className="ai-composer-dock">
+            {cancellationError ? (
+              <p className="ai-composer-pause-note" role="alert" aria-live="assertive">{cancellationError}</p>
+            ) : null}
             {isVisionUnavailableForAttachments && <p className="ai-composer-pause-note">当前 AI 模型暂不支持图片识别，请移除图片或切换支持视觉输入的模型。</p>}
             <AiComposerAttachments
               attachments={attachmentState.attachments}
@@ -1675,8 +1682,9 @@ export function AiWorkspace({
                 <button
                   className={`ai-send-button ${isAssistantBusy ? 'is-sending' : ''}`}
                   type={isAssistantBusy ? 'button' : 'submit'}
-                  disabled={!isAssistantBusy && (isAiUnavailable || (voiceInputStatus !== 'recording' && voiceInputStatus !== 'recognizing' && !canSubmitMessage) || isAttachmentSendBlocked || effectiveComposerPaused || isLocalAssistantBusy)}
-                  aria-label={isAssistantBusy ? '中止生成' : '发送消息'}
+                  disabled={isCancellationInFlight || (!isAssistantBusy && (isAiUnavailable || (voiceInputStatus !== 'recording' && voiceInputStatus !== 'recognizing' && !canSubmitMessage) || isAttachmentSendBlocked || effectiveComposerPaused || isLocalAssistantBusy))}
+                  aria-label={isCancellationInFlight ? '正在停止生成' : isAssistantBusy ? '中止生成' : '发送消息'}
+                  aria-busy={isCancellationInFlight}
                   onClick={isAssistantBusy ? cancelStreamingChat : undefined}
                 >
                   {isAssistantBusy ? (
