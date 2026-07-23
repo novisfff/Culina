@@ -203,9 +203,16 @@ class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
                     db.execute(update(AIGraphWrite).where(AIGraphWrite.id == row_id).values(**values))
 
     def delete_thread(self, thread_id: str) -> None:
-        with self._session(write=True) as db:
-            db.execute(delete(AIGraphWrite).where(AIGraphWrite.thread_id == thread_id))
-            db.execute(delete(AIGraphCheckpoint).where(AIGraphCheckpoint.thread_id == thread_id))
+        lock = _SQLITE_CHECKPOINT_LOCK if self._is_sqlite else None
+        if lock is not None:
+            lock.acquire()
+        try:
+            with self.db.no_autoflush:
+                self.db.execute(delete(AIGraphWrite).where(AIGraphWrite.thread_id == thread_id))
+                self.db.execute(delete(AIGraphCheckpoint).where(AIGraphCheckpoint.thread_id == thread_id))
+        finally:
+            if lock is not None:
+                lock.release()
 
     def _config_parts(self, config: RunnableConfig) -> tuple[str, str, str | None]:
         configurable = config.get("configurable") or {}

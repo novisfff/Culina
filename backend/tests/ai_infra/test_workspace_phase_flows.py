@@ -903,11 +903,28 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
             with self.SessionLocal() as db:
                 stored_approval = db.get(AIApprovalRequest, approval["id"])
                 stored_draft = db.get(AITaskDraft, draft["id"])
+                stored_message = db.get(AIMessage, data["message"]["id"])
                 self.assertIsNotNone(stored_approval)
                 self.assertIsNotNone(stored_draft)
-                assert stored_approval is not None and stored_draft is not None
+                self.assertIsNotNone(stored_message)
+                assert stored_approval is not None and stored_draft is not None and stored_message is not None
                 self.assertEqual(stored_approval.status, "cancelled")
-                self.assertEqual(stored_draft.status, "rejected")
+                self.assertIsNone(stored_approval.decision)
+                self.assertEqual(stored_draft.status, "cancelled")
+                self.assertEqual(stored_message.status, "cancelled")
+                draft_part = next(
+                    part
+                    for part in stored_message.parts
+                    if part.get("type") == "draft" and (part.get("draft") or {}).get("id") == stored_draft.id
+                )
+                approval_part = next(
+                    part
+                    for part in stored_message.parts
+                    if part.get("type") == "approval_request"
+                    and (part.get("approval") or {}).get("id") == stored_approval.id
+                )
+                self.assertEqual(draft_part["draft"]["status"], "cancelled")
+                self.assertEqual(approval_part["approval"]["status"], "cancelled")
 
         def test_ai_workspace_phase2_uses_current_plan_for_shopping_draft(self) -> None:
             with self.SessionLocal() as db:

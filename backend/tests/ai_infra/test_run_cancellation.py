@@ -20,6 +20,41 @@ class ProviderMustNotRun(BaseChatProvider):
         raise AssertionError("provider must not run after pre-run cancellation")
 
 
+class WaitingInputProvider(BaseChatProvider):
+    model_name = "waiting-input-cancellation"
+
+    def generate(self, **kwargs) -> ChatProviderResult:
+        del kwargs
+        raise AssertionError("orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, tools, max_rounds
+        tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排晚餐"})
+        tool_handler(
+            "human.request_input",
+            {
+                "question": "要安排几天？",
+                "inputMode": "choice",
+                "options": [{"id": "three-days", "label": "三天"}],
+                "sourceSkills": ["meal_plan"],
+                "resumeHint": {"expectedField": "days"},
+            },
+        )
+        text = "请先选择要安排的天数。"
+        if message_handler is not None:
+            message_handler(text)
+        return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+
 class AIRunCancellationTestCase(AIAgentInfraTestCase):
     def test_cancelling_is_an_active_run_status(self) -> None:
         cancelling = getattr(run_status, "CANCELLING", None)
@@ -232,7 +267,18 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
                 message_metadata={"liveStreaming": True},
                 created_by=self.user.id,
             )
-            db.add_all([conversation, run, message])
+            active_event = AIRunEvent(
+                id="ai_run_event-cancelling-finalize",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                run_id=run.id,
+                type="tool",
+                internal_code="provider.stream",
+                user_message="正在生成回复",
+                status="running",
+                payload={},
+            )
+            db.add_all([conversation, run, message, active_event])
             db.flush()
 
             WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
@@ -252,3 +298,114 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
             self.assertEqual(message.status, "cancelled")
             self.assertEqual(conversation.last_run_status, "cancelled")
             self.assertNotIn("activeRunId", conversation.context or {})
+            self.assertEqual(active_event.status, "cancelled")
+            cancel_events = list(
+                db.scalars(
+                    select(AIRunEvent).where(
+                        AIRunEvent.family_id == self.family.id,
+                        AIRunEvent.run_id == run.id,
+                        AIRunEvent.internal_code == "user_cancel",
+                    )
+                )
+            )
+            self.assertEqual(len(cancel_events), 1)
+            self.assertEqual(cancel_events[0].status, "cancelled")
+
+    def test_waiting_input_cancellation_clears_parts_context_checkpoints_and_events(self) -> None:
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+            response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["status"], "waiting_input")
+        human_part = next(
+            part
+            for part in data["message"]["parts"]
+            if part.get("type") == "human_input_request"
+        )
+        request_id = human_part["request"]["id"]
+
+        with self.SessionLocal() as db:
+            db.add(
+                AIRunEvent(
+                    id="ai_run_event-waiting-input-active",
+                    family_id=self.family.id,
+                    conversation_id=data["conversation_id"],
+                    run_id=data["run"]["id"],
+                    type="tool",
+                    internal_code="human.request_input",
+                    user_message="等待用户补充",
+                    status="waiting",
+                    payload={},
+                )
+            )
+            checkpoint_count_before = db.scalar(
+                select(func.count(AIGraphCheckpoint.id)).where(
+                    AIGraphCheckpoint.thread_id == data["conversation_id"]
+                )
+            )
+            unfinished_event_ids = list(
+                db.scalars(
+                    select(AIRunEvent.id).where(
+                        AIRunEvent.family_id == self.family.id,
+                        AIRunEvent.run_id == data["run"]["id"],
+                        AIRunEvent.status.in_({"pending", "running", "waiting"}),
+                    )
+                )
+            )
+            db.commit()
+        self.assertGreater(checkpoint_count_before, 0)
+        self.assertTrue(unfinished_event_ids)
+
+        cancel_response = self.client.post(f"/api/ai/runs/{data['run']['id']}/cancel")
+        self.assertEqual(cancel_response.status_code, 200, cancel_response.text)
+        self.assertEqual(cancel_response.json()["run"]["status"], "cancelled")
+
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, data["run"]["id"])
+            message = db.get(AIMessage, data["message"]["id"])
+            conversation = db.get(AIConversation, data["conversation_id"])
+            checkpoint_count = db.scalar(
+                select(func.count(AIGraphCheckpoint.id)).where(
+                    AIGraphCheckpoint.thread_id == data["conversation_id"]
+                )
+            )
+            write_count = db.scalar(
+                select(func.count(AIGraphWrite.id)).where(
+                    AIGraphWrite.thread_id == data["conversation_id"]
+                )
+            )
+            events = list(
+                db.scalars(
+                    select(AIRunEvent).where(
+                        AIRunEvent.family_id == self.family.id,
+                        AIRunEvent.run_id == data["run"]["id"],
+                    )
+                )
+            )
+
+        self.assertIsNotNone(run)
+        self.assertIsNotNone(message)
+        self.assertIsNotNone(conversation)
+        assert run is not None and message is not None and conversation is not None
+        stored_human_part = next(
+            part
+            for part in message.parts
+            if part.get("type") == "human_input_request"
+            and str((part.get("request") or {}).get("id") or "") == request_id
+        )
+        self.assertEqual(run.status, "cancelled")
+        self.assertIsNone(run.error)
+        self.assertEqual(message.status, "cancelled")
+        self.assertEqual(stored_human_part.get("status"), "cancelled")
+        self.assertNotIn("response", stored_human_part)
+        self.assertNotIn("pendingHumanInput", run.context_summary)
+        self.assertNotIn("pendingHumanInput", (conversation.context or {}).get("taskState", {}))
+        self.assertNotIn("activeRunId", conversation.context or {})
+        self.assertEqual(checkpoint_count, 0)
+        self.assertEqual(write_count, 0)
+        self.assertTrue(
+            all(event.status == "cancelled" for event in events if event.id in unfinished_event_ids)
+        )
+        cancel_events = [event for event in events if event.internal_code == "user_cancel"]
+        self.assertEqual(len(cancel_events), 1)
+        self.assertEqual(cancel_events[0].status, "cancelled")

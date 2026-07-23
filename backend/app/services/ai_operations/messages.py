@@ -33,6 +33,8 @@ def sync_message_approval_parts(db: Session, *, draft: AITaskDraft, approval: AI
         else:
             next_parts.append(part)
     message.parts = next_parts
+    if approval.status == "cancelled" or draft.status == "cancelled":
+        message.status = "cancelled"
 
 
 def append_message_approval_part(db: Session, *, approval: AIApprovalRequest) -> None:
