@@ -8,6 +8,7 @@ import type {
   AssistantAudioTraceEvent,
 } from '../../api/aiApi';
 import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+import { isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import { buildCookingActionTaskText, type CookingAssistantActionResult } from './cookingAssistantModel';
 import type { RecipeCookAssistantMessage, RecipeCookAssistantMessagePart } from './RecipeWorkspaceModel';
 
@@ -31,10 +32,20 @@ function newClientId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-function streamFailureMessage(error: unknown) {
-  if (error instanceof DOMException && error.name === 'AbortError') return '已停止这次回复。';
-  if (error instanceof Error && error.message) return error.message;
-  return 'AI 小助手暂时没连上，请稍后再试。';
+function streamFailurePresentation(error: unknown, signal?: AbortSignal): {
+  text: string;
+  tone: CookingAssistantMessage['tone'];
+} {
+  if (signal && isExpectedAiStreamAbort(error, signal)) {
+    return { text: '已取消这次回复', tone: 'warning' };
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return { text: 'AI 小助手连接中断，请稍后再试。', tone: 'danger' };
+  }
+  if (error instanceof Error && error.message) {
+    return { text: error.message, tone: 'danger' };
+  }
+  return { text: 'AI 小助手暂时没连上，请稍后再试。', tone: 'danger' };
 }
 
 function resultTone(result: CookingAssistantActionResult): CookingAssistantMessage['tone'] {
@@ -271,14 +282,14 @@ export function useCookingAssistantStream({
       finishResponse(response);
     } catch (error) {
       if (responseHandled) return;
-      const messageText = streamFailureMessage(error);
+      const failure = streamFailurePresentation(error, controller.signal);
       setMessages((current) => current.map((messageItem) => (
         messageItem.id === assistantMessageId
           ? {
               ...messageItem,
-              text: messageText,
-              tone: messageText.includes('停止') ? 'warning' : 'danger',
-              parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: messageText }],
+              text: failure.text,
+              tone: failure.tone,
+              parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: failure.text }],
             }
           : messageItem
       )));
@@ -328,14 +339,14 @@ export function useCookingAssistantStream({
   }, []);
 
   const failExternalMessage = useCallback((assistantMessageId: string, error: unknown) => {
-    const messageText = streamFailureMessage(error);
+    const failure = streamFailurePresentation(error);
     setMessages((current) => current.map((message) => (
       message.id === assistantMessageId
         ? {
             ...message,
-            text: messageText,
-            tone: messageText.includes('停止') ? 'warning' : 'danger',
-            parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: messageText }],
+            text: failure.text,
+            tone: failure.tone,
+            parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: failure.text }],
           }
         : message
     )));

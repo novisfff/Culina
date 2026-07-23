@@ -159,6 +159,7 @@ function runActivityKind(event: AiRunEvent): RunActivityItem['kind'] {
 }
 
 function runActivityEventLabel(event: AiRunEvent) {
+  if (event.status === 'cancelled') return event.user_message.trim() || '已取消这次任务';
   if (event.type === 'skill') return runActivitySkillLabel(event);
   return runActivityToolLabel(event);
 }

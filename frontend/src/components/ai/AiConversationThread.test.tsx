@@ -328,6 +328,29 @@ describe('MessageBubble footer and media rendering', () => {
 });
 
 describe('MessageBubble human input rendering', () => {
+  it('renders cancelled human input without a submitted answer', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{ ...humanInputMessage({ status: 'cancelled' }), status: 'cancelled' }}
+        user={testUser}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.textContent).toContain('任务已取消，未提交回答');
+    expect(rendered.container.textContent).not.toContain('回答已提交');
+    expect(rendered.container.querySelector('.ai-human-input-answer-summary')).toBeNull();
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-clarification-option'))
+        .every((button) => button.disabled),
+    ).toBe(true);
+    expect(respond).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
   it('submits a preset human input option directly and collapses with the answer summary', async () => {
     const respond = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(
@@ -515,6 +538,45 @@ describe('MessageBubble human input rendering', () => {
 });
 
 describe('MessageBubble run activity rendering', () => {
+  it('renders cancelled run activity separately from failure', async () => {
+    const cancelledEvent: AiRunEvent = {
+      id: 'event-user-cancel',
+      run_id: 'run-user-cancel',
+      type: 'cancel',
+      internal_code: 'user_cancel',
+      user_message: '已取消这次任务',
+      status: 'cancelled',
+      created_at: '2026-07-23T00:00:00Z',
+    };
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-user-cancel',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '',
+          content_type: 'parts',
+          parts: [],
+          run_id: 'run-user-cancel',
+          status: 'cancelled',
+          metadata: {},
+          created_at: '2026-07-23T00:00:00Z',
+        }}
+        user={testUser}
+        runEvents={[cancelledEvent]}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    const row = rendered.container.querySelector<HTMLElement>('.ai-run-activity-row');
+    expect(row?.textContent).toContain('已取消这次任务');
+    expect(row?.textContent).not.toContain('执行失败');
+    expect(row?.textContent).not.toContain('调用「');
+    expect(row?.classList.contains('status-cancelled')).toBe(true);
+    expect(row?.className).not.toContain('danger');
+    rendered.unmount();
+  });
+
   it('keeps streamed content append-only when activity arrives between text parts', async () => {
     const updateApproval = approval({
       id: 'approval-ingredient-update',

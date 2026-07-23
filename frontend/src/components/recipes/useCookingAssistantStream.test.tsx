@@ -106,6 +106,19 @@ afterEach(() => {
 });
 
 describe('useCookingAssistantStream', () => {
+  it('keeps an untyped AbortError as a visible connection failure', async () => {
+    vi.spyOn(api, 'streamChatAi').mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'));
+    renderProbe();
+
+    await act(async () => {
+      await latest?.sendMessage('下一步');
+    });
+
+    expect(latest?.messages.at(-1)?.text).toContain('连接中断');
+    expect(latest?.messages.at(-1)?.text).not.toContain('已停止这次回复');
+    expect(latest?.messages.at(-1)?.tone).toBe('danger');
+  });
+
   it('hides fixed cooking skill progress while keeping useful tool progress', async () => {
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
       handlers?.onProgress?.(progressEvent({
