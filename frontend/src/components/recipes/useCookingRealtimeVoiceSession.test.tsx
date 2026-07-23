@@ -17,6 +17,7 @@ class FakeWebSocket {
   static OPEN = 1;
 
   readyState = FakeWebSocket.OPEN;
+  closeCount = 0;
   sentMessages: unknown[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
@@ -32,6 +33,7 @@ class FakeWebSocket {
   }
 
   close() {
+    this.closeCount += 1;
     this.readyState = 3;
     this.onclose?.();
   }
@@ -107,6 +109,7 @@ afterEach(() => {
   latest = null;
   latestSocket = null;
   vi.restoreAllMocks();
+  vi.useRealTimers();
   Reflect.deleteProperty(window, 'WebSocket');
 });
 
@@ -125,7 +128,7 @@ describe('useCookingRealtimeVoiceSession', () => {
     });
     expect(latestSocket?.readyState).toBe(FakeWebSocket.OPEN);
     expect(latestSocket?.sentMessages.at(-1)).toEqual({ type: 'cancel_turn', turn_id: turn.turn_id });
-    expect(latest?.status).toBe('thinking');
+    expect(latest?.status).toBe('stopping');
 
     await act(async () => {
       latestSocket?.emit({ type: 'turn_cancelled', turn_id: turn.turn_id });
@@ -133,6 +136,102 @@ describe('useCookingRealtimeVoiceSession', () => {
     });
     expect(latestSocket?.readyState).toBe(FakeWebSocket.OPEN);
     expect(latest?.status).toBe('listening');
+  });
+
+  it('keeps a requested cancellation in stopping until the terminal acknowledgement arrives', async () => {
+    vi.useFakeTimers();
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    let cancelSettled = false;
+    let cancelPromise: Promise<void> | undefined;
+    act(() => {
+      cancelPromise = latest?.cancelTurn().then(() => {
+        cancelSettled = true;
+      });
+    });
+    expect(latest?.status).toBe('stopping');
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'turn_cancel_requested', turn_id: turn.turn_id });
+      await Promise.resolve();
+    });
+    expect(cancelSettled).toBe(false);
+    expect(latest?.status).toBe('stopping');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(cancelSettled).toBe(false);
+    expect(latest?.status).toBe('stopping');
+    expect(latest?.error).toBe('');
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'turn_cancelled', turn_id: turn.turn_id });
+      await cancelPromise;
+    });
+    expect(cancelSettled).toBe(true);
+    expect(latest?.status).toBe('listening');
+  });
+
+  it('sends one cancel message when the same turn is stopped repeatedly', async () => {
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    let firstCancel: Promise<void> | undefined;
+    let secondCancel: Promise<void> | undefined;
+    act(() => {
+      firstCancel = latest?.cancelTurn();
+      secondCancel = latest?.cancelTurn();
+    });
+
+    expect(latestSocket?.sentMessages.filter((message) => (
+      message as { type?: string }
+    ).type === 'cancel_turn')).toEqual([
+      { type: 'cancel_turn', turn_id: turn.turn_id },
+    ]);
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'turn_cancelled', turn_id: turn.turn_id });
+      await Promise.all([firstCancel, secondCancel]);
+    });
+  });
+
+  it('keeps the active turn and exposes a recoverable cancellation conflict', async () => {
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    act(() => {
+      void latest?.cancelTurn();
+    });
+    expect(latest?.status).toBe('stopping');
+
+    await act(async () => {
+      latestSocket?.emit({
+        type: 'turn_cancel_conflict',
+        turn_id: turn.turn_id,
+        code: 'run_not_cancellable',
+        run_status: 'completed',
+        recovery_hint: 'refresh',
+        message: '这次回复已经结束，请刷新状态。',
+      });
+      await Promise.resolve();
+    });
+
+    expect(latest?.error).toBe('这次回复已经结束，请刷新状态。');
+    expect(latest?.status).toBe('thinking');
   });
 
   it('waits for active turn cancellation acknowledgement before hangup closes locally', async () => {
@@ -158,6 +257,35 @@ describe('useCookingRealtimeVoiceSession', () => {
     expect(latest?.status).toBe('closed');
   });
 
+  it('sends one hangup message while the same acknowledgement is pending', async () => {
+    renderProbe();
+    await startSession();
+    act(() => {
+      latest?.sendTranscript('下一步');
+    });
+    const turn = latestSocket?.sentMessages.at(-1) as { turn_id: string };
+
+    let firstHangup: Promise<void> | undefined;
+    let secondHangup: Promise<void> | undefined;
+    act(() => {
+      firstHangup = latest?.hangup();
+      secondHangup = latest?.hangup();
+    });
+
+    expect(latestSocket?.sentMessages.filter((message) => (
+      message as { type?: string }
+    ).type === 'hangup')).toEqual([
+      { type: 'hangup', turn_id: turn.turn_id },
+    ]);
+
+    await act(async () => {
+      latestSocket?.emit({ type: 'status', status: 'closed', turn_id: turn.turn_id });
+      await Promise.all([firstHangup, secondHangup]);
+    });
+    expect(latestSocket?.closeCount).toBe(1);
+    expect(latest?.status).toBe('closed');
+  });
+
   it.each<CookingRealtimeVoiceStatus>(['listening', 'recording', 'transcribing', 'thinking', 'speaking'])(
     'keeps the call microphone available while status is %s',
     (status) => {
@@ -165,7 +293,7 @@ describe('useCookingRealtimeVoiceSession', () => {
     },
   );
 
-  it.each<CookingRealtimeVoiceStatus>(['connecting', 'muted', 'closed', 'failed'])(
+  it.each<CookingRealtimeVoiceStatus>(['connecting', 'stopping', 'muted', 'closed', 'failed'])(
     'disables the call microphone while status is %s',
     (status) => {
       expect(isCookingRealtimeVoiceMicDisabled(status)).toBe(true);

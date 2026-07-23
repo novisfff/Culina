@@ -439,15 +439,18 @@ async def cooking_realtime_session_ws(
                 run_id=run_id,
             )
             commit_session(db)
-        if active_turn_id == run_id:
-            active_turn_id = ""
-        if current_turn_task is not None and not current_turn_task.done():
-            current_turn_task.cancel()
-            try:
-                await current_turn_task
-            except asyncio.CancelledError:
-                pass
-        current_turn_task = None
+        outcome = str((result or {}).get("outcome") or "")
+        should_stop_forwarding = reason != "client_cancel" or outcome in {"cancelled", "already_cancelled"}
+        if should_stop_forwarding:
+            if active_turn_id == run_id:
+                active_turn_id = ""
+            if current_turn_task is not None and not current_turn_task.done():
+                current_turn_task.cancel()
+                try:
+                    await current_turn_task
+                except asyncio.CancelledError:
+                    pass
+            current_turn_task = None
         return result
 
     async def run_agent_turn(*, text: str, turn_id: str, expose_turn_id: bool) -> None:
@@ -477,6 +480,17 @@ async def cooking_realtime_session_ws(
                 if active_turn_id != turn_id:
                     break
                 event_type = voice_event.get("type")
+                if event_type == "response":
+                    response_data = voice_event.get("data") if isinstance(voice_event.get("data"), dict) else {}
+                    response_run = response_data.get("run") if isinstance(response_data.get("run"), dict) else {}
+                    if response_run.get("status") == "cancelled":
+                        await send_json(
+                            _with_turn_id(
+                                {"type": "turn_cancelled"},
+                                turn_id=turn_id,
+                                expose_turn_id=expose_turn_id,
+                            )
+                        )
                 if event_type in {"progress", "message_delta", "message_part", "response"}:
                     continue
                 if not speaking_sent and event_type in {"assistant_transcript_delta", "assistant_audio_start", "assistant_audio_done", "ui_actions"}:
@@ -550,10 +564,30 @@ async def cooking_realtime_session_ws(
                     continue
                 result = await cancel_current_turn(reason="client_cancel")
                 outcome = str((result or {}).get("outcome") or "")
+                if outcome == "cancel_requested":
+                    await send_json({"type": "turn_cancel_requested", "turn_id": requested_turn_id})
+                    continue
+                if outcome in {"cancelled", "already_cancelled"}:
+                    await send_json({"type": "turn_cancelled", "turn_id": requested_turn_id})
+                    continue
+                if outcome == "run_not_cancellable":
+                    result_run = result.get("run") if isinstance(result, dict) and isinstance(result.get("run"), dict) else {}
+                    await send_json(
+                        {
+                            "type": "turn_cancel_conflict",
+                            "turn_id": requested_turn_id,
+                            "code": "run_not_cancellable",
+                            "run_status": str(result_run.get("status") or ""),
+                            "recovery_hint": "refresh",
+                            "message": "这次回复已经结束，请刷新状态。",
+                        }
+                    )
+                    continue
                 await send_json(
                     {
-                        "type": "turn_cancel_requested" if outcome == "cancel_requested" else "turn_cancelled",
+                        "type": "error",
                         "turn_id": requested_turn_id,
+                        "message": "小灶停止失败，请稍后重试。",
                     }
                 )
                 continue

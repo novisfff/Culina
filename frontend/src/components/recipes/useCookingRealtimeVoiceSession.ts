@@ -10,6 +10,7 @@ export type CookingRealtimeVoiceStatus =
   | 'transcribing'
   | 'thinking'
   | 'speaking'
+  | 'stopping'
   | 'muted'
   | 'closed'
   | 'failed';
@@ -44,6 +45,7 @@ type PendingTurnCancellation = {
   resolve: () => void;
   reject: (error: Error) => void;
   timeoutId: number;
+  previousStatus: CookingRealtimeVoiceStatus;
 };
 
 function blobToDataUrl(blob: Blob) {
@@ -56,7 +58,7 @@ function blobToDataUrl(blob: Blob) {
 }
 
 export function isCookingRealtimeVoiceMicDisabled(status: CookingRealtimeVoiceStatus, disabled = false) {
-  return disabled || status === 'connecting' || status === 'muted' || status === 'closed' || status === 'failed';
+  return disabled || status === 'connecting' || status === 'stopping' || status === 'muted' || status === 'closed' || status === 'failed';
 }
 
 export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSessionOptions = {}) {
@@ -85,10 +87,14 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     }
   }, []);
 
-  const waitForTurnCancellation = useCallback((turnId: string, mode: 'cancel' | 'hangup') => {
+  const waitForTurnCancellation = useCallback((
+    turnId: string,
+    mode: 'cancel' | 'hangup',
+    previousStatus: CookingRealtimeVoiceStatus,
+  ) => {
     const existing = pendingTurnCancellationRef.current;
     if (existing && existing.turnId === turnId && existing.mode === mode) {
-      return existing.promise;
+      return { promise: existing.promise, created: false };
     }
     if (existing) {
       settlePendingTurnCancellation(new Error('上一条语音取消请求已被替换'));
@@ -104,6 +110,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       if (!pending || pending.promise !== promise) return;
       const timeoutError = new Error('小灶停止确认超时，请稍后重试');
       setError(timeoutError.message);
+      setStatus(pending.previousStatus);
       options.onError?.(timeoutError.message);
       settlePendingTurnCancellation(timeoutError);
     }, 5000);
@@ -114,8 +121,9 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       resolve: resolvePromise,
       reject: rejectPromise,
       timeoutId,
+      previousStatus,
     };
-    return promise;
+    return { promise, created: true };
   }, [options, settlePendingTurnCancellation]);
 
   const nextTurnId = useCallback(() => {
@@ -170,25 +178,54 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
           if (!belongsToActiveTurn(message)) {
             return;
           }
-          if (message.type === 'turn_cancelled' || message.type === 'turn_cancel_requested') {
+          if (message.type === 'turn_cancel_requested') {
             const pending = pendingTurnCancellationRef.current;
             const turnId = typeof message.turn_id === 'string' ? message.turn_id : '';
             if (pending && pending.turnId === turnId) {
-              const mode = pending.mode;
+              window.clearTimeout(pending.timeoutId);
+              pending.timeoutId = 0;
+              setStatus('stopping');
+            }
+          }
+          if (message.type === 'turn_cancelled') {
+            const pending = pendingTurnCancellationRef.current;
+            const turnId = typeof message.turn_id === 'string' ? message.turn_id : '';
+            const mode = pending && pending.turnId === turnId ? pending.mode : null;
+            if (pending && pending.turnId === turnId) {
               settlePendingTurnCancellation();
+            }
+            if (turnId && activeTurnIdRef.current === turnId) {
               activeTurnIdRef.current = '';
-              if (mode === 'cancel') {
-                setStatus('listening');
-                setListenCycle((current) => current + 1);
-              }
+            }
+            if (mode !== 'hangup') {
+              setStatus('listening');
+              setListenCycle((current) => current + 1);
+            }
+          }
+          if (message.type === 'turn_cancel_conflict') {
+            const pending = pendingTurnCancellationRef.current;
+            const turnId = typeof message.turn_id === 'string' ? message.turn_id : '';
+            if (pending && pending.turnId === turnId) {
+              const conflictError = new Error(
+                typeof message.message === 'string'
+                  ? message.message
+                  : '这次回复已经结束，请刷新状态。',
+              );
+              setStatus(pending.previousStatus);
+              setError(conflictError.message);
+              options.onError?.(conflictError.message);
+              settlePendingTurnCancellation(conflictError);
             }
           }
           if (message.type === 'status' && typeof message.status === 'string') {
-            setStatus(message.status as CookingRealtimeVoiceStatus);
-            if (message.status === 'closed' && pendingTurnCancellationRef.current?.mode === 'hangup') {
+            const pending = pendingTurnCancellationRef.current;
+            if (message.status === 'closed' && pending?.mode === 'hangup') {
               settlePendingTurnCancellation();
             }
-            if (message.status === 'listening') {
+            if (message.status === 'closed' || !pending) {
+              setStatus(message.status as CookingRealtimeVoiceStatus);
+            }
+            if (message.status === 'listening' && !pending) {
               setListenCycle((current) => current + 1);
             }
           }
@@ -291,15 +328,27 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     const socket = socketRef.current;
     const turnId = activeTurnIdRef.current;
     if (!turnId || socket?.readyState !== WebSocket.OPEN) return;
-    setError('');
-    const acknowledgement = waitForTurnCancellation(turnId, 'cancel');
-    socket.send(JSON.stringify({ type: 'cancel_turn', turn_id: turnId }));
+    const existing = pendingTurnCancellationRef.current;
+    if (existing && existing.turnId === turnId && existing.mode === 'cancel') {
+      try {
+        await existing.promise;
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : '小灶停止失败');
+      }
+      return;
+    }
+    const cancellation = waitForTurnCancellation(turnId, 'cancel', status);
+    if (cancellation.created) {
+      setError('');
+      setStatus('stopping');
+      socket.send(JSON.stringify({ type: 'cancel_turn', turn_id: turnId }));
+    }
     try {
-      await acknowledgement;
+      await cancellation.promise;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '小灶停止失败');
     }
-  }, [waitForTurnCancellation]);
+  }, [status, waitForTurnCancellation]);
 
   const hangup = useCallback(async () => {
     const socket = socketRef.current;
@@ -308,16 +357,28 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       return;
     }
     const turnId = activeTurnIdRef.current;
-    setError('');
-    const acknowledgement = waitForTurnCancellation(turnId, 'hangup');
-    socket.send(JSON.stringify({ type: 'hangup', turn_id: turnId }));
+    const existing = pendingTurnCancellationRef.current;
+    if (existing && existing.turnId === turnId && existing.mode === 'hangup') {
+      try {
+        await existing.promise;
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : '小灶停止失败');
+      }
+      return;
+    }
+    const cancellation = waitForTurnCancellation(turnId, 'hangup', status);
+    if (cancellation.created) {
+      setError('');
+      setStatus('stopping');
+      socket.send(JSON.stringify({ type: 'hangup', turn_id: turnId }));
+    }
     try {
-      await acknowledgement;
+      await cancellation.promise;
       closeLocalSession(socket);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '小灶停止失败');
     }
-  }, [closeLocalSession, waitForTurnCancellation]);
+  }, [closeLocalSession, status, waitForTurnCancellation]);
   const toggleMute = useCallback(() => {
     setStatus((current) => {
       if (current === 'muted') {
@@ -338,6 +399,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     setStatus('speaking');
   }, []);
   const sendTranscript = useCallback((text: string) => {
+    if (pendingTurnCancellationRef.current) return;
     const transcript = text.trim();
     if (!transcript) return;
     const turnId = nextTurnId();
@@ -348,7 +410,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     }
   }, [nextTurnId]);
   const sendRecording = useCallback(async (recording: VoiceRecording) => {
-    if (status === 'muted') return;
+    if (status === 'muted' || status === 'stopping' || pendingTurnCancellationRef.current) return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
       setError('小灶通话还没有连接好');
       options.onError?.('小灶通话还没有连接好');
@@ -408,6 +470,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     formattedElapsed,
     lastTranscript,
     listenCycle,
+    isStopping: status === 'stopping',
     isActive: status !== 'idle' && status !== 'closed' && status !== 'failed',
     start,
     hangup,

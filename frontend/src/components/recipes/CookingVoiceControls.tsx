@@ -27,6 +27,7 @@ const STATUS_LABELS: Record<CookingRealtimeVoiceStatus, string> = {
   transcribing: '正在识别',
   thinking: '小灶在想',
   speaking: '小灶在说',
+  stopping: '正在停止',
   muted: '已静音',
   closed: '已挂断',
   failed: '连接失败',
@@ -86,12 +87,20 @@ export function CookingVoiceControls({
         className={`recipe-cook-ai-call-mute ${status === 'muted' ? 'active' : ''}`}
         type="button"
         onClick={onToggleMute}
+        disabled={status === 'stopping'}
         title={status === 'muted' ? '取消静音' : '静音'}
       >
         {status === 'muted' ? '开麦' : '静音'}
       </button>
-      <button className="recipe-cook-ai-call-end" type="button" onClick={onHangup} title="挂断">
-        挂断
+      <button
+        className="recipe-cook-ai-call-end"
+        type="button"
+        onClick={onHangup}
+        disabled={status === 'stopping'}
+        aria-busy={status === 'stopping'}
+        title="挂断"
+      >
+        {status === 'stopping' ? '停止中' : '挂断'}
       </button>
     </div>
   );
