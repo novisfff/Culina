@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workflows.conversations import require_conversation
+from app.ai.workflows.runner_support.run_status import WAITING_APPROVAL
 from app.models.domain import AIApprovalRequest
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -51,7 +57,7 @@ class ApprovalResumePreparer:
         comment: str | None,
         stream: bool,
     ) -> PreparedApprovalResume:
-        require_conversation(
+        conversation = require_conversation(
             self.db,
             family_id=family_id,
             user_id=user_id,
@@ -88,6 +94,32 @@ class ApprovalResumePreparer:
             )
             raise AIConflictError("确认请求缺少可恢复的运行状态，请重新生成草稿")
         run_id = pending.run_id or str((snapshot.values or {}).get("run_id") or "")
+        if not run_id:
+            raise AIConflictError("确认请求关联的运行状态已变化，请刷新后重试")
+        run = lock_run_for_transition(
+            self.db,
+            family_id=family_id,
+            run_id=run_id,
+        )
+        fast_decisions = (
+            conversation.context.get("fastApprovalDecisions")
+            if isinstance(conversation.context, dict)
+            and isinstance(conversation.context.get("fastApprovalDecisions"), dict)
+            else {}
+        )
+        has_recorded_fast_decision = approval_id in fast_decisions
+        if run.conversation_id != conversation_id or (
+            run.status != WAITING_APPROVAL
+            and not (run.status == "running" and has_recorded_fast_decision)
+        ):
+            raise AIConflictError("确认请求关联的运行状态已变化，请刷新后重试")
+        if cancellation_wins(self.db, run=run, lock_request=False):
+            finalize_run_cancellation(self.db, run=run)
+            raise AIConflictError("运行任务已取消，不能继续提交确认")
+        snapshot = self.graph.get_state(config)
+        checkpoint_run_id = str((snapshot.values or {}).get("run_id") or "")
+        if not snapshot.values or not snapshot.next or checkpoint_run_id != run.id:
+            raise AIConflictError("确认请求缺少可恢复的运行状态，请重新生成草稿")
         resume_payload = self.build_resume_payload(
             approval_id=approval_id,
             decision=decision,

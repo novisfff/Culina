@@ -79,7 +79,12 @@ from app.models.domain import (
     AIRunTraceSpan,
     AITaskDraft,
 )
-from app.services.ai_operations.run_cancellation import is_run_cancellation_requested
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    is_run_cancellation_requested,
+    lock_run_for_transition,
+)
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -741,14 +746,25 @@ class WorkspaceGraphRunner:
             next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
         if run_id:
-            run = self.db.get(AIAgentRun, run_id)
-            if run is not None:
+            run = lock_run_for_transition(
+                self.db,
+                family_id=family_id,
+                run_id=run_id,
+            )
+            if serialized.get("suppress_continuation") or cancellation_wins(
+                self.db,
+                run=run,
+                lock_request=False,
+            ):
+                finalize_run_cancellation(self.db, run=run)
+                next_status = CANCELLED
+            else:
                 run.status = next_status
-                run.context_summary = record_approval_outcome_summary(
-                    dict(run.context_summary or {}),
-                    approval_status=str(approval.get("status") or decision),
-                    draft_type=str(draft.get("draft_type") or ""),
-                )
+            run.context_summary = record_approval_outcome_summary(
+                dict(run.context_summary or {}),
+                approval_status=str(approval.get("status") or decision),
+                draft_type=str(draft.get("draft_type") or ""),
+            )
         conversation = self.db.get(AIConversation, conversation_id)
         if conversation is not None:
             conversation.last_run_status = next_status

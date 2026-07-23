@@ -230,14 +230,19 @@ def lock_run_for_transition(
     return run
 
 
-def cancellation_wins(db: Session, *, run: AIAgentRun) -> bool:
+def cancellation_wins(
+    db: Session,
+    *,
+    run: AIAgentRun,
+    lock_request: bool = True,
+) -> bool:
     if run.status in {CANCELLING, CANCELLED}:
         return True
     request = _cancel_request(
         db,
         family_id=run.family_id,
         run_id=run.id,
-        for_update=True,
+        for_update=lock_request,
     )
     return request is not None and request.status in {"requested", "applied"}
 
