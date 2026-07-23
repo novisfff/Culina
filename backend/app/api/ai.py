@@ -1160,6 +1160,8 @@ def respond_ai_human_input(
         )
     except ClientContractUpgradeRequired as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
@@ -1207,6 +1209,9 @@ def stream_ai_human_input_response(
                 yield encode(projected_event, projected_data)
         except ClientContractUpgradeRequired as exc:
             yield encode("error", {"detail": exc.to_detail(), "status": 409})
+            return
+        except AIConflictError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
             return
         except ValueError as exc:
             yield encode("error", {"detail": str(exc), "status": 400})

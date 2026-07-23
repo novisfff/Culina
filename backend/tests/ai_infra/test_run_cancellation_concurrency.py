@@ -23,6 +23,50 @@ class FollowupCountingProvider(FakeChatProvider):
         yield "审批后的继续回复"
 
 
+class HumanInputRaceProvider(BaseChatProvider):
+    model_name = "human-input-cancellation-race"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.followup_calls = 0
+
+    def generate(self, **kwargs) -> ChatProviderResult:
+        del kwargs
+        raise AssertionError("orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, tools, max_rounds
+        self.calls += 1
+        if self.calls == 1:
+            tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排晚餐"})
+            tool_handler(
+                "human.request_input",
+                {
+                    "question": "要安排几天？",
+                    "inputMode": "choice",
+                    "options": [{"id": "three-days", "label": "三天"}],
+                    "sourceSkills": ["meal_plan"],
+                    "resumeHint": {"expectedField": "days"},
+                },
+            )
+            text = "请先选择要安排的天数。"
+        else:
+            self.followup_calls += 1
+            text = "已按三天继续安排。"
+        if message_handler is not None:
+            message_handler(text)
+        return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+
 class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
     def _create_food_profile_approval(self, *, suffix: str) -> dict:
         response = self.client.post(
@@ -57,6 +101,31 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
                 )
             )
         return int(operation_count or 0), int(food_count or 0), int(cancel_count or 0)
+
+    def _create_waiting_human_input(self, provider: HumanInputRaceProvider) -> tuple[dict, str]:
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["status"], "waiting_input")
+        human_part = next(
+            part
+            for part in data["message"]["parts"]
+            if part.get("type") == "human_input_request"
+        )
+        return data, str(human_part["request"]["id"])
+
+    def _human_result_artifact_count(self, *, message_id: str) -> int:
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, message_id)
+            self.assertIsNotNone(message)
+            assert message is not None
+            artifacts = (message.message_metadata or {}).get("artifacts") or []
+        return sum(
+            1
+            for artifact in artifacts
+            if isinstance(artifact, dict) and artifact.get("type") == "human.input_result"
+        )
 
     def test_cancel_wins_before_approval_business_write(self) -> None:
         data = self._create_food_profile_approval(suffix="取消先到")
@@ -233,3 +302,138 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
             db.commit()
         self.assertEqual(result.outcome, "cancelled")
         self.assertEqual(result.request.status, "applied")
+
+    def test_cancel_wins_before_human_input_resume(self) -> None:
+        provider = HumanInputRaceProvider()
+        data, request_id = self._create_waiting_human_input(provider)
+        lock_requested = Event()
+        cancellation_applied = Event()
+        response_done = Event()
+        response_status: dict[str, int] = {}
+
+        from app.ai.workflows.runner_support import human_input_resume_preparer
+
+        original_lock = getattr(human_input_resume_preparer, "lock_run_for_transition", None)
+
+        def gated_lock(db, **kwargs):
+            assert original_lock is not None
+            lock_requested.set()
+            self.assertTrue(cancellation_applied.wait(timeout=5))
+            return original_lock(db, **kwargs)
+
+        def submit_response() -> None:
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response",
+                json={"selected_option_ids": ["three-days"]},
+            )
+            response_status["value"] = response.status_code
+            response_done.set()
+
+        with patch.object(
+            human_input_resume_preparer,
+            "lock_run_for_transition",
+            side_effect=gated_lock,
+            create=True,
+        ):
+            worker = Thread(target=submit_response)
+            worker.start()
+            entered_lock = lock_requested.wait(timeout=2)
+            if entered_lock:
+                cancel_response = self.client.post(f"/api/ai/runs/{data['run']['id']}/cancel")
+                self.assertEqual(cancel_response.status_code, 200, cancel_response.text)
+                cancellation_applied.set()
+            self.assertTrue(response_done.wait(timeout=5))
+            worker.join(timeout=5)
+
+        self.assertTrue(entered_lock, "human-input resume did not acquire the run lock")
+        self.assertEqual(response_status["value"], 409)
+        self.assertEqual(self._human_result_artifact_count(message_id=data["message"]["id"]), 0)
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, data["message"]["id"])
+            assert message is not None
+            human_part = next(
+                part
+                for part in message.parts
+                if part.get("type") == "human_input_request"
+                and str((part.get("request") or {}).get("id") or "") == request_id
+            )
+        self.assertEqual(human_part["status"], "cancelled")
+
+    def test_human_input_resume_commits_answer_once_then_cancel_stops_followup(self) -> None:
+        provider = HumanInputRaceProvider()
+        data, request_id = self._create_waiting_human_input(provider)
+        preparer_locked = Event()
+        cancellation_recorded = Event()
+        response_done = Event()
+        response_status: dict[str, int] = {}
+
+        from app.ai.workflows.runner_support import (
+            human_input_resume_handler,
+            human_input_resume_preparer,
+        )
+
+        original_lock = getattr(human_input_resume_preparer, "lock_run_for_transition", None)
+        original_update_message = human_input_resume_handler.HumanInputResumeHandler._update_message
+
+        def observe_lock(db, **kwargs):
+            assert original_lock is not None
+            run = original_lock(db, **kwargs)
+            preparer_locked.set()
+            return run
+
+        def update_message_then_cancel(handler, state, **kwargs):
+            original_update_message(handler, state, **kwargs)
+            handler.runner.db.add(
+                AIRunCancelRequest(
+                    id="run_cancel-human-input-resume-race",
+                    family_id=self.family.id,
+                    run_id=data["run"]["id"],
+                    requested_by=self.user.id,
+                    status="requested",
+                    outcome_code="cancel_requested",
+                )
+            )
+            handler.runner.db.flush()
+            cancellation_recorded.set()
+
+        def submit_response() -> None:
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response",
+                json={"selected_option_ids": ["three-days"]},
+            )
+            response_status["value"] = response.status_code
+            response_done.set()
+
+        with (
+            patch.object(
+                human_input_resume_preparer,
+                "lock_run_for_transition",
+                side_effect=observe_lock,
+                create=True,
+            ),
+            patch.object(
+                human_input_resume_handler.HumanInputResumeHandler,
+                "_update_message",
+                autospec=True,
+                side_effect=update_message_then_cancel,
+            ),
+            patch("app.ai.workspace_service.get_chat_provider", return_value=provider),
+        ):
+            worker = Thread(target=submit_response)
+            worker.start()
+            entered_lock = preparer_locked.wait(timeout=2)
+            self.assertTrue(response_done.wait(timeout=5))
+            worker.join(timeout=5)
+
+        self.assertTrue(entered_lock, "human-input resume did not acquire the run lock")
+        self.assertTrue(cancellation_recorded.is_set())
+        self.assertEqual(response_status["value"], 200)
+        self.assertEqual(self._human_result_artifact_count(message_id=data["message"]["id"]), 1)
+        self.assertEqual(provider.followup_calls, 0)
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, data["run"]["id"])
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "cancelled")

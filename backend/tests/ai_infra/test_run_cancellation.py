@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from app.ai.workflows import conversations
 from app.ai.workflows.runner_support import run_status
 from app.models import domain
@@ -409,3 +411,81 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
         cancel_events = [event for event in events if event.internal_code == "user_cancel"]
         self.assertEqual(len(cancel_events), 1)
         self.assertEqual(cancel_events[0].status, "cancelled")
+
+    def test_stale_human_input_checkpoint_cannot_resume_cancelled_run(self) -> None:
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+            response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        human_part = next(
+            part
+            for part in data["message"]["parts"]
+            if part.get("type") == "human_input_request"
+        )
+        request_id = str(human_part["request"]["id"])
+
+        with self.SessionLocal() as db:
+            checkpoint_fixture = [
+                {
+                    column.name: deepcopy(getattr(row, column.name))
+                    for column in AIGraphCheckpoint.__table__.columns
+                }
+                for row in db.scalars(
+                    select(AIGraphCheckpoint).where(
+                        AIGraphCheckpoint.thread_id == data["conversation_id"]
+                    )
+                )
+            ]
+            write_fixture = [
+                {
+                    column.name: deepcopy(getattr(row, column.name))
+                    for column in AIGraphWrite.__table__.columns
+                }
+                for row in db.scalars(
+                    select(AIGraphWrite).where(
+                        AIGraphWrite.thread_id == data["conversation_id"]
+                    )
+                )
+            ]
+        self.assertTrue(checkpoint_fixture)
+
+        cancel_response = self.client.post(f"/api/ai/runs/{data['run']['id']}/cancel")
+        self.assertEqual(cancel_response.status_code, 200, cancel_response.text)
+
+        with self.SessionLocal() as db:
+            db.add_all(AIGraphCheckpoint(**values) for values in checkpoint_fixture)
+            db.add_all(AIGraphWrite(**values) for values in write_fixture)
+            db.commit()
+
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+            resume_response = self.client.post(
+                f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response",
+                json={"selected_option_ids": ["three-days"]},
+            )
+
+        self.assertEqual(resume_response.status_code, 409, resume_response.text)
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, data["message"]["id"])
+            self.assertIsNotNone(message)
+            assert message is not None
+            artifacts = (message.message_metadata or {}).get("artifacts") or []
+        self.assertEqual(
+            sum(
+                1
+                for artifact in artifacts
+                if isinstance(artifact, dict) and artifact.get("type") == "human.input_result"
+            ),
+            0,
+        )
+
+        with (
+            patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()),
+            self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response/stream",
+                json={"selected_option_ids": ["three-days"]},
+            ) as stream_response,
+        ):
+            self.assertEqual(stream_response.status_code, 200)
+            stream_body = "".join(stream_response.iter_text())
+        self.assertIn('"status": 409', stream_body)

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.ai.errors import AIConflictError
 from app.ai.workflows.runner_support.human_input_resume import (
     completed_human_input_request_parts,
     human_input_answer_summary,
@@ -13,9 +14,15 @@ from app.ai.workflows.runner_support.human_input_resume import (
     human_input_result_artifact,
     human_input_resume_state_patch,
 )
+from app.ai.workflows.runner_support.run_status import WAITING_INPUT
 from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -34,6 +41,17 @@ class HumanInputResumeHandler:
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
         self._validate(state=state, pending=pending, resume=resume)
+        run = lock_run_for_transition(
+            self.runner.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if run.status != WAITING_INPUT or cancellation_wins(
+            self.runner.db,
+            run=run,
+            lock_request=False,
+        ):
+            raise AIConflictError("这次补充信息任务已取消或结束，请刷新后重试")
         selected_option_ids = [
             str(item)
             for item in (resume.get("selectedOptionIds") if isinstance(resume.get("selectedOptionIds"), list) else [])
@@ -53,14 +71,30 @@ class HumanInputResumeHandler:
             pending=pending,
             response_payload=response_payload,
         )
+        if cancellation_wins(self.runner.db, run=run, lock_request=False):
+            raise AIConflictError("这次补充信息任务已取消或结束，请刷新后重试")
         self._update_message(state, pending=pending, response_payload=response_payload, result_artifact=result_artifact)
-        self._update_run_and_conversation(state, result_artifact=result_artifact)
+        cancelled_after_answer = cancellation_wins(
+            self.runner.db,
+            run=run,
+            lock_request=False,
+        )
+        self._update_run_and_conversation(
+            state,
+            run=run,
+            result_artifact=result_artifact,
+        )
+        if cancelled_after_answer:
+            finalize_run_cancellation(self.runner.db, run=run)
         self.runner.db.flush()
-        return human_input_resume_state_patch(
+        state_patch = human_input_resume_state_patch(
             state=state,
             run_artifacts=run_artifacts,
             result_artifact=result_artifact,
         )
+        if cancelled_after_answer:
+            state_patch["status"] = "cancelled"
+        return state_patch
 
     @staticmethod
     def _validate(
@@ -109,15 +143,15 @@ class HumanInputResumeHandler:
         self,
         state: WorkspaceGraphState,
         *,
+        run: AIAgentRun,
         result_artifact: dict[str, Any],
     ) -> None:
-        run = self.runner.db.get(AIAgentRun, state["run_id"])
         conversation = self.runner.db.get(AIConversation, state["conversation_id"])
-        if run is not None:
-            run.status = "running"
-            context_summary = dict(run.context_summary or {})
-            context_summary["lastHumanInputResult"] = result_artifact["payload"]
-            run.context_summary = self.runner._json_record(context_summary)
+        run.status = "running"
+        context_summary = dict(run.context_summary or {})
+        context_summary.pop("pendingHumanInput", None)
+        context_summary["lastHumanInputResult"] = result_artifact["payload"]
+        run.context_summary = self.runner._json_record(context_summary)
         if conversation is not None:
             conversation.last_run_status = "running"
             conversation.context = self.runner._json_record(
@@ -126,4 +160,3 @@ class HumanInputResumeHandler:
                     result_payload=result_artifact["payload"],
                 )
             )
-
