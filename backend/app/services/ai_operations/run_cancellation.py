@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.workflows.conversation_access import require_ai_run_access
 from app.ai.workflows.runner_support.run_status import ACTIVE_RUN_STATUSES, CANCELLED, CANCELLING, TERMINAL_RUN_STATUSES
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIRunCancelRequest, AIRunEvent
+from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunCancelRequest, AIRunEvent
 from app.services.serializers import serialize_ai_run, serialize_ai_run_cancel_request, serialize_ai_run_event
 
 
@@ -187,6 +187,83 @@ def is_run_cancellation_requested(db: Session, *, family_id: str, run_id: str) -
             )
         )
     )
+
+
+def lock_run_for_transition(
+    db: Session,
+    *,
+    family_id: str,
+    run_id: str,
+) -> AIAgentRun:
+    run = db.scalar(
+        select(AIAgentRun)
+        .where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id)
+        .with_for_update()
+    )
+    if run is None:
+        raise LookupError("运行任务不存在")
+    return run
+
+
+def cancellation_wins(db: Session, *, run: AIAgentRun) -> bool:
+    if run.status in {CANCELLING, CANCELLED}:
+        return True
+    request = _cancel_request(
+        db,
+        family_id=run.family_id,
+        run_id=run.id,
+        for_update=True,
+    )
+    return request is not None and request.status in {"requested", "applied"}
+
+
+def finalize_run_cancellation(db: Session, *, run: AIAgentRun) -> None:
+    run.status = CANCELLED
+    run.error = None
+    request = _cancel_request(
+        db,
+        family_id=run.family_id,
+        run_id=run.id,
+        for_update=True,
+    )
+    if request is not None:
+        request.status = "applied"
+        request.outcome_code = "cancelled"
+        request.resolved_at = request.resolved_at or utcnow()
+    messages = list(
+        db.scalars(
+            select(AIMessage)
+            .where(
+                AIMessage.family_id == run.family_id,
+                AIMessage.run_id == run.id,
+                AIMessage.role == "assistant",
+            )
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            .with_for_update()
+        )
+    )
+    for message in messages:
+        message.status = CANCELLED
+        metadata = dict(message.message_metadata or {})
+        metadata.pop("liveStreaming", None)
+        metadata.pop("livePartIds", None)
+        metadata.pop("liveTextPartIds", None)
+        message.message_metadata = metadata
+    if run.conversation_id:
+        conversation = db.scalar(
+            select(AIConversation)
+            .where(
+                AIConversation.id == run.conversation_id,
+                AIConversation.family_id == run.family_id,
+            )
+            .with_for_update()
+        )
+        if conversation is not None:
+            conversation.last_run_status = CANCELLED
+            conversation.last_message_at = utcnow()
+            context = dict(conversation.context or {})
+            context.pop("activeRunId", None)
+            conversation.context = context
 
 
 def serialize_run_cancellation_result(result: RunCancellationResult) -> dict:

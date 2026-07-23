@@ -26,7 +26,12 @@ from app.ai.workflows.runner_support.message_persistence import (
 from app.ai.workflows.runner_support.run_summary import result_context_summary
 from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
+from app.models.domain import AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -57,11 +62,17 @@ class AssistantResultPersister:
         duration_ms: int = 0,
     ) -> PersistedAssistantResult:
         runner = self.runner
-        if runner._cancel_requested(state["run_id"]):
+        run = lock_run_for_transition(
+            runner.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if cancellation_wins(runner.db, run=run):
+            finalize_run_cancellation(runner.db, run=run)
             result.status = "cancelled"
             result.cards = []
             result.drafts = []
-            result.error = result.error or "用户取消了这次任务"
+            result.error = None
             if not result.text.strip():
                 result.text = "已取消这次任务。"
         assistant_status = "waiting_approval" if result.drafts else result.status
@@ -174,7 +185,6 @@ class AssistantResultPersister:
         aggregate_text = aggregate_text_from_parts(message_parts)
         message.content = aggregate_text
         message.status = assistant_status
-        run = runner.db.get(AIAgentRun, state["run_id"])
         conversation = runner.db.get(AIConversation, state["conversation_id"])
         all_cards = result_cards_from_parts(message_parts)
         if run is not None:
@@ -206,7 +216,7 @@ class AssistantResultPersister:
                 )
             )
             run.tool_calls = runner._json_record([*(run.tool_calls or []), *result.tool_calls])
-            run.error = result.error
+            run.error = None if assistant_status == "cancelled" else result.error
             run.duration_ms = int(run.duration_ms or 0) + duration_ms
             run.context_summary = runner._json_record(context_summary)
         if conversation is not None:

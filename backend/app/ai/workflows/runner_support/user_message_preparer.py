@@ -20,9 +20,15 @@ from app.ai.workflows.runner_support.attachments import (
     attachment_summaries,
     build_user_message_parts,
 )
+from app.ai.workflows.runner_support.message_parts import text_message_part
+from app.ai.workflows.runner_support.run_status import CANCELLED
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIMessage, MediaAsset
+from app.models.domain import AIAgentRun, AIConversation, AIMessage, MediaAsset
+from app.services.ai_operations.run_cancellation import (
+    finalize_run_cancellation,
+    is_run_cancellation_requested,
+)
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -124,6 +130,17 @@ class UserMessagePreparer:
             **(conversation.context or {}),
             "activeRunId": run.id,
         })
+        cancelled_before_start = is_run_cancellation_requested(
+            self.db,
+            family_id=family_id,
+            run_id=run.id,
+        )
+        if cancelled_before_start:
+            self._finalize_precreated_cancellation(
+                run=run,
+                conversation=conversation,
+                user_id=user_id,
+            )
         try:
             self.db.commit()
         except IntegrityError:
@@ -147,13 +164,49 @@ class UserMessagePreparer:
             client_message_id,
         )
         return PreparedUserMessage(
-            existing=False,
+            existing=cancelled_before_start,
             conversation_id=conversation.id,
             run_id=run.id,
             user_message_id=user_message.id,
             subject=normalized_subject,
             attachments=user_attachment_summaries,
         )
+
+    def _finalize_precreated_cancellation(
+        self,
+        *,
+        run: AIAgentRun,
+        conversation: AIConversation,
+        user_id: str,
+    ) -> None:
+        text = "已中止这次处理。"
+        message = AIMessage(
+            id=create_id("ai_message"),
+            family_id=run.family_id,
+            conversation_id=run.conversation_id,
+            role="assistant",
+            content=text,
+            content_type="parts",
+            parts=[text_message_part(part_id=create_id("ai_part"), text=text)],
+            run_id=run.id,
+            status=CANCELLED,
+            message_metadata={
+                "intent": run.intent or "workspace_orchestrator",
+                "agentKey": run.agent_key or "workspace_orchestrator",
+            },
+            created_by=user_id,
+        )
+        self.db.add(message)
+        finalize_run_cancellation(self.db, run=run)
+        run.output_summary = text
+        run.output = self.json_record({"text": text, "cards": [], "routing": {}})
+        conversation.response = text
+        conversation.summary = text[:255]
+        conversation.last_message_at = utcnow()
+        conversation.last_run_status = CANCELLED
+        context = dict(conversation.context or {})
+        context.pop("activeRunId", None)
+        conversation.context = self.json_record(context)
 
     def _prepared_existing_run(self, run: AIAgentRun, subject: dict[str, Any]) -> PreparedUserMessage:
         if run.status in {"pending", "running"}:

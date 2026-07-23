@@ -1697,7 +1697,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 events = list(db.scalars(select(AIRunEvent).where(AIRunEvent.run_id == run.id)))
                 self.assertEqual(events, [])
 
-        def test_ai_workspace_phase4_cancel_running_run_records_event(self) -> None:
+        def test_ai_workspace_cancel_running_run_stays_busy_until_worker_finalizes(self) -> None:
             with self.SessionLocal() as db:
                 conversation = AIConversation(
                     id="conversation-cancel",
@@ -1733,16 +1733,18 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, run])
                 db.commit()
             response = self.client.post("/api/ai/runs/agent-run-cancel/cancel")
-            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.status_code, 202, response.text)
             data = response.json()
-            self.assertEqual(data["run"]["status"], "cancelled")
-            self.assertEqual(data["events"][0]["internal_code"], "user_cancel")
+            self.assertEqual(data["outcome"], "cancel_requested")
+            self.assertEqual(data["request"]["status"], "requested")
+            self.assertEqual(data["run"]["status"], "cancelling")
+            self.assertEqual(data["events"], [])
             with self.SessionLocal() as db:
                 conversation = db.get(AIConversation, "conversation-cancel")
                 self.assertIsNotNone(conversation)
                 assert conversation is not None
-                self.assertEqual(conversation.last_run_status, "cancelled")
-                self.assertNotIn("activeRunId", conversation.context or {})
+                self.assertEqual(conversation.last_run_status, "running")
+                self.assertEqual((conversation.context or {}).get("activeRunId"), "agent-run-cancel")
 
         def test_approval_followup_empty_response_appends_fallback_and_clears_active_run(self) -> None:
             with self.SessionLocal() as db:

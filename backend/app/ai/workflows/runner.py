@@ -59,6 +59,7 @@ from app.ai.workflows.runner_support.run_summary import (
 from app.ai.workflows.runner_support.run_finalizer import RunFinalizer
 from app.ai.workflows.runner_support.run_status import (
     CANCELLED,
+    CANCELLING,
     COMPLETED,
     FAILED,
     PENDING,
@@ -78,6 +79,7 @@ from app.models.domain import (
     AIRunTraceSpan,
     AITaskDraft,
 )
+from app.services.ai_operations.run_cancellation import is_run_cancellation_requested
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -597,15 +599,27 @@ class WorkspaceGraphRunner:
         bind = self.db.get_bind()
         if bind.dialect.name == "sqlite":
             self.db.expire_all()
-            status = self.db.scalar(
-                select(AIAgentRun.status)
+            run = self.db.scalar(
+                select(AIAgentRun)
                 .where(AIAgentRun.id == run_id)
                 .execution_options(populate_existing=True)
             )
-            return status == CANCELLED
+            if run is None:
+                return False
+            return run.status in {CANCELLING, CANCELLED} or is_run_cancellation_requested(
+                self.db,
+                family_id=run.family_id,
+                run_id=run.id,
+            )
         with Session(bind=bind) as db:
-            status = db.scalar(select(AIAgentRun.status).where(AIAgentRun.id == run_id))
-            return status == CANCELLED
+            run = db.get(AIAgentRun, run_id)
+            if run is None:
+                return False
+            return run.status in {CANCELLING, CANCELLED} or is_run_cancellation_requested(
+                db,
+                family_id=run.family_id,
+                run_id=run.id,
+            )
 
     def _keep_running_after_disconnect(self, run_id: str | None) -> None:
         if not run_id:

@@ -8,6 +8,18 @@ from app.models.domain import AIRunCancelRequest
 from ._support import *
 
 
+class ProviderMustNotRun(BaseChatProvider):
+    model_name = "must-not-run"
+
+    def generate(self, **kwargs) -> ChatProviderResult:
+        del kwargs
+        raise AssertionError("provider must not run after pre-run cancellation")
+
+    def generate_with_tools(self, **kwargs) -> ChatProviderResult:
+        del kwargs
+        raise AssertionError("provider must not run after pre-run cancellation")
+
+
 class AIRunCancellationTestCase(AIAgentInfraTestCase):
     def test_cancelling_is_an_active_run_status(self) -> None:
         cancelling = getattr(run_status, "CANCELLING", None)
@@ -156,3 +168,87 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
             )
         self.assertIsNotNone(request)
         self.assertEqual(request.status, "requested")
+
+    def test_precreated_cancel_request_skips_provider_and_returns_cancelled(self) -> None:
+        run_id = "agent_run-precreated-cancel"
+        cancel_response = self.client.post(f"/api/ai/runs/{run_id}/cancel")
+        self.assertEqual(cancel_response.status_code, 202, cancel_response.text)
+
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=ProviderMustNotRun()):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "安排晚餐", "client_run_id": run_id},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["run"]["status"], "cancelled")
+        self.assertEqual(response.json()["message"]["status"], "cancelled")
+
+    def test_finalizer_turns_cancelling_run_message_and_conversation_cancelled(self) -> None:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-cancelling-finalize",
+                family_id=self.family.id,
+                owner_user_id=self.user.id,
+                visibility=AIConversationVisibility.PRIVATE,
+                mode=AiMode.RECOMMENDATION,
+                prompt="安排晚餐",
+                response="",
+                context={"activeRunId": "agent_run-cancelling-finalize", "workspace": True},
+                last_run_status="running",
+                created_by=self.user.id,
+            )
+            run = AIAgentRun(
+                id="agent_run-cancelling-finalize",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=None,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="meal_plan",
+                input_summary="安排晚餐",
+                context_summary={},
+                output_summary="",
+                status="cancelling",
+                model="fake-model",
+                input={"prompt": "安排晚餐", "subject": {}},
+                output={},
+                tool_calls=[],
+                duration_ms=0,
+                created_by=self.user.id,
+            )
+            message = AIMessage(
+                id="message-cancelling-finalize",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                role="assistant",
+                content="正在处理",
+                content_type="parts",
+                parts=[{"id": "part-cancelling-finalize", "type": "text", "text": "正在处理"}],
+                run_id=run.id,
+                status="running",
+                message_metadata={"liveStreaming": True},
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, run, message])
+            db.flush()
+
+            WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
+                {
+                    "family_id": self.family.id,
+                    "user_id": self.user.id,
+                    "conversation_id": conversation.id,
+                    "run_id": run.id,
+                    "message": "安排晚餐",
+                    "status": "completed",
+                    "error": "stale provider failure",
+                }
+            )
+
+            self.assertEqual(run.status, "cancelled")
+            self.assertIsNone(run.error)
+            self.assertEqual(message.status, "cancelled")
+            self.assertEqual(conversation.last_run_status, "cancelled")
+            self.assertNotIn("activeRunId", conversation.context or {})

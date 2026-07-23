@@ -17,6 +17,11 @@ from app.ai.workflows.runner_support.run_status import RUNNING, WAITING_APPROVAL
 from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import create_id
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 
 class ProgressiveDraftPublisher:
@@ -46,7 +51,13 @@ class ProgressiveDraftPublisher:
         round_index: int | None = None,
     ) -> Callable[[dict[str, Any]], dict[str, Any]]:
         def publish(draft_payload: dict[str, Any]) -> dict[str, Any]:
-            if self.cancel_requested(state["run_id"]):
+            run = lock_run_for_transition(
+                self.db,
+                family_id=state["family_id"],
+                run_id=state["run_id"],
+            )
+            if cancellation_wins(self.db, run=run):
+                finalize_run_cancellation(self.db, run=run)
                 raise AIExecutionCancelled("AI run was cancelled")
             span = self._start_span(
                 tracer=tracer,
@@ -152,9 +163,15 @@ class ProgressiveDraftPublisher:
         return message
 
     def mark_waiting_approval_state(self, state: WorkspaceGraphState) -> None:
-        run = self.db.get(AIAgentRun, state["run_id"])
-        if run is not None:
-            run.status = WAITING_APPROVAL
+        run = lock_run_for_transition(
+            self.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if cancellation_wins(self.db, run=run):
+            finalize_run_cancellation(self.db, run=run)
+            raise AIExecutionCancelled("AI run was cancelled")
+        run.status = WAITING_APPROVAL
         conversation = self.db.get(AIConversation, state["conversation_id"])
         if conversation is not None:
             conversation.last_run_status = WAITING_APPROVAL
