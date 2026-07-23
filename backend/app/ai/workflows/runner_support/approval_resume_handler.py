@@ -20,6 +20,11 @@ from app.ai.workflows.runner_support.run_summary import (
 )
 from app.ai.workflows.state import WorkspaceGraphState
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIRunEvent
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -67,6 +72,14 @@ class ApprovalResumeHandler:
         )
         serialized = jsonable_encoder(result)
         approval_artifacts = self.runner.service._approval_decision_artifacts(serialized)
+        cancelled_patch = self._cancelled_state_patch(
+            state=state,
+            serialized=serialized,
+            run_artifacts=run_artifacts,
+            approval_artifacts=approval_artifacts,
+        )
+        if cancelled_patch is not None:
+            return cancelled_patch
         operation = result.get("operation")
         next_approval = result.get("approval")
         decision_draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
@@ -125,6 +138,14 @@ class ApprovalResumeHandler:
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
         approval_artifacts = self.runner.service._approval_decision_artifacts(serialized)
+        cancelled_patch = self._cancelled_state_patch(
+            state=state,
+            serialized=serialized,
+            run_artifacts=run_artifacts,
+            approval_artifacts=approval_artifacts,
+        )
+        if cancelled_patch is not None:
+            return cancelled_patch
         approval = serialized.get("approval") if isinstance(serialized.get("approval"), dict) else {}
         operation = serialized.get("operation") if isinstance(serialized.get("operation"), dict) else None
         run = self.runner.db.get(AIAgentRun, state["run_id"])
@@ -229,6 +250,34 @@ class ApprovalResumeHandler:
             run_artifacts=run_artifacts,
             approval_artifacts=approval_artifacts,
             resume_artifact=resume_artifact,
+        )
+
+    def _cancelled_state_patch(
+        self,
+        *,
+        state: WorkspaceGraphState,
+        serialized: dict[str, Any],
+        run_artifacts: list[dict[str, Any]],
+        approval_artifacts: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        run = lock_run_for_transition(
+            self.runner.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if not serialized.get("suppress_continuation") and not cancellation_wins(
+            self.runner.db,
+            run=run,
+            lock_request=False,
+        ):
+            return None
+        finalize_run_cancellation(self.runner.db, run=run)
+        return approval_resolved_state_patch(
+            state=state,
+            serialized=serialized,
+            status="cancelled",
+            run_artifacts=run_artifacts,
+            approval_artifacts=approval_artifacts,
         )
 
     @staticmethod

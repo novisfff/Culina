@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workflows.conversation_access import ConversationCapability, require_ai_conversation_access
+from app.ai.workflows.runner_support.run_status import ACTIVE_RUN_STATUSES
 from app.core.enums import AiMode, AIConversationVisibility
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, Food, Ingredient, Recipe
 
 
-ACTIVE_CONVERSATION_RUN_STATUSES = {"pending", "running", "waiting_input", "waiting_approval"}
+ACTIVE_CONVERSATION_RUN_STATUSES = ACTIVE_RUN_STATUSES
 
 
 

@@ -7,7 +7,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.ai.errors import AIConflictError
 from app.ai.workflows.conversations import require_conversation
+from app.ai.workflows.runner_support.run_status import WAITING_INPUT
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    lock_run_for_transition,
+)
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -45,7 +51,7 @@ class HumanInputResumePreparer:
         text: str | None,
         stream: bool,
     ) -> PreparedHumanInputResume:
-        require_conversation(
+        conversation = require_conversation(
             self.db,
             family_id=family_id,
             user_id=user_id,
@@ -64,10 +70,38 @@ class HumanInputResumePreparer:
                 request_id,
             )
             raise LookupError("用户补充信息请求不存在或已结束")
+        snapshot_values = snapshot.values or {}
+        snapshot_run_id = str(snapshot_values.get("run_id") or "")
+        if not snapshot_run_id:
+            raise AIConflictError("这次补充信息任务已取消或结束，请刷新后重试")
+        run = lock_run_for_transition(
+            self.db,
+            family_id=family_id,
+            run_id=snapshot_run_id,
+        )
+        if (
+            run.conversation_id != conversation.id
+            or run.status != WAITING_INPUT
+            or cancellation_wins(self.db, run=run, lock_request=False)
+        ):
+            raise AIConflictError("这次补充信息任务已取消或结束，请刷新后重试")
+        locked_snapshot = self.graph.get_state(config)
+        locked_values = locked_snapshot.values or {}
+        pending = (
+            locked_values.get("pending_human_input")
+            or locked_values.get("pendingHumanInput")
+            or {}
+        )
+        if (
+            not locked_snapshot.next
+            or str(locked_values.get("run_id") or "") != run.id
+            or str(pending.get("id") or "") != request_id
+        ):
+            raise AIConflictError("用户补充信息请求已变化，请刷新后重试")
         return PreparedHumanInputResume(
             config=config,
-            snapshot=snapshot,
-            run_id=str((snapshot.values or {}).get("run_id") or ""),
+            snapshot=locked_snapshot,
+            run_id=run.id,
             resume_payload=self.build_resume_payload(
                 request_id=request_id,
                 selected_option_ids=selected_option_ids,

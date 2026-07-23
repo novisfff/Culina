@@ -830,6 +830,23 @@ class AIAgentRun(Base):
     family: Mapped["Family"] = relationship(back_populates="ai_agent_runs")
 
 
+class AIRunCancelRequest(Base):
+    __tablename__ = "ai_run_cancel_requests"
+    __table_args__ = (
+        UniqueConstraint("family_id", "run_id", name="uq_ai_run_cancel_requests_family_run"),
+        Index("ix_ai_run_cancel_requests_family_status", "family_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("run_cancel"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    requested_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="requested", nullable=False)
+    outcome_code: Mapped[str] = mapped_column(String(64), default="cancel_requested", nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AIMessage(Base):
     __tablename__ = "ai_messages"
     __table_args__ = (

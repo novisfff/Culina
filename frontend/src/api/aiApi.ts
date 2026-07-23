@@ -10,6 +10,7 @@ import type {
   AiMessage,
   AiMessagePart,
   AiQualityMetrics,
+  AiRunCancellationResponse,
   AiRunLLMExchange,
   AiRunLLMExchangeResponse,
   AiStatus,
@@ -196,9 +197,11 @@ export const aiApi = {
   streamChatAi,
   streamCookingAssistantVoiceAi,
   cancelAiRun: (runId: string) =>
-    aiRequest<{ run: Record<string, unknown>; events: AiRunEvent[] }>(`/api/ai/runs/${runId}/cancel`, {
+    aiRequest<AiRunCancellationResponse>(`/api/ai/runs/${runId}/cancel`, {
       method: 'POST',
     }),
+  getAiRunCancellation: (runId: string) =>
+    aiRequest<AiRunCancellationResponse>(`/api/ai/runs/${runId}/cancellation`),
   retryAiRun: (runId: string) =>
     aiRequest<AiChatResponse>(`/api/ai/runs/${runId}/retry`, {
       method: 'POST',

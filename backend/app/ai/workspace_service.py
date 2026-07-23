@@ -36,7 +36,6 @@ from app.ai.workflows.conversations import (
 from app.ai.workflows.run_lifecycle import (
     build_regenerate_part_chat_request,
     build_retry_chat_request,
-    cancel_workspace_run,
 )
 from app.core.enums import AiMode
 from app.core.utils import create_id, utcnow
@@ -54,13 +53,18 @@ from app.services.ai_operations.experience import create_inventory_quick_draft_f
 from app.services.ai_operations.messages import append_message_result_card, approval_decision_artifacts_for_decision
 from app.services.ai_operations.recovery import load_operation_current_value
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.run_cancellation import (
+    apply_run_cancellation_request,
+    get_run_cancellation_result,
+    record_run_cancellation_request,
+    serialize_run_cancellation_result,
+)
 from app.ai.draft_contracts import DraftContractCapabilities
 from app.services.ai_client_projection import project_ai_approval, require_viewer_contract
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
     serialize_ai_run,
-    serialize_ai_run_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -403,16 +407,34 @@ class AIApplicationService:
         require_viewer_contract(approval.draft_schema_version, capabilities)
         return approval
 
-    def cancel_run(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
-        require_ai_run_access(
+    def record_run_cancellation(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+        request = record_run_cancellation_request(
             self.db,
             family_id=family_id,
             user_id=user_id,
             run_id=run_id,
-            capability="contribute",
         )
-        run, event = cancel_workspace_run(self.db, family_id=family_id, user_id=user_id, run_id=run_id)
-        return {"run": serialize_ai_run(run), "events": [serialize_ai_run_event(event)]}
+        return {"run_id": request.run_id, "status": request.status}
+
+    def apply_run_cancellation(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+        return serialize_run_cancellation_result(
+            apply_run_cancellation_request(
+                self.db,
+                family_id=family_id,
+                user_id=user_id,
+                run_id=run_id,
+            )
+        )
+
+    def get_run_cancellation(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+        return serialize_run_cancellation_result(
+            get_run_cancellation_result(
+                self.db,
+                family_id=family_id,
+                user_id=user_id,
+                run_id=run_id,
+            )
+        )
 
     def retry_run(
         self,

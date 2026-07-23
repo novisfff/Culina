@@ -5,6 +5,37 @@ from typing import Any
 from app.ai.workflows.state import WorkspaceGraphState
 
 
+def cancelled_human_input_request_parts(
+    parts: list[dict[str, Any]] | None,
+    *,
+    request_id: str,
+    cancelled_at: str,
+) -> list[dict[str, Any]]:
+    next_parts: list[dict[str, Any]] = []
+    for part in parts or []:
+        if not isinstance(part, dict):
+            continue
+        request = part.get("request") if isinstance(part.get("request"), dict) else {}
+        if part.get("type") != "human_input_request" or str(request.get("id") or "") != request_id:
+            next_parts.append(part)
+            continue
+        cancelled_part = dict(part)
+        cancelled_part.pop("response", None)
+        cancelled_part.pop("responded_at", None)
+        cancelled_part.update(
+            {
+                "status": "cancelled",
+                "cancelled_at": cancelled_at,
+                "cancellation": {
+                    "reason": "user_cancel",
+                    "message": "已取消这次任务",
+                },
+            }
+        )
+        next_parts.append(cancelled_part)
+    return next_parts
+
+
 def human_input_answer_summary(
     pending: dict[str, Any],
     selected_option_ids: list[str],

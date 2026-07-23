@@ -15,6 +15,11 @@ from app.ai.workflows.runner_support.run_status import (
 )
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -35,8 +40,21 @@ class RuntimeFailurePersister:
     ) -> None:
         try:
             self.db.rollback()
-            run = self.db.get(AIAgentRun, run_id)
-            if run is None or run.status in {*TERMINAL_RUN_STATUSES, WAITING_APPROVAL}:
+            try:
+                run = lock_run_for_transition(
+                    self.db,
+                    family_id=family_id,
+                    run_id=run_id,
+                )
+            except LookupError:
+                live_ai_stream_cache.clear_run(run_id)
+                return
+            if cancellation_wins(self.db, run=run):
+                finalize_run_cancellation(self.db, run=run)
+                self.db.commit()
+                live_ai_stream_cache.clear_run(run_id)
+                return
+            if run.status in {*TERMINAL_RUN_STATUSES, WAITING_APPROVAL}:
                 live_ai_stream_cache.clear_run(run_id)
                 return
             text = "AI 服务暂时不可用，请稍后重试。"

@@ -12,6 +12,7 @@ from app.models.domain import (
     AIMessage,
     AIOperation,
     AIRecommendation,
+    AIRunCancelRequest,
     AIRunEvent,
     AITaskDraft,
     Family,
@@ -579,6 +580,16 @@ def serialize_ai_run(item: AIAgentRun) -> dict:
         "status": item.status,
         "model": item.model,
         "created_at": _utc_datetime(item.created_at),
+    }
+
+
+def serialize_ai_run_cancel_request(item: AIRunCancelRequest) -> dict:
+    return {
+        "run_id": item.run_id,
+        "status": item.status,
+        "outcome_code": item.outcome_code,
+        "requested_at": _utc_datetime(item.requested_at),
+        "resolved_at": _utc_datetime(item.resolved_at) if item.resolved_at else None,
     }
 
 

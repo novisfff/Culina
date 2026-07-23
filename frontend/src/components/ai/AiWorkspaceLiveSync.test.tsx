@@ -1,5 +1,6 @@
 import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { aiApi } from '../../api/aiApi';
 import { api, ApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
@@ -1525,7 +1526,7 @@ describe('AiWorkspace live sync and conversation migration', () => {
     rendered.unmount();
   });
 
-  it('cancels one conversation stream without aborting another concurrent stream', async () => {
+  it('keeps cancellation state isolated between two conversations', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     const signals = new Map<string, AbortSignal>();
@@ -1540,8 +1541,21 @@ describe('AiWorkspace live sync and conversation migration', () => {
       }
       pending.set(conversationId, resolve);
     }));
-    vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
-      run: { id: 'run-cancelled', status: 'cancelled' },
+    vi.spyOn(aiApi, 'cancelAiRun').mockResolvedValue({
+      outcome: 'cancelled',
+      request: {
+        run_id: 'run-cancelled',
+        status: 'applied',
+        requested_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-cancelled',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'cancelled',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
       events: [],
     });
 

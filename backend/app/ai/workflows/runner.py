@@ -59,6 +59,7 @@ from app.ai.workflows.runner_support.run_summary import (
 from app.ai.workflows.runner_support.run_finalizer import RunFinalizer
 from app.ai.workflows.runner_support.run_status import (
     CANCELLED,
+    CANCELLING,
     COMPLETED,
     FAILED,
     PENDING,
@@ -77,6 +78,12 @@ from app.models.domain import (
     AIRunEvent,
     AIRunTraceSpan,
     AITaskDraft,
+)
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    is_run_cancellation_requested,
+    lock_run_for_transition,
 )
 from app.services.serializers import (
     serialize_ai_approval_request,
@@ -597,15 +604,27 @@ class WorkspaceGraphRunner:
         bind = self.db.get_bind()
         if bind.dialect.name == "sqlite":
             self.db.expire_all()
-            status = self.db.scalar(
-                select(AIAgentRun.status)
+            run = self.db.scalar(
+                select(AIAgentRun)
                 .where(AIAgentRun.id == run_id)
                 .execution_options(populate_existing=True)
             )
-            return status == CANCELLED
+            if run is None:
+                return False
+            return run.status in {CANCELLING, CANCELLED} or is_run_cancellation_requested(
+                self.db,
+                family_id=run.family_id,
+                run_id=run.id,
+            )
         with Session(bind=bind) as db:
-            status = db.scalar(select(AIAgentRun.status).where(AIAgentRun.id == run_id))
-            return status == CANCELLED
+            run = db.get(AIAgentRun, run_id)
+            if run is None:
+                return False
+            return run.status in {CANCELLING, CANCELLED} or is_run_cancellation_requested(
+                db,
+                family_id=run.family_id,
+                run_id=run.id,
+            )
 
     def _keep_running_after_disconnect(self, run_id: str | None) -> None:
         if not run_id:
@@ -727,14 +746,25 @@ class WorkspaceGraphRunner:
             next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
         if run_id:
-            run = self.db.get(AIAgentRun, run_id)
-            if run is not None:
+            run = lock_run_for_transition(
+                self.db,
+                family_id=family_id,
+                run_id=run_id,
+            )
+            if serialized.get("suppress_continuation") or cancellation_wins(
+                self.db,
+                run=run,
+                lock_request=False,
+            ):
+                finalize_run_cancellation(self.db, run=run)
+                next_status = CANCELLED
+            else:
                 run.status = next_status
-                run.context_summary = record_approval_outcome_summary(
-                    dict(run.context_summary or {}),
-                    approval_status=str(approval.get("status") or decision),
-                    draft_type=str(draft.get("draft_type") or ""),
-                )
+            run.context_summary = record_approval_outcome_summary(
+                dict(run.context_summary or {}),
+                approval_status=str(approval.get("status") or decision),
+                draft_type=str(draft.get("draft_type") or ""),
+            )
         conversation = self.db.get(AIConversation, conversation_id)
         if conversation is not None:
             conversation.last_run_status = next_status

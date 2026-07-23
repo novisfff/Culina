@@ -42,6 +42,7 @@ from app.schemas.ai import (
     AIRegistryResponse,
     AIRunLLMExchangeDTO,
     AIRunLLMExchangeResponse,
+    AIRunCancellationResponse,
     AIStatusResponse,
     AIRunEventDTO,
     AIRunTraceResponse,
@@ -944,22 +945,71 @@ def get_ai_run_llm_exchange(
     return serialize_ai_run_llm_exchange(exchange)
 
 
-@router.post("/api/ai/runs/{run_id}/cancel")
+@router.post("/api/ai/runs/{run_id}/cancel", response_model=AIRunCancellationResponse)
 def cancel_ai_run(
     run_id: str,
+    response: Response,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    service = AIApplicationService(db)
+    try:
+        service.record_run_cancellation(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+        commit_session(db)
+        result = service.apply_run_cancellation(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+        commit_session(db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if result["outcome"] == "run_not_cancellable":
+        run_status = result["run"]["status"] if isinstance(result.get("run"), dict) else ""
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "run_not_cancellable",
+                "run_status": run_status,
+                "recovery_hint": "refresh",
+            },
+        )
+    response.status_code = (
+        status.HTTP_202_ACCEPTED
+        if result["outcome"] == "cancel_requested"
+        else status.HTTP_200_OK
+    )
+    return result
+
+
+@router.get("/api/ai/runs/{run_id}/cancellation", response_model=AIRunCancellationResponse)
+def get_ai_run_cancellation(
+    run_id: str,
+    response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
     try:
-        result = AIApplicationService(db).cancel_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+        result = AIApplicationService(db).get_run_cancellation(
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except AIConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    commit_session(db)
+    if result["outcome"] == "run_not_cancellable":
+        run_status = result["run"]["status"] if isinstance(result.get("run"), dict) else ""
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "run_not_cancellable",
+                "run_status": run_status,
+                "recovery_hint": "refresh",
+            },
+        )
+    response.status_code = (
+        status.HTTP_202_ACCEPTED
+        if result["outcome"] == "cancel_requested"
+        else status.HTTP_200_OK
+    )
     return result
 
 
@@ -1110,6 +1160,8 @@ def respond_ai_human_input(
         )
     except ClientContractUpgradeRequired as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.to_detail()) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
@@ -1157,6 +1209,9 @@ def stream_ai_human_input_response(
                 yield encode(projected_event, projected_data)
         except ClientContractUpgradeRequired as exc:
             yield encode("error", {"detail": exc.to_detail(), "status": 409})
+            return
+        except AIConflictError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
             return
         except ValueError as exc:
             yield encode("error", {"detail": str(exc), "status": 400})

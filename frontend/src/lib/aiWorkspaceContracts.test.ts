@@ -31,6 +31,16 @@ function readFrontendDraftTypeValues() {
   return [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1] as AiTaskDraftType).sort();
 }
 
+function readFrontendLiteralValues(typeName: string) {
+  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types.ts');
+  const source = readFileSync(typesPath, 'utf8');
+  const match = source.match(new RegExp(`export type ${typeName} = ([^;]+);`));
+  if (!match) {
+    throw new Error(`Could not find frontend type ${typeName}`);
+  }
+  return [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1]).sort();
+}
+
 describe('AI workspace contract coverage', () => {
   it('has a renderer for every message part type', () => {
     const backendTypes = readBackendLiteralValues('AIMessagePartType');
@@ -53,5 +63,13 @@ describe('AI workspace contract coverage', () => {
     const backendTypes = readBackendLiteralValues('AITaskDraftType');
     const frontendTypes = readFrontendDraftTypeValues();
     expect(frontendTypes).toEqual(backendTypes);
+  });
+
+  it('includes cancelling and cancelled run and event statuses', () => {
+    expect(readFrontendLiteralValues('AiRunStatus')).toEqual(expect.arrayContaining([
+      'cancelling',
+      'cancelled',
+    ]));
+    expect(readFrontendLiteralValues('AiRunEventStatus')).toContain('cancelled');
   });
 });

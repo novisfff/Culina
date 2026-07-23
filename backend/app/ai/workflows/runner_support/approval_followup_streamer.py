@@ -25,7 +25,12 @@ from app.ai.workflows.runner_support.message_parts import (
 from app.ai.workflows.state import WorkspaceGraphState
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.models.domain import AIConversation, AIMessage
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -62,6 +67,8 @@ class ApprovalFollowupStreamer:
         terminal_status: str,
     ) -> None:
         followup_started_at = perf_counter()
+        if self.cancel_requested(state["run_id"]):
+            raise AIExecutionCancelled("AI run was cancelled")
         approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
         message = self._find_assistant_message(state, approval)
         if message is None:
@@ -313,6 +320,14 @@ class ApprovalFollowupStreamer:
         text: str,
         status: str,
     ) -> None:
+        run = lock_run_for_transition(
+            self.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if cancellation_wins(self.db, run=run):
+            finalize_run_cancellation(self.db, run=run)
+            raise AIExecutionCancelled("AI run was cancelled")
         existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
         existing_parts = [part for part in existing_parts if str(part.get("id") or "") != part_id]
         message.parts = [*existing_parts, text_message_part(part_id=part_id, text=text)]
@@ -334,7 +349,6 @@ class ApprovalFollowupStreamer:
         message.content_type = "parts"
         message.status = status
 
-        run = self.db.get(AIAgentRun, state["run_id"])
         conversation = self.db.get(AIConversation, state["conversation_id"])
         all_cards = result_cards_from_parts([part for part in (message.parts or []) if isinstance(part, dict)])
         if run is not None:

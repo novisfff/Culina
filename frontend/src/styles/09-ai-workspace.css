@@ -2209,8 +2209,10 @@
   }
 
   .ai-send-button {
-    width: 38px;
-    height: 38px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     border-radius: 999px;
     font-size: 1.05rem;
     box-shadow: var(--brand-button-shadow);
@@ -2725,13 +2727,13 @@
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
-  min-height: 38px;
-  max-width: 38px;
-  max-height: 38px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 44px;
+  max-height: 44px;
   padding: 0;
   border-radius: 50%;
   background: var(--brand-button-bg);

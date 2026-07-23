@@ -6,9 +6,10 @@ from datetime import datetime
 from threading import RLock
 from typing import Any
 
+from app.ai.workflows.runner_support.run_status import ACTIVE_RUN_STATUSES
 from app.core.utils import utcnow
 
-LIVE_OVERLAY_MESSAGE_STATUSES = {"pending", "running", "waiting_approval", "waiting_input"}
+LIVE_OVERLAY_MESSAGE_STATUSES = ACTIVE_RUN_STATUSES
 
 
 @dataclass

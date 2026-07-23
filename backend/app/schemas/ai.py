@@ -116,7 +116,7 @@ AIResultCardType = Literal[
     "recipe_shortage",
     "meal_idea_proposal",
 ]
-AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
+AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed", "cancelled"]
 AITaskDraftType = Literal[
     "recipe",
     "recipe_cook",
@@ -532,6 +532,21 @@ class AIRunEventDTO(BaseModel):
     user_message: str
     status: AIRunEventStatus
     created_at: datetime
+
+
+class AIRunCancellationRequestDTO(BaseModel):
+    run_id: str
+    status: Literal["requested", "applied"]
+    outcome_code: str
+    requested_at: datetime
+    resolved_at: datetime | None = None
+
+
+class AIRunCancellationResponse(BaseModel):
+    outcome: Literal["cancel_requested", "cancelled", "already_cancelled"]
+    request: AIRunCancellationRequestDTO
+    run: AIRunDTO | None = None
+    events: list[AIRunEventDTO] = Field(default_factory=list)
 
 
 class AIRunTraceSpanDTO(BaseModel):

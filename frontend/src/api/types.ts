@@ -1529,11 +1529,16 @@ export interface AiMessage {
   created_at: string;
 }
 
+export type AiRunStatus = 'pending' | 'running' | 'waiting_approval' | 'waiting_input' | 'cancelling' | 'completed' | 'failed' | 'fallback' | 'cancelled';
+export type AiRunEventStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type AiRunCancellationPhase = 'idle' | 'requesting' | 'cancelling' | 'cancelled' | 'failed';
+export type AiRunCancellationOutcome = 'cancel_requested' | 'cancelled' | 'already_cancelled';
+
 export interface AiRun {
   id: string;
   agent_key: string;
   intent: string;
-  status: string;
+  status: AiRunStatus;
   model: string;
   created_at: string;
 }
@@ -1544,8 +1549,20 @@ export interface AiRunEvent {
   type: string;
   internal_code: string;
   user_message: string;
-  status: 'pending' | 'running' | 'waiting' | 'completed' | 'failed';
+  status: AiRunEventStatus;
   created_at: string;
+}
+
+export interface AiRunCancellationResponse {
+  outcome: AiRunCancellationOutcome;
+  request: {
+    run_id: string;
+    status: 'requested' | 'applied';
+    requested_at: string;
+    resolved_at?: string | null;
+  };
+  run: AiRun | null;
+  events: AiRunEvent[];
 }
 
 export interface AiRunTraceSpan {

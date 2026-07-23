@@ -149,7 +149,11 @@ export function CookingAssistantPanel({
       playback.failStream(event.message);
     },
     onAssistantAudioTrace: recordBackendAudioTrace,
+    onCancellationAccepted: () => {
+      playback.stop();
+    },
   });
+  const isCancellationInFlight = assistant.cancellationPhase === 'requesting' || assistant.cancellationPhase === 'cancelling';
 
   function mergeVoiceTranscript(current: string, text: string) {
     const transcript = text.trim();
@@ -450,17 +454,23 @@ export function CookingAssistantPanel({
             <div className="recipe-cook-ai-confirm-note">{playback.error}</div>
           ) : null}
 
+          {assistant.cancellationError ? (
+            <div className="recipe-cook-ai-confirm-note" role="alert" aria-live="assertive">
+              {assistant.cancellationError}
+            </div>
+          ) : null}
+
           <form className="recipe-cook-ai-composer" onSubmit={submitMessage}>
             <input
               value={assistantState.draftMessage}
               onChange={(event) => assistantState.setDraftMessage(event.target.value)}
               placeholder="问这一步、食材或计时..."
-              disabled={assistant.isSending}
+              disabled={assistant.isSending || isCancellationInFlight}
             />
             <AiVoiceInputButton
               surface="recipe_cook_page"
               className="recipe-cook-ai-voice-btn"
-              disabled={assistant.isSending}
+              disabled={assistant.isSending || isCancellationInFlight}
               buttonRef={voiceButtonRef}
               enableHoldToSend
               onStateChange={(state) => setVoiceInputStatus(state.status)}
@@ -469,8 +479,16 @@ export function CookingAssistantPanel({
               }}
               onTranscript={handleVoiceTranscript}
             />
-            {assistant.isSending ? (
-              <button className="recipe-cook-ai-send-btn stop-mode" type="button" onClick={assistant.stop} title="停止">
+            {assistant.isSending || isCancellationInFlight ? (
+              <button
+                className="recipe-cook-ai-send-btn stop-mode"
+                type="button"
+                onClick={() => void assistant.stop()}
+                title={isCancellationInFlight ? '正在停止' : '停止'}
+                aria-label={isCancellationInFlight ? '正在停止小灶回复' : '停止小灶回复'}
+                aria-busy={isCancellationInFlight}
+                disabled={isCancellationInFlight}
+              >
                 <DashboardIcon name="x" />
               </button>
             ) : (

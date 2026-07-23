@@ -4023,8 +4023,10 @@
 .recipe-cook-ai-send-btn {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border: 0;
   border-radius: 999px;
   background: var(--accent, #D26B33);
@@ -4149,9 +4151,10 @@
   }
 
   .recipe-cook-ai-send-btn {
-    height: 36px;
-    min-height: 36px;
-    width: 36px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 

@@ -8,6 +8,8 @@ import type {
   AssistantAudioTraceEvent,
 } from '../../api/aiApi';
 import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
+import { abortAiStream, isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import { buildCookingActionTaskText, type CookingAssistantActionResult } from './cookingAssistantModel';
 import type { RecipeCookAssistantMessage, RecipeCookAssistantMessagePart } from './RecipeWorkspaceModel';
 
@@ -25,16 +27,27 @@ type CookingAssistantStreamArgs = {
   onAssistantAudioDone?: (event: AssistantAudioDoneEvent) => void;
   onAssistantAudioError?: (event: AssistantAudioErrorEvent) => void;
   onAssistantAudioTrace?: (event: AssistantAudioTraceEvent) => void;
+  onCancellationAccepted?: () => void;
 };
 
 function newClientId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-function streamFailureMessage(error: unknown) {
-  if (error instanceof DOMException && error.name === 'AbortError') return '已停止这次回复。';
-  if (error instanceof Error && error.message) return error.message;
-  return 'AI 小助手暂时没连上，请稍后再试。';
+function streamFailurePresentation(error: unknown, signal?: AbortSignal): {
+  text: string;
+  tone: CookingAssistantMessage['tone'];
+} {
+  if (signal && isExpectedAiStreamAbort(error, signal)) {
+    return { text: '已取消这次回复', tone: 'warning' };
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return { text: 'AI 小助手连接中断，请稍后再试。', tone: 'danger' };
+  }
+  if (error instanceof Error && error.message) {
+    return { text: error.message, tone: 'danger' };
+  }
+  return { text: 'AI 小助手暂时没连上，请稍后再试。', tone: 'danger' };
 }
 
 function resultTone(result: CookingAssistantActionResult): CookingAssistantMessage['tone'] {
@@ -45,6 +58,7 @@ function resultTone(result: CookingAssistantActionResult): CookingAssistantMessa
 
 function progressStatusText(status: AiRunEvent['status']) {
   if (status === 'completed') return '已完成';
+  if (status === 'cancelled') return '已取消';
   if (status === 'failed') return '失败';
   if (status === 'waiting') return '等待中';
   return '调用中';
@@ -52,6 +66,7 @@ function progressStatusText(status: AiRunEvent['status']) {
 
 function progressTone(status: AiRunEvent['status']): CookingAssistantMessage['tone'] {
   if (status === 'completed') return 'success';
+  if (status === 'cancelled') return 'warning';
   if (status === 'failed') return 'danger';
   if (status === 'waiting') return 'warning';
   return 'normal';
@@ -120,14 +135,46 @@ export function useCookingAssistantStream({
   onAssistantAudioDone,
   onAssistantAudioError,
   onAssistantAudioTrace,
+  onCancellationAccepted,
 }: CookingAssistantStreamArgs) {
   const [messages, setMessages] = useState<CookingAssistantMessage[]>(() => initialMessages.length ? initialMessages : [WELCOME_MESSAGE]);
   const [isSending, setIsSending] = useState(false);
   const [progressText, setProgressText] = useState('');
+  const [cancellationRunId, setCancellationRunId] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const activeRequestRef = useRef<{
+    runId: string;
+    assistantMessageId: string;
+    controller: AbortController;
+  } | null>(null);
   const handledCardIdsRef = useRef<Set<string>>(new Set());
   const onMessagesChangeRef = useRef(onMessagesChange);
   const lastInitialMessagesKeyRef = useRef(initialMessagesKey);
+  const runCancellation = useAiRunCancellation({
+    onConfirmed: (runId) => {
+      const activeRequest = activeRequestRef.current;
+      if (!activeRequest || activeRequest.runId !== runId) return;
+      setMessages((current) => current.map((message) => (
+        message.id === activeRequest.assistantMessageId
+          ? {
+              ...message,
+              text: '已取消这次回复',
+              tone: 'warning',
+              parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: '已取消这次回复' }],
+            }
+          : message
+      )));
+      if (abortRef.current === activeRequest.controller) {
+        abortRef.current = null;
+      }
+      activeRequestRef.current = null;
+      setProgressText('');
+      setIsSending(false);
+    },
+  });
+  const cancellationState = cancellationRunId
+    ? runCancellation.getCancellationState(cancellationRunId)
+    : { phase: 'idle' as const, error: '' };
 
   useEffect(() => {
     onMessagesChangeRef.current = onMessagesChange;
@@ -231,8 +278,19 @@ export function useCookingAssistantStream({
     const clientRunId = newClientId('cook-run');
     const assistantMessageId = newClientId('cook-assistant');
     const controller = new AbortController();
-    abortRef.current?.abort();
+    if (abortRef.current) {
+      abortAiStream(abortRef.current, { type: 'stream_replaced', runId: clientRunId });
+    }
     abortRef.current = controller;
+    activeRequestRef.current = { runId: clientRunId, assistantMessageId, controller };
+    setCancellationRunId(clientRunId);
+    runCancellation.clearCancellation(clientRunId);
+    controller.signal.addEventListener('abort', () => {
+      const reason = controller.signal.reason as { type?: unknown } | undefined;
+      if (reason?.type === 'cancel_accepted') {
+        onCancellationAccepted?.();
+      }
+    }, { once: true });
     setIsSending(true);
     setProgressText('小助手在看当前步骤');
     appendMessage({ id: clientMessageId, role: 'user', text: message });
@@ -247,6 +305,7 @@ export function useCookingAssistantStream({
         setIsSending(false);
       }
     };
+    let acceptedCancellation = false;
     try {
       const stream = voicePlaybackEnabled ? api.streamCookingAssistantVoiceAi : api.streamChatAi;
       const response = await stream({
@@ -271,14 +330,18 @@ export function useCookingAssistantStream({
       finishResponse(response);
     } catch (error) {
       if (responseHandled) return;
-      const messageText = streamFailureMessage(error);
+      if (isExpectedAiStreamAbort(error, controller.signal)) {
+        acceptedCancellation = true;
+        return;
+      }
+      const failure = streamFailurePresentation(error, controller.signal);
       setMessages((current) => current.map((messageItem) => (
         messageItem.id === assistantMessageId
           ? {
               ...messageItem,
-              text: messageText,
-              tone: messageText.includes('停止') ? 'warning' : 'danger',
-              parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: messageText }],
+              text: failure.text,
+              tone: failure.tone,
+              parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: failure.text }],
             }
           : messageItem
       )));
@@ -287,6 +350,9 @@ export function useCookingAssistantStream({
         abortRef.current = null;
         setProgressText('');
         setIsSending(false);
+      }
+      if (!acceptedCancellation && activeRequestRef.current?.controller === controller) {
+        activeRequestRef.current = null;
       }
     }
   }, [
@@ -301,6 +367,8 @@ export function useCookingAssistantStream({
     onAssistantAudioDone,
     onAssistantAudioError,
     onAssistantAudioStart,
+    onCancellationAccepted,
+    runCancellation,
     voicePlaybackEnabled,
   ]);
 
@@ -328,14 +396,14 @@ export function useCookingAssistantStream({
   }, []);
 
   const failExternalMessage = useCallback((assistantMessageId: string, error: unknown) => {
-    const messageText = streamFailureMessage(error);
+    const failure = streamFailurePresentation(error);
     setMessages((current) => current.map((message) => (
       message.id === assistantMessageId
         ? {
             ...message,
-            text: messageText,
-            tone: messageText.includes('停止') ? 'warning' : 'danger',
-            parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: messageText }],
+            text: failure.text,
+            tone: failure.tone,
+            parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: failure.text }],
           }
         : message
     )));
@@ -343,9 +411,15 @@ export function useCookingAssistantStream({
     setIsSending(false);
   }, []);
 
-  const stop = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  const stop = useCallback(async () => {
+    const activeRequest = activeRequestRef.current;
+    if (!activeRequest) return;
+    try {
+      await runCancellation.cancelRun(activeRequest.runId, activeRequest.controller);
+    } catch {
+      // cancellationError remains visible while the original stream continues.
+    }
+  }, [runCancellation]);
 
   const clearMessages = useCallback(() => {
     handledCardIdsRef.current = new Set();
@@ -356,6 +430,8 @@ export function useCookingAssistantStream({
     messages,
     isSending,
     progressText,
+    cancellationPhase: cancellationState.phase,
+    cancellationError: cancellationState.error,
     sendMessage,
     beginExternalMessage,
     appendExternalAssistantDelta: appendAssistantDelta,

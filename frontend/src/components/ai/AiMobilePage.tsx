@@ -44,6 +44,8 @@ type Props = {
   hasUploadingAttachment: boolean;
   hasFailedAttachment: boolean;
   isSending: boolean;
+  isCancellationInFlight: boolean;
+  cancellationError?: string;
   voiceInputStatus: 'idle' | 'recording' | 'recognizing';
   isComposerPaused: boolean;
   composerPauseMessage?: string;
@@ -287,6 +289,9 @@ export function AiMobilePage(props: Props) {
       ) : null}
 
       <div className="ai-composer-dock" ref={composerDockRef}>
+        {props.cancellationError ? (
+          <p className="ai-composer-pause-note" role="alert" aria-live="assertive">{props.cancellationError}</p>
+        ) : null}
         <AiComposerAttachments attachments={props.attachments} disabled={props.isComposerPaused || props.isSending} onRemove={props.onRemoveAttachment} />
         <form className="ai-composer" onSubmit={props.onSubmit} onDrop={props.onDropFiles} onDragOver={(event) => event.preventDefault()}>
           <input
@@ -337,15 +342,16 @@ export function AiMobilePage(props: Props) {
               className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
               type={props.isSending ? 'button' : 'submit'}
               disabled={
-                !props.isSending
-                && (
+                props.isCancellationInFlight
+                || (!props.isSending && (
                   props.isComposerPaused
                   || props.hasUploadingAttachment
                   || props.hasFailedAttachment
                   || (props.voiceInputStatus !== 'recording' && props.voiceInputStatus !== 'recognizing' && !props.draft.trim() && props.attachments.every((item) => item.status !== 'ready'))
-                )
+                ))
               }
-              aria-label={props.isSending ? '中止生成' : '发送消息'}
+              aria-label={props.isCancellationInFlight ? '正在停止生成' : props.isSending ? '中止生成' : '发送消息'}
+              aria-busy={props.isCancellationInFlight}
               onClick={props.isSending ? props.onCancelSending : undefined}
             >
               {props.isSending ? (

@@ -20,6 +20,11 @@ from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
 from app.services.ai_operations.messages import persist_message_artifacts
+from app.services.ai_operations.run_cancellation import (
+    cancellation_wins,
+    finalize_run_cancellation,
+    lock_run_for_transition,
+)
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -39,9 +44,15 @@ class RunFinalizer:
     def finalize(self, state: WorkspaceGraphState) -> dict[str, Any]:
         runner = self.runner
         finalize_started_at = perf_counter()
-        run = runner.db.get(AIAgentRun, state["run_id"])
+        run = lock_run_for_transition(
+            runner.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
         conversation = runner.db.get(AIConversation, state["conversation_id"])
-        status = self._final_status(state)
+        status = self._final_status(state, run=run)
+        if status == CANCELLED:
+            finalize_run_cancellation(runner.db, run=run)
         logger.info(
             "AI graph finalizing run_id=%s conversation_id=%s family_id=%s status=%s error=%s",
             state["run_id"],
@@ -71,7 +82,7 @@ class RunFinalizer:
         )
         if run is not None and run.status != WAITING_APPROVAL:
             run.status = status
-            run.error = state.get("error")
+            run.error = None if status == CANCELLED else state.get("error")
             if not run.output_summary:
                 run.output_summary = terminal_text[:255]
                 run.output = runner._json_record(
@@ -118,9 +129,9 @@ class RunFinalizer:
         )
         return {"status": status}
 
-    def _final_status(self, state: WorkspaceGraphState) -> str:
+    def _final_status(self, state: WorkspaceGraphState, *, run: AIAgentRun) -> str:
         status = str(state.get("status") or COMPLETED)
-        if self.runner._cancel_requested(state["run_id"]):
+        if cancellation_wins(self.runner.db, run=run):
             return CANCELLED
         if status == RUNNING and int(state.get("agent_rounds") or 0) >= self.max_agent_rounds:
             state["error"] = "agent round limit exceeded"

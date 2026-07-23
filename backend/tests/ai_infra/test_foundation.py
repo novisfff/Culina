@@ -916,6 +916,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 self.assertEqual(len(list(saver.list(config))), 1)
 
                 saver.delete_thread("conversation-1")
+                db.commit()
                 self.assertIsNone(saver.get_tuple(config))
                 self.assertEqual(db.query(AIGraphCheckpoint).count(), 0)
                 self.assertEqual(db.query(AIGraphWrite).count(), 0)
