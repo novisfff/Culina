@@ -45,6 +45,20 @@ def receive_json_with_timeout_skipping_audio_trace(websocket, timeout: float = 1
             return message
 
 
+def receive_json_until_type(websocket, event_type: str) -> dict:
+    while True:
+        message = receive_json_with_timeout(websocket, timeout=1.0)
+        if message.get("type") == event_type:
+            return message
+
+
+def receive_json_until_status(websocket, expected_status: str) -> dict:
+    while True:
+        message = receive_json_until_type(websocket, "status")
+        if message.get("status") == expected_status:
+            return message
+
+
 class FakeAudioService:
     def __init__(self) -> None:
         self.transcription_request = None
@@ -114,6 +128,23 @@ class AIAudioApiTestCase(unittest.TestCase):
         }
         values.update(overrides)
         return SimpleNamespace(**values)
+
+    def put_realtime_session(self, session_id: str) -> None:
+        realtime_voice_session_store.clear()
+        realtime_voice_session_store.put(
+            RealtimeVoiceSessionState(
+                session_id=session_id,
+                family_id="family-test",
+                user_id="user-test",
+                provider="dashscope",
+                recipe_id="recipe-test",
+                cook_session_id="cook-test",
+                session_revision=3,
+                subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+                created_at=utcnow(),
+                expires_at=utcnow() + timedelta(minutes=10),
+            )
+        )
 
     def test_transcription_rejects_when_voice_disabled(self) -> None:
         with patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_audio_enabled=False)):
@@ -332,6 +363,184 @@ class AIAudioApiTestCase(unittest.TestCase):
         self.assertIs(captured_service_sessions[0], created_sessions[0])
         self.assertIsNot(captured_service_sessions[0], parent_db)
         self.assertTrue(created_sessions[0].closed)
+
+    def test_cooking_voice_stream_forwards_client_run_id(self) -> None:
+        session_id = "voice_session-client-run-id-test"
+        self.put_realtime_session(session_id)
+        captured_client_run_ids: list[str | None] = []
+
+        async def fake_voice_events(*args, **kwargs):
+            del args
+            captured_client_run_ids.append(kwargs.get("client_run_id"))
+            yield {"type": "assistant_transcript_done", "text": "收到。"}
+
+        class FakeAIApplicationService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            def record_run_cancellation(self, **kwargs):
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancelled",
+                    "request": {"run_id": kwargs["run_id"], "status": "applied"},
+                    "run": {"id": kwargs["run_id"], "status": "cancelled"},
+                    "events": [],
+                }
+
+        app.dependency_overrides[get_db] = lambda: object()
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_tts_provider="disabled")),
+            patch("app.api.ai_audio._authenticate_websocket_token", return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test"))),
+            patch("app.api.ai_audio.stream_cooking_assistant_voice_events", side_effect=fake_voice_events),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json({"type": "user_transcript_done", "text": "下一步", "turn_id": "cook-run-client"})
+                receive_json_until_type(websocket, "assistant_transcript_done")
+
+        self.assertEqual(captured_client_run_ids, ["cook-run-client"])
+
+    def test_realtime_cancel_turn_persists_cancellation_before_ack(self) -> None:
+        session_id = "voice_session-cancel-turn-test"
+        self.put_realtime_session(session_id)
+        cancelled_run_ids: list[str] = []
+
+        async def blocking_voice_events(*args, **kwargs):
+            del args, kwargs
+            yield {"type": "assistant_transcript_delta", "text": "处理中。"}
+            await asyncio.Event().wait()
+
+        class FakeAIApplicationService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            def record_run_cancellation(self, **kwargs):
+                cancelled_run_ids.append(kwargs["run_id"])
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancelled",
+                    "request": {"run_id": kwargs["run_id"], "status": "applied"},
+                    "run": {"id": kwargs["run_id"], "status": "cancelled"},
+                    "events": [],
+                }
+
+        app.dependency_overrides[get_db] = lambda: object()
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_tts_provider="disabled")),
+            patch("app.api.ai_audio._authenticate_websocket_token", return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test"))),
+            patch("app.api.ai_audio.stream_cooking_assistant_voice_events", side_effect=blocking_voice_events),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json({"type": "user_transcript_done", "text": "下一步", "turn_id": "voice_turn-cancel"})
+                receive_json_until_type(websocket, "assistant_transcript_delta")
+                websocket.send_json({"type": "cancel_turn", "turn_id": "voice_turn-cancel"})
+                message = receive_json_until_type(websocket, "turn_cancelled")
+                self.assertEqual(message["turn_id"], "voice_turn-cancel")
+                self.assertEqual(cancelled_run_ids, ["voice_turn-cancel"])
+
+    def test_realtime_hangup_cancels_active_turn_before_close(self) -> None:
+        session_id = "voice_session-hangup-cancel-test"
+        self.put_realtime_session(session_id)
+        call_order: list[str] = []
+
+        async def blocking_voice_events(*args, **kwargs):
+            del args, kwargs
+            yield {"type": "assistant_transcript_delta", "text": "处理中。"}
+            await asyncio.Event().wait()
+
+        class FakeAIApplicationService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            def record_run_cancellation(self, **kwargs):
+                call_order.append(f"cancel:{kwargs['run_id']}")
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancelled",
+                    "request": {"run_id": kwargs["run_id"], "status": "applied"},
+                    "run": {"id": kwargs["run_id"], "status": "cancelled"},
+                    "events": [],
+                }
+
+        original_close = realtime_voice_session_store.close
+
+        def observe_close(closed_session_id: str):
+            call_order.append("close")
+            return original_close(closed_session_id)
+
+        app.dependency_overrides[get_db] = lambda: object()
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_tts_provider="disabled")),
+            patch("app.api.ai_audio._authenticate_websocket_token", return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test"))),
+            patch("app.api.ai_audio.stream_cooking_assistant_voice_events", side_effect=blocking_voice_events),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+            patch.object(realtime_voice_session_store, "close", side_effect=observe_close),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json({"type": "user_transcript_done", "text": "下一步", "turn_id": "voice_turn-hangup"})
+                receive_json_until_type(websocket, "assistant_transcript_delta")
+                websocket.send_json({"type": "hangup"})
+                self.assertEqual(receive_json_until_status(websocket, "closed")["status"], "closed")
+
+        self.assertLess(call_order.index("cancel:voice_turn-hangup"), call_order.index("close"))
+
+    def test_realtime_new_turn_cancels_previous_turn_through_service(self) -> None:
+        session_id = "voice_session-new-turn-cancel-test"
+        self.put_realtime_session(session_id)
+        cancelled_run_ids: list[str] = []
+
+        async def voice_events(*args, **kwargs):
+            del args
+            if kwargs["message"] == "第一句":
+                yield {"type": "assistant_transcript_delta", "text": "第一句处理中。"}
+                await asyncio.Event().wait()
+                return
+            yield {"type": "assistant_transcript_done", "text": "第二句完成。"}
+
+        class FakeAIApplicationService:
+            def __init__(self, db) -> None:
+                self.db = db
+
+            def record_run_cancellation(self, **kwargs):
+                cancelled_run_ids.append(kwargs["run_id"])
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancelled",
+                    "request": {"run_id": kwargs["run_id"], "status": "applied"},
+                    "run": {"id": kwargs["run_id"], "status": "cancelled"},
+                    "events": [],
+                }
+
+        app.dependency_overrides[get_db] = lambda: object()
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_tts_provider="disabled")),
+            patch("app.api.ai_audio._authenticate_websocket_token", return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test"))),
+            patch("app.api.ai_audio.stream_cooking_assistant_voice_events", side_effect=voice_events),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json({"type": "user_transcript_done", "text": "第一句", "turn_id": "voice_turn-first"})
+                receive_json_until_type(websocket, "assistant_transcript_delta")
+                websocket.send_json({"type": "user_transcript_done", "text": "第二句", "turn_id": "voice_turn-second"})
+                receive_json_until_type(websocket, "assistant_transcript_done")
+                self.assertEqual(cancelled_run_ids, ["voice_turn-first"])
 
     def test_realtime_dashscope_stt_delta_uses_send_callback(self) -> None:
         session = RealtimeVoiceSessionState(
@@ -602,6 +811,17 @@ class AIAudioApiTestCase(unittest.TestCase):
                     },
                 )
 
+            def record_run_cancellation(self, **kwargs):
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancel_requested",
+                    "request": {"run_id": kwargs["run_id"], "status": "requested"},
+                    "run": None,
+                    "events": [],
+                }
+
         def override_db():
             yield object()
 
@@ -854,6 +1074,17 @@ class AIAudioApiTestCase(unittest.TestCase):
                         "included": {"result_cards": []},
                     },
                 )
+
+            def record_run_cancellation(self, **kwargs):
+                return {"run_id": kwargs["run_id"], "status": "requested"}
+
+            def apply_run_cancellation(self, **kwargs):
+                return {
+                    "outcome": "cancel_requested",
+                    "request": {"run_id": kwargs["run_id"], "status": "requested"},
+                    "run": None,
+                    "events": [],
+                }
 
         def override_db():
             yield object()

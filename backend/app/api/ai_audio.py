@@ -421,8 +421,26 @@ async def cooking_realtime_session_ws(
     active_turn_id = ""
     current_turn_task: asyncio.Task | None = None
 
-    async def cancel_current_turn() -> None:
-        nonlocal current_turn_task
+    async def cancel_current_turn(*, reason: str) -> dict | None:
+        nonlocal active_turn_id, current_turn_task
+        run_id = active_turn_id
+        result = None
+        if run_id:
+            service = AIApplicationService(db)
+            service.record_run_cancellation(
+                family_id=session.family_id,
+                user_id=session.user_id,
+                run_id=run_id,
+            )
+            commit_session(db)
+            result = service.apply_run_cancellation(
+                family_id=session.family_id,
+                user_id=session.user_id,
+                run_id=run_id,
+            )
+            commit_session(db)
+        if active_turn_id == run_id:
+            active_turn_id = ""
         if current_turn_task is not None and not current_turn_task.done():
             current_turn_task.cancel()
             try:
@@ -430,12 +448,14 @@ async def cooking_realtime_session_ws(
             except asyncio.CancelledError:
                 pass
         current_turn_task = None
+        return result
 
     async def run_agent_turn(*, text: str, turn_id: str, expose_turn_id: bool) -> None:
         nonlocal active_turn_id
         if not text:
             if active_turn_id == turn_id:
                 await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+                active_turn_id = ""
             return
         await send_json(_with_turn_id({"type": "user_transcript_done", "text": text}, turn_id=turn_id, expose_turn_id=expose_turn_id))
         await send_json(_with_turn_id({"type": "status", "status": "thinking"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
@@ -448,6 +468,7 @@ async def cooking_realtime_session_ws(
                 message=text,
                 subject=session.subject,
                 provider=session.provider,
+                client_run_id=turn_id,
                 settings=settings,
                 service_factory=AIApplicationService,
                 tts_provider_factory=lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
@@ -467,6 +488,7 @@ async def cooking_realtime_session_ws(
         finally:
             if active_turn_id == turn_id:
                 await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+                active_turn_id = ""
 
     async def run_audio_turn(*, event: dict, turn_id: str, expose_turn_id: bool) -> None:
         await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_audio_received"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
@@ -493,8 +515,8 @@ async def cooking_realtime_session_ws(
         nonlocal active_turn_id, current_turn_task
         expose_turn_id = isinstance(event.get("turn_id"), str) and bool(str(event.get("turn_id")).strip())
         turn_id = str(event.get("turn_id") or create_id("voice_turn"))
+        await cancel_current_turn(reason="replaced_by_new_turn")
         active_turn_id = turn_id
-        await cancel_current_turn()
         event_type = event.get("type")
         if event_type == "audio_chunk_done":
             current_turn_task = asyncio.create_task(run_audio_turn(event=event, turn_id=turn_id, expose_turn_id=expose_turn_id))
@@ -510,11 +532,31 @@ async def cooking_realtime_session_ws(
                 await send_json({"type": "pong"})
                 continue
             if event_type == "hangup":
+                await cancel_current_turn(reason="hangup")
                 realtime_voice_session_store.close(session_id)
-                await cancel_current_turn()
                 await send_json({"type": "status", "status": "closed"})
                 await websocket.close(code=1000)
                 return
+            if event_type == "cancel_turn":
+                requested_turn_id = str(event.get("turn_id") or "").strip()
+                if not requested_turn_id or requested_turn_id != active_turn_id:
+                    await send_json(
+                        {
+                            "type": "error",
+                            "message": "Voice turn is not active",
+                            "turn_id": requested_turn_id,
+                        }
+                    )
+                    continue
+                result = await cancel_current_turn(reason="client_cancel")
+                outcome = str((result or {}).get("outcome") or "")
+                await send_json(
+                    {
+                        "type": "turn_cancel_requested" if outcome == "cancel_requested" else "turn_cancelled",
+                        "turn_id": requested_turn_id,
+                    }
+                )
+                continue
             if event_type == "audio_chunk_done":
                 await start_turn(event)
                 continue
@@ -523,5 +565,5 @@ async def cooking_realtime_session_ws(
                 continue
             await send_json({"type": "error", "message": "Unsupported voice event"})
     except WebSocketDisconnect:
-        await cancel_current_turn()
+        await cancel_current_turn(reason="disconnect")
         realtime_voice_session_store.close(session_id)
