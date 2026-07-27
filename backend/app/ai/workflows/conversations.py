@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
-from app.ai.workflows.conversation_access import ConversationCapability, require_ai_conversation_access
+from app.ai.workflows.conversation_access import (
+    ConversationCapability,
+    require_ai_conversation_access,
+    require_ai_run_access,
+)
 from app.ai.workflows.runner_support.run_status import ACTIVE_RUN_STATUSES
 from app.core.enums import AiMode, AIConversationVisibility
 from app.core.utils import create_id, utcnow
@@ -90,15 +94,13 @@ def find_idempotent_run(
     if len({item.id for item in candidates}) != 1:
         raise AIConflictError("消息标识与运行标识指向不同任务")
     run = candidates[0]
-    if run.conversation_id is not None:
-        require_ai_conversation_access(
-            db,
-            family_id=family_id,
-            user_id=user_id,
-            conversation_id=run.conversation_id,
-            capability="contribute",
-        )
-    return run
+    return require_ai_run_access(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        run_id=run.id,
+        capability="contribute",
+    )
 
 
 def find_active_conversation_run(db: Session, *, family_id: str, conversation_id: str) -> AIAgentRun | None:

@@ -214,6 +214,23 @@ def is_run_cancellation_requested(db: Session, *, family_id: str, run_id: str) -
     )
 
 
+def consume_precreated_run_cancellation(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    run_id: str,
+) -> bool:
+    request = _cancel_request(db, family_id=family_id, run_id=run_id, for_update=True)
+    if request is None:
+        return False
+    if request.requested_by != user_id:
+        db.delete(request)
+        db.flush()
+        return False
+    return request.status in {"requested", "applied"}
+
+
 def lock_run_for_transition(
     db: Session,
     *,

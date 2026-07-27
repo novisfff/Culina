@@ -1244,6 +1244,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                             model="fake-model",
                             duration_ms=100,
                             created_at=utcnow() - timedelta(minutes=3 - index),
+                            created_by=self.user.id,
                         )
                     )
                 db.commit()
@@ -1349,6 +1350,102 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             response = self.client.get("/api/ai/quality-metrics?limit=50")
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual({item["id"] for item in response.json()["recent_runs"]}, {"mine", "other-public"})
+
+        def test_quality_metrics_exclude_other_members_detached_runs_and_exchanges(self) -> None:
+            other_user, _ = self.create_family_member(user_id="user-quality-detached")
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        AIAgentRun(
+                            id="agent-run-quality-detached-mine",
+                            family_id=self.family.id,
+                            conversation_id=None,
+                            agent_key="workspace",
+                            feature_key="ai_workspace",
+                            intent="general_chat",
+                            input_summary="我的 detached run",
+                            context_summary={},
+                            status="completed",
+                            model="fake-model",
+                            created_at=utcnow(),
+                            created_by=self.user.id,
+                        ),
+                        AIAgentRun(
+                            id="agent-run-quality-detached-other",
+                            family_id=self.family.id,
+                            conversation_id=None,
+                            agent_key="workspace",
+                            feature_key="ai_workspace",
+                            intent="private_other_chat",
+                            input_summary="其他成员的 detached run",
+                            context_summary={},
+                            status="failed",
+                            model="private-model",
+                            created_at=utcnow(),
+                            created_by=other_user.id,
+                        ),
+                        AIRunLLMExchange(
+                            id="ai-exchange-quality-detached-mine",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-detached-mine",
+                            trace_id="ai-trace-quality-detached-mine",
+                            provider_round=1,
+                            attempt_index=1,
+                            mode="stream",
+                            model="fake-model",
+                            request_messages=[],
+                            request_tools=[],
+                            request_options={},
+                            response_message={},
+                            response_tool_calls=[],
+                            stream_chunks=[],
+                            input_tokens=100,
+                            output_tokens=20,
+                            total_tokens=120,
+                            estimated_cost_usd=0.001,
+                            status="completed",
+                            duration_ms=10,
+                            started_at=utcnow(),
+                        ),
+                        AIRunLLMExchange(
+                            id="ai-exchange-quality-detached-other",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-detached-other",
+                            trace_id="ai-trace-quality-detached-other",
+                            provider_round=1,
+                            attempt_index=1,
+                            mode="stream",
+                            model="private-model",
+                            request_messages=[],
+                            request_tools=[],
+                            request_options={},
+                            response_message={},
+                            response_tool_calls=[],
+                            stream_chunks=[],
+                            input_tokens=900,
+                            output_tokens=80,
+                            total_tokens=980,
+                            estimated_cost_usd=0.009,
+                            status="failed",
+                            error_code="private_provider_error",
+                            duration_ms=20,
+                            started_at=utcnow(),
+                        ),
+                    ]
+                )
+                db.commit()
+
+            response = self.client.get("/api/ai/quality-metrics?limit=50")
+
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(
+                [item["id"] for item in data["recent_runs"]],
+                ["agent-run-quality-detached-mine"],
+            )
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["exchangeCount"], 1)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["totalTokens"], 120)
+            self.assertNotIn("private_provider_error", data["trace_metrics"]["errorCodes"])
 
         def test_approval_config_matrix_maps_supported_actions_to_real_approval_types(self) -> None:
             cases = [
