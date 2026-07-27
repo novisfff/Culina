@@ -36,7 +36,10 @@ QUALITY_METRIC_KEYS = (
 
 def accessible_ai_run_clause(user_id: str):
     return or_(
-        AIAgentRun.conversation_id.is_(None),
+        and_(
+            AIAgentRun.conversation_id.is_(None),
+            AIAgentRun.created_by == user_id,
+        ),
         and_(
             AIConversation.owner_user_id.is_not(None),
             or_(
