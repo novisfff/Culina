@@ -3,15 +3,17 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-describe('legacy smoke module boundary', () => {
-  it('can be imported without starting the legacy suite and exports its API mock installer', () => {
-    const smokeUrl = pathToFileURL(resolve(process.cwd(), 'scripts/smoke.mjs')).href;
+describe('P0 API mock module boundary', () => {
+  it('can be imported without side effects and exports its installer', () => {
+    const fixtureUrl = pathToFileURL(
+      resolve(process.cwd(), 'e2e/fixtures/apiMocks.mjs'),
+    ).href;
     const probe = spawnSync(
       process.execPath,
       [
         '--input-type=module',
         '--eval',
-        `const module = await import(${JSON.stringify(smokeUrl)});
+        `const module = await import(${JSON.stringify(fixtureUrl)});
          process.exit(typeof module.installApiMocks === 'function' ? 0 : 2);`,
       ],
       { encoding: 'utf8', timeout: 10_000 },

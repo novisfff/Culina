@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { installApiMocks } from '../../scripts/smoke.mjs';
+import { installApiMocks } from './apiMocks.mjs';
 
 export const test = base.extend({
   authenticated: [true, { option: true }],

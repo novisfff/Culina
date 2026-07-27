@@ -22,7 +22,7 @@
 npm run dev
 npm run build
 npm test
-npm --prefix frontend run smoke
+npm run frontend:e2e:p0
 ```
 
 ## 2. 职责分层
@@ -147,7 +147,7 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 - 文档或注释变更不要求跑完整前端测试。
 - model/helper 变更至少跑对应单测。
 - 页面结构、工作区编排、`app/` 组合或状态流变更至少跑 `frontend:quality`、`frontend:build`。
-- 响应式、移动端或导航变更应补跑 `smoke`。
+- 响应式、移动端或导航变更应补跑 `frontend:e2e:p0`。
 - 修改 CSS、ui-kit 或样式 token 时运行 `check:style-tokens`；该脚本是报告型检查，发现命中后必须人工判断是否为新增漂移，不能把退出码 0 当作样式验收通过。
 - 修改 AI message part、结果卡片、草稿类型或其他跨端 AI contract 时，补跑 `aiWorkspaceContracts.test.ts`，并按风险运行对应页面测试。
 
@@ -156,7 +156,7 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 ```bash
 npm run frontend:quality
 npm run frontend:build
-npm run frontend:smoke
+npm run frontend:e2e:p0
 npm --prefix frontend run check:style-tokens
 npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts
 ```

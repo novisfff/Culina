@@ -1,6 +1,6 @@
 # Culina P0 浏览器测试
 
-这里保存已经从 `scripts/smoke.mjs` 迁出的阻断式 P0 浏览器测试。测试使用标准 Playwright Test runner，但暂时复用 legacy smoke 的完整 API fixture。剩余长尾场景仍可通过本地 legacy smoke 手动检查，但不再作为 CI job 运行。
+这里保存阻断式 P0 浏览器测试。测试使用标准 Playwright Test runner 和独立的 `e2e/fixtures/apiMocks.mjs`，不依赖预览脚本或外部后端。
 
 ## 本地运行
 
@@ -40,8 +40,8 @@ npm run frontend:e2e:p0
 
 ## CI 门禁与渐进迁移
 
-`Frontend E2E P0` 是阻断式门禁，覆盖登录入口、家庭首页、食物与食材导航、吃过的页面以及记一餐弹窗。首批视觉基线覆盖三个代表视口的登录卡；记一餐弹窗暂时使用可见状态、搜索交互和 legacy smoke 几何断言。它没有 `continue-on-error`。
+`Frontend E2E P0` 是阻断式门禁，覆盖登录入口、家庭首页、食物与食材导航、吃过的页面以及记一餐弹窗。首批视觉基线覆盖三个代表视口的登录卡；记一餐弹窗校验可见状态和搜索交互。它没有 `continue-on-error`。
 
 同仓库 PR 的 P0 Artifact 会由受信任的 `Publish Playwright Report` 工作流发布到 `https://novisfff.github.io/Culina/playwright/pr-<PR编号>/`，并通过一条稳定的 PR 评论提供入口。每次提交覆盖同一 PR 的旧报告，失败报告同样发布；PR 关闭时删除对应页面。fork PR 不自动公开报告，只保留 Actions Artifact。
 
-Legacy smoke 已从 CI 移除。`scripts/smoke.mjs` 暂时保留为本地回归入口和 P0 API mock 来源；迁移 fixture 前不要删除该文件。GitHub 分支保护应把 `Frontend E2E P0` 配置为 required check。
+Legacy smoke runner 和 CI job 均已移除；`Frontend E2E P0` 是唯一的浏览器 CI 门禁。GitHub 分支保护应把它配置为 required check。
