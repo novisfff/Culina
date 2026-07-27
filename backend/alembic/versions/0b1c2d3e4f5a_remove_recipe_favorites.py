@@ -28,9 +28,6 @@ def upgrade() -> None:
         "AND ai_task_drafts.draft_type = 'recipe' "
         "AND JSON_UNQUOTE(JSON_EXTRACT(ai_task_drafts.payload, '$.action')) = 'set_favorite'"
     )
-    op.drop_index("ix_recipe_favorites_user_id", table_name="recipe_favorites")
-    op.drop_index("ix_recipe_favorites_recipe_id", table_name="recipe_favorites")
-    op.drop_index("ix_recipe_favorites_family_id", table_name="recipe_favorites")
     op.drop_table("recipe_favorites")
 
 
