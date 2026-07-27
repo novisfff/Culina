@@ -114,7 +114,7 @@ jobs:
               process.env.ARTIFACT_AVAILABLE === 'true' &&
               process.env.PUBLISH_OUTCOME === 'success';
             const reportLine = published
-              ? `### [一键查看 Playwright HTML 报告](${reportUrl})`
+              ? `### [查看 Playwright HTML 报告](${reportUrl})`
               : process.env.ARTIFACT_AVAILABLE === 'true'
                 ? '### Playwright HTML 报告发布失败'
                 : '### Playwright HTML 报告未生成';
