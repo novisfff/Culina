@@ -1,12 +1,7 @@
 
 const now = '2026-06-01T08:00:00.000Z';
 const today = '2026-06-01';
-const homeToday = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-}).format(new Date());
+const homeToday = '2026-07-12';
 
 const user = {
   id: 'user-smoke',
@@ -702,6 +697,63 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
       return;
     }
 
+    if (request.method() === 'POST' && url.pathname === '/api/auth/login') {
+      await fulfillJson(route, authResponse);
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/meal-logs/record') {
+      let body = {};
+      try {
+        body = request.postDataJSON() ?? {};
+      } catch {
+        body = {};
+      }
+      const createdEntries = (body.entries ?? []).map((entry, index) => {
+        const selectedFood = p0Fixtures['/api/foods'].find(
+          (item) => item.id === entry.food_id,
+        );
+        return {
+          id: `entry-p0-${index + 1}`,
+          food_id: entry.food_id ?? entry.client_food_id ?? `food-p0-${index + 1}`,
+          food_name: selectedFood?.name ?? 'P0 测试食物',
+          servings: entry.servings ?? 1,
+          note: '',
+          rating: null,
+        };
+      });
+      await fulfillJson(route, {
+        meal_log: {
+          id: 'meal-p0-recorded',
+          family_id: family.id,
+          date: body.date ?? homeToday,
+          meal_type: body.meal_type ?? 'breakfast',
+          food_entries: createdEntries,
+          participant_user_ids: [member.id],
+          notes: '',
+          mood: '',
+          photos: [],
+          deduction_suggestions: [],
+          row_version: 1,
+          created_at: '2026-07-12T01:00:00.000Z',
+          updated_at: '2026-07-12T01:00:00.000Z',
+          created_by: user.id,
+          updated_by: user.id,
+        },
+        created_foods: [],
+        outcome: 'created',
+        operation: {
+          id: 'operation-p0-recorded',
+          status: 'applied',
+          revertible_until: '2026-07-12T01:15:00.000Z',
+          can_revert: true,
+          created_entry_ids: createdEntries.map((entry) => entry.id),
+        },
+        completed_plan_item_ids: [],
+      });
+      return;
+    }
+
     const fixture = request.method() === 'GET' ? p0Fixtures[url.pathname] : undefined;
     if (fixture !== undefined) {
       await fulfillJson(route, fixture);
@@ -721,7 +773,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization,content-type',
-    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
   };
 }
 

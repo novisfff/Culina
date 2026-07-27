@@ -26,7 +26,7 @@ async function stabilizeDarwinVisualGutter(page) {
 test.describe('P0 unauthenticated entry', () => {
   test.use({ authenticated: false });
 
-  test('@p0 renders the family-kitchen login entry', async ({ app }, testInfo) => {
+  test('@p0 signs in and restores the family kitchen session', async ({ app }, testInfo) => {
     const { page } = app;
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -37,14 +37,35 @@ test.describe('P0 unauthenticated entry', () => {
     await stabilizeDarwinVisualGutter(page);
     await expect(page.locator('.login-card')).toHaveScreenshot('login-card.png');
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-login-entry');
+
+    const loginRequestPromise = page.waitForRequest(
+      (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login',
+    );
+    await page.getByLabel('用户名').fill('smoke');
+    await page.getByLabel('密码').fill('p0-password');
+    await page.getByRole('button', { name: '进入家庭厨房' }).click();
+
+    const loginRequest = await loginRequestPromise;
+    expect(loginRequest.postDataJSON()).toEqual({
+      username: 'smoke',
+      password: 'p0-password',
+    });
+    await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
+    expect(
+      await page.evaluate(() => localStorage.getItem('culina-access-token')),
+    ).toBe('smoke-token');
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
   });
 });
 
 test.describe('P0 authenticated family workflow', () => {
-  test('@p0 opens food, ingredient, meal-history, and meal-recording surfaces', async ({ app }, testInfo) => {
+  test('@p0 navigates family surfaces and records a planned meal', async ({ app }, testInfo) => {
     const { page, requestedApiPaths } = app;
     const isPhone = testInfo.project.name === 'phone-375x812';
 
+    await page.clock.setFixedTime(new Date('2026-07-12T09:00:00+08:00'));
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const homeSurface = page.locator(isPhone ? '.mobile-dashboard-page' : '.dashboard-page');
@@ -56,6 +77,8 @@ test.describe('P0 authenticated family workflow', () => {
       .toBe(true);
     expect(requestedApiPaths).not.toContain('/api/activity-logs');
     await expectNoHorizontalOverflow(page);
+    await stabilizeDarwinVisualGutter(page);
+    await expect(page).toHaveScreenshot('family-home.png', { timeout: 15_000 });
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-family-home');
 
     await page.getByRole('button', { name: '吃什么' }).first().click();
@@ -91,16 +114,37 @@ test.describe('P0 authenticated family workflow', () => {
     await expect(mealComposer).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '确认时间' })).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '添加食物' })).toBeVisible();
+    await expect(mealComposer).toHaveScreenshot('meal-composer.png', { timeout: 15_000 });
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-meal-composer');
 
     const foodSearch = mealComposer.getByRole('searchbox', { name: '搜索食物' });
     await foodSearch.fill('番茄');
-    await expect(mealComposer.getByRole('listbox', { name: '食物搜索结果' })).toBeVisible();
-    await foodSearch.clear();
-    await expect(mealComposer.locator('.meal-composer-date-strip')).toBeVisible();
+    const searchResults = mealComposer.getByRole('listbox', { name: '食物搜索结果' });
+    await expect(searchResults).toBeVisible();
+    await searchResults.getByRole('option', { name: /番茄炒蛋/ }).click();
+    await expect(mealComposer.getByRole('listitem').filter({ hasText: '番茄炒蛋' })).toBeVisible();
 
-    await mealComposer.getByLabel('关闭弹窗').click();
+    const recordRequestPromise = page.waitForRequest(
+      (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/api/meal-logs/record',
+    );
+    await mealComposer.getByRole('button', { name: '记下这餐' }).click();
+    const recordRequest = await recordRequestPromise;
+    const recordPayload = recordRequest.postDataJSON();
+    expect(recordPayload).toMatchObject({
+      date: '2026-07-12',
+      target: { kind: 'new' },
+    });
+    expect(recordPayload.entries).toEqual(
+      expect.arrayContaining([{ food_id: 'food-egg', servings: 1 }]),
+    );
+    expect(recordPayload.client_request_id).toEqual(expect.any(String));
+    expect(['breakfast', 'lunch', 'dinner', 'snack']).toContain(recordPayload.meal_type);
+
     await expect(mealComposer).toBeHidden();
+    const recordResult = page.locator('.meal-record-result-bar:visible').first();
+    await expect(recordResult).toBeVisible();
+    await expect(recordResult.getByText('已记下', { exact: true })).toBeVisible();
+    await expect(recordResult).toContainText('番茄炒蛋');
     await expectNoHorizontalOverflow(page);
   });
 });

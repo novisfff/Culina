@@ -17,13 +17,13 @@ P0 固定覆盖三个代表视口：
 - tablet：1180×820，触屏横屏；
 - desktop：1440×960。
 
-失败证据写入：
+测试覆盖真实登录成功、核心工作区导航和“记一餐”成功写入。失败证据写入：
 
 - HTML 报告：`frontend/playwright-report/index.html`；
 - Trace、失败截图和视频：`frontend/test-results/`；
 - 受 Git 管理的视觉基线：`frontend/e2e/__screenshots__/`，文件名按 `darwin` 和 `linux` 分平台保存。
 
-成功的 HTML 报告也会附带登录入口、家庭首页、食材页和记一餐弹窗的关键节点截图，便于人工快速抽检。这些截图只存入本次报告，不作为视觉基线提交。
+登录卡、家庭首页视口和记一餐弹窗同时参与截图回归。成功的 HTML 报告还会附带登录入口、家庭首页、食材页和记一餐弹窗的关键节点截图，便于人工快速抽检。
 
 配置使用 `trace: retain-on-failure`、`screenshot: only-on-failure` 和 `video: retain-on-failure`。CI 无重试，避免偶发通过掩盖不稳定用例。
 
@@ -40,7 +40,7 @@ npm run frontend:e2e:p0
 
 ## CI 门禁与渐进迁移
 
-`Frontend E2E P0` 是阻断式门禁，覆盖登录入口、家庭首页、食物与食材导航、吃过的页面以及记一餐弹窗。首批视觉基线覆盖三个代表视口的登录卡；记一餐弹窗校验可见状态和搜索交互。它没有 `continue-on-error`。
+`Frontend E2E P0` 是阻断式门禁，覆盖登录成功与会话恢复、家庭首页、食物与食材导航、吃过的页面以及记一餐成功写入。视觉基线覆盖三个代表视口的登录卡、家庭首页视口和记一餐弹窗。它没有 `continue-on-error`。
 
 同仓库 PR 的 P0 Artifact 会由受信任的 `Publish Playwright Report` 工作流发布到 `https://novisfff.github.io/Culina/playwright/pr-<PR编号>/`，并通过一条稳定的 PR 评论提供入口。每次提交覆盖同一 PR 的旧报告，失败报告同样发布；PR 关闭时删除对应页面。fork PR 不自动公开报告，只保留 Actions Artifact。
 
