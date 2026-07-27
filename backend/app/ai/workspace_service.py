@@ -117,6 +117,7 @@ class AIApplicationService:
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+        discard_history_on_terminal: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -131,6 +132,7 @@ class AIApplicationService:
             subject=subject,
             attachments=attachments,
             generation_contracts=frozenset(generation_contracts or ()),
+            discard_history_on_terminal=discard_history_on_terminal,
         )
 
     def normalize_subject(self, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:

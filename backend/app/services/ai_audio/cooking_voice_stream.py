@@ -14,7 +14,6 @@ from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.core.config import get_settings
 from app.core.config import Settings
 from app.core.utils import create_id
-from app.db.transactions import commit_session
 from app.services.ai_audio.dashscope_audio import DashScopeAudioProvider
 from app.services.ai_audio.providers import normalize_provider
 from app.services.ai_audio.schemas import SpeechRequest
@@ -117,6 +116,7 @@ async def stream_cooking_assistant_voice_events(
                 quick_task="cooking_assistant",
                 subject=subject,
                 attachments=[],
+                discard_history_on_terminal=True,
             ):
                 if stop_event.is_set():
                     break
@@ -148,11 +148,6 @@ async def stream_cooking_assistant_voice_events(
                             continue
                         seen_cards.add(card_id)
                         emit({"type": "ui_actions", "card": card})
-                    from app.api.ai import _discard_transient_chat_history
-
-                    _discard_transient_chat_history(worker_db, family_id=family_id, response=data)
-                    if hasattr(worker_db, "commit"):
-                        commit_session(worker_db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)
                     final_text = "".join(assistant_text_parts).strip() or _text_from_response_message(data)

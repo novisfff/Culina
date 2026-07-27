@@ -135,6 +135,212 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
         delete_response = self.client.delete(f"/api/ai/conversations/{conversation.id}")
         self.assertEqual(delete_response.status_code, 409, delete_response.text)
 
+    def test_delete_scrubs_run_observability_and_unbinds_message_attachments(self) -> None:
+        conversation = self._persist_conversation(
+            "conversation-delete-sensitive-data",
+            self.user.id,
+            AIConversationVisibility.PRIVATE,
+        )
+        with self.SessionLocal() as db:
+            message = AIMessage(
+                id="message-delete-sensitive-data",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                role="user",
+                content="我对花生过敏",
+                content_type="parts",
+                parts=[
+                    {"type": "text", "text": "我对花生过敏"},
+                    {"type": "image", "image": {"media_id": "media-delete-sensitive-data"}},
+                ],
+                status="completed",
+                created_by=self.user.id,
+            )
+            run = AIAgentRun(
+                id="run-delete-sensitive-data",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=message.id,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="general_chat",
+                input_summary="我对花生过敏",
+                context_summary={
+                    "runMetrics": {"toolCallCount": 2},
+                    "pendingHumanInput": {"question": "还会对什么过敏？"},
+                },
+                output_summary="已记录你的过敏信息",
+                error_code="provider_timeout",
+                status="failed",
+                model="fake-model",
+                input={"prompt": "我对花生过敏", "conversation": [{"content": "家庭私密历史"}]},
+                output={"text": "已记录你的过敏信息"},
+                tool_calls=[{"tool": "food.read", "input": {"name": "花生"}}],
+                error="包含用户原始输入的 provider 错误",
+                duration_ms=321,
+                created_by=self.user.id,
+            )
+            event = AIRunEvent(
+                id="event-delete-sensitive-data",
+                family_id=self.family.id,
+                run_id=run.id,
+                conversation_id=conversation.id,
+                type="progress",
+                internal_code="working",
+                user_message="正在处理花生过敏信息",
+                status="completed",
+                payload={"prompt": "我对花生过敏"},
+            )
+            trace = AIRunTraceSpan(
+                id="trace-delete-sensitive-data",
+                family_id=self.family.id,
+                run_id=run.id,
+                conversation_id=conversation.id,
+                trace_id="trace-delete-sensitive-data",
+                span_id="span-delete-sensitive-data",
+                parent_span_id=None,
+                span_type="graph",
+                name="workspace_graph",
+                status="failed",
+                duration_ms=123,
+                input_summary={"prompt": "我对花生过敏"},
+                output_summary={"text": "已记录你的过敏信息"},
+                error_code="provider_timeout",
+                error_message="包含用户输入的错误",
+                exception_type="RuntimeError",
+                payload={"subject": {"notes": "家庭私密信息"}},
+                created_by=self.user.id,
+            )
+            exchange = AIRunLLMExchange(
+                id="exchange-delete-sensitive-data",
+                family_id=self.family.id,
+                run_id=run.id,
+                conversation_id=conversation.id,
+                trace_id=trace.trace_id,
+                span_id=trace.span_id,
+                provider_round=1,
+                attempt_index=1,
+                mode="toolcall",
+                model="fake-model",
+                request_messages=[{"role": "user", "content": "我对花生过敏"}],
+                request_tools=[{"name": "food.read"}],
+                request_options={"subject": {"notes": "家庭私密信息"}},
+                request_original_digest="request-original-digest",
+                request_original_bytes=100,
+                request_digest="request-digest",
+                request_bytes=80,
+                request_truncated=False,
+                response_message={"role": "assistant", "content": "已记录你的过敏信息"},
+                response_text="已记录你的过敏信息",
+                response_tool_calls=[{"name": "food.read", "arguments": {"name": "花生"}}],
+                stream_chunks=[{"text": "已记录"}],
+                response_original_digest="response-original-digest",
+                response_original_bytes=60,
+                response_digest="response-digest",
+                response_bytes=50,
+                response_truncated=False,
+                input_tokens=20,
+                output_tokens=10,
+                total_tokens=30,
+                cached_tokens=5,
+                estimated_cost_usd=0.01,
+                token_usage={"prompt_tokens": 20, "completion_tokens": 10},
+                status="failed",
+                error_code="provider_timeout",
+                error_message="包含用户输入的错误",
+                duration_ms=234,
+                created_by=self.user.id,
+            )
+            attachment = MediaAsset(
+                id="media-delete-sensitive-data",
+                family_id=self.family.id,
+                name="allergy.jpg",
+                url="/media/family-test/allergy.jpg",
+                file_path="family-test/allergy.jpg",
+                source=MediaSource.UPLOAD,
+                alt="过敏检测结果",
+                entity_type="ai_message",
+                entity_id=message.id,
+                created_by=self.user.id,
+            )
+            transferred = MediaAsset(
+                id="media-delete-transferred",
+                family_id=self.family.id,
+                name="recipe.jpg",
+                url="/media/family-test/recipe.jpg",
+                file_path="family-test/recipe.jpg",
+                source=MediaSource.UPLOAD,
+                alt="正式菜谱图片",
+                entity_type="recipe",
+                entity_id="recipe-kept-after-conversation-delete",
+                created_by=self.user.id,
+            )
+            db.add_all([message, run, event, trace, exchange, attachment, transferred])
+            db.commit()
+
+        response = self.client.delete(f"/api/ai/conversations/{conversation.id}")
+        self.assertEqual(response.status_code, 204, response.text)
+
+        with self.SessionLocal() as db:
+            self.assertIsNone(db.get(AIConversation, conversation.id))
+            self.assertIsNone(db.get(AIMessage, "message-delete-sensitive-data"))
+            self.assertIsNone(db.get(AIRunEvent, "event-delete-sensitive-data"))
+
+            run = db.get(AIAgentRun, "run-delete-sensitive-data")
+            assert run is not None
+            self.assertIsNone(run.conversation_id)
+            self.assertIsNone(run.message_id)
+            self.assertEqual(run.input_summary, "")
+            self.assertEqual(run.context_summary, {"runMetrics": {"toolCallCount": 2}})
+            self.assertEqual(run.output_summary, "")
+            self.assertEqual(run.input, {})
+            self.assertEqual(run.output, {})
+            self.assertEqual(run.tool_calls, [])
+            self.assertIsNone(run.error)
+            self.assertEqual(run.error_code, "provider_timeout")
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(run.model, "fake-model")
+            self.assertEqual(run.duration_ms, 321)
+
+            trace = db.get(AIRunTraceSpan, "trace-delete-sensitive-data")
+            assert trace is not None
+            self.assertIsNone(trace.conversation_id)
+            self.assertEqual(trace.input_summary, {})
+            self.assertEqual(trace.output_summary, {})
+            self.assertIsNone(trace.error_message)
+            self.assertIsNone(trace.exception_type)
+            self.assertEqual(trace.payload, {})
+            self.assertEqual(trace.error_code, "provider_timeout")
+            self.assertEqual(trace.duration_ms, 123)
+
+            exchange = db.get(AIRunLLMExchange, "exchange-delete-sensitive-data")
+            assert exchange is not None
+            self.assertIsNone(exchange.conversation_id)
+            self.assertEqual(exchange.request_messages, [])
+            self.assertEqual(exchange.request_tools, [])
+            self.assertEqual(exchange.request_options, {})
+            self.assertEqual(exchange.request_original_digest, "")
+            self.assertEqual(exchange.request_digest, "")
+            self.assertEqual(exchange.response_message, {})
+            self.assertIsNone(exchange.response_text)
+            self.assertEqual(exchange.response_tool_calls, [])
+            self.assertEqual(exchange.stream_chunks, [])
+            self.assertEqual(exchange.response_original_digest, "")
+            self.assertEqual(exchange.response_digest, "")
+            self.assertIsNone(exchange.error_message)
+            self.assertEqual(exchange.total_tokens, 30)
+            self.assertEqual(exchange.estimated_cost_usd, 0.01)
+            self.assertEqual(exchange.token_usage, {"prompt_tokens": 20, "completion_tokens": 10})
+
+            attachment = db.get(MediaAsset, "media-delete-sensitive-data")
+            assert attachment is not None
+            self.assertIsNone(attachment.entity_type)
+            self.assertIsNone(attachment.entity_id)
+            transferred = db.get(MediaAsset, "media-delete-transferred")
+            assert transferred is not None
+            self.assertEqual(transferred.entity_type, "recipe")
+            self.assertEqual(transferred.entity_id, "recipe-kept-after-conversation-delete")
+
     def _seed_private_conversation_graph(self, *, owner_user_id: str) -> SimpleNamespace:
         with self.SessionLocal() as db:
             conversation = self._conversation(

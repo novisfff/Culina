@@ -263,6 +263,12 @@ class CookingAssistantSkillTestCase(AIAgentInfraTestCase):
                 assert run is not None
                 self.assertIsNone(run.conversation_id)
                 self.assertIsNone(run.message_id)
+                self.assertEqual(run.input_summary, "")
+                self.assertEqual(run.output_summary, "")
+                self.assertEqual(run.input, {})
+                self.assertEqual(run.output, {})
+                self.assertEqual(run.tool_calls, [])
+                self.assertIsNone(run.error)
 
         def test_cooking_assistant_stream_can_skip_system_history_persistence(self) -> None:
             with self.SessionLocal() as db:

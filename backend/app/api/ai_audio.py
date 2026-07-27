@@ -105,6 +105,7 @@ async def _voice_events_from_agent_stream(db: Session, *, session: RealtimeVoice
             quick_task="cooking_assistant",
             subject=session.subject,
             attachments=[],
+            discard_history_on_terminal=True,
         ):
             if event == "message_delta":
                 delta = str(data.get("delta") or "")
@@ -132,10 +133,6 @@ async def _voice_events_from_agent_stream(db: Session, *, session: RealtimeVoice
                         continue
                     seen_cards.add(card_id)
                     yield {"type": "ui_actions", "card": card}
-                from app.api.ai import _discard_transient_chat_history
-
-                _discard_transient_chat_history(db, family_id=session.family_id, response=data)
-                commit_session(db)
                 run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                 live_ai_stream_cache.clear_run(run_id)
                 final_text = "".join(assistant_text_parts).strip() or _text_from_response_message(data)

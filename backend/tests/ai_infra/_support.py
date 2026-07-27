@@ -58,6 +58,7 @@ from app.models.domain import (
     AIMessage,
     AIOperation,
     AIRunEvent,
+    AIRunLLMExchange,
     AIRunTraceSpan,
     AITaskDraft,
     AIUserApproval,
