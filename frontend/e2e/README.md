@@ -1,6 +1,6 @@
 # Culina P0 浏览器测试
 
-这里保存已经从 `scripts/smoke.mjs` 迁出的阻断式 P0 浏览器测试。测试使用标准 Playwright Test runner，但暂时复用 legacy smoke 的完整 API fixture；剩余长尾场景仍由 legacy smoke 覆盖。
+这里保存已经从 `scripts/smoke.mjs` 迁出的阻断式 P0 浏览器测试。测试使用标准 Playwright Test runner，但暂时复用 legacy smoke 的完整 API fixture。剩余长尾场景仍可通过本地 legacy smoke 手动检查，但不再作为 CI job 运行。
 
 ## 本地运行
 
@@ -44,9 +44,4 @@ npm run frontend:e2e:p0
 
 同仓库 PR 的 P0 Artifact 会由受信任的 `Publish Playwright Report` 工作流发布到 `https://novisfff.github.io/Culina/playwright/pr-<PR编号>/`，并通过一条稳定的 PR 评论提供入口。每次提交覆盖同一 PR 的旧报告，失败报告同样发布；PR 关闭时删除对应页面。fork PR 不自动公开报告，只保留 Actions Artifact。
 
-`Frontend Legacy Smoke (Non-blocking)` 继续运行现有完整视口和长尾场景，在迁移期间保留 `continue-on-error: true`。满足以下任一条件后再移除该设置：
-
-1. legacy smoke 剩余场景均已迁入独立 Playwright Test spec；或
-2. legacy smoke 至少连续 10 次 CI 运行完全通过，且不存在依赖重跑才能通过的记录。
-
-移除前还要确认对应 GitHub 分支保护已把 `Frontend E2E P0` 配置为 required check。
+Legacy smoke 已从 CI 移除。`scripts/smoke.mjs` 暂时保留为本地回归入口和 P0 API mock 来源；迁移 fixture 前不要删除该文件。GitHub 分支保护应把 `Frontend E2E P0` 配置为 required check。
