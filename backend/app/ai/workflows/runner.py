@@ -85,6 +85,7 @@ from app.services.ai_operations.run_cancellation import (
     is_run_cancellation_requested,
     lock_run_for_transition,
 )
+from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -322,6 +323,7 @@ class WorkspaceGraphRunner:
         subject: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+        discard_history_on_terminal: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prompt = message.strip()
         normalized_attachments = normalize_chat_attachments(attachments)
@@ -353,11 +355,20 @@ class WorkspaceGraphRunner:
             _elapsed_ms(prepare_started_at),
         )
         if prepared["existing"]:
+            response = self._chat_response(prepared["conversation_id"], prepared["run_id"])
+            if discard_history_on_terminal:
+                purge_ai_conversation_user_data(
+                    self.db,
+                    family_id=family_id,
+                    conversation_id=prepared["conversation_id"],
+                    expected_run_id=prepared["run_id"],
+                )
+                self.db.commit()
             return iter(
                 [
                     (
                         "response",
-                        self._chat_response(prepared["conversation_id"], prepared["run_id"]),
+                        response,
                     )
                 ]
             )
@@ -371,6 +382,7 @@ class WorkspaceGraphRunner:
             quick_task=quick_task,
             prepared=prepared,
             generation_contracts=contracts,
+            discard_history_on_terminal=discard_history_on_terminal,
         )
 
     def _stream_prepared_user_message(
@@ -385,6 +397,7 @@ class WorkspaceGraphRunner:
         quick_task: str | None,
         prepared: dict[str, Any],
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
+        discard_history_on_terminal: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         conversation_id = str(prepared["conversation_id"])
         config = self._config(conversation_id)
@@ -447,6 +460,7 @@ class WorkspaceGraphRunner:
                 flow="user_message",
                 seen_event_ids=seen_event_ids,
                 on_completed=log_completed,
+                discard_history_on_terminal=discard_history_on_terminal,
             )
         except GeneratorExit:
             raise
@@ -468,6 +482,7 @@ class WorkspaceGraphRunner:
         handle_update_extra: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         require_run_id: bool = False,
         on_completed: Callable[[str], None] | None = None,
+        discard_history_on_terminal: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         current_run_id = run_id
 
@@ -491,7 +506,15 @@ class WorkspaceGraphRunner:
                 yield from runner._new_progress_events(current_run_id, seen_event_ids)
             if on_completed is not None:
                 on_completed(current_run_id)
-            yield ("response", runner._chat_response(conversation_id, current_run_id))
+            response = runner._chat_response(conversation_id, current_run_id)
+            if discard_history_on_terminal:
+                purge_ai_conversation_user_data(
+                    runner.db,
+                    family_id=family_id,
+                    conversation_id=conversation_id,
+                    expected_run_id=current_run_id,
+                )
+            yield ("response", response)
 
         def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
             if current_run_id:
@@ -502,6 +525,14 @@ class WorkspaceGraphRunner:
                     user_id=user_id,
                     error=str(exc),
                 )
+            if discard_history_on_terminal:
+                purge_ai_conversation_user_data(
+                    runner.db,
+                    family_id=family_id,
+                    conversation_id=conversation_id,
+                    expected_run_id=current_run_id,
+                )
+                runner.db.commit()
 
         yield from self._stream_graph_events(
             graph_stream,

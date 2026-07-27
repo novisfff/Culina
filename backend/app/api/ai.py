@@ -450,10 +450,9 @@ def stream_chat_ai(
                 subject=payload.subject.model_dump() if payload.subject else {},
                 attachments=[attachment.model_dump() for attachment in payload.attachments],
                 generation_contracts=capabilities.values,
+                discard_history_on_terminal=not payload.persist_history,
             ):
                 if event == "response":
-                    if not payload.persist_history:
-                        _discard_transient_chat_history(db, family_id=membership.family_id, response=data)
                     commit_session(db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)

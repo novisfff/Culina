@@ -307,6 +307,7 @@ class AIAudioApiTestCase(unittest.TestCase):
         parent_db = object()
         created_sessions = []
         captured_service_sessions = []
+        captured_stream_kwargs = []
 
         class WorkerSession:
             def __init__(self) -> None:
@@ -325,7 +326,7 @@ class AIAudioApiTestCase(unittest.TestCase):
                 captured_service_sessions.append(db)
 
             def stream_chat(self, **kwargs):
-                del kwargs
+                captured_stream_kwargs.append(kwargs)
                 yield ("message_delta", {"delta": "收到。"})
                 yield (
                     "response",
@@ -352,17 +353,14 @@ class AIAudioApiTestCase(unittest.TestCase):
                 events.append(event)
             return events
 
-        with (
-            patch("app.api.ai._discard_transient_chat_history"),
-            patch("app.services.ai_audio.cooking_voice_stream.commit_session"),
-        ):
-            events = asyncio.run(collect_events())
+        events = asyncio.run(collect_events())
 
         self.assertEqual([event["type"] for event in events if event["type"] == "assistant_transcript_done"], ["assistant_transcript_done"])
         self.assertEqual(len(created_sessions), 1)
         self.assertIs(captured_service_sessions[0], created_sessions[0])
         self.assertIsNot(captured_service_sessions[0], parent_db)
         self.assertTrue(created_sessions[0].closed)
+        self.assertTrue(captured_stream_kwargs[0]["discard_history_on_terminal"])
 
     def test_cooking_voice_stream_forwards_client_run_id(self) -> None:
         session_id = "voice_session-client-run-id-test"

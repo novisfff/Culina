@@ -587,6 +587,99 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             self.assertTrue(any(event_name == "response" for event_name, _data in remaining_events))
 
+        def test_transient_stream_scrubs_history_in_worker_before_success_response(self) -> None:
+            with self.SessionLocal() as db:
+                events = list(
+                    AIApplicationService(db, provider=FakeChatProvider()).stream_chat(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        message="不要保存这段对话",
+                        client_run_id="agent_run-transient-stream-success",
+                        discard_history_on_terminal=True,
+                    )
+                )
+
+            response = next(data for event, data in events if event == "response")
+            conversation_id = response["conversation_id"]
+            self.assertEqual(response["run"]["id"], "agent_run-transient-stream-success")
+            with self.SessionLocal() as db:
+                self.assertIsNone(db.get(AIConversation, conversation_id))
+                run = db.get(AIAgentRun, "agent_run-transient-stream-success")
+                assert run is not None
+                self.assertIsNone(run.conversation_id)
+                self.assertIsNone(run.message_id)
+                self.assertEqual(run.input_summary, "")
+                self.assertEqual(run.output_summary, "")
+                self.assertEqual(run.input, {})
+                self.assertEqual(run.output, {})
+                self.assertEqual(run.tool_calls, [])
+
+        def test_transient_stream_scrubs_history_after_worker_failure(self) -> None:
+            with self.SessionLocal() as db:
+                events = list(
+                    AIApplicationService(db, provider=FailingStreamingChatProvider()).stream_chat(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        message="失败也不要保存",
+                        client_run_id="agent_run-transient-stream-failure",
+                        discard_history_on_terminal=True,
+                    )
+                )
+
+            response = next(data for event, data in events if event == "response")
+            self.assertEqual(response["run"]["status"], "failed")
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, "agent_run-transient-stream-failure")
+                assert run is not None
+                self.assertEqual(run.status, "failed")
+                self.assertIsNone(run.conversation_id)
+                self.assertIsNone(run.message_id)
+                self.assertEqual(run.input_summary, "")
+                self.assertEqual(run.output_summary, "")
+                self.assertEqual(run.input, {})
+                self.assertEqual(run.output, {})
+                self.assertEqual(run.tool_calls, [])
+                self.assertIsNone(run.error)
+                self.assertEqual(db.query(AIConversation).count(), 0)
+
+        def test_transient_stream_disconnect_still_scrubs_history_when_worker_finishes(self) -> None:
+            first_delta_persisted = threading.Event()
+            continue_stream = threading.Event()
+            provider = BlockingStreamingChatProvider(first_delta_persisted, continue_stream)
+
+            with self.SessionLocal() as db:
+                stream = AIApplicationService(db, provider=provider).stream_chat(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    message="断开连接也不要保存",
+                    client_run_id="agent_run-transient-stream-disconnect",
+                    discard_history_on_terminal=True,
+                )
+                event_name, _data = next(stream)
+                self.assertEqual(event_name, "message_delta")
+                self.assertTrue(first_delta_persisted.is_set())
+                stream.close()
+
+            continue_stream.set()
+            scrubbed = False
+            for _attempt in range(250):
+                with self.SessionLocal() as db:
+                    run = db.get(AIAgentRun, "agent_run-transient-stream-disconnect")
+                    if run is not None and run.conversation_id is None:
+                        scrubbed = True
+                        self.assertIsNone(run.message_id)
+                        self.assertEqual(run.input_summary, "")
+                        self.assertEqual(run.output_summary, "")
+                        self.assertEqual(run.input, {})
+                        self.assertEqual(run.output, {})
+                        self.assertEqual(run.tool_calls, [])
+                        self.assertEqual(db.query(AIConversation).count(), 0)
+                        break
+                threading.Event().wait(0.02)
+
+            self.assertTrue(scrubbed, "background worker did not scrub transient history after disconnect")
+            self.assertEqual(live_ai_stream_cache.parts_for_run("agent_run-transient-stream-disconnect"), [])
+
         def test_ai_workspace_caches_live_delta_for_other_clients_before_final_response(self) -> None:
             first_delta_persisted = threading.Event()
             continue_stream = threading.Event()
