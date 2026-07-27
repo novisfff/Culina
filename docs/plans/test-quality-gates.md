@@ -37,7 +37,7 @@ npm run backend:test:ai
 npm run backend:test:search
 npm run frontend:test
 npm run frontend:build
-npm run frontend:smoke
+npm run frontend:e2e:p0
 ```
 
 - `backend:test:service` 覆盖普通 API、service、权限、媒体、菜谱、库存、购物清单等非 AI/search 后端路径。
@@ -45,17 +45,9 @@ npm run frontend:smoke
 - `backend:test:search` 单独覆盖 search provider、keyword/vector/rerank 和索引任务。
 - `frontend:test` 是前端 Vitest 单元/组件测试。
 - `frontend:build` 是 TypeScript、Vite build 和 bundle budget 检查。
-- `frontend:smoke` 是端到端冒烟检查，应作为独立 check 展示，不和 Vitest 单元测试合并。
+- `frontend:e2e:p0` 是 Playwright 端到端关键路径检查，应作为独立的阻断式 check 展示，不和 Vitest 单元测试合并。
 
-当前 GitHub Actions workflow 位于 `.github/workflows/quality-gates.yml`。由于 smoke 仍有单独的响应式布局基线问题，`frontend-smoke` job 暂时使用 `continue-on-error: true`，保持独立可见但不阻塞 Vitest、build 和后端分组测试。
-
-当前 smoke 已知失败：
-
-```text
-1180x820 首页摘要布局异常：主区 2 列，临期 1 列，待办 1 列，记录 1 列
-```
-
-该问题应按 smoke/layout 专项处理，不应作为前端 Vitest 或 build 失败归因。
+当前 GitHub Actions workflow 位于 `.github/workflows/quality-gates.yml`。`Frontend E2E P0` 不使用 `continue-on-error`，失败会阻止回归合并；其 HTML 报告通过受信任的发布工作流提供 PR 固定入口。
 
 ## 测试环境默认值
 

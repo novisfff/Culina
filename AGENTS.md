@@ -44,7 +44,7 @@ npm run frontend:install
 npm run dev
 npm run frontend:quality
 npm run frontend:build
-npm run frontend:smoke
+npm run frontend:e2e:p0
 npm --prefix frontend run check:style-tokens
 
 npm run db:up
@@ -110,7 +110,7 @@ npm run backend:test:search
 
 - 不提交 `.env`、密钥、token、数据库密码、本地生成物或含家庭隐私的调试数据。
 - 文档/注释：人工审阅并运行 `git diff --check`。
-- 前端 model/helper：对应 Vitest；页面/状态/缓存：`frontend:quality` + `frontend:build`；响应式关键路径再跑 `frontend:smoke`。
+- 前端 model/helper：对应 Vitest；页面/状态/缓存：`frontend:quality` + `frontend:build`；响应式关键路径再跑 `frontend:e2e:p0`。
 - CSS、ui-kit、token：运行 `check:style-tokens` 并人工审阅；AI contract 运行对应前后端测试。
 - 后端 route/service/权限/serializer：先跑定向 pytest，再按风险运行分类测试或 `backend:quality`。
 - 模型/migration：检查 Alembic head、migration 和关键读写；可用本地库时执行 `backend:migrate`。

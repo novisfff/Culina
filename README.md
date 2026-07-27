@@ -114,6 +114,7 @@ npm run dev
 | `npm test` | 运行前端 Vitest |
 | `npm run frontend:typecheck` | 只运行前端 TypeScript 检查 |
 | `npm run frontend:quality` | 运行前端 TypeScript、Vitest 和样式 token 漂移报告 |
+| `npm run frontend:e2e:p0` | 运行 Playwright P0 关键路径与截图回归 |
 | `npm run preview` | 预览前端构建产物 |
 | `npm run db:up` | 启动本地 MySQL 和 MinIO |
 | `npm run db:down` | 停止本地 MySQL 和 MinIO |
@@ -134,7 +135,7 @@ npm run dev
 ```bash
 npm --prefix frontend run test
 npm --prefix frontend run build
-npm --prefix frontend run smoke
+npm --prefix frontend run e2e:p0
 ```
 
 ## Docker 部署

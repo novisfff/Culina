@@ -6,6 +6,8 @@ node_modules/
 dist/
 frontend/dist/
 frontend/node_modules/
+frontend/playwright-report/
+frontend/test-results/
 frontend/.env
 frontend/*.tsbuildinfo
 frontend/vite.config.js
