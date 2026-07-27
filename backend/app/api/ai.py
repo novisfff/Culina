@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth, require_owner
@@ -14,16 +14,11 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
-    AIAgentRun,
-    AIApprovalRequest,
     AIConversation,
     AIMessage,
     AIRunLLMExchange,
-    AIOperation,
     AIRunEvent,
     AIRunTraceSpan,
-    AITaskDraft,
-    AIUserApproval,
     User,
 )
 from app.schemas.ai import (
@@ -64,7 +59,6 @@ from app.api.ai_contracts import (
     get_ai_draft_contract_capabilities,
     set_ai_client_aware_headers,
 )
-from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.conversation_access import (
     accessible_ai_conversation_clause,
     require_ai_conversation_access,
@@ -85,6 +79,7 @@ from app.services.ai_client_projection import (
 )
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
+from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -103,57 +98,12 @@ def _discard_transient_chat_history(db: Session, *, family_id: str, response: di
     run_id = str(run.get("id") or "")
     if not conversation_id or not run_id:
         return
-    approval_ids = list(
-        db.scalars(
-            select(AIApprovalRequest.id).where(
-                AIApprovalRequest.conversation_id == conversation_id,
-                AIApprovalRequest.family_id == family_id,
-            )
-        )
+    purge_ai_conversation_user_data(
+        db,
+        family_id=family_id,
+        conversation_id=conversation_id,
+        expected_run_id=run_id,
     )
-    draft_ids = list(
-        db.scalars(
-            select(AITaskDraft.id).where(
-                AITaskDraft.conversation_id == conversation_id,
-                AITaskDraft.family_id == family_id,
-            )
-        )
-    )
-    if approval_ids:
-        db.execute(
-            delete(AIOperation).where(
-                AIOperation.approval_request_id.in_(approval_ids),
-                AIOperation.family_id == family_id,
-            )
-        )
-        db.execute(
-            delete(AIUserApproval).where(
-                AIUserApproval.approval_request_id.in_(approval_ids),
-                AIUserApproval.family_id == family_id,
-            )
-        )
-        db.execute(
-            delete(AIApprovalRequest).where(
-                AIApprovalRequest.id.in_(approval_ids),
-                AIApprovalRequest.family_id == family_id,
-            )
-        )
-    if draft_ids:
-        db.execute(delete(AITaskDraft).where(AITaskDraft.id.in_(draft_ids), AITaskDraft.family_id == family_id))
-    db.execute(delete(AIRunEvent).where(AIRunEvent.run_id == run_id, AIRunEvent.family_id == family_id))
-    db.execute(delete(AIMessage).where(AIMessage.conversation_id == conversation_id, AIMessage.family_id == family_id))
-    db.execute(
-        update(AIAgentRun)
-        .where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id)
-        .values(conversation_id=None, message_id=None)
-    )
-    db.execute(
-        update(AIRunLLMExchange)
-        .where(AIRunLLMExchange.run_id == run_id, AIRunLLMExchange.family_id == family_id)
-        .values(conversation_id=None)
-    )
-    db.execute(delete(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == family_id))
-    SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
 
 
 def _serialize_orchestrator_profile(profile: OrchestratorProfile, *, default_key: str) -> dict:
@@ -387,62 +337,11 @@ def delete_ai_conversation(
     if active is not None and active.status in {"pending", "running"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="会话正在生成回复，请先等待完成或取消当前任务")
 
-    approval_ids = list(
-        db.scalars(
-            select(AIApprovalRequest.id).where(
-                AIApprovalRequest.conversation_id == conversation_id,
-                AIApprovalRequest.family_id == membership.family_id,
-            )
-        )
+    purge_ai_conversation_user_data(
+        db,
+        family_id=membership.family_id,
+        conversation_id=conversation.id,
     )
-    draft_ids = list(
-        db.scalars(
-            select(AITaskDraft.id).where(
-                AITaskDraft.conversation_id == conversation_id,
-                AITaskDraft.family_id == membership.family_id,
-            )
-        )
-    )
-    if approval_ids:
-        db.execute(
-            delete(AIOperation).where(
-                AIOperation.approval_request_id.in_(approval_ids),
-                AIOperation.family_id == membership.family_id,
-            )
-        )
-        db.execute(
-            delete(AIUserApproval).where(
-                AIUserApproval.approval_request_id.in_(approval_ids),
-                AIUserApproval.family_id == membership.family_id,
-            )
-        )
-        db.execute(
-            delete(AIApprovalRequest).where(
-                AIApprovalRequest.id.in_(approval_ids),
-                AIApprovalRequest.family_id == membership.family_id,
-            )
-        )
-    if draft_ids:
-        db.execute(delete(AITaskDraft).where(AITaskDraft.id.in_(draft_ids), AITaskDraft.family_id == membership.family_id))
-    db.execute(
-        delete(AIRunEvent).where(
-            AIRunEvent.conversation_id == conversation_id,
-            AIRunEvent.family_id == membership.family_id,
-        )
-    )
-    db.execute(
-        delete(AIMessage).where(
-            AIMessage.conversation_id == conversation_id,
-            AIMessage.family_id == membership.family_id,
-        )
-    )
-    db.execute(
-        update(AIAgentRun)
-        .where(AIAgentRun.conversation_id == conversation_id, AIAgentRun.family_id == membership.family_id)
-        .values(conversation_id=None)
-    )
-    SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
-    db.delete(conversation)
     commit_session(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
