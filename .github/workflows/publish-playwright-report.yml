@@ -1,0 +1,202 @@
+name: Publish Playwright Report
+
+on:
+  workflow_run:
+    workflows:
+      - Quality Gates
+    types:
+      - completed
+  pull_request_target:
+    types:
+      - closed
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: playwright-report-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish PR report
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.pull_requests[0].number != null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Read P0 result
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          conclusion="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.name == "Frontend E2E P0") | .conclusion' |
+              tail -n 1
+          )"
+          echo "pr_number=${PR_NUMBER}" >>"$GITHUB_OUTPUT"
+          echo "e2e_conclusion=${conclusion:-unknown}" >>"$GITHUB_OUTPUT"
+
+      - name: Download P0 report
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          artifact_directory="${RUNNER_TEMP}/frontend-e2e-p0-report"
+          mkdir -p "$artifact_directory"
+
+          if gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name frontend-e2e-p0-report \
+            --dir "$artifact_directory" &&
+            test -f "$artifact_directory/playwright-report/index.html"; then
+            echo "available=true" >>"$GITHUB_OUTPUT"
+            echo "report_directory=$artifact_directory/playwright-report" >>"$GITHUB_OUTPUT"
+          else
+            echo "available=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish report snapshot
+        if: steps.artifact.outputs.available == 'true'
+        id: pages
+        env:
+          REPORT_DIRECTORY: ${{ steps.artifact.outputs.report_directory }}
+        run: |
+          bash .github/scripts/update-playwright-pages.sh \
+            publish \
+            "${{ steps.metadata.outputs.pr_number }}" \
+            "$REPORT_DIRECTORY" \
+            "${{ github.event.workflow_run.head_sha }}"
+
+      - name: Add report link to PR
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_AVAILABLE: ${{ steps.artifact.outputs.available }}
+          E2E_CONCLUSION: ${{ steps.metadata.outputs.e2e_conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_OUTCOME: ${{ steps.pages.outcome }}
+          PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        with:
+          script: |
+            const marker = '<!-- culina-playwright-report-preview -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const shortSha = process.env.HEAD_SHA.slice(0, 12);
+            const reportUrl =
+              `https://${owner}.github.io/${repo}/playwright/pr-${issue_number}/?sha=${shortSha}`;
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${process.env.RUN_ID}`;
+            const conclusion = process.env.E2E_CONCLUSION || 'unknown';
+            const statusLabel = {
+              success: '✅ P0 通过',
+              failure: '❌ P0 失败',
+              cancelled: '⚠️ P0 已取消',
+              skipped: '⚠️ P0 已跳过',
+            }[conclusion] || `⚠️ P0 状态：${conclusion}`;
+            const published =
+              process.env.ARTIFACT_AVAILABLE === 'true' &&
+              process.env.PUBLISH_OUTCOME === 'success';
+            const reportLine = published
+              ? `### [一键查看 Playwright HTML 报告](${reportUrl})`
+              : process.env.ARTIFACT_AVAILABLE === 'true'
+                ? '### Playwright HTML 报告发布失败'
+                : '### Playwright HTML 报告未生成';
+            const body = [
+              marker,
+              '## Playwright P0 报告',
+              '',
+              reportLine,
+              '',
+              `- ${statusLabel}`,
+              `- Commit：\`${shortSha}\``,
+              `- [查看 GitHub Actions 运行](${runUrl})`,
+              '',
+              '_新提交会更新此评论和同一个报告地址；PR 关闭后报告会自动删除。_',
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  cleanup:
+    name: Remove closed PR report
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Remove report snapshot
+        run: |
+          bash .github/scripts/update-playwright-pages.sh \
+            remove \
+            "${{ github.event.pull_request.number }}" \
+            "" \
+            "${{ github.event.pull_request.head.sha }}"
+
+      - name: Remove report comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- culina-playwright-report-preview -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.includes(marker),
+            );
+            if (existing) {
+              await github.rest.issues.deleteComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+              });
+            }

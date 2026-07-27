@@ -42,6 +42,8 @@ npm run frontend:e2e:p0
 
 `Frontend E2E P0` 是阻断式门禁，覆盖登录入口、家庭首页、食物与食材导航、吃过的页面以及记一餐弹窗。首批视觉基线覆盖三个代表视口的登录卡；记一餐弹窗暂时使用可见状态、搜索交互和 legacy smoke 几何断言。它没有 `continue-on-error`。
 
+同仓库 PR 的 P0 Artifact 会由受信任的 `Publish Playwright Report` 工作流发布到 `https://novisfff.github.io/Culina/playwright/pr-<PR编号>/`，并通过一条稳定的 PR 评论提供入口。每次提交覆盖同一 PR 的旧报告，失败报告同样发布；PR 关闭时删除对应页面。fork PR 不自动公开报告，只保留 Actions Artifact。
+
 `Frontend Legacy Smoke (Non-blocking)` 继续运行现有完整视口和长尾场景，在迁移期间保留 `continue-on-error: true`。满足以下任一条件后再移除该设置：
 
 1. legacy smoke 剩余场景均已迁入独立 Playwright Test spec；或
