@@ -1,0 +1,977 @@
+/* Shared semantic structure for AI approval Drafts.
+ * Type-specific layouts remain in their owning Draft View styles.
+ */
+.ai-draft-summary-card,
+.ai-draft-item-card,
+.ai-draft-impact-note,
+.ai-draft-resolved-summary {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-6);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.ai-draft-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ai-draft-summary-card.tone-plan {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-summary-card.tone-warning,
+.ai-draft-impact-note.tone-warning {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-draft-summary-card.tone-danger,
+.ai-draft-impact-note.tone-danger,
+.ai-draft-resolved-summary.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-summary-card.tone-neutral,
+.ai-draft-impact-note.tone-neutral,
+.ai-draft-resolved-summary.tone-neutral {
+  background: var(--surface-muted);
+}
+
+.ai-draft-summary-card.tone-success,
+.ai-draft-resolved-summary.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+}
+
+.ai-draft-summary-card-head,
+.ai-draft-section-head,
+.ai-draft-item-card-head,
+.ai-draft-impact-note-head,
+.ai-draft-resolved-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ai-draft-summary-card h3,
+.ai-draft-section h3,
+.ai-draft-resolved-summary h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-draft-summary-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.ai-draft-summary-item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ai-draft-summary-item dt,
+.ai-draft-item-card-copy p,
+.ai-draft-section-copy p,
+.ai-draft-resolved-summary p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-draft-summary-item dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ai-draft-section-copy,
+.ai-draft-item-card-copy,
+.ai-draft-resolved-summary-head > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ai-draft-section-action,
+.ai-draft-item-card-status {
+  flex: 0 0 auto;
+}
+
+.ai-draft-section-body,
+.ai-draft-item-card-body,
+.ai-draft-summary-extra,
+.ai-draft-resolved-summary-body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ai-draft-summary-card.ai-confirmation-item,
+.ai-draft-section.ai-confirmation-item,
+.ai-draft-item-card.ai-confirmation-item {
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-inline-start: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: none;
+  padding: var(--space-6);
+}
+
+.ai-draft-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  min-width: 0;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: var(--space-3);
+}
+
+.ai-draft-editor-head > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-draft-editor-head strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-draft-editor-head span {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--plan-soft);
+  color: var(--plan);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-add-button,
+.ai-draft-remove-button {
+  min-height: var(--control-height);
+  border-radius: var(--radius-sm);
+}
+
+.ai-draft-remove-button.compact-remove {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-resource-field {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ai-resource-select {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  border: 1px solid var(--line-normal);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-resource-select:hover {
+  border-color: var(--plan-line);
+}
+
+.ai-resource-select:focus-within,
+.ai-resource-select.is-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ai-resource-select.is-disabled {
+  background: var(--surface-muted);
+}
+
+.ai-resource-select input,
+.ai-resource-select select,
+.ai-single-select-trigger:not(.ui-dropdown-select-trigger),
+.ai-multi-select-trigger {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.ai-resource-select select {
+  appearance: none;
+}
+
+.ai-resource-select input::placeholder {
+  color: var(--text-faint);
+}
+
+.ai-confirmation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.ai-confirmation-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-confirmation-grid-compact {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  max-width: 20rem;
+}
+
+.ai-confirmation-copy-field textarea.text-input {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.ai-draft-summary-card.ai-recipe-summary-card,
+.ai-draft-resolved-summary.ai-recipe-summary-card,
+.ai-draft-summary-card.ai-shopping-list-summary-card,
+.ai-draft-resolved-summary.ai-shopping-list-summary-card,
+.ai-draft-summary-card.ai-meal-log-summary-card,
+.ai-draft-resolved-summary.ai-meal-log-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-item-card.ai-recipe-ingredient-card,
+.ai-draft-item-card.ai-recipe-step-card,
+.ai-draft-item-card.ai-recipe-cook-preview-card,
+.ai-draft-item-card.ai-recipe-cook-shortage-card,
+.ai-draft-item-card.ai-meal-plan-item-card,
+.ai-draft-item-card.ai-meal-plan-preview-card,
+.ai-draft-item-card.ai-shopping-list-item-card,
+.ai-draft-item-card.ai-shopping-list-preview-card,
+.ai-draft-item-card.ai-meal-log-food-item,
+.ai-draft-item-card.ai-meal-log-rating-card {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-recipe-ingredient-card.is-unbound {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-meal-plan-item-card.is-danger,
+.ai-draft-item-card.ai-shopping-list-item-card.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-recipe-danger-impact {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-meal-log-stock-control {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-draft-summary-card.ai-food-profile-summary-card,
+.ai-draft-resolved-summary.ai-food-profile-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-food-profile-summary-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ai-draft-item-card.ai-food-profile-favorite-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-food-profile-favorite-card .ai-draft-item-card-status {
+  border: 1px solid var(--warning-line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--warning);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-draft-summary-card.ai-ingredient-profile-summary-card,
+.ai-draft-resolved-summary.ai-ingredient-profile-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-item-card.ai-ingredient-profile-batch-item,
+.ai-draft-item-card.ai-ingredient-profile-conversion-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  padding: var(--space-5);
+}
+
+.ai-ingredient-profile-conversion-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-draft-impact-note.ai-ingredient-profile-before-after {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-impact-note.ai-ingredient-profile-before-after .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-ingredient-tracking-transition .ai-ingredient-tracking-impact {
+  margin-top: var(--space-4);
+}
+
+.ai-draft-summary-card.ai-inventory-intake-summary-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+  padding: var(--space-6);
+}
+
+.ai-inventory-intake-summary-card .ai-draft-summary-extra {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ai-inventory-intake-group-count {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ai-draft-impact-note.ai-inventory-intake-attention {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-draft-resolved-summary.ai-inventory-intake-ignored {
+  gap: 0;
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  padding: 0;
+}
+
+.ai-draft-impact-note.ai-inventory-intake-submit-summary {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-meal-log-summary-context {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-recipe-operation-compare .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-draft-impact-note-body > p {
+  margin: 0;
+}
+
+.ai-recipe-cook-batch-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ai-draft-item-card h4,
+.ai-draft-impact-note h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-item-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.ai-draft-impact-note {
+  padding: var(--space-5);
+}
+
+.ai-draft-impact-note.tone-plan {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-impact-note-head {
+  justify-content: flex-start;
+}
+
+.ai-draft-impact-note-body {
+  color: var(--text-soft);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.ai-draft-field {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--text-soft);
+}
+
+.ai-draft-field-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-field-required {
+  color: var(--danger);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.ai-draft-field-help,
+.ai-draft-field-error,
+.ai-draft-resource-selected {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-draft-field-help,
+.ai-draft-resource-selected {
+  color: var(--text-soft);
+}
+
+.ai-draft-field-error {
+  color: var(--danger);
+}
+
+.ai-draft-field-control,
+.ai-draft-resource-extra {
+  min-width: 0;
+}
+
+.ai-draft-resource-extra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ai-draft-resource-select {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-draft-resource-select .ui-search-field,
+.ai-draft-field .ui-dropdown-select,
+.ai-draft-field .ui-combobox-field {
+  min-width: 0;
+}
+
+.ai-draft-resource-list.ai-resource-menu {
+  position: static;
+  z-index: auto;
+  max-height: 16rem;
+  margin: 0;
+  border-color: var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.ai-draft-resource-list.ai-resource-menu button {
+  min-height: var(--control-height);
+}
+
+.ai-draft-tag-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ai-draft-tag-preview span {
+  border: 1px solid var(--plan-line);
+  border-radius: var(--radius-pill);
+  background: var(--plan-soft);
+  color: var(--plan);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-summary-card.ai-inventory-operation-summary-card,
+.ai-draft-resolved-summary.ai-inventory-operation-resolved-summary {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-impact-note.ai-inventory-operation-submit-summary {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-section.ai-inventory-operation-items-section {
+  gap: var(--space-5);
+}
+
+.ai-inventory-operation-list,
+.ai-inventory-operation-result-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item,
+.ai-draft-item-card.ai-inventory-operation-resolved-item {
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item.action-consume,
+.ai-draft-item-card.ai-inventory-operation-resolved-item.action-consume {
+  border-color: var(--warning-line);
+  border-inline-start-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item.action-dispose,
+.ai-draft-item-card.ai-inventory-operation-resolved-item.action-dispose {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item .ai-draft-item-card-body {
+  gap: var(--space-4);
+}
+
+.ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-main-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(10rem, auto);
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.ai-inventory-operation-info {
+  gap: var(--space-1);
+}
+
+.ai-inventory-operation-info small,
+.ai-inventory-conversion-note {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-inventory-operation-inputs,
+.ai-resource-inputs-flex,
+.ai-inventory-quantity-field {
+  min-width: 0;
+}
+
+.ai-inventory-operation-inputs {
+  align-items: stretch;
+}
+
+.ai-resource-inputs-flex {
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.ai-inventory-quantity-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ai-inventory-quantity-field > span {
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-inventory-quantity-field .quantity-input {
+  min-width: 5.5rem;
+}
+
+.ai-inventory-unit-field {
+  min-width: 5.5rem;
+}
+
+.ai-inventory-operation-details {
+  margin: 0;
+  padding-top: var(--space-4);
+}
+
+.ai-draft-impact-note.ai-inventory-operation-dispose-impact {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-inventory-operation-dispose-impact .ai-draft-impact-note-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-inventory-operation-detail-copy,
+.ai-inventory-operation-result-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ai-inventory-operation-detail-copy strong,
+.ai-inventory-operation-result-copy h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-inventory-operation-detail-copy span,
+.ai-inventory-operation-result-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ai-draft-item-card.ai-inventory-operation-resolved-item .ai-draft-item-card-status {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-soft);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-summary-card.ai-composite-operation-summary-card,
+.ai-draft-resolved-summary.ai-composite-operation-summary-card {
+  border-color: var(--line-soft);
+  background: var(--surface-2);
+}
+
+.ai-draft-section.ai-composite-operation-steps-section,
+.ai-draft-section.ai-composite-operation-risk-section {
+  gap: var(--space-5);
+}
+
+.ai-draft-impact-note.ai-composite-operation-note {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  border-color: var(--plan-line);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-2);
+  padding: var(--space-5);
+}
+
+.ai-draft-item-card.ai-composite-operation-step.is-danger {
+  border-color: var(--danger-line);
+  border-inline-start-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-draft-item-card-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-composite-operation-step-body {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-order {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-pill);
+  background: var(--plan-soft);
+  color: var(--plan);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.ai-draft-item-card.ai-composite-operation-step.is-danger .ai-composite-operation-step-order {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-content {
+  gap: var(--space-3);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-action {
+  border: 1px solid var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--plan);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-action.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-summary {
+  color: var(--text-soft);
+  font-size: var(--text-body);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-dependency {
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--text-soft);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-impact span {
+  border: 1px solid var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-step-impact span.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-item-card.ai-composite-operation-step .ai-composite-operation-technical-details {
+  border-color: var(--line-soft);
+}
+
+.ai-draft-impact-note.ai-composite-operation-danger-impact,
+.ai-draft-impact-note.ai-composite-risk-card.is-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-draft-impact-note.ai-composite-risk-card {
+  gap: var(--space-3);
+  border-color: var(--plan-line);
+  background: var(--plan-soft);
+}
+
+.ai-composite-risk-label {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-draft-impact-note.ai-meal-composition-inventory-boundary {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.ai-draft-resolved-summary .ai-inventory-intake-resolved-group {
+  gap: var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  padding: var(--space-4);
+}
+
+.ai-inventory-intake-resolved-list,
+.ai-meal-composition-resolved-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-inventory-intake-resolved-list li,
+.ai-meal-composition-resolved-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-inventory-intake-resolved-list strong,
+.ai-meal-composition-resolved-list strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ai-inventory-intake-resolved-list span,
+.ai-meal-composition-resolved-list span {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  text-align: end;
+}
+
+@media (max-width: 767px) {
+  .ai-draft-summary-card,
+  .ai-draft-item-card,
+  .ai-draft-resolved-summary,
+  .ai-draft-section.ai-confirmation-item {
+    padding: var(--space-5);
+  }
+
+  .ai-draft-impact-note {
+    padding: var(--space-4);
+  }
+
+  .ai-draft-summary-card-head,
+  .ai-draft-section-head,
+  .ai-draft-item-card-head,
+  .ai-draft-resolved-summary-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-draft-summary-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-ingredient-profile-conversion-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-inventory-intake-resolved-list li,
+  .ai-meal-composition-resolved-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .ai-inventory-intake-resolved-list span,
+  .ai-meal-composition-resolved-list span {
+    text-align: start;
+  }
+
+  .ai-draft-summary-card.ai-inventory-intake-summary-card {
+    padding: var(--space-5);
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-main-row {
+    display: grid !important;
+    grid-template-areas:
+      "image detail"
+      "inputs inputs" !important;
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    align-items: start !important;
+    gap: var(--space-3) !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-img,
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-placeholder {
+    grid-area: image !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-info {
+    grid-area: detail !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-inputs {
+    grid-area: inputs !important;
+    width: 100% !important;
+  }
+
+  .ai-draft-item-card.ai-inventory-operation-item .ai-resource-inputs-flex {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 0.7fr);
+    width: 100%;
+  }
+
+  .ai-composite-operation-step-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-draft-resource-list.ai-resource-menu button {
+    min-height: var(--control-height-touch);
+  }
+}
