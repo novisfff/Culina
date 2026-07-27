@@ -88,4 +88,6 @@ def require_ai_run_access(
             conversation_id=run.conversation_id,
             capability=capability,
         )
+    elif run.created_by != user_id:
+        raise LookupError("运行任务不存在")
     return run

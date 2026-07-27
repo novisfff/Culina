@@ -26,8 +26,8 @@ from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, MediaAsset
 from app.services.ai_operations.run_cancellation import (
+    consume_precreated_run_cancellation,
     finalize_run_cancellation,
-    is_run_cancellation_requested,
 )
 
 logger = logging.getLogger("app.ai.workflows.runner")
@@ -130,9 +130,10 @@ class UserMessagePreparer:
             **(conversation.context or {}),
             "activeRunId": run.id,
         })
-        cancelled_before_start = is_run_cancellation_requested(
+        cancelled_before_start = consume_precreated_run_cancellation(
             self.db,
             family_id=family_id,
+            user_id=user_id,
             run_id=run.id,
         )
         if cancelled_before_start:

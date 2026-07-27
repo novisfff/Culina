@@ -233,6 +233,49 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
             response = self.client.request(method, path, json=payload)
             self.assertEqual(response.status_code, 404, f"{method} {path}: {response.text}")
 
+    def test_detached_run_endpoints_and_idempotent_lookup_return_not_found_to_other_member(self) -> None:
+        run_owner, _ = self.create_family_member(user_id="user-detached-run-owner")
+        with self.SessionLocal() as db:
+            db.add(
+                AIAgentRun(
+                    id="run-detached-private",
+                    family_id=self.family.id,
+                    conversation_id=None,
+                    message_id=None,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="general_chat",
+                    input_summary="原用户的私有消息",
+                    context_summary={},
+                    output_summary="",
+                    status="failed",
+                    model="fake-model",
+                    input={"prompt": "原用户的私有消息", "subject": {}},
+                    output={},
+                    tool_calls=[],
+                    duration_ms=0,
+                    created_by=run_owner.id,
+                )
+            )
+            db.commit()
+
+        requests = [
+            ("GET", "/api/ai/runs/run-detached-private/events", None),
+            ("POST", "/api/ai/runs/run-detached-private/cancel", None),
+            ("POST", "/api/ai/runs/run-detached-private/retry", None),
+            ("GET", "/api/ai/runs/run-detached-private/trace", None),
+            ("GET", "/api/ai/runs/run-detached-private/trace/tree", None),
+            ("GET", "/api/ai/runs/run-detached-private/llm-exchanges", None),
+            (
+                "POST",
+                "/api/ai/chat",
+                {"message": "复用其他成员的运行标识", "client_run_id": "run-detached-private"},
+            ),
+        ]
+        for method, path, payload in requests:
+            response = self.client.request(method, path, json=payload)
+            self.assertEqual(response.status_code, 404, f"{method} {path}: {response.text}")
+
     def test_published_conversation_accepts_family_member_contribution(self) -> None:
         other_user, other_membership = self.create_family_member()
         seeded = self._seed_private_conversation_graph(owner_user_id=self.user.id)
@@ -295,4 +338,3 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
                 )
             )
         self.assertEqual(statuses, ["waiting_approval"])
-

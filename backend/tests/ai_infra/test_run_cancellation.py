@@ -221,6 +221,33 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
         self.assertEqual(response.json()["run"]["status"], "cancelled")
         self.assertEqual(response.json()["message"]["status"], "cancelled")
 
+    def test_precreated_cancel_request_is_only_consumed_by_same_user(self) -> None:
+        run_id = "agent_run-precreated-cancel-other-user"
+        other_user, other_membership = self.create_family_member(user_id="user-precreated-cancel")
+        self.authenticate_as(other_user.id, other_membership.id)
+        cancel_response = self.client.post(f"/api/ai/runs/{run_id}/cancel")
+        self.assertEqual(cancel_response.status_code, 202, cancel_response.text)
+
+        self.authenticate_as(self.user.id, self.membership.id)
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "这次任务不应被其他成员预取消", "client_run_id": run_id},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotEqual(response.json()["run"]["status"], "cancelled")
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            request = db.scalar(
+                select(AIRunCancelRequest).where(
+                    AIRunCancelRequest.family_id == self.family.id,
+                    AIRunCancelRequest.run_id == run_id,
+                )
+            )
+        self.assertIsNotNone(run)
+        self.assertEqual(run.created_by, self.user.id)
+        self.assertIsNone(request)
+
     def test_finalizer_turns_cancelling_run_message_and_conversation_cancelled(self) -> None:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
