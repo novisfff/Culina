@@ -3720,7 +3720,15 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isDirectExecution =
+  Boolean(process.argv[1])
+  && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+export { installApiMocks };
+
+if (isDirectExecution) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

@@ -111,8 +111,37 @@ jobs:
       - name: Run frontend build
         run: npm run frontend:build
 
+  frontend-e2e-p0:
+    name: Frontend E2E P0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Install Chromium
+        run: npx --prefix frontend playwright install --with-deps chromium
+      - name: Build frontend
+        run: npm run frontend:build
+      - name: Run blocking P0 browser tests
+        run: npm run frontend:e2e:p0
+      - name: Upload P0 browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-p0-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
   frontend-smoke:
-    name: Frontend Smoke
+    name: Frontend Legacy Smoke (Non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:

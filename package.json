@@ -18,6 +18,7 @@
     "frontend:preview": "npm --prefix frontend run preview --",
     "frontend:test": "npm --prefix frontend run test --",
     "frontend:test:coverage": "npm --prefix frontend run test:coverage --",
+    "frontend:e2e:p0": "npm --prefix frontend run e2e:p0 --",
     "frontend:typecheck": "npm --prefix frontend run typecheck --",
     "frontend:quality": "npm --prefix frontend run quality --",
     "frontend:smoke": "npm --prefix frontend run smoke --",

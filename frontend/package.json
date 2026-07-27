@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "e2e:p0": "playwright test --grep @p0",
+    "e2e:p0:update": "playwright test --grep @p0 --update-snapshots",
     "smoke": "node scripts/smoke.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
     "check:bundle": "node scripts/check-bundle-budgets.mjs",
@@ -24,6 +26,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
