@@ -7,10 +7,26 @@ async function expectNoHorizontalOverflow(page) {
   expect(overflow, '页面不应产生横向溢出').toBeLessThanOrEqual(1);
 }
 
+async function attachCheckpointScreenshot(page, testInfo, name) {
+  await testInfo.attach(name, {
+    body: await page.screenshot({
+      animations: 'disabled',
+      caret: 'hide',
+    }),
+    contentType: 'image/png',
+  });
+}
+
+async function stabilizeDarwinVisualGutter(page) {
+  if (process.platform === 'darwin') {
+    await page.addStyleTag({ content: 'html { scrollbar-gutter: auto !important; }' });
+  }
+}
+
 test.describe('P0 unauthenticated entry', () => {
   test.use({ authenticated: false });
 
-  test('@p0 renders the family-kitchen login entry', async ({ app }) => {
+  test('@p0 renders the family-kitchen login entry', async ({ app }, testInfo) => {
     const { page } = app;
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -18,7 +34,9 @@ test.describe('P0 unauthenticated entry', () => {
     await expect(page.getByRole('heading', { name: '登录家庭厨房' })).toBeVisible();
     await expect(page.getByRole('button', { name: '进入家庭厨房' })).toBeVisible();
     await expectNoHorizontalOverflow(page);
+    await stabilizeDarwinVisualGutter(page);
     await expect(page.locator('.login-card')).toHaveScreenshot('login-card.png');
+    await attachCheckpointScreenshot(page, testInfo, 'checkpoint-login-entry');
   });
 });
 
@@ -38,6 +56,7 @@ test.describe('P0 authenticated family workflow', () => {
       .toBe(true);
     expect(requestedApiPaths).not.toContain('/api/activity-logs');
     await expectNoHorizontalOverflow(page);
+    await attachCheckpointScreenshot(page, testInfo, 'checkpoint-family-home');
 
     await page.getByRole('button', { name: '吃什么' }).first().click();
     if (isPhone) {
@@ -55,6 +74,7 @@ test.describe('P0 authenticated family workflow', () => {
       await expect(page.getByText('管理家庭食材档案、库存状态以及采购清单。', { exact: true })).toBeVisible();
     }
     await expectNoHorizontalOverflow(page);
+    await attachCheckpointScreenshot(page, testInfo, 'checkpoint-ingredient-page');
 
     await page.getByRole('button', { name: '吃什么' }).first().click();
     if (isPhone) {
@@ -71,6 +91,7 @@ test.describe('P0 authenticated family workflow', () => {
     await expect(mealComposer).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '确认时间' })).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '添加食物' })).toBeVisible();
+    await attachCheckpointScreenshot(page, testInfo, 'checkpoint-meal-composer');
 
     const foodSearch = mealComposer.getByRole('searchbox', { name: '搜索食物' });
     await foodSearch.fill('番茄');

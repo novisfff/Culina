@@ -23,6 +23,8 @@ P0 固定覆盖三个代表视口：
 - Trace、失败截图和视频：`frontend/test-results/`；
 - 受 Git 管理的视觉基线：`frontend/e2e/__screenshots__/`，文件名按 `darwin` 和 `linux` 分平台保存。
 
+成功的 HTML 报告也会附带登录入口、家庭首页、食材页和记一餐弹窗的关键节点截图，便于人工快速抽检。这些截图只存入本次报告，不作为视觉基线提交。
+
 配置使用 `trace: retain-on-failure`、`screenshot: only-on-failure` 和 `video: retain-on-failure`。CI 无重试，避免偶发通过掩盖不稳定用例。
 
 ## 更新视觉基线
