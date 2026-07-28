@@ -237,7 +237,6 @@ export function AiFoodProfileDraftView(props: {
             value={record.type}
             disabled={props.readonly}
             options={FOOD_TYPE_OPTIONS}
-            icon="type"
             onChange={(type) => updatePayload({ type })}
           />
           <ApprovalComboboxField
@@ -246,7 +245,6 @@ export function AiFoodProfileDraftView(props: {
             disabled={props.readonly}
             options={props.categoryOptions}
             placeholder="选择或输入分类"
-            icon="type"
             onChange={(category) => updatePayload({ category })}
           />
         </div>
@@ -321,7 +319,6 @@ export function AiFoodProfileDraftView(props: {
             value={record.storageLocation || '常温'}
             disabled={props.readonly}
             options={STORAGE_OPTIONS}
-            icon="type"
             onChange={(storageLocation) => updatePayload({ storage_location: storageLocation })}
           />
         ) : null}
@@ -359,7 +356,6 @@ export function AiFoodProfileDraftView(props: {
               { value: 'true', label: '加入收藏' },
               { value: 'false', label: '移出收藏' },
             ]}
-            icon="type"
             onChange={(favorite) => updatePayload({ favorite: favorite === 'true' })}
           />
         </AiDraftItemCard>

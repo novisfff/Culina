@@ -434,7 +434,6 @@ export function AiMealLogDraftView(props: {
             disabled={props.readonly}
             options={MOOD_OPTIONS}
             placeholder="选择或输入心情"
-            icon="type"
             onChange={(mood) => updateCreateRecord({ mood })}
           />
           <label className="ai-resource-field ai-confirmation-copy-field">
@@ -477,7 +476,6 @@ export function AiMealLogDraftView(props: {
           disabled={props.readonly}
           options={MOOD_OPTIONS}
           placeholder="选择或输入心情"
-          icon="type"
           onChange={(mood) => updatePayload({ mood })}
         />
         <label className="ai-resource-field ai-confirmation-copy-field">

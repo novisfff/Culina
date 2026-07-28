@@ -62,6 +62,20 @@ describe('AI legacy style cleanup', () => {
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-select\s*\{/m);
   });
 
+  it('keeps AI Draft single-line controls aligned without double-height comboboxes', () => {
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+
+    expect(draftStyles).toContain('--ai-draft-control-height: var(--control-height);');
+    expect(draftStyles).toContain('height: var(--ai-draft-control-height);');
+    expect(draftStyles).toMatch(
+      /\.ai-draft-field \.ui-combobox-field\.ai-resource-select > input\s*\{[^}]*min-height: 0;[^}]*height: 100%;/s,
+    );
+    expect(draftStyles).toContain('--ai-draft-control-height: var(--control-height-touch);');
+    expect(draftStyles).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*\.ai-ingredient-profile-conversion-fields\s*\{[^}]*grid-template-columns: minmax\(0, 0\.9fr\) minmax\(0, 1\.1fr\);/,
+    );
+  });
+
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {
     const sourceByFile = collectNonTestSourceFiles(srcRoot).map((path) => ({
       label: relative(repoRoot, path),

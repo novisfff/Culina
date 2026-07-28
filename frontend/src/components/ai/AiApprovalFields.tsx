@@ -70,10 +70,11 @@ function ResourceThumbnail({ option }: { option?: AiResourceOption | null }) {
   );
 }
 
-export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' }) {
+export function ResourceSelectIcon({ kind }: { kind?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none' }) {
+  if (!kind || kind === 'none') return null;
   if (kind === 'calendar') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4.5" y="5.5" width="15" height="14" rx="3" />
         <path d="M8 3.8v3.4M16 3.8v3.4M4.8 10h14.4" />
       </svg>
@@ -81,7 +82,7 @@ export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'diff
   }
   if (kind === 'meal') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M7 4v16M4.8 4v5.2A2.2 2.2 0 0 0 7 11.4a2.2 2.2 0 0 0 2.2-2.2V4" />
         <path d="M15.2 4.5c2.4.8 3.8 2.7 3.8 5.4 0 2.2-1 4-2.7 4.9V20" />
       </svg>
@@ -89,25 +90,25 @@ export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'diff
   }
   if (kind === 'difficulty') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 18.5V14M12 18.5V9M19 18.5V4.5" />
       </svg>
     );
   }
   if (kind === 'type') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 6.5h14M5 12h14M5 17.5h9" />
       </svg>
     );
   }
   if (kind === 'step') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M7 5.5h12M7 12h12M7 18.5h12" />
-        <circle cx="4" cy="5.5" r="1" />
-        <circle cx="4" cy="12" r="1" />
-        <circle cx="4" cy="18.5" r="1" />
+        <circle cx="4" cy="5.5" r="1" fill="currentColor" />
+        <circle cx="4" cy="12" r="1" fill="currentColor" />
+        <circle cx="4" cy="18.5" r="1" fill="currentColor" />
       </svg>
     );
   }
@@ -119,7 +120,7 @@ export function ApprovalSelectField({
   value,
   disabled,
   options,
-  icon = 'type',
+  icon,
   className = '',
   onChange,
 }: {
@@ -127,10 +128,11 @@ export function ApprovalSelectField({
   value: string;
   disabled: boolean;
   options: Array<{ value: string; label: string }>;
-  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step';
+  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none';
   className?: string;
   onChange: (value: string) => void;
 }) {
+  const leadingIcon = icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined;
   return (
     <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
       <DropdownSelect
@@ -142,7 +144,7 @@ export function ApprovalSelectField({
         className="ai-choice-select"
         triggerClassName="ai-single-select-trigger"
         menuClassName="ai-resource-menu ai-single-select-menu"
-        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        leadingIcon={leadingIcon}
         onChange={(nextValue) => onChange(nextValue)}
       />
     </AiDraftField>
@@ -155,7 +157,7 @@ export function ApprovalComboboxField({
   disabled,
   options,
   placeholder,
-  icon = 'type',
+  icon,
   allowCustom = true,
   className = '',
   onChange,
@@ -165,11 +167,12 @@ export function ApprovalComboboxField({
   disabled: boolean;
   options: Array<{ value: string; label: string; description?: string }>;
   placeholder?: string;
-  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step';
+  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none';
   allowCustom?: boolean;
   className?: string;
   onChange: (value: string) => void;
 }) {
+  const leadingIcon = icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined;
   return (
     <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ai-resource-field-combobox ${className}`.trim()}>
       <ComboboxField
@@ -182,7 +185,7 @@ export function ApprovalComboboxField({
         className="ai-resource-select ai-combobox-select ai-choice-combobox"
         menuClassName="ai-resource-menu ai-combobox-menu"
         customOptionClassName="ai-combobox-custom-option"
-        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        leadingIcon={leadingIcon}
         onChange={(nextValue) => onChange(String(nextValue))}
       />
     </AiDraftField>

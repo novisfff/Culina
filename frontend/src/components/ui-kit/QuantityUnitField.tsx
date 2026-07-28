@@ -32,30 +32,33 @@ export function QuantityUnitField({
 }: QuantityUnitFieldProps) {
   return (
     <div className={['ui-quantity-unit-field', className].filter(Boolean).join(' ')}>
-      <label className="ui-quantity-unit-number">
-        <span>数量</span>
-        <input
-          aria-label="数量"
-          type="number"
-          inputMode="decimal"
-          step={quantityStep}
-          value={quantity}
-          disabled={quantityDisabled}
-          data-field-key={quantityFieldKey}
-          onChange={(event) => onQuantityChange(event.target.value)}
-        />
-      </label>
-      <label className="ui-quantity-unit-select">
-        <span>单位</span>
-        <DropdownSelect
-          ariaLabel="单位"
-          placeholder="选择单位"
-          value={unit}
-          options={unitOptions}
-          triggerFieldKey={unitFieldKey}
-          onChange={(value) => onUnitChange(value)}
-        />
-      </label>
+      <div className="ui-quantity-unit-control-group">
+        <label className="ui-quantity-unit-number">
+          <span>数量</span>
+          <input
+            aria-label="数量"
+            type="number"
+            inputMode="decimal"
+            step={quantityStep}
+            value={quantity}
+            disabled={quantityDisabled}
+            data-field-key={quantityFieldKey}
+            onChange={(event) => onQuantityChange(event.target.value)}
+          />
+        </label>
+        <span className="ui-quantity-unit-divider" aria-hidden="true" />
+        <label className="ui-quantity-unit-select">
+          <span>单位</span>
+          <DropdownSelect
+            ariaLabel="单位"
+            placeholder="单位"
+            value={unit}
+            options={unitOptions}
+            triggerFieldKey={unitFieldKey}
+            onChange={(value) => onUnitChange(value)}
+          />
+        </label>
+      </div>
       {quantityDisabledReason ? <p className="ui-quantity-unit-reason">{quantityDisabledReason}</p> : null}
     </div>
   );

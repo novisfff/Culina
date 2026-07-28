@@ -145,7 +145,7 @@ function IngredientProfileFields(props: {
         className="ai-confirmation-item ai-ingredient-profile-section"
       >
         <div className="ai-confirmation-grid">
-          <label className="ai-resource-field">
+          <label className="ai-resource-field ai-confirmation-full-width">
             <span>食材名称</span>
             <input
               className="text-input"
@@ -160,7 +160,6 @@ function IngredientProfileFields(props: {
             disabled={props.readonly}
             options={INGREDIENT_CATEGORY_OPTIONS}
             placeholder="选择分类或自定义"
-            icon="type"
             onChange={(category) => props.onPayloadChange({ category })}
           />
           <ApprovalComboboxField
@@ -169,7 +168,6 @@ function IngredientProfileFields(props: {
             disabled={props.readonly}
             options={defaultUnitOptions}
             placeholder="选择单位或自定义"
-            icon="step"
             onChange={(nextUnit) => props.onPayloadChange({ default_unit: nextUnit })}
           />
         </div>
@@ -186,7 +184,6 @@ function IngredientProfileFields(props: {
             disabled={props.readonly}
             options={STORAGE_OPTIONS}
             placeholder="选择保存位置"
-            icon="type"
             onChange={(defaultStorage) => props.onPayloadChange({ default_storage: defaultStorage })}
           />
           <ApprovalSelectField
@@ -258,7 +255,7 @@ function IngredientProfileFields(props: {
               className="ai-ingredient-profile-conversion-row"
               footer={!props.readonly ? (
                 <button
-                  className="ghost-button ai-ingredient-profile-remove-conversion"
+                  className="ghost-button ai-draft-remove-button ai-ingredient-profile-remove-conversion"
                   type="button"
                   onClick={() => removeUnitConversion(index)}
                 >
@@ -273,7 +270,6 @@ function IngredientProfileFields(props: {
                   disabled={props.readonly}
                   options={buildUnitPresetOptions(asText(item.unit)).map((unit) => ({ value: unit, label: unit }))}
                   placeholder="选择副单位"
-                  icon="step"
                   onChange={(unit) => updateUnitConversion(index, { unit })}
                 />
                 <label className="ai-resource-field">

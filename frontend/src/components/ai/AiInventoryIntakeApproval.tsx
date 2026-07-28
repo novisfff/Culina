@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
-import { ApprovalSelectField } from './AiApprovalFields';
+import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
+import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
 import { asText } from './aiDraftValueUtils';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
@@ -46,6 +47,11 @@ function resolvedTitle(status: string) {
   if (status === 'expired') return '已过期的入库草稿';
   return '已处理的入库草稿';
 }
+
+const STORAGE_LOCATION_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storage) => ({
+  value: storage,
+  label: storage,
+}));
 
 const PRESENCE_LEVEL_OPTIONS = [
   { value: 'sufficient', label: '充足' },
@@ -141,7 +147,6 @@ function InventoryIntakeRow({
             value={item.action || ''}
             disabled={readonly || !item.sourceKind}
             options={actionOptions}
-            icon="type"
             className="ai-inventory-intake-field"
             onChange={(action) => onPatch({ action: action as InventoryIntakeDraftItem['action'] })}
           />
@@ -180,7 +185,6 @@ function InventoryIntakeRow({
               value={asText(item.resultingAvailabilityLevel, 'sufficient')}
               disabled={readonly}
               options={PRESENCE_LEVEL_OPTIONS}
-              icon="type"
               className="ai-inventory-intake-field"
               onChange={(resultingAvailabilityLevel) => onPatch({ resultingAvailabilityLevel })}
             />
@@ -226,15 +230,16 @@ function InventoryIntakeRow({
 
           {showStockFields ? (
             <div className="ai-inventory-intake-advanced-grid">
-              <label className="ai-inventory-intake-field">
-                <span>存放位置</span>
-                <input
-                  className="text-input"
-                  value={asText(item.storageLocation)}
-                  disabled={readonly}
-                  onChange={(event) => onPatch({ storageLocation: event.target.value })}
-                />
-              </label>
+              <ApprovalComboboxField
+                label="存放位置"
+                value={asText(item.storageLocation)}
+                disabled={readonly}
+                placeholder="选择或输入存放位置"
+                options={STORAGE_LOCATION_OPTIONS}
+                allowCustom
+                className="ai-inventory-intake-field"
+                onChange={(storageLocation) => onPatch({ storageLocation })}
+              />
               <label className="ai-inventory-intake-field">
                 <span>到期日</span>
                 <input
@@ -251,7 +256,6 @@ function InventoryIntakeRow({
                   value={asText(item.inventoryStatus, 'fresh')}
                   disabled={readonly}
                   options={INVENTORY_STATUS_OPTIONS}
-                  icon="type"
                   className="ai-inventory-intake-field"
                   onChange={(inventoryStatus) => onPatch({ inventoryStatus })}
                 />
@@ -388,7 +392,10 @@ export function AiInventoryIntakeApproval({
       >
         <div className="ai-inventory-intake-overview-main">
           <label className="ai-inventory-intake-field ai-inventory-intake-date-field">
-            <span>入库日期</span>
+            <div className="ai-inventory-intake-date-label">
+              <span>入库日期</span>
+              <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
+            </div>
             <input
               className="text-input"
               type="date"
@@ -397,7 +404,6 @@ export function AiInventoryIntakeApproval({
               onChange={(event) => handleDateChange(event.target.value)}
             />
           </label>
-          <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
         </div>
       </AiDraftSummaryCard>
 

@@ -244,7 +244,6 @@ export function AiShoppingListDraftView(props: {
           value={record.quantityMode}
           disabled={props.readonly}
           options={QUANTITY_MODE_OPTIONS}
-          icon="type"
           onChange={(next) => patchItem({ quantityMode: next, quantity_mode: next })}
         />
         {usesPresenceQuantity ? (
@@ -280,7 +279,6 @@ export function AiShoppingListDraftView(props: {
               disabled={props.readonly}
               options={unitOptions}
               placeholder="选择或输入单位"
-              icon="type"
               onChange={(unit) => patchItem({ unit })}
             />
           </div>
@@ -400,7 +398,6 @@ export function AiShoppingListDraftView(props: {
                   value={String(Boolean(payload.done))}
                   disabled={props.readonly}
                   options={DONE_OPTIONS}
-                  icon="type"
                   onChange={(done) => updateOperationPayloadItem(index, { done: done === 'true' })}
                 />
                 <label className="ai-resource-field ai-confirmation-copy-field">
