@@ -84,6 +84,8 @@ describe('AI Draft field adapters', () => {
 
     const search = view.querySelector<HTMLInputElement>('[role="searchbox"]');
     expect(search).not.toBeNull();
+    expect(view.querySelector('.ai-draft-resource-list.is-popover')).not.toBeNull();
+    expect(view.querySelector('.ai-draft-resource-list.is-inline')).toBeNull();
     changeInput(search as HTMLInputElement, '番');
     expect(onQueryChange).toHaveBeenCalledWith('番');
     const option = view.querySelector<HTMLButtonElement>('[role="option"]');

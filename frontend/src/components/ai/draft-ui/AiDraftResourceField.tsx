@@ -53,7 +53,7 @@ export function AiDraftResourceField<T extends string>(props: {
         listOpen={props.listOpen ?? true}
         showClear={!showingSelectedResource}
         leadingIcon={props.leadingIcon}
-        presentation="inline"
+        presentation="popover"
         className="ai-draft-resource-select"
         searchClassName={`ai-draft-resource-search${showingSelectedResource ? ' has-selected-resource' : ''}`}
         listClassName="ai-draft-resource-list"

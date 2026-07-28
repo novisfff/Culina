@@ -92,6 +92,9 @@ describe('AI legacy style cleanup', () => {
     expect(draftStyles).toContain('.ai-draft-resource-search.has-selected-resource');
     expect(draftStyles).toContain('.ai-draft-resource-list');
     expect(draftStyles).toMatch(
+      /\.ai-draft-resource-select \.ai-draft-resource-list\.is-popover\s*\{[^}]*position: absolute;[^}]*z-index: 70;[^}]*width: 100%;[^}]*box-shadow: var\(--shadow-md\);/s,
+    );
+    expect(draftStyles).toMatch(
       /\.ai-draft-resource-list \.ui-searchable-resource-select-option-media \.ai-resource-thumbnail-frame[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;/,
     );
     expect(draftStyles).toContain('.ai-draft-tag-editor');
@@ -100,6 +103,29 @@ describe('AI legacy style cleanup', () => {
     expect(draftStyles).toContain('fieldset.ai-inventory-intake-conversion');
     expect(aiWorkspaceStyles).toContain('.ai-inventory-intake-chevron-icon');
     expect(aiWorkspaceStyles).toContain('.ai-approval-brief-badges.draft-ingredient-profile');
+  });
+
+  it('keeps inventory intake disclosure rows as unified neutral cards', () => {
+    const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-group-list\s*\{[^}]*gap: var\(--space-3\);[^}]*border: 0;/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row\s*\{[^}]*border: 1px solid var\(--line-soft\);[^}]*border-radius: var\(--radius-sm\);[^}]*background: var\(--surface\);/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row-body\s*\{[^}]*margin: 0;[^}]*border-top: 1px solid var\(--line-soft\);[^}]*background: var\(--surface-warm\);/s,
+    );
+    expect(aiWorkspaceStyles).not.toMatch(
+      /\.ai-inventory-intake-row-body\s*\{[^}]*border-left:/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row\.needs-attention\s*\{[^}]*border-color: var\(--warning-line\);/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-chevron-icon\s*\{[^}]*grid-column: 2;[^}]*grid-row: 1 \/ span 2;/s,
+    );
   });
 
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {

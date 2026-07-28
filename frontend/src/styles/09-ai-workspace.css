@@ -6377,6 +6377,34 @@
   padding: 10px;
 }
 
+.ai-draft-impact-note .ai-meal-plan-ingredients {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-top: 8px;
+}
+
+.ai-ingredient-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(217, 75, 61, 0.24);
+  background: rgba(253, 244, 242, 0.85);
+  color: var(--danger, #d94b3d);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-ingredient-remove-button:hover {
+  background: rgba(253, 236, 233, 1);
+  border-color: rgba(217, 75, 61, 0.45);
+}
+
 .ai-meal-plan-ingredients-head {
   display: flex;
   align-items: center;
@@ -6580,9 +6608,10 @@
 
 .ai-inventory-operation-dispose-impact {
   margin-top: var(--space-3);
-  border: 1px solid var(--danger-line);
+  border: 1px solid rgba(217, 75, 61, 0.14);
+  border-left: 1px solid rgba(217, 75, 61, 0.14) !important;
   border-radius: var(--radius-sm);
-  background: var(--danger-soft);
+  background: rgba(253, 246, 245, 0.65) !important;
   padding: var(--space-3);
   box-shadow: none;
 }
@@ -6798,9 +6827,10 @@
 
 .ai-inventory-operation-dispose-impact {
   margin-top: var(--space-3);
-  border: 1px solid var(--danger-line);
+  border: 1px solid rgba(217, 75, 61, 0.14);
+  border-left: 1px solid rgba(217, 75, 61, 0.14) !important;
   border-radius: var(--radius-sm);
-  background: var(--danger-soft);
+  background: rgba(253, 246, 245, 0.65) !important;
   padding: var(--space-3);
   box-shadow: none;
 }
@@ -7574,15 +7604,20 @@
 
 .ai-inventory-intake-group-list {
   display: grid;
-  border-block: 1px solid var(--line-soft);
+  gap: var(--space-3);
+  border: 0;
 }
 
 .ai-inventory-intake-row {
   min-width: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
 }
 
-.ai-inventory-intake-row + .ai-inventory-intake-row {
-  border-top: 1px solid var(--line-soft);
+.ai-inventory-intake-row.needs-attention {
+  border-color: var(--warning-line);
 }
 
 .ai-inventory-intake-row-toggle {
@@ -7593,12 +7628,13 @@
   width: 100%;
   min-height: 64px;
   min-width: 0;
-  padding: var(--space-4) 0;
+  padding: var(--space-4);
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   text-align: left;
-  transition: color var(--motion-fast) ease;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
 }
 
 .ai-inventory-intake-chevron-icon {
@@ -7618,7 +7654,17 @@
 }
 
 .ai-inventory-intake-row-toggle:hover {
-  color: var(--accent-strong);
+  background: var(--surface-warm);
+}
+
+.ai-inventory-intake-row-toggle[aria-expanded='true'] {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--surface-warm);
+}
+
+.ai-inventory-intake-row-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .ai-inventory-intake-row-copy {
@@ -7674,17 +7720,18 @@
 .ai-inventory-intake-row-body {
   display: grid;
   gap: var(--space-4);
-  margin: 0 0 var(--space-5) var(--space-1);
+  margin: 0;
   padding: var(--space-5);
-  border-left: 3px solid var(--accent-line);
-  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--surface-warm);
   min-width: 0;
 }
 
 .ai-inventory-intake-row.needs-attention .ai-inventory-intake-row-body {
-  border-left-color: var(--warning);
-  background: var(--warning-soft);
+  border-top-color: var(--warning-line);
+  background: var(--surface-warm);
 }
 
 .ai-inventory-intake-field {
@@ -7888,7 +7935,7 @@
     width: fit-content;
   }
 
-  .ai-inventory-intake-chevron {
+  .ai-inventory-intake-chevron-icon {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
@@ -8016,11 +8063,11 @@
 .ai-approval-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
+  gap: 6px;
   border-bottom: 1px solid rgba(226, 214, 205, 0.58);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 253, 250, 0.78) 100%);
-  padding: 18px 20px;
+  padding: 14px 16px;
   transition: border-bottom-color 0.2s ease, background-color 0.2s ease;
 }
 
@@ -8395,10 +8442,10 @@
 .ai-approval-head {
   cursor: pointer;
   user-select: none;
-  gap: 12px;
+  gap: 6px;
   border-bottom-color: rgba(147, 96, 63, 0.1);
   background: linear-gradient(180deg, #fffefd 0%, #fffbf8 100%);
-  padding: 14px 16px;
+  padding: 12px 14px;
   outline: none;
 }
 
@@ -8409,7 +8456,7 @@
 .ai-approval-head-copy {
   flex: 1;
   min-width: 0;
-  padding-right: 8px;
+  padding-right: 0;
 }
 
 .ai-approval-title-row {
@@ -8473,9 +8520,12 @@
 
 .ai-approval-head-actions {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 8px;
   flex-shrink: 0;
+  align-self: stretch;
 }
 
 .ai-approval-panel h3 {
@@ -8556,6 +8606,29 @@
     border-radius: 18px;
   }
 
+  .ai-meal-plan-ingredient-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm);
+  }
+
+  .ai-meal-plan-ingredient-row .ai-ingredient-picker-line1 {
+    width: 100%;
+  }
+
+  .ai-meal-plan-ingredient-row .ai-ingredient-picker-line2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+  }
+
   .ai-approval-panel {
     max-height: none;
   }
@@ -8572,8 +8645,13 @@
   }
 
   .ai-approval-head-actions {
-    align-items: flex-start;
-    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+    align-self: stretch;
   }
 
   .ai-approval-status {
@@ -10126,8 +10204,9 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
   .ai-approval-head {
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    padding: var(--space-5);
+    align-items: stretch;
+    gap: 6px;
+    padding: var(--space-4);
   }
 
   .ai-approval-panel h3 {
@@ -10135,7 +10214,13 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-approval-head-actions {
-    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+    align-self: stretch;
   }
 
   .ai-approval-status {
