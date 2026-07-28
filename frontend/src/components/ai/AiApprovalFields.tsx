@@ -360,9 +360,16 @@ export function AiSearchableResourceSelect({
       }}
       onLoadMore={() => void loadPage(false)}
       onSearchFocus={() => setIsOpen(true)}
+      onSearchBlur={() => setIsOpen(false)}
       onSearchClear={() => {
         setQuery('');
         setIsOpen(true);
+      }}
+      onSearchKeyDown={(event) => {
+        if (event.key !== 'Escape' || !isOpen) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsOpen(false);
       }}
     >
       {selected ? <ResourceThumbnail option={selected} /> : null}

@@ -1,4 +1,4 @@
-import type { CompositionEvent, KeyboardEvent, ReactNode, Ref, UIEvent } from 'react';
+import { useEffect, useRef, type CompositionEvent, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref, type UIEvent } from 'react';
 import { SearchField } from './SearchField';
 
 export type SearchableResourceOption<T extends string> = {
@@ -36,6 +36,7 @@ export type SearchableResourceSelectProps<T extends string> = {
   loadingMoreText?: string;
   onLoadMore?: () => void;
   onSearchFocus?: () => void;
+  onSearchBlur?: () => void;
   onSearchClear?: () => void;
   onSearchCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
   onSearchCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
@@ -69,11 +70,28 @@ export function SearchableResourceSelect<T extends string>({
   loadingMoreText = '正在加载更多...',
   onLoadMore,
   onSearchFocus,
+  onSearchBlur,
   onSearchClear,
   onSearchCompositionStart,
   onSearchCompositionEnd,
   onSearchKeyDown,
 }: SearchableResourceSelectProps<T>) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const dismissedByPointerRef = useRef(false);
+
+  useEffect(() => {
+    if (!listOpen || !onSearchBlur) return undefined;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      dismissedByPointerRef.current = true;
+      onSearchBlur?.();
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [listOpen, onSearchBlur]);
+
   function getOptionClassName(option: SearchableResourceOption<T>) {
     const selected = option.id === value;
     const customClassName = typeof optionClassName === 'function' ? optionClassName(option, selected) : optionClassName;
@@ -89,8 +107,25 @@ export function SearchableResourceSelect<T extends string>({
     }
   }
 
+  function handleSearchBlur(event: FocusEvent<HTMLDivElement>) {
+    const nextFocusedElement = event.relatedTarget;
+    if (nextFocusedElement instanceof Node && event.currentTarget.contains(nextFocusedElement)) return;
+    if (dismissedByPointerRef.current) {
+      dismissedByPointerRef.current = false;
+      return;
+    }
+    onSearchBlur?.();
+  }
+
   return (
-    <div className={['ui-searchable-resource-select', className].filter(Boolean).join(' ')}>
+    <div
+      className={['ui-searchable-resource-select', className].filter(Boolean).join(' ')}
+      ref={rootRef}
+      onBlur={onSearchBlur ? handleSearchBlur : undefined}
+      onFocusCapture={onSearchBlur ? () => {
+        dismissedByPointerRef.current = false;
+      } : undefined}
+    >
       {showSearch ? (
         <SearchField
           className={searchClassName}
@@ -117,7 +152,13 @@ export function SearchableResourceSelect<T extends string>({
           aria-label={`${ariaLabel}结果`}
           onScroll={handleListScroll}
         >
-          {options.length === 0 ? <p className="ui-searchable-resource-select-empty">{emptyText}</p> : null}
+          {options.length === 0 ? (
+            loading ? (
+              <p className="ui-searchable-resource-select-empty" role="status">正在加载候选项…</p>
+            ) : (
+              <p className="ui-searchable-resource-select-empty">{emptyText}</p>
+            )
+          ) : null}
           {options.map((option) => {
             const selected = option.id === value;
             return (
@@ -142,7 +183,7 @@ export function SearchableResourceSelect<T extends string>({
               </button>
             );
           })}
-          {hasMore || loadingMore ? (
+          {options.length > 0 && (hasMore || loadingMore) ? (
             <div className="ui-searchable-resource-select-more">
               {loadingMore ? (
                 <span role="status">{loadingMoreText}</span>

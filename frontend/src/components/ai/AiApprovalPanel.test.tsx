@@ -1753,6 +1753,51 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('closes AI resource candidates when focus leaves the field without changing the draft', async () => {
+    const pending = mealPlanApproval();
+    const loader = vi.fn(async () => [{ id: 'food-tomato-egg', label: '番茄炒蛋', description: '家常菜' }]);
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+    const approvalAction = rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button');
+
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForAsync();
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).not.toBeNull();
+
+    await act(async () => {
+      approvalAction?.focus();
+    });
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).toBeNull();
+    expect(foodInput?.value).toBe('番茄炒蛋');
+    rendered.unmount();
+  });
+
+  it('closes AI resource candidates with Escape without changing the draft', async () => {
+    const pending = mealPlanApproval();
+    const loader = vi.fn(async () => [{ id: 'food-tomato-egg', label: '番茄炒蛋', description: '家常菜' }]);
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForAsync();
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).not.toBeNull();
+
+    await act(async () => {
+      foodInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).toBeNull();
+    expect(foodInput?.value).toBe('番茄炒蛋');
+    rendered.unmount();
+  });
+
   it('uses food dropdowns and meal type selection for meal log confirmations', async () => {
     const pending = mealLogApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);

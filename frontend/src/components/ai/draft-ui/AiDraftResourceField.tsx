@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { SearchableResourceSelect } from '../../ui-kit';
 import type { SearchableResourceOption } from '../../ui-kit';
 import { AiDraftField } from './AiDraftField';
@@ -21,7 +21,9 @@ export function AiDraftResourceField<T extends string>(props: {
   placeholder?: string;
   listOpen?: boolean;
   onSearchFocus?: () => void;
+  onSearchBlur?: () => void;
   onSearchClear?: () => void;
+  onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   className?: string;
 }) {
   const displayedQuery = props.listOpen === false ? props.selectedLabel ?? props.query : props.query;
@@ -49,7 +51,9 @@ export function AiDraftResourceField<T extends string>(props: {
         onChange={props.onChange}
         onLoadMore={props.onLoadMore}
         onSearchFocus={props.onSearchFocus}
+        onSearchBlur={props.onSearchBlur}
         onSearchClear={props.onSearchClear}
+        onSearchKeyDown={props.onSearchKeyDown}
       />
       {props.children ? <div className="ai-draft-resource-extra">{props.children}</div> : null}
     </AiDraftField>
