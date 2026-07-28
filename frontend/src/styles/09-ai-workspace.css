@@ -7732,50 +7732,84 @@
 }
 
 .ai-inventory-intake-ignored {
-  border-block: 1px solid var(--line-soft);
+  margin-top: 12px;
 }
 
-.ai-inventory-intake-ignored summary {
+.ai-inventory-intake-ignored-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
-  min-height: 56px;
-  padding: var(--space-3) 0;
-  color: var(--text-soft);
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
+  outline: none;
 }
 
-.ai-inventory-intake-ignored summary > span {
+.ai-inventory-intake-ignored-header-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-inventory-intake-ignored .ai-draft-section-body {
+  margin-top: 10px;
+}
+
+.ai-inventory-intake-ignored-list {
   display: grid;
-  gap: var(--space-1);
+  gap: 8px;
 }
 
-.ai-inventory-intake-ignored summary::marker {
-  color: var(--text-faint);
+.ai-inventory-intake-ignored-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
 }
 
-.ai-inventory-intake-ignored ul {
-  display: grid;
-  margin: 0;
-  padding: 0 0 var(--space-4) var(--space-5);
-  list-style: none;
-}
-
-.ai-inventory-intake-ignored li {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-3) 0;
+.ai-inventory-intake-ignored-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
-.ai-inventory-intake-ignored li + li {
-  border-top: 1px solid var(--line-soft);
+.ai-inventory-intake-ignored-copy strong {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
-.ai-inventory-intake-ignored li span {
+.ai-inventory-intake-ignored-copy p {
+  margin: 0;
   color: var(--text-soft);
-  font-size: var(--text-sm);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ai-inventory-intake-ignored-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-muted, rgba(246, 240, 234, 0.8));
+  color: var(--text-soft, #7a6e65);
+  font-size: 0.72rem;
+  font-weight: 750;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .ai-inventory-intake-submit-summary {
@@ -8169,11 +8203,11 @@
 
 /* AI human input approval resolved chrome */
 .ai-human-input-request .ai-approval-panel {
-  transition: max-height 240ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition: box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .ai-human-input-request .ai-approval-panel.is-human-input-resolved {
-  max-height: 124px;
+  max-height: none;
 }
 
 /* AI human input mobile approval chrome */

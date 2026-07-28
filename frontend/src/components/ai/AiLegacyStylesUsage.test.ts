@@ -180,6 +180,10 @@ describe('AI legacy style cleanup', () => {
     expect(aiStyles).toContain('.ai-approval-status');
     expect(aiStyles).toContain('.ai-approval-actions');
     expect(aiStyles).toContain('.ai-human-input-request .ai-approval-panel');
+    expect(aiStyles).toMatch(
+      /\.ai-human-input-request \.ai-approval-panel\.is-human-input-resolved\s*\{[^}]*max-height: none;/s,
+    );
+    expect(aiStyles).not.toContain('max-height: 124px;');
     expect(foodStyles).not.toContain('.ai-approval-panel');
     expect(foodStyles).not.toContain('.ai-approval-head');
     expect(foodStyles).not.toContain('.ai-approval-status');

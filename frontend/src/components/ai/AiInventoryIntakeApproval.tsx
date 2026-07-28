@@ -326,6 +326,7 @@ export function AiInventoryIntakeApproval({
     [draft],
   );
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(attentionIds));
+  const [isIgnoredExpanded, setIsIgnoredExpanded] = useState(false);
 
   const toggleExpanded = (lineId: string) => {
     setExpandedIds((current) => {
@@ -500,23 +501,50 @@ export function AiInventoryIntakeApproval({
       </div>
 
       {groups.ignored.length > 0 ? (
-        <details className="ai-draft-resolved-summary tone-neutral ai-inventory-intake-ignored" aria-label="已忽略">
-          <summary>
-            <span>
-              <strong>已忽略</strong>
-              <small>不会写入库存，无需确认</small>
-            </span>
-            <em>{groups.ignored.length} 项</em>
-          </summary>
-          <ul>
-            {groups.ignored.map((item, index) => (
-              <li key={item.sourceLineId || `ignored-${index}`}>
-                <strong>{item.displayName || item.sourceText || '已忽略项'}</strong>
-                <span>{item.reason || '本次不会入库'}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <section className={`ai-draft-section ai-inventory-intake-ignored${isIgnoredExpanded ? ' is-expanded' : ''}`}>
+          <button
+            type="button"
+            className="ai-inventory-intake-ignored-toggle"
+            aria-expanded={isIgnoredExpanded}
+            onClick={() => setIsIgnoredExpanded((current) => !current)}
+          >
+            <div className="ai-draft-section-copy">
+              <h3>已忽略</h3>
+              <p>不会写入库存，无需确认</p>
+            </div>
+            <div className="ai-inventory-intake-ignored-header-action">
+              <span className="ai-inventory-intake-group-count">{groups.ignored.length} 项</span>
+              <svg
+                className={`ai-inventory-intake-chevron-icon${isIgnoredExpanded ? ' is-expanded' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </button>
+          <div
+            className="ai-draft-section-body"
+            style={{ display: isIgnoredExpanded ? 'block' : 'none' }}
+          >
+            <div className="ai-inventory-intake-ignored-list">
+              {groups.ignored.map((item, index) => (
+                <div className="ai-inventory-intake-ignored-card" key={item.sourceLineId || `ignored-${index}`}>
+                  <div className="ai-inventory-intake-ignored-copy">
+                    <strong>{item.displayName || item.sourceText || '已忽略项'}</strong>
+                    <p>{item.reason || '非食品库存对象，本次不会入库'}</p>
+                  </div>
+                  <span className="ai-inventory-intake-ignored-badge">无需确认</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <AiDraftImpactNote tone="plan" title="确认后将" className="ai-inventory-intake-submit-summary">

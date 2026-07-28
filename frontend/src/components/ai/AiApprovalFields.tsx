@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ComboboxField, DropdownSelect } from '../ui-kit';
-import type { SearchableResourceOption } from '../ui-kit';
+import type { DropdownSelectOption, SearchableResourceOption } from '../ui-kit';
 import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { asNumber, asText, draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
 import { AiDraftField } from './draft-ui/AiDraftField';
@@ -121,18 +121,24 @@ export function ApprovalSelectField({
   disabled,
   options,
   icon,
+  useSelectedOptionIcon = false,
   className = '',
   onChange,
 }: {
   label: string;
   value: string;
   disabled: boolean;
-  options: Array<{ value: string; label: string }>;
+  options: readonly DropdownSelectOption<string>[];
   icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none';
+  useSelectedOptionIcon?: boolean;
   className?: string;
   onChange: (value: string) => void;
 }) {
-  const leadingIcon = icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined;
+  const selectedOptionIcon = useSelectedOptionIcon
+    ? options.find((option) => option.value === value)?.icon
+    : undefined;
+  const leadingIcon = selectedOptionIcon
+    ?? (icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined);
   return (
     <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
       <DropdownSelect

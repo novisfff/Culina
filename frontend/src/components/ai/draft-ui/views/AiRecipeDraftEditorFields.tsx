@@ -1,4 +1,6 @@
 import type { AiGeneratedRecipeDraft, Difficulty, Ingredient } from '../../../../api/types';
+import { RecipeUiIcon } from '../../../recipes/RecipeWorkspaceCards';
+import { getRecipeStepIconName } from '../../../recipes/RecipeWorkspaceModel';
 import { RECIPE_STEP_ICON_OPTIONS } from '../../../recipes/RecipeWorkspaceOptions';
 import {
   AiSearchableResourceSelect,
@@ -15,6 +17,16 @@ import {
   recipeDraftUnitOptions,
   recipeIngredientUsesPresenceQuantity,
 } from './aiRecipeDraftViewModel';
+
+const RECIPE_STEP_DRAFT_ICON_OPTIONS = RECIPE_STEP_ICON_OPTIONS.map((option) => ({
+  ...option,
+  icon: (
+    <RecipeUiIcon
+      name={getRecipeStepIconName(option.value)}
+      className={`ai-recipe-step-icon-${option.value}`}
+    />
+  ),
+}));
 
 export function AiRecipeDraftEditorFields(props: {
   recipe: AiGeneratedRecipeDraft;
@@ -259,8 +271,8 @@ export function AiRecipeDraftEditorFields(props: {
                 label="步骤图标"
                 value={step.icon ?? 'pan'}
                 disabled={props.readonly}
-                options={RECIPE_STEP_ICON_OPTIONS}
-                icon="step"
+                options={RECIPE_STEP_DRAFT_ICON_OPTIONS}
+                useSelectedOptionIcon
                 onChange={(icon) => updateStep(index, { icon })}
               />
             </div>

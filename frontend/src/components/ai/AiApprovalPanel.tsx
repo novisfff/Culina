@@ -1046,7 +1046,7 @@ export function ApprovalPanel({
         <div className="ai-approval-head-copy">
           <div className="ai-approval-title-row">
             <h3>{currentApproval.title}</h3>
-            {!isExpanded && briefSummaryParts.length > 0 && (
+            {briefSummaryParts.length > 0 && (
               <div className={`ai-approval-brief-badges${isIngredientProfileBrief ? ' draft-ingredient-profile' : ''}`}>
                 {briefSummaryParts.map((summaryPart, index) => ({ summaryPart, index }))
                   .filter(({ summaryPart }) => summaryPart)

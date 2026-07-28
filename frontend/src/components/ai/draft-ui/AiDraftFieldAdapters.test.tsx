@@ -4,6 +4,7 @@ import { act, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ApprovalSelectField } from '../AiApprovalFields';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
 import { AiDraftField } from './AiDraftField';
 import { AiDraftResourceField } from './AiDraftResourceField';
@@ -152,6 +153,38 @@ describe('AI Draft field adapters', () => {
     const removeButton = view.querySelector<HTMLButtonElement>('[aria-label="删除场景标签：一人食"]');
     act(() => removeButton?.click());
     expect(view.textContent).not.toContain('一人食');
+  });
+
+  it('uses option icons in the menu and follows the selected option in the trigger', () => {
+    function SelectHarness() {
+      const [value, setValue] = useState('pan');
+      return (
+        <ApprovalSelectField
+          label="步骤图标"
+          value={value}
+          disabled={false}
+          options={[
+            { value: 'pan', label: '炒锅', icon: <span data-test-icon="pan" /> },
+            { value: 'timer', label: '计时', icon: <span data-test-icon="timer" /> },
+          ]}
+          useSelectedOptionIcon
+          onChange={setValue}
+        />
+      );
+    }
+
+    const view = renderAdapter(<SelectHarness />);
+    const trigger = view.querySelector<HTMLButtonElement>('.ui-dropdown-select-trigger');
+    expect(trigger?.querySelector('[data-test-icon="pan"]')).not.toBeNull();
+
+    act(() => trigger?.click());
+    const timerOption = Array.from(view.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+      .find((option) => option.textContent?.includes('计时'));
+    expect(timerOption?.querySelector('[data-test-icon="timer"]')).not.toBeNull();
+
+    act(() => timerOption?.click());
+    expect(trigger?.querySelector('[data-test-icon="timer"]')).not.toBeNull();
+    expect(trigger?.querySelector('[data-test-icon="pan"]')).toBeNull();
   });
 
   it('keeps AI resource contracts typed for paged loading', async () => {

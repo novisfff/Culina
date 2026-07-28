@@ -758,6 +758,15 @@ describe('ApprovalPanel', () => {
     expect(badges.map((badge) => badge.textContent)).toEqual(['沙拉', '新增', '其他', '单位：份']);
     expect(summary?.querySelector('.ingredient-profile-part.part-name')?.textContent).toBe('沙拉');
     expect(summary?.querySelector('.ingredient-profile-part.part-unit')?.textContent).toBe('单位：份');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    expect(
+      Array.from(rendered.container.querySelectorAll('.ai-approval-brief-badge')).map((badge) => badge.textContent),
+    ).toEqual(['沙拉', '新增', '其他', '单位：份']);
     rendered.unmount();
   });
 
@@ -1191,8 +1200,20 @@ describe('ApprovalPanel', () => {
       .find((field) => field.textContent?.includes('步骤图标'));
     expect(difficultyField?.textContent).toContain('简单');
     expect(stepIconField?.textContent).toContain('调味');
+    const stepIconTrigger = stepIconField?.querySelector<HTMLButtonElement>('.ai-single-select-trigger');
+    expect(stepIconTrigger?.querySelector('.ai-recipe-step-icon-bowl')).not.toBeNull();
+    await act(async () => {
+      stepIconTrigger?.click();
+    });
+    for (const icon of ['pan', 'tomato', 'bowl', 'timer', 'tip', 'plate']) {
+      expect(stepIconField?.querySelector(`.ui-dropdown-select-option-icon .ai-recipe-step-icon-${icon}`)).not.toBeNull();
+    }
+    await act(async () => {
+      stepIconTrigger?.click();
+    });
     await chooseSingleSelectOption(difficultyField, '适中');
     await chooseSingleSelectOption(stepIconField, '计时');
+    expect(stepIconTrigger?.querySelector('.ai-recipe-step-icon-timer')).not.toBeNull();
 
     const ingredientInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-draft-editor .ai-resource-field-ingredient input');
     await act(async () => {
@@ -2744,7 +2765,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
     // ignored rows have no editable controls
-    const ignoredSection = rendered.container.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
+    const ignoredSection = rendered.container.querySelector('.ai-inventory-intake-ignored');
     expect(ignoredSection).not.toBeNull();
     expect(ignoredSection?.querySelector('input, select, textarea')).toBeNull();
 

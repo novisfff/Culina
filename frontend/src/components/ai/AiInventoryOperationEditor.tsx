@@ -80,7 +80,6 @@ function operationDescription(
     return [
       batchLabel(batchOptions, inventoryItemId),
       `剩余 ${formatInventoryQuantity(item.remainingQuantity, item.unit)}`,
-      item.reason || '待填写原因',
     ].join(' · ');
   }
   return inventoryItemId

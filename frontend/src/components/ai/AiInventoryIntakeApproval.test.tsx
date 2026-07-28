@@ -127,14 +127,25 @@ describe('AiInventoryIntakeApproval', () => {
     expect(Array.from(node.querySelectorAll('button')).some((button) => /确认入库|提交/.test(button.textContent || ''))).toBe(false);
   });
 
-  it('presents a compact overview and defers ignored details', async () => {
+  it('presents a compact overview and collapses ignored section by default', async () => {
     const { container: node } = await renderApproval(baseDraft());
     expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')).not.toBeNull();
     expect(node.querySelector('[aria-label="入库项清单"]')).not.toBeNull();
-    const ignored = node.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
+    const ignored = node.querySelector('.ai-inventory-intake-ignored');
     expect(ignored).not.toBeNull();
-    expect(ignored?.hasAttribute('open')).toBe(false);
     expect(ignored?.textContent).toContain('不会写入库存');
+
+    const toggle = ignored?.querySelector<HTMLButtonElement>('button.ai-inventory-intake-ignored-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => {
+      toggle?.click();
+    });
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(ignored?.textContent).toContain('垃圾袋');
+    expect(ignored?.textContent).toContain('非食品库存对象');
   });
 
   it('separates the editable intake date from the overview summary', async () => {
