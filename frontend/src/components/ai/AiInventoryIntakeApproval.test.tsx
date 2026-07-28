@@ -137,6 +137,20 @@ describe('AiInventoryIntakeApproval', () => {
     expect(ignored?.textContent).toContain('不会写入库存');
   });
 
+  it('separates the editable intake date from the overview summary', async () => {
+    const { container: node } = await renderApproval(baseDraft());
+
+    const overview = node.querySelector('.ai-inventory-intake-overview');
+    const dateConfig = node.querySelector('.ai-inventory-intake-date-config');
+
+    expect(overview?.querySelector('input[type="date"]')).toBeNull();
+    expect(dateConfig).not.toBeNull();
+    expect(dateConfig?.textContent).toContain('调整入库日期');
+    expect(dateConfig?.querySelector('.ai-inventory-intake-date-icon')).not.toBeNull();
+    expect(dateConfig?.querySelector<HTMLInputElement>('input[aria-label="入库日期"]')?.value).toBe('2026-07-21');
+    expect(dateConfig?.querySelector('.ai-inventory-intake-source-badge')?.textContent).toBe('来自小票');
+  });
+
   it('renders resolved intake as a compact summary without editor controls', async () => {
     const { container: node } = await renderApproval(baseDraft(), vi.fn(), true, 'approved');
 

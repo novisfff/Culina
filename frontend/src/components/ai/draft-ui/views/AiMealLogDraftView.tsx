@@ -292,7 +292,7 @@ export function AiMealLogDraftView(props: {
               <AiDraftItemCard
                 key={`${asText(food.name)}-${index}`}
                 title={asText(food.name) || selectedFood?.label || `食物 ${index + 1}`}
-                summary={`食物 ${index + 1} · ${formatServingCount(food.servings)} 份`}
+                summary={`食物 ${index + 1}`}
                 status={formatServingCount(food.servings) + ' 份'}
                 className="ai-meal-log-food-item"
                 footer={!props.readonly && foods.length > 1 ? (

@@ -91,6 +91,9 @@ describe('AI legacy style cleanup', () => {
     expect(uiKitStyles).toContain('.ui-searchable-resource-select-loading');
     expect(draftStyles).toContain('.ai-draft-resource-search.has-selected-resource');
     expect(draftStyles).toContain('.ai-draft-resource-list');
+    expect(draftStyles).toMatch(
+      /\.ai-draft-resource-list \.ui-searchable-resource-select-option-media \.ai-resource-thumbnail-frame[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;/,
+    );
     expect(draftStyles).toContain('.ai-draft-tag-editor');
     expect(draftStyles).toContain('.ai-meal-log-stock-header');
     expect(draftStyles).toContain('.ai-meal-plan-ingredient-actions');

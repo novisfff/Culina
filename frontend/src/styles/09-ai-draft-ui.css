@@ -1060,6 +1060,21 @@
   height: 100%;
 }
 
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail-frame,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail-frame.media-with-placeholder,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media img {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  flex-basis: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
 .ai-draft-resource-search.ui-search-field {
   gap: var(--space-3);
   padding: 0 var(--space-2) 0 var(--space-3);

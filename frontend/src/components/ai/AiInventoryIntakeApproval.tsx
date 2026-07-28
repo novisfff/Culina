@@ -408,23 +408,41 @@ export function AiInventoryIntakeApproval({
         title="本次入库概览"
         items={overviewItems}
         className="ai-inventory-intake-overview ai-inventory-intake-summary-card"
-      >
-        <div className="ai-inventory-intake-overview-main">
-          <label className="ai-inventory-intake-field ai-inventory-intake-date-field">
-            <div className="ai-inventory-intake-date-label">
-              <span>入库日期</span>
+      />
+
+      {!readonly ? (
+        <div className="ai-inventory-intake-date-config" aria-label="入库日期配置">
+          <label className="ai-inventory-intake-date-field">
+            <span className="ai-inventory-intake-date-label">
+              <svg
+                className="ai-inventory-intake-date-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="4.5" y="5.5" width="15" height="14" rx="3" />
+                <path d="M8 3.8v3.4M16 3.8v3.4M4.8 10h14.4" />
+              </svg>
+              调整入库日期
+            </span>
+            <div className="ai-inventory-intake-date-input-wrap">
+              <input
+                className="text-input"
+                type="date"
+                aria-label="入库日期"
+                value={draft.intakeDate}
+                disabled={readonly}
+                onChange={(event) => handleDateChange(event.target.value)}
+              />
               <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
             </div>
-            <input
-              className="text-input"
-              type="date"
-              value={draft.intakeDate}
-              disabled={readonly}
-              onChange={(event) => handleDateChange(event.target.value)}
-            />
           </label>
         </div>
-      </AiDraftSummaryCard>
+      ) : null}
 
       {attentionItems.length > 0 ? (
         <AiDraftImpactNote tone="warning" title="还需补充" className="ai-inventory-intake-attention">

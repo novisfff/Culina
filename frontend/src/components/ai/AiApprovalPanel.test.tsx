@@ -1859,7 +1859,12 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('关联计划未关联');
     expect(rendered.container.textContent).toContain('心情满足');
     expect(rendered.container.textContent).toContain('晚餐记录');
-    expect(rendered.container.textContent).toContain('食物 1');
+    const foodCard = rendered.container.querySelector('.ai-meal-log-food-item');
+    const foodCardCopy = foodCard?.querySelector('.ai-draft-item-card-copy');
+    const foodCardStatus = foodCard?.querySelector('.ai-draft-item-card-status');
+    expect(foodCardCopy?.textContent).toContain('食物 1');
+    expect(foodCardCopy?.textContent).not.toContain('1 份');
+    expect(foodCardStatus?.textContent).toBe('1 份');
     expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
     expect(rendered.container.textContent).toContain('1 份');
     expect(rendered.container.textContent).toContain('参与人和照片');

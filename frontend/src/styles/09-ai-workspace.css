@@ -7359,22 +7359,71 @@
   min-width: 0;
 }
 
-.ai-inventory-intake-overview-main {
+.ai-inventory-intake-date-config {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--motion-fast) ease;
+}
+
+.ai-inventory-intake-date-config:hover {
+  border-color: var(--line-strong);
 }
 
 .ai-inventory-intake-date-field {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  gap: var(--space-4);
   min-width: 0;
 }
 
 .ai-inventory-intake-date-label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ai-inventory-intake-date-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.ai-inventory-intake-date-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.ai-inventory-intake-date-field input.text-input {
+  min-height: var(--control-height);
+  height: var(--control-height);
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line-soft);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  padding: 0 var(--space-3);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.ai-inventory-intake-date-field input.text-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
 }
 
 .ai-inventory-intake-source-badge {
@@ -7764,8 +7813,29 @@
     padding: var(--space-4);
   }
 
-  .ai-inventory-intake-overview-main {
-    align-items: end;
+  .ai-inventory-intake-date-config {
+    padding: var(--space-4);
+    box-shadow: none;
+  }
+
+  .ai-inventory-intake-date-field {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .ai-inventory-intake-date-input-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    width: 100%;
+  }
+
+  .ai-inventory-intake-date-field input.text-input {
+    width: 100%;
+    min-width: 0;
+    min-height: var(--control-height-touch);
+    height: var(--control-height-touch);
   }
 
   .ai-inventory-intake-overview-counts,
