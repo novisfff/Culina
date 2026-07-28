@@ -158,6 +158,45 @@ describe('SearchableResourceSelect', () => {
     expect(view.textContent).not.toContain('加载更多');
   });
 
+  it('can suppress the clear action when the visible query represents a selected resource', () => {
+    const view = renderSelect(
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value="ingredient-1"
+        query="番茄"
+        options={[]}
+        listOpen={false}
+        showClear={false}
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(view.querySelector<HTMLInputElement>('[role="searchbox"]')?.value).toBe('番茄');
+    expect(view.querySelector('.ui-search-field-clear')).toBeNull();
+  });
+
+  it('keeps inline initial loading compact instead of mounting an empty result list', () => {
+    const view = renderSelect(
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value=""
+        query="番茄"
+        loading
+        presentation="inline"
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+        options={[]}
+      />,
+    );
+
+    expect(view.querySelector('[role="listbox"]')).toBeNull();
+    expect(view.querySelector('.ui-searchable-resource-select-loading[role="status"]')?.textContent).toBe('正在加载候选项…');
+    expect(view.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
   it('only reports search blur after focus leaves the whole resource control', () => {
     const onSearchBlur = vi.fn();
     const view = renderSelect(

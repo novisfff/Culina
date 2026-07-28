@@ -108,8 +108,8 @@ export function AiRecipeDraftEditorFields(props: {
           return (
             <AiDraftItemCard
               key={`${item.ingredient_name}-${index}`}
-              title={`食材 ${index + 1}`}
-              summary={item.ingredient_name || '请从食材库选择'}
+              title={item.ingredient_name || `食材 ${index + 1}`}
+              summary={`食材 ${index + 1} · ${item.ingredient_id ? '已绑定食材库' : '待绑定食材库'}`}
               tone={item.ingredient_id ? 'neutral' : 'warning'}
               className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`}
               footer={!props.readonly && props.recipe.ingredient_items.length > 1 ? (
@@ -127,7 +127,7 @@ export function AiRecipeDraftEditorFields(props: {
             >
               <AiSearchableResourceSelect
                 kind="ingredient"
-                label={`食材 ${index + 1}`}
+                label="绑定食材"
                 value={item.ingredient_id ?? ''}
                 selectedLabel={item.ingredient_name}
                 placeholder="从食材库选择"

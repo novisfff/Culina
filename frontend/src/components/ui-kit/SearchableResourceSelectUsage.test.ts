@@ -114,10 +114,11 @@ describe('SearchableResourceSelect usages', () => {
     expect(source).not.toContain('leadingIconClassName=');
   });
 
-  it('does not expose a leading icon API on the shared resource selector', () => {
+  it('keeps leading media and clear-button visibility as explicit shared APIs', () => {
     const source = readFileSync(resolve(repoRoot, 'src/components/ui-kit/SearchableResourceSelect.tsx'), 'utf8');
 
-    expect(source).not.toContain('leadingIcon');
+    expect(source).toContain('leadingIcon?: ReactNode;');
+    expect(source).toContain('showClear?: boolean;');
     expect(source).not.toContain('leadingIconClassName');
   });
 });

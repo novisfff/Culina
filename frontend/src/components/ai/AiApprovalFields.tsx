@@ -277,11 +277,16 @@ export function AiSearchableResourceSelect({
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [loadedOptions, setLoadedOptions] = useState<AiResourceOption[]>([]);
+  const [hydratedSelectedOption, setHydratedSelectedOption] = useState<AiResourceOption | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const requestVersionRef = useRef(0);
-  const selected = selectedOption && (selectedOption.id === value || (!value && selectedOption.label === selectedLabel)) ? selectedOption : null;
+  const selectedFromProps = selectedOption && (selectedOption.id === value || (!value && selectedOption.label === selectedLabel))
+    ? selectedOption
+    : null;
+  const selected = selectedFromProps
+    ?? (hydratedSelectedOption?.id === value ? hydratedSelectedOption : null);
   const excludedIdSet = useMemo(() => new Set(excludeIds), [excludeIds]);
   const visibleOptions = loadedOptions.filter((option) => !excludedIdSet.has(option.id) || option.id === value);
   const resourceOptions: SearchableResourceOption<string>[] = visibleOptions.map((option) => ({
@@ -319,6 +324,30 @@ export function AiSearchableResourceSelect({
   }, [disabled, hasMore, isLoading, kind, loadOptions, loadedOptions.length, query]);
 
   useEffect(() => {
+    if (!value || selectedFromProps || !selectedLabel?.trim()) {
+      setHydratedSelectedOption(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setHydratedSelectedOption(null);
+    void loadOptions(kind, {
+      query: normalizeSearchText(selectedLabel),
+      offset: 0,
+      limit: pageSize,
+    }).then((options) => {
+      if (cancelled) return;
+      setHydratedSelectedOption(options.find((option) => option.id === value) ?? null);
+    }).catch(() => {
+      if (!cancelled) setHydratedSelectedOption(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, loadOptions, selectedFromProps, selectedLabel, value]);
+
+  useEffect(() => {
     if (!isOpen) {
       setQuery('');
       setLoadedOptions([]);
@@ -347,6 +376,7 @@ export function AiSearchableResourceSelect({
       emptyText={loadError ? '加载失败，请关闭后重试' : '没有匹配项'}
       placeholder={placeholder}
       listOpen={!disabled && isOpen}
+      leadingIcon={selected ? <ResourceThumbnail option={selected} /> : null}
       className={`ai-resource-field ai-resource-field-${kind}`}
       onQueryChange={(nextQuery) => {
         setQuery(nextQuery);
@@ -371,9 +401,7 @@ export function AiSearchableResourceSelect({
         event.stopPropagation();
         setIsOpen(false);
       }}
-    >
-      {selected ? <ResourceThumbnail option={selected} /> : null}
-    </AiDraftResourceField>
+    />
   );
 }
 
@@ -460,6 +488,7 @@ function UnitComboboxInput({
           setIsOpen(true);
         }}
       />
+      <span className="ai-ingredient-unit-chevron" aria-hidden="true" />
       {!disabled && isOpen && (
         <div className="ai-resource-menu ai-combobox-menu ai-ingredient-unit-menu" role="listbox" onMouseDown={(event) => event.preventDefault()}>
           {visibleOptions.map((option) => {
@@ -543,31 +572,33 @@ export function IngredientQuantityPicker({
               loadOptions={loadOptions}
               onSelect={(option) => updateItem(index, { ingredientId: option.id, name: option.label, unit: option.unit || item.unit || '份' })}
             />
-            <label className="ai-resource-field ai-ingredient-quantity-field">
-              <span>数量</span>
-              <div className="ai-ingredient-quantity-control">
-                <input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={draftNumberInputValue(item.quantity, 1)}
-                  disabled={disabled}
-                  aria-label={`${item.name}数量`}
-                  onChange={(event) => updateItem(index, { quantity: draftNumberFromInput(event.target.value) })}
-                />
-                <UnitComboboxInput
-                  value={item.unit}
-                  disabled={disabled}
-                  ariaLabel={`${item.name}单位`}
-                  onChange={(unit) => updateItem(index, { unit })}
-                />
-              </div>
-            </label>
-            {!disabled && (
-              <button className="ai-ingredient-remove-button" type="button" aria-label={`删除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
-                ×
-              </button>
-            )}
+            <div className="ai-meal-plan-ingredient-actions">
+              <label className="ai-resource-field ai-ingredient-quantity-field">
+                <span>数量</span>
+                <div className="ai-ingredient-quantity-control">
+                  <input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={draftNumberInputValue(item.quantity, 1)}
+                    disabled={disabled}
+                    aria-label={`${item.name}数量`}
+                    onChange={(event) => updateItem(index, { quantity: draftNumberFromInput(event.target.value) })}
+                  />
+                  <UnitComboboxInput
+                    value={item.unit}
+                    disabled={disabled}
+                    ariaLabel={`${item.name}单位`}
+                    onChange={(unit) => updateItem(index, { unit })}
+                  />
+                </div>
+              </label>
+              {!disabled && (
+                <button className="ai-ingredient-remove-button" type="button" aria-label={`删除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
+                  删除
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

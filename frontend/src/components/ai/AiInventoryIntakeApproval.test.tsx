@@ -162,6 +162,8 @@ describe('AiInventoryIntakeApproval', () => {
       .find((button) => button.textContent?.includes('牛奶')) as HTMLButtonElement;
     expect(eggToggle?.getAttribute('aria-expanded')).toBe('false');
     expect(milkToggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(milkToggle?.querySelector('.ai-inventory-intake-chevron-icon')).not.toBeNull();
+    expect(node.querySelector('.ai-inventory-intake-source-text svg')).not.toBeNull();
     expect(node.querySelector('input[aria-label="牛奶实际入库数量"]')).not.toBeNull();
   });
 
@@ -188,6 +190,23 @@ describe('AiInventoryIntakeApproval', () => {
     expect(milk?.targetId).toBe('food-milk');
     expect(milk?.expectedFoodRowVersion).toBe(2);
     expect(milk?.sourceKind).toBe('direct');
+  });
+
+  it('groups package conversion as a secondary field set', async () => {
+    const draft = baseDraft({
+      items: [{
+        ...baseDraft().items[1],
+        enteredQuantity: '1',
+        packageConversion: { ratio: '10', targetUnit: '个', evidence: '包装标注' },
+      }],
+      ignoredItems: [],
+    });
+    const { container: node } = await renderApproval(draft);
+    const toggle = node.querySelector<HTMLButtonElement>('button[aria-expanded]');
+    await act(async () => toggle?.click());
+
+    const conversion = node.querySelector('fieldset.ai-inventory-intake-conversion');
+    expect(conversion?.querySelector('legend')?.textContent).toBe('一次性包装换算');
   });
 
   it('keeps ignored rows read-only', async () => {

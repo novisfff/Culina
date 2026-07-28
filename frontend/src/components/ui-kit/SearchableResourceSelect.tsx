@@ -24,6 +24,7 @@ export type SearchableResourceSelectProps<T extends string> = {
   disabled?: boolean;
   listOpen?: boolean;
   showSearch?: boolean;
+  showClear?: boolean;
   presentation?: 'inline' | 'popover';
   className?: string;
   searchClassName?: string;
@@ -34,6 +35,7 @@ export type SearchableResourceSelectProps<T extends string> = {
   optionClassName?: string | ((option: SearchableResourceOption<T>, selected: boolean) => string | undefined);
   loadMoreText?: string;
   loadingMoreText?: string;
+  leadingIcon?: ReactNode;
   onLoadMore?: () => void;
   onSearchFocus?: () => void;
   onSearchBlur?: () => void;
@@ -58,6 +60,7 @@ export function SearchableResourceSelect<T extends string>({
   disabled = false,
   listOpen = true,
   showSearch = true,
+  showClear = true,
   presentation = 'inline',
   className,
   searchClassName,
@@ -68,6 +71,7 @@ export function SearchableResourceSelect<T extends string>({
   optionClassName,
   loadMoreText = '加载更多',
   loadingMoreText = '正在加载更多...',
+  leadingIcon,
   onLoadMore,
   onSearchFocus,
   onSearchBlur,
@@ -78,6 +82,7 @@ export function SearchableResourceSelect<T extends string>({
 }: SearchableResourceSelectProps<T>) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dismissedByPointerRef = useRef(false);
+  const inlineLoadingOnly = presentation === 'inline' && loading && options.length === 0;
 
   useEffect(() => {
     if (!listOpen || !onSearchBlur) return undefined;
@@ -135,8 +140,10 @@ export function SearchableResourceSelect<T extends string>({
           ariaLabel={ariaLabel}
           placeholder={placeholder}
           value={query}
-          loading={loading}
+          loading={loading && !inlineLoadingOnly}
           disabled={disabled}
+          showClear={showClear}
+          leadingIcon={leadingIcon}
           onChange={onQueryChange}
           onClear={onSearchClear}
           onCompositionStart={onSearchCompositionStart}
@@ -145,7 +152,10 @@ export function SearchableResourceSelect<T extends string>({
           onFocus={onSearchFocus}
         />
       ) : null}
-      {listOpen ? (
+      {listOpen && inlineLoadingOnly ? (
+        <p className="ui-searchable-resource-select-loading" role="status">正在加载候选项…</p>
+      ) : null}
+      {listOpen && !inlineLoadingOnly ? (
         <div
           className={['ui-searchable-resource-select-list', presentation === 'popover' ? 'is-popover' : 'is-inline', listClassName].filter(Boolean).join(' ')}
           role="listbox"

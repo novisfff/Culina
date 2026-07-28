@@ -350,32 +350,34 @@ export function AiMealLogDraftView(props: {
                 </label>
                 {isReadyLike ? (
                   <AiDraftImpactNote tone="warning" title="库存扣减说明" className="ai-meal-log-stock-control">
-                    <label className="ai-meal-log-stock-toggle">
-                      <input
-                        type="checkbox"
-                        checked={food.deductStock}
-                        disabled={props.readonly || !stockUnit || !Number.isFinite(currentStock) || currentStock <= 0}
-                        onChange={(event) => {
-                          const enabled = event.target.checked;
-                          const defaultQuantity = asText(food.stockQuantity) || '1';
-                          updateFood(index, {
-                            deductStock: enabled,
-                            stockQuantity: enabled ? defaultQuantity : undefined,
-                            stockUnit,
-                            stockCurrentQuantity,
-                            stockAfterQuantity: enabled
-                              ? String(Number(Math.max(0, currentStock - Number(defaultQuantity)).toFixed(1)))
-                              : undefined,
-                          });
-                        }}
-                      />
-                      <span>同时扣减库存</span>
-                    </label>
-                    <p>
-                      {stockUnit && stockCurrentQuantity
-                        ? `当前库存 ${stockCurrentQuantity} ${stockUnit}`
-                        : '当前食物尚未设置可扣减库存'}
-                    </p>
+                    <div className="ai-meal-log-stock-header">
+                      <label className="ai-meal-log-stock-toggle">
+                        <input
+                          type="checkbox"
+                          checked={food.deductStock}
+                          disabled={props.readonly || !stockUnit || !Number.isFinite(currentStock) || currentStock <= 0}
+                          onChange={(event) => {
+                            const enabled = event.target.checked;
+                            const defaultQuantity = asText(food.stockQuantity) || '1';
+                            updateFood(index, {
+                              deductStock: enabled,
+                              stockQuantity: enabled ? defaultQuantity : undefined,
+                              stockUnit,
+                              stockCurrentQuantity,
+                              stockAfterQuantity: enabled
+                                ? String(Number(Math.max(0, currentStock - Number(defaultQuantity)).toFixed(1)))
+                                : undefined,
+                            });
+                          }}
+                        />
+                        <span>同时扣减库存</span>
+                      </label>
+                      <span className="ai-meal-log-stock-current">
+                        {stockUnit && stockCurrentQuantity
+                          ? `当前库存 ${stockCurrentQuantity} ${stockUnit}`
+                          : '当前食物尚未设置可扣减库存'}
+                      </span>
+                    </div>
                     {food.deductStock ? (
                       <div className="ai-meal-log-stock-fields">
                         <label className="ai-resource-field">
@@ -404,7 +406,9 @@ export function AiMealLogDraftView(props: {
                           <span>库存单位</span>
                           <strong>{stockUnit}</strong>
                         </div>
-                        <p>确认后预计剩余 {afterStock || asText(food.stockAfterQuantity)} {stockUnit}</p>
+                        <p className="ai-meal-log-stock-footer">
+                          确认后预计剩余 <strong>{afterStock || asText(food.stockAfterQuantity)} {stockUnit}</strong>
+                        </p>
                       </div>
                     ) : null}
                   </AiDraftImpactNote>

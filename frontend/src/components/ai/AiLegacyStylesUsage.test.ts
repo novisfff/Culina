@@ -83,6 +83,22 @@ describe('AI legacy style cleanup', () => {
     );
   });
 
+  it('keeps semantic AI Draft polish styles with their owning layers', () => {
+    const uiKitStyles = readFileSync(resolve(repoRoot, 'src/styles/00-ui-kit.css'), 'utf8');
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+    const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(uiKitStyles).toContain('.ui-searchable-resource-select-loading');
+    expect(draftStyles).toContain('.ai-draft-resource-search.has-selected-resource');
+    expect(draftStyles).toContain('.ai-draft-resource-list');
+    expect(draftStyles).toContain('.ai-draft-tag-editor');
+    expect(draftStyles).toContain('.ai-meal-log-stock-header');
+    expect(draftStyles).toContain('.ai-meal-plan-ingredient-actions');
+    expect(draftStyles).toContain('fieldset.ai-inventory-intake-conversion');
+    expect(aiWorkspaceStyles).toContain('.ai-inventory-intake-chevron-icon');
+    expect(aiWorkspaceStyles).toContain('.ai-approval-brief-badges.draft-ingredient-profile');
+  });
+
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {
     const sourceByFile = collectNonTestSourceFiles(srcRoot).map((path) => ({
       label: relative(repoRoot, path),

@@ -1725,6 +1725,20 @@
   padding: 10px;
 }
 
+.ui-searchable-resource-select-loading {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height-compact);
+  margin: 0;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: var(--surface-warm);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
 .ui-searchable-resource-select .ui-searchable-resource-select-more {
   display: grid;
   place-items: center;

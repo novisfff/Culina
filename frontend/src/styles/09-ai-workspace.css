@@ -7507,9 +7507,20 @@
 }
 
 .ai-inventory-intake-source-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
   color: var(--text-soft);
   font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-inventory-intake-source-text svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
 }
 
 .ai-inventory-intake-group-list {
@@ -7539,6 +7550,22 @@
   color: inherit;
   text-align: left;
   transition: color var(--motion-fast) ease;
+}
+
+.ai-inventory-intake-chevron-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-faint);
+  transition: transform var(--motion-normal) ease, color var(--motion-fast) ease;
+}
+
+.ai-inventory-intake-row-toggle:hover .ai-inventory-intake-chevron-icon,
+.ai-inventory-intake-row-toggle[aria-expanded='true'] .ai-inventory-intake-chevron-icon {
+  color: var(--accent);
+}
+
+.ai-inventory-intake-chevron-icon.is-expanded {
+  transform: rotate(180deg);
 }
 
 .ai-inventory-intake-row-toggle:hover {
@@ -8291,6 +8318,53 @@
 
 .ai-approval-title-row h3 {
   margin: 0;
+}
+
+.ai-approval-brief-badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-approval-brief-badges.draft-ingredient-profile {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+  padding: 0;
+  white-space: normal;
+}
+
+.ai-approval-brief-badges.draft-ingredient-profile .part-name {
+  flex: 1 0 100%;
+  width: 100%;
+  min-height: 0;
+  max-width: 100%;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ai-approval-brief-badges.draft-ingredient-profile .part-category,
+.ai-approval-brief-badges.draft-ingredient-profile .part-unit {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  color: var(--text-soft);
 }
 
 .ai-approval-head-actions {

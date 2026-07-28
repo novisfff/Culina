@@ -133,13 +133,32 @@ function InventoryIntakeRow({
         <span className={`ai-inventory-intake-badge${needsAttention ? ' needs-attention' : ' is-ready'}`}>
           {needsAttention ? '需补充' : '已就绪'}
         </span>
-        <span className="ai-inventory-intake-chevron" aria-hidden="true">⌄</span>
+        <svg
+          className={`ai-inventory-intake-chevron-icon${expanded ? ' is-expanded' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
       {expanded ? (
         <div className="ai-inventory-intake-row-body">
           {item.sourceText ? (
-            <p className="ai-inventory-intake-source-text">{item.sourceText}</p>
+            <div className="ai-inventory-intake-source-text">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>{item.sourceText}</span>
+            </div>
           ) : null}
 
           <ApprovalSelectField
@@ -191,8 +210,8 @@ function InventoryIntakeRow({
           ) : null}
 
           {conversion && showStockFields && item.targetKind !== 'presence_ingredient' ? (
-            <section className="ai-inventory-intake-conversion" aria-label={`${title}包装换算`}>
-              <strong>一次性包装换算</strong>
+            <fieldset className="ai-inventory-intake-conversion" aria-label={`${title}包装换算`}>
+              <legend>一次性包装换算</legend>
               <div className="ai-inventory-intake-quantity-grid">
                 <label className="ai-inventory-intake-field">
                   <span>每份换算倍率</span>
@@ -225,7 +244,7 @@ function InventoryIntakeRow({
                   onChange={(event) => updateConversion({ evidence: event.target.value })}
                 />
               </label>
-            </section>
+            </fieldset>
           ) : null}
 
           {showStockFields ? (

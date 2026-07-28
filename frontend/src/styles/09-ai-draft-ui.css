@@ -600,6 +600,103 @@
   background: var(--surface-warm);
 }
 
+.ai-meal-log-stock-control .ai-draft-impact-note-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.ai-meal-log-stock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.ai-meal-log-stock-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: var(--space-2);
+  width: auto;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox'] {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid var(--surface);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transform-origin: center;
+  transition: transform var(--motion-fast) ease;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:checked {
+  border-color: var(--warning);
+  background: var(--warning);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--warning) 25%, transparent);
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:disabled {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-meal-log-stock-current,
+.ai-meal-log-stock-footer {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-meal-log-stock-footer {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.ai-meal-log-stock-footer strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .ai-draft-summary-card.ai-food-profile-summary-card,
 .ai-draft-resolved-summary.ai-food-profile-summary-card {
   border-color: var(--line-soft);
@@ -811,6 +908,110 @@
   min-width: 0;
 }
 
+.ai-draft-tag-editor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-draft-tag-chip,
+.ai-draft-tag-add,
+.ai-draft-tag-entry {
+  box-sizing: border-box;
+  min-height: 32px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  line-height: 1.2;
+}
+
+.ai-draft-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--plan);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-draft-tag-chip > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-draft-tag-chip.is-removable {
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.ai-draft-tag-chip.is-removable:hover {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-tag-remove-mark {
+  flex: 0 0 auto;
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ai-draft-tag-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-4);
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--text-soft);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.ai-draft-tag-add:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ai-draft-tag-entry {
+  width: min(11rem, 100%);
+  min-width: min(8rem, 100%);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent-line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  outline: none;
+}
+
+.ai-draft-tag-entry::placeholder {
+  color: var(--text-faint);
+}
+
+.ai-draft-tag-chip:focus-visible,
+.ai-draft-tag-add:focus-visible,
+.ai-draft-tag-entry:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ai-draft-tag-empty {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
 .ai-draft-resource-extra {
   display: flex;
   align-items: center;
@@ -829,7 +1030,7 @@
   min-width: 0;
 }
 
-.ai-draft-resource-list.ai-resource-menu {
+.ai-draft-resource-list {
   position: static;
   z-index: auto;
   max-height: 16rem;
@@ -840,8 +1041,168 @@
   box-shadow: none;
 }
 
-.ai-draft-resource-list.ai-resource-menu button {
+.ai-draft-resource-list button {
   min-height: var(--control-height);
+}
+
+.ai-draft-resource-list .ui-searchable-resource-select-option-media {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: var(--surface-warm);
+}
+
+.ai-draft-resource-list .ui-searchable-resource-select-option-media > * {
+  width: 100%;
+  height: 100%;
+}
+
+.ai-draft-resource-search.ui-search-field {
+  gap: var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.ai-draft-resource-search.has-selected-resource {
+  border-color: var(--line-soft);
+  background: var(--surface);
+}
+
+.ai-draft-resource-search .ui-search-field-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: var(--surface-muted);
+}
+
+.ai-draft-resource-search .ui-search-field-icon > * {
+  width: 100%;
+  height: 100%;
+}
+
+.ai-draft-resource-search .ui-search-field-clear {
+  width: 32px;
+  min-width: 32px;
+  height: 100%;
+  margin-inline-end: calc(-1 * var(--space-1));
+  color: var(--text-faint);
+}
+
+.ai-draft-resource-search .ui-search-field-clear > span {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.ai-draft-resource-search .ui-search-field-clear:hover > span {
+  background: var(--surface-muted);
+}
+
+.ai-draft-resource-select .ui-searchable-resource-select-loading {
+  min-height: 32px;
+  padding-inline: var(--space-3);
+  border: 0;
+  background: var(--surface-muted);
+}
+
+.ai-meal-plan-ingredient-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-meal-plan-ingredient-row {
+  grid-template-columns: minmax(0, 1fr) minmax(13.5rem, 0.42fr);
+  gap: var(--space-3);
+}
+
+.ai-meal-plan-ingredient-actions > .ai-ingredient-quantity-field:only-child {
+  grid-column: 1 / -1;
+}
+
+.ai-ingredient-unit-combobox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10px;
+  align-items: center;
+  padding-inline-end: var(--space-3);
+}
+
+.ai-ingredient-quantity-control {
+  min-height: var(--ai-draft-control-height);
+  height: var(--ai-draft-control-height);
+}
+
+.ai-ingredient-unit-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  color: var(--text-faint);
+  pointer-events: none;
+  transform: rotate(45deg) translateY(-1px);
+  transition: color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+
+.ai-ingredient-unit-combobox.is-open .ai-ingredient-unit-chevron {
+  color: var(--accent);
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.ai-ingredient-remove-button {
+  width: auto;
+  min-width: 3.5rem;
+  height: var(--ai-draft-control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.ai-ingredient-remove-button:hover {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-ingredient-remove-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+fieldset.ai-inventory-intake-conversion {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.ai-inventory-intake-conversion legend {
+  padding: 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 700;
 }
 
 .ai-draft-tag-preview {
@@ -1192,7 +1553,7 @@
   .ai-draft-remove-button,
   .ai-resource-select,
   .ai-draft-item-card .compact-input,
-  .ai-draft-resource-list.ai-resource-menu button {
+  .ai-draft-resource-list button {
     min-height: var(--control-height-touch);
   }
 }
@@ -1311,7 +1672,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ai-draft-resource-list.ai-resource-menu button {
+  .ai-meal-plan-ingredient-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .ai-draft-resource-list button {
     min-height: var(--control-height-touch);
   }
 }
