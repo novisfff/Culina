@@ -1469,7 +1469,6 @@
   border: 1px solid var(--line-normal);
   border-radius: var(--radius-sm, 10px);
   background: var(--surface, #ffffff);
-  overflow: hidden;
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
@@ -1485,8 +1484,8 @@
   align-items: center;
 }
 
-.ui-quantity-unit-number span,
-.ui-quantity-unit-select span {
+.ui-quantity-unit-number > span,
+.ui-quantity-unit-select > span {
   position: absolute;
   width: 1px;
   height: 1px;

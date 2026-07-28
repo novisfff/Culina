@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { AiInventoryBatchOption, InventoryStatus } from '../../api/types';
 import { resolveMediaUrl } from '../../lib/assets';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
@@ -108,6 +108,7 @@ export function AiInventoryOperationEditor({
   onRemoveItem: (index: number) => void;
 }) {
   const operations = draft.operations;
+  const fieldIdPrefix = useId();
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
   const toggleDetails = (key: string) => {
     setExpandedDetails((current) => ({ ...current, [key]: !current[key] }));
@@ -205,6 +206,7 @@ export function AiInventoryOperationEditor({
             const conversionNote = item.conversionNote ?? '';
             const sourceQuantity = item.sourceQuantity;
             const sourceUnit = item.sourceUnit ?? '';
+            const quantityInputId = `${fieldIdPrefix}-quantity-${index}`;
             const conversionSummary = conversionNote || (
               sourceQuantity !== null && sourceUnit
                 ? `来自 ${sourceQuantity} ${sourceUnit}`
@@ -246,9 +248,12 @@ export function AiInventoryOperationEditor({
                 ) : null}
 
                 <div className="ai-inventory-quantity-group">
-                  <span className="ai-inventory-quantity-label">{action === 'dispose' ? '销毁数量' : '消耗数量'}</span>
+                  <label className="ai-inventory-quantity-label" htmlFor={quantityInputId}>
+                    {action === 'dispose' ? '销毁数量' : '消耗数量'}
+                  </label>
                   <div className="ai-inventory-quantity-controls">
                     <input
+                      id={quantityInputId}
                       className="text-input quantity-input"
                       type="number"
                       min={0.01}
