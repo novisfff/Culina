@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
+import { DatePickerField } from '../ui-kit';
 import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
 import { asText } from './aiDraftValueUtils';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
@@ -261,12 +262,12 @@ function InventoryIntakeRow({
               />
               <label className="ai-inventory-intake-field">
                 <span>到期日</span>
-                <input
-                  className="text-input"
-                  type="date"
+                <DatePickerField
+                  ariaLabel="到期日"
                   value={asText(item.expiryDate)}
                   disabled={readonly}
-                  onChange={(event) => onPatch({ expiryDate: event.target.value || null })}
+                  allowClear
+                  onChange={(expiryDate) => onPatch({ expiryDate: expiryDate || null })}
                 />
               </label>
               {item.targetKind !== 'food' && item.targetKind !== 'presence_ingredient' ? (
@@ -431,13 +432,12 @@ export function AiInventoryIntakeApproval({
               调整入库日期
             </span>
             <div className="ai-inventory-intake-date-input-wrap">
-              <input
-                className="text-input"
-                type="date"
-                aria-label="入库日期"
+              <DatePickerField
+                ariaLabel="入库日期"
                 value={draft.intakeDate}
+                required
                 disabled={readonly}
-                onChange={(event) => handleDateChange(event.target.value)}
+                onChange={handleDateChange}
               />
               <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
             </div>

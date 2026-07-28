@@ -1542,6 +1542,11 @@ describe('ApprovalPanel', () => {
     ] as Ingredient[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
 
+    const planDateTrigger = rendered.container.querySelector<HTMLButtonElement>('.ai-meal-plan-draft-editor .ui-date-picker-trigger');
+    expect(planDateTrigger?.getAttribute('aria-label')).toContain('计划日期');
+    expect(planDateTrigger?.textContent).toContain('2026年6月10日');
+    expect(rendered.container.querySelector('.ai-meal-plan-draft-editor input[type="date"]')).toBeNull();
+
     expect(Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-plan-ingredient-row .ai-resource-field-ingredient input')).map((input) => input.value)).toEqual(['牛肉', '土豆']);
     expect(rendered.container.querySelector<HTMLImageElement>('.ai-resource-field-food .ai-resource-thumbnail')?.src).toContain('/food-tomato-egg.jpg');
     expect(Array.from(rendered.container.querySelectorAll<HTMLImageElement>('.ai-meal-plan-ingredient-row .ai-resource-thumbnail')).map((image) => image.src)).toEqual(

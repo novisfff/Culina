@@ -1,4 +1,5 @@
 import type { AiApprovalRequest } from '../../../../api/types';
+import { DatePickerField } from '../../../ui-kit';
 import { ApprovalSelectField, ResourceSelectIcon } from '../../AiApprovalFields';
 import { asDraftArray, asNumber, asText, draftNumberInputValue } from '../../aiDraftValueUtils';
 import { AiDraftImpactNote } from '../AiDraftImpactNote';
@@ -181,15 +182,14 @@ export function AiRecipeCookDraftView(props: {
             </label>
             <label className="ai-resource-field ai-resource-field-date">
               <span>日期</span>
-              <div className="ai-resource-select">
-                <ResourceSelectIcon kind="calendar" />
-                <input
-                  type="date"
-                  value={asText(props.draft.date)}
-                  disabled={props.readonly || props.requiresRegeneration}
-                  onChange={(event) => updateDraft({ date: event.target.value })}
-                />
-              </div>
+              <DatePickerField
+                ariaLabel="做菜日期"
+                value={asText(props.draft.date)}
+                required
+                disabled={props.readonly || props.requiresRegeneration}
+                leadingIcon={<ResourceSelectIcon kind="calendar" />}
+                onChange={(date) => updateDraft({ date })}
+              />
             </label>
             <ApprovalSelectField
               label="餐别"

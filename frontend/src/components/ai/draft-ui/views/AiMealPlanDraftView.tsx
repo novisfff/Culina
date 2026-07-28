@@ -1,4 +1,5 @@
 import type { AiApprovalRequest } from '../../../../api/types';
+import { DatePickerField } from '../../../ui-kit';
 import {
   AiSearchableResourceSelect,
   ApprovalSelectField,
@@ -214,10 +215,14 @@ export function AiMealPlanDraftView(props: {
         <div className="ai-meal-plan-item-top">
           <label className="ai-resource-field ai-resource-field-date">
             <span>日期</span>
-            <div className="ai-resource-select">
-              <ResourceSelectIcon kind="calendar" />
-              <input type="date" value={record.date} disabled={props.readonly} onChange={(event) => patchItem({ date: event.target.value })} />
-            </div>
+            <DatePickerField
+              ariaLabel="计划日期"
+              value={record.date}
+              required
+              disabled={props.readonly}
+              leadingIcon={<ResourceSelectIcon kind="calendar" />}
+              onChange={(date) => patchItem({ date })}
+            />
           </label>
           <ApprovalSelectField label="餐别" value={record.mealType} disabled={props.readonly} options={MEAL_TYPE_OPTIONS} icon="meal" onChange={(mealType) => patchItem({ mealType })} />
         </div>

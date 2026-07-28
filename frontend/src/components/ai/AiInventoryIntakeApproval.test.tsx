@@ -158,7 +158,10 @@ describe('AiInventoryIntakeApproval', () => {
     expect(dateConfig).not.toBeNull();
     expect(dateConfig?.textContent).toContain('调整入库日期');
     expect(dateConfig?.querySelector('.ai-inventory-intake-date-icon')).not.toBeNull();
-    expect(dateConfig?.querySelector<HTMLInputElement>('input[aria-label="入库日期"]')?.value).toBe('2026-07-21');
+    const dateTrigger = dateConfig?.querySelector<HTMLButtonElement>('.ui-date-picker-trigger');
+    expect(dateTrigger?.getAttribute('aria-label')).toContain('入库日期');
+    expect(dateTrigger?.textContent).toContain('2026年7月21日');
+    expect(dateConfig?.querySelector('input[type="date"]')).toBeNull();
     expect(dateConfig?.querySelector('.ai-inventory-intake-source-badge')?.textContent).toBe('来自小票');
   });
 
@@ -227,7 +230,7 @@ describe('AiInventoryIntakeApproval', () => {
       ignoredItems: [],
     });
     const { container: node } = await renderApproval(draft);
-    const toggle = node.querySelector<HTMLButtonElement>('button[aria-expanded]');
+    const toggle = node.querySelector<HTMLButtonElement>('.ai-inventory-intake-row-toggle');
     await act(async () => toggle?.click());
 
     const conversion = node.querySelector('fieldset.ai-inventory-intake-conversion');

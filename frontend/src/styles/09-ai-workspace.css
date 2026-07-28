@@ -4940,6 +4940,17 @@
   stroke: #c29330; /* butter gold strong stroke */
 }
 
+.ai-resource-field-date .ui-date-picker-leading-icon {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  margin-left: calc(-1 * var(--space-3));
+  margin-right: var(--space-3);
+  border-radius: var(--radius-xs);
+  background: var(--butter-soft);
+  color: var(--warning);
+}
+
 .ai-resource-field-choice .ai-resource-select > svg,
 .ai-resource-field-multi .ai-resource-select > svg {
   background: #fcf6f0;
@@ -7438,22 +7449,14 @@
   flex-shrink: 0;
 }
 
-.ai-inventory-intake-date-field input.text-input {
-  min-height: var(--control-height);
-  height: var(--control-height);
-  border-radius: var(--radius-xs);
-  border: 1px solid var(--line-soft);
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 600;
-  padding: 0 var(--space-3);
-  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+.ai-inventory-intake-date-input-wrap .ui-date-picker {
+  width: 190px;
+  min-width: 0;
 }
 
-.ai-inventory-intake-date-field input.text-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-  outline: none;
+.ai-inventory-intake-date-input-wrap .ui-date-picker-trigger {
+  border-radius: var(--radius-xs);
+  font-weight: 600;
 }
 
 .ai-inventory-intake-source-badge {
@@ -7912,11 +7915,9 @@
     width: 100%;
   }
 
-  .ai-inventory-intake-date-field input.text-input {
+  .ai-inventory-intake-date-input-wrap .ui-date-picker {
     width: 100%;
     min-width: 0;
-    min-height: var(--control-height-touch);
-    height: var(--control-height-touch);
   }
 
   .ai-inventory-intake-overview-counts,

@@ -1,5 +1,5 @@
 import type { AiApprovalRequest } from '../../../../api/types';
-import { StarRatingInput } from '../../../ui-kit';
+import { DatePickerField, StarRatingInput } from '../../../ui-kit';
 import {
   AiSearchableResourceSelect,
   ApprovalComboboxField,
@@ -239,15 +239,14 @@ export function AiMealLogDraftView(props: {
           <div className="ai-confirmation-grid">
             <label className="ai-resource-field ai-resource-field-date">
               <span>日期</span>
-              <div className="ai-resource-select">
-                <ResourceSelectIcon kind="calendar" />
-                <input
-                  type="date"
-                  value={asText(createRecord.date)}
-                  disabled={props.readonly}
-                  onChange={(event) => updateCreateRecord({ date: event.target.value })}
-                />
-              </div>
+              <DatePickerField
+                ariaLabel="餐食日期"
+                value={asText(createRecord.date)}
+                required
+                disabled={props.readonly}
+                leadingIcon={<ResourceSelectIcon kind="calendar" />}
+                onChange={(date) => updateCreateRecord({ date })}
+              />
             </label>
             <ApprovalSelectField
               label="餐别"
