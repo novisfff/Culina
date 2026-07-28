@@ -349,6 +349,12 @@ describe('inventory operation approval', () => {
     expect(container.textContent).toContain('涉及食材3 种');
     expect(container.querySelectorAll('input[role="combobox"]').length).toBeGreaterThanOrEqual(3);
     expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === '更多入库信息')).toBe(false);
+    const quantityLabels = Array.from(container.querySelectorAll<HTMLLabelElement>('.ai-inventory-quantity-label'));
+    expect(quantityLabels.map((label) => label.textContent)).toEqual(['消耗数量', '消耗数量', '销毁数量']);
+    quantityLabels.forEach((label) => {
+      expect(label.htmlFor).not.toBe('');
+      expect(label.ownerDocument.getElementById(label.htmlFor)).not.toBeNull();
+    });
   });
 
 

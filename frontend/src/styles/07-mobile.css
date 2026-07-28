@@ -8319,13 +8319,6 @@
     font-size: 16px !important;
   }
 
-  :is(.app-shell, .workspace-overlay-root)
-    .ai-confirmation-item
-    .ai-inventory-dispose-reason
-    textarea.compact-reason-textarea {
-    font-size: 16px !important;
-  }
-
 }
 
 @media (max-width: 767px) {

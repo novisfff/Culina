@@ -1,4 +1,5 @@
 import type { AiApprovalRequest } from '../../../../api/types';
+import { DatePickerField } from '../../../ui-kit';
 import { ApprovalSelectField, ResourceSelectIcon } from '../../AiApprovalFields';
 import { asDraftArray, asNumber, asText, draftNumberInputValue } from '../../aiDraftValueUtils';
 import { AiDraftImpactNote } from '../AiDraftImpactNote';
@@ -149,22 +150,15 @@ export function AiRecipeCookDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-cook-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>做菜执行</strong>
-          <span>{asText(props.draft.title) || '菜谱'}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={asText(props.draft.title) || '待确认做菜'}
         items={summaryItems}
         tone={props.requiresRegeneration ? 'danger' : shortages.length > 0 ? 'warning' : 'plan'}
-        className="ai-confirmation-item ai-recipe-cook-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          {executionCopy}
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-recipe-cook-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        {executionCopy}
+      </AiDraftImpactNote>
       {props.requiresRegeneration ? (
         <AiDraftImpactNote tone="danger" title="需要刷新后重新确认">
           仅支持始终记录餐食的 v2 做菜草稿。请刷新会话并重新生成草稿后再确认。
@@ -174,7 +168,6 @@ export function AiRecipeCookDraftView(props: {
       <AiDraftSection
         title="做菜结果"
         description="确认本次做菜设置，并补充将要写入餐食记录的结果。"
-        className="ai-confirmation-item"
       >
         <div className="ai-recipe-draft-section">
           <div className="ai-recipe-draft-section-head">
@@ -189,15 +182,14 @@ export function AiRecipeCookDraftView(props: {
             </label>
             <label className="ai-resource-field ai-resource-field-date">
               <span>日期</span>
-              <div className="ai-resource-select">
-                <ResourceSelectIcon kind="calendar" />
-                <input
-                  type="date"
-                  value={asText(props.draft.date)}
-                  disabled={props.readonly || props.requiresRegeneration}
-                  onChange={(event) => updateDraft({ date: event.target.value })}
-                />
-              </div>
+              <DatePickerField
+                ariaLabel="做菜日期"
+                value={asText(props.draft.date)}
+                required
+                disabled={props.readonly || props.requiresRegeneration}
+                leadingIcon={<ResourceSelectIcon kind="calendar" />}
+                onChange={(date) => updateDraft({ date })}
+              />
             </label>
             <ApprovalSelectField
               label="餐别"
@@ -243,7 +235,6 @@ export function AiRecipeCookDraftView(props: {
       <AiDraftSection
         title="食材与库存"
         description="按食材核对库存扣减预览与缺料阻断。"
-        className="ai-confirmation-item"
       >
         <div className="ai-recipe-draft-section">
           <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
@@ -300,6 +291,7 @@ export function AiRecipeCookDraftView(props: {
               key={`${asText(item.ingredient_name)}-${index}`}
               title={asText(item.ingredient_name) || `缺料 ${index + 1}`}
               summary={`缺 ${formatDraftQuantity(item.missing_quantity, item.unit)} · 现有 ${formatDraftQuantity(item.available_quantity, item.unit)} · 需要 ${formatDraftQuantity(item.required_quantity, item.unit)}`}
+              tone="warning"
               className="ai-recipe-cook-shortage-card"
             >
               <span>请补齐库存或重新生成草稿。</span>

@@ -221,7 +221,7 @@ export function AiCompositeOperationPreview({
     <AiDraftSection
       title={readonly ? '执行结果' : '执行顺序'}
       description={steps.length > 0 ? '按下方顺序依次执行，依赖步骤会等待前置结果。' : '当前草稿没有可执行步骤。'}
-      className="ai-confirmation-item ai-composite-operation-steps-section"
+      className="ai-composite-operation-steps-section"
     >
       <AiDraftImpactNote tone="plan" title="执行说明" className="ai-composite-operation-note">
         <p>{executionCopy}</p>
@@ -238,6 +238,7 @@ export function AiCompositeOperationPreview({
               title={compositeStepUserTitle(step, index)}
               summary={compositeDomainLabel(step.domain)}
               status={<span className={`ai-composite-operation-step-action${dangerous ? ' is-danger' : ''}`}>{actionLabel}</span>}
+              tone={dangerous ? 'danger' : 'plan'}
               className={`ai-composite-operation-step${dangerous ? ' is-danger' : ''}`}
             >
               <div className="ai-composite-operation-step-body">
@@ -288,7 +289,7 @@ export function AiCompositeOperationPreview({
     <AiDraftSection
       title="风险与回滚"
       description={compositeRiskText(steps)}
-      className="ai-confirmation-item ai-composite-operation-risk-section"
+      className="ai-composite-operation-risk-section"
     >
       <AiDraftImpactNote
         tone={hasDanger ? 'danger' : 'plan'}
@@ -327,11 +328,10 @@ export function AiCompositeOperationPreview({
             title={compositeResolvedTitle(status)}
             items={summaryItems}
             className="ai-composite-operation-summary-card"
-          >
-            <AiDraftImpactNote tone="plan" title="确认前说明">
-              <p>{summaryCopy}</p>
-            </AiDraftImpactNote>
-          </AiDraftSummaryCard>
+          />
+          <AiDraftImpactNote tone="plan" title="确认前说明">
+            <p>{summaryCopy}</p>
+          </AiDraftImpactNote>
           {stepSection}
           {riskSection}
         </>

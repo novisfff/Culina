@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ComboboxField, DropdownSelect } from '../ui-kit';
-import type { SearchableResourceOption } from '../ui-kit';
+import type { DropdownSelectOption, SearchableResourceOption } from '../ui-kit';
 import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { asNumber, asText, draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
 import { AiDraftField } from './draft-ui/AiDraftField';
@@ -70,10 +70,11 @@ function ResourceThumbnail({ option }: { option?: AiResourceOption | null }) {
   );
 }
 
-export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' }) {
+export function ResourceSelectIcon({ kind }: { kind?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none' }) {
+  if (!kind || kind === 'none') return null;
   if (kind === 'calendar') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4.5" y="5.5" width="15" height="14" rx="3" />
         <path d="M8 3.8v3.4M16 3.8v3.4M4.8 10h14.4" />
       </svg>
@@ -81,7 +82,7 @@ export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'diff
   }
   if (kind === 'meal') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M7 4v16M4.8 4v5.2A2.2 2.2 0 0 0 7 11.4a2.2 2.2 0 0 0 2.2-2.2V4" />
         <path d="M15.2 4.5c2.4.8 3.8 2.7 3.8 5.4 0 2.2-1 4-2.7 4.9V20" />
       </svg>
@@ -89,25 +90,25 @@ export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'diff
   }
   if (kind === 'difficulty') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 18.5V14M12 18.5V9M19 18.5V4.5" />
       </svg>
     );
   }
   if (kind === 'type') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 6.5h14M5 12h14M5 17.5h9" />
       </svg>
     );
   }
   if (kind === 'step') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M7 5.5h12M7 12h12M7 18.5h12" />
-        <circle cx="4" cy="5.5" r="1" />
-        <circle cx="4" cy="12" r="1" />
-        <circle cx="4" cy="18.5" r="1" />
+        <circle cx="4" cy="5.5" r="1" fill="currentColor" />
+        <circle cx="4" cy="12" r="1" fill="currentColor" />
+        <circle cx="4" cy="18.5" r="1" fill="currentColor" />
       </svg>
     );
   }
@@ -119,18 +120,25 @@ export function ApprovalSelectField({
   value,
   disabled,
   options,
-  icon = 'type',
+  icon,
+  useSelectedOptionIcon = false,
   className = '',
   onChange,
 }: {
   label: string;
   value: string;
   disabled: boolean;
-  options: Array<{ value: string; label: string }>;
-  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step';
+  options: readonly DropdownSelectOption<string>[];
+  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none';
+  useSelectedOptionIcon?: boolean;
   className?: string;
   onChange: (value: string) => void;
 }) {
+  const selectedOptionIcon = useSelectedOptionIcon
+    ? options.find((option) => option.value === value)?.icon
+    : undefined;
+  const leadingIcon = selectedOptionIcon
+    ?? (icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined);
   return (
     <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
       <DropdownSelect
@@ -142,7 +150,7 @@ export function ApprovalSelectField({
         className="ai-choice-select"
         triggerClassName="ai-single-select-trigger"
         menuClassName="ai-resource-menu ai-single-select-menu"
-        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        leadingIcon={leadingIcon}
         onChange={(nextValue) => onChange(nextValue)}
       />
     </AiDraftField>
@@ -155,7 +163,7 @@ export function ApprovalComboboxField({
   disabled,
   options,
   placeholder,
-  icon = 'type',
+  icon,
   allowCustom = true,
   className = '',
   onChange,
@@ -165,11 +173,12 @@ export function ApprovalComboboxField({
   disabled: boolean;
   options: Array<{ value: string; label: string; description?: string }>;
   placeholder?: string;
-  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step';
+  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' | 'none';
   allowCustom?: boolean;
   className?: string;
   onChange: (value: string) => void;
 }) {
+  const leadingIcon = icon && icon !== 'none' ? <ResourceSelectIcon kind={icon} /> : undefined;
   return (
     <AiDraftField label={label} className={`ai-resource-field ai-resource-field-choice ai-resource-field-combobox ${className}`.trim()}>
       <ComboboxField
@@ -182,7 +191,7 @@ export function ApprovalComboboxField({
         className="ai-resource-select ai-combobox-select ai-choice-combobox"
         menuClassName="ai-resource-menu ai-combobox-menu"
         customOptionClassName="ai-combobox-custom-option"
-        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        leadingIcon={leadingIcon}
         onChange={(nextValue) => onChange(String(nextValue))}
       />
     </AiDraftField>
@@ -274,11 +283,16 @@ export function AiSearchableResourceSelect({
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [loadedOptions, setLoadedOptions] = useState<AiResourceOption[]>([]);
+  const [hydratedSelectedOption, setHydratedSelectedOption] = useState<AiResourceOption | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const requestVersionRef = useRef(0);
-  const selected = selectedOption && (selectedOption.id === value || (!value && selectedOption.label === selectedLabel)) ? selectedOption : null;
+  const selectedFromProps = selectedOption && (selectedOption.id === value || (!value && selectedOption.label === selectedLabel))
+    ? selectedOption
+    : null;
+  const selected = selectedFromProps
+    ?? (hydratedSelectedOption?.id === value ? hydratedSelectedOption : null);
   const excludedIdSet = useMemo(() => new Set(excludeIds), [excludeIds]);
   const visibleOptions = loadedOptions.filter((option) => !excludedIdSet.has(option.id) || option.id === value);
   const resourceOptions: SearchableResourceOption<string>[] = visibleOptions.map((option) => ({
@@ -316,6 +330,30 @@ export function AiSearchableResourceSelect({
   }, [disabled, hasMore, isLoading, kind, loadOptions, loadedOptions.length, query]);
 
   useEffect(() => {
+    if (!value || selectedFromProps || !selectedLabel?.trim()) {
+      setHydratedSelectedOption(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setHydratedSelectedOption(null);
+    void loadOptions(kind, {
+      query: normalizeSearchText(selectedLabel),
+      offset: 0,
+      limit: pageSize,
+    }).then((options) => {
+      if (cancelled) return;
+      setHydratedSelectedOption(options.find((option) => option.id === value) ?? null);
+    }).catch(() => {
+      if (!cancelled) setHydratedSelectedOption(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, loadOptions, selectedFromProps, selectedLabel, value]);
+
+  useEffect(() => {
     if (!isOpen) {
       setQuery('');
       setLoadedOptions([]);
@@ -344,6 +382,7 @@ export function AiSearchableResourceSelect({
       emptyText={loadError ? '加载失败，请关闭后重试' : '没有匹配项'}
       placeholder={placeholder}
       listOpen={!disabled && isOpen}
+      leadingIcon={selected ? <ResourceThumbnail option={selected} /> : null}
       className={`ai-resource-field ai-resource-field-${kind}`}
       onQueryChange={(nextQuery) => {
         setQuery(nextQuery);
@@ -357,13 +396,18 @@ export function AiSearchableResourceSelect({
       }}
       onLoadMore={() => void loadPage(false)}
       onSearchFocus={() => setIsOpen(true)}
+      onSearchBlur={() => setIsOpen(false)}
       onSearchClear={() => {
         setQuery('');
         setIsOpen(true);
       }}
-    >
-      {selected ? <ResourceThumbnail option={selected} /> : null}
-    </AiDraftResourceField>
+      onSearchKeyDown={(event) => {
+        if (event.key !== 'Escape' || !isOpen) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsOpen(false);
+      }}
+    />
   );
 }
 
@@ -450,6 +494,7 @@ function UnitComboboxInput({
           setIsOpen(true);
         }}
       />
+      <span className="ai-ingredient-unit-chevron" aria-hidden="true" />
       {!disabled && isOpen && (
         <div className="ai-resource-menu ai-combobox-menu ai-ingredient-unit-menu" role="listbox" onMouseDown={(event) => event.preventDefault()}>
           {visibleOptions.map((option) => {
@@ -533,31 +578,33 @@ export function IngredientQuantityPicker({
               loadOptions={loadOptions}
               onSelect={(option) => updateItem(index, { ingredientId: option.id, name: option.label, unit: option.unit || item.unit || '份' })}
             />
-            <label className="ai-resource-field ai-ingredient-quantity-field">
-              <span>数量</span>
-              <div className="ai-ingredient-quantity-control">
-                <input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={draftNumberInputValue(item.quantity, 1)}
-                  disabled={disabled}
-                  aria-label={`${item.name}数量`}
-                  onChange={(event) => updateItem(index, { quantity: draftNumberFromInput(event.target.value) })}
-                />
-                <UnitComboboxInput
-                  value={item.unit}
-                  disabled={disabled}
-                  ariaLabel={`${item.name}单位`}
-                  onChange={(unit) => updateItem(index, { unit })}
-                />
-              </div>
-            </label>
-            {!disabled && (
-              <button className="ai-ingredient-remove-button" type="button" aria-label={`删除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
-                ×
-              </button>
-            )}
+            <div className="ai-meal-plan-ingredient-actions">
+              <label className="ai-resource-field ai-ingredient-quantity-field">
+                <span>数量</span>
+                <div className="ai-ingredient-quantity-control">
+                  <input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={draftNumberInputValue(item.quantity, 1)}
+                    disabled={disabled}
+                    aria-label={`${item.name}数量`}
+                    onChange={(event) => updateItem(index, { quantity: draftNumberFromInput(event.target.value) })}
+                  />
+                  <UnitComboboxInput
+                    value={item.unit}
+                    disabled={disabled}
+                    ariaLabel={`${item.name}单位`}
+                    onChange={(unit) => updateItem(index, { unit })}
+                  />
+                </div>
+              </label>
+              {!disabled && (
+                <button className="ai-ingredient-remove-button" type="button" aria-label={`删除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
+                  删除
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

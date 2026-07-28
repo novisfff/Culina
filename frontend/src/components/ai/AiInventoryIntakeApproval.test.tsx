@@ -127,14 +127,42 @@ describe('AiInventoryIntakeApproval', () => {
     expect(Array.from(node.querySelectorAll('button')).some((button) => /确认入库|提交/.test(button.textContent || ''))).toBe(false);
   });
 
-  it('presents a compact overview and defers ignored details', async () => {
+  it('presents a compact overview and collapses ignored section by default', async () => {
     const { container: node } = await renderApproval(baseDraft());
     expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')).not.toBeNull();
     expect(node.querySelector('[aria-label="入库项清单"]')).not.toBeNull();
-    const ignored = node.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
+    const ignored = node.querySelector('.ai-inventory-intake-ignored');
     expect(ignored).not.toBeNull();
-    expect(ignored?.hasAttribute('open')).toBe(false);
     expect(ignored?.textContent).toContain('不会写入库存');
+
+    const toggle = ignored?.querySelector<HTMLButtonElement>('button.ai-inventory-intake-ignored-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => {
+      toggle?.click();
+    });
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(ignored?.textContent).toContain('垃圾袋');
+    expect(ignored?.textContent).toContain('非食品库存对象');
+  });
+
+  it('separates the editable intake date from the overview summary', async () => {
+    const { container: node } = await renderApproval(baseDraft());
+
+    const overview = node.querySelector('.ai-inventory-intake-overview');
+    const dateConfig = node.querySelector('.ai-inventory-intake-date-config');
+
+    expect(overview?.querySelector('input[type="date"]')).toBeNull();
+    expect(dateConfig).not.toBeNull();
+    expect(dateConfig?.textContent).toContain('调整入库日期');
+    expect(dateConfig?.querySelector('.ai-inventory-intake-date-icon')).not.toBeNull();
+    const dateTrigger = dateConfig?.querySelector<HTMLButtonElement>('.ui-date-picker-trigger');
+    expect(dateTrigger?.getAttribute('aria-label')).toContain('入库日期');
+    expect(dateTrigger?.textContent).toContain('2026年7月21日');
+    expect(dateConfig?.querySelector('input[type="date"]')).toBeNull();
+    expect(dateConfig?.querySelector('.ai-inventory-intake-source-badge')?.textContent).toBe('来自小票');
   });
 
   it('renders resolved intake as a compact summary without editor controls', async () => {
@@ -162,6 +190,8 @@ describe('AiInventoryIntakeApproval', () => {
       .find((button) => button.textContent?.includes('牛奶')) as HTMLButtonElement;
     expect(eggToggle?.getAttribute('aria-expanded')).toBe('false');
     expect(milkToggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(milkToggle?.querySelector('.ai-inventory-intake-chevron-icon')).not.toBeNull();
+    expect(node.querySelector('.ai-inventory-intake-source-text svg')).not.toBeNull();
     expect(node.querySelector('input[aria-label="牛奶实际入库数量"]')).not.toBeNull();
   });
 
@@ -188,6 +218,23 @@ describe('AiInventoryIntakeApproval', () => {
     expect(milk?.targetId).toBe('food-milk');
     expect(milk?.expectedFoodRowVersion).toBe(2);
     expect(milk?.sourceKind).toBe('direct');
+  });
+
+  it('groups package conversion as a secondary field set', async () => {
+    const draft = baseDraft({
+      items: [{
+        ...baseDraft().items[1],
+        enteredQuantity: '1',
+        packageConversion: { ratio: '10', targetUnit: '个', evidence: '包装标注' },
+      }],
+      ignoredItems: [],
+    });
+    const { container: node } = await renderApproval(draft);
+    const toggle = node.querySelector<HTMLButtonElement>('.ai-inventory-intake-row-toggle');
+    await act(async () => toggle?.click());
+
+    const conversion = node.querySelector('fieldset.ai-inventory-intake-conversion');
+    expect(conversion?.querySelector('legend')?.textContent).toBe('一次性包装换算');
   });
 
   it('keeps ignored rows read-only', async () => {

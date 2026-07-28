@@ -8,10 +8,32 @@
   display: grid;
   gap: var(--space-4);
   min-width: 0;
-  padding: var(--space-6);
   border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+}
+
+.ai-draft-summary-card,
+.ai-draft-item-card,
+.ai-draft-resolved-summary {
+  padding: var(--space-5);
+}
+
+.ai-draft-summary-card {
+  border-inline-start: 3px solid var(--plan);
+}
+
+.ai-draft-item-card {
+  border-inline-start: 3px solid var(--line-strong);
+}
+
+.ai-draft-impact-note {
+  padding: var(--space-4);
+  border-inline-start: 3px solid var(--info);
+}
+
+.ai-draft-resolved-summary {
+  background: var(--surface-muted);
 }
 
 .ai-draft-section {
@@ -20,34 +42,109 @@
   min-width: 0;
 }
 
+.ai-draft-section + .ai-draft-section {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--space-6);
+}
+
 .ai-draft-summary-card.tone-plan {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
-.ai-draft-summary-card.tone-warning,
+.ai-draft-summary-card.tone-warning {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
+}
+
+.ai-draft-summary-card.tone-danger {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
+}
+
+.ai-draft-summary-card.tone-neutral {
+  border-inline-start-color: var(--line-strong);
+  background: var(--surface-warm);
+}
+
+.ai-draft-summary-card.tone-success {
+  border-inline-start-color: var(--success);
+  background: var(--surface-warm);
+}
+
+.ai-draft-impact-note.tone-plan {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
+}
+
 .ai-draft-impact-note.tone-warning {
-  border-color: var(--warning-line);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
 }
 
-.ai-draft-summary-card.tone-danger,
-.ai-draft-impact-note.tone-danger,
-.ai-draft-resolved-summary.tone-danger {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
+.ai-draft-impact-note.tone-danger {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
 }
 
-.ai-draft-summary-card.tone-neutral,
-.ai-draft-impact-note.tone-neutral,
+.ai-draft-impact-note.tone-neutral {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--line-strong);
+  background: var(--surface-warm);
+}
+
+.ai-draft-item-card.tone-plan {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
+}
+
+.ai-draft-item-card.tone-warning {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
+}
+
+.ai-draft-item-card.tone-danger {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
+}
+
+.ai-draft-item-card.tone-neutral {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--line-strong);
+  background: var(--surface-warm);
+}
+
+.ai-draft-item-card.tone-success {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--success);
+  background: var(--surface-warm);
+}
+
 .ai-draft-resolved-summary.tone-neutral {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--line-strong);
   background: var(--surface-muted);
 }
 
-.ai-draft-summary-card.tone-success,
 .ai-draft-resolved-summary.tone-success {
-  border-color: var(--success-line);
-  background: var(--success-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--success);
+  background: var(--surface-muted);
+}
+
+.ai-draft-resolved-summary.tone-danger {
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-muted);
 }
 
 .ai-draft-summary-card-head,
@@ -74,18 +171,34 @@
 
 .ai-draft-summary-items {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: var(--space-3) var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: var(--space-2) var(--space-3);
   margin: 0;
 }
 
 .ai-draft-summary-item {
-  display: grid;
-  gap: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
 }
 
-.ai-draft-summary-item dt,
+.ai-draft-summary-item dt {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ai-draft-item-card-copy p,
 .ai-draft-section-copy p,
 .ai-draft-resolved-summary p {
@@ -98,9 +211,9 @@
 .ai-draft-summary-item dd {
   margin: 0;
   color: var(--text);
-  font-size: var(--text-body);
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -127,15 +240,41 @@
 }
 
 .ai-draft-summary-card.ai-confirmation-item,
-.ai-draft-section.ai-confirmation-item,
-.ai-draft-item-card.ai-confirmation-item {
+.ai-draft-section.ai-confirmation-item {
   margin: 0;
   border: 1px solid var(--line-soft);
-  border-inline-start: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
-  background: var(--surface-2);
-  box-shadow: none;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(92, 67, 48, 0.03);
   padding: var(--space-6);
+}
+
+.ai-draft-item-card {
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(250, 248, 245, 0.65);
+  box-shadow: none;
+  padding: var(--space-4);
+}
+
+.ai-approval-panel .ai-draft-summary-card,
+.ai-approval-panel .ai-draft-resolved-summary {
+  border-color: var(--line-soft);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.ai-approval-panel .ai-draft-summary-card-head .ui-status-badge,
+.ai-approval-panel .ai-draft-resolved-summary-head .ui-status-badge {
+  display: none;
+}
+
+.ai-approval-panel .ai-draft-summary-card-head h3,
+.ai-approval-panel .ai-draft-resolved-summary-head h3 {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text);
 }
 
 .ai-draft-editor-head {
@@ -183,10 +322,79 @@
   border-radius: var(--radius-sm);
 }
 
-.ai-draft-remove-button.compact-remove {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
-  color: var(--danger);
+.ai-draft-remove-button,
+.ai-ingredient-profile-remove-conversion {
+  border: 1px solid rgba(217, 75, 61, 0.22) !important;
+  background: #fdf5f4 !important;
+  color: #c0392b !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease !important;
+}
+
+.ai-draft-remove-button:hover,
+.ai-ingredient-profile-remove-conversion:hover {
+  background: #fce8e6 !important;
+  border-color: rgba(217, 75, 61, 0.42) !important;
+  color: #a82315 !important;
+  box-shadow: 0 2px 8px rgba(217, 75, 61, 0.12) !important;
+}
+
+.ai-draft-item-card .compact-input {
+  min-height: var(--control-height);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  padding-inline: var(--space-3);
+  text-align: center;
+}
+
+.ai-draft-item-card .compact-input:hover {
+  border-color: var(--line-strong);
+}
+
+.ai-draft-item-card .compact-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.ai-draft-item-card .quantity-input {
+  width: 4.5rem;
+}
+
+.ai-draft-item-card input[type="number"]::-webkit-outer-spin-button,
+.ai-draft-item-card input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ai-draft-item-card input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.ai-draft-item-card .ai-inventory-dispose-reason textarea.compact-reason-textarea {
+  width: 100%;
+  min-height: 6rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: var(--space-3);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ai-draft-item-card .ai-inventory-dispose-reason textarea.compact-reason-textarea:hover {
+  border-color: var(--line-strong);
+}
+
+.ai-draft-item-card .ai-inventory-dispose-reason textarea.compact-reason-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
 }
 
 .ai-resource-field {
@@ -199,18 +407,88 @@
   font-weight: 600;
 }
 
+/* Keep every single-line approval control on one shared rhythm. ComboboxField
+ * also carries the legacy .ai-resource-select shell, so its inner input must
+ * fill that shell instead of contributing a second control height. */
+.ai-approval-panel {
+  --ai-draft-control-height: var(--control-height);
+}
+
+.ai-approval-panel :is(
+  .ai-resource-field,
+  .ai-inventory-intake-field,
+  .ai-draft-field
+) {
+  gap: var(--space-3);
+}
+
+.ai-approval-panel :is(
+  .ai-confirmation-grid,
+  .ai-ingredient-profile-conversion-fields,
+  .ai-inventory-intake-quantity-grid,
+  .ai-inventory-intake-advanced-grid,
+  .ai-specialized-form-grid
+) {
+  align-items: end;
+}
+
+.ai-approval-panel :is(
+  input.text-input,
+  select.text-input,
+  .ui-dropdown-select-trigger,
+  .ui-combobox-field.ai-resource-select
+) {
+  min-height: var(--ai-draft-control-height);
+  height: var(--ai-draft-control-height);
+}
+
+.ai-approval-panel :is(input.text-input, select.text-input) {
+  padding-block: 0;
+  border-radius: var(--radius-sm);
+}
+
+.ai-draft-field .ui-combobox-field.ai-resource-select {
+  padding-block: 0;
+}
+
+.ai-draft-field .ui-combobox-field.ai-resource-select:not(:has(> svg)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-draft-field .ui-combobox-field.ai-resource-select > input {
+  grid-column: 1 / -1;
+  min-height: 0;
+  height: 100%;
+  padding-block: 0;
+}
+
+.ai-draft-field .ui-combobox-field.ai-resource-select:has(> svg) > input {
+  grid-column: 2 / -1;
+}
+
+.ai-approval-panel .ai-inline-unit-input > span {
+  min-height: var(--ai-draft-control-height);
+  height: var(--ai-draft-control-height);
+}
+
 .ai-resource-select {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--control-height);
-  border: 1px solid var(--line-normal);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   background: var(--surface);
   padding: var(--space-2) var(--space-3);
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-resource-select:has(.ai-resource-thumbnail-frame),
+.ai-resource-select:has(.ui-dropdown-select-leading-icon),
+.ai-resource-select:has(svg:not(.ai-resource-select-chevron)) {
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
 }
 
 .ai-resource-select:hover {
@@ -220,7 +498,7 @@
 .ai-resource-select:focus-within,
 .ai-resource-select.is-open {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .ai-resource-select.is-disabled {
@@ -251,7 +529,7 @@
 .ai-confirmation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-5);
 }
 
 .ai-confirmation-grid-three {
@@ -261,6 +539,10 @@
 .ai-confirmation-grid-compact {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   max-width: 20rem;
+}
+
+.ai-confirmation-full-width {
+  grid-column: 1 / -1;
 }
 
 .ai-confirmation-copy-field textarea.text-input {
@@ -275,7 +557,7 @@
 .ai-draft-summary-card.ai-meal-log-summary-card,
 .ai-draft-resolved-summary.ai-meal-log-summary-card {
   border-color: var(--line-soft);
-  background: var(--surface-2);
+  background: var(--surface-warm);
 }
 
 .ai-draft-item-card.ai-recipe-ingredient-card,
@@ -289,36 +571,136 @@
 .ai-draft-item-card.ai-meal-log-food-item,
 .ai-draft-item-card.ai-meal-log-rating-card {
   border-color: var(--line-soft);
-  background: var(--surface-muted);
+  background: var(--surface-warm);
   padding: var(--space-5);
 }
 
 .ai-draft-item-card.ai-recipe-ingredient-card.is-unbound {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
 }
 
 .ai-draft-item-card.ai-meal-plan-item-card.is-danger,
 .ai-draft-item-card.ai-shopping-list-item-card.is-danger {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
 }
 
 .ai-draft-impact-note.ai-recipe-danger-impact {
-  border-color: var(--danger-line);
+  border-color: var(--line-soft);
   border-inline-start-color: var(--danger);
-  background: var(--danger-soft);
+  background: var(--surface-warm);
 }
 
 .ai-draft-impact-note.ai-meal-log-stock-control {
-  border-color: var(--warning-line);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
+}
+
+.ai-meal-log-stock-control .ai-draft-impact-note-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.ai-meal-log-stock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.ai-meal-log-stock-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: var(--space-2);
+  width: auto;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox'] {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid var(--surface);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transform-origin: center;
+  transition: transform var(--motion-fast) ease;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:checked {
+  border-color: var(--warning);
+  background: var(--warning);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--warning) 25%, transparent);
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ai-meal-log-stock-toggle input[type='checkbox']:disabled {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-meal-log-stock-current,
+.ai-meal-log-stock-footer {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-meal-log-stock-footer {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.ai-meal-log-stock-footer strong {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .ai-draft-summary-card.ai-food-profile-summary-card,
 .ai-draft-resolved-summary.ai-food-profile-summary-card {
   border-color: var(--line-soft);
-  background: var(--surface-2);
+  background: var(--surface-warm);
 }
 
 .ai-food-profile-summary-note {
@@ -331,16 +713,17 @@
 .ai-draft-item-card.ai-food-profile-favorite-card {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  border-color: var(--warning-line);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--line-strong);
+  background: var(--surface-warm);
   padding: var(--space-5);
 }
 
 .ai-draft-item-card.ai-food-profile-favorite-card .ai-draft-item-card-status {
-  border: 1px solid var(--warning-line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-pill);
   background: var(--surface);
-  color: var(--warning);
+  color: var(--text-soft);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
   font-weight: 700;
@@ -350,7 +733,7 @@
 .ai-draft-summary-card.ai-ingredient-profile-summary-card,
 .ai-draft-resolved-summary.ai-ingredient-profile-summary-card {
   border-color: var(--line-soft);
-  background: var(--surface-2);
+  background: var(--surface-warm);
 }
 
 .ai-draft-item-card.ai-ingredient-profile-batch-item,
@@ -358,7 +741,7 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   border-color: var(--line-soft);
-  background: var(--surface-muted);
+  background: var(--surface-warm);
   padding: var(--space-5);
 }
 
@@ -369,9 +752,14 @@
   min-width: 0;
 }
 
+.ai-ingredient-profile-conversion-row .ai-draft-item-card-footer {
+  padding-top: var(--space-3);
+}
+
 .ai-draft-impact-note.ai-ingredient-profile-before-after {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
 .ai-draft-impact-note.ai-ingredient-profile-before-after .ai-draft-impact-note-body {
@@ -387,8 +775,8 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   border-color: var(--line-soft);
-  background: var(--surface-2);
-  padding: var(--space-6);
+  background: var(--surface-warm);
+  padding: var(--space-5);
 }
 
 .ai-inventory-intake-summary-card .ai-draft-summary-extra {
@@ -406,8 +794,9 @@
 }
 
 .ai-draft-impact-note.ai-inventory-intake-attention {
-  border-color: var(--warning-line);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
 }
 
 .ai-draft-resolved-summary.ai-inventory-intake-ignored {
@@ -418,8 +807,9 @@
 }
 
 .ai-draft-impact-note.ai-inventory-intake-submit-summary {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
 .ai-meal-log-summary-context {
@@ -462,15 +852,6 @@
   border-top: 1px solid var(--line-soft);
 }
 
-.ai-draft-impact-note {
-  padding: var(--space-5);
-}
-
-.ai-draft-impact-note.tone-plan {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
-}
-
 .ai-draft-impact-note-head {
   justify-content: flex-start;
 }
@@ -483,7 +864,7 @@
 
 .ai-draft-field {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
   color: var(--text-soft);
 }
@@ -527,6 +908,110 @@
   min-width: 0;
 }
 
+.ai-draft-tag-editor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-draft-tag-chip,
+.ai-draft-tag-add,
+.ai-draft-tag-entry {
+  box-sizing: border-box;
+  min-height: 32px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  line-height: 1.2;
+}
+
+.ai-draft-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--plan-line);
+  background: var(--plan-soft);
+  color: var(--plan);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-draft-tag-chip > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-draft-tag-chip.is-removable {
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.ai-draft-tag-chip.is-removable:hover {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-draft-tag-remove-mark {
+  flex: 0 0 auto;
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ai-draft-tag-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-4);
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--text-soft);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.ai-draft-tag-add:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ai-draft-tag-entry {
+  width: min(11rem, 100%);
+  min-width: min(8rem, 100%);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent-line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  outline: none;
+}
+
+.ai-draft-tag-entry::placeholder {
+  color: var(--text-faint);
+}
+
+.ai-draft-tag-chip:focus-visible,
+.ai-draft-tag-add:focus-visible,
+.ai-draft-tag-entry:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ai-draft-tag-empty {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
 .ai-draft-resource-extra {
   display: flex;
   align-items: center;
@@ -534,6 +1019,7 @@
 }
 
 .ai-draft-resource-select {
+  position: relative;
   display: grid;
   gap: var(--space-3);
   min-width: 0;
@@ -545,19 +1031,198 @@
   min-width: 0;
 }
 
-.ai-draft-resource-list.ai-resource-menu {
-  position: static;
-  z-index: auto;
+.ai-draft-resource-select .ai-draft-resource-list.is-popover {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  right: auto;
+  width: 100%;
   max-height: 16rem;
   margin: 0;
   border-color: var(--line-soft);
   border-radius: var(--radius-sm);
   background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.ai-draft-resource-list button {
+  min-height: var(--control-height);
+}
+
+.ai-draft-resource-list .ui-searchable-resource-select-option-media {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: var(--surface-warm);
+}
+
+.ai-draft-resource-list .ui-searchable-resource-select-option-media > * {
+  width: 100%;
+  height: 100%;
+}
+
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail-frame,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail-frame.media-with-placeholder,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media .ai-resource-thumbnail,
+.ai-draft-resource-list .ui-searchable-resource-select-option-media img {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  flex-basis: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.ai-draft-resource-search.ui-search-field {
+  gap: var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   box-shadow: none;
 }
 
-.ai-draft-resource-list.ai-resource-menu button {
-  min-height: var(--control-height);
+.ai-draft-resource-search.has-selected-resource {
+  border-color: var(--line-soft);
+  background: var(--surface);
+}
+
+.ai-draft-resource-search .ui-search-field-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: var(--surface-muted);
+}
+
+.ai-draft-resource-search .ui-search-field-icon > * {
+  width: 100%;
+  height: 100%;
+}
+
+.ai-draft-resource-search .ui-search-field-clear {
+  width: 32px;
+  min-width: 32px;
+  height: 100%;
+  margin-inline-end: calc(-1 * var(--space-1));
+  color: var(--text-faint);
+}
+
+.ai-draft-resource-search .ui-search-field-clear > span {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.ai-draft-resource-search .ui-search-field-clear:hover > span {
+  background: var(--surface-muted);
+}
+
+.ai-draft-resource-select .ui-searchable-resource-select-loading {
+  min-height: 32px;
+  padding-inline: var(--space-3);
+  border: 0;
+  background: var(--surface-muted);
+}
+
+.ai-meal-plan-ingredient-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ai-meal-plan-ingredient-row {
+  grid-template-columns: minmax(0, 1fr) minmax(13.5rem, 0.42fr);
+  gap: var(--space-3);
+}
+
+.ai-meal-plan-ingredient-actions > .ai-ingredient-quantity-field:only-child {
+  grid-column: 1 / -1;
+}
+
+.ai-ingredient-unit-combobox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10px;
+  align-items: center;
+  padding-inline-end: var(--space-3);
+}
+
+.ai-ingredient-quantity-control {
+  min-height: var(--ai-draft-control-height);
+  height: var(--ai-draft-control-height);
+}
+
+.ai-ingredient-unit-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  color: var(--text-faint);
+  pointer-events: none;
+  transform: rotate(45deg) translateY(-1px);
+  transition: color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+
+.ai-ingredient-unit-combobox.is-open .ai-ingredient-unit-chevron {
+  color: var(--accent);
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.ai-ingredient-remove-button {
+  width: auto;
+  min-width: 3.5rem;
+  height: var(--ai-draft-control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.ai-ingredient-remove-button:hover {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.ai-ingredient-remove-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+fieldset.ai-inventory-intake-conversion {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.ai-inventory-intake-conversion legend {
+  padding: 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 700;
 }
 
 .ai-draft-tag-preview {
@@ -580,12 +1245,13 @@
 .ai-draft-summary-card.ai-inventory-operation-summary-card,
 .ai-draft-resolved-summary.ai-inventory-operation-resolved-summary {
   border-color: var(--line-soft);
-  background: var(--surface-2);
+  background: var(--surface-warm);
 }
 
 .ai-draft-impact-note.ai-inventory-operation-submit-summary {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
 .ai-draft-section.ai-inventory-operation-items-section {
@@ -605,16 +1271,16 @@
 
 .ai-draft-item-card.ai-inventory-operation-item.action-consume,
 .ai-draft-item-card.ai-inventory-operation-resolved-item.action-consume {
-  border-color: var(--warning-line);
-  border-inline-start-color: var(--warning);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start: 3px solid var(--warning);
+  background: var(--surface);
 }
 
 .ai-draft-item-card.ai-inventory-operation-item.action-dispose,
 .ai-draft-item-card.ai-inventory-operation-resolved-item.action-dispose {
-  border-color: var(--danger-line);
-  border-inline-start-color: var(--danger);
-  background: var(--danger-soft);
+  border-color: var(--line-soft);
+  border-inline-start: 3px solid var(--danger);
+  background: var(--surface);
 }
 
 .ai-draft-item-card.ai-inventory-operation-item .ai-draft-item-card-body {
@@ -681,8 +1347,9 @@
 }
 
 .ai-draft-impact-note.ai-inventory-operation-dispose-impact {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
 }
 
 .ai-inventory-operation-dispose-impact .ai-draft-impact-note-body {
@@ -727,7 +1394,7 @@
 .ai-draft-summary-card.ai-composite-operation-summary-card,
 .ai-draft-resolved-summary.ai-composite-operation-summary-card {
   border-color: var(--line-soft);
-  background: var(--surface-2);
+  background: var(--surface-warm);
 }
 
 .ai-draft-section.ai-composite-operation-steps-section,
@@ -736,23 +1403,24 @@
 }
 
 .ai-draft-impact-note.ai-composite-operation-note {
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
 .ai-draft-item-card.ai-composite-operation-step {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
-  border-color: var(--plan-line);
+  border-color: var(--line-soft);
   border-inline-start-color: var(--plan);
-  background: var(--surface-2);
+  background: var(--surface-warm);
   padding: var(--space-5);
 }
 
 .ai-draft-item-card.ai-composite-operation-step.is-danger {
-  border-color: var(--danger-line);
+  border-color: var(--line-soft);
   border-inline-start-color: var(--danger);
-  background: var(--danger-soft);
+  background: var(--surface-warm);
 }
 
 .ai-draft-item-card.ai-composite-operation-step .ai-draft-item-card-body {
@@ -827,14 +1495,16 @@
 
 .ai-draft-impact-note.ai-composite-operation-danger-impact,
 .ai-draft-impact-note.ai-composite-risk-card.is-danger {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--danger);
+  background: var(--surface-warm);
 }
 
 .ai-draft-impact-note.ai-composite-risk-card {
   gap: var(--space-3);
-  border-color: var(--plan-line);
-  background: var(--plan-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--plan);
+  background: var(--surface-warm);
 }
 
 .ai-composite-risk-label {
@@ -846,8 +1516,9 @@
 }
 
 .ai-draft-impact-note.ai-meal-composition-inventory-boundary {
-  border-color: var(--warning-line);
-  background: var(--warning-soft);
+  border-color: var(--line-soft);
+  border-inline-start-color: var(--warning);
+  background: var(--surface-warm);
 }
 
 .ai-draft-resolved-summary .ai-inventory-intake-resolved-group {
@@ -893,32 +1564,65 @@
   text-align: end;
 }
 
+@media (max-width: 1023px), (pointer: coarse) {
+  .ai-approval-panel {
+    --ai-draft-control-height: var(--control-height-touch);
+  }
+
+  .ai-draft-add-button,
+  .ai-draft-remove-button,
+  .ai-resource-select,
+  .ai-draft-item-card .compact-input,
+  .ai-draft-resource-list button {
+    min-height: var(--control-height-touch);
+  }
+}
+
 @media (max-width: 767px) {
   .ai-draft-summary-card,
   .ai-draft-item-card,
   .ai-draft-resolved-summary,
   .ai-draft-section.ai-confirmation-item {
-    padding: var(--space-5);
+    padding: var(--space-4);
+    gap: var(--space-3);
+    border-radius: var(--radius-sm);
   }
 
   .ai-draft-impact-note {
-    padding: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    gap: var(--space-2);
+    border-radius: var(--radius-xs);
   }
 
   .ai-draft-summary-card-head,
-  .ai-draft-section-head,
-  .ai-draft-item-card-head,
   .ai-draft-resolved-summary-head {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .ai-draft-section-head,
+  .ai-draft-item-card-head {
+    align-items: flex-start;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: var(--space-3);
   }
 
   .ai-draft-summary-items {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
   }
 
   .ai-ingredient-profile-conversion-fields {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .ai-confirmation-grid-three,
+  .ai-confirmation-grid-compact {
+    grid-template-columns: minmax(0, 1fr) !important;
+    max-width: none !important;
   }
 
   .ai-inventory-intake-resolved-list li,
@@ -934,31 +1638,34 @@
   }
 
   .ai-draft-summary-card.ai-inventory-intake-summary-card {
-    padding: var(--space-5);
+    padding: var(--space-4);
   }
 
   .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-main-row {
-    display: grid !important;
+    display: grid;
     grid-template-areas:
       "image detail"
-      "inputs inputs" !important;
-    grid-template-columns: auto minmax(0, 1fr) !important;
-    align-items: start !important;
-    gap: var(--space-3) !important;
+      "inputs inputs";
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
   }
 
   .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-img,
   .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-placeholder {
-    grid-area: image !important;
+    grid-area: image;
+    width: 42px;
+    height: 42px;
   }
 
   .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-info {
-    grid-area: detail !important;
+    grid-area: detail;
   }
 
   .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-operation-inputs {
-    grid-area: inputs !important;
-    width: 100% !important;
+    grid-area: inputs;
+    width: 100%;
+    align-items: stretch;
   }
 
   .ai-draft-item-card.ai-inventory-operation-item .ai-resource-inputs-flex {
@@ -967,11 +1674,36 @@
     width: 100%;
   }
 
+  .ai-draft-item-card.ai-inventory-operation-item .ai-inventory-unit-field {
+    width: min(34vw, 7rem);
+    min-width: 5.125rem;
+  }
+
+  .ai-draft-item-card .ai-inventory-dispose-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .ai-draft-item-card .ai-inventory-batch-summary.compact-batch {
+    width: 100%;
+  }
+
   .ai-composite-operation-step-body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ai-draft-resource-list.ai-resource-menu button {
+  .ai-meal-plan-ingredient-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .ai-draft-resource-list button {
     min-height: var(--control-height-touch);
+  }
+}
+
+@media (max-width: 359px) {
+  .ai-ingredient-profile-conversion-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

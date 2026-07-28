@@ -110,24 +110,17 @@ export function AiRecipeOperationDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>{label}菜谱</strong>
-          <span>{recipe.title || '菜谱'}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={recipe.title || '待确认菜谱'}
         items={recipeDraftSummaryItems(recipe)}
         tone={action === 'delete' ? 'danger' : 'plan'}
-        className="ai-confirmation-item ai-recipe-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          {action === 'delete'
-            ? '将删除这道菜谱，并按现有规则处理同步食物和媒体绑定。'
-            : '将写入菜谱资料，并同步关联的家常菜食物资料。'}
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-recipe-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        {action === 'delete'
+          ? '将删除这道菜谱，并按现有规则处理同步食物和媒体绑定。'
+          : '将写入菜谱资料，并同步关联的家常菜食物资料。'}
+      </AiDraftImpactNote>
       {action === 'update' ? (
         <AiDraftImpactNote tone="plan" title="当前与调整后" className="ai-recipe-operation-compare">
           <p>当前：{recipeCompareText(beforeRecipe)}</p>
@@ -135,7 +128,7 @@ export function AiRecipeOperationDraftView(props: {
         </AiDraftImpactNote>
       ) : null}
       {action === 'delete' ? (
-        <AiDraftSection title="删除确认" className="ai-confirmation-item">
+        <AiDraftSection title="删除确认">
           <AiDraftImpactNote tone="danger" title="删除影响" className="ai-recipe-danger-impact">
             <p>被删菜谱：{recipe.title || asText(before.title) || '当前菜谱'}</p>
             <p>同步食物：{asNumber(deleteImpact.linkedFoodCount, 0)} 个</p>

@@ -43,6 +43,7 @@ describe('AI legacy style cleanup', () => {
     const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
     const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
 
     expect(entry).toContain("@import './styles/09-ai-draft-ui.css';");
     expect(draftStyles).toContain('.ai-draft-summary-card');
@@ -55,11 +56,76 @@ describe('AI legacy style cleanup', () => {
     expect(draftStyles).toContain('.ai-confirmation-grid');
     expect(draftStyles).toContain('.ai-resource-field');
     expect(draftStyles).toContain('.ai-resource-select');
+    expect(draftStyles).toMatch(/\.ai-draft-section \+ \.ai-draft-section\s*\{/);
+    expect(draftStyles).toMatch(/\.ai-draft-item-card\.tone-danger\s*\{/);
+    expect(draftStyles).toContain('.ai-draft-summary-card.ai-confirmation-item');
+    expect(draftStyles).toContain('.ai-draft-section.ai-confirmation-item');
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-editor-head\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-draft-add-button\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-confirmation-item\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-field\s*\{/m);
     expect(aiWorkspaceStyles).not.toMatch(/^\.ai-resource-select\s*\{/m);
+    expect(aiWorkspaceStyles).toContain('.ai-confirmation-item .compact-input');
+    expect(mobileStyles).not.toContain('ai-confirmation-item');
+  });
+
+  it('keeps AI Draft single-line controls aligned without double-height comboboxes', () => {
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+
+    expect(draftStyles).toContain('--ai-draft-control-height: var(--control-height);');
+    expect(draftStyles).toContain('height: var(--ai-draft-control-height);');
+    expect(draftStyles).toMatch(
+      /\.ai-draft-field \.ui-combobox-field\.ai-resource-select > input\s*\{[^}]*min-height: 0;[^}]*height: 100%;/s,
+    );
+    expect(draftStyles).toContain('--ai-draft-control-height: var(--control-height-touch);');
+    expect(draftStyles).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*\.ai-ingredient-profile-conversion-fields\s*\{[^}]*grid-template-columns: minmax\(0, 0\.9fr\) minmax\(0, 1\.1fr\);/,
+    );
+  });
+
+  it('keeps semantic AI Draft polish styles with their owning layers', () => {
+    const uiKitStyles = readFileSync(resolve(repoRoot, 'src/styles/00-ui-kit.css'), 'utf8');
+    const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
+    const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(uiKitStyles).toContain('.ui-searchable-resource-select-loading');
+    expect(draftStyles).toContain('.ai-draft-resource-search.has-selected-resource');
+    expect(draftStyles).toContain('.ai-draft-resource-list');
+    expect(draftStyles).toMatch(
+      /\.ai-draft-resource-select \.ai-draft-resource-list\.is-popover\s*\{[^}]*position: absolute;[^}]*z-index: 70;[^}]*width: 100%;[^}]*box-shadow: var\(--shadow-md\);/s,
+    );
+    expect(draftStyles).toMatch(
+      /\.ai-draft-resource-list \.ui-searchable-resource-select-option-media \.ai-resource-thumbnail-frame[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;/,
+    );
+    expect(draftStyles).toContain('.ai-draft-tag-editor');
+    expect(draftStyles).toContain('.ai-meal-log-stock-header');
+    expect(draftStyles).toContain('.ai-meal-plan-ingredient-actions');
+    expect(draftStyles).toContain('fieldset.ai-inventory-intake-conversion');
+    expect(aiWorkspaceStyles).toContain('.ai-inventory-intake-chevron-icon');
+    expect(aiWorkspaceStyles).toContain('.ai-approval-brief-badges.draft-ingredient-profile');
+  });
+
+  it('keeps inventory intake disclosure rows as unified neutral cards', () => {
+    const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-group-list\s*\{[^}]*gap: var\(--space-3\);[^}]*border: 0;/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row\s*\{[^}]*border: 1px solid var\(--line-soft\);[^}]*border-radius: var\(--radius-sm\);[^}]*background: var\(--surface\);/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row-body\s*\{[^}]*margin: 0;[^}]*border-top: 1px solid var\(--line-soft\);[^}]*background: var\(--surface-warm\);/s,
+    );
+    expect(aiWorkspaceStyles).not.toMatch(
+      /\.ai-inventory-intake-row-body\s*\{[^}]*border-left:/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-row\.needs-attention\s*\{[^}]*border-color: var\(--warning-line\);/s,
+    );
+    expect(aiWorkspaceStyles).toMatch(
+      /\.ai-inventory-intake-chevron-icon\s*\{[^}]*grid-column: 2;[^}]*grid-row: 1 \/ span 2;/s,
+    );
   });
 
   it('keeps AI styles free of stale pre-ui-kit helper classes', () => {
@@ -140,6 +206,10 @@ describe('AI legacy style cleanup', () => {
     expect(aiStyles).toContain('.ai-approval-status');
     expect(aiStyles).toContain('.ai-approval-actions');
     expect(aiStyles).toContain('.ai-human-input-request .ai-approval-panel');
+    expect(aiStyles).toMatch(
+      /\.ai-human-input-request \.ai-approval-panel\.is-human-input-resolved\s*\{[^}]*max-height: none;/s,
+    );
+    expect(aiStyles).not.toContain('max-height: 124px;');
     expect(foodStyles).not.toContain('.ai-approval-panel');
     expect(foodStyles).not.toContain('.ai-approval-head');
     expect(foodStyles).not.toContain('.ai-approval-status');

@@ -1,3 +1,4 @@
+import { DatePickerField } from '../ui-kit';
 import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
@@ -193,8 +194,8 @@ export function AiIngredientTrackingTransitionApproval({
                 </select>
               </label>
               <label className="ai-resource-field"><span>存放位置</span><input className="text-input" value={asText(presence.storage_location)} disabled={readonly} onChange={(event) => updatePresence({ storage_location: event.target.value })} /></label>
-              <label className="ai-resource-field"><span>采购日</span><input className="text-input" type="date" value={asText(presence.purchase_date)} disabled={readonly} onChange={(event) => updatePresence({ purchase_date: event.target.value || null })} /></label>
-              <label className="ai-resource-field"><span>到期日</span><input className="text-input" type="date" value={asText(presence.expiry_date)} disabled={readonly} onChange={(event) => updatePresence({ expiry_date: event.target.value || null })} /></label>
+              <label className="ai-resource-field"><span>采购日</span><DatePickerField ariaLabel="采购日" value={asText(presence.purchase_date)} disabled={readonly} allowClear onChange={(purchaseDate) => updatePresence({ purchase_date: purchaseDate || null })} /></label>
+              <label className="ai-resource-field"><span>到期日</span><DatePickerField ariaLabel="到期日" value={asText(presence.expiry_date)} disabled={readonly} allowClear onChange={(expiryDate) => updatePresence({ expiry_date: expiryDate || null })} /></label>
             </>
           ) : null}
           <label className="ai-resource-field ai-specialized-full"><span>备注</span><textarea className="text-input" rows={2} value={asText(presence.notes)} disabled={readonly} onChange={(event) => updatePresence({ notes: event.target.value })} /></label>
@@ -208,8 +209,8 @@ export function AiIngredientTrackingTransitionApproval({
               <label className="ai-resource-field"><span>单位</span><input className="text-input" value={asText(exact.unit)} disabled={readonly} onChange={(event) => updateExact({ unit: event.target.value })} /></label>
               <label className="ai-resource-field"><span>库存状态</span><select className="text-input" value={asText(exact.inventory_status, 'fresh')} disabled={readonly} onChange={(event) => updateExact({ inventory_status: event.target.value })}><option value="fresh">新鲜</option><option value="opened">已开封</option><option value="frozen">冷冻</option><option value="expiring">临期</option></select></label>
               <label className="ai-resource-field"><span>存放位置</span><input className="text-input" value={asText(exact.storage_location)} disabled={readonly} onChange={(event) => updateExact({ storage_location: event.target.value })} /></label>
-              <label className="ai-resource-field"><span>采购日</span><input className="text-input" type="date" value={asText(exact.purchase_date)} disabled={readonly} onChange={(event) => updateExact({ purchase_date: event.target.value || null })} /></label>
-              <label className="ai-resource-field"><span>到期日</span><input className="text-input" type="date" value={asText(exact.expiry_date)} disabled={readonly} onChange={(event) => updateExact({ expiry_date: event.target.value || null })} /></label>
+              <label className="ai-resource-field"><span>采购日</span><DatePickerField ariaLabel="采购日" value={asText(exact.purchase_date)} disabled={readonly} required onChange={(purchaseDate) => updateExact({ purchase_date: purchaseDate || null })} /></label>
+              <label className="ai-resource-field"><span>到期日</span><DatePickerField ariaLabel="到期日" value={asText(exact.expiry_date)} disabled={readonly} allowClear onChange={(expiryDate) => updateExact({ expiry_date: expiryDate || null })} /></label>
               <label className="ai-resource-field ai-specialized-full"><span>备注</span><textarea className="text-input" rows={2} value={asText(exact.notes)} disabled={readonly} onChange={(event) => updateExact({ notes: event.target.value })} /></label>
             </>
           ) : null}

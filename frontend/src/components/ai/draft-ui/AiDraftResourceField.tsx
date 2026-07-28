@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { SearchableResourceSelect } from '../../ui-kit';
 import type { SearchableResourceOption } from '../../ui-kit';
 import { AiDraftField } from './AiDraftField';
@@ -18,17 +18,27 @@ export function AiDraftResourceField<T extends string>(props: {
   disabled?: boolean;
   emptyText?: string;
   children?: ReactNode;
+  leadingIcon?: ReactNode;
   placeholder?: string;
   listOpen?: boolean;
   onSearchFocus?: () => void;
+  onSearchBlur?: () => void;
   onSearchClear?: () => void;
+  onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   className?: string;
 }) {
   const displayedQuery = props.listOpen === false ? props.selectedLabel ?? props.query : props.query;
+  const showingSelectedResource = Boolean(props.listOpen === false && props.selectedLabel);
+  const selectedContextVisible = Boolean(
+    props.selectedLabel
+    && props.listOpen
+    && props.query.trim()
+    && props.query.trim() !== props.selectedLabel,
+  );
 
   return (
     <AiDraftField label={props.label} className={['ai-draft-resource-field', props.className].filter(Boolean).join(' ')}>
-      {props.selectedLabel ? <p className="ai-draft-resource-selected">已选：{props.selectedLabel}</p> : null}
+      {selectedContextVisible ? <p className="ai-draft-resource-selected">当前选择：{props.selectedLabel}</p> : null}
       <SearchableResourceSelect
         ariaLabel={props.label}
         placeholder={props.placeholder ?? `搜索${props.label}`}
@@ -41,15 +51,19 @@ export function AiDraftResourceField<T extends string>(props: {
         disabled={props.disabled}
         emptyText={props.emptyText}
         listOpen={props.listOpen ?? true}
-        presentation="inline"
+        showClear={!showingSelectedResource}
+        leadingIcon={props.leadingIcon}
+        presentation="popover"
         className="ai-draft-resource-select"
-        searchClassName="ai-draft-resource-search"
-        listClassName="ai-draft-resource-list ai-resource-menu"
+        searchClassName={`ai-draft-resource-search${showingSelectedResource ? ' has-selected-resource' : ''}`}
+        listClassName="ai-draft-resource-list"
         onQueryChange={props.onQueryChange}
         onChange={props.onChange}
         onLoadMore={props.onLoadMore}
         onSearchFocus={props.onSearchFocus}
+        onSearchBlur={props.onSearchBlur}
         onSearchClear={props.onSearchClear}
+        onSearchKeyDown={props.onSearchKeyDown}
       />
       {props.children ? <div className="ai-draft-resource-extra">{props.children}</div> : null}
     </AiDraftField>

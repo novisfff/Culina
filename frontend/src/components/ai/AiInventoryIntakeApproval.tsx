@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 
-import { ApprovalSelectField } from './AiApprovalFields';
+import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
+import { DatePickerField } from '../ui-kit';
+import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
 import { asText } from './aiDraftValueUtils';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
@@ -46,6 +48,11 @@ function resolvedTitle(status: string) {
   if (status === 'expired') return '已过期的入库草稿';
   return '已处理的入库草稿';
 }
+
+const STORAGE_LOCATION_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storage) => ({
+  value: storage,
+  label: storage,
+}));
 
 const PRESENCE_LEVEL_OPTIONS = [
   { value: 'sufficient', label: '充足' },
@@ -127,13 +134,32 @@ function InventoryIntakeRow({
         <span className={`ai-inventory-intake-badge${needsAttention ? ' needs-attention' : ' is-ready'}`}>
           {needsAttention ? '需补充' : '已就绪'}
         </span>
-        <span className="ai-inventory-intake-chevron" aria-hidden="true">⌄</span>
+        <svg
+          className={`ai-inventory-intake-chevron-icon${expanded ? ' is-expanded' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
       {expanded ? (
         <div className="ai-inventory-intake-row-body">
           {item.sourceText ? (
-            <p className="ai-inventory-intake-source-text">{item.sourceText}</p>
+            <div className="ai-inventory-intake-source-text">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>{item.sourceText}</span>
+            </div>
           ) : null}
 
           <ApprovalSelectField
@@ -141,7 +167,6 @@ function InventoryIntakeRow({
             value={item.action || ''}
             disabled={readonly || !item.sourceKind}
             options={actionOptions}
-            icon="type"
             className="ai-inventory-intake-field"
             onChange={(action) => onPatch({ action: action as InventoryIntakeDraftItem['action'] })}
           />
@@ -180,15 +205,14 @@ function InventoryIntakeRow({
               value={asText(item.resultingAvailabilityLevel, 'sufficient')}
               disabled={readonly}
               options={PRESENCE_LEVEL_OPTIONS}
-              icon="type"
               className="ai-inventory-intake-field"
               onChange={(resultingAvailabilityLevel) => onPatch({ resultingAvailabilityLevel })}
             />
           ) : null}
 
           {conversion && showStockFields && item.targetKind !== 'presence_ingredient' ? (
-            <section className="ai-inventory-intake-conversion" aria-label={`${title}包装换算`}>
-              <strong>一次性包装换算</strong>
+            <fieldset className="ai-inventory-intake-conversion" aria-label={`${title}包装换算`}>
+              <legend>一次性包装换算</legend>
               <div className="ai-inventory-intake-quantity-grid">
                 <label className="ai-inventory-intake-field">
                   <span>每份换算倍率</span>
@@ -221,28 +245,29 @@ function InventoryIntakeRow({
                   onChange={(event) => updateConversion({ evidence: event.target.value })}
                 />
               </label>
-            </section>
+            </fieldset>
           ) : null}
 
           {showStockFields ? (
             <div className="ai-inventory-intake-advanced-grid">
-              <label className="ai-inventory-intake-field">
-                <span>存放位置</span>
-                <input
-                  className="text-input"
-                  value={asText(item.storageLocation)}
-                  disabled={readonly}
-                  onChange={(event) => onPatch({ storageLocation: event.target.value })}
-                />
-              </label>
+              <ApprovalComboboxField
+                label="存放位置"
+                value={asText(item.storageLocation)}
+                disabled={readonly}
+                placeholder="选择或输入存放位置"
+                options={STORAGE_LOCATION_OPTIONS}
+                allowCustom
+                className="ai-inventory-intake-field"
+                onChange={(storageLocation) => onPatch({ storageLocation })}
+              />
               <label className="ai-inventory-intake-field">
                 <span>到期日</span>
-                <input
-                  className="text-input"
-                  type="date"
+                <DatePickerField
+                  ariaLabel="到期日"
                   value={asText(item.expiryDate)}
                   disabled={readonly}
-                  onChange={(event) => onPatch({ expiryDate: event.target.value || null })}
+                  allowClear
+                  onChange={(expiryDate) => onPatch({ expiryDate: expiryDate || null })}
                 />
               </label>
               {item.targetKind !== 'food' && item.targetKind !== 'presence_ingredient' ? (
@@ -251,7 +276,6 @@ function InventoryIntakeRow({
                   value={asText(item.inventoryStatus, 'fresh')}
                   disabled={readonly}
                   options={INVENTORY_STATUS_OPTIONS}
-                  icon="type"
                   className="ai-inventory-intake-field"
                   onChange={(inventoryStatus) => onPatch({ inventoryStatus })}
                 />
@@ -303,6 +327,7 @@ export function AiInventoryIntakeApproval({
     [draft],
   );
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(attentionIds));
+  const [isIgnoredExpanded, setIsIgnoredExpanded] = useState(false);
 
   const toggleExpanded = (lineId: string) => {
     setExpandedIds((current) => {
@@ -385,21 +410,40 @@ export function AiInventoryIntakeApproval({
         title="本次入库概览"
         items={overviewItems}
         className="ai-inventory-intake-overview ai-inventory-intake-summary-card"
-      >
-        <div className="ai-inventory-intake-overview-main">
-          <label className="ai-inventory-intake-field ai-inventory-intake-date-field">
-            <span>入库日期</span>
-            <input
-              className="text-input"
-              type="date"
-              value={draft.intakeDate}
-              disabled={readonly}
-              onChange={(event) => handleDateChange(event.target.value)}
-            />
+      />
+
+      {!readonly ? (
+        <div className="ai-inventory-intake-date-config" aria-label="入库日期配置">
+          <label className="ai-inventory-intake-date-field">
+            <span className="ai-inventory-intake-date-label">
+              <svg
+                className="ai-inventory-intake-date-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="4.5" y="5.5" width="15" height="14" rx="3" />
+                <path d="M8 3.8v3.4M16 3.8v3.4M4.8 10h14.4" />
+              </svg>
+              调整入库日期
+            </span>
+            <div className="ai-inventory-intake-date-input-wrap">
+              <DatePickerField
+                ariaLabel="入库日期"
+                value={draft.intakeDate}
+                required
+                disabled={readonly}
+                onChange={handleDateChange}
+              />
+              <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
+            </div>
           </label>
-          <span className="ai-inventory-intake-source-badge">{intakeDateSourceLabel(String(draft.intakeDateSource))}</span>
         </div>
-      </AiDraftSummaryCard>
+      ) : null}
 
       {attentionItems.length > 0 ? (
         <AiDraftImpactNote tone="warning" title="还需补充" className="ai-inventory-intake-attention">
@@ -414,7 +458,7 @@ export function AiInventoryIntakeApproval({
             title="采购清单关联"
             description="入库后同步完成对应采购项。"
             action={<span className="ai-inventory-intake-group-count">{groups.shopping.length} 项</span>}
-            className="ai-confirmation-item ai-inventory-intake-group"
+            className="ai-inventory-intake-group"
           >
             <div className="ai-inventory-intake-group-list">
               {groups.shopping.map((item) => (
@@ -437,7 +481,7 @@ export function AiInventoryIntakeApproval({
             title="直接入库"
             description="只增加库存，不创建或完成采购项。"
             action={<span className="ai-inventory-intake-group-count">{groups.direct.length} 项</span>}
-            className="ai-confirmation-item ai-inventory-intake-group"
+            className="ai-inventory-intake-group"
           >
             <div className="ai-inventory-intake-group-list">
               {groups.direct.map((item) => (
@@ -457,23 +501,50 @@ export function AiInventoryIntakeApproval({
       </div>
 
       {groups.ignored.length > 0 ? (
-        <details className="ai-draft-resolved-summary tone-neutral ai-inventory-intake-ignored" aria-label="已忽略">
-          <summary>
-            <span>
-              <strong>已忽略</strong>
-              <small>不会写入库存，无需确认</small>
-            </span>
-            <em>{groups.ignored.length} 项</em>
-          </summary>
-          <ul>
-            {groups.ignored.map((item, index) => (
-              <li key={item.sourceLineId || `ignored-${index}`}>
-                <strong>{item.displayName || item.sourceText || '已忽略项'}</strong>
-                <span>{item.reason || '本次不会入库'}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <section className={`ai-draft-section ai-inventory-intake-ignored${isIgnoredExpanded ? ' is-expanded' : ''}`}>
+          <button
+            type="button"
+            className="ai-inventory-intake-ignored-toggle"
+            aria-expanded={isIgnoredExpanded}
+            onClick={() => setIsIgnoredExpanded((current) => !current)}
+          >
+            <div className="ai-draft-section-copy">
+              <h3>已忽略</h3>
+              <p>不会写入库存，无需确认</p>
+            </div>
+            <div className="ai-inventory-intake-ignored-header-action">
+              <span className="ai-inventory-intake-group-count">{groups.ignored.length} 项</span>
+              <svg
+                className={`ai-inventory-intake-chevron-icon${isIgnoredExpanded ? ' is-expanded' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </button>
+          <div
+            className="ai-draft-section-body"
+            style={{ display: isIgnoredExpanded ? 'block' : 'none' }}
+          >
+            <div className="ai-inventory-intake-ignored-list">
+              {groups.ignored.map((item, index) => (
+                <div className="ai-inventory-intake-ignored-card" key={item.sourceLineId || `ignored-${index}`}>
+                  <div className="ai-inventory-intake-ignored-copy">
+                    <strong>{item.displayName || item.sourceText || '已忽略项'}</strong>
+                    <p>{item.reason || '非食品库存对象，本次不会入库'}</p>
+                  </div>
+                  <span className="ai-inventory-intake-ignored-badge">无需确认</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <AiDraftImpactNote tone="plan" title="确认后将" className="ai-inventory-intake-submit-summary">

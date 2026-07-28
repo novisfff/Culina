@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { act } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -100,5 +102,14 @@ describe('QuantityUnitField', () => {
     );
 
     expect(view.querySelector<HTMLInputElement>('input[aria-label="数量"]')?.step).toBe('0.1');
+  });
+
+  it('keeps the nested unit dropdown content and popover visible', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/00-ui-kit.css'), 'utf8');
+    const controlGroupRule = styles.match(/\.ui-quantity-unit-control-group\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(styles).toMatch(/\.ui-quantity-unit-select\s*>\s*span\s*\{/);
+    expect(styles).not.toMatch(/\.ui-quantity-unit-select\s+span\s*\{/);
+    expect(controlGroupRule).not.toMatch(/overflow:\s*hidden/);
   });
 });

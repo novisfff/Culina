@@ -8,6 +8,7 @@ export type SearchFieldProps = {
   onClear?: () => void;
   loading?: boolean;
   disabled?: boolean;
+  showClear?: boolean;
   className?: string;
   inputId?: string;
   inputClassName?: string;
@@ -41,6 +42,7 @@ export function SearchField({
   onClear,
   loading = false,
   disabled = false,
+  showClear = true,
   className,
   inputId,
   inputClassName,
@@ -74,7 +76,7 @@ export function SearchField({
         onFocus={onFocus}
       />
       <SearchLoadingIndicator active={loading} className="ui-search-field-loading" />
-      {value ? (
+      {value && showClear ? (
         <button type="button" className="ui-search-field-clear" aria-label="清空搜索" onClick={onClear ?? (() => onChange(''))} disabled={disabled}>
           <span aria-hidden="true">×</span>
         </button>

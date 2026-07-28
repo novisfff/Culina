@@ -50,6 +50,8 @@ const SHOPPING_DONE_OPTIONS = [
 ];
 const FOOD_CATEGORY_PRESETS = ['主食', '饮品', '早餐', '便当', '零食', '甜品', '汤粥', '小吃', '外卖', '速食'];
 const AI_RESOURCE_IMAGE_FALLBACK = '/assets/ai-food-ingredient-placeholder.png';
+const EMPTY_FOODS: Food[] = [];
+const EMPTY_INGREDIENTS: Ingredient[] = [];
 
 function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
   return JSON.parse(JSON.stringify(value)) as AiGeneratedRecipeDraft;
@@ -98,6 +100,15 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   if (approval.approval_type.startsWith('ingredient.')) return 'ingredient_profile';
   if (approval.approval_type.startsWith('inventory.')) return 'inventory_operation';
   return '';
+}
+
+function draftContainsDestructiveAction(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const draft = value as Record<string, unknown>;
+  if (['delete', 'dispose'].includes(asText(draft.action))) return true;
+
+  return ['operations', 'items', 'stepPreviews', 'steps']
+    .some((key) => asDraftArray(draft[key]).some((item) => draftContainsDestructiveAction(item)));
 }
 
 function joinTextList(value: unknown) {
@@ -651,8 +662,8 @@ export type AiApprovalDecisionSubmit = (
 
 export function ApprovalPanel({
   approval,
-  foods = [],
-  ingredients = [],
+  foods = EMPTY_FOODS,
+  ingredients = EMPTY_INGREDIENTS,
   resourceOptionLoader,
   onDecision,
   isLatest = true,
@@ -723,6 +734,9 @@ export function ApprovalPanel({
     () => inventoryOperationDraftFromRecord(structuredDraft),
     [structuredDraft],
   );
+  const isDestructiveConfirmation = !readonly
+    && usesStructuredDraftEditor
+    && draftContainsDestructiveAction(structuredDraft);
   const staticFoodOptions = useMemo<AiResourceOption[]>(() => foods.map((food) => ({
     id: food.id,
     label: food.name,
@@ -988,7 +1002,7 @@ export function ApprovalPanel({
         const category = asText(record.category) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.category);
         const unit = asText(record.default_unit) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.default_unit);
         const actionLabel = action === 'update' ? '修改' : '新增';
-        return [actionLabel, name, category, unit].filter(Boolean);
+        return [name, actionLabel, category, unit ? `单位：${unit}` : ''];
       }
       if (draftType === 'recipe') {
         const action = asText(structuredDraft.action);
@@ -1011,6 +1025,8 @@ export function ApprovalPanel({
     return '';
   }, [recipeApproval, recipe, usesStructuredDraftEditor, draftType, structuredDraft, inventoryOperationDraft]);
   const briefSummaryParts = Array.isArray(briefSummary) ? briefSummary : briefSummary ? [briefSummary] : [];
+  const isIngredientProfileBrief = draftType === 'ingredient_profile' && Array.isArray(briefSummary);
+  const ingredientProfileBriefPartClasses = ['part-name', 'part-action', 'part-category', 'part-unit'];
 
   return (
     <section className={`ai-approval-panel${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
@@ -1030,11 +1046,24 @@ export function ApprovalPanel({
         <div className="ai-approval-head-copy">
           <div className="ai-approval-title-row">
             <h3>{currentApproval.title}</h3>
-            {!isExpanded && briefSummaryParts.map((summaryPart) => (
-              <span className="ai-approval-brief-badge" key={summaryPart}>
-                {summaryPart}
-              </span>
-            ))}
+            {briefSummaryParts.length > 0 && (
+              <div className={`ai-approval-brief-badges${isIngredientProfileBrief ? ' draft-ingredient-profile' : ''}`}>
+                {briefSummaryParts.map((summaryPart, index) => ({ summaryPart, index }))
+                  .filter(({ summaryPart }) => summaryPart)
+                  .map(({ summaryPart, index }) => (
+                    <span
+                      className={[
+                        'ai-approval-brief-badge',
+                        isIngredientProfileBrief ? 'ingredient-profile-part' : '',
+                        isIngredientProfileBrief ? ingredientProfileBriefPartClasses[index] : '',
+                      ].filter(Boolean).join(' ')}
+                      key={`${summaryPart}-${index}`}
+                    >
+                      {summaryPart}
+                    </span>
+                  ))}
+              </div>
+            )}
           </div>
           <p>{currentApproval.instruction}</p>
         </div>
@@ -1158,7 +1187,7 @@ export function ApprovalPanel({
                 {currentApproval.reject_label}
               </button>
               <button
-                className="solid-button"
+                className={`solid-button${isDestructiveConfirmation ? ' danger-button' : ''}`}
                 type="button"
                 disabled={isSubmitting || recipeCookRequiresRegeneration}
                 onClick={() => submitDecision('approved')}

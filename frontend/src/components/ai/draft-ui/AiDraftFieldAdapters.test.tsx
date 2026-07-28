@@ -4,6 +4,7 @@ import { act, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ApprovalSelectField } from '../AiApprovalFields';
 import type { AiResourceOption, AiResourceOptionLoader } from '../AiApprovalFields';
 import { AiDraftField } from './AiDraftField';
 import { AiDraftResourceField } from './AiDraftResourceField';
@@ -83,6 +84,8 @@ describe('AI Draft field adapters', () => {
 
     const search = view.querySelector<HTMLInputElement>('[role="searchbox"]');
     expect(search).not.toBeNull();
+    expect(view.querySelector('.ai-draft-resource-list.is-popover')).not.toBeNull();
+    expect(view.querySelector('.ai-draft-resource-list.is-inline')).toBeNull();
     changeInput(search as HTMLInputElement, '番');
     expect(onQueryChange).toHaveBeenCalledWith('番');
     const option = view.querySelector<HTMLButtonElement>('[role="option"]');
@@ -106,21 +109,84 @@ describe('AI Draft field adapters', () => {
     );
 
     expect(view.querySelector<HTMLInputElement>('[role="searchbox"]')?.value).toBe('鸡蛋');
+    expect(view.textContent).not.toContain('已选：鸡蛋');
+    expect(view.querySelector('.ai-draft-resource-search.has-selected-resource')).not.toBeNull();
+    expect(view.querySelector('.ui-search-field-clear')).toBeNull();
   });
 
-  it('deduplicates delimiter-separated Draft tags and renders a read-only preview', () => {
+  it('shows the compact clear action only while searching for a replacement resource', () => {
+    const view = renderAdapter(
+      <AiDraftResourceField
+        label="选择食材"
+        value="ingredient-egg"
+        selectedLabel="鸡蛋"
+        query="番茄"
+        options={[]}
+        listOpen
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(view.querySelector('.ai-draft-resource-search.has-selected-resource')).toBeNull();
+    expect(view.querySelector<HTMLButtonElement>('.ui-search-field-clear')?.getAttribute('aria-label')).toBe('清空搜索');
+  });
+
+  it('renders Draft values as removable tags and adds normalized tags through a compact affordance', () => {
     function TagHarness() {
-      const [values, setValues] = useState<string[]>([]);
-      return <AiDraftTagInput label="口味标签" values={values} disabled={false} placeholder="清淡、香辣" onChange={setValues} />;
+      const [values, setValues] = useState<string[]>(['快手晚餐', '一人食']);
+      return <AiDraftTagInput label="场景标签" values={values} disabled={false} placeholder="家常菜、快手菜" onChange={setValues} />;
     }
 
     const view = renderAdapter(<TagHarness />);
-    const input = view.querySelector<HTMLInputElement>('input');
-    changeInput(input as HTMLInputElement, '清淡、香辣、清淡');
+    expect(view.querySelector('input')).toBeNull();
+    expect(view.textContent).toContain('快手晚餐');
+    expect(view.textContent).toContain('一人食');
 
-    expect(input?.value).toBe('清淡、香辣');
-    expect(view.querySelector('[aria-label="口味标签预览"]')?.textContent).toContain('清淡');
-    expect(view.querySelector('[aria-label="口味标签预览"]')?.textContent).toContain('香辣');
+    const addButton = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('添加标签'));
+    act(() => addButton?.click());
+    const input = view.querySelector<HTMLInputElement>('input[aria-label="添加场景标签"]');
+    changeInput(input as HTMLInputElement, '周末聚餐、快手晚餐');
+    act(() => input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+
+    expect(view.textContent).toContain('周末聚餐');
+    expect(view.querySelectorAll('[data-draft-tag="快手晚餐"]')).toHaveLength(1);
+
+    const removeButton = view.querySelector<HTMLButtonElement>('[aria-label="删除场景标签：一人食"]');
+    act(() => removeButton?.click());
+    expect(view.textContent).not.toContain('一人食');
+  });
+
+  it('uses option icons in the menu and follows the selected option in the trigger', () => {
+    function SelectHarness() {
+      const [value, setValue] = useState('pan');
+      return (
+        <ApprovalSelectField
+          label="步骤图标"
+          value={value}
+          disabled={false}
+          options={[
+            { value: 'pan', label: '炒锅', icon: <span data-test-icon="pan" /> },
+            { value: 'timer', label: '计时', icon: <span data-test-icon="timer" /> },
+          ]}
+          useSelectedOptionIcon
+          onChange={setValue}
+        />
+      );
+    }
+
+    const view = renderAdapter(<SelectHarness />);
+    const trigger = view.querySelector<HTMLButtonElement>('.ui-dropdown-select-trigger');
+    expect(trigger?.querySelector('[data-test-icon="pan"]')).not.toBeNull();
+
+    act(() => trigger?.click());
+    const timerOption = Array.from(view.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+      .find((option) => option.textContent?.includes('计时'));
+    expect(timerOption?.querySelector('[data-test-icon="timer"]')).not.toBeNull();
+
+    act(() => timerOption?.click());
+    expect(trigger?.querySelector('[data-test-icon="timer"]')).not.toBeNull();
+    expect(trigger?.querySelector('[data-test-icon="pan"]')).toBeNull();
   });
 
   it('keeps AI resource contracts typed for paged loading', async () => {

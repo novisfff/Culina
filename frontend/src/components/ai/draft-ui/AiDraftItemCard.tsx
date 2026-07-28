@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { AiDraftTone } from './types';
 
 export function AiDraftItemCard(props: {
   title: string;
@@ -6,10 +7,13 @@ export function AiDraftItemCard(props: {
   status?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  tone?: AiDraftTone;
   className?: string;
 }) {
+  const tone = props.tone ?? 'neutral';
+
   return (
-    <article className={['ai-draft-item-card', props.className].filter(Boolean).join(' ')}>
+    <article className={['ai-draft-item-card', `tone-${tone}`, props.className].filter(Boolean).join(' ')}>
       <header className="ai-draft-item-card-head">
         <div className="ai-draft-item-card-copy">
           <h4>{props.title}</h4>

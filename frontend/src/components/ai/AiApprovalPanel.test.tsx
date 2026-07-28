@@ -723,7 +723,7 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
-  it('splits collapsed ingredient approval summary into short badges', async () => {
+  it('separates the ingredient name from compact collapsed-summary badges', async () => {
     const rendered = await renderWithQuery(
       <ApprovalPanel
         approval={ingredientProfileApproval({
@@ -752,9 +752,21 @@ describe('ApprovalPanel', () => {
       />,
     );
 
-    const badges = Array.from(rendered.container.querySelectorAll('.ai-approval-brief-badge'));
-    expect(badges.map((badge) => badge.textContent)).toEqual(['新增', '沙拉', '其他', '份']);
-    expect(rendered.container.textContent).not.toContain('新增 · 沙拉 · 其他 · 份');
+    const summary = rendered.container.querySelector('.ai-approval-brief-badges.draft-ingredient-profile');
+    expect(summary).not.toBeNull();
+    const badges = Array.from(summary?.querySelectorAll('.ai-approval-brief-badge') ?? []);
+    expect(badges.map((badge) => badge.textContent)).toEqual(['沙拉', '新增', '其他', '单位：份']);
+    expect(summary?.querySelector('.ingredient-profile-part.part-name')?.textContent).toBe('沙拉');
+    expect(summary?.querySelector('.ingredient-profile-part.part-unit')?.textContent).toBe('单位：份');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    expect(
+      Array.from(rendered.container.querySelectorAll('.ai-approval-brief-badge')).map((badge) => badge.textContent),
+    ).toEqual(['沙拉', '新增', '其他', '单位：份']);
     rendered.unmount();
   });
 
@@ -1009,6 +1021,7 @@ describe('ApprovalPanel', () => {
     };
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button.danger-button')?.textContent).toContain('确认处理库存');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .ghost-button')?.click();
     });
@@ -1032,7 +1045,7 @@ describe('ApprovalPanel', () => {
       titleInput?.focus();
     });
     await waitForAsync();
-    const milkOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛奶'));
+    const milkOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-draft-resource-list button')).find((button) => button.textContent?.includes('牛奶'));
     expect(milkOption).toBeTruthy();
     await act(async () => {
       milkOption?.click();
@@ -1173,11 +1186,13 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('确认创建菜谱');
     expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('创建菜谱');
     expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
-    expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
+    expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item')).toHaveLength(0);
     expect(rendered.container.textContent).toContain('菜谱信息');
     expect(rendered.container.textContent).toContain('食材');
     expect(rendered.container.textContent).toContain('烹饪步骤');
     expect(rendered.container.textContent).toContain('补充信息');
+    expect(rendered.container.querySelector('.ai-recipe-ingredient-card h4')?.textContent).not.toBe('食材 1');
+    expect(rendered.container.querySelector('.ai-recipe-ingredient-card .ai-draft-item-card-copy')?.textContent).toContain('食材 1');
 
     const difficultyField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
       .find((field) => field.textContent?.includes('难度'));
@@ -1185,24 +1200,39 @@ describe('ApprovalPanel', () => {
       .find((field) => field.textContent?.includes('步骤图标'));
     expect(difficultyField?.textContent).toContain('简单');
     expect(stepIconField?.textContent).toContain('调味');
+    const stepIconTrigger = stepIconField?.querySelector<HTMLButtonElement>('.ai-single-select-trigger');
+    expect(stepIconTrigger?.querySelector('.ai-recipe-step-icon-bowl')).not.toBeNull();
+    await act(async () => {
+      stepIconTrigger?.click();
+    });
+    for (const icon of ['pan', 'tomato', 'bowl', 'timer', 'tip', 'plate']) {
+      expect(stepIconField?.querySelector(`.ui-dropdown-select-option-icon .ai-recipe-step-icon-${icon}`)).not.toBeNull();
+    }
+    await act(async () => {
+      stepIconTrigger?.click();
+    });
     await chooseSingleSelectOption(difficultyField, '适中');
     await chooseSingleSelectOption(stepIconField, '计时');
+    expect(stepIconTrigger?.querySelector('.ai-recipe-step-icon-timer')).not.toBeNull();
 
     const ingredientInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-draft-editor .ai-resource-field-ingredient input');
     await act(async () => {
       ingredientInput?.focus();
     });
     await waitForAsync();
-    const tomatoOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('番茄'));
+    const tomatoOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-draft-resource-list button')).find((button) => button.textContent?.includes('番茄'));
     expect(tomatoOption).toBeTruthy();
     await act(async () => {
       tomatoOption?.click();
     });
     await flushAsync();
     const ingredientQuantityInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-ingredient-card input[type="number"]');
-    const stepKeyPointsInput = rendered.container.querySelector<HTMLInputElement>('input[aria-label="关键点"]');
     changeInput(ingredientQuantityInput as HTMLInputElement, '3');
+    const stepKeyPointsField = rendered.container.querySelector<HTMLElement>('.ai-recipe-step-card .ai-tag-input-field');
+    act(() => stepKeyPointsField?.querySelector<HTMLButtonElement>('.ai-draft-tag-add')?.click());
+    const stepKeyPointsInput = stepKeyPointsField?.querySelector<HTMLInputElement>('input[aria-label="添加关键点"]');
     changeInput(stepKeyPointsInput as HTMLInputElement, '中火、收汁');
+    act(() => stepKeyPointsInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
@@ -1324,6 +1354,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button.danger-button')?.textContent).toContain('删除菜谱');
     rendered.unmount();
   });
 
@@ -1511,11 +1542,22 @@ describe('ApprovalPanel', () => {
     ] as Ingredient[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
 
+    const planDateTrigger = rendered.container.querySelector<HTMLButtonElement>('.ai-meal-plan-draft-editor .ui-date-picker-trigger');
+    expect(planDateTrigger?.getAttribute('aria-label')).toContain('计划日期');
+    expect(planDateTrigger?.textContent).toContain('2026年6月10日');
+    expect(rendered.container.querySelector('.ai-meal-plan-draft-editor input[type="date"]')).toBeNull();
+
     expect(Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-plan-ingredient-row .ai-resource-field-ingredient input')).map((input) => input.value)).toEqual(['牛肉', '土豆']);
     expect(rendered.container.querySelector<HTMLImageElement>('.ai-resource-field-food .ai-resource-thumbnail')?.src).toContain('/food-tomato-egg.jpg');
     expect(Array.from(rendered.container.querySelectorAll<HTMLImageElement>('.ai-meal-plan-ingredient-row .ai-resource-thumbnail')).map((image) => image.src)).toEqual(
       expect.arrayContaining([expect.stringContaining('/ingredient-beef.jpg'), expect.stringContaining('/ingredient-potato.jpg')]),
     );
+    const firstIngredientRow = rendered.container.querySelector('.ai-meal-plan-ingredient-row');
+    const ingredientActions = firstIngredientRow?.querySelector('.ai-meal-plan-ingredient-actions');
+    expect(ingredientActions).not.toBeNull();
+    expect(ingredientActions?.querySelector('.ai-ingredient-quantity-field')).not.toBeNull();
+    expect(ingredientActions?.querySelector('.ai-ingredient-unit-chevron')).not.toBeNull();
+    expect(ingredientActions?.querySelector('.ai-ingredient-remove-button')?.textContent).toBe('删除');
 
     const beefQuantityInput = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛肉数量"]');
     expect(beefQuantityInput).not.toBeNull();
@@ -1704,6 +1746,30 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('hydrates the selected resource image before the searchable field is changed', async () => {
+    const pending = shoppingApproval();
+    const loader = vi.fn(async (kind: 'food' | 'ingredient', params: { query: string; offset: number; limit: number }) => (
+      kind === 'ingredient' && params.query === '鸡蛋'
+        ? [
+            { id: 'ingredient-other-egg', label: '鸡蛋', imageUrl: '/ingredient-other-egg.jpg' },
+            { id: 'ingredient-egg', label: '鸡蛋', imageUrl: '/ingredient-egg.jpg' },
+          ]
+        : []
+    ));
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+
+    await waitForAsync();
+
+    const resourceField = rendered.container.querySelector<HTMLElement>('.ai-shopping-list-draft-editor .ai-resource-field-ingredient');
+    expect(loader).toHaveBeenCalledWith('ingredient', { query: '鸡蛋', offset: 0, limit: 6 });
+    expect(resourceField?.querySelector<HTMLInputElement>('[role="searchbox"]')?.value).toBe('鸡蛋');
+    expect(resourceField?.querySelector<HTMLImageElement>('.ai-resource-thumbnail[src="/ingredient-egg.jpg"]')).not.toBeNull();
+    expect(resourceField?.querySelector<HTMLImageElement>('.ai-resource-thumbnail[src="/ingredient-other-egg.jpg"]')).toBeNull();
+    rendered.unmount();
+  });
+
   it('loads resource options in pages and resets pagination for search', async () => {
     const pending = mealPlanApproval();
     const foodOptions = Array.from({ length: 14 }, (_, index) => ({
@@ -1729,9 +1795,9 @@ describe('ApprovalPanel', () => {
     });
     await waitForAsync();
     expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 0, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(6);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-draft-resource-list [role="option"]')).toHaveLength(6);
 
-    const menu = rendered.container.querySelector<HTMLElement>('.ai-resource-field-food .ai-resource-menu');
+    const menu = rendered.container.querySelector<HTMLElement>('.ai-resource-field-food .ai-draft-resource-list');
     expect(menu).not.toBeNull();
     Object.defineProperties(menu as HTMLElement, {
       scrollHeight: { configurable: true, value: 300 },
@@ -1743,13 +1809,58 @@ describe('ApprovalPanel', () => {
     });
     await waitForAsync();
     expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 6, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(12);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-draft-resource-list [role="option"]')).toHaveLength(12);
 
     changeInput(foodInput as HTMLInputElement, '番茄');
     await waitForAsync(240);
     expect(loader).toHaveBeenLastCalledWith('food', { query: '番茄', offset: 0, limit: 6 });
-    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu [role="option"]')).toHaveLength(1);
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-draft-resource-list [role="option"]')).toHaveLength(1);
     expect(rendered.container.textContent).toContain('番茄烩饭');
+    rendered.unmount();
+  });
+
+  it('closes AI resource candidates when focus leaves the field without changing the draft', async () => {
+    const pending = mealPlanApproval();
+    const loader = vi.fn(async () => [{ id: 'food-tomato-egg', label: '番茄炒蛋', description: '家常菜' }]);
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+    const approvalAction = rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button');
+
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForAsync();
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).not.toBeNull();
+
+    await act(async () => {
+      approvalAction?.focus();
+    });
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).toBeNull();
+    expect(foodInput?.value).toBe('番茄炒蛋');
+    rendered.unmount();
+  });
+
+  it('closes AI resource candidates with Escape without changing the draft', async () => {
+    const pending = mealPlanApproval();
+    const loader = vi.fn(async () => [{ id: 'food-tomato-egg', label: '番茄炒蛋', description: '家常菜' }]);
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForAsync();
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).not.toBeNull();
+
+    await act(async () => {
+      foodInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(rendered.container.querySelector('.ai-resource-field-food [role="listbox"]')).toBeNull();
+    expect(foodInput?.value).toBe('番茄炒蛋');
     rendered.unmount();
   });
 
@@ -1761,7 +1872,7 @@ describe('ApprovalPanel', () => {
       { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
-    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item').length).toBeGreaterThan(3);
+    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(0);
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-log-summary-card')).not.toBeNull();
     const mealLogSections = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-draft-section h3')).map((heading) => heading.textContent);
     expect(mealLogSections).toEqual(expect.arrayContaining(['餐食信息', '食物项', '参与人和照片', '备注与心情']));
@@ -1774,7 +1885,12 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('关联计划未关联');
     expect(rendered.container.textContent).toContain('心情满足');
     expect(rendered.container.textContent).toContain('晚餐记录');
-    expect(rendered.container.textContent).toContain('食物 1');
+    const foodCard = rendered.container.querySelector('.ai-meal-log-food-item');
+    const foodCardCopy = foodCard?.querySelector('.ai-draft-item-card-copy');
+    const foodCardStatus = foodCard?.querySelector('.ai-draft-item-card-status');
+    expect(foodCardCopy?.textContent).toContain('食物 1');
+    expect(foodCardCopy?.textContent).not.toContain('1 份');
+    expect(foodCardStatus?.textContent).toBe('1 份');
     expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
     expect(rendered.container.textContent).toContain('1 份');
     expect(rendered.container.textContent).toContain('参与人和照片');
@@ -1787,7 +1903,7 @@ describe('ApprovalPanel', () => {
       foodInput?.focus();
     });
     await waitForAsync();
-    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛肉面'));
+    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-draft-resource-list button')).find((button) => button.textContent?.includes('牛肉面'));
     expect(noodleOption).toBeTruthy();
     await act(async () => {
       noodleOption?.click();
@@ -1844,12 +1960,15 @@ describe('ApprovalPanel', () => {
     const stockToggles = rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-log-stock-toggle input[type="checkbox"]');
     expect(stockToggles).toHaveLength(1);
     expect(rendered.container.querySelector('[role="note"][aria-label="库存扣减说明"]')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-meal-log-stock-header')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-meal-log-stock-current')?.textContent).toContain('当前库存 3 盒');
     expect(rendered.container.textContent).toContain('当前库存 3 盒');
     expect(rendered.container.querySelector('.ai-meal-log-stock-fields')).toBeNull();
 
     await act(async () => {
       stockToggles[0]?.click();
     });
+    expect(rendered.container.querySelector('.ai-meal-log-stock-footer strong')).not.toBeNull();
     const quantityInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-stock-fields input[type="number"]');
     expect(quantityInput?.value).toBe('1');
     expect(rendered.container.textContent).toContain('确认后预计剩余 2 盒');
@@ -1899,7 +2018,7 @@ describe('ApprovalPanel', () => {
       foodInput?.focus();
     });
     await waitForAsync();
-    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛肉面'));
+    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-draft-resource-list button')).find((button) => button.textContent?.includes('牛肉面'));
     expect(noodleOption).toBeTruthy();
     await act(async () => {
       noodleOption?.click();
@@ -2076,8 +2195,8 @@ describe('ApprovalPanel', () => {
     await act(async () => {
       flavorPreset?.click();
     });
-    const tagInput = rendered.container.querySelector<HTMLInputElement>('.ai-food-profile-draft-editor .ai-tag-input-field input');
-    changeInput(tagInput as HTMLInputElement, '酸甜、酸甜、奶香');
+    expect(rendered.container.querySelectorAll('[data-draft-tag="酸甜"]')).toHaveLength(1);
+    expect(rendered.container.querySelectorAll('[data-draft-tag="奶香"]')).toHaveLength(1);
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
@@ -2651,7 +2770,7 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
     // ignored rows have no editable controls
-    const ignoredSection = rendered.container.querySelector('details.ai-draft-resolved-summary.ai-inventory-intake-ignored');
+    const ignoredSection = rendered.container.querySelector('.ai-inventory-intake-ignored');
     expect(ignoredSection).not.toBeNull();
     expect(ignoredSection?.querySelector('input, select, textarea')).toBeNull();
 

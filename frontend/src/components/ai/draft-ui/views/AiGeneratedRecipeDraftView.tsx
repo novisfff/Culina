@@ -56,21 +56,14 @@ export function AiGeneratedRecipeDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>菜谱草稿</strong>
-          <span>{props.recipe.title || '未命名菜谱'}</span>
-        </div>
-      </div>
       <AiDraftSummaryCard
         title={props.recipe.title || '菜谱草稿'}
         items={summaryItems}
-        className="ai-confirmation-item ai-recipe-summary-card"
-      >
-        <AiDraftImpactNote tone="plan" title="确认后">
-          将创建这道菜谱，并同步关联的家常菜食物资料。
-        </AiDraftImpactNote>
-      </AiDraftSummaryCard>
+        className="ai-recipe-summary-card"
+      />
+      <AiDraftImpactNote tone="plan" title="确认后">
+        将创建这道菜谱，并同步关联的家常菜食物资料。
+      </AiDraftImpactNote>
       <AiRecipeDraftEditorFields
         recipe={props.recipe}
         readonly={props.readonly}

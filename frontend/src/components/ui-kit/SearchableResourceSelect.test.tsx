@@ -137,6 +137,122 @@ describe('SearchableResourceSelect', () => {
     expect(view.querySelector('.ui-searchable-resource-select-list')).toBeNull();
   });
 
+  it('shows a loading status instead of the empty state before initial options arrive', () => {
+    const view = renderSelect(
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value=""
+        query="番茄"
+        loading
+        hasMore
+        emptyText="没有匹配项"
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+        options={[]}
+      />,
+    );
+
+    expect(view.textContent).toContain('正在加载候选项…');
+    expect(view.textContent).not.toContain('没有匹配项');
+    expect(view.textContent).not.toContain('加载更多');
+  });
+
+  it('can suppress the clear action when the visible query represents a selected resource', () => {
+    const view = renderSelect(
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value="ingredient-1"
+        query="番茄"
+        options={[]}
+        listOpen={false}
+        showClear={false}
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(view.querySelector<HTMLInputElement>('[role="searchbox"]')?.value).toBe('番茄');
+    expect(view.querySelector('.ui-search-field-clear')).toBeNull();
+  });
+
+  it('keeps inline initial loading compact instead of mounting an empty result list', () => {
+    const view = renderSelect(
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value=""
+        query="番茄"
+        loading
+        presentation="inline"
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+        options={[]}
+      />,
+    );
+
+    expect(view.querySelector('[role="listbox"]')).toBeNull();
+    expect(view.querySelector('.ui-searchable-resource-select-loading[role="status"]')?.textContent).toBe('正在加载候选项…');
+    expect(view.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it('only reports search blur after focus leaves the whole resource control', () => {
+    const onSearchBlur = vi.fn();
+    const view = renderSelect(
+      <>
+        <SearchableResourceSelect
+          ariaLabel="选择食材"
+          placeholder="搜索已有食材"
+          value=""
+          query=""
+          onQueryChange={vi.fn()}
+          onChange={vi.fn()}
+          onSearchBlur={onSearchBlur}
+          options={[{ id: 'ingredient-1', label: '番茄' }]}
+        />
+        <button type="button">下一字段</button>
+      </>,
+    );
+
+    const search = view.querySelector<HTMLInputElement>('[role="searchbox"]');
+    const option = view.querySelector<HTMLButtonElement>('[role="option"]');
+    const nextField = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '下一字段');
+
+    act(() => {
+      search?.focus();
+      option?.focus();
+    });
+    expect(onSearchBlur).not.toHaveBeenCalled();
+
+    act(() => nextField?.focus());
+    expect(onSearchBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an external pointer down while resource candidates are open', () => {
+    const onSearchBlur = vi.fn();
+    const view = renderSelect(
+      <>
+        <SearchableResourceSelect
+          ariaLabel="选择食材"
+          placeholder="搜索已有食材"
+          value=""
+          query=""
+          onQueryChange={vi.fn()}
+          onChange={vi.fn()}
+          onSearchBlur={onSearchBlur}
+          options={[{ id: 'ingredient-1', label: '番茄' }]}
+        />
+        <button type="button">下一字段</button>
+      </>,
+    );
+
+    const nextField = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '下一字段');
+    act(() => nextField?.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+
+    expect(onSearchBlur).toHaveBeenCalledTimes(1);
+  });
+
   it('requests more options when the list is scrolled near the bottom', () => {
     const onLoadMore = vi.fn();
     const view = renderSelect(

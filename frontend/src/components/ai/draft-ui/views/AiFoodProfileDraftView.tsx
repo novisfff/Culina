@@ -202,16 +202,18 @@ export function AiFoodProfileDraftView(props: {
     }
 
     return (
-      <AiDraftSummaryCard
-        title={statusTitle(props.status, currentAction)}
-        items={summaryItems(record)}
-        className="ai-confirmation-item ai-food-profile-summary-card"
-      >
+      <>
+        <AiDraftSummaryCard
+          title={statusTitle(props.status, currentAction)}
+          items={summaryItems(record)}
+          className="ai-food-profile-summary-card"
+        >
+          {record.notes ? <p className="ai-food-profile-summary-note">{record.notes}</p> : null}
+        </AiDraftSummaryCard>
         <AiDraftImpactNote tone="plan" title="确认后">
           <p>{summary}</p>
         </AiDraftImpactNote>
-        {record.notes ? <p className="ai-food-profile-summary-note">{record.notes}</p> : null}
-      </AiDraftSummaryCard>
+      </>
     );
   };
 
@@ -220,7 +222,7 @@ export function AiFoodProfileDraftView(props: {
       <AiDraftSection
         title="核心信息"
         description="确认名称、类型和家庭分类，分类可选择已有值或自定义。"
-        className="ai-confirmation-item ai-food-profile-section"
+        className="ai-food-profile-section"
       >
         <label className="ai-resource-field">
           <span>食物名称</span>
@@ -237,7 +239,6 @@ export function AiFoodProfileDraftView(props: {
             value={record.type}
             disabled={props.readonly}
             options={FOOD_TYPE_OPTIONS}
-            icon="type"
             onChange={(type) => updatePayload({ type })}
           />
           <ApprovalComboboxField
@@ -246,7 +247,6 @@ export function AiFoodProfileDraftView(props: {
             disabled={props.readonly}
             options={props.categoryOptions}
             placeholder="选择或输入分类"
-            icon="type"
             onChange={(category) => updatePayload({ category })}
           />
         </div>
@@ -254,7 +254,7 @@ export function AiFoodProfileDraftView(props: {
       <AiDraftSection
         title="适用场景"
         description="餐别是固定多选；口味标签会去重并过滤空值。"
-        className="ai-confirmation-item ai-food-profile-section"
+        className="ai-food-profile-section"
       >
         <ApprovalMultiSelectField
           label="适合餐别"
@@ -292,7 +292,7 @@ export function AiFoodProfileDraftView(props: {
       <AiDraftSection
         title="来源与备注"
         description="来源属于开放信息，作为补充字段保留。"
-        className="ai-confirmation-item ai-food-profile-section"
+        className="ai-food-profile-section"
       >
         <label className="ai-resource-field">
           <span>来源</span>
@@ -321,7 +321,6 @@ export function AiFoodProfileDraftView(props: {
             value={record.storageLocation || '常温'}
             disabled={props.readonly}
             options={STORAGE_OPTIONS}
-            icon="type"
             onChange={(storageLocation) => updatePayload({ storage_location: storageLocation })}
           />
         ) : null}
@@ -336,18 +335,12 @@ export function AiFoodProfileDraftView(props: {
   if (action === 'set_favorite') {
     return (
       <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
-        <div className="ai-draft-editor-head">
-          <div>
-            <strong>{actionLabel(currentAction)}食物资料</strong>
-            <span>{record.name || '食物资料'}</span>
-          </div>
-        </div>
         {renderSummary()}
         <AiDraftItemCard
           title={record.name || asText(props.draft.targetId) || '食物资料'}
           summary={`当前：${favoriteLabel(before.favorite)} · 调整后：${favoriteLabel(payload.favorite)}`}
           status={actionLabel(currentAction)}
-          className="ai-confirmation-item ai-food-profile-favorite-card"
+          className="ai-food-profile-favorite-card"
         >
           <p>当前：{favoriteLabel(before.favorite)}</p>
           <p>调整后：{favoriteLabel(payload.favorite)}</p>
@@ -359,7 +352,6 @@ export function AiFoodProfileDraftView(props: {
               { value: 'true', label: '加入收藏' },
               { value: 'false', label: '移出收藏' },
             ]}
-            icon="type"
             onChange={(favorite) => updatePayload({ favorite: favorite === 'true' })}
           />
         </AiDraftItemCard>
@@ -369,12 +361,6 @@ export function AiFoodProfileDraftView(props: {
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>{action ? `${actionLabel(currentAction)}食物资料` : '食物资料'}</strong>
-          <span>{action ? (record.name || '食物资料') : '确认名称、类型与适合餐别'}</span>
-        </div>
-      </div>
       {renderSummary()}
       {action === 'update' ? (
         <AiDraftImpactNote tone="plan" title="当前资料" className="ai-approval-compare-copy">
