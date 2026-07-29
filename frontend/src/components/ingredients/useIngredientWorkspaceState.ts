@@ -247,9 +247,7 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
 
   function openDetailView(ingredientId: string) {
     setSelectedIngredientId(ingredientId);
-    if (activePanel === 'catalog') {
-      setExpandedCatalogIngredientId(ingredientId);
-    }
+    setExpandedCatalogIngredientId(null);
     setWorkspaceView('detail');
   }
 

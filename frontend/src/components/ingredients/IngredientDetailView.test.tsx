@@ -60,7 +60,17 @@ describe('IngredientDetailView', () => {
       }],
       availableInventoryItems: [],
       inventoryState: null,
-      alerts: [],
+      alerts: [{
+        id: 'alert-expired-milk',
+        ingredientId: 'ingredient-milk',
+        ingredientName: '牛奶',
+        title: '牛奶需要处理',
+        detail: '1 批已过期',
+        tone: 'danger',
+        kind: 'expiry',
+        severity: 'expired',
+        storageLocation: '冷藏',
+      }],
       quantitySummaries: [{ unit: '袋', total: 1, label: '1袋' }],
       hasMultipleUnits: false,
       primaryStorage: '冷藏',
@@ -94,7 +104,12 @@ describe('IngredientDetailView', () => {
       );
     });
 
-    expect(container.textContent).toContain('已过期');
-    expect(container.textContent).not.toContain('新鲜');
+    const expiredBatchCard = container.querySelector('.inventory-card-rich.tone-expired');
+    expect(expiredBatchCard?.textContent).toContain('已过期');
+    expect(expiredBatchCard?.textContent).not.toContain('新鲜');
+    expect(container.querySelector('.ingredient-detail-alert-banner.tone-danger')).not.toBeNull();
+    expect(container.querySelector('.ingredient-detail-alert-pill.tone-danger')).not.toBeNull();
+    expect(expiredBatchCard).not.toBeNull();
+    expect(container.querySelector('.badge-tone-expired')).not.toBeNull();
   });
 });
