@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
@@ -1027,12 +1028,14 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
   const rowClassName = [
     'shopping-work-row',
     `tone-${card.tone}`,
+    card.hasAttention ? 'has-attention' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
   return (
     <article className={rowClassName}>
+      <div className="shopping-work-row-accent-bar" aria-hidden="true" />
       <div className="shopping-work-row-main">
         <div className="shopping-work-row-leading">
           <div className={hasCustomImage ? 'shopping-work-row-media' : 'shopping-work-row-media is-placeholder'}>
@@ -1043,25 +1046,36 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
         <div className="shopping-work-row-copy">
           <div className="shopping-work-row-head">
             <div className="shopping-work-row-titleblock">
-              <h3>{card.title}</h3>
+              <h3 className="shopping-work-row-title">{card.title}</h3>
               <strong className="shopping-work-row-quantity">{card.headline}</strong>
+              <div className="shopping-work-row-badges">
+                <span className={`shopping-work-row-source tone-${card.tone}`}>{card.sourceLabel}</span>
+                <span className={`shopping-work-row-status tone-${card.statusTone}`}>{card.statusLabel}</span>
+              </div>
             </div>
           </div>
-          <p className="shopping-work-row-subline" title={card.subline}>
-            {card.subline}
-          </p>
-          <div className="shopping-work-row-context">
-            {card.contextTags.map((tag) => (
-              <span key={`${card.shoppingItem.id}-${tag}`} className="shopping-work-row-context-tag">
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
 
-        <div className="shopping-work-row-badges shopping-work-row-badges-inline">
-          <span className={`shopping-work-row-source tone-${card.tone}`}>{card.sourceLabel}</span>
-          <span className={`shopping-work-row-status tone-${card.statusTone}`}>{card.statusLabel}</span>
+          <div className="shopping-work-row-meta-line">
+            <p className="shopping-work-row-subline" title={card.subline}>
+              {card.subline}
+            </p>
+            {card.contextTags.length > 0 && (
+              <div className="shopping-work-row-context">
+                {card.contextTags.map((tag) => (
+                  <span key={`${card.shoppingItem.id}-${tag}`} className="shopping-work-row-context-tag">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {footerNote && (
+            <div className="shopping-work-row-inline-note">
+              <span className="shopping-work-row-inline-note-icon" aria-hidden="true">💡</span>
+              <span className="shopping-work-row-inline-note-text">{footerNote}</span>
+            </div>
+          )}
         </div>
 
         <div className="shopping-work-row-actions">
@@ -1079,6 +1093,7 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
               tone="secondary"
               size="compact"
               type="button"
+              className="shopping-work-row-detail-action"
               onClick={props.onDetail}
               disabled={props.isBusy}
             >
@@ -1086,14 +1101,10 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
             </ActionButton>
           ) : (
             <div className="shopping-work-row-action-note">
-              {card.linkedFood ? '买回后会进入成品补库存流程。' : '自由项会按当前标题进入补库存流程。'}
+              {card.linkedFood ? '买回后进入成品补库存' : '自由项按当前标题入库'}
             </div>
           )}
         </div>
-      </div>
-      <div className="shopping-work-row-footer">
-        <span className="shopping-work-row-footer-icon" aria-hidden="true">i</span>
-        <span className="shopping-work-row-footer-note">{footerNote}</span>
       </div>
     </article>
   );
@@ -1108,25 +1119,44 @@ type ShoppingHistoryRowProps = {
 
 function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
   const { card } = props;
+  const linkedSummary = card.linkedSummary;
+  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
+  const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
+  const completedDateLabel = card.updatedAt ? formatDate(card.updatedAt) : null;
 
   return (
     <article className="shopping-history-row">
       <div className="shopping-history-row-main">
+        <div className="shopping-history-row-leading">
+          <div className={hasCustomImage ? 'shopping-history-row-media' : 'shopping-history-row-media is-placeholder'}>
+            <MediaWithPlaceholder src={imageUrl} alt={card.title} />
+          </div>
+        </div>
+
         <div className="shopping-history-row-copy">
           <div className="shopping-history-row-head">
-            <h4>{card.title}</h4>
+            <h4 className="shopping-history-row-title">{card.title}</h4>
+            <strong className="shopping-history-row-quantity">{card.quantityLabel}</strong>
+            <span className="shopping-history-row-source">{card.sourceLabel}</span>
+            {completedDateLabel && (
+              <span className="shopping-history-row-date-tag">
+                <span className="shopping-history-row-date-icon" aria-hidden="true">📅</span>
+                {completedDateLabel}完成
+              </span>
+            )}
           </div>
           <p className="shopping-history-row-meta">
-            {card.reasonLabel} · {card.contextLine}
+            {card.reasonLabel ? `${card.reasonLabel} · ` : ''}{card.contextLine}
           </p>
         </div>
-        <span className="shopping-history-row-quantity">{card.quantityLabel}</span>
+
         <div className="shopping-history-row-actions">
           {props.onDetail ? (
             <ActionButton
               tone="tertiary"
               size="compact"
               type="button"
+              className="shopping-history-detail-action"
               onClick={props.onDetail}
               disabled={props.isBusy}
             >
@@ -1134,9 +1164,10 @@ function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
             </ActionButton>
           ) : null}
           <ActionButton
-            tone="tertiary"
+            tone="secondary"
             size="compact"
             type="button"
+            className="shopping-history-restore-action"
             onClick={props.onRestore}
             disabled={props.isBusy}
           >
@@ -1351,6 +1382,155 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   );
 }
 
+type IngredientQuickDetailPopoverProps = {
+  summary: IngredientSummaryViewModel;
+  anchorElement: HTMLElement | null;
+  onClose: () => void;
+  onRestock: () => void;
+  onConsume: () => void;
+  onAddShopping: () => void;
+  onHandleAlert: () => void;
+  onDetail: () => void;
+};
+
+function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) {
+  const { summary } = props;
+  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
+  const hasCustomImage = Boolean(summary.ingredient.image?.url);
+  const status = buildCatalogCardStatus(summary);
+  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [placement, setPlacement] = useState<'left' | 'right'>('left');
+  const [position, setPosition] = useState<CSSProperties>({ top: 16, left: 16 });
+
+  useLayoutEffect(() => {
+    const node = popoverRef.current;
+    if (!node) return;
+    const parentCard = props.anchorElement;
+    if (!parentCard) return;
+
+    const parentRect = parentCard.getBoundingClientRect();
+    const popoverRect = node.getBoundingClientRect();
+    const popoverWidth = node.offsetWidth || popoverRect.width;
+    const popoverHeight = node.offsetHeight || popoverRect.height;
+    const alignsRight = window.innerWidth - parentRect.right < 300;
+    const desiredLeft = alignsRight
+      ? parentRect.right - popoverWidth - 10
+      : parentRect.left + 10;
+    const left = Math.min(
+      Math.max(16, desiredLeft),
+      Math.max(16, window.innerWidth - popoverWidth - 16),
+    );
+    const top = Math.min(
+      Math.max(16, parentRect.top + 10),
+      Math.max(16, window.innerHeight - popoverHeight - 16),
+    );
+
+    setPlacement(alignsRight ? 'right' : 'left');
+    setPosition({ top, left });
+  }, [props.anchorElement]);
+
+  return createPortal(
+    <WorkspaceOverlayFrame
+      rootClassName="ingredient-quick-detail-overlay-root"
+      backdropClassName="ingredient-quick-detail-backdrop"
+      labelledBy="quick-popover-title"
+      onClose={props.onClose}
+    >
+      <div
+        ref={popoverRef}
+        className={`ingredient-quick-detail-popover place-${placement}`}
+        style={position}
+        onClick={(e) => e.stopPropagation()}
+        data-workspace-overlay-panel="true"
+      >
+        <div className="ingredient-quick-detail-head">
+          <div className="ingredient-quick-detail-media-frame">
+            <div
+              className={
+                hasCustomImage
+                  ? 'ingredient-quick-detail-media'
+                  : 'ingredient-quick-detail-media is-placeholder'
+              }
+            >
+              <MediaWithPlaceholder src={imageUrl} alt={summary.ingredient.name} />
+            </div>
+          </div>
+          <div className="ingredient-quick-detail-titles">
+            <div className="ingredient-quick-detail-title-row">
+              <h4 id="quick-popover-title" className="ingredient-quick-detail-title">
+                {summary.ingredient.name}
+              </h4>
+              <span className="ingredient-quick-detail-category-badge">
+                {summary.ingredient.category || '未分类'} · {summary.primaryStorage || summary.ingredient.default_storage || '常温'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="ingredient-quick-detail-close-btn"
+            onClick={props.onClose}
+            aria-label="关闭浮窗"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className={`ingredient-quick-detail-status-banner tone-${status.tone}`}>
+          <div className="ingredient-quick-detail-status-banner-head">
+            <span className="ingredient-quick-detail-status-icon" aria-hidden="true">
+              {summary.alerts.length > 0 ? '⚠️' : '🟢'}
+            </span>
+            <strong>
+              {summary.alerts.length > 0 ? `${summary.alerts.length} 条提醒待处理` : '库存状态平稳'}
+            </strong>
+          </div>
+          {summary.alerts.length > 0 ? (
+            <div className="ingredient-quick-detail-alerts-list">
+              {summary.alerts.map((alert) => (
+                <span key={alert.id} className={`ingredient-quick-detail-alert-pill tone-${alert.tone}`}>
+                  {alert.title}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="ingredient-quick-detail-grid">
+          <div className="ingredient-quick-detail-card">
+            <span className="ingredient-quick-detail-card-label">当前库存</span>
+            <strong className="ingredient-quick-detail-card-value">{buildInventorySummaryLine(summary)}</strong>
+          </div>
+          <div className="ingredient-quick-detail-card">
+            <span className="ingredient-quick-detail-card-label">最近补货</span>
+            <strong className="ingredient-quick-detail-card-value">
+              {summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : '还没补过'}
+            </strong>
+          </div>
+          <div className="ingredient-quick-detail-card ingredient-quick-detail-card-full">
+            <span className="ingredient-quick-detail-card-label">备注与用途</span>
+            <p className="ingredient-quick-detail-card-text">{buildCatalogExpandedNote(summary)}</p>
+          </div>
+        </div>
+
+        <div className="ingredient-quick-detail-footer">
+          <button
+            type="button"
+            className="ingredient-quick-detail-full-link"
+            onClick={() => {
+              props.onClose();
+              props.onDetail();
+            }}
+          >
+            查看档案 ↗
+          </button>
+        </div>
+      </div>
+    </WorkspaceOverlayFrame>,
+    document.body,
+  );
+}
+
 type IngredientCatalogCardProps = {
   summary: IngredientSummaryViewModel;
   expanded: boolean;
@@ -1364,8 +1544,7 @@ type IngredientCatalogCardProps = {
 
 function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const { summary, expanded } = props;
-  const primaryRef = useRef<HTMLDivElement | null>(null);
-  const [expandedPrimaryHeight, setExpandedPrimaryHeight] = useState<number | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const alertTone = getIngredientAlertTone(summary);
@@ -1379,64 +1558,15 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   ].join(' · ');
   const cardClassName = [
     'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-catalog ingredient-work-card',
-    expanded ? 'is-expanded' : '',
+    expanded ? 'is-popover-open' : '',
     summary.alerts.length > 0 ? `ingredient-work-card-has-${alertTone}` : '',
   ]
     .filter(Boolean)
     .join(' ');
-  const cardStyle =
-    expanded && expandedPrimaryHeight
-      ? ({ '--ingredient-work-card-expanded-height': `${expandedPrimaryHeight}px` } as CSSProperties)
-      : undefined;
-
-  useLayoutEffect(() => {
-    if (!expanded) {
-      setExpandedPrimaryHeight(null);
-      return;
-    }
-
-    const node = primaryRef.current;
-    if (!node) {
-      return;
-    }
-
-    let frameId = 0;
-
-    const syncHeight = () => {
-      const nextHeight = Math.ceil(node.getBoundingClientRect().height);
-      setExpandedPrimaryHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
-    };
-
-    syncHeight();
-
-    if (typeof ResizeObserver === 'undefined') {
-      return () => {
-        if (frameId) {
-          cancelAnimationFrame(frameId);
-        }
-      };
-    }
-
-    const observer = new ResizeObserver(() => {
-      if (frameId) {
-        cancelAnimationFrame(frameId);
-      }
-      frameId = requestAnimationFrame(syncHeight);
-    });
-
-    observer.observe(node);
-
-    return () => {
-      observer.disconnect();
-      if (frameId) {
-        cancelAnimationFrame(frameId);
-      }
-    };
-  }, [expanded]);
 
   return (
-    <article className={cardClassName} style={cardStyle}>
-      <div ref={primaryRef} className="ingredient-work-card-primary">
+    <article ref={cardRef} className={cardClassName}>
+      <div className="ingredient-work-card-primary">
         <div className="ingredient-work-card-toggle">
           <button
             type="button"
@@ -1479,7 +1609,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-more-icon"
                 onClick={props.onToggle}
                 aria-expanded={expanded}
-                aria-label={`${expanded ? '收起' : '查看更多'} ${summary.ingredient.name}`}
+                aria-label={`${expanded ? '关闭' : '查看'} ${summary.ingredient.name} 快捷工作详情`}
               >
                 <span aria-hidden="true">•••</span>
               </ActionButton>
@@ -1597,62 +1727,16 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
       </div>
 
       {expanded && (
-        <aside className="ingredient-work-card-side">
-          <div className="ingredient-work-card-side-head">
-            <span className="ingredient-work-card-side-eyebrow">当前工作详情</span>
-            <ActionButton
-              tone="tertiary"
-              size="compact"
-              type="button"
-              className="ingredient-work-card-side-link"
-              onClick={props.onDetail}
-              aria-label={`查看 ${summary.ingredient.name} 详情`}
-            >
-              <span aria-hidden="true">↗</span>
-            </ActionButton>
-            <strong className="ingredient-work-card-side-heading">
-              {summary.alerts.length > 0 ? `${summary.alerts.length} 条提醒待处理` : '库存状态平稳'}
-            </strong>
-          </div>
-          <div className="ingredient-work-card-alerts">
-            {summary.alerts.length > 0 ? (
-              summary.alerts.slice(0, 2).map((alert) => (
-                <span key={alert.id} className={`ingredient-work-card-alert ingredient-work-card-alert-${alert.tone}`}>
-                  {alert.title}
-                </span>
-              ))
-            ) : (
-              <span className="ingredient-work-card-alert ingredient-work-card-alert-neutral">当前没有提醒</span>
-            )}
-          </div>
-          <div className="ingredient-work-card-expand">
-            <div className="ingredient-work-card-expand-grid">
-              <div className="ingredient-work-card-detail">
-                <span>当前库存</span>
-                <strong className="ingredient-work-card-detail-value">{buildInventorySummaryLine(summary)}</strong>
-                <p className="ingredient-work-card-detail-meta">
-                  {summary.inventoryItems.length > 0 ? `${summary.inventoryItems.length} 条批次在用` : '还没有库存记录'}
-                </p>
-              </div>
-              <div className="ingredient-work-card-detail">
-                <span>最近补货</span>
-                <strong className="ingredient-work-card-detail-value ingredient-work-card-detail-value-nowrap">
-                  {summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : '还没补过'}
-                </strong>
-                <p className="ingredient-work-card-detail-meta ingredient-work-card-detail-meta-nowrap">
-                  {summary.primaryStorage} · 默认 {summary.ingredient.default_unit || '个'}
-                </p>
-              </div>
-              <div className="ingredient-work-card-detail ingredient-work-card-detail-wide">
-                <span>状态备注</span>
-                <strong className="ingredient-work-card-detail-value">{summary.alerts.length > 0 ? '需要留意' : '当前平稳'}</strong>
-                <p className="ingredient-work-card-detail-meta ingredient-work-card-detail-meta-wide">
-                  {buildCatalogExpandedNote(summary)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <IngredientQuickDetailPopover
+          summary={summary}
+          anchorElement={cardRef.current}
+          onClose={props.onToggle}
+          onRestock={props.onRestock}
+          onConsume={props.onConsume}
+          onAddShopping={props.onAddShopping}
+          onHandleAlert={props.onHandleAlert}
+          onDetail={props.onDetail}
+        />
       )}
     </article>
   );

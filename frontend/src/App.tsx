@@ -104,8 +104,10 @@ function defaultSidebarCollapsed() {
 
 function resetPageScroll() {
   window.requestAnimationFrame(() => {
+    const appContent = document.querySelector<HTMLElement>('.app-content');
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    appContent?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   });
 }
 

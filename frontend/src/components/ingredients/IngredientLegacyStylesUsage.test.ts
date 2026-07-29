@@ -174,10 +174,10 @@ describe('Ingredient legacy style cleanup', () => {
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
 
     expect(workspaceSource).toContain('ingredient-work-card-more-icon');
-    expect(workspaceSource).toContain('ingredient-work-card-expand-grid');
+    expect(workspaceSource).toContain('ingredient-quick-detail-popover');
     expect(workspaceSource).toContain('ingredient-visual-meta');
     expect(workspacePanelsSource).toContain('ingredients-storage-workbench-density-compact');
-    expect(ingredientsStyleSource).toContain('.ingredient-work-card-expand');
+    expect(ingredientsStyleSource).toContain('.ingredient-quick-detail-popover');
     expect(ingredientsStyleSource).toContain('.ingredients-storage-workbench-density-compact');
 
     for (const className of staleVisualAndExpandClasses) {
