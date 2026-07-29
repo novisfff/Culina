@@ -356,6 +356,7 @@ function App() {
   const {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
+    consumeIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodPlanNavigationRequest,
     openFoodPlanWeek: requestFoodPlanWeek,
@@ -1477,6 +1478,7 @@ function App() {
               }
               notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
+              onNavigationRequestConsumed={consumeIngredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
               transitionIngredientTrackingMode={(ingredientId, payload) => transitionIngredientTrackingModeMutation.mutateAsync({ ingredientId, payload })}

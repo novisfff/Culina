@@ -1699,6 +1699,43 @@ describe('ingredient workspace model', () => {
     });
   });
 
+  it('keeps a linked shopping card dangerous when only expired remaining batches exist', () => {
+    const tomato = ingredients[0]!;
+    const summaries = buildIngredientSummaries({
+      ingredients: [tomato],
+      inventoryItems: [
+        {
+          ...inventoryItems[0]!,
+          id: 'inventory-expired-tomato',
+          ingredient_id: tomato.id,
+          ingredient_name: tomato.name,
+          quantity: 2,
+          remaining_quantity: 2,
+          expiry_date: '2026-03-19',
+        },
+      ],
+      recipes: [],
+      referenceDate: '2026-03-20',
+    });
+    const cards = buildShoppingCards(
+      [
+        {
+          ...shoppingItems[0]!,
+          ingredient_id: tomato.id,
+          title: tomato.name,
+        },
+      ],
+      summaries,
+    );
+
+    expect(summaries[0]?.quantitySummaries).toEqual([]);
+    expect(cards[0]).toMatchObject({
+      inventoryLabel: '当前已空',
+      statusLabel: '临期或过期',
+      statusTone: 'danger',
+    });
+  });
+
   it('builds food-linked shopping cards and makes them searchable by category and storage', () => {
     const summaries = buildIngredientSummaries({
       ingredients,

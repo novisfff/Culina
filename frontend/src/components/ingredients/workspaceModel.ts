@@ -1408,11 +1408,9 @@ export function buildShoppingCards(
       const statusTone: ShoppingCardStatusTone = linkedFood
         ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0 ? 'stable' : 'muted'
         : linkedSummary
-        ? linkedSummary.quantitySummaries.length === 0
+        ? status!.tone === 'empty'
           ? 'muted'
-          : linkedSummary.alerts.length > 0
-          ? linkedSummary.alerts[0]!.tone
-          : 'stable'
+          : status!.tone
         : 'muted';
       const tone: ShoppingCardTone = hasAttention ? 'attention' : (linkedSummary || linkedFood) ? 'linked' : 'freeform';
       const sourceLabel: ShoppingCardViewModel['sourceLabel'] = linkedFood ? '食物档案' : linkedSummary ? '档案关联' : '自由项';

@@ -47,6 +47,7 @@ type UseIngredientWorkspaceStateArgs = {
   persistedWorkspaceState: PersistedIngredientWorkspaceState;
   ingredientIds: string[];
   navigationRequest?: NavigationRequest;
+  onNavigationRequestConsumed?: (requestId: number) => void;
   editingIngredientId: string | null;
   ingredientForm: IngredientCreateFormState;
 };
@@ -170,6 +171,7 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
       setSelectedIngredientId(request.ingredientId);
       setExpandedCatalogIngredientId(null);
       setWorkspaceView('detail');
+      args.onNavigationRequestConsumed?.(request.requestId);
       return;
     }
 
@@ -177,7 +179,10 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
     // persisted editor draft and editing id are reset together.
     setExpandedCatalogIngredientId(null);
     setWorkspaceView('hub');
-  }, [args.navigationRequest?.requestId]);
+    if (request.target === 'catalog') {
+      args.onNavigationRequestConsumed?.(request.requestId);
+    }
+  }, [args.navigationRequest?.requestId, args.onNavigationRequestConsumed]);
 
   useEffect(() => {
     const snapshot: PersistedIngredientWorkspaceState = {

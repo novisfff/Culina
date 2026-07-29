@@ -243,6 +243,21 @@ describe('IngredientNavigationRequest contract', () => {
     });
     expect(latest!.navigate).toHaveBeenCalledWith({ workspace: 'ingredients' });
   });
+
+  it('clears a consumed create request so a remounted workspace receives no stale command', () => {
+    const api = renderNavigation();
+
+    act(() => {
+      api!.handlers.openIngredientCreate();
+    });
+
+    const requestId = latest!.nav.ingredientNavigationRequest!.requestId;
+    act(() => {
+      latest!.nav.consumeIngredientNavigationRequest(requestId);
+    });
+
+    expect(latest!.nav.ingredientNavigationRequest).toBeNull();
+  });
 });
 
 describe('FoodPlanNavigationRequest contract', () => {
