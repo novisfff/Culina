@@ -356,6 +356,7 @@ function App() {
   const {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
+    consumeIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodPlanNavigationRequest,
     openFoodPlanWeek: requestFoodPlanWeek,
@@ -807,6 +808,7 @@ function App() {
 
   const {
     openIngredientsCatalog,
+    openIngredientCreate,
     openIngredientDetail,
     openIngredientShopping,
     openIngredientPriority,
@@ -975,6 +977,8 @@ function App() {
     mealLogs,
     foods,
     recipes,
+    weekHighlightCount: activityHighlightsQuery.data?.week_highlight_count,
+    businessDateKey: homeBusinessDateKey,
   });
 
   function retryHomeHighlights() {
@@ -1227,6 +1231,7 @@ function App() {
             onHomeRestockOpen={openHomeRestock}
             onOpenActionGroup={handleOpenActionGroup}
             onOpenIngredientShopping={openIngredientShopping}
+            onOpenIngredientCreate={openIngredientCreate}
             onOpenIngredientPriority={openIngredientPriority}
             onOpenShoppingIntake={() => openShoppingIntake()}
             onOpenFamilyActivity={openFamilyActivity}
@@ -1473,6 +1478,7 @@ function App() {
               }
               notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
+              onNavigationRequestConsumed={consumeIngredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
               transitionIngredientTrackingMode={(ingredientId, payload) => transitionIngredientTrackingModeMutation.mutateAsync({ ingredientId, payload })}

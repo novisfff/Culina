@@ -150,6 +150,7 @@ export type HomeDashboardProps = {
   onHomeRestockOpen: (item: ShoppingListItem) => void;
   onOpenActionGroup: (group: InventoryActionGroup) => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
+  onOpenIngredientCreate: () => void;
   onOpenIngredientPriority: () => void;
   onOpenShoppingIntake: () => void;
   onOpenFamilyActivity: () => void;
@@ -622,6 +623,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
         onOpenActionGroup={onOpenActionGroup}
         onOpenIngredientShopping={onOpenIngredientShopping}
+        onOpenIngredientCreate={props.onOpenIngredientCreate}
         onOpenIngredientPriority={onOpenIngredientPriority}
         onOpenShoppingIntake={onOpenShoppingIntake}
         onOpenFamilyActivity={onOpenFamilyActivity}

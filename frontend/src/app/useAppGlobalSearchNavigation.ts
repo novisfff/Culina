@@ -4,6 +4,7 @@ import type { AppNavigationService } from './useAppNavigationState';
 
 export type IngredientNavigationRequest =
   | { target: 'catalog'; requestId: number }
+  | { target: 'create'; requestId: number }
   | { target: 'detail'; ingredientId: string; requestId: number }
   | { target: 'shopping'; ingredientId: string; requestId: number }
   | { target: 'priority'; requestId: number };
@@ -53,6 +54,12 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
   const ingredientNavigationRequestIdRef = useRef(0);
   const foodPlanNavigationRequestIdRef = useRef(0);
 
+  const consumeIngredientNavigationRequest = useCallback((requestId: number) => {
+    setIngredientNavigationRequest((current) =>
+      current?.requestId === requestId ? null : current,
+    );
+  }, []);
+
   const openFoodPlanWeek = useCallback((planDate: string) => {
     foodPlanNavigationRequestIdRef.current += 1;
     setFoodPlanNavigationRequest({
@@ -98,6 +105,7 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
   return {
     ingredientNavigationRequest,
     setIngredientNavigationRequest,
+    consumeIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodPlanNavigationRequest,
     openFoodPlanWeek,

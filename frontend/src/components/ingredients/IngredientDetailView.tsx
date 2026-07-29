@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import type { Ingredient, Recipe } from '../../api/types';
+import type { Ingredient, InventoryItem, Recipe } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { businessDateKey } from '../../lib/date';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   convertQuantityToDefaultUnit,
@@ -39,6 +40,13 @@ type IngredientDetailViewProps = {
   formatExpiryRuleLabel: (ingredient: Ingredient) => string;
   formatLowStockRuleLabel: (ingredient: Ingredient) => string;
 };
+
+function inventoryBatchPresentation(item: Pick<InventoryItem, 'expiry_date' | 'status'>) {
+  if (item.expiry_date && item.expiry_date < businessDateKey()) {
+    return { tone: 'expired', label: '已过期' } as const;
+  }
+  return { tone: item.status, label: INVENTORY_STATUS_LABELS[item.status] };
+}
 
 export function IngredientDetailView(props: IngredientDetailViewProps) {
   const { selectedIngredient } = props;
@@ -281,8 +289,10 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
           <SectionHeading title="库存批次" description="按批次记录入库，并持续跟踪每批剩余量" />
           <div className="stack-list">
             {selectedIngredient.inventoryItems.length > 0 ? (
-              selectedIngredient.inventoryItems.map((item) => (
-                <article key={item.id} className={`inventory-card inventory-card-rich tone-${item.status}`}>
+              selectedIngredient.inventoryItems.map((item) => {
+                const presentation = inventoryBatchPresentation(item);
+                return (
+                  <article key={item.id} className={`inventory-card inventory-card-rich tone-${presentation.tone}`}>
                   <span className="ingredient-detail-row-icon tone-green" aria-hidden="true">
                     {props.renderIcon('stocked')}
                   </span>
@@ -299,7 +309,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                         )}
                         {selectedIngredient.ingredient.default_unit || item.unit}
                       </h3>
-                      <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
+                      <Badge>{presentation.label}</Badge>
                     </div>
                     <p className="subtle ingredient-detail-icon-line">
                       <span aria-hidden="true">{props.renderIcon('calendar')}</span>
@@ -339,8 +349,9 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                           }`}
                     </p>
                   </div>
-                </article>
-              ))
+                  </article>
+                );
+              })
             ) : (
               <EmptyState
                 title="还没有库存批次"

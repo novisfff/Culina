@@ -137,6 +137,14 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
     args.navigate(homeTargets.ingredients());
   }
 
+  function openIngredientCreate() {
+    args.setIngredientNavigationRequest({
+      target: 'create',
+      requestId: nextIngredientRequestId(),
+    });
+    args.navigate(homeTargets.ingredients());
+  }
+
   function openIngredientDetail(ingredientId: string) {
     args.setIngredientNavigationRequest({
       target: 'detail',
@@ -184,6 +192,7 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
   return {
     ...semantic,
     openIngredientsCatalog,
+    openIngredientCreate,
     openIngredientDetail,
     openIngredientShopping,
     openIngredientPriority,

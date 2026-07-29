@@ -36,6 +36,7 @@ export type PersistedIngredientWorkspaceState = {
 
 type NavigationRequest =
   | { target: 'catalog'; requestId: number }
+  | { target: 'create'; requestId: number }
   | { target: 'detail'; ingredientId: string; requestId: number }
   | { target: 'shopping'; ingredientId: string; requestId: number }
   | { target: 'priority'; requestId: number }
@@ -46,6 +47,7 @@ type UseIngredientWorkspaceStateArgs = {
   persistedWorkspaceState: PersistedIngredientWorkspaceState;
   ingredientIds: string[];
   navigationRequest?: NavigationRequest;
+  onNavigationRequestConsumed?: (requestId: number) => void;
   editingIngredientId: string | null;
   ingredientForm: IngredientCreateFormState;
 };
@@ -169,13 +171,18 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
       setSelectedIngredientId(request.ingredientId);
       setExpandedCatalogIngredientId(null);
       setWorkspaceView('detail');
+      args.onNavigationRequestConsumed?.(request.requestId);
       return;
     }
 
-    // catalog
+    // create is completed by IngredientWorkspace through openCreateView so the
+    // persisted editor draft and editing id are reset together.
     setExpandedCatalogIngredientId(null);
     setWorkspaceView('hub');
-  }, [args.navigationRequest?.requestId]);
+    if (request.target === 'catalog') {
+      args.onNavigationRequestConsumed?.(request.requestId);
+    }
+  }, [args.navigationRequest?.requestId, args.onNavigationRequestConsumed]);
 
   useEffect(() => {
     const snapshot: PersistedIngredientWorkspaceState = {

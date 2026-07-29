@@ -156,10 +156,12 @@ type IngredientWorkspaceProps = {
   notificationCenter?: ReactNode;
   navigationRequest?:
     | { target: 'catalog'; requestId: number }
+    | { target: 'create'; requestId: number }
     | { target: 'detail'; ingredientId: string; requestId: number }
     | { target: 'shopping'; ingredientId: string; requestId: number }
     | { target: 'priority'; requestId: number }
     | null;
+  onNavigationRequestConsumed?: (requestId: number) => void;
   createIngredient: (payload: {
     name: string;
     category: string;
@@ -1755,6 +1757,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     persistedWorkspaceState,
     ingredientIds: props.ingredients.map((item) => item.id),
     navigationRequest: props.navigationRequest,
+    onNavigationRequestConsumed: props.onNavigationRequestConsumed,
     editingIngredientId,
     ingredientForm,
   });
@@ -2037,6 +2040,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       }
       handledSideEffectNavigationRequestIdRef.current = request.requestId;
       openShoppingOverlay({ ingredient, reason: '库存不足' });
+      props.onNavigationRequestConsumed?.(request.requestId);
+      return;
+    }
+
+    if (request.target === 'create') {
+      handledSideEffectNavigationRequestIdRef.current = request.requestId;
+      editorState.openCreateView();
+      props.onNavigationRequestConsumed?.(request.requestId);
       return;
     }
 
@@ -2066,8 +2077,9 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       window.requestAnimationFrame(() => {
         window.setTimeout(focusPrioritySurface, 0);
       });
+      props.onNavigationRequestConsumed?.(request.requestId);
     }
-  }, [props.navigationRequest?.requestId, props.ingredients]);
+  }, [props.navigationRequest?.requestId, props.ingredients, props.onNavigationRequestConsumed]);
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 

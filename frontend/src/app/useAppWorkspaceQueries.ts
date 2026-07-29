@@ -33,7 +33,6 @@ export function useAppWorkspaceQueries(args: {
 }) {
   const scope = deriveAppQueryScope(args.navigationState);
   const {
-    needsMembers,
     needsIngredients,
     needsInventory,
     needsShopping,
@@ -49,8 +48,9 @@ export function useAppWorkspaceQueries(args: {
     needsAiConversations,
   } = scope;
 
-  // Local-only windows not modeled on AppQueryScope.
-  const needsActivityHighlights = args.navigationState.primaryTab === 'home';
+  // Local-only windows not modeled on AppQueryScope. Family, members and the
+  // weekly activity summary belong to the persistent app shell, so they stay
+  // available regardless of the active workspace.
   const needsInventoryOperations = args.navigationState.primaryTab === 'ingredients';
   // Phase-two family memories: history view only; never part of boot loading.
   const needsMealInsights =
@@ -72,7 +72,7 @@ export function useAppWorkspaceQueries(args: {
   const membersQuery = useQuery({
     queryKey: queryKeys.members,
     queryFn: api.getMembers,
-    enabled: args.isAuthenticated && needsMembers,
+    enabled: args.isAuthenticated,
   });
   const ingredientsQuery = useQuery({
     queryKey: queryKeys.ingredients,
@@ -169,7 +169,7 @@ export function useAppWorkspaceQueries(args: {
   const activityHighlightsQuery = useQuery({
     queryKey: queryKeys.activityHighlightList(5),
     queryFn: () => api.getActivityHighlights(5),
-    enabled: args.isAuthenticated && needsActivityHighlights,
+    enabled: args.isAuthenticated,
   });
   const aiConversationsQuery = useQuery({
     queryKey: queryKeys.aiConversations,
@@ -182,7 +182,7 @@ export function useAppWorkspaceQueries(args: {
   // local task loading state, not a global application blank screen.
   const isBootLoading =
     familyQuery.isLoading ||
-    (needsMembers && membersQuery.isLoading) ||
+    membersQuery.isLoading ||
     (needsIngredients && ingredientsQuery.isLoading) ||
     (needsInventory && (inventoryQuery.isLoading || inventoryStatesQuery.isLoading)) ||
     (needsShopping && shoppingQuery.isLoading) ||

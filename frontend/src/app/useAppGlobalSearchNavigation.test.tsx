@@ -229,6 +229,35 @@ describe('IngredientNavigationRequest contract', () => {
       requestId: expect.any(Number),
     });
   });
+
+  it('routes the home 新增食材 action to a create request instead of reopening persisted detail', () => {
+    const api = renderNavigation();
+
+    act(() => {
+      api!.handlers.openIngredientCreate();
+    });
+
+    expect(latest!.nav.ingredientNavigationRequest).toEqual({
+      target: 'create',
+      requestId: expect.any(Number),
+    });
+    expect(latest!.navigate).toHaveBeenCalledWith({ workspace: 'ingredients' });
+  });
+
+  it('clears a consumed create request so a remounted workspace receives no stale command', () => {
+    const api = renderNavigation();
+
+    act(() => {
+      api!.handlers.openIngredientCreate();
+    });
+
+    const requestId = latest!.nav.ingredientNavigationRequest!.requestId;
+    act(() => {
+      latest!.nav.consumeIngredientNavigationRequest(requestId);
+    });
+
+    expect(latest!.nav.ingredientNavigationRequest).toBeNull();
+  });
 });
 
 describe('FoodPlanNavigationRequest contract', () => {
