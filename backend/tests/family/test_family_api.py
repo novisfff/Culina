@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from fastapi import Depends
@@ -15,6 +16,7 @@ from app.core.enums import ActivityAction, ActivityHighlightKind, MediaSource, M
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import ActivityLog, Base, Family, MediaAsset, Membership, User, UserCredential
+from app.models.model_usage import ModelUsageSubject
 from tests._transaction_failure import fail_next_commit
 
 
@@ -369,6 +371,13 @@ def test_create_member_sets_family_scope_audit_fields_credentials_and_activity_l
         assert membership.family_id == family_api_context.family_id
         assert membership.created_by == family_api_context.owner_id
         assert membership.updated_by == family_api_context.owner_id
+        subject = db.scalar(
+            select(ModelUsageSubject).where(
+                ModelUsageSubject.family_id == family_api_context.family_id,
+                ModelUsageSubject.user_id == member.id,
+            )
+        )
+        assert subject is not None
 
         log = db.scalar(
             select(ActivityLog).where(
@@ -394,6 +403,24 @@ def test_create_member_sets_family_scope_audit_fields_credentials_and_activity_l
         )
         assert len(highlights) == 1
         assert highlights[0].highlight_kind is ActivityHighlightKind.FAMILY
+
+
+def test_production_family_creation_calls_model_usage_defaults() -> None:
+    bootstrap_source = Path("app/services/bootstrap.py").read_text()
+    family_source = Path("app/api/family.py").read_text()
+    assert "Family(" in bootstrap_source
+    assert "Membership(" in bootstrap_source
+    assert "ensure_family_model_usage_defaults(" in bootstrap_source
+    assert "ensure_user_subject(" in bootstrap_source
+    assert bootstrap_source.index("ensure_family_model_usage_defaults(") < bootstrap_source.index(
+        "commit_session(db)"
+    )
+    assert "Membership(" in family_source
+    assert "ensure_user_subject(" in family_source
+    create_member_source = family_source[family_source.index("def create_member(") :]
+    assert create_member_source.index("ensure_user_subject(") < create_member_source.index(
+        "commit_session(db)"
+    )
 
 
 def test_update_member_rejects_other_family_member_without_side_effects(

@@ -17,6 +17,7 @@ from app.repos.auth import get_user_by_username
 from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut, UpdateFamilyRequest, UpdateMemberRequest
 from app.services.activity import ActivityHighlight, log_activity
 from app.services.media import replace_media_assets
+from app.services.model_usage.subjects import ensure_user_subject
 from app.services.serializers import serialize_family, serialize_member
 
 router = APIRouter(tags=["family"])
@@ -144,6 +145,11 @@ def create_member(
         updated_by=user.id,
     )
     db.add_all([credential, member_membership])
+    ensure_user_subject(
+        db,
+        family_id=membership.family_id,
+        user_id=member_user.id,
+    )
     log_activity(
         db,
         family_id=membership.family_id,

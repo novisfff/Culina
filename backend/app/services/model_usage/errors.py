@@ -59,6 +59,10 @@ class ModelUsageReceiptIntegrityError(ModelUsageError):
 class ModelUsagePolicyConflict(ModelUsageError):
     default_code = "model_usage_policy_conflict"
 
+    def __init__(self, current_policy: object) -> None:
+        self.current_policy = current_policy
+        super().__init__()
+
 
 class ModelUsagePolicyValidationError(ModelUsageError):
     default_code = "model_usage_policy_validation_error"
