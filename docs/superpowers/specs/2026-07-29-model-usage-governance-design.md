@@ -82,13 +82,13 @@ Culina 需要为个人与家庭提供统一的模型用量统计，并在家庭�
 | 能力护栏 | 可选；首版每个能力最多一个成本或原生 meter 护栏 |
 | 成员额度 | 首版不支持 |
 | 限额策略 | 按能力降级，不一刀切 |
-| 未知价格 | 监控模式允许并标记；硬限额模式在 dispatch 前拒绝 |
+| 未知价格 | 监控模式允许并标记；普通持久化路径在首次 dispatch 授权时按当前 hard limit 重验并拒绝，短时 fail-open proof 例外单独披露 |
 | 价格维护 | 系统级版本化目录，运维通过受控 CLI 发布 |
 | 历史数据 | 不回填，从新账本 tracking_started_at 起统计 |
 | 账期 | Asia/Shanghai 自然月 |
 | 页面入口 | 家庭工作区中的独立“模型用量”页面 |
 | 提醒渠道 | 应用内通知和使用现场提示 |
-| 账本故障 | 监控模式 fail-open；硬限额在 dispatch 前 fail-closed |
+| 账本故障 | 监控模式仅凭短时、单次可信 proof fail-open；普通持久化路径按当前 hard limit fail-closed，proof 签发后的并发策略更新不能跨系统撤销该 proof |
 | 外部一致性 | 按 provider 恢复能力分级；无幂等/查询能力时不自动重试 ambiguous attempt，只能保守标记 unknown |
 | 保留期 | 原始记录至少 13 个完整月；月度汇总长期保留 |
 | 正式首发 | 七类能力同时接入，不做灰度 |
@@ -150,8 +150,14 @@ Culina 需要为个人与家庭提供统一的模型用量统计，并在家庭�
 - 每个 dispatch intent 最多形成一个正式 event；execution_certainty=unknown 的 event 不能被描述成已确认真实调用。
 - 业务明确发起新的、可能产生新费用的 retry 时，使用新的 attempt key、reservation 和 event。
 - 支持 provider 幂等键时，对同一外部 attempt 的 transport recovery 复用原 attempt key 和 provider_idempotency_key；它不是新的计费 retry。
-- 同 attempt key、同 fingerprint 重放返回原结果。
+- 同 attempt key、同 fingerprint 重放返回原账本结果；若 event 已存在则返回 already_accounted/event identity 并禁止 provider send。账本不保存业务输入输出，因此调用方必须从所属 job、conversation、media 或业务实体恢复业务结果，不能让 Usage Core 伪造 provider response。
 - 同 attempt key、不同 fingerprint 返回稳定冲突。
+- `attempt_key` 的账本幂等作用域固定为家庭；数据库对 reservation 和 event 都强制 `(family_id, attempt_key)` 唯一，不能把 service 层“先查后写”当作并发安全边界。
+- fail-open recovered event 即使没有 `reservation_id`，仍由 `(family_id, attempt_key)` 唯一键去重；同键冲突后锁定已提交 winner 并复核 fingerprint，而不是创建第二条 event 或重复更新 counter。
+- reservation unique 与 event unique 是两张表上的约束，不能单独阻止“retry reserve”和“无 reservation receipt recovery”各自在不同表赢一次。两条创建路径还必须先锁同一 family policy pointer 作为家庭 attempt namespace，再同时查询 reservation/event：已有同 fingerprint 账本结果则 replay/reconcile，fingerprint 不同则冲突；只有两表都没有 winner 时才进入各自唯一 claim。该锁只用于家庭存在性、顺序和幂等，不允许用恢复时 current policy 重写原 fail-open proof/price。
+- adjustment 的幂等身份位于独立 group 头表，数据库强制 `(family_id, idempotency_key)` 唯一；同一 group 的多条 line 通过 group 外键和 line sequence 唯一，不能把 group 唯一键直接放在每条 line 上而误拒合法多行修正。
+- reservation、event 或 adjustment group 的唯一插入冲突必须回滚当前 claim/savepoint，再按家庭范围锁定 winner：fingerprint 相同返回原结果，fingerprint 不同返回稳定冲突；任何 loser 都不能继续 meter、counter、alert 或 rollup mutation。
+- 上述 unique/pointer 规则保证的是 Culina 账本 winner 和 counter delta，不把数据库互斥夸大成 provider exactly-once。尤其 fail-open proof/send 尚未形成可查询 durable receipt/event 时，另一个进程无法仅凭账本证明外部请求是否已经发送；同进程 permit 必须单次消费，系统不得对该 ambiguous attempt 自动重发，但进程/日志证据同时丢失后的外部重复仍属于 6.2 明示的不可消除边界。
 - event 追加式不可修改；修正使用 adjustment。
 - provider 实际费用高于 reservation 时仍按真实值结算，并阻止后续请求。
 - streaming、用户取消和客户端断开不代表费用为零。
@@ -190,6 +196,17 @@ Adapter contract 按支持的机制分别声明 provider 保证的 idempotency_w
 - Usage receipt 只返回 ID、状态、meter、成本和错误码，不返回业务内容。
 - trace 开关、保留或清理不影响正式账本。
 
+### 6.4 策略生效与线性化点
+
+Hard limit 不能被描述成跨数据库事务、进程内 fail-open 和 provider send 的全局瞬时开关。首版使用下面两个明确边界：
+
+- 普通持久化路径的最终授权线性化点是 reservation 第一次从 `reserved` 进入 `dispatching` 的独立事务。该事务与策略更新按同一个 `model_usage_family_policies` 行串行化，读取当前 immutable policy，锁定 reservation/counter，重新执行当前 hard limit、价格可用性和 capability guardrail 判断，然后持久化 `dispatch_policy_version_id`。只有该事务提交后才允许发送 provider 请求。
+- `policy_version_id` 永久保存 reserve/admission 时的判断快照；`dispatch_policy_version_id` 只保存首次 dispatch 授权实际使用的当前策略。被当前策略在发送前拒绝时，reservation 保持 `dispatch_policy_version_id=NULL`，另存 `pre_dispatch_denial_policy_version_id`；策略更新不改写任何历史快照。
+- hard limit 保存事务先提交时，之后才取得 policy pointer 锁的 `reserved` reservation 必须按新策略重验；dispatch 授权事务先提交时，该 attempt 已经进入 `dispatching`，后续策略更新不能撤销可能已经发送的外部副作用。同 fingerprint 的 dispatch replay 只能返回既有 dispatch identity 和 `recovery_required`，不能重新签发 `first_send` 许可，也不用新策略反向改判。只有显式 recovery 流程在原 provider 幂等键仍有效时才可签发 `idempotent_resend`；queryable 模式只查询，`none` 模式不发送。
+- 已经 `dispatching`、`uncertain` 或已经执行的 attempt 不因新策略自动取消、重发或生成补偿调用。被新策略在 dispatch 前拒绝的 reservation 原子释放 reserved counter，不形成 event；业务 fallback 必须使用新的 attempt。
+- 没有 durable dispatch intent 的 monitoring fail-open 无法参与上述数据库串行化。它只能使用本次 attempt 从可信 current-policy read 获得的短时、单次 `DispatchEligibilityProof`；proof 记录完整无内容 attempt/policy identity、签发时间和过期时间，并在进程内原子兑换、消费唯一 send permit，不能跨 attempt/retry 或进程重启复用。该路径的线性化点是 proof 的可信读取，proof 签发后、provider send 前并发提交的 hard limit 不能撤销它。
+- 因此产品只承诺“策略保存后，尚未取得普通持久化 dispatch 授权的新/在途 reservation 按新策略判断”；不承诺撤销已 dispatch 的调用，也不声称能阻止保存前已签发的短时 fail-open proof。Owner 设置界面必须披露这两个在途边界。
+
 ## 7. 标准能力与 meter
 
 Capability 使用受控枚举：
@@ -223,6 +240,14 @@ Meter 同样使用受控枚举。首版至少支持：
 
 Provider 特有 meter 必须先加入中央枚举、价格 schema、adapter contract、API 映射和测试，不能以任意字符串直接入账。
 
+中央 capability/meter contract 还必须为每个组合声明规范单位、是否只能取整数、是否 `guardrail_eligible`，以及 reservation estimator 和 settlement adapter 是否都能稳定产出该 quantity。`guardrail_eligible` 是治理属性，与下面的 `meter_role` 定价属性正交：
+
+- capability meter guardrail 可以选择 contract 明确允许的 billable 或 informational meter；price version 不能通过改变 meter_role 来改变已经配置的治理口径；
+- 被选 meter 必须在该 capability 所有 active provider/model/variant 上都能保守预留，并在 executed/unknown-estimated event 上形成可审计 quantity；否则 policy validate/preflight 拒绝该 guardrail；
+- reservation 必须持久化该 active variant 所有 contract-required 的可治理 quantity，而不只保存 reserve 当时选中的 guardrail 或 billable meter；这样 reserve 后切换 guardrail 时，首次 dispatch 能按 current policy 重验。旧 reservation 缺少新 guardrail 所需 quantity 时必须 pre-dispatch fail-closed/release，不能把缺失当成零；
+- 同一 capability 首版最多一个 meter guardrail，因此不会把 total 与组成 Token、seconds 与 audio token 等重叠 quantity 相加成一个额度；跨 meter 只做分别展示，不做数量求和；
+- monitoring 下的 unpriced event 只要该 meter 可测，仍进入 capability meter counter 和软状态；缺少价格只影响 cost counter，不把已知 quantity 丢掉。
+
 每条 meter line 必须声明 meter_role：
 
 - billable：参与 reservation 和 event 成本计算；
@@ -234,6 +259,7 @@ Provider 特有 meter 必须先加入中央枚举、价格 schema、adapter cont
 - provider 的 input_tokens 如果包含 cached input，且 cached input 有独立价格，则原始 input_tokens 为 informational，billable quantity 使用 uncached_input_tokens = input_tokens - cached_input_tokens，再加独立的 cached_input_tokens；adapter 必须拒绝 cached_input_tokens 大于 input_tokens 的异常响应，不能结算成负数；
 - provider 不区分 cached 价格时，input_tokens 可以 billable，cached_input_tokens 只能 informational；
 - 同一音频维度的 seconds 和 audio tokens 不能因为 provider 同时返回而自动同时计费；billing scheme 必须选定真实收费维度；
+- 同一 TTS 输出的 characters、tts_tokens、output audio seconds 和 output audio tokens 是替代计费口径，billing scheme 只能选择 provider 实际收费的一种，不能组合重复计费；
 - provider 固定请求费使用 billable request_units，quantity 固定为 1，不允许绕过 meter line 直接塞入 event 总成本；
 - generated_images、request_units 等与 Token 不存在包含关系的真实独立费用可以与 Token meter 同时 billable。
 
@@ -287,7 +313,8 @@ model_usage_subjects：
 - anonymized_label 可空；账号彻底删除时按家庭事务性分配不含 PII 的稳定标签；
 - 非空 dimension_key；
 - created_at、unlinked_at；
-- family/user 和 family/system 的逻辑唯一约束。
+- 数据库 `(family_id, user_id)` 唯一，保证非空 active user subject 不重复；账号删除后 MySQL 允许多个 NULL，历史 subject 仍由各自随机 key 保持分离；
+- family/system 通过非空 dimension_key=`system` 与 `(family_id, dimension_key)` 唯一约束保证。
 
 非空 anonymized_label 在家庭内唯一；分配时锁家庭 subject 序列，避免并发账号删除得到重复标签。
 
@@ -323,6 +350,8 @@ model_usage_policy_versions：
 - created_by_subject_id、created_at、effective_at；
 - 版本写入后不可修改。
 
+`created_by_subject_id` 始终引用家庭内的稳定 subject，不复制原始 user ID：已有家庭 migration 回填的 version 1 归家庭 system subject；新家庭 bootstrap 在 Family、Owner membership 和 Owner user subject 已 flush 后，把 version 1 归该 Owner subject；后续 PUT policy 只使用服务端从当前认证 user + membership 解析出的 subject。请求体不接受 creator/actor subject 字段，账号删除只解除 subject 与 user 的关联，不破坏策略历史的创建者证据。
+
 model_usage_capability_limits：
 
 - family_id、policy_version_id、capability；
@@ -343,7 +372,8 @@ model_usage_capability_limits：
 - 更新必须携带 base_version_number；
 - 更新时锁定 model_usage_family_policies，复核 current version；
 - 在一个事务中插入新的 immutable policy version、复制或写入该版本的 capability limits，再更新 current_policy_version_id；
-- reservation 使用 reserve 时的 policy_version_id；以后修改家庭策略不改变已有 reservation 的判断快照；
+- reservation 的 policy_version_id 永久保存 reserve/admission 快照；第一次 `reserved → dispatching` 还必须按当前 pointer 重验并保存 dispatch_policy_version_id，遵循 6.4 的线性化规则；
+- 策略更新和首次 dispatch 授权都先锁同一 family policy pointer；新版本可以阻止仍为 reserved 的旧 reservation，但不能改写其 admission snapshot，也不能撤销已持久化的 dispatch intent；
 - policy version 和其 capability limit 只在家庭删除时级联，不按 13 个月原始用量保留期清理；
 - 活动日志只记录“更新了模型预算设置”，不写预算金额。
 
@@ -356,9 +386,9 @@ model_usage_period_counters：
 - counter_kind：family_cost、capability_cost 或 capability_meter；
 - capability、meter；
 - 非空 dimension_key；
-- settled_value，只累计正式 event；
-- reserved_value，只累计 active reservation；
-- adjustment_value，只累计追加式 adjustment delta；
+- settled_value：cost counter 累计 priced 正式 event 的 CNY cost，capability meter counter 累计目标 meter 的正式 event quantity；
+- reserved_value：cost counter 累计 active priced reservation cost，capability meter counter 累计目标 meter 的 active reserved quantity；
+- adjustment_value：cost counter 累计 cost_delta_cny，capability meter counter 累计目标 meter 的 meter_delta；
 - version；
 - health_status；
 - last_verified_at；
@@ -366,16 +396,23 @@ model_usage_period_counters：
 
 唯一键使用 family_id、period_start 和 dimension_key。MySQL nullable unique 不能作为逻辑唯一性保证。
 
+`meter_role` 不参与 capability meter counter 的筛选；它只决定是否定价。Meter counter 按 capability、meter 和中央 contract 的 `guardrail_eligible` 匹配 quantity，因此 priced/unpriced、billable/informational 都不会改变同一治理 meter 的口径。精确公式见 16.3。
+
+Counter 的维护集合不依赖 current policy 是否正在选择该维度：family cost 始终维护，七类 capability cost 始终维护，每个 active variant 可产出的 `guardrail_eligible` capability meter 也始终维护。策略只选择读取/限制哪个现成 counter，不能在切换 guardrail 后才从零开始累计；新增 variant/meter 在允许策略选择前必须由 preflight 建立并通过 ledger-derived audit/backfill。
+
 ### 8.5 Reservation
 
 model_usage_reservations：
 
 - id、attempt_key、client_attempt_id、fingerprint；
+- 数据库唯一 `(family_id, attempt_key)`；attempt_key 不要求跨家庭全局唯一，但同一家庭内不可复用给不同 fingerprint；
 - family_id、subject_id、subject_key；
 - capability、provider、requested_model、billing_model、variant_key；
 - recovery_mode、idempotency_window_seconds、query_window_seconds、automatic_resend_deadline_at；不适用的窗口为空；
 - provider_idempotency_key，可空；
-- policy_version_id；
+- policy_version_id，固定为 reserve/admission policy version；
+- dispatch_policy_version_id，可空；第一次 `reserved → dispatching` 时写入实际授权使用的 current policy version，此后不可改写；
+- pre_dispatch_denial_policy_version_id，可空；只有仍为 reserved 的 attempt 被首次 dispatch gate 按 current policy 拒绝并释放时写入，且此时 dispatch_policy_version_id 必须为空；已经取得 dispatch 授权的 attempt 不写该字段；
 - pricing_status：priced、unpriced；任一必需 billable rate 缺失时整体为 unpriced；
 - price_version_id；priced 时必填，unpriced 时可空，也可以指向存在部分 rate 的调用时版本；
 - period_start、period_end；
@@ -409,11 +446,13 @@ model_usage_events：
 - id、reservation_id；只有 fail-open receipt recovery 时 reservation_id 可以为空；非空 reservation_id 唯一，reservation 不再反向保存 usage_event_id，避免循环外键；
 - recovery_source：reservation、fail_open_receipt；
 - attempt_key、fingerprint；
+- 数据库唯一 `(family_id, attempt_key)`，覆盖 normal settlement、24 小时保守 settlement 和 `reservation_id IS NULL` 的 fail-open receipt recovery；
 - family_id、subject_id、subject_key；
 - capability、provider；
 - requested_model、reported_model、billing_model、variant_key；
 - pricing_status：priced、unpriced；
 - price_version_id；priced 且 provider_outcome 不是 not_billed 时必填；unpriced 时可空，也可以指向存在部分 rate 的调用时版本；
+- policy_version_id、dispatch_policy_version_id；普通事件从 reservation 复制 admission/dispatch 版本，fail-open recovered event 从单次 proof/receipt 保存，不能因为 reservation_id 为空而丢失策略证据；
 - period_start、period_end；
 - provider_outcome：succeeded、failed_billed、not_billed、unknown；
 - execution_certainty：confirmed_executed、confirmed_not_executed、unknown；
@@ -440,22 +479,33 @@ model_usage_event_meters：
 
 ### 8.7 Adjustment
 
-model_usage_adjustments 保存追加式修正：
+model_usage_adjustment_groups 保存一次幂等修正命令的头记录：
 
-- adjustment group ID 和 line ID；
-- idempotency_key、fingerprint；
-- family_id、subject_id、subject_key、period；
+- id、family_id、idempotency_key、fingerprint；
+- 数据库唯一 `(family_id, idempotency_key)`；
+- subject_id、subject_key、period；
 - 必填 source_event_id，可选 source_reservation_id；没有可引用 event 的计量缺口只能记录 incident，不能直接创建 adjustment；
+- reason_code、operator、change_ticket、evidence_ref；
+- created_at。
+
+model_usage_adjustments 保存该 group 下的追加式 line：
+
+- id、adjustment_group_id、line_sequence；group 内 line_sequence 唯一；
 - capability、meter；
 - meter_delta；
 - cost_delta_cny；
 - resolution_kind：meter_correction、pricing_correction、execution_resolution；
 - resulting_provider_outcome、resulting_execution_certainty、resulting_measurement_status、resulting_pricing_status，按 resolution_kind 可空；
 - pricing resolution 使用的完整 meter price snapshot、snapshot checksum 和 resolved_cost_cny，按 resolution_kind 可空；
-- reason_code、operator、change_ticket、evidence_ref；
 - created_at。
 
+Group claim 必须在任何 line、counter、alert 或 rollup mutation 前通过唯一插入取得。并发唯一冲突后，loser 回滚 claim/savepoint 并锁定 winner；同 fingerprint 返回整个原 group 结果，不同 fingerprint 返回 `model_usage_adjustment_conflict`。Line 表不重复保存 idempotency_key，避免用 group 级唯一性误伤合法多行修正。
+
 Adjustment 与 counter 更新同一事务。它既可以保存 meter/cost delta，也可以在可靠 provider 证据到达后追加 provider outcome、执行确定性、测量精度或定价状态的解析结果；原 event 保持不可修改，聚合按 event 加有序 adjustment 推导 effective state。unpriced → priced 的解析必须携带调用时或 provider 证据支持的完整 meter 价格快照和 resolved_cost_cny，cost_delta 等于新解析成本相对先前已计入 counter 成本的差额；不能使用 adjustment 时的当前价格目录追溯定价。负 adjustment 在锁内降低 adjustment_value，提交后立即释放相应家庭/能力额度供后续 reservation 使用；它不删除历史 event 或提醒，也不自动重放此前被阻止的用户调用。后台 budget_blocked 索引 job 可以在正常重新评估周期中重新排队。
+
+任何 adjustment group 应用前都必须从 source event 加既有有序 adjustment 投影 effective state；调整后 event cost 和每个 meter quantity 不得小于零，负修正不能通过超额 credit 凭空增加家庭可用额度。Provider 独立返现或账户级优惠不属于逐事件用量修正，首版不进入本账本。
+
+Execution resolution 必须同时保持 counter 与 effective state 一致：unknown/estimated 最终确认未执行时，service 根据原 event/effective state 生成并校验把已计入 cost 和所有 guardrail-eligible quantity 抵消到零的 cost_delta/meter_delta；确认执行但得到精确 usage 时，delta 必须把各 meter 调整到证据值。只改 `resulting_execution_certainty` 而保留不相符的 cost/meter counter 属于非法 adjustment group。
 
 Adjustment 接受窗口：
 
@@ -509,6 +559,8 @@ model_usage_alert_receipts：
 
 普通成员不创建金额提醒 receipt。
 
+Alert 的 policy_version_id 是提醒计算时的 current policy，不自动沿用 reservation 的 admission/dispatch policy。Settlement、adjustment 和 policy alert repair 都与 policy update 锁同一 current pointer：policy update 先提交则按新 budget_alert_revision 判断，计量事务先提交则旧 revision 的已发生提醒事实保持不可变，随后新版本只按 12.1 的 repair 规则补当前最高阈值。这样不会在新策略已生效后又因为迟到 settlement 无序地产生旧预算提醒。
+
 ### 8.10 Measurement incident
 
 model_usage_measurement_incidents：
@@ -548,12 +600,24 @@ model_usage_measurement_incident_attempts 保存最小化的已知受影响 atte
 - 如果进程内 latch 与外部结构化日志同时丢失，系统无法在事后证明该 gap 曾发生；规格不宣称可以恢复不可观测的故障。正式部署必须保留 fail-open 结构化日志，health 页面只表达已经被 latch、日志或人工记录识别的 incident。
 - 影响 correction_status=pruning/closed 账期的迟到 incident 不再修改已关闭 rollup；它只保留在外部运维工单。Retention preflight 必须先确认没有待刷入该 family/period 的 latch 或 incident fragment。
 
-### 8.11 外键、保留与删除
+### 8.11 Realtime watermark
+
+model_usage_realtime_watermarks 只保存 provider contract 明确支持逐 lease 累计采样的 meter：
+
+- family_id、北京时间 period_start/period_end；
+- 不含业务内容的 session_key、provider、meter；
+- provider session 的绝对 cumulative_quantity，不按账期归零；
+- 最后成功推进的 lease sequence、created_at、updated_at；
+- family_id、period_start、session_key、provider、meter 唯一。
+
+Event unique claim、counter 更新和 watermark 推进必须在同一结算事务；同 attempt replay 不再次推进。跨月首行使用上一账期最后的绝对值初始化并复核 active lease baseline。它属于可清理的原始恢复状态，不进入长期 UI 聚合，随对应账期原始 ledger 一起保留和删除。
+
+### 8.12 外键、保留与删除
 
 - 家庭业务表统一按 family_id 隔离并在家庭删除时级联。
 - subject identity 使用 model_usage_subjects 的稳定随机 key；成员退出后聚合显示“已退出成员”。
 - 用户账号彻底删除时只断开 subject.user_id；不同已删除用户不会因为 user_id 均为 NULL 而合并。
-- 原始 event、meter、reservation、period counter、adjustment、alert、alert receipt、incident 和 incident attempt 至少保留 13 个完整账期。
+- 原始 event、meter、reservation、period counter、realtime watermark、adjustment、alert、alert receipt、incident 和 incident attempt 至少保留 13 个完整账期。
 - family_id 为空且 coverage=unknown_scope 的全局 incident 不随单个家庭账期清理；它们不含家庭内容，首版长期保留，以便解释已经写入历史 rollup 的全局 gap。
 - published price version/rate 首版永久保留，即使原始 event 已清理也不回收。
 - model_usage_subjects、policy version 和 capability limit 随长期 rollup 保留，只在家庭删除时级联。
@@ -668,8 +732,8 @@ Estimator 根据明确请求上限生成保守 meter：
 
 Reserve 流程：
 
-1. 校验可信归因和 capability contract；
-2. 选择并锁定价格与账期；
+1. 校验可信归因和 capability/meter contract；
+2. 锁定 current family policy pointer，选择 admission policy、价格与账期；
 3. 按 family cost → capability cost → capability meter 顺序锁 counter；
 4. 检查：
 
@@ -680,24 +744,32 @@ Reserve 流程：
 7. 独立事务提交；
 8. 返回允许、拒绝或监控模式未定价结果。
 
+Reserve 是 admission 与额度预占，不是不可撤销的 provider send 授权。普通持久化 reservation 在第一次 dispatch 前必须按 6.4 使用 current policy 再验证；因此 reserve 后、dispatch 前启用或收紧 hard limit 可以释放并拒绝该 reservation。
+
 未知价格：
 
 - 监控模式允许，reservation 标记 unpriced；
-- 硬限额模式在 provider dispatch 前返回 price unavailable。
+- reserve 时 hard limit 已开启则立即返回 price unavailable；reserve 后才启用 hard limit 的普通 reservation 在首次 dispatch 重验时返回同一错误并原子释放预留。
 
 账本写入不可用时，fail-open 资格不能来自请求体或可能过期的普通进程缓存：
 
-- 只有本次 reserve 已从可信服务端状态解析出当前 immutable policy version、确认 hard_limit_enabled=false，随后 reservation/ledger 写入失败时，才按监控模式 fail-open、打开 outage latch 并记录 incident；
+- 只有本次 reserve/dispatch gate 已从可信服务端状态解析出 current immutable policy version、确认 hard_limit_enabled=false，并签发尚未过期的单次 DispatchEligibilityProof，随后发生被闭集分类器确认的连接不可用、连接池超时或 commit outcome unknown 时，才按监控模式 fail-open、打开 outage latch 并记录 incident；unique/FK/check 约束、stale policy、meter/model contract、应用异常或普通事务冲突都不得触发 fail-open；
 - 当前 policy 无法读取或无法证明仍是 current 时一律 fail-closed；
 - hard limit 已开启时 fail-closed，provider 不得被调用。
 
-因此“完全没有 reservation 的 fail-open”只覆盖本次操作已经可靠解析监控策略、但后续 ledger 写入失败的窗口，不允许用陈旧策略缓存绕过刚开启的 hard limit。
+因此“完全没有 reservation 的 fail-open”只覆盖本次操作已经可靠解析监控策略、但后续 ledger 写入失败的窗口，不允许使用 proof 签发前已经陈旧的普通缓存。按照 6.4，proof 签发后并发提交的策略更新不能原子撤销该 proof；文档、API 健康状态和 Owner UI 不得把这一窗口描述成“保存后绝对没有任何未发送调用”。
 
 ### 10.3 Dispatch
 
-调用 provider 前将 reservation 从 reserved 原子改为 dispatching，并在同一事务持久化 client_attempt_id、recovery_mode 和可用的 provider_idempotency_key。dispatching 只表示 durable send intent，不表示 provider 已接收。状态写入失败时：
+普通持久化路径第一次调用 provider 前，按固定顺序锁 current family policy pointer → reservation → family/capability counters。若 reservation 仍为 reserved，则使用 current policy 重新验证 hard limit、价格可用性和对应 cost/meter guardrail：
 
-- 监控模式按 fail-open 规则记录计量故障；
+- 通过时将 reservation 原子改为 dispatching，并在同一事务持久化 dispatch_policy_version_id、client_attempt_id、recovery_mode 和可用的 provider_idempotency_key；事务提交才获得发送许可；
+- 不通过时原子移除该 reservation 的 reserved counter、改为 released，写入 pre_dispatch_denial_policy_version_id、保持 dispatch_policy_version_id 为空，并返回稳定 budget/capability/price 错误；不形成 event；
+- reservation 已经 dispatching 时，同 fingerprint replay 返回既有 dispatch identity 和稳定 `model_usage_dispatch_recovery_required`，不重新签发 `first_send` 许可，也不用后来策略撤销 durable send intent；不同 fingerprint 返回稳定冲突。显式 recovery 再按 recovery_mode/window 决定幂等重发、只读查询或保持 uncertain。
+
+dispatching 只表示 durable send intent，不表示 provider 已接收。策略更新也锁相同 policy pointer，因此 update commit 与首次 dispatch authorization 有确定顺序。状态写入失败时：
+
+- 监控模式只有在本次 dispatch gate 已取得 current monitoring proof 时才按 fail-open 规则记录计量故障；
 - 硬限额不得发送 provider 请求。
 
 SDK 隐式 retry 必须关闭。
@@ -724,8 +796,8 @@ Provider 返回后，adapter 生成不含内容的标准 meter：
 
 Settle 在一个独立事务中：
 
-1. 锁 reservation 和对应 counters；
-2. 复核 idempotency；
+1. 先锁 current family policy pointer（只用于 alert revision 顺序，不重新定价），再锁 reservation 和对应 counters；
+2. 先按 `(family_id, attempt_key)`/`reservation_id` 复核 event idempotency；新 event 通过数据库唯一 claim 后才允许修改 counter；唯一冲突时回滚 claim 并锁定 winner，按 fingerprint replay/conflict；
 3. 对 priced billable meter 计算成本，并验证 event.cost_cny 等于 billable meter cost 之和；缺价 billable meter 只保留 quantity、rate/cost 为空，整体 pricing_status=unpriced 且总成本为空；
 4. 创建唯一 event 和 meter；
 5. 从 reserved counter 移除预留；
@@ -738,7 +810,7 @@ Settle 在一个独立事务中：
 
 Settle 失败不能撤销已经产生的 provider 费用。返回给业务侧的结果不应因为计量写入失败而伪装成 provider 未执行；maintenance 负责补偿，受影响 hard-limit counter 在无法确认时 fail-closed。
 
-Provider 返回可用的执行或 usage 证据后，adapter 先构造脱敏 ProviderUsageReceipt。允许字段仅包括已知的 family_id/subject_key、attempt_key、HMAC fingerprint、client_attempt_id、provider request ID、provider outcome、execution certainty、measurement status、reported/billing model、billable/informational meter、时间，以及可选的调用时 price_version_id、完整 meter 价格快照和 snapshot checksum；它不含 user_id 或业务输入输出。DB settle 失败时：
+Provider 返回可用的执行或 usage 证据后，adapter 先构造脱敏 ProviderUsageReceipt。它必须足以在没有 reservation 的 fail-open 恢复中重建无内容账本身份，允许字段仅包括 reservation_id（fail-open 可空）、已知的 family_id/subject_key、capability、provider、requested/reported/billing model、variant/billing scheme、attempt_key、HMAC fingerprint、client_attempt_id、admission policy version、dispatch policy version、原账期与 dispatch/completed 时间、provider request ID、provider outcome、execution certainty、measurement/pricing status、billable/informational meter、realtime 专用的 meter/lease sequence/baseline/end cumulative watermark、fail-open proof ID、receipt integrity key ID/HMAC，以及可选的调用时 price_version_id、完整 meter 价格快照和 snapshot checksum；它不含 user_id 或业务输入输出。非 realtime receipt 的 watermark 集合必须为空；非 fail-open receipt 的 proof ID 必须为空。普通 settlement 必须先验签，再把这些身份/账期/策略字段与 reservation 逐项校验；同进程 fail-open settlement 还与已消费的单次 permit 校验，进程重启后则要求由仍在保留期内的服务端 key 验证 receipt HMAC，不能假装已消失的进程内 registry 仍可查询。任何不一致都进入稳定冲突而不是采用恢复时 current 值。DB settle 失败时：
 
 1. receipt 进入有界进程内重试队列，并写入允许字段的结构化日志；
 2. 进程存活时优先用原 receipt 精确 settle；
@@ -748,7 +820,7 @@ Provider 返回可用的执行或 usage 证据后，adapter 先构造脱敏 Prov
 
 标准日志和进程内队列不是财务级 durable WAL，规格不宣称它们能在主机丢失时保证 exact recovery。
 
-监控模式在 reserve DB 完全不可用时可能没有 reservation。恢复后若取得完整、可信且带稳定 family/subject/attempt identity 的 ProviderUsageReceipt，reconcile 可以在一个事务中创建 recovery_source=fail_open_receipt、reservation_id 为空的 recovered event 并更新 counter。该路径同样要求 attempt key/fingerprint 幂等和 billable meter 求和：receipt 内有调用时缓存、能校验 immutable price version 且带 checksum 的完整价格快照时才可恢复成本；没有可靠价格快照时仍可按 receipt 精确恢复 meter 和 execution certainty，但 pricing_status=unpriced、总成本为空，不能用恢复时的当前目录追溯定价。receipt 不完整时不能凭日志片段虚构 event，只能按证据范围创建 measurement incident。
+监控模式在 reserve DB 完全不可用时可能没有 reservation。恢复后若取得完整、可信且带稳定 family/subject/attempt/policy identity 的 ProviderUsageReceipt，reconcile 可以在一个事务中先 claim `(family_id, attempt_key)` 唯一 event，再创建 recovery_source=fail_open_receipt、reservation_id 为空的 recovered event 并更新 counter。该路径同样要求 attempt key/fingerprint 幂等和 billable meter 求和：receipt 内有调用时缓存、能校验 immutable price version 且带 checksum 的完整价格快照时才可恢复成本；没有可靠价格快照时仍可按 receipt 精确恢复 meter 和 execution certainty，但 pricing_status=unpriced、总成本为空，不能用恢复时的当前目录追溯定价。receipt 不完整时不能凭日志片段虚构 event，只能按证据范围创建 measurement incident。
 
 ### 10.5 Uncertain
 
@@ -834,9 +906,13 @@ Provider 返回可用的执行或 usage 证据后，adapter 先构造脱敏 Prov
 - 使用 turn/segment 和未来 30 秒 lease；
 - 建立 WebSocket 连接本身不形成用量 event；
 - 每个 session/segment/lease sequence 生成稳定 attempt key，每个已 dispatch 的结算单元最多一个 event；
-- provider 返回 session 累计 usage 时，adapter 保存单调 watermark 并只结算本 lease 的增量，不能重复累计；
-- 续租前重新 reserve；
-- 不续租时停止发送后续远程音频；
+- session 的 active lease 明确保存 lease sequence、attempt/reservation/dispatch permit、账期、开始/到期时间、服务端输入/输出 clock baseline 和 provider 累计 meter baseline；不能只保存最后一个 reservation ID；
+- 所有发送、到期续租、cancel、timeout 和 disconnect 通过每 session 的同一串行化 gate。续租边界先暂停新的远程音频，使用当前 clock/watermark 相对本 lease baseline 的增量终结第 N 个 lease；只有其 event 与 watermark 已在同一事务提交、reservation 不再 active 后，才能 reserve/dispatch 第 N+1 个 lease；
+- 第 N 个 lease 结算失败、结果不确定或 durable terminal state 尚不可确认时，不得发送第 N+1 个 lease，即使家庭处于 monitoring 模式也要结束远程语音并保留文字路径，避免两个 lease 重叠归因；
+- provider 返回 session 累计 usage 时，adapter 锁定单调 watermark，复核它等于该 lease 开始时保存的 baseline，再只结算本 lease 的增量；续租发送前的新 snapshot 也必须等于上一 terminal watermark，额外增长表示上一窗口仍有迟到用量，必须先进入核对而不能把它当成新 lease 的免费 baseline。Event claim、counter delta 和 watermark 推进必须在同一事务。跨月新 row 继承上一账期最后的绝对 watermark 作为 baseline，不能把累计值当作新月首笔全量费用；
+- provider contract 必须声明哪些累计 meter 能在每个 lease 边界可靠采样；只有这些 meter 建立 watermark。contract 明确不支持边界采样时，该 lease 使用本 lease 的服务端 clock 增量或 reservation estimate 并标记 estimated；contract 声明支持但本次缺失/下降时进入 settlement pending 且不得续租。迟到的 session 总累计量不能全部塞进最后一个 lease，也不能与已结算的估算重复累计，只有存在可验证的逐 lease 分配证据时才能用 adjustment 修正；
+- 正常结束、cancel、timeout 和 disconnect 只终结当时仍 active 的一个 lease；terminal lease 的重复回调按 attempt key 幂等返回既有 event，不再次推进 watermark 或 counter；
+- 不续租或新 lease 被 budget/current-policy gate 阻止时，不发送后续远程音频；65 秒连续会话应形成三个互不重叠的 terminal event、零 active reservation，各 lease quantity 之和等于会话实际量；
 - 输入、输出音频分别结算；
 - 内部 STT/TTS 计入 realtime_audio；
 - 中间明确 LLM 调用仍计入 llm，不能双算；
@@ -888,6 +964,9 @@ budget_alert_revision 只在以下情况递增：
 - model_usage_ledger_unavailable
 - model_usage_reservation_conflict
 - model_usage_attempt_conflict
+- model_usage_attempt_already_accounted
+- model_usage_dispatch_recovery_required
+- model_usage_fail_open_proof_expired
 - model_usage_settlement_pending
 - model_usage_policy_conflict
 - model_usage_adjustment_window_closed
@@ -1057,7 +1136,8 @@ Progress 只表示已记录费用，不把预留伪装成已消费；额度判�
 - 手机使用全屏设置视图；
 - 字段包含月预算、应用内提醒、hard limit 和可选能力护栏；
 - hard limit 开启前显示未知价格和 ledger 故障的影响；
-- 当前 active 配置存在价格缺口时，Owner 仍可在一次明确确认后保存 hard limit；缺价路径从保存生效起直接拒绝，不会静默放行；
+- 当前 active 配置存在价格缺口时，Owner 仍可在一次明确确认后保存 hard limit；保存提交后，尚未取得普通持久化 dispatch 授权的缺价 reservation 会在 dispatch gate 被释放并拒绝，不会静默放行；
+- 明确提示：已经 dispatching 的调用可能完成；保存前已经签发且尚未过期的短时 fail-open proof 也可能完成，系统不能跨数据库/provider 原子撤销这两类在途调用；
 - 保存使用 base_version_number；
 - busy 阻止重复提交；
 - 失败保留草稿；
@@ -1144,11 +1224,30 @@ Progress 只表示已记录费用，不把预留伪装成已消费；额度判�
 
 ### 16.3 Counter audit
 
-校验：
+按 counter_kind 分开校验，不能把 cost 公式套到 quantity counter：
 
-    counter settled_value = priced settled event cost
-    counter adjustment_value = adjustment delta
-    counter reserved_value = active reservation cost
+    family_cost.settled_value
+      = sum(priced event.cost_cny in family/period)
+    family_cost.reserved_value
+      = sum(active priced reservation.reserved_cost_cny in family/period)
+    family_cost.adjustment_value
+      = sum(adjustment line.cost_delta_cny in family/period)
+
+    capability_cost.settled_value
+      = sum(priced event.cost_cny for capability/period)
+    capability_cost.reserved_value
+      = sum(active priced reservation.reserved_cost_cny for capability/period)
+    capability_cost.adjustment_value
+      = sum(adjustment line.cost_delta_cny for capability/period)
+
+    capability_meter.settled_value
+      = sum(event meter.quantity matching capability/meter/period)
+    capability_meter.reserved_value
+      = sum(active reservation meter.reserved_quantity matching capability/meter/period)
+    capability_meter.adjustment_value
+      = sum(adjustment line.meter_delta matching capability/meter/period)
+
+Cost 公式只读取非空 priced cost。Capability meter 公式读取中央 contract 标记 `guardrail_eligible` 的目标 quantity，不按 pricing_status 或 meter_role 过滤；因此 monitoring 的 unpriced event、以及定价上 informational 但治理上可用的 meter，仍进入 meter counter/软状态。确认未执行的 event 不得凭请求估算制造已用 quantity；后续执行事实修正必须用 meter_delta 把 effective quantity 同步修正。
 
 额度判断使用 settled_value + adjustment_value + reserved_value；三个来源保持独立，避免 adjustment 被重复计入。
 
@@ -1184,7 +1283,7 @@ Progress 只表示已记录费用，不把预留伪装成已消费；额度判�
 
 1. 锁 family_total rollup，固化最终 source counts/checksum，写 adjustment_closed_at，并把 correction_status 改为 pruning；
 2. pruning 状态立即拒绝新的 adjustment、迟到 receipt recovery、incident fragment 和 alert repair；正常 reserve 不允许写入非当前账期；
-3. 按固定外键安全顺序分批删除原始行：alert receipt → alert → incident attempt → adjustment → event meter → event → reservation meter → reservation → period counter → 家庭级 incident fragment；跨账期 incident 已在持久化时切片，family_id 为空的全局 unknown_scope incident 不在此步骤删除；
+3. 按固定外键安全顺序分批删除原始行：alert receipt → alert → incident attempt → adjustment line → adjustment group → event meter → event → reservation meter → reservation → realtime watermark → period counter → 家庭级 incident fragment；跨账期 incident 已在持久化时切片，family_id 为空的全局 unknown_scope incident 不在此步骤删除；
 4. 中途失败时保持 pruning，下一次任务根据已固化的最终 checksum 和剩余行继续删除，不重新开放 adjustment；
 5. 原始行全部删除后写 raw_data_pruned_at，并把 correction_status 改为 closed；
 6. 如果进程在最后一批删除后、状态更新前崩溃，worker 通过“pruning 且无剩余原始行”完成最终状态转换。
@@ -1219,7 +1318,7 @@ Progress 只表示已记录费用，不把预留伪装成已消费；额度判�
 
 family_id、user_id、event ID 和完整动态 model ID 不作为高基数指标标签。
 
-普通结构化日志允许 provider、billing model、capability、meter、内部记录 ID、attempt key hash、状态、稳定错误码和数值用量。专用 ProviderUsageReceipt 日志事件还可包含恢复所必需的 family_id、随机 subject_key、client_attempt_id、provider request ID 和调用时价格快照，但必须使用严格 allowlist schema、受限访问和不少于“24 小时 uncertain 窗口 + 最大 provider recovery window”的生产日志保留期。禁止记录任何业务内容、user_id、凭据、Authorization header 或可能带内容的 provider 原始错误响应。
+普通结构化日志允许 provider、billing model、capability、meter、内部记录 ID、attempt key hash、状态、稳定错误码和数值用量。专用 ProviderUsageReceipt 日志事件还可包含恢复所必需的 reservation_id（fail-open 可空）、family_id、随机 subject_key、capability/provider/requested-reported-billing model/variant/billing scheme、attempt key/HMAC fingerprint/client attempt identity、原账期和 dispatch/completed 时间、admission/dispatch policy version、provider request ID、provider outcome、execution certainty、measurement/pricing status、billable/informational meter、realtime lease sequence/baseline/end watermark、fail-open proof ID、integrity key ID/HMAC，以及调用时的 price version、完整价格快照和 snapshot checksum，但必须使用与 ProviderUsageReceipt 类型逐字段对齐的严格 allowlist schema、受限访问和不少于“24 小时 uncertain 窗口 + 最大 provider recovery window”的生产日志保留期。Receipt HMAC key 本体禁止进入日志，验证 key ring 的保留期不得短于 receipt recovery 窗口。禁止记录任何业务内容、user_id、凭据、Authorization header 或可能带内容的 provider 原始错误响应。
 
 即使配置了上述日志保留期，普通部署日志仍不等于跨主机、跨存储故障的财务级 durable WAL；日志不可用时按 estimated 或 measurement gap 语义降级，不宣称精确恢复。
 
@@ -1231,12 +1330,13 @@ Health CLI 输出价格覆盖、最近 event、未定价数量、最老 active/u
 
 ### 18.1 Alembic
 
-新增正常 revision，不修改旧 migration。按外键依赖创建价格、稳定 subjects、family policy/current pointer、immutable policy versions、capability limits、counter、reservation、event、adjustment、rollup、alert、incident 和 incident attempt 表。
+新增正常 revision，不修改旧 migration。按外键依赖创建价格、稳定 subjects、family policy/current pointer、immutable policy versions、capability limits、counter、reservation、event、adjustment group/line、rollup、alert、incident 和 incident attempt 表。
 
 - 时间存 UTC，账期按 Asia/Shanghai 计算；
 - source price、FX、CNY unit price 和 cost 使用 Numeric(30, 12)；
 - 可含小数的 meter quantity 使用 Numeric(30, 6)，Token、字符和图片数量在 service 层额外校验为整数；
 - 规范 dimension_key 避免 MySQL nullable unique 陷阱；
+- reservation/event 的 `(family_id, attempt_key)`、adjustment group 的 `(family_id, idempotency_key)` 和 group line sequence 使用显式非空唯一约束；迁移/ORM 测试必须逐一断言实际数据库约束；
 - 当前家庭初始化默认 policy；
 - 当前家庭初始化唯一 system subject，并为已有有效 membership 创建或复用 user subject；
 - 新家庭在创建事务中同步创建 policy；
@@ -1315,6 +1415,8 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 - reserved 合计 ¥99；
 - 无超卖、负 counter、重复 reservation 或静默放行。
 
+另用相同 `(family_id, attempt_key)` 的 50 个并发请求验证唯一 claim：同 fingerprint 全部返回同一 reservation 且 counter 只增加一次；混入不同 fingerprint 时只有 winner 成功，其余得到稳定 `model_usage_attempt_conflict`。Adjustment group 以相同方式验证同 key 同 fingerprint 整组 replay、不同 fingerprint 冲突，不能出现两组 line 或重复 counter delta。
+
 实际费用高于预留时必须真实结算，之后阻止新调用。负 adjustment 更新 counter 和 rollup、提交后释放后续可用额度，但不删除历史 event/提醒，也不自动重放此前被阻止的用户调用。
 
 金额测试必须覆盖：
@@ -1348,6 +1450,9 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 - idempotency/queryable 的 recovery window 临界点和过期后一律降级到 none 语义，不在窗口外继续重发或查询并宣称有保证；
 - recovery/query window 长于 24 小时时，保守 event 创建后只能继续只读查询或接收迟到结果，不能再发送可能首次触发生成的请求；可靠结果只能形成 adjustment，不能形成第二条 event；
 - 所有 mode 都必须保证同 attempt key 不重复创建 reservation、event 或 counter 变更；
+- 同一 reserved reservation 的并发首次 dispatch 只有一个调用者取得 `first_send`；其余同 fingerprint 调用者得到 `recovery_required`，不能把 durable intent replay 当成第二次发送许可；
+- MySQL 实际唯一约束覆盖 reservation `(family_id, attempt_key)`、event `(family_id, attempt_key)` 和 adjustment group `(family_id, idempotency_key)`；测试不能只依赖 service 先查后写或 SQLite；
+- fail-open receipt 并发恢复在 `reservation_id IS NULL` 时仍只能 claim 一条 event；唯一冲突 loser 锁 winner 并复核 fingerprint，不能再次更新 meter/counter；
 - 对 recovery_mode=none 不断言外部 exactly-once，也不把 unknown estimated 断言为“不漏记、不误记”；
 - provider 成功且精确 receipt 可恢复时按精确值结算；receipt 无法恢复且 provider 不可查询时允许降级为 estimated；
 - settle DB 失败但进程存活时从脱敏 ProviderUsageReceipt 精确重试；
@@ -1361,6 +1466,7 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 
 - exact/estimated 测量状态与 priced/unpriced 定价状态的全部适用组合；
 - billable/informational meter 角色；
+- capability meter guardrail eligibility 与 meter_role 正交；被选 meter 在所有 active variant 上可预留/结算，unpriced 或 informational quantity 仍进入 meter counter；
 - priced event.cost_cny 严格等于 billable meter 成本之和；
 - informational meter 即使有数量也不产生费用；
 - unpriced billable meter 保留 quantity，但 line/event cost 为空而不是零；
@@ -1368,7 +1474,7 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 - 预算充足、家庭预算不足、capability cost/meter 不足；
 - monitoring ledger fail-open；
 - hard-limit ledger fail-closed；
-- policy 无法读取/证明 current 时 fail-closed；只有本次已解析 current monitoring policy 后 ledger 写失败，才允许无 reservation fail-open；
+- policy 无法读取/证明 current 时 fail-closed；只有本次已解析 current monitoring policy、签发未过期单次 proof 后 ledger 写失败，才允许无 reservation fail-open；proof 签发后的并发 policy update 例外被明确测试和披露；
 - exact_scope incident 为每个可枚举 attempt 保存无内容明细，只在证据支持时归到 subject；knownUnmeasuredAttemptCount 等于 unresolved 明细数；
 - receipt 恢复 event 与 incident attempt 标记 recovered 在同一事务完成，knownUnmeasuredAttemptCount 不重复保留；
 - unknown_scope incident 只产生 measurementGap 和时间窗，任何家庭/成员 count、meter、cost 均不增加；
@@ -1391,7 +1497,7 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 - Rerank 本地 fallback；
 - STT 服务端时长；
 - TTS 最终文本 meter 和媒体失败不重做；
-- realtime lease、续租、断线、跨月和 LLM 分账；
+- realtime 65 秒三 lease 逐段 terminal、quantity 无重叠且总量守恒、续租前置结算、结算 pending 时不续发、断线幂等、累计 watermark、跨月和 LLM 分账；
 - 图片预算阻止 attempt_count 不增加、MinIO/绑定失败不重新生成。
 
 ### 19.5 权限与隐私
@@ -1414,6 +1520,10 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 
 - base_version_number 成功和 409；
 - 每次更新生成新的 immutable policy version，旧 reservation/alert 仍可恢复旧预算、hard limit、alerts 和 guardrail；
+- policy update 与普通 reservation 首次 dispatch 通过同一 current-pointer 锁线性化：update 先提交则 reserved attempt 按新 hard limit 重验，dispatch commit 先完成则后续 update 不撤销该 send intent；
+- event/receipt 同时保留 admission policy version 和 dispatch policy version；被新策略 pre-dispatch 拒绝的 reservation 原子释放预留且不形成 event；
+- pre-dispatch 拒绝只写 pre_dispatch_denial_policy_version_id，dispatch_policy_version_id 保持为空；首次 dispatch replay 在 recovery_mode=none 时不重新获得发送许可；
+- Owner UI 明示已 dispatching 和保存前已签发短时 fail-open proof 两类不可撤销在途边界；
 - 只改 hard limit/guardrail 不重复预算提醒；改预算或重新开启 alerts 使用新的 budget_alert_revision；
 - 保存失败保留草稿；
 - 79% 无提醒，跨 80/100/110 分别唯一；
@@ -1442,8 +1552,10 @@ SQLite 结果不能替代 MySQL 并发和 migration 验证。
 - 跨月 incident 按账期稳定切片；存在待刷 latch/receipt/incident 时不允许进入 pruning；
 - price validate/diff/publish/coverage/cancel；
 - checksum、重叠版本、alias 循环、缺 FX 和 secret redaction；
-- total 与组成 Token、cached 与全量 input、audio seconds 与 audio tokens 的重叠 billable scheme 被 validate 拒绝；
+- total 与组成 Token、cached 与全量 input、audio seconds 与 audio tokens、TTS characters/tokens/output-audio 替代口径的重叠 billable scheme 被 validate 拒绝；
 - request_units 固定费与非重叠 Token/图片费用可以正确组合；
+- counter audit 按 family_cost、capability_cost、capability_meter 分派不同公式；meter counter 从 event/reservation meter quantity 与 meter_delta 重建，不把 quantity 当 cost；
+- monitoring unpriced event 的 guardrail-eligible quantity 进入 capability meter counter/软状态，但不进入 cost counter；
 - health、reconcile、audit、rollup、prune、adjustment preview/apply。
 
 ### 19.8 Migration 与性能

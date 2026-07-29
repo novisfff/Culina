@@ -17,6 +17,11 @@
 - 当前实现中的 OpenAI、DashScope、兼容 HTTP 和 WebSocket provider 首发全部按 `recovery_mode=none` 注册，除非实施时同时加入可执行的幂等或预持久化 client ID 查询 contract、provider 依据和正数窗口测试。仅返回事后 request ID 不得升级 recovery mode。
 - 金额内部统一 `Decimal`/`Numeric(30,12)`；价格/FX/exact line 使用 `ROUND_HALF_UP`，reservation line 使用 `ROUND_CEILING`，预算比较不先舍入到分。数量使用 `Numeric(30,6)`；Token、字符、请求和图片在 service 层验证为整数。
 - `total_tokens` 默认 informational；每个 billing scheme 只有一个不重叠 billable meter 集合。固定费使用 `request_units=1`；priced event 总成本只能等于 billable meter line 成本之和。
+- Meter 的 `guardrail_eligible` 治理属性与 billable/informational 定价角色正交；被选 capability meter 必须在所有 active variant 上可保守预留和结算。Monitoring 的 unpriced/informational quantity 仍进入 meter counter，不能因为没有 cost 而丢失软状态。
+- 每个 reservation 保存该 active variant 的完整 contract-required 可治理 quantity，不只保存 admission policy 当时选中的 guardrail/billable set。首次 dispatch 因而可以重验新选 current guardrail；旧版或不完整 reservation 缺少所需 quantity 时 fail-closed 并释放，不能把缺失当成零。
+- Strong counter 的维护不依赖 policy 当前选择：始终维护 family cost、七类 capability cost，以及每个 active variant 可产出的 `guardrail_eligible` capability meter。策略切换读取已经完整的 counter，不能让新选 guardrail 从零开始；新增 variant/meter dimension 必须先按 ledger backfill/audit，再由 preflight 暴露。
+- 数据库强制 reservation/event `(family_id, attempt_key)` 和 adjustment group `(family_id, idempotency_key)` 唯一；所有唯一 claim loser 都先回滚 claim/savepoint，再锁 winner 复核 fingerprint，不能依赖 service 层先查后写。这些约束只证明账本/counter 单 winner，不被用来宣称 fail-open 外部 provider exactly-once。
+- 普通 reservation 的最终 provider-send 授权在首次 `reserved → dispatching` 事务中按 current policy 重验并保存 `dispatch_policy_version_id`；策略更新与该事务锁同一个 family policy pointer。已经 dispatching 的 attempt 不撤销，但 replay 也不重新签发 `first_send`；只有显式 recovery 在 provider 幂等窗口内才可得到 `idempotent_resend`。短时、单次 monitoring fail-open proof 是明确披露的并发例外。
 - 用量 service 使用自己的 `SessionLocal` 短事务，不提交或回滚调用方业务 session；provider 已执行但 MinIO、Qdrant、业务保存或响应失败时仍须结算。
 - 账本、receipt、日志、API 和 CLI 不保存 prompt、response、query、文档、转写、TTS 文本、图片提示词、媒体 URL、user ID receipt 字段或凭据。测试使用秘密标记扫描这些边界。
 - 普通成员响应 schema 本身不包含家庭金额、百分比、其他成员、system、limit 数值或 Owner alert 字段；禁止只返回 `null` 来掩盖越权字段。
@@ -102,48 +107,110 @@ class ProviderRecoveryPolicy:
         )
 
 @dataclass(frozen=True, slots=True)
+class ProviderMeterWatermark:
+    meter: ModelUsageMeter
+    lease_sequence: int
+    baseline_quantity: Decimal
+    cumulative_quantity: Decimal
+
+@dataclass(frozen=True, slots=True)
 class ProviderUsageReceipt:
     reservation_id: str | None
     family_id: str
     subject_key: str
+    capability: ModelUsageCapability
+    provider: str
+    requested_model: str
+    reported_model: str | None
+    billing_model: str
+    variant_key: str
+    billing_scheme_key: str
     attempt_key: str
     fingerprint: str
     client_attempt_id: str
+    policy_version_id: str
+    dispatch_policy_version_id: str
     provider_request_id: str | None
     provider_outcome: ModelUsageProviderOutcome
     execution_certainty: ModelUsageExecutionCertainty
     measurement_status: ModelUsageMeasurementStatus
-    reported_model: str | None
-    billing_model: str
+    pricing_status: ModelUsagePricingStatus
+    period: BillingPeriod
     meters: Sequence[UsageMeterQuantity]
+    meter_watermarks: Sequence[ProviderMeterWatermark]
+    dispatched_at: datetime
     completed_at: datetime
+    price_version_id: str | None
     price_snapshot: UsagePriceSnapshot | None
+    price_snapshot_checksum: str | None
+    fail_open_proof_id: str | None
+    integrity_key_id: str
+    integrity_hmac: str
+
+@dataclass(frozen=True, slots=True)
+class DispatchPermit:
+    reservation_id: str | None
+    send_kind: Literal["first_send", "idempotent_resend", "fail_open_single_send"]
+    family_id: str
+    subject_key: str
+    capability: ModelUsageCapability
+    provider: str
+    requested_model: str
+    billing_model: str
+    variant_key: str
+    billing_scheme_key: str
+    attempt_key: str
+    fingerprint: str
+    client_attempt_id: str
+    policy_version_id: str
+    dispatch_policy_version_id: str
+    pricing_status: ModelUsagePricingStatus
+    period: BillingPeriod
+    dispatched_at: datetime
+    price_version_id: str | None
+    price_snapshot: UsagePriceSnapshot | None
+    price_snapshot_checksum: str | None
+    provider_idempotency_key: str | None
+    recovery_policy: ProviderRecoveryPolicy
+    fail_open_proof_id: str | None = None
+    expires_at: datetime | None = None
 
 @dataclass(frozen=True, slots=True)
 class ReservationDecision:
-    decision: Literal["allowed", "blocked", "fail_open"]
+    decision: Literal["allowed", "blocked", "fail_open", "already_accounted"]
     reservation_id: str | None = None
+    existing_event_id: str | None = None
     subject_key: str | None = None
     policy_version_id: str | None = None
     price_version_id: str | None = None
     pricing_status: ModelUsagePricingStatus | None = None
     reserved_cost_cny: Decimal | None = None
+    fail_open_permit: DispatchPermit | None = None
     error_code: str | None = None
 
     @classmethod
     def blocked(cls, error_code: str) -> "ReservationDecision":
         return cls(decision="blocked", error_code=error_code)
 
+    @classmethod
+    def already_accounted(cls, event_id: str) -> "ReservationDecision":
+        return cls(decision="already_accounted", existing_event_id=event_id)
+
 @dataclass(frozen=True, slots=True)
-class DispatchPermit:
-    reservation_id: str | None
-    family_id: str
-    subject_key: str
-    attempt_key: str
-    fingerprint: str
-    client_attempt_id: str
-    provider_idempotency_key: str | None
-    recovery_policy: ProviderRecoveryPolicy
+class DispatchGateOutcome:
+    decision: Literal["allowed", "blocked", "recovery_required"]
+    permit: DispatchPermit | None = None
+    existing_dispatch_id: str | None = None
+    error_code: str | None = None
+
+    def require_first_send_permit(self) -> DispatchPermit:
+        if self.permit is None:
+            if self.decision == "recovery_required":
+                raise ModelUsageDispatchRecoveryRequired("model_usage_dispatch_recovery_required")
+            raise ModelUsageBlocked(require_value(self.error_code))
+        if self.permit.send_kind != "first_send":
+            raise ModelUsageContractError("first_send_permit_required")
+        return self.permit
 
 @dataclass(frozen=True, slots=True)
 class UsageSettlement:
@@ -190,13 +257,23 @@ def prepare_usage_dispatch(
     recovery_policy: ProviderRecoveryPolicy,
     session_factory: Callable[[], Session] = SessionLocal,
 ) -> DispatchPermit:
-    with session_factory() as db, db.begin():
-        return prepare_usage_dispatch_in_session(
-            db,
-            reservation_id=reservation_id,
-            fingerprint=fingerprint,
-            recovery_policy=recovery_policy,
-        )
+    with session_factory() as db:
+        with db.begin():
+            outcome = prepare_usage_dispatch_in_session(
+                db,
+                reservation_id=reservation_id,
+                fingerprint=fingerprint,
+                recovery_policy=recovery_policy,
+            )
+    return outcome.require_first_send_permit()
+
+def consume_fail_open_dispatch_permit(
+    permit: DispatchPermit,
+    *,
+    at: datetime,
+    registry: FailOpenPermitRegistry = process_fail_open_permit_registry,
+) -> DispatchPermit:
+    return registry.consume_once(permit, at=at)
 
 def settle_usage(
     receipt: ProviderUsageReceipt,
@@ -262,7 +339,7 @@ def record_usage_uncertain(
 **Interfaces**
 
 - Consumes: `Decimal`, timezone-aware `datetime`, trusted IDs supplied by later adapters.
-- Produces: the locked dataclasses above; `new_client_attempt_id()`; `shanghai_billing_period(at)`; `exact_line_cost(quantity, unit_price, unit_quantity)`; `reservation_line_cost(quantity, unit_price, unit_quantity)`; stable `ModelUsageError.code` values.
+- Produces: the locked dataclasses above; immutable `CapabilityMeterContract` registry; `new_client_attempt_id()`; `shanghai_billing_period(at)`; `exact_line_cost(quantity, unit_price, unit_quantity)`; `reservation_line_cost(quantity, unit_price, unit_quantity)`; stable `ModelUsageError.code` values.
 - Must not import: provider SDKs, FastAPI, business ORM models, prompt/query/media types.
 
 - [ ] Add failing enum and content-boundary tests in `test_domain_types.py`.
@@ -278,6 +355,12 @@ def test_capabilities_and_meters_are_closed_sets() -> None:
     }
     assert ModelUsageMeter.TOTAL_TOKENS.value == "total_tokens"
     assert ModelUsageMeterRole.INFORMATIONAL.value == "informational"
+
+def test_guardrail_eligibility_is_independent_from_price_role() -> None:
+    contract = capability_meter_contract(ModelUsageCapability.LLM, ModelUsageMeter.TOTAL_TOKENS)
+    assert contract.guardrail_eligible is True
+    assert contract.requires_reservation_estimate is True
+    assert contract.requires_settlement_quantity is True
 ```
 
 - [ ] Run the new domain test and confirm the expected red state.
@@ -310,7 +393,19 @@ class ModelUsageRecoveryMode(str, Enum):
     QUERYABLE_REQUEST = "queryable_request"
     IDEMPOTENCY_AND_QUERYABLE = "idempotency_and_queryable"
     NONE = "none"
+
+@dataclass(frozen=True, slots=True)
+class CapabilityMeterContract:
+    capability: ModelUsageCapability
+    meter: ModelUsageMeter
+    canonical_unit: str
+    integer_only: bool
+    guardrail_eligible: bool
+    requires_reservation_estimate: bool
+    requires_settlement_quantity: bool
 ```
+
+The registry is capability-scoped and does not carry `meter_role`; that role is selected by a billing scheme. Policy validation may expose only entries with `guardrail_eligible=True`, and Task 22 preflight proves every active adapter can estimate and settle any exposed guardrail meter.
 
 - [ ] Implement the locked dataclasses and validate trusted attribution in `types.py`.
 
@@ -420,8 +515,8 @@ git commit -m "feat(model-usage): define domain vocabulary and decimal rules"
 **Interfaces**
 
 - Consumes: enums/value constraints from Task 1 and current Alembic head `1c2d3e4f5a6b`.
-- Produces: 17 design tables (`price_versions/rates`, `subjects`, `family_policies/policy_versions/capability_limits`, `period_counters`, `reservations/meters`, `events/meters`, `adjustments`, `monthly_rollups`, `alerts/receipts`, `measurement_incidents/attempts`).
-- Key DB guarantees: `reservation_id` unique on events, `(family_id, period_start, dimension_key)` counter unique, immutable version identities, `subject.user_id ON DELETE SET NULL`, explicit non-null dimension keys, cascade only on family deletion.
+- Produces: 18 foundational tables (`price_versions/rates`, `subjects`, `family_policies/policy_versions/capability_limits`, `period_counters`, `reservations/meters`, `events/meters`, `adjustment_groups/adjustment_lines`, `monthly_rollups`, `alerts/receipts`, `measurement_incidents/attempts`). Task 15 adds the nineteenth design table, `model_usage_realtime_watermarks`, only after the realtime lease contract exists.
+- Key DB guarantees: `(family_id, attempt_key)` unique on reservations and events, `reservation_id` unique on events, `(family_id, idempotency_key)` unique on adjustment groups, `(adjustment_group_id, line_sequence)` unique on adjustment lines, `(family_id, period_start, dimension_key)` counter unique, `(family_id, user_id)` unique for non-null active subjects, immutable admission/dispatch/pre-dispatch-denial policy identities, `subject.user_id ON DELETE SET NULL`, explicit non-null dimension keys, cascade only on family deletion.
 
 - [ ] Add metadata tests for table presence, Numeric precision, unique keys, and the forbidden circular event/reservation FK.
 
@@ -432,7 +527,8 @@ def test_model_usage_metadata_has_ledger_tables() -> None:
         "model_usage_family_policies", "model_usage_policy_versions",
         "model_usage_capability_limits", "model_usage_period_counters",
         "model_usage_reservations", "model_usage_reservation_meters",
-        "model_usage_events", "model_usage_event_meters", "model_usage_adjustments",
+        "model_usage_events", "model_usage_event_meters",
+        "model_usage_adjustment_groups", "model_usage_adjustments",
         "model_usage_monthly_rollups", "model_usage_alerts",
         "model_usage_alert_receipts", "model_usage_measurement_incidents",
         "model_usage_measurement_incident_attempts",
@@ -440,6 +536,18 @@ def test_model_usage_metadata_has_ledger_tables() -> None:
     assert expected <= set(Base.metadata.tables)
     assert "usage_event_id" not in Base.metadata.tables["model_usage_reservations"].c
     assert Base.metadata.tables["model_usage_family_policies"].c.current_policy_version_id.nullable is False
+    assert unique_columns(Base.metadata.tables["model_usage_reservations"], "uq_model_usage_reservation_attempt") == {
+        "family_id", "attempt_key"
+    }
+    assert unique_columns(Base.metadata.tables["model_usage_events"], "uq_model_usage_event_attempt") == {
+        "family_id", "attempt_key"
+    }
+    assert unique_columns(Base.metadata.tables["model_usage_adjustment_groups"], "uq_model_usage_adjustment_group_key") == {
+        "family_id", "idempotency_key"
+    }
+    assert unique_columns(Base.metadata.tables["model_usage_subjects"], "uq_model_usage_subject_user") == {
+        "family_id", "user_id"
+    }
 ```
 
 - [ ] Run `test_models.py` and confirm it fails because the tables are absent.
@@ -457,6 +565,7 @@ Expected: assertions report missing `model_usage_*` tables.
 class ModelUsageSubject(Base):
     __tablename__ = "model_usage_subjects"
     __table_args__ = (
+        UniqueConstraint("family_id", "user_id", name="uq_model_usage_subject_user"),
         UniqueConstraint("family_id", "dimension_key", name="uq_model_usage_subject_dimension"),
         UniqueConstraint("family_id", "anonymized_label", name="uq_model_usage_subject_anonymized_label"),
     )
@@ -466,6 +575,8 @@ class ModelUsageSubject(Base):
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     dimension_key: Mapped[str] = mapped_column(String(160), nullable=False)
 ```
+
+The nullable user unique is intentional on MySQL: it prevents duplicate non-null active identities while allowing multiple unlinked historical subjects with `user_id=NULL`. `dimension_key` separately enforces one system subject and keeps every deleted/user dimension distinct.
 
 - [ ] Add policy pointer/version relationships without a circular creation dependency: each immutable version owns `family_id` directly; the steady-state ORM pointer is non-null. The migration alone creates the pointer nullable, backfills version 1 for every family, then alters it to non-null.
 
@@ -478,6 +589,9 @@ class ModelUsagePolicyVersion(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by_subject_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_subjects.id", ondelete="RESTRICT"), nullable=False
+    )
 
 class ModelUsageFamilyPolicy(Base):
     __tablename__ = "model_usage_family_policies"
@@ -488,7 +602,7 @@ class ModelUsageFamilyPolicy(Base):
     tracking_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 ```
 
-- [ ] Create counter and reservation ORM classes, including operation source/logical operation IDs and all recovery windows needed by dispatch.
+- [ ] Create counter and reservation ORM classes, including operation source/logical operation IDs, admission/dispatch policy versions, all recovery windows needed by dispatch, and the family-scoped attempt unique claim.
 
 ```python
 class ModelUsagePeriodCounter(Base):
@@ -499,18 +613,63 @@ class ModelUsagePeriodCounter(Base):
     settled_value: Mapped[Decimal] = mapped_column(Numeric(30, 12), default=Decimal("0"), nullable=False)
     reserved_value: Mapped[Decimal] = mapped_column(Numeric(30, 12), default=Decimal("0"), nullable=False)
     adjustment_value: Mapped[Decimal] = mapped_column(Numeric(30, 12), default=Decimal("0"), nullable=False)
+
+class ModelUsageReservation(Base):
+    __tablename__ = "model_usage_reservations"
+    __table_args__ = (
+        UniqueConstraint("family_id", "attempt_key", name="uq_model_usage_reservation_attempt"),
+    )
+    policy_version_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_policy_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    dispatch_policy_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_usage_policy_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    pre_dispatch_denial_policy_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_usage_policy_versions.id", ondelete="RESTRICT"), nullable=True
+    )
 ```
 
-- [ ] Create event/meter and adjustment ORM classes; keep source prices per meter and make event `reservation_id` nullable-but-unique for fail-open recovery.
+`dispatch_policy_version_id` is non-null only after a durable first-send authorization. A reservation released by the current dispatch gate stores that policy in `pre_dispatch_denial_policy_version_id` while leaving `dispatch_policy_version_id` null; a model/service validation test enforces that the two evidence fields are not both populated by a pre-dispatch transition.
+
+- [ ] Create event/meter plus adjustment group/line ORM classes; keep source prices per meter, make event `reservation_id` nullable-but-unique for fail-open recovery, and retain database idempotency when `reservation_id IS NULL`.
 
 ```python
 class ModelUsageEvent(Base):
     __tablename__ = "model_usage_events"
+    __table_args__ = (
+        UniqueConstraint("family_id", "attempt_key", name="uq_model_usage_event_attempt"),
+    )
     reservation_id: Mapped[str | None] = mapped_column(
         ForeignKey("model_usage_reservations.id", ondelete="RESTRICT"), unique=True, nullable=True
     )
+    policy_version_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_policy_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    dispatch_policy_version_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_policy_versions.id", ondelete="RESTRICT"), nullable=False
+    )
     cost_cny: Mapped[Decimal | None] = mapped_column(Numeric(30, 12), nullable=True)
     provider_reported_source_cost: Mapped[Decimal | None] = mapped_column(Numeric(30, 12), nullable=True)
+
+class ModelUsageAdjustmentGroup(Base):
+    __tablename__ = "model_usage_adjustment_groups"
+    __table_args__ = (
+        UniqueConstraint("family_id", "idempotency_key", name="uq_model_usage_adjustment_group_key"),
+    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_event_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_events.id", ondelete="RESTRICT"), nullable=False
+    )
+
+class ModelUsageAdjustment(Base):
+    __tablename__ = "model_usage_adjustments"
+    __table_args__ = (
+        UniqueConstraint("adjustment_group_id", "line_sequence", name="uq_model_usage_adjustment_line_sequence"),
+    )
+    adjustment_group_id: Mapped[str] = mapped_column(
+        ForeignKey("model_usage_adjustment_groups.id", ondelete="CASCADE"), nullable=False
+    )
 ```
 
 - [ ] Create rollup, alert/receipt, incident/attempt ORM classes with correction status and source counts/checksums.
@@ -562,6 +721,31 @@ def test_upgrade_initializes_policy_and_subjects_without_usage(mysql_alembic_dat
     assert mysql_alembic_database.scalar(
         "SELECT COUNT(*) FROM model_usage_family_policies WHERE current_policy_version_id IS NULL"
     ) == 0
+    creators = mysql_alembic_database.rows(
+        """
+        SELECT s.subject_kind, s.user_id
+        FROM model_usage_policy_versions AS p
+        JOIN model_usage_subjects AS s ON s.id = p.created_by_subject_id
+        WHERE p.version_number = 1
+        ORDER BY p.family_id
+        """
+    )
+    assert creators == [("system", None), ("system", None)]
+```
+
+- [ ] Assert the upgraded MySQL schema contains the three non-null idempotency unique keys and rejects duplicate reservation/event/group claims at the database layer; SQLite metadata alone is not sufficient evidence.
+
+```python
+def test_mysql_enforces_model_usage_idempotency_uniques(mysql_alembic_database) -> None:
+    mysql_alembic_database.insert_reservation(family_id="family-a", attempt_key="attempt-1", fingerprint="fp-a")
+    with pytest.raises(IntegrityError):
+        mysql_alembic_database.insert_reservation(family_id="family-a", attempt_key="attempt-1", fingerprint="fp-a")
+    mysql_alembic_database.insert_event(family_id="family-a", attempt_key="fail-open-1", reservation_id=None)
+    with pytest.raises(IntegrityError):
+        mysql_alembic_database.insert_event(family_id="family-a", attempt_key="fail-open-1", reservation_id=None)
+    mysql_alembic_database.insert_adjustment_group(family_id="family-a", idempotency_key="adjust-1", fingerprint="fp-a")
+    with pytest.raises(IntegrityError):
+        mysql_alembic_database.insert_adjustment_group(family_id="family-a", idempotency_key="adjust-1", fingerprint="fp-a")
 ```
 
 - [ ] Write the Alembic revision table creation in FK order, using a final `alter_column` only after every family pointer is backfilled.
@@ -580,7 +764,7 @@ def upgrade() -> None:
     op.alter_column("model_usage_family_policies", "current_policy_version_id", nullable=False)
 ```
 
-- [ ] Implement migration backfill per current family using random UUID-backed IDs/subject keys, one system subject, one subject per active membership, and default version 1.
+- [ ] Implement migration backfill per current family using random UUID-backed IDs/subject keys, one system subject, one subject per active membership, and default version 1. Create/flush the system subject before the policy version and use its ID as `created_by_subject_id`; migration backfill never copies a raw user ID into policy history.
 
 ```python
 def _default_policy_values(now: datetime) -> dict[str, object]:
@@ -592,7 +776,39 @@ def _default_policy_values(now: datetime) -> dict[str, object]:
         "budget_alert_revision": 1,
         "effective_at": now,
     }
+
+def _backfill_family(connection: Connection, *, family_id: str, now: datetime) -> None:
+    system_subject_id = create_migration_id("model-usage-subject")
+    connection.execute(
+        subject_table.insert().values(
+            id=system_subject_id,
+            family_id=family_id,
+            user_id=None,
+            subject_kind="system",
+            dimension_key="system",
+            subject_key=new_migration_subject_key(),
+        )
+    )
+    _backfill_active_member_subjects(connection, family_id=family_id)
+    version_id = create_migration_id("model-usage-policy")
+    connection.execute(
+        policy_version_table.insert().values(
+            id=version_id,
+            family_id=family_id,
+            created_by_subject_id=system_subject_id,
+            **_default_policy_values(now),
+        )
+    )
+    connection.execute(
+        family_policy_table.insert().values(
+            family_id=family_id,
+            current_policy_version_id=version_id,
+            tracking_started_at=now,
+        )
+    )
 ```
+
+The migration system subject is intentionally different from runtime bootstrap attribution: existing rows have no trustworthy historical human actor, while a newly created family has a known Owner creator. Both paths use a stable subject foreign key and never place a user ID in immutable policy history.
 
 - [ ] Add downgrade in exact reverse FK order and test disposable `upgrade -> downgrade -> upgrade`.
 
@@ -648,6 +864,7 @@ git commit -m "feat(model-usage): add ledger schema and migration"
 - Produces: `ValidatedPriceManifest`, `UsagePriceSnapshot`, `PriceCoverageReport`; CLI `validate|diff|publish|list|show|coverage|cancel`.
 - `select_price_snapshot(db, context, estimate, at) -> UsagePriceSnapshot` locks one published version and one exact billing scheme; it never selects wildcard rates for a hard limit.
 - A realtime variant whose billable set uses audio Token meters must declare positive Decimal `input_tokens_per_second_cap` and `output_tokens_per_second_cap` in `ConfiguredUsageVariant`; seconds-billed variants declare both caps null. Manifest/preflight validation rejects the opposite combinations.
+- Realtime variants also declare `lease_boundary_cumulative_meters`: a subset of produced provider meters backed by an adapter contract that can return a cumulative snapshot at every 30-second boundary. The default is empty; non-realtime variants, unsupported meters, or a provider that exposes only a final session total cannot opt in.
 
 - [ ] Add a valid manifest fixture containing all seven capabilities, explicit `billingSchemeKey`, explicit aliases, and non-overlapping meter roles.
 
@@ -692,14 +909,27 @@ This is the complete committed fixture: seven configured capability variants and
 ```python
 @pytest.mark.parametrize("mutation, code", [
     ("total_and_components_billable", "overlapping_billable_meters"),
-    ("cached_and_full_input_billable", "cached_input_overlap"),
-    ("audio_seconds_and_tokens_billable", "audio_meter_overlap"),
+    ("cached_and_full_input_billable", "overlapping_billable_meters"),
+    ("audio_seconds_and_tokens_billable", "overlapping_billable_meters"),
+    ("tts_alternative_meters_billable", "overlapping_billable_meters"),
     ("informational_has_price", "informational_meter_has_price"),
 ])
 def test_manifest_rejects_overlap(price_manifest, mutation: str, code: str) -> None:
     broken = mutate_manifest(price_manifest, mutation)
     with pytest.raises(PriceManifestError, match=code):
         validate_price_manifest(broken, configured_variants=test_variants())
+
+def test_realtime_boundary_watermark_requires_adapter_contract(test_variant) -> None:
+    unsupported = replace(
+        test_variant,
+        lease_boundary_cumulative_meters=frozenset({ModelUsageMeter.AUDIO_INPUT_TOKENS}),
+        provider_contract=replace(
+            test_variant.provider_contract,
+            supports_lease_boundary_cumulative_usage=False,
+        ),
+    )
+    with pytest.raises(PriceManifestError, match="unsupported_lease_boundary_cumulative_meter"):
+        validate_configured_variant(unsupported)
 ```
 
 - [ ] Run price manifest tests and confirm red.
@@ -733,9 +963,24 @@ def validate_billable_scheme(rates: Sequence[ManifestRate], configured: Configur
     billable = {rate.meter for rate in rates if rate.meter_role is ModelUsageMeterRole.BILLABLE}
     if ModelUsageMeter.TOTAL_TOKENS in billable and billable & TOKEN_COMPONENT_METERS:
         raise PriceManifestError("overlapping_billable_meters")
+    forbidden_pairs = (
+        (ModelUsageMeter.INPUT_TOKENS, ModelUsageMeter.UNCACHED_INPUT_TOKENS),
+        (ModelUsageMeter.INPUT_TOKENS, ModelUsageMeter.CACHED_INPUT_TOKENS),
+        (ModelUsageMeter.AUDIO_INPUT_SECONDS, ModelUsageMeter.AUDIO_INPUT_TOKENS),
+        (ModelUsageMeter.AUDIO_OUTPUT_SECONDS, ModelUsageMeter.AUDIO_OUTPUT_TOKENS),
+        (ModelUsageMeter.TTS_CHARACTERS, ModelUsageMeter.TTS_TOKENS),
+        (ModelUsageMeter.TTS_CHARACTERS, ModelUsageMeter.AUDIO_OUTPUT_SECONDS),
+        (ModelUsageMeter.TTS_CHARACTERS, ModelUsageMeter.AUDIO_OUTPUT_TOKENS),
+        (ModelUsageMeter.TTS_TOKENS, ModelUsageMeter.AUDIO_OUTPUT_SECONDS),
+        (ModelUsageMeter.TTS_TOKENS, ModelUsageMeter.AUDIO_OUTPUT_TOKENS),
+    )
+    if any(left in billable and right in billable for left, right in forbidden_pairs):
+        raise PriceManifestError("overlapping_billable_meters")
     if billable != configured.billable_meters:
         raise PriceManifestError("adapter_billable_meter_mismatch")
 ```
+
+`TOKEN_COMPONENT_METERS` excludes `TOTAL_TOKENS` itself and includes all capability-applicable input/uncached/cached/output components. The validator is capability-scoped: independent request/image fixed fees may coexist with Token or media usage, while two alternative representations of the same quantity never may. Tests cover every forbidden pair in both orderings and a valid `uncached_input_tokens + cached_input_tokens + output_tokens + request_units` scheme.
 
 - [ ] Add failing service tests for effective version selection, alias mapping, immutable published rows, partial unpriced snapshots, and publish checksum/OCC.
 
@@ -836,11 +1081,11 @@ git commit -m "feat(model-usage): add immutable price catalog tooling"
 **Interfaces**
 
 - Consumes: `family_id`, trusted current `user_id`, current immutable policy pointer.
-- Produces: `ensure_family_model_usage_defaults(db, family_id, creator_user_id)`, `ensure_user_subject(db, family_id, user_id)`, `resolve_subject(db, attribution)`, `unlink_user_subjects(db, user_id)`, `update_family_policy(db, command)`.
-- `PolicyUpdateCommand` contains `base_version_number`, Decimal budget, alerts, hard limit, and at most one guardrail per capability.
-- Policy writes are in the caller's family/member transaction; later usage decisions only read the immutable snapshot.
+- Produces: `ensure_family_model_usage_defaults(db, family_id, creator_subject_id)`, `ensure_user_subject(db, family_id, user_id)`, `resolve_subject(db, attribution)`, `unlink_user_subjects(db, user_id)`, `lock_family_policy(db, family_id)`, `update_family_policy(db, command)`.
+- `PolicyUpdateCommand` contains `base_version_number`, Decimal budget, alerts, hard limit, at most one guardrail per capability, and a server-resolved `actor_subject_id`; routes never accept that identity from the request body.
+- Policy writes are in the caller's family/member transaction. Reserve stores an immutable admission snapshot; Task 6 locks the same current-policy pointer during first dispatch authorization, revalidates under the then-current snapshot, and stores `dispatch_policy_version_id`.
 
-- [ ] Add failing subject tests for system uniqueness, same-family reuse, cross-family separation, and random keys that contain no user ID.
+- [ ] Add failing subject tests for system uniqueness, same-family reuse, concurrent same-user creation, cross-family separation, and independent random keys that contain no user ID.
 
 ```python
 def test_user_subject_reuses_family_identity_without_leaking_user_id(db) -> None:
@@ -850,9 +1095,17 @@ def test_user_subject_reuses_family_identity_without_leaking_user_id(db) -> None
     assert first.id == second.id
     assert first.subject_key != other.subject_key
     assert "user-a" not in first.subject_key
+
+def test_concurrent_same_family_user_has_one_subject(mysql_usage_context) -> None:
+    results = run_barriered([
+        lambda: mysql_usage_context.ensure_user_subject(family_id="family-a", user_id="user-a")
+        for _ in range(20)
+    ])
+    assert len({result.id for result in results}) == 1
+    assert mysql_usage_context.subject_count(family_id="family-a", user_id="user-a") == 1
 ```
 
-- [ ] Implement locked identity repository lookups by `(family_id, user_id)` for active user subjects and `(family_id, dimension_key)` for all stable dimensions. Generate both `subject_key` and the non-null user dimension from independent random data; neither contains a reversible user identifier.
+- [ ] Implement locked identity repository lookups by `(family_id, user_id)` for active user subjects and `(family_id, dimension_key)` for all stable dimensions. Generate both `subject_key` and the non-null user dimension from independent random data; neither contains a reversible user identifier. Duplicate-key losers roll back their savepoint, load the unique winner, and never return a second in-memory identity.
 
 ```python
 def new_subject_key() -> str:
@@ -864,18 +1117,19 @@ def create_user_subject(db: Session, *, family_id: str, user_id: str) -> ModelUs
     if existing is not None:
         return existing
     subject_key = new_subject_key()
+    dimension_nonce = secrets.token_urlsafe(24)
     return ModelUsageSubject(
         id=create_id("model-usage-subject"),
         family_id=family_id,
         user_id=user_id,
-        dimension_key=f"user:{subject_key}",
+        dimension_key=f"user:{dimension_nonce}",
         subject_key=subject_key,
         anonymized_label=None,
         subject_kind=ModelUsageSubjectKind.USER,
     )
 ```
 
-The dimension HMAC is only an internal uniqueness key; APIs and logs never expose it. `subject_key` remains independent random data.
+The random `dimension_key` is only an internal uniqueness key; APIs and logs never expose it. It is independently generated from the separately random `subject_key`, so exposure of one does not reveal the other.
 
 - [ ] Add failing unlink tests for two deleted users and concurrent anonymized label allocation.
 
@@ -911,7 +1165,7 @@ def unlink_user_subjects(db: Session, *, user_id: str) -> list[ModelUsageSubject
     return subjects
 ```
 
-- [ ] Add failing policy tests for default version, immutable history, `base_version_number` conflict, hard-limit validation, and `budget_alert_revision` rules.
+- [ ] Add failing policy tests for default version, immutable history, `base_version_number` conflict, hard-limit validation, capability/meter contract eligibility, and `budget_alert_revision` rules.
 
 ```python
 def test_only_budget_or_alert_reenable_bumps_alert_revision(db, family_defaults) -> None:
@@ -920,6 +1174,24 @@ def test_only_budget_or_alert_reenable_bumps_alert_revision(db, family_defaults)
     v3 = update_family_policy(db, policy_command(v2, monthly_budget_cny=Decimal("80")))
     assert v2.budget_alert_revision == v1.budget_alert_revision
     assert v3.budget_alert_revision == v2.budget_alert_revision + 1
+
+def test_policy_rejects_meter_without_cross_variant_guardrail_contract(db, family_defaults) -> None:
+    command = policy_command(
+        current_policy(db, family_id=family_defaults.family_id),
+        capability_limits=[meter_limit("realtime_audio", "provider_private_audio_units")],
+    )
+    with pytest.raises(ModelUsagePolicyValidationError, match="guardrail_meter_not_supported"):
+        update_family_policy(db, command)
+
+def test_policy_history_uses_stable_subject_identity(db, family_defaults, owner_subject) -> None:
+    initial = current_policy(db, family_id=family_defaults.family_id)
+    updated = update_family_policy(db, policy_command(initial, actor_subject_id=owner_subject.id))
+    raw_user_id = owner_subject.user_id
+    assert {initial.created_by_subject_id, updated.created_by_subject_id} == {owner_subject.id}
+    assert owner_subject.id != raw_user_id
+    unlink_user_subjects(db, user_id=raw_user_id)
+    assert {initial.created_by_subject_id, updated.created_by_subject_id} == {owner_subject.id}
+    assert owner_subject.user_id is None
 ```
 
 - [ ] Implement policy checksum, lock-current-pointer OCC, immutable version insert, guardrail validation, and pointer swap in one transaction.
@@ -931,28 +1203,40 @@ def update_family_policy(db: Session, command: PolicyUpdateCommand) -> ModelUsag
     if current.version_number != command.base_version_number:
         raise ModelUsagePolicyConflict(current)
     validated = validate_policy_command(command)
-    next_version = insert_policy_version(db, current=current, command=validated)
+    actor_subject = require_family_subject(
+        db, family_id=command.family_id, subject_id=command.actor_subject_id
+    )
+    next_version = insert_policy_version(
+        db, current=current, command=validated, created_by_subject_id=actor_subject.id
+    )
     pointer.current_policy_version_id = next_version.id
     db.flush()
     return next_version
 ```
 
-- [ ] Implement first-family defaults in FK-safe order: the caller has already flushed `Family`; insert immutable version 1 and its capability limits, flush it, then insert the non-null current pointer and system subject in the same caller-owned transaction.
+`lock_family_policy` is the shared linearization lock for policy update, reserve admission, and Task 6 first dispatch authorization. Callers must acquire it before reservation/counter locks; a route or adapter must not invent a second lock order.
+
+- [ ] Implement first-family defaults in FK-safe order: the caller has already flushed `Family`, membership and creator user subject; validate that creator subject belongs to the family, ensure/flush the system subject, insert immutable version 1 with `created_by_subject_id`, flush it, then insert the non-null current pointer in the same caller-owned transaction.
 
 ```python
 def ensure_family_model_usage_defaults(
     db: Session,
     *,
     family_id: str,
-    creator_user_id: str,
+    creator_subject_id: str,
 ) -> ModelUsageFamilyPolicy:
     existing = db.get(ModelUsageFamilyPolicy, family_id)
     if existing is not None:
         return existing
+    creator_subject = require_family_subject(
+        db, family_id=family_id, subject_id=creator_subject_id
+    )
+    ensure_system_subject(db, family_id=family_id)
+    db.flush()
     version = create_default_policy_version(
         family_id=family_id,
         version_number=1,
-        created_by=creator_user_id,
+        created_by_subject_id=creator_subject.id,
     )
     db.add(version)
     db.flush()
@@ -962,7 +1246,6 @@ def ensure_family_model_usage_defaults(
         tracking_started_at=utcnow(),
     )
     db.add(pointer)
-    ensure_system_subject(db, family_id=family_id)
     db.flush()
     return pointer
 ```
@@ -980,8 +1263,13 @@ membership = Membership(
     updated_by=system_actor,
 )
 db.add_all([credential, membership])
-ensure_family_model_usage_defaults(db, family_id=family.id, creator_user_id=user.id)
-ensure_user_subject(db, family_id=family.id, user_id=user.id)
+db.flush()
+creator_subject = ensure_user_subject(db, family_id=family.id, user_id=user.id)
+ensure_family_model_usage_defaults(
+    db,
+    family_id=family.id,
+    creator_subject_id=creator_subject.id,
+)
 commit_session(db)
 ```
 
@@ -1056,7 +1344,7 @@ git commit -m "feat(model-usage): add subject and policy lifecycle"
 **Interfaces**
 
 - Consumes: current policy pointer/version, stable subject, price snapshot, `UsageContext`, and conservative `UsageEstimate`.
-- Produces: `ReservationDecision` with `decision=allowed|blocked`, immutable `reservation_id`, pricing/policy snapshots, and stable error code.
+- Produces: `ReservationDecision` with `decision=allowed|blocked|already_accounted`, immutable reservation/event identity, admission pricing/policy snapshots, and stable error code. `already_accounted` means the same fingerprint already has an event and must not call the provider; business output is recovered from the owning job/conversation/media state because the usage ledger never stores it. Final provider-send authorization remains Task 6's current-policy dispatch gate.
 - Locked internal signature: `reserve_usage_in_session(db, context, estimate, *, fingerprint, at, expected_policy_version_id=None) -> ReservationDecision`.
 - Counter lock order is always family cost → capability cost → capability meter; unique `dimension_key` constructors live in `counters.py`.
 
@@ -1104,7 +1392,7 @@ def estimate_rerank(*, document_count: int) -> UsageEstimate:
     ))
 ```
 
-- [ ] Add failing reservation tests for subject resolution, priced/unpriced monitoring, hard-limit missing price, full-precision budget checks, meter guardrails, and attempt replay.
+- [ ] Add failing reservation tests for subject resolution, priced/unpriced monitoring, hard-limit missing price, full-precision budget checks, billable/informational/unpriced meter guardrails, and attempt replay.
 
 ```python
 def test_hard_limit_rejects_unpriced_before_dispatch(usage_db, hard_limit_policy, context) -> None:
@@ -1130,6 +1418,29 @@ def test_same_attempt_with_different_fingerprint_is_rejected(usage_db, context, 
     reserve_usage_in_session(usage_db, context, estimate, fingerprint="hmac:request-a", at=NOW)
     with pytest.raises(ModelUsageAttemptConflict):
         reserve_usage_in_session(usage_db, context, estimate, fingerprint="hmac:request-b", at=NOW)
+
+def test_same_attempt_with_existing_event_returns_already_accounted(usage_db, settled_context, estimate) -> None:
+    decision = reserve_usage_in_session(
+        usage_db, settled_context, estimate, fingerprint=settled_context.fingerprint, at=NOW
+    )
+    assert decision.decision == "already_accounted"
+    assert decision.existing_event_id == settled_context.event_id
+    assert count_provider_dispatches() == 0
+
+def test_unpriced_informational_meter_still_reserves_guardrail_quantity(
+    usage_db, monitoring_meter_policy, context
+) -> None:
+    estimate = estimate_with_informational_meter("total_tokens", quantity="300")
+    decision = reserve_usage_in_session(usage_db, context, estimate, fingerprint="fp-meter", at=NOW)
+    assert decision.pricing_status == "unpriced"
+    assert counter_value(usage_db, "capability_meter:llm:total_tokens", "reserved") == Decimal("300")
+
+def test_unselected_guardrail_eligible_meter_counter_is_still_maintained(
+    usage_db, policy_selecting_capability_cost, context
+) -> None:
+    estimate = estimate_with_informational_meter("total_tokens", quantity="300")
+    reserve_usage_in_session(usage_db, context, estimate, fingerprint="fp-all-counters", at=NOW)
+    assert counter_value(usage_db, "capability_meter:llm:total_tokens", "reserved") == Decimal("300")
 ```
 
 The test helper must use explicit values rather than a provider call; no adapter is connected in this Task.
@@ -1158,24 +1469,35 @@ def lock_or_create_counter(db: Session, key: CounterKey) -> ModelUsagePeriodCoun
     return require_counter_for_update(db, key)
 ```
 
-- [ ] Implement reservation fingerprint/idempotency: same attempt/same fingerprint replays; same attempt/different fingerprint raises `model_usage_attempt_conflict`.
+- [ ] Implement reservation fingerprint/idempotency with the database unique claim before any counter mutation: same attempt/same fingerprint replays; same attempt/different fingerprint raises `model_usage_attempt_conflict`.
 
 ```python
 existing = lock_reservation_by_attempt(db, family_id=context.attribution.family_id, attempt_key=context.attempt_key)
 if existing is not None:
-    if existing.fingerprint != fingerprint:
-        raise ModelUsageAttemptConflict(existing.id)
-    return reservation_decision_from_row(existing)
+    return replay_reservation_or_conflict(existing, fingerprint)
+
+try:
+    with db.begin_nested():
+        reservation = build_reservation_claim(context, fingerprint, policy, price, period)
+        db.add(reservation)
+        db.flush()  # claims uq_model_usage_reservation_attempt before meter/counter writes
+except IntegrityError:
+    winner = require_reservation_by_attempt_for_update(
+        db, family_id=context.attribution.family_id, attempt_key=context.attempt_key
+    )
+    return replay_reservation_or_conflict(winner, fingerprint)
 ```
 
-- [ ] Implement price/policy selection, stable subject resolution, Beijing period selection, and ordered counter locks.
+The family-policy pointer lock also protects the cross-table attempt namespace: before inserting a reservation, query both reservation and event by `(family_id, attempt_key)`. A same-fingerprint event returns `ReservationDecision.already_accounted(event.id)` instead of creating a late reservation; a different fingerprint conflicts. The decision replays only the content-free ledger outcome, never invents the provider/business response. This is required because separate reservation/event unique indexes cannot prevent one winner in each table. The insert claim occurs after read-only validation/required locks but before reservation meter insertion or `reserved_value` mutation. A unique loser never resumes the create path. The MySQL test must prove this under real concurrent sessions; a service lookup test alone is insufficient.
+
+- [ ] Implement admission price/policy selection, stable subject resolution, Beijing period selection, and ordered counter locks; acquire the shared family-policy pointer before counters and persist its immutable version as `policy_version_id`.
 
 ```python
 policy = require_current_policy_snapshot(db, family_id=context.attribution.family_id)
 subject = resolve_subject(db, context.attribution)
 price = select_price_snapshot(db, context, estimate, at=at)
 period = shanghai_billing_period(at)
-counter_keys = reservation_counter_keys(context, estimate, policy)
+counter_keys = contract_counter_keys(context, estimate)
 counters = [lock_or_create_counter(db, key) for key in counter_keys]
 ```
 
@@ -1189,7 +1511,7 @@ if policy.hard_limit_enabled and effective + requested_value > limit_value:
     )
 ```
 
-- [ ] Insert reservation meter snapshots, assert billable-line sum, and update only the matching `reserved_value` counters in the same transaction.
+- [ ] Insert reservation meter snapshots for the complete configured-variant contract (billable plus required informational/guardrail quantities), assert billable-line sum, and update every policy-independent matching `reserved_value` counter in the same transaction. Capability meter counters match capability/meter contract identity regardless of pricing status or meter role; Task 6 therefore revalidates a newly selected current guardrail against a counter that already includes all active reservations.
 
 ```python
 reservation.reserved_cost_cny = (
@@ -1212,6 +1534,25 @@ def test_fifty_concurrent_reservations_do_not_oversell(mysql_usage_context) -> N
     assert sum(result.decision == "allowed" for result in results) == 33
     assert sum(result.decision == "blocked" for result in results) == 17
     assert mysql_usage_context.family_reserved_value() == Decimal("99.000000000000")
+
+def test_fifty_same_attempt_claims_mutate_counter_once(mysql_usage_context) -> None:
+    results = run_barriered([
+        lambda: mysql_usage_context.reserve(cost="3", attempt_key="same-attempt", fingerprint="fp-a")
+        for _ in range(50)
+    ])
+    assert len({result.reservation_id for result in results}) == 1
+    assert mysql_usage_context.family_reserved_value() == Decimal("3.000000000000")
+
+def test_concurrent_same_attempt_different_fingerprint_has_one_winner(mysql_usage_context) -> None:
+    results = run_barriered([
+        lambda fingerprint=fingerprint: mysql_usage_context.capture_reserve(
+            cost="3", attempt_key="conflicting-attempt", fingerprint=fingerprint
+        )
+        for fingerprint in ("fp-a", "fp-b")
+    ])
+    assert sum(result.allowed for result in results) == 1
+    assert sum(result.error_code == "model_usage_attempt_conflict" for result in results) == 1
+    assert mysql_usage_context.family_reserved_value() == Decimal("3.000000000000")
 ```
 
 - [ ] Run pure/service tests and the MySQL gate.
@@ -1223,7 +1564,7 @@ cd ..
 git diff --check
 ```
 
-Expected: all unit/service tests pass; MySQL records exactly 33 allowed, 17 blocked, ¥99 reserved, with no negative or duplicate counter rows.
+Expected: all unit/service tests pass; MySQL records exactly 33 allowed, 17 blocked, ¥99 reserved; same-attempt races create one reservation/counter delta; mixed fingerprints produce one winner and one stable conflict, with no negative or duplicate counter rows.
 
 - [ ] Commit Task 5.
 
@@ -1244,15 +1585,19 @@ git commit -m "feat(model-usage): add reservation and strong counters"
 - Create: `backend/app/services/model_usage/receipts.py`
 - Create: `backend/tests/model_usage/test_state_machine.py`
 - Create: `backend/tests/model_usage/test_dispatch.py`
+- Create: `backend/tests/model_usage/test_dispatch_policy_mysql_concurrency.py`
 - Create: `backend/tests/model_usage/test_settlement.py`
 - Create: `backend/tests/model_usage/test_receipts.py`
 - Create: `backend/tests/model_usage/test_usage_transaction_isolation.py`
 
 **Interfaces**
 
-- Consumes: an allowed reservation, payload HMAC fingerprint, recovery policy, and content-free provider receipt.
-- Produces: `DispatchPermit`, one immutable event at most, meter lines, counter deltas, and `UsageSettlement`.
+- Consumes: an admitted reservation, current immutable policy pointer, payload HMAC fingerprint, recovery policy, and content-free provider receipt.
+- Produces: a current-policy `first_send` `DispatchPermit`, a committed pre-dispatch release/block, or `recovery_required` for an existing durable intent; one immutable event at most, meter lines, counter deltas, and `UsageSettlement`.
 - `ProviderUsageReceipt` may contain `reservation_id=None` only for the fail-open recovery path implemented in Task 7.
+- Every receipt is a content-free, self-contained accounting identity: capability/provider/model/variant/scheme, original period/timestamps, admission/dispatch policy IDs and pricing snapshot are validated against the reservation or live consumed fail-open proof before settlement. Every receipt is canonically HMAC-signed; post-restart fail-open recovery requires a valid retained verification key and non-null `fail_open_proof_id` because the process-local proof registry no longer exists.
+- The `recovery_policy` argument is an internal adapter value and must exactly equal the trusted configured-variant registry entry resolved from the reservation; a caller cannot upgrade mode/windows or provide its own provider idempotency key.
+- `ProviderUsageReceiptSigner` is injected into receipt builders in this Task; tests use a fixed secret fixture, and Task 10 wires the production active-key/keyring settings. No module reads a key from request data or logs it.
 - In-memory `ProviderUsageReceiptQueue` is bounded and writes an allowlisted structured log; it is explicitly not a financial WAL.
 
 - [ ] Add failing state-machine tests for every legal reservation transition and illegal outcome/certainty pair.
@@ -1293,7 +1638,7 @@ ALLOWED_RESERVATION_TRANSITIONS = {
 }
 ```
 
-- [ ] Add failing dispatch tests for atomic client attempt/recovery fields, same-fingerprint replay, conflicting fingerprint, and state-write failure before any network callback.
+- [ ] Add failing dispatch tests for current-policy revalidation, atomic admission/dispatch policy evidence and recovery fields, same-fingerprint replay, conflicting fingerprint, committed pre-dispatch release, and state-write failure before any network callback.
 
 ```python
 def test_dispatch_failure_never_calls_provider(usage_service, reservation, provider_spy) -> None:
@@ -1301,9 +1646,49 @@ def test_dispatch_failure_never_calls_provider(usage_service, reservation, provi
     with pytest.raises(ModelUsageLedgerUnavailable):
         usage_service.dispatch_and_call(reservation.id, fingerprint="fp-a", provider_call=provider_spy)
     provider_spy.assert_not_called()
+
+def test_new_hard_limit_rejects_old_unpriced_reservation_before_send(
+    usage_service, monitoring_unpriced_reservation, enable_hard_limit, provider_spy
+) -> None:
+    new_policy = enable_hard_limit()
+    with pytest.raises(ModelUsageBlocked, match="model_usage_price_unavailable"):
+        usage_service.dispatch_and_call(
+            monitoring_unpriced_reservation.id,
+            fingerprint=monitoring_unpriced_reservation.fingerprint,
+            provider_call=provider_spy,
+        )
+    provider_spy.assert_not_called()
+    assert monitoring_unpriced_reservation.status == "released"
+    assert monitoring_unpriced_reservation.dispatch_policy_version_id is None
+    assert monitoring_unpriced_reservation.pre_dispatch_denial_policy_version_id == new_policy.id
+    assert reserved_counter_value() == Decimal("0")
+
+def test_dispatch_replay_with_none_mode_does_not_issue_second_send(
+    usage_service, already_dispatching_reservation, provider_spy
+) -> None:
+    with pytest.raises(ModelUsageDispatchRecoveryRequired, match="model_usage_dispatch_recovery_required"):
+        usage_service.dispatch_and_call(
+            already_dispatching_reservation.id,
+            fingerprint=already_dispatching_reservation.fingerprint,
+            provider_call=provider_spy,
+        )
+    provider_spy.assert_not_called()
+
+def test_dispatch_revalidates_new_meter_guardrail_from_complete_counter(
+    usage_service, reservation_with_total_tokens_300, switch_to_total_token_limit_200, provider_spy
+) -> None:
+    new_policy = switch_to_total_token_limit_200()
+    with pytest.raises(ModelUsageBlocked, match="model_usage_capability_limit_exceeded"):
+        usage_service.dispatch_and_call(
+            reservation_with_total_tokens_300.id,
+            fingerprint=reservation_with_total_tokens_300.fingerprint,
+            provider_call=provider_spy,
+        )
+    provider_spy.assert_not_called()
+    assert reservation_with_total_tokens_300.pre_dispatch_denial_policy_version_id == new_policy.id
 ```
 
-- [ ] Implement `prepare_usage_dispatch` as a separate committed transaction that stores `client_attempt_id`, recovery mode/windows, optional idempotency key, and `dispatching_at`; keep the internal helper name locked as `prepare_usage_dispatch_in_session`.
+- [ ] Implement `prepare_usage_dispatch` as a separate committed transaction. On the first `reserved → dispatching`, discover family scope without trusting caller input, then lock current family-policy pointer → reservation → counters; revalidate current hard limit/price/guardrails and store `dispatch_policy_version_id`, `client_attempt_id`, recovery windows, optional idempotency key, and `dispatching_at`. Keep the internal helper name locked as `prepare_usage_dispatch_in_session`.
 
 ```python
 def prepare_usage_dispatch(
@@ -1313,13 +1698,15 @@ def prepare_usage_dispatch(
     recovery_policy: ProviderRecoveryPolicy,
     session_factory: Callable[[], Session] = SessionLocal,
 ) -> DispatchPermit:
-    with session_factory() as db, db.begin():
-        return prepare_usage_dispatch_in_session(
-            db,
-            reservation_id=reservation_id,
-            fingerprint=fingerprint,
-            recovery_policy=recovery_policy,
-        )
+    with session_factory() as db:
+        with db.begin():
+            outcome = prepare_usage_dispatch_in_session(
+                db,
+                reservation_id=reservation_id,
+                fingerprint=fingerprint,
+                recovery_policy=recovery_policy,
+            )
+    return outcome.require_first_send_permit()  # block/recovery_required state is committed before raising
 
 def prepare_usage_dispatch_in_session(
     db: Session,
@@ -1327,17 +1714,59 @@ def prepare_usage_dispatch_in_session(
     reservation_id: str,
     fingerprint: str,
     recovery_policy: ProviderRecoveryPolicy,
-) -> DispatchPermit:
-    reservation = lock_reservation(db, reservation_id)
-    replay = replay_dispatch_if_same_fingerprint(reservation, fingerprint)
-    if replay is not None:
-        return replay
+) -> DispatchGateOutcome:
+    identity = require_reservation_identity(db, reservation_id=reservation_id)
+    pointer = lock_family_policy(db, family_id=identity.family_id)
+    current_policy = require_current_policy(db, pointer)
+    reservation = lock_family_reservation(db, family_id=identity.family_id, reservation_id=reservation_id)
+    replay_outcome = classify_existing_dispatch(reservation, fingerprint)
+    if replay_outcome is not None:
+        return replay_outcome  # durable identity only; never another first_send permit
+    counters = lock_reservation_counters(db, reservation)
+    blocked = evaluate_current_dispatch_policy(current_policy, reservation, counters)
+    if blocked is not None:
+        remove_reserved_values(counters, reservation)
+        reservation.status = ModelUsageReservationStatus.RELEASED
+        reservation.dispatch_policy_version_id = None
+        reservation.pre_dispatch_denial_policy_version_id = current_policy.id
+        reservation.error_code = blocked.error_code
+        db.flush()
+        return DispatchGateOutcome.blocked(blocked.error_code)
     apply_dispatch_intent(reservation, fingerprint=fingerprint, recovery_policy=recovery_policy)
+    reservation.dispatch_policy_version_id = current_policy.id
+    reservation.pre_dispatch_denial_policy_version_id = None
     db.flush()
-    return dispatch_permit_from(reservation)
+    return DispatchGateOutcome.allowed(dispatch_permit_from(reservation))
 ```
 
-- [ ] Add failing settlement tests for cached input normalization, exact/informational roles, unpriced missing rate, not-billed zero exception, unknown usage never becoming zero, and event-cost equality.
+If the reservation is already `dispatching`, replay is classified before current-policy blocking because the durable send intent may already have left the process. Same fingerprint returns the existing dispatch identity as `recovery_required`, not a new `first_send` permit; a different fingerprint remains a stable conflict. Task 7 is the only place that may turn this state into `idempotent_resend`, and only while the stored provider contract/window permits it. Queryable recovery performs a read-only query, while mode `none` never sends. A new policy never rewrites `policy_version_id`; successful authorization is recorded in `dispatch_policy_version_id`, while a pre-send policy rejection is recorded separately in `pre_dispatch_denial_policy_version_id`.
+
+- [ ] Add a real MySQL interleaving test proving policy update and first dispatch share one linearization lock: update commit first makes the reserved attempt use/block under the new version; dispatch commit first returns a durable permit that the later update does not revoke.
+
+```python
+def test_policy_update_and_first_dispatch_have_total_order(mysql_dispatch_context) -> None:
+    update_first = mysql_dispatch_context.run_interleaving(order="policy_then_dispatch")
+    assert update_first.provider_send_count == 0
+    assert update_first.reservation_status == "released"
+    assert update_first.dispatch_policy_version_id is None
+    assert update_first.pre_dispatch_denial_policy_version_id == update_first.new_policy_version_id
+
+    dispatch_first = mysql_dispatch_context.run_interleaving(order="dispatch_then_policy")
+    assert dispatch_first.provider_send_count == 1
+    assert dispatch_first.reservation_status == "dispatching"
+    assert dispatch_first.dispatch_policy_version_id == dispatch_first.old_policy_version_id
+
+def test_concurrent_first_dispatch_issues_one_first_send_permit(mysql_dispatch_context) -> None:
+    results = run_barriered([
+        lambda: mysql_dispatch_context.prepare_same_reserved_attempt()
+        for _ in range(50)
+    ])
+    assert sum(result.send_kind == "first_send" for result in results) == 1
+    assert sum(result.error_code == "model_usage_dispatch_recovery_required" for result in results) == 49
+    assert mysql_dispatch_context.provider_send_count == 1
+```
+
+- [ ] Add failing settlement tests for cached input normalization, exact/informational roles, unpriced missing rate, unpriced/informational capability meter counting, not-billed zero exception, unknown usage never becoming zero, event-attempt replay/conflict, and event-cost equality.
 
 ```python
 def test_cached_input_is_not_double_billed(priced_reservation) -> None:
@@ -1359,15 +1788,28 @@ if normalized.cached_input_tokens > normalized.input_tokens:
     raise ModelUsageSettlementPending("cached_input_exceeds_input")
 ```
 
-- [ ] Implement settlement lock order, unique event replay, reserved removal, settled addition, and reservation terminal transition in one transaction.
+Normal settlement first verifies the canonical receipt HMAC, then requires the receipt's family/subject, capability/provider, requested/billing model, variant/scheme, attempt/client identity, period, `policy_version_id`, `dispatch_policy_version_id`, pricing identity and dispatch time to match the reservation; `fail_open_proof_id` must be null. Live fail-open settlement validates the same fields and proof ID against its consumed permit. After restart, fail-open recovery requires `reservation_id=None`, a non-null proof ID, a valid receipt HMAC/key ID and the trusted allowlist log record; it does not pretend the vanished in-memory registry is still queryable. `meter_watermarks` must be empty outside realtime; Task 15 validates each realtime baseline/end/sequence against the active lease and durable row. A mismatch is a settlement conflict, never an invitation to substitute the current policy, period, model alias or price catalog.
+
+- [ ] Implement settlement lock order, database-backed unique event claim, reserved removal, settled addition, and reservation terminal transition in one transaction. Claim `(family_id, attempt_key)`/unique `reservation_id` before any counter mutation; a unique loser locks the winner and replays only when fingerprint matches.
 
 ```python
-reservation = lock_reservation(db, receipt.reservation_id)
+identity = require_reservation_identity(db, reservation_id=receipt.reservation_id)
+pointer = lock_family_policy(db, family_id=identity.family_id)
+current_policy = require_current_policy(db, pointer)  # Task 8 alert linearization; not event repricing
+reservation = lock_family_reservation(db, family_id=identity.family_id, reservation_id=receipt.reservation_id)
 existing = event_for_reservation(db, reservation.id)
 if existing is not None:
-    return settlement_from_event(existing)
+    return replay_event_or_conflict(existing, receipt.fingerprint)
 counters = lock_reservation_counters(db, reservation)
-event, meter_rows = build_event_from_receipt(reservation, receipt)
+try:
+    with db.begin_nested():
+        event = build_event_claim_from_receipt(reservation, receipt)
+        db.add(event)
+        db.flush()  # claims uq_model_usage_event_attempt / unique reservation_id
+except IntegrityError:
+    winner = require_event_by_attempt_for_update(db, reservation.family_id, reservation.attempt_key)
+    return replay_event_or_conflict(winner, receipt.fingerprint)
+meter_rows = build_event_meter_rows(event, reservation, receipt)
 assert_priced_event_sum(event, meter_rows)
 remove_reserved_values(counters, reservation)
 add_settled_values(counters, event, meter_rows)
@@ -1385,7 +1827,9 @@ if receipt.provider_outcome is ModelUsageProviderOutcome.NOT_BILLED:
     meter_rows = [as_informational(line) for line in receipt.meters]
 ```
 
-- [ ] Add failing receipt queue tests for strict allowlist, bounded eviction logging, exact retry, and absence of user/content fields.
+`add_settled_values` uses event cost only for cost counters and matching meter quantity for capability meter counters. An executed-but-free informational quantity can count toward an eligible usage guardrail; a confirmed-not-executed event carries no consumed guardrail quantity. Pricing role never decides meter-counter inclusion.
+
+- [ ] Add failing receipt queue tests for strict allowlist, canonical HMAC verification/tamper rejection, retained key IDs, bounded eviction logging, exact retry, and absence of user/content fields.
 
 ```python
 def test_receipt_log_is_allowlisted(caplog, provider_receipt) -> None:
@@ -1394,20 +1838,31 @@ def test_receipt_log_is_allowlisted(caplog, provider_receipt) -> None:
     assert "user_id" not in payload
     assert "prompt" not in payload
     assert set(payload) <= PROVIDER_USAGE_RECEIPT_LOG_FIELDS
+
+def test_tampered_logged_receipt_cannot_create_event(receipt_signer, provider_receipt) -> None:
+    signed = receipt_signer.sign(provider_receipt)
+    tampered = replace(signed, capability=ModelUsageCapability.IMAGE_GENERATION)
+    with pytest.raises(ModelUsageReceiptIntegrityError, match="receipt_integrity_invalid"):
+        verify_provider_usage_receipt(tampered)
 ```
 
 - [ ] Implement queue/log serialization and HMAC fingerprinting; raw provider errors and business content are never accepted by the receipt type.
 
 ```python
 PROVIDER_USAGE_RECEIPT_LOG_FIELDS = frozenset({
-    "family_id", "subject_key", "attempt_key", "fingerprint", "client_attempt_id",
+    "reservation_id", "family_id", "subject_key", "capability", "provider", "requested_model",
+    "reported_model", "billing_model", "variant_key", "billing_scheme_key",
+    "attempt_key", "fingerprint", "client_attempt_id", "period_start", "period_end",
+    "policy_version_id", "dispatch_policy_version_id",
     "provider_request_id", "provider_outcome", "execution_certainty",
-    "measurement_status", "billing_model", "meters", "completed_at",
+    "measurement_status", "pricing_status", "meters", "meter_watermarks",
+    "dispatched_at", "completed_at",
     "price_version_id", "price_snapshot", "price_snapshot_checksum",
+    "fail_open_proof_id", "integrity_key_id", "integrity_hmac",
 })
 ```
 
-`price_snapshot` serialization is itself a closed schema containing only version/rate/FX/unit metadata and Decimal strings. If the structured log is unavailable or the snapshot checksum fails, recovery keeps exact meters when possible but forces `pricing_status=unpriced`; it never applies the current catalog retroactively.
+`price_snapshot` serialization is itself a closed schema containing only version/rate/FX/unit metadata and Decimal strings. `integrity_hmac` uses a dedicated, domain-separated keyring (not the request-fingerprint or JWT key) and covers the canonical allowlisted receipt payload excluding only itself; verification keys remain available for at least the receipt log/recovery retention window, and secrets are never logged. If the structured log is unavailable, receipt HMAC fails, or its key has expired, no post-restart recovered event is created. If only the price snapshot checksum fails, recovery may keep exact meters but forces `pricing_status=unpriced`; it never applies the current catalog retroactively.
 
 - [ ] Add transaction-isolation tests proving caller rollback cannot remove usage and usage commit cannot commit an unapproved caller draft.
 
@@ -1424,7 +1879,7 @@ def test_provider_usage_survives_business_rollback(business_db, usage_service, d
 
 ```bash
 cd backend
-.venv/bin/python -m pytest tests/model_usage/test_state_machine.py tests/model_usage/test_dispatch.py tests/model_usage/test_settlement.py tests/model_usage/test_receipts.py tests/model_usage/test_usage_transaction_isolation.py -q
+.venv/bin/python -m pytest tests/model_usage/test_state_machine.py tests/model_usage/test_dispatch.py tests/model_usage/test_dispatch_policy_mysql_concurrency.py tests/model_usage/test_settlement.py tests/model_usage/test_receipts.py tests/model_usage/test_usage_transaction_isolation.py -q
 cd ..
 git diff --check
 ```
@@ -1456,12 +1911,12 @@ git commit -m "feat(model-usage): add dispatch settlement and receipts"
 
 **Interfaces**
 
-- Consumes: a complete dispatch-eligibility proof from the same reserve attempt (current monitoring policy, resolved stable subject, period, billing scheme and available price snapshot), dispatch timestamps/windows, receipt queue, optional provider query handler.
-- Produces: `decision=fail_open` only after that complete proof and a later ledger write failure; exact/partial/unknown incident fragments; recovery/estimated settlement.
+- Consumes: a short-lived, single-use dispatch-eligibility proof from the same attempt (fresh current monitoring policy, resolved stable subject, period, billing scheme and available price snapshot), dispatch timestamps/windows, receipt queue, optional provider query handler.
+- Produces: `decision=fail_open` with one sealed `fail_open_single_send` permit only after that complete proof and a later ledger write failure; explicit `idempotent_resend` permits only for stored provider contracts still inside their resend window; exact/partial/unknown incident fragments; recovery/estimated settlement.
 - `ProviderRecoveryHandler.query_original_attempt(client_attempt_id) -> ProviderUsageReceipt | None` is read-only. Maintenance never calls a method that creates a new provider generation.
 - Current adapters remain `recovery_mode=none`; fake handlers exercise the generic idempotency/query contracts.
 
-- [ ] Add failing fail-open tests for current monitoring policy, hard limit, unreadable/stale policy, reservation write failure, and family-less unknown scope.
+- [ ] Add failing fail-open tests for current monitoring policy, hard limit, unreadable/stale policy, proof expiry/single-use, policy-update interleaving, classified connectivity/commit-unknown reservation failure, non-infrastructure SQL errors that must fail closed, and family-less unknown scope.
 
 ```python
 def test_only_proven_current_monitoring_policy_can_fail_open(failing_ledger, current_monitoring_policy) -> None:
@@ -1473,6 +1928,9 @@ def test_only_proven_current_monitoring_policy_can_fail_open(failing_ledger, cur
     )
     assert decision.decision == "fail_open"
     assert decision.policy_version_id == current_monitoring_policy.id
+    assert decision.fail_open_permit.send_kind == "fail_open_single_send"
+    assert decision.fail_open_permit.dispatch_policy_version_id == current_monitoring_policy.id
+    assert_pricing_identity_is_self_consistent(decision.fail_open_permit)
 
 @pytest.mark.parametrize(
     "policy_state",
@@ -1487,6 +1945,28 @@ def test_incomplete_or_hard_dispatch_proof_fails_closed(failing_ledger, policy_s
     )
     assert decision.decision == "blocked"
     assert decision.error_code == "model_usage_ledger_unavailable"
+
+def test_proof_linearizes_at_fresh_read_but_cannot_be_revoked_cross_system(
+    failing_ledger, current_monitoring_policy, enable_hard_limit
+) -> None:
+    proof = failing_ledger.issue_dispatch_proof(current_monitoring_policy)
+    enable_hard_limit()
+    decision = failing_ledger.fail_open_with(proof)
+    assert decision.decision == "fail_open"
+    assert decision.policy_version_id == current_monitoring_policy.id
+    with pytest.raises(ModelUsageProofConsumed):
+        failing_ledger.fail_open_with(proof)
+
+def test_fail_open_permit_can_authorize_only_one_provider_send(failing_ledger, current_monitoring_policy) -> None:
+    decision = failing_ledger.reserve_with_write_failure(current_monitoring_policy)
+    first = consume_fail_open_dispatch_permit(decision.fail_open_permit, at=NOW)
+    assert first.send_kind == "fail_open_single_send"
+    with pytest.raises(ModelUsageProofConsumed):
+        consume_fail_open_dispatch_permit(decision.fail_open_permit, at=NOW)
+
+def test_proof_issued_after_hard_limit_commit_is_rejected(failing_ledger, enable_hard_limit) -> None:
+    enable_hard_limit()
+    assert failing_ledger.try_issue_dispatch_proof() is None
 ```
 
 - [ ] Implement `ModelUsageFacade.reserve` so policy proof is captured only after pointer/version validation and fail-open is impossible for pre-policy failures.
@@ -1494,19 +1974,40 @@ def test_incomplete_or_hard_dispatch_proof_fails_closed(failing_ledger, policy_s
 ```python
 @dataclass(frozen=True, slots=True)
 class DispatchEligibilityProof:
+    proof_id: str
+    family_id: str
+    subject_key: str
+    capability: ModelUsageCapability
+    provider: str
+    requested_model: str
+    billing_model: str
+    variant_key: str
+    billing_scheme_key: str
+    attempt_key: str
+    client_attempt_id: str
+    fingerprint: str
     policy_version_id: str
     hard_limit_enabled: bool
-    subject_key: str
+    issued_at: datetime
+    expires_at: datetime
     period: BillingPeriod
-    billing_scheme_key: str
     pricing_status: ModelUsagePricingStatus
+    price_version_id: str | None
     price_snapshot: UsagePriceSnapshot | None
+    price_snapshot_checksum: str | None
+    recovery_policy: ProviderRecoveryPolicy
 
 def reserve(self, context: UsageContext, estimate: UsageEstimate, *, fingerprint: str) -> ReservationDecision:
     proof: DispatchEligibilityProof | None = None
     try:
         with self.session_factory() as db:
-            proof = prove_monitoring_dispatch_eligibility(db, context=context, estimate=estimate, at=utcnow())
+            proof = prove_monitoring_dispatch_eligibility(
+                db,
+                context=context,
+                estimate=estimate,
+                fingerprint=fingerprint,
+                at=utcnow(),
+            )
             decision = reserve_usage_in_session(
                 db,
                 context,
@@ -1517,13 +2018,15 @@ def reserve(self, context: UsageContext, estimate: UsageEstimate, *, fingerprint
             )
             db.commit()
             return decision
-    except SQLAlchemyError:
-        if proof is None or proof.hard_limit_enabled:
+    except SQLAlchemyError as exc:
+        if proof is None or proof.hard_limit_enabled or not is_model_usage_ledger_unavailable(exc):
             return ReservationDecision.blocked("model_usage_ledger_unavailable")
         return self._record_fail_open(context, estimate, fingerprint, proof)
 ```
 
-`DispatchEligibilityProof` is immutable and content-free. `_record_fail_open` returns the proof's `subject_key`, period, pricing state/snapshot and policy version in the fail-open decision/receipt context; it never attempts to reconstruct a subject from `actor_user_id` while the database is unavailable.
+`is_model_usage_ledger_unavailable` is a closed classifier for connectivity loss, pool exhaustion/timeout and commit outcome unknown. Unique/FK/check constraint failures, stale policy, bad meter/model identity, application exceptions and ordinary transaction conflicts never authorize provider send; deadlock/serialization cases may retry the database transaction within the proof deadline, then fail closed if still unresolved.
+
+`DispatchEligibilityProof` is immutable, content-free, bound to the exact family/subject/capability/provider/model/variant/scheme/attempt/fingerprint, one-shot, and bounded by a short configured deadline that is shorter than any provider call timeout. `_record_fail_open` atomically exchanges the eligibility proof for one pending `DispatchPermit(send_kind="fail_open_single_send")` registered by proof ID in a thread-safe process-local `FailOpenPermitRegistry`; the permit carries the original period, pricing state/snapshot and both policy IDs (equal to the proof policy), and never reconstructs a subject from `actor_user_id` while the database is unavailable. `consume_fail_open_dispatch_permit` atomically changes that registry entry from pending to consumed and rejects expiry or a second consumer, even if two `MeteredProviderAttempt` objects hold the same decision. Neither proof nor permit is a durable reservation, so both disappear on process restart and are never reconstructed from ordinary logs for a new send. Its documented linearization point is a transaction-consistent primary-database read of the current pointer/version: a policy update committed after issuance cannot revoke the proof, while a proof read after that update must observe/block on the new hard limit.
 
 - [ ] Add failing outage-latch tests for thread safety, process source instance, recovery flush, and cross-Beijing-month fragmentation.
 
@@ -1556,15 +2059,56 @@ def test_unknown_scope_exposes_gap_without_counts(db) -> None:
     assert health.known_unmeasured_cost_cny is None
 ```
 
-- [ ] Implement incident persistence and receipt recovery linking in the same transaction as recovered event creation.
+- [ ] Add a full post-restart recovery test with no reservation and no price snapshot: serialize only the signed allowlist receipt, discard process registry/queue state, verify the retained HMAC key, and idempotently create an unpriced event preserving capability/provider/requested/billing model/variant/scheme, admission/dispatch policy IDs, period and meters.
 
 ```python
-event = recover_fail_open_event(db, receipt)
+def test_signed_logged_fail_open_receipt_is_self_contained_after_restart(fail_open_harness) -> None:
+    receipt = fail_open_harness.call_provider_and_log_receipt(
+        reservation_id=None,
+        price_snapshot=None,
+        pricing_status="unpriced",
+    )
+    logged_payload = fail_open_harness.allowlisted_log_payload(receipt.attempt_key)
+    fail_open_harness.restart_process_and_drop_permit_registry()
+    recovered = fail_open_harness.recover_signed_logged_receipt(logged_payload)
+    replay = fail_open_harness.recover_signed_logged_receipt(logged_payload)
+    assert recovered.event_id == replay.event_id
+    assert recovered.reservation_id is None
+    assert recovered.pricing_status == "unpriced"
+    assert recovered.identity == receipt.accounting_identity()
+```
+
+- [ ] Implement incident persistence and signed receipt recovery linking in the same transaction as the database-unique recovered event claim. First verify the receipt HMAC/key and fail-open proof ID, lock the same family-policy pointer used by reserve, inspect both reservation/event attempt identities, and reconcile a same-fingerprint reservation winner by removing any remaining reserved delta and closing it into the one receipt-backed event rather than creating a second accounting path. During the live process, identity fields are checked against the consumed proof/permit; after restart, they come from the previously signed allowlist receipt because the registry is intentionally gone. The current pointer is only an idempotency namespace and must not reprice/re-authorize the historical proof. This prevents duplicate ledger/counter mutation, but does not claim that recovery always wins the lock before a separate process tries to dispatch a just-created retry reservation.
+
+```python
+lock_family_policy(db, family_id=receipt.family_id)
+event = claim_reconcile_or_replay_fail_open_event(db, receipt)  # checks reservation + event, then uq event
 attempt = lock_incident_attempt(db, family_id=receipt.family_id, client_attempt_id=receipt.client_attempt_id)
 if attempt is not None:
     attempt.recovery_status = ModelUsageIncidentRecoveryStatus.RECOVERED
     attempt.recovered_event_id = event.id
     attempt.resolved_at = utcnow()
+```
+
+- [ ] Add a MySQL concurrency test that delivers the same fail-open receipt from 50 sessions: exactly one `reservation_id IS NULL` event and one set of counter deltas exist; same fingerprint replays the winner and a different fingerprint returns `model_usage_attempt_conflict`.
+
+```python
+def test_concurrent_fail_open_receipt_recovery_claims_one_event(mysql_usage_context) -> None:
+    results = run_barriered([lambda: mysql_usage_context.recover_fail_open(RECEIPT) for _ in range(50)])
+    assert len({result.event_id for result in results}) == 1
+    assert mysql_usage_context.event_count(attempt_key=RECEIPT.attempt_key) == 1
+    assert mysql_usage_context.counter_matches_ledger()
+
+def test_retry_reserve_and_fail_open_recovery_cannot_win_separate_tables(mysql_usage_context) -> None:
+    reserve_result, recovery_result = run_barriered_pair(
+        lambda: mysql_usage_context.reserve_same_attempt_as(RECEIPT),
+        lambda: mysql_usage_context.recover_fail_open(RECEIPT),
+    )
+    assert reserve_result.decision in {"allowed", "already_accounted"}
+    assert recovery_result.event_id == mysql_usage_context.event_for_attempt(RECEIPT.attempt_key).id
+    assert mysql_usage_context.event_count(attempt_key=RECEIPT.attempt_key) == 1
+    assert mysql_usage_context.active_reservation_count(attempt_key=RECEIPT.attempt_key) == 0
+    assert mysql_usage_context.counter_matches_ledger()
 ```
 
 - [ ] Add failing recovery tests for each recovery mode/window, mode `none`, provider-confirmed non-execution, and no resend after the 24-hour conservative event.
@@ -1595,6 +2139,8 @@ def can_query(reservation: ModelUsageReservation, at: datetime) -> bool:
         and at <= reservation.dispatching_at + timedelta(seconds=reservation.query_window_seconds)
     )
 ```
+
+- [ ] Implement a separate `prepare_idempotent_resend` transaction for synchronous transport recovery. It locks the existing reservation, verifies the same fingerprint, stored idempotency mode/key, provider window and automatic resend deadline, then returns `DispatchPermit(send_kind="idempotent_resend")`; it never rewrites dispatch policy/price evidence. Ordinary `prepare_usage_dispatch` and the maintenance worker cannot call this path implicitly. Queryable-only and `none` modes never receive a resend permit.
 
 - [ ] Implement dispatch timeout → uncertain, 24-hour reservation hold, then one unknown/estimated event using reservation quantities and locked prices.
 
@@ -1631,7 +2177,7 @@ cd ..
 git diff --check
 ```
 
-Expected: mode `none` produces no automated resend; unknown scope produces only gap intervals; the 24-hour path creates at most one conservative event.
+Expected: mode `none` produces no automated resend; unknown scope produces only gap intervals; proof timing/expiry is explicit; fail-open recovery and the 24-hour path create at most one event/counter mutation per family attempt.
 
 - [ ] Commit Task 7.
 
@@ -1655,12 +2201,12 @@ git commit -m "feat(model-usage): add uncertain recovery and incidents"
 
 **Interfaces**
 
-- Consumes: a required source event, optional source reservation, evidence/change ticket, idempotency key/fingerprint, immutable price-resolution snapshot.
-- Produces: append-only adjustment lines, counter `adjustment_value` delta, effective state projection, and immutable alert facts/Owner receipts.
+- Consumes: a required source event, current family-policy pointer for alert evaluation, optional source reservation, evidence/change ticket, idempotency key/fingerprint, immutable price-resolution snapshot.
+- Produces: one database-claimed immutable adjustment group plus append-only lines, counter `adjustment_value` delta, non-negative effective event cost/meter projection, and immutable alert facts/Owner receipts.
 - `preview_adjustment(db, command) -> AdjustmentPreview`; `apply_adjustment(db, command) -> AdjustmentResult`.
 - Adjustment is accepted only while the source family/period `family_total` rollup is `open`.
 
-- [ ] Add failing adjustment tests for idempotent replay, conflicting fingerprint, required source event, open/pruning/closed windows, meter correction, pricing resolution, and execution resolution.
+- [ ] Add failing adjustment tests for group-level idempotent replay, conflicting fingerprint, legal multi-line groups, required source event, open/pruning/closed windows, meter correction, pricing resolution, and execution resolution with matching cost/meter deltas.
 
 ```python
 def test_closed_period_rejects_preview_and_apply(db, closed_rollup, adjustment_command) -> None:
@@ -1672,18 +2218,47 @@ def test_closed_period_rejects_preview_and_apply(db, closed_rollup, adjustment_c
 def test_pricing_resolution_uses_evidence_snapshot_not_current_catalog(db, unpriced_event) -> None:
     result = apply_adjustment(db, pricing_resolution_command(unpriced_event, evidence_snapshot("snapshot-v1")))
     assert result.effective.pricing_status == ModelUsagePricingStatus.PRICED
-    assert result.adjustment.snapshot_checksum == evidence_snapshot("snapshot-v1").checksum
+    assert result.lines[0].snapshot_checksum == evidence_snapshot("snapshot-v1").checksum
+
+def test_one_group_can_hold_multiple_lines_without_reusing_idempotency_key(db, adjustment_command) -> None:
+    result = apply_adjustment(db, adjustment_command.with_lines(meter_delta="-10", cost_delta="-0.2"))
+    assert len(result.lines) == 2
+    assert {line.adjustment_group_id for line in result.lines} == {result.group.id}
+
+def test_confirmed_not_executed_resolution_zeros_effective_cost_and_guardrail_meters(db, unknown_event) -> None:
+    result = apply_adjustment(db, confirmed_not_executed_command(unknown_event))
+    assert result.effective.cost_cny == Decimal("0")
+    assert result.effective.guardrail_quantity("total_tokens") == Decimal("0")
+    assert result.counter_delta.cost == -unknown_event.cost_cny
+    assert result.counter_delta.meter("total_tokens") == -unknown_event.quantity("total_tokens")
+
+def test_negative_adjustment_cannot_over_credit_source_event(db, priced_event) -> None:
+    existing = priced_event.quantity(ModelUsageMeter.TOTAL_TOKENS)
+    with pytest.raises(ModelUsageAdjustmentValidationError, match="effective_usage_cannot_be_negative"):
+        apply_adjustment(
+            db,
+            meter_correction(
+                priced_event,
+                meter=ModelUsageMeter.TOTAL_TOKENS,
+                meter_delta=-(existing + Decimal("1")),
+            ),
+        )
 ```
 
-- [ ] Implement source-event family/period locking and correction-window validation.
+- [ ] Implement pointer-first current-policy lock, then source-event/rollup family-period locking, correction-window validation, and affected counters in the global family-cost → capability-cost → capability-meter order. The pointer establishes alert revision order only; it never reprices the source event. All required row locks and validation precede the group claim, but the claim remains the first mutation.
 
 ```python
-def lock_open_source_event(db: Session, *, family_id: str, source_event_id: str) -> ModelUsageEvent:
+def lock_open_source_event_and_policy(
+    db: Session, *, family_id: str, source_event_id: str
+) -> tuple[ModelUsageEvent, ModelUsagePolicyVersion, Sequence[ModelUsagePeriodCounter]]:
+    pointer = lock_family_policy(db, family_id=family_id)
+    current_policy = require_current_policy(db, pointer)
     event = require_family_event_for_update(db, family_id=family_id, event_id=source_event_id)
     rollup = require_family_total_rollup_for_update(db, family_id=family_id, period_start=event.period_start)
     if rollup.correction_status is not ModelUsageCorrectionStatus.OPEN:
         raise ModelUsageAdjustmentWindowClosed("model_usage_adjustment_window_closed")
-    return event
+    counters = lock_adjustment_counters_in_global_order(db, event=event)
+    return event, current_policy, counters
 ```
 
 - [ ] Implement preview checksum over source effective state, proposed deltas, counters, rollup revision, and alert impact without mutation.
@@ -1701,17 +2276,45 @@ preview_payload = {
 return AdjustmentPreview(payload=preview_payload, checksum=canonical_checksum(preview_payload))
 ```
 
-- [ ] Implement apply with checksum verification, idempotency, append-only rows, and same-transaction counter delta.
+- [ ] Implement apply with checksum verification, a database-unique group claim before every line/counter mutation, append-only lines, and same-transaction counter delta. The header owns `(family_id, idempotency_key, fingerprint)`; line rows own only `(adjustment_group_id, line_sequence)`.
 
 ```python
 if command.confirm_checksum != preview.checksum:
     raise ModelUsageAdjustmentConflict("checksum_mismatch")
-existing = adjustment_group_by_idempotency_key(db, command.idempotency_key)
+existing = adjustment_group_by_idempotency_key_for_update(
+    db, family_id=command.family_id, idempotency_key=command.idempotency_key
+)
 if existing is not None:
     return replay_or_conflict(existing, command.fingerprint)
-insert_adjustment_lines(db, command, source_event=event)
-counter.adjustment_value += command.cost_delta_cny
+try:
+    with db.begin_nested():
+        group = build_adjustment_group_claim(command, source_event=event)
+        db.add(group)
+        db.flush()  # claims uq_model_usage_adjustment_group_key
+except IntegrityError:
+    winner = require_adjustment_group_for_update(
+        db, family_id=command.family_id, idempotency_key=command.idempotency_key
+    )
+    return replay_or_conflict(winner, command.fingerprint)
+insert_adjustment_lines(db, group=group, command=command)
+apply_cost_and_meter_adjustment_values(counters, command.lines)
 db.flush()
+```
+
+Before the claim, project the source event plus all prior ordered adjustments plus the proposed group; reject any effective cost or meter below zero and require execution-resolution deltas to match the resulting state. The claim is the first mutation. A unique loser never inserts lines and never reaches counter/alert mutation. The repository always includes `family_id` when finding or locking an idempotency winner.
+
+- [ ] Add a real MySQL race test for 50 same-key commands and a mixed-fingerprint pair; prove one group, its complete ordered line set, and one counter delta. Same fingerprint returns the complete winner result only after its transaction commits.
+
+```python
+def test_concurrent_adjustment_group_claim_is_exactly_once(mysql_usage_context) -> None:
+    results = run_barriered([
+        lambda: mysql_usage_context.adjust(idempotency_key="adj-1", fingerprint="fp-a", lines=TWO_LINES)
+        for _ in range(50)
+    ])
+    assert len({result.group_id for result in results}) == 1
+    assert mysql_usage_context.adjustment_group_count("adj-1") == 1
+    assert mysql_usage_context.adjustment_line_count("adj-1") == 2
+    assert mysql_usage_context.counter_delta_applied_times("adj-1") == 1
 ```
 
 - [ ] Add failing negative-adjustment concurrency test proving credit is immediately available to a later reservation and no prior blocked call is replayed.
@@ -1766,13 +2369,15 @@ for owner_user_id in active_owner_user_ids(db, family_id=policy.family_id):
     ))
 ```
 
-- [ ] Call alert evaluation inside exact settlement and adjustment apply transactions after counter mutation.
+- [ ] Call alert evaluation inside exact settlement and adjustment apply transactions after counter mutation, using the current policy captured under the transaction's pointer-first lock rather than the reservation admission policy.
 
 ```python
 add_settled_values(counters, event, meter_rows)
-alerts = evaluate_budget_alerts(db, policy=reservation.policy_version, counter=family_cost_counter)
+alerts = evaluate_budget_alerts(db, policy=current_policy, counter=family_cost_counter)
 reservation.status = terminal_status_for(event)
 ```
+
+- [ ] Add a policy-update/late-settlement interleaving test: whichever transaction acquires the policy pointer first determines the alert revision; a settlement ordered after the update cannot create an alert for the stale admission budget.
 
 - [ ] Run adjustment, alert, and MySQL concurrency tests.
 
@@ -1826,13 +2431,17 @@ def test_execution_resolution_removes_unresolved_unknown_without_mutating_event(
     assert snapshot_event_row(unknown_event) == original
 ```
 
-- [ ] Implement ordered adjustment projection by `(created_at, group_id, line_id)` and resolution-kind validation.
+- [ ] Implement ordered adjustment projection by `(group.created_at, group.id, line_sequence, line.id)` and resolution-kind validation; load group/lines by the source event's family scope.
 
 ```python
-def effective_event_state(event: ModelUsageEvent, adjustments: Sequence[ModelUsageAdjustment]) -> EffectiveUsageState:
+def effective_event_state(
+    event: ModelUsageEvent,
+    adjustment_groups: Sequence[ModelUsageAdjustmentGroup],
+) -> EffectiveUsageState:
     state = EffectiveUsageState.from_event(event)
-    for adjustment in sorted(adjustments, key=adjustment_order_key):
-        state = state.apply(adjustment)
+    for group in sorted(adjustment_groups, key=adjustment_group_order_key):
+        for line in sorted(group.lines, key=adjustment_line_order_key):
+            state = state.apply(line)
     return state
 ```
 
@@ -1969,12 +2578,12 @@ git commit -m "feat(model-usage): add deterministic usage rollups"
 
 **Interfaces**
 
-- Consumes: dirty periods, active/uncertain reservations, receipt queue, outage latch, price coverage, raw ledger/rollup checksums.
+- Consumes: dirty periods, active/uncertain reservations, adjustment groups/lines, receipt queue, outage latch, price coverage, raw ledger/rollup checksums.
 - Produces: `ModelUsageMaintenanceWorker.start()/stop()`, scheduled short batches, health JSON/text and non-zero unhealthy CLI exit.
 - Worker tasks/frequencies are fixed: incident 15s, reservation 30s, uncertain 5m, alerts 5m, rollup 15m, audit hourly, coverage startup/daily, prune daily 03:30 Asia/Shanghai.
 - CLI subcommands: `health`, `reconcile`, `audit`, `rollup`, `prune`, `adjustment preview`, `adjustment apply`, and `incident record`.
 
-- [ ] Add failing counter-audit tests for settled/reserved/adjustment equations, second locked verification, safe repair, and fail-closed/fail-open health behavior.
+- [ ] Add failing counter-audit tests for separate family-cost, capability-cost, and capability-meter settled/reserved/adjustment equations; include unpriced and informational guardrail-eligible quantities, second locked verification, safe repair, and fail-closed/fail-open health behavior.
 
 ```python
 def test_counter_audit_repairs_only_after_locked_recheck(db, drifted_counter) -> None:
@@ -1983,19 +2592,48 @@ def test_counter_audit_repairs_only_after_locked_recheck(db, drifted_counter) ->
     assert report.rechecked_under_lock is True
     assert report.repaired is True
     assert report.after == report.expected
+
+def test_capability_meter_audit_uses_quantity_not_cost(db, meter_counter_fixture) -> None:
+    fixture = meter_counter_fixture(
+        event_quantity="120", event_cost="0.006", reserved_quantity="30",
+        reserved_cost="0.002", meter_delta="-5", cost_delta="-0.001",
+    )
+    expected = expected_counter_values(db, fixture.counter)
+    assert expected == CounterValues(
+        settled_value=Decimal("120"),
+        reserved_value=Decimal("30"),
+        adjustment_value=Decimal("-5"),
+    )
+
+def test_unpriced_informational_quantity_is_audited_into_meter_counter(db, meter_counter_fixture) -> None:
+    fixture = meter_counter_fixture(
+        pricing_status="unpriced", meter_role="informational", event_quantity="40", event_cost=None
+    )
+    assert expected_counter_values(db, fixture.counter).settled_value == Decimal("40")
 ```
 
-- [ ] Implement ledger-derived counter expectations and fixed counter lock order; never mutate events.
+- [ ] Implement ledger-derived counter expectations dispatched by `counter_kind` and fixed counter lock order; never mutate events. Cost counters read CNY cost/cost_delta only; capability meter counters read matching reservation/event quantity/meter_delta regardless of pricing status or meter role, after validating the central guardrail contract.
 
 ```python
-expected = CounterValues(
-    settled_value=sum_priced_settled_events(db, key),
-    reserved_value=sum_active_reservations(db, key),
-    adjustment_value=sum_adjustments(db, key),
-)
+match counter.counter_kind:
+    case ModelUsageCounterKind.FAMILY_COST:
+        expected = expected_family_cost_values(db, counter)
+    case ModelUsageCounterKind.CAPABILITY_COST:
+        expected = expected_capability_cost_values(db, counter)
+    case ModelUsageCounterKind.CAPABILITY_METER:
+        require_guardrail_eligible(counter.capability, counter.meter)
+        expected = CounterValues(
+            settled_value=sum_event_meter_quantities(db, counter),
+            reserved_value=sum_active_reservation_meter_quantities(db, counter),
+            adjustment_value=sum_adjustment_meter_deltas(db, counter),
+        )
+    case _:
+        raise ModelUsageCounterAuditError("unsupported_counter_kind")
 if locked_counter_values(counter) != expected:
     replace_counter_values(counter, expected)
 ```
+
+The cost helpers exclude null/unpriced costs but include zero-priced/not-billed events. The meter helpers join event/reservation meter rows by family, period, capability, and meter; they do not filter on `meter_role`. Adjustment helpers join line → group so family/period/source scope comes from the immutable group header and cannot cross families.
 
 - [ ] Add failing retention tests for 13 complete months, preflight zero-delete failures, open→pruning→closed, adjustment/receipt/incident rejection, batch resume, and family-less global incidents.
 
@@ -2029,6 +2667,7 @@ def retention_preflight(db: Session, target: RetentionTarget) -> RetentionVerifi
 RAW_DELETE_ORDER = (
     "model_usage_alert_receipts", "model_usage_alerts",
     "model_usage_measurement_incident_attempts", "model_usage_adjustments",
+    "model_usage_adjustment_groups",
     "model_usage_event_meters", "model_usage_events",
     "model_usage_reservation_meters", "model_usage_reservations",
     "model_usage_period_counters", "model_usage_measurement_incidents",
@@ -2047,6 +2686,8 @@ def test_one_task_exception_does_not_stop_worker(fake_clock, worker) -> None:
 ```
 
 - [ ] Implement scheduler task descriptors and short-lived sessions; worker-facing uncertain recovery only queries existing attempts.
+
+- [ ] Implement `repair_alerts_batch` by selecting candidate family/period IDs without mutation, then using one short transaction per candidate with the same policy-pointer-first order as settlement/adjustment: lock current family policy pointer → load current immutable policy → lock family-cost counter → verify the rollup correction window → insert only alerts for the current `budget_alert_revision`. It never derives alert policy from a reservation/event and skips `pruning/closed` periods. Add a worker interleaving test proving a policy update that wins the pointer lock prevents a later repair from creating a stale-revision alert.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -2088,19 +2729,24 @@ DEFAULT_DAILY_TASKS = (
 )
 ```
 
-- [ ] Add configuration fields and validation for required mode, maintenance, default hard limit, receipt queue size, source-instance ID, and seven fixed required capabilities.
+- [ ] Add configuration fields and validation for required mode, maintenance, default hard limit, receipt queue size, receipt-integrity active key/keyring, fail-open proof TTL, source-instance ID, and seven fixed required capabilities.
 
 ```python
 model_usage_required: bool = False
 model_usage_maintenance_enabled: bool = True
 model_usage_default_hard_limit: bool = False
 model_usage_receipt_queue_size: int = 1000
+model_usage_receipt_integrity_active_key_id: str = ""
+model_usage_receipt_integrity_keys_json: SecretStr = SecretStr("")
+model_usage_fail_open_proof_ttl_seconds: int = 5
 model_usage_source_instance: str = "culina-api"
 ```
 
+Validate the proof TTL as a small positive value below the minimum configured provider timeout. It bounds proof reuse but does not turn the fail-open policy read and provider send into an atomic operation. Required-mode preflight also requires the active receipt-integrity key ID to resolve from the secret keyring; health reports key IDs/retirement deadlines only, never key material. Operators retain every verification key until all receipts signed by it are outside the maximum log/recovery window.
+
 Production preflight rejects `MODEL_USAGE_REQUIRED=false`; local/test may leave it false.
 
-- [ ] Add failing preflight tests for missing migration, missing policy/subject, missing price coverage, missing recovery declaration/window, SDK retry, and adapter registry gaps.
+- [ ] Add failing preflight tests for missing migration/idempotency unique, missing policy/subject, missing price or guardrail-meter coverage, invalid fail-open proof TTL, absent/expired receipt-integrity verification key, missing recovery declaration/window, SDK retry, and adapter registry gaps.
 
 ```python
 def test_required_preflight_rejects_missing_capability_coverage(preflight_fixture) -> None:
@@ -2208,6 +2854,8 @@ git commit -m "feat(model-usage): add maintenance worker and operations cli"
 - Add optional `usage_attribution: UsageAttribution | None` to `BaseChatProvider.generate`, `generate_with_tools`, and `stream_generate`. Built-in remote providers require it when `MODEL_USAGE_REQUIRED=true`; disabled/fake providers do not dispatch and may omit it.
 - `LLMUsageAdapter.start_round(attribution, provider_round, attempt_index, model, input_estimate, output_cap, fingerprint) -> MeteredProviderAttempt`.
 - Existing prompt-cache/stream-option compatibility fallback may retry only after the first attempt is conclusively classified `confirmed_not_executed/not_billed`; the changed payload always receives a new attempt key and reservation. Ambiguous transport errors never enter this fallback.
+- `model_usage_dispatch_recovery_required` means the same attempt already has a durable send intent; the current invocation does not call the provider or start a fallback attempt, and leaves recovery to Task 7's mode-specific path.
+- `model_usage_attempt_already_accounted` means the ledger event already exists; the adapter does not call the provider, and the owning workflow reloads its persisted business result or exposes a pending/manual-recovery state instead of inventing a response or creating a same-key retry.
 
 - [ ] Add failing adapter tests for input/cached normalization, output cap, per-round attempt keys, streaming cancellation, unknown alias, and trace-disabled usage.
 
@@ -2235,7 +2883,10 @@ class MeteredProviderAdapter:
         decision = self.usage_facade.reserve(context, estimate, fingerprint=fingerprint)
         if decision.decision == "blocked":
             raise ModelUsageBlocked.from_decision(decision)
+        if decision.decision == "already_accounted":
+            raise ModelUsageAttemptAlreadyAccounted(require_value(decision.existing_event_id))
         return MeteredProviderAttempt(
+            usage_facade=self.usage_facade,
             context=context,
             estimate=estimate,
             decision=decision,
@@ -2244,11 +2895,13 @@ class MeteredProviderAdapter:
         )
 
 class MeteredProviderAttempt:
+    usage_facade: ModelUsageFacade
     context: UsageContext
     estimate: UsageEstimate
     decision: ReservationDecision
     fingerprint: str
     recovery_policy: ProviderRecoveryPolicy
+    _dispatch_prepared: bool = False
 
     @property
     def attempt_key(self) -> str:
@@ -2259,18 +2912,20 @@ class MeteredProviderAttempt:
         return self.decision.reservation_id
 
     def prepare_dispatch(self) -> DispatchPermit:
+        if self._dispatch_prepared:
+            raise ModelUsageDispatchRecoveryRequired("model_usage_dispatch_recovery_required")
         if self.decision.decision == "fail_open":
-            return fail_open_dispatch_permit(
-                context=self.context,
-                subject_key=require_value(self.decision.subject_key),
+            permit = self.usage_facade.consume_fail_open_dispatch_permit(
+                require_value(self.decision.fail_open_permit), at=utcnow()
+            )
+        else:
+            permit = prepare_usage_dispatch(
+                require_value(self.decision.reservation_id),
                 fingerprint=self.fingerprint,
                 recovery_policy=self.recovery_policy,
             )
-        return prepare_usage_dispatch(
-            require_value(self.decision.reservation_id),
-            fingerprint=self.fingerprint,
-            recovery_policy=self.recovery_policy,
-        )
+        self._dispatch_prepared = True
+        return permit
 
     def settle(self, receipt: ProviderUsageReceipt) -> UsageSettlement:
         return settle_usage(receipt)
@@ -3013,6 +3668,7 @@ git commit -m "feat(model-usage): meter speech transcription and synthesis"
 - Modify: `backend/app/services/ai_audio/realtime.py`
 - Modify: `backend/app/services/ai_audio/dashscope_audio.py`
 - Modify: `backend/app/services/ai_audio/cooking_voice_stream.py`
+- Modify: `backend/app/services/model_usage/recovery.py`
 - Modify: `backend/app/services/model_usage/retention.py`
 - Modify: `backend/app/api/ai_audio.py`
 - Create: `backend/tests/model_usage/test_realtime_audio_adapter.py`
@@ -3022,9 +3678,11 @@ git commit -m "feat(model-usage): meter speech transcription and synthesis"
 
 **Interfaces**
 
-- Consumes: authenticated realtime session, stable turn/segment/lease sequence, server-measured input/output audio, provider cumulative usage where available.
-- Produces: a reservation/event per dispatched lease; monotonic per-period/session/provider/meter watermark; `renewed|blocked|ended` lease decision.
+- Consumes: authenticated realtime session, server-generated turn/segment/lease sequence, cumulative server input/output clocks, and provider cumulative usage snapshots where available.
+- Produces: one terminal reservation/event per dispatched lease; monotonic per-period/session/provider/meter watermark; `active|renewed|blocked|ended|settlement_pending` lease decision.
 - WebSocket connection creation alone never reserves or creates an event. Lease duration is fixed at 30 seconds.
+- The per-session lease gate serializes provider audio sends, deadline renewal, cancel, timeout, and disconnect. Lease N must reach a durable terminal settlement before lease N+1 can reserve/dispatch or send audio; a settlement-pending lease ends remote voice even in monitoring mode so attribution windows cannot overlap.
+- Each configured realtime variant declares `lease_boundary_cumulative_meters`: only provider meters guaranteed observable at every lease boundary use durable watermarks. Missing/decreasing data for a declared meter is settlement pending; variants without that guarantee use server-clock meters or per-lease estimates and never reinterpret a late session total as the last lease.
 - Internal STT/TTS within realtime is booked as `realtime_audio`; the AI model invoked by `AIApplicationService` remains `llm`.
 
 - [ ] Add failing ORM/migration tests for `model_usage_realtime_watermarks` family/session/provider/meter uniqueness and 13-month raw retention behavior.
@@ -3036,7 +3694,10 @@ def test_realtime_watermark_identity_is_period_scoped_and_non_nullable() -> None
         "family_id", "period_start", "session_key", "provider", "meter"
     }
     assert table.c.period_start.nullable is False
+    assert table.c.period_end.nullable is False
+    assert table.c.session_key.nullable is False
     assert table.c.cumulative_quantity.nullable is False
+    assert table.c.sequence.nullable is False
 ```
 
 - [ ] Add the ORM model and migration `4e5f6a7b8c9d` after `3e4f5a6b7c8d`.
@@ -3054,12 +3715,22 @@ class ModelUsageRealtimeWatermark(Base):
             name="uq_model_usage_realtime_watermark",
         ),
     )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    family_id: Mapped[str] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    session_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    meter: Mapped[ModelUsageMeter] = mapped_column(
+        SqlEnum(ModelUsageMeter, native_enum=False), nullable=False
+    )
     cumulative_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
 ```
 
-- [ ] Add failing adapter tests for no-connect event, first lease, renewal, stable attempt replay, disconnect partial settlement, budget block, and cross-month new period.
+- [ ] Add failing adapter tests for no-connect event, a 65-second three-lease session, stable attempt replay, concurrent terminal callbacks, content-free receipt recovery after process-state loss, disconnect partial settlement, renewal budget block, settlement-pending renewal, and cross-month new period.
 
 ```python
 def test_connection_without_remote_audio_has_no_usage(realtime_harness) -> None:
@@ -3068,13 +3739,65 @@ def test_connection_without_remote_audio_has_no_usage(realtime_harness) -> None:
     assert realtime_harness.reservations == 0
     assert realtime_harness.events == 0
 
+def test_sixty_five_seconds_terminalizes_three_non_overlapping_leases(realtime_harness) -> None:
+    result = realtime_harness.stream_for(
+        seconds=65,
+        input_clock_totals=[Decimal("30"), Decimal("60"), Decimal("65")],
+        output_clock_totals=[Decimal("18"), Decimal("37"), Decimal("40")],
+        provider_cumulative_totals=[Decimal("100"), Decimal("145"), Decimal("180")],
+    )
+    assert [event.quantity("audio_input_seconds") for event in result.events] == [
+        Decimal("30"), Decimal("30"), Decimal("5")
+    ]
+    assert [event.quantity("audio_output_seconds") for event in result.events] == [
+        Decimal("18"), Decimal("19"), Decimal("3")
+    ]
+    assert [event.quantity("audio_input_tokens") for event in result.events] == [
+        Decimal("100"), Decimal("45"), Decimal("35")
+    ]
+    assert sum(event.quantity("audio_input_seconds") for event in result.events) == Decimal("65")
+    assert result.active_reservations == []
+    assert all(event.terminal for event in result.events)
+
+def test_renewal_settles_previous_lease_before_new_budget_decision(realtime_harness) -> None:
+    first = realtime_harness.start_and_expire_first_lease()
+    realtime_harness.block_next_reservation("model_usage_capability_limit_exceeded")
+    renewal = realtime_harness.send_next_audio_frame()
+    assert first.event_id is not None
+    assert first.reservation_status == "settled"
+    assert renewal.decision == "blocked"
+    assert realtime_harness.provider_audio_sends_after(first.expires_at) == 0
+
+def test_pending_terminal_settlement_never_opens_next_lease(realtime_harness) -> None:
+    realtime_harness.fail_next_settlement("model_usage_settlement_pending")
+    outcome = realtime_harness.send_audio_at_first_lease_deadline()
+    assert outcome.decision == "settlement_pending"
+    assert realtime_harness.lease_sequences_dispatched == [1]
+    assert realtime_harness.remote_voice_ended is True
+
+def test_late_provider_cumulative_increase_blocks_renewal(realtime_harness) -> None:
+    realtime_harness.finish_first_lease(provider_cumulative=Decimal("100"))
+    outcome = realtime_harness.begin_next_lease(provider_cumulative_before_send=Decimal("105"))
+    assert outcome.decision == "settlement_pending"
+    assert realtime_harness.lease_sequences_dispatched == [1]
+
+def test_receipt_recovery_advances_event_counter_and_watermark_once(realtime_harness) -> None:
+    receipt = realtime_harness.fail_settlement_after_freezing_receipt(cumulative=Decimal("145"))
+    realtime_harness.drop_all_process_session_state()
+    first = realtime_harness.recover_receipt(receipt)
+    replay = realtime_harness.recover_receipt(receipt)
+    assert first.event_id == replay.event_id
+    assert realtime_harness.durable_watermark(receipt.meter_watermarks[0].meter) == Decimal("145")
+    assert realtime_harness.counter_mutations_for(receipt.attempt_key) == 1
+
 def test_cross_month_renewal_uses_new_period(realtime_harness) -> None:
-    first = realtime_harness.dispatch_lease(at=aware("2026-07-31T15:59:50Z"))
-    second = realtime_harness.renew(at=aware("2026-07-31T16:00:01Z"))
+    first = realtime_harness.dispatch_lease(at=aware("2026-07-31T15:59:40Z"))
+    second = realtime_harness.renew(at=aware("2026-07-31T16:00:10Z"))
+    assert first.event_id is not None
     assert first.period_start != second.period_start
 ```
 
-- [ ] Implement canonical attempt keys and 30-second estimates; sequence values are server-generated, not client-controlled.
+- [ ] Implement canonical attempt keys, 30-second estimates, and baseline capture; sequence values come only from locked server session state, not client input.
 
 ```python
 def realtime_attempt_key(session_id: str, turn_id: str, segment: str, lease_sequence: int) -> str:
@@ -3083,49 +3806,97 @@ def realtime_attempt_key(session_id: str, turn_id: str, segment: str, lease_sequ
 def begin_lease(
     self,
     *,
-    session_id: str,
+    session: RealtimeVoiceSessionState,
     turn_id: str,
     segment: str,
-    lease_sequence: int,
-) -> MeteredProviderAttempt:
-    attempt_key = realtime_attempt_key(session_id, turn_id, segment, lease_sequence)
+    now: datetime,
+    server_input_clock: CumulativeAudioClock,
+    server_output_clock: CumulativeAudioClock,
+    provider_cumulative: Mapping[ModelUsageMeter, Decimal],
+) -> ActiveRealtimeUsageLease:
+    lease_sequence = session.next_lease_sequence
+    attempt_key = realtime_attempt_key(session.session_id, turn_id, segment, lease_sequence)
+    provider_baselines = require_pre_send_provider_baselines(
+        previous=session.provider_meter_watermarks,
+        observed=provider_cumulative,
+        required_meters=self.billing_variant.lease_boundary_cumulative_meters,
+        first_lease=lease_sequence == 1,
+    )
     estimate = estimate_realtime_audio(
         billable_meters=self.billing_variant.billable_meters,
         lease_seconds=Decimal("30"),
         input_tokens_per_second_cap=self.billing_variant.input_tokens_per_second_cap,
         output_tokens_per_second_cap=self.billing_variant.output_tokens_per_second_cap,
     )
-    return self.base.begin(
+    attempt = self.base.begin(
         context=self.context(attempt_key=attempt_key),
         estimate=estimate,
         fingerprint=fingerprint_realtime_lease(attempt_key),
         recovery_policy=ProviderRecoveryPolicy.none(),
     )
+    permit = attempt.prepare_dispatch()
+    if permit.send_kind not in {"first_send", "fail_open_single_send"}:
+        raise ModelUsageDispatchRecoveryRequired("model_usage_dispatch_recovery_required")
+    lease = ActiveRealtimeUsageLease(
+        lease_sequence=lease_sequence,
+        attempt_key=attempt_key,
+        reservation_id=attempt.reservation_id,
+        dispatch_permit=permit,
+        period=permit.period,
+        started_at=permit.dispatched_at,
+        expires_at=permit.dispatched_at + timedelta(seconds=30),
+        server_input_clock_baseline=server_input_clock.total,
+        server_output_clock_baseline=server_output_clock.total,
+        provider_meter_baselines=provider_baselines,
+    )
+    session.active_usage_lease = lease
+    session.next_lease_sequence += 1
+    return lease
 ```
 
-- [ ] Add failing cumulative-usage tests showing `100 → 145 → 145` settles `100 → 45 → 0` exactly once and rejects decreasing watermarks.
+`begin_lease` is called only while holding `usage_lease_lock` and only after any prior lease has terminally committed. Its provider baseline is the content-free cumulative snapshot observed before this lease's first send. Every declared meter must be present, including lease 1; missing data is never synthesized as zero. After lease 1 the snapshot must equal the last terminal watermark exactly—an increase means late usage still belongs to the prior window and blocks dispatch until reconciled, while a decrease is invalid. At settlement the durable row must match this baseline. At a Beijing month boundary, a missing current-period row is created from the same absolute baseline and checked against the latest prior-period row. A failure after durable dispatch but before installing local state is treated by the ordinary uncertain recovery path; it never authorizes reconstructing and sending the same `recovery_mode=none` attempt.
+
+- [ ] Add failing cumulative-usage tests showing `100 → 145 → 180` settles `100 → 45 → 35` exactly once, same-attempt replay does not advance again, and decreasing/baseline-mismatched watermarks are rejected.
 
 ```python
 def test_cumulative_usage_is_converted_to_monotonic_delta(realtime_adapter) -> None:
     assert realtime_adapter.delta(session="s1", meter="audio_input_tokens", cumulative=100) == Decimal("100")
     assert realtime_adapter.delta(session="s1", meter="audio_input_tokens", cumulative=145) == Decimal("45")
-    assert realtime_adapter.delta(session="s1", meter="audio_input_tokens", cumulative=145) == Decimal("0")
+    assert realtime_adapter.delta(session="s1", meter="audio_input_tokens", cumulative=180) == Decimal("35")
+    replay = realtime_adapter.replay_terminal_lease(session="s1", lease_sequence=3)
+    assert replay.existing_event is True
+    assert replay.watermark == Decimal("180")
     with pytest.raises(ModelUsageSettlementPending, match="realtime_watermark_decreased"):
         realtime_adapter.delta(session="s1", meter="audio_input_tokens", cumulative=120)
+
+def test_lease_baseline_must_match_durable_watermark(realtime_adapter) -> None:
+    lease = realtime_adapter.active_lease(provider_meter_baselines={"audio_input_tokens": Decimal("100")})
+    realtime_adapter.force_durable_watermark("audio_input_tokens", Decimal("145"))
+    with pytest.raises(ModelUsageSettlementPending, match="realtime_watermark_baseline_conflict"):
+        realtime_adapter.finish_active_lease(lease, provider_cumulative={"audio_input_tokens": Decimal("180")})
 ```
 
-- [ ] Implement watermark row lock/update in the same transaction that creates the lease event.
+- [ ] Implement sorted watermark row locks after the base settlement locks; validate the active lease baseline and update each row in the same transaction that claims the event and mutates counters.
 
 ```python
-watermark = lock_or_create_realtime_watermark(db, key)
-if reported_cumulative < watermark.cumulative_quantity:
+watermark = lock_or_create_realtime_watermark(
+    db,
+    key,
+    initial_cumulative_quantity=lease.provider_meter_baselines[meter],
+)
+expected_baseline = lease.provider_meter_baselines[meter]
+if watermark.cumulative_quantity != expected_baseline:
+    raise ModelUsageSettlementPending("realtime_watermark_baseline_conflict")
+if reported_cumulative < expected_baseline:
     raise ModelUsageSettlementPending("realtime_watermark_decreased")
-delta = reported_cumulative - watermark.cumulative_quantity
+delta = reported_cumulative - expected_baseline
 watermark.cumulative_quantity = reported_cumulative
 watermark.sequence = lease_sequence
 ```
 
-At a Beijing month boundary, initialize the new period row with the prior row's last cumulative quantity as its baseline, then charge only the provider delta reported after the boundary. The new row's `cumulative_quantity` stores the provider's absolute watermark, not a month-local reset.
+The fixed settlement lock order is current policy pointer → reservation → family/capability counters → event unique claim → watermark rows sorted by meter. No path may lock a watermark before the policy/reservation/counter set. If the event claim replays, return the existing event before changing any watermark. Baseline/end/sequence evidence lives in the content-free `ProviderUsageReceipt`, so queue/log recovery after a process restart can advance the exact same row without reconstructing values from current session state. At a Beijing month boundary, initialize the new period row with the prior row's last cumulative quantity as its baseline, then charge only the provider delta reported after the boundary. The new row's `cumulative_quantity` stores the provider's absolute watermark, not a month-local reset.
+
+If a variant contract does not declare lease-boundary cumulative support, settle server-clock meters from that lease's own baselines and mark provider-only meters estimated from its reservation; do not create a watermark for them. If a declared cumulative meter is missing, decreased, or disagrees with the active baseline, settlement remains pending and renewal stops. A later session-total snapshot must not be charged wholly to the final lease or layered on top of prior estimates; only a provider-supported, deterministic per-lease allocation may create adjustment groups for those terminal events.
 
 - [ ] Extend Task 10 retention order and verification so period-scoped realtime watermarks are pruned with their raw ledger period and are absent before `correction_status=closed`.
 
@@ -3133,6 +3904,7 @@ At a Beijing month boundary, initialize the new period row with the prior row's 
 RAW_DELETE_ORDER = (
     "model_usage_alert_receipts", "model_usage_alerts",
     "model_usage_measurement_incident_attempts", "model_usage_adjustments",
+    "model_usage_adjustment_groups",
     "model_usage_event_meters", "model_usage_events",
     "model_usage_reservation_meters", "model_usage_reservations",
     "model_usage_realtime_watermarks", "model_usage_period_counters",
@@ -3140,9 +3912,26 @@ RAW_DELETE_ORDER = (
 )
 ```
 
-- [ ] Extend `RealtimeVoiceSessionState` with server `next_lease_sequence`, current dispatch permit, and no business content in persisted usage references.
+- [ ] Add an explicit active-lease state and a per-session async gate; keep business audio/text out of every usage reference.
 
 ```python
+@dataclass(slots=True)
+class ActiveRealtimeUsageLease:
+    lease_sequence: int
+    attempt_key: str
+    reservation_id: str | None
+    dispatch_permit: DispatchPermit
+    period: BillingPeriod
+    started_at: datetime
+    expires_at: datetime
+    server_input_clock_baseline: Decimal
+    server_output_clock_baseline: Decimal
+    provider_meter_baselines: Mapping[ModelUsageMeter, Decimal]
+    terminal_state: Literal["active", "settlement_pending", "terminal"] = "active"
+    terminal_provider_watermarks: Mapping[ModelUsageMeter, Decimal] | None = None
+    terminal_receipt: ProviderUsageReceipt | None = None
+    terminal_event_id: str | None = None
+
 @dataclass(slots=True)
 class RealtimeVoiceSessionState:
     session_id: str
@@ -3150,36 +3939,116 @@ class RealtimeVoiceSessionState:
     user_id: str
     provider: str
     next_lease_sequence: int = 1
-    active_usage_reservation_id: str | None = None
+    provider_meter_watermarks: dict[ModelUsageMeter, Decimal] = field(default_factory=dict)
+    active_usage_lease: ActiveRealtimeUsageLease | None = None
+    usage_lease_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 ```
 
-- [ ] Begin a lease immediately before the first provider audio send, renew before later remote audio, and stop sending when renewal is blocked.
+`dispatch_permit` is the content-free permit from Task 6; the receipt persists `subject_key`, never `user_id`. Provider meter baselines are immutable snapshots captured before the first send of this lease. `terminal_state="terminal"` is set only after an event commit or idempotent reload of that existing event, not merely because a local `finally` block ran.
+
+- [ ] Implement `ensure_active_lease` as `finish N → commit terminal N → reserve/dispatch N+1`; start a lease immediately before its first provider audio frame and stop when renewal is blocked or prior settlement is pending.
 
 ```python
-lease = usage_adapter.ensure_active_lease(
-    session=session,
-    turn_id=turn_id,
-    segment="duplex",
-    now=utcnow(),
-)
-if lease.decision == "blocked":
-    await send_json({"type": "usage_limit", "code": lease.error_code, "message": "本次语音会话已结束，可以继续使用文字。"})
-    return
-await provider_websocket.send(provider_audio_frame)
-```
-
-- [ ] Settle server-measured input/output deltas on segment end, cancel, timeout, and disconnect; absent exact usage becomes estimated, never zero.
-
-```python
-finally:
-    if session.active_usage_reservation_id is not None:
-        usage_adapter.finish_lease(
+async def send_metered_remote_audio(provider_audio_frame: bytes, *, frame_seconds: Decimal) -> None:
+    async with session.usage_lease_lock:
+        outcome = usage_adapter.ensure_active_lease(
             session=session,
-            input_seconds=server_input_clock.elapsed,
-            output_seconds=server_output_clock.elapsed,
+            turn_id=turn_id,
+            segment="duplex",
+            now=utcnow(),
+            server_input_clock=server_input_clock,
+            server_output_clock=server_output_clock,
+            provider_cumulative=provider_usage_snapshot(),
+        )
+        if outcome.decision in {"blocked", "settlement_pending"}:
+            await send_json({
+                "type": "usage_limit",
+                "code": outcome.error_code,
+                "message": "本次语音会话已结束，可以继续使用文字。",
+            })
+            await stop_remote_voice_without_stopping_text()
+            return
+        if outcome.decision == "ended":
+            await stop_remote_voice_without_stopping_text()
+            return
+        await provider_websocket.send(provider_audio_frame)
+        server_input_clock.add(frame_seconds)
+```
+
+Inside `ensure_active_lease`, an unexpired active lease returns `active`. At/after its deadline, first call `finish_active_lease`; clear it only after terminal commit, then obtain provider baselines, reserve/dispatch the next server sequence and install the new active lease. A blocked reservation consumes no provider send. `already_accounted`, `recovery_required`, an expired fail-open proof, or settlement pending ends remote voice rather than treating an old permit as a new send authorization. Increment `next_lease_sequence` only after a new dispatch permit has been installed. A deadline task acquires the same lock at `expires_at`, so a quiet connection cannot leave an expired dispatching reservation open until disconnect.
+
+- [ ] Settle only the active lease's server-clock/provider-watermark deltas on deadline, segment end, cancel, timeout, and disconnect; serialize concurrent callbacks and never pass whole-segment elapsed values.
+
+```python
+def finish_active_lease(
+    session: RealtimeVoiceSessionState,
+    *,
+    input_clock_total: Decimal,
+    output_clock_total: Decimal,
+    provider_cumulative: Mapping[ModelUsageMeter, Decimal],
+    completion_reason: str,
+) -> LeaseTerminalOutcome:
+    lease = require_value(session.active_usage_lease)
+    if lease.terminal_state == "terminal":
+        return LeaseTerminalOutcome.existing(lease.terminal_event_id)
+    if lease.terminal_receipt is None:
+        try:
+            input_delta = require_non_negative(input_clock_total - lease.server_input_clock_baseline)
+            output_delta = require_non_negative(output_clock_total - lease.server_output_clock_baseline)
+            lease.terminal_provider_watermarks = freeze_required_provider_watermarks(
+                baselines=lease.provider_meter_baselines,
+                observed=provider_cumulative,
+            )
+            lease.terminal_receipt = build_realtime_lease_receipt(
+                lease=lease,
+                server_input_seconds=input_delta,
+                server_output_seconds=output_delta,
+                provider_cumulative=lease.terminal_provider_watermarks,
+                meter_watermarks=tuple(
+                    ProviderMeterWatermark(
+                        meter=meter,
+                        lease_sequence=lease.lease_sequence,
+                        baseline_quantity=baseline,
+                        cumulative_quantity=require_value(lease.terminal_provider_watermarks)[meter],
+                    )
+                    for meter, baseline in sorted(
+                        lease.provider_meter_baselines.items(), key=lambda item: item[0].value
+                    )
+                ),
+                completion_reason=completion_reason,
+            )
+        except ModelUsageSettlementPending as exc:
+            lease.terminal_state = "settlement_pending"
+            return LeaseTerminalOutcome.pending(error_code=exc.code)
+    try:
+        outcome = settle_realtime_lease(lease=lease, receipt=lease.terminal_receipt)
+    except ModelUsageSettlementPending as exc:
+        lease.terminal_state = "settlement_pending"
+        return LeaseTerminalOutcome.pending(error_code=exc.code)
+    if outcome.terminal:
+        session.provider_meter_watermarks.update({
+            meter: require_value(lease.terminal_provider_watermarks)[meter]
+            for meter in lease.provider_meter_baselines
+        })
+        lease.terminal_state = "terminal"
+        lease.terminal_event_id = outcome.event_id
+        session.active_usage_lease = None
+    return outcome
+
+async def finish_current_lease_once(completion_reason: str) -> None:
+    async with session.usage_lease_lock:
+        if session.active_usage_lease is None:
+            return
+        finish_active_lease(
+            session,
+            input_clock_total=server_input_clock.total,
+            output_clock_total=server_output_clock.total,
+            provider_cumulative=provider_usage_snapshot(),
             completion_reason=completion_reason,
         )
 ```
+
+The first terminalization attempt freezes one content-free `terminal_receipt`; DB retry, queue recovery, disconnect and concurrent callbacks reuse it instead of recomputing from later clock/watermark values. Server-clock zero is valid only when that frozen boundary actually observed zero. Missing provider-only usage for a variant without declared boundary support is filled from that lease's reservation estimate with `measurement_status=estimated`; it is never silently converted to zero. Concurrent deadline/disconnect/cancel callbacks all use `finish_current_lease_once`; the attempt/event unique claim makes a replay return the terminal event without a second counter or watermark mutation. If settlement remains pending, no renewal or provider frame is allowed and maintenance owns later recovery; later provider increments are separate reconciliation evidence, not mutations of the frozen receipt.
 
 - [ ] Ensure `DashScopeAudioProvider.transcribe_realtime_audio`, `synthesize_realtime_text`, and `stream_realtime_text` receive a realtime usage scope and do not create separate STT/TTS events.
 
@@ -3203,12 +4072,12 @@ cd ..
 git diff --check
 ```
 
-Expected: head is `4e5f6a7b8c9d`; connections alone cost nothing; cumulative usage is not duplicated; block ends remote audio without affecting text; LLM events remain separate.
+Expected: head is `4e5f6a7b8c9d`; connections alone cost nothing; a 65-second session has exactly three terminal lease events, zero active reservations, non-overlapping quantities whose sums equal the session clocks, and provider cumulative deltas `100/45/35`; concurrent terminal callbacks and post-restart receipt replay do not duplicate events/counters/watermarks; lease N settlement or replay completes before any N+1 send; a blocked or settlement-pending renewal ends remote audio without affecting text; cross-month watermarks keep their absolute baseline; LLM events remain separate.
 
 - [ ] Commit Task 15.
 
 ```bash
-git add backend/app/services/model_usage/adapters/realtime_audio.py backend/app/services/model_usage/retention.py backend/app/models/model_usage.py backend/app/models/__init__.py backend/alembic/versions/4e5f6a7b8c9d_add_realtime_usage_watermarks.py backend/app/services/ai_audio backend/app/api/ai_audio.py backend/tests/model_usage backend/tests/ai_audio
+git add backend/app/services/model_usage/adapters/realtime_audio.py backend/app/services/model_usage/recovery.py backend/app/services/model_usage/retention.py backend/app/models/model_usage.py backend/app/models/__init__.py backend/alembic/versions/4e5f6a7b8c9d_add_realtime_usage_watermarks.py backend/app/services/ai_audio backend/app/api/ai_audio.py backend/tests/model_usage backend/tests/ai_audio
 git commit -m "feat(model-usage): meter realtime audio leases"
 ```
 
@@ -3534,7 +4403,7 @@ def personal_overview(
     )
 ```
 
-- [ ] Add policy API tests for full immutable GET, successful PUT, validation, 409 contract, amount-free activity log, and missing-price hard-limit confirmation.
+- [ ] Add policy API tests for full immutable GET, successful PUT, validation, 409 contract, amount-free activity log, missing-price hard-limit confirmation, and rejection of request-body actor/creator identity fields.
 
 ```python
 def test_policy_conflict_returns_current_policy_and_keeps_client_draft(owner_client) -> None:
@@ -3544,12 +4413,28 @@ def test_policy_conflict_returns_current_policy_and_keeps_client_draft(owner_cli
     assert detail["code"] == "model_usage_policy_conflict"
     assert detail["current_version_number"] == 2
     assert detail["recovery_hint"] == "review_current_policy_and_reapply"
+
+def test_policy_request_cannot_spoof_creator_subject(owner_client, other_family_subject) -> None:
+    payload = policy_payload(base_version_number=1)
+    payload["actor_subject_id"] = other_family_subject.id
+    response = owner_client.put("/api/model-usage/family/policy", json=payload)
+    assert response.status_code == 422
 ```
 
 - [ ] Implement PUT policy OCC and activity log summary with no amount/limit details.
 
 ```python
-version = update_family_policy(db, command_from_request(user, membership, payload))
+actor_subject = ensure_user_subject(
+    db,
+    family_id=membership.family_id,
+    user_id=user.id,
+)
+command = command_from_request(
+    membership=membership,
+    payload=payload,
+    actor_subject_id=actor_subject.id,
+)
+version = update_family_policy(db, command)
 log_activity(
     db,
     family_id=membership.family_id,
@@ -3561,6 +4446,8 @@ log_activity(
 )
 commit_session(db)
 ```
+
+`ModelUsagePolicyUpdateRequest` sets `extra="forbid"`; `command_from_request` derives `family_id` from the authenticated membership and receives `actor_subject_id` only as a server-side argument. Neither identity is copied from JSON, even if a client sends a field with the same name.
 
 - [ ] Add alert API tests for Owner-only list, independent receipts, seen/dismiss idempotency, dismissed filtering, and cross-family IDs.
 
@@ -3764,6 +4651,9 @@ export const MODEL_USAGE_ERROR_OPTIONS: Record<ModelUsageErrorCode, { title: str
   model_usage_ledger_unavailable: { title: '暂时无法确认模型额度', message: '请稍后重试；当前没有发起新的模型调用。' },
   model_usage_reservation_conflict: { title: '这次调用状态有冲突', message: '请刷新后重新操作。' },
   model_usage_attempt_conflict: { title: '这次调用无法安全重放', message: '请新建一次操作后重试。' },
+  model_usage_attempt_already_accounted: { title: '这次调用已经记录', message: '请刷新当前操作结果；系统不会再次发起模型调用。' },
+  model_usage_dispatch_recovery_required: { title: '模型调用状态正在核对', message: '系统不会重复发起调用，请稍后查看结果。' },
+  model_usage_fail_open_proof_expired: { title: '本次调用未发起', message: '计量故障放行已过期，请重新操作。' },
   model_usage_settlement_pending: { title: '模型用量正在核对', message: '结果可继续使用，费用状态稍后更新。' },
   model_usage_policy_conflict: { title: '预算设置已更新', message: '请查看最新设置后再应用当前修改。' },
   model_usage_adjustment_window_closed: { title: '这个账期已归档', message: '历史统计不能再按单次调用修正。' },
@@ -4060,8 +4950,9 @@ git commit -m "feat(model-usage): add responsive usage workspace"
 - Desktop opens a right `WorkspaceDrawer`; phone replaces usage content with a full-screen settings page and explicit back action.
 - Save uses `base_version_number`; `busy` blocks close/duplicate submit. Failure/409 keeps the draft.
 - If active configured variants have missing price coverage, enabling hard limit requires one explicit checkbox/confirmation and sends `confirm_missing_price_impact=true`.
+- Hard-limit help text states the actual linearization boundary: after save, ordinary reservations that have not obtained first durable dispatch authorization are revalidated; already-dispatching calls and short-lived fail-open proofs issued before save may still finish.
 
-- [ ] Add failing UI tests for Owner-only access, desktop drawer, mobile full-screen page, default form, hard-limit prerequisites, one guardrail/capability, busy, error retention, and 409 recovery.
+- [ ] Add failing UI tests for Owner-only access, desktop drawer, mobile full-screen page, default form, hard-limit prerequisites, in-flight boundary disclosure, one guardrail/capability, busy, error retention, and 409 recovery.
 
 ```tsx
 it('uses a drawer on desktop and a full page on phone', async () => {
@@ -4131,7 +5022,7 @@ export function validatePolicyDraft(draft: ModelUsagePolicyDraft): ModelUsagePol
 </main>
 ```
 
-- [ ] Add missing-price impact confirmation and do not allow hard-limit save until it is checked.
+- [ ] Add missing-price impact confirmation plus persistent in-flight boundary help, and do not allow hard-limit save until the required confirmation is checked.
 
 ```tsx
 {model.requiresMissingPriceConfirmation && (
@@ -4141,9 +5032,12 @@ export function validatePolicyDraft(draft: ModelUsagePolicyDraft): ModelUsagePol
       checked={model.draft.confirm_missing_price_impact}
       onChange={(event) => actions.patch({ confirm_missing_price_impact: event.target.checked })}
     />
-    <span>我知道缺少价格的模型调用会从保存后直接被阻止。</span>
+    <span>我知道保存后，尚未取得发送授权的缺价调用会被阻止。</span>
   </label>
 )}
+<p id="model-usage-hard-limit-inflight-help">
+  已经开始发送的调用可能继续完成；保存前已签发的短时计量故障放行也可能完成。
+</p>
 ```
 
 - [ ] Render OCC conflict with current-policy summary and two explicit actions: review current, then reapply retained draft with the new base version.
@@ -4463,7 +5357,7 @@ git commit -m "feat(model-usage): unify usage alerts and degradation notices"
 
 **Interfaces**
 
-- Registry maps each enabled provider/billing model/capability/variant to adapter class, billable meter set, recovery policy, and owned source send points.
+- Registry maps each enabled provider/billing model/capability/variant to adapter class, billable meter set, produced guardrail-eligible meter set, realtime lease-boundary cumulative meter set, recovery policy, and owned source send points.
 - Static send inventory covers OpenAI Chat/Responses, image HTTP, embedding HTTP, rerank HTTP, OpenAI/DashScope STT/TTS, and three DashScope realtime WebSocket helpers.
 - Smoke script sends the smallest valid request for all seven capabilities in one designated test family, reports attempt/event/meter IDs and status only, and never prints content or secrets.
 - Report generator consumes machine-readable test/coverage/health/smoke artifacts and refuses to emit a “pass” report if any required gate is missing.
@@ -4522,6 +5416,8 @@ class ProviderUsageRegistration:
     variant_key: str
     adapter_path: str
     billable_meters: frozenset[ModelUsageMeter]
+    produced_guardrail_meters: frozenset[ModelUsageMeter]
+    lease_boundary_cumulative_meters: frozenset[ModelUsageMeter]
     reservation_parameters: Mapping[str, Decimal]
     recovery_policy: ProviderRecoveryPolicy
     source_send_points: frozenset[str]
@@ -4611,7 +5507,7 @@ def reference_host_profile() -> ReferenceHostProfile:
     )
 ```
 
-- [ ] Add first-launch preflight test that requires current head, default policies/subjects, seven configured registry entries, published price coverage, maintenance enabled, SDK retries disabled, and no active cross-version attempts.
+- [ ] Add first-launch preflight test that requires current head, actual MySQL idempotency unique keys, default policies/subjects, seven configured registry entries, cross-variant guardrail-meter coverage, published price coverage, maintenance enabled, valid fail-open proof TTL, SDK retries disabled, and no active cross-version attempts.
 
 ```python
 def test_first_launch_preflight_is_all_or_nothing(launch_fixture) -> None:
@@ -4619,6 +5515,10 @@ def test_first_launch_preflight_is_all_or_nothing(launch_fixture) -> None:
     assert report.required_capabilities == set(ModelUsageCapability)
     assert report.missing_capabilities == set()
     assert report.unregistered_send_points == set()
+    assert report.missing_idempotency_uniques == set()
+    assert report.missing_guardrail_meter_coverage == set()
+    assert report.unsupported_lease_boundary_cumulative_meters == set()
+    assert report.receipt_integrity_keyring_valid is True
     assert report.active_provider_attempts == 0
     assert report.ready is True
 ```
@@ -4654,7 +5554,7 @@ const modelUsageFamilyOverview = {
 };
 ```
 
-- [ ] Add Playwright E2E for Owner family/my, month switch, alert deep link/dismiss, policy save/conflict, member privacy, offline recovery, and all target viewports.
+- [ ] Add Playwright E2E for Owner family/my, month switch, alert deep link/dismiss, policy save/conflict and hard-limit in-flight disclosure, member privacy, offline recovery, and all target viewports.
 
 ```javascript
 for (const viewport of [
@@ -4735,9 +5635,10 @@ npm run backend:migrate
 cd backend
 CULINA_TEST_MYSQL_URL=mysql+pymysql://culina:culina@127.0.0.1:3306/culina_model_usage_test \
   .venv/bin/python -m pytest \
-  tests/model_usage/test_migration_mysql.py \
-  tests/model_usage/test_reservation_mysql_concurrency.py \
-  tests/model_usage/test_adjustment_mysql_concurrency.py \
+	  tests/model_usage/test_migration_mysql.py \
+	  tests/model_usage/test_reservation_mysql_concurrency.py \
+	  tests/model_usage/test_dispatch_policy_mysql_concurrency.py \
+	  tests/model_usage/test_adjustment_mysql_concurrency.py \
   tests/model_usage/test_realtime_audio_mysql.py \
   tests/model_usage/test_reporting_queries_mysql.py -q
 MODEL_USAGE_REFERENCE_PROFILE=culina-first-launch-mysql84-v1 \
@@ -4747,7 +5648,7 @@ MODEL_USAGE_REFERENCE_PROFILE=culina-first-launch-mysql84-v1 \
 cd ..
 ```
 
-Expected: upgrade succeeds from current head data; 50-way gate is 33/17/¥99; all MySQL tests pass. Use a disposable `_test` database with credentials provided by the test environment, not committed config.
+Expected: upgrade succeeds from current head data; 50-way budget gate is 33/17/¥99; same-attempt reservation/event/fail-open receipt and adjustment-group races each produce one database winner/counter mutation; policy-update/dispatch interleavings match the shared-pointer lock order; cost and meter audit formulas rebuild without drift. Use a disposable `_test` database with credentials provided by the test environment, not committed config.
 
 - [ ] Prepare the real production price manifest from current provider contracts, source references, reviewed FX, configured aliases, exact billing schemes, operator, and change ticket; then validate/diff/publish/coverage.
 
@@ -4799,7 +5700,7 @@ PYTHONPATH=. .venv/bin/python scripts/generate_model_usage_launch_report.py \
 cd ..
 ```
 
-The generated report must contain actual timestamps, git commit, Alembic head, configured variants, recovery modes, command exit codes, viewport evidence, unresolved P0/P1 count, and a machine-derived `ready_for_first_open` decision.
+The generated report must contain actual timestamps, git commit, Alembic head, verified idempotency unique keys, configured variants/guardrail meter coverage, recovery modes, dispatch-policy interleaving result, counter-kind audit result, command exit codes, viewport evidence, unresolved P0/P1 count, and a machine-derived `ready_for_first_open` decision.
 
 - [ ] Review `git status`, ensure no `.env`, key, secure manifest, provider content, logs, database dump, or `.artifacts` file is staged, then commit only code/tests/report.
 
@@ -4818,16 +5719,16 @@ git commit -m "test(model-usage): enforce first launch gates"
 | Approved specification area | Implemented by |
 | --- | --- |
 | Guarantees, unknown execution, no false exactly-once claim | Tasks 1, 6, 7 |
-| Controlled capabilities/meters and billable overlap | Tasks 1, 3 |
-| Price, subject, policy, counter, reservation, event, adjustment, rollup, alert, incident schema | Tasks 2–4 |
+| Controlled capabilities/meters, guardrail eligibility, and billable overlap | Tasks 1, 3, 5, 22 |
+| Price, subject, policy, counter, reservation/event attempt uniques, adjustment group/line, rollup, alert, incident schema | Tasks 2–4 |
 | Decimal/rounding/full-precision budget decisions | Tasks 1, 5, 6 |
-| Reserve/dispatch/settle/uncertain and independent transactions | Tasks 5–7 |
-| Negative adjustment and alert revision rules | Task 8 |
+| Reserve/dispatch/settle/uncertain, policy-dispatch linearization, bounded fail-open proof, and independent transactions | Tasks 5–7 |
+| Database-idempotent adjustment groups, negative adjustment, and alert revision rules | Task 8 |
 | Current/historical aggregation and 13-month closure boundary | Tasks 9–10 |
-| LLM/vision, embedding, rerank, STT, TTS, realtime, image generation | Tasks 11–16 |
+| LLM/vision, embedding, rerank, STT, TTS, realtime per-lease terminalization/watermark conservation, image generation | Tasks 11–16 |
 | Personal/Owner APIs, privacy, OCC, alert receipts | Task 17 |
 | Query keys, state model, responsive UI, settings, notifications | Tasks 18–21 |
-| MySQL concurrency, crash, privacy, performance, migration, E2E, real smoke | Task 22 |
+| MySQL unique-claim/policy-dispatch concurrency, counter-kind audit, crash, privacy, performance, migration, E2E, real smoke | Task 22 |
 
 ## Final Plan Self-Review Checklist
 
@@ -4837,6 +5738,10 @@ Before starting implementation, the executing agent must verify this plan itself
 - [ ] Verify every Create/Modify/Test path still exists or is intentionally new against the current repository; if main has moved, update the plan paths before code changes.
 - [ ] Verify the current Alembic head is still `1c2d3e4f5a6b`; if not, rebase the four planned revision `down_revision` values in dependency order without editing old migrations.
 - [ ] Verify every cross-task symbol in “Locked Cross-Task Interfaces” has one producer and all consumers use the same name/type.
+- [ ] Verify ORM and migration both expose reservation/event `(family_id, attempt_key)` and adjustment-group `(family_id, idempotency_key)` uniques, and that every loser path returns before counter/line/alert mutation.
+- [ ] Verify policy update and first dispatch use the same pointer-first lock order, and that fail-open proof TTL/single-use tests state rather than hide the post-read race.
+- [ ] Verify every capability meter exposed to policy is `guardrail_eligible` across all active variants and counter audit dispatches quantity formulas separately from cost formulas.
+- [ ] Verify realtime renewal cannot dispatch lease N+1 until lease N has a terminal event; the 65-second test must prove three events, zero active reservations, disjoint server/provider deltas, conserved totals, and no send after blocked/pending renewal.
 - [ ] Verify all current remote send points match Task 22 inventory before implementing adapters; add newly discovered sends to the inventory and an adapter task rather than exempting them.
 - [ ] Confirm real price publication and provider smoke will use a designated test family and a reviewed cost acknowledgement.
 - [ ] Confirm the repository is clean or record unrelated user-owned changes that must remain untouched.
