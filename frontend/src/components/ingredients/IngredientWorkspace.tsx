@@ -156,6 +156,7 @@ type IngredientWorkspaceProps = {
   notificationCenter?: ReactNode;
   navigationRequest?:
     | { target: 'catalog'; requestId: number }
+    | { target: 'create'; requestId: number }
     | { target: 'detail'; ingredientId: string; requestId: number }
     | { target: 'shopping'; ingredientId: string; requestId: number }
     | { target: 'priority'; requestId: number }
@@ -2037,6 +2038,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       }
       handledSideEffectNavigationRequestIdRef.current = request.requestId;
       openShoppingOverlay({ ingredient, reason: '库存不足' });
+      return;
+    }
+
+    if (request.target === 'create') {
+      handledSideEffectNavigationRequestIdRef.current = request.requestId;
+      editorState.openCreateView();
       return;
     }
 

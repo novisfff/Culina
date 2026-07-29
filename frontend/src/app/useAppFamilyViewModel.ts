@@ -10,32 +10,35 @@ import type {
 } from '../api/types';
 import type { FamilyActivityQueryState } from '../features/family/FamilyActivityViewerModel';
 import type { FamilyStatCard } from '../features/family/FamilySettings';
+import { businessDateKey as getBusinessDateKey } from '../lib/date';
 import { getFoodCover } from '../lib/ui';
 
 export function buildAppFamilyViewModel(input: FamilyActivityQueryState & {
   currentUserId?: string;
-  now?: Date;
+  weekHighlightCount?: number;
+  businessDateKey?: string;
 }) {
   const hasData = input.data !== undefined;
   const logs = input.data ?? [];
-  const nowMs = (input.now ?? new Date()).getTime();
-  const weekActivityValue = logs.filter((log) => {
-    const timestamp = Date.parse(log.created_at);
-    return Number.isFinite(timestamp) && nowMs - timestamp <= 7 * 24 * 60 * 60 * 1000;
-  }).length;
   const activityPhase: 'loading' | 'empty' | 'ready' | 'error' = hasData
     ? (logs.length === 0 ? 'empty' : 'ready')
     : input.isError
       ? 'error'
       : 'loading';
+  const currentBusinessDateKey = input.businessDateKey ?? getBusinessDateKey();
   return {
     logs,
     activityPhase,
     hasRefreshError: hasData && input.isError,
     currentUserRecentLogs: hasData
-      ? logs.filter((log) => log.actor_id === input.currentUserId).length
+      ? logs.filter(
+          (log) =>
+            log.actor_id === input.currentUserId &&
+            getBusinessDateKey(new Date(log.created_at), 'Asia/Shanghai') ===
+              currentBusinessDateKey
+        ).length
       : null,
-    weekActivityValue: hasData ? weekActivityValue : '--' as const,
+    weekActivityValue: input.weekHighlightCount ?? '--' as const,
   };
 }
 
@@ -95,14 +98,16 @@ export function useAppFamilyViewModel(args: {
   mealLogs: MealLog[];
   foods: Food[];
   recipes: Recipe[];
-  now?: Date;
+  weekHighlightCount?: number;
+  businessDateKey: string;
 }) {
   const isOwner = args.membership?.role === 'Owner';
   const pendingShoppingCount = args.shoppingItems.filter((item) => !item.done).length;
   const activityModel = buildAppFamilyViewModel({
     ...args.activityQuery,
     currentUserId: args.user?.id,
-    now: args.now,
+    weekHighlightCount: args.weekHighlightCount,
+    businessDateKey: args.businessDateKey,
   });
   const familyOwnerMember = args.members.find((member) => member.role === 'Owner') ?? args.members[0];
   const recentMeals = [...args.mealLogs].slice(0, 6);

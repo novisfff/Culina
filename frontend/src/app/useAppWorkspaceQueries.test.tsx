@@ -145,14 +145,15 @@ describe('useAppWorkspaceQueries', () => {
     expect(harness.current().isBootLoading).toBe(false);
   });
 
-  it('does not request highlights outside home', async () => {
+  it('loads global shell facts on ingredients', async () => {
     const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
       items: [],
       week_highlight_count: 0,
     });
-    renderWorkspaceQueries(navigationForPrimary('family'));
+    renderWorkspaceQueries(navigationForPrimary('ingredients'));
     await flushQueries();
-    expect(highlights).not.toHaveBeenCalled();
+    expect(api.getMembers).toHaveBeenCalledTimes(1);
+    expect(highlights).toHaveBeenCalledWith(5);
   });
 
   it('requests highlights but never full activity logs on home', async () => {
@@ -167,7 +168,7 @@ describe('useAppWorkspaceQueries', () => {
     expect(logs).not.toHaveBeenCalled();
   });
 
-  it('requests full activity logs without a preview limit on family', async () => {
+  it('requests full activity logs and the canonical week count on family', async () => {
     const highlights = vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({
       items: [],
       week_highlight_count: 0,
@@ -176,7 +177,7 @@ describe('useAppWorkspaceQueries', () => {
     renderWorkspaceQueries(navigationForPrimary('family'));
     await flushQueries();
     expect(logs).toHaveBeenCalledWith();
-    expect(highlights).not.toHaveBeenCalled();
+    expect(highlights).toHaveBeenCalledWith(5);
   });
 
   it('keeps both activity queries out of boot loading', async () => {

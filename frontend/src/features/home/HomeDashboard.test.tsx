@@ -286,6 +286,7 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     onHomeRestockOpen: vi.fn(),
     onOpenActionGroup: vi.fn(),
     onOpenIngredientShopping: vi.fn(),
+    onOpenIngredientCreate: vi.fn(),
     onOpenIngredientPriority: vi.fn(),
     onOpenShoppingIntake: vi.fn(),
     onOpenFamilyActivity: vi.fn(),
@@ -822,7 +823,8 @@ describe('HomeDashboard three-question desktop', () => {
 
   it('emits semantic history/ingredients targets instead of legacy TabKey values', () => {
     const onNavigate = vi.fn();
-    const view = renderDashboard({ onNavigate });
+    const onOpenIngredientCreate = vi.fn();
+    const view = renderDashboard({ onNavigate, onOpenIngredientCreate });
     const logsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '查看记录');
     const ingredientsButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '新增食材');
     expect(logsButton).toBeDefined();
@@ -830,7 +832,7 @@ describe('HomeDashboard three-question desktop', () => {
     act(() => logsButton?.click());
     act(() => ingredientsButton?.click());
     expect(onNavigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'history' });
-    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ingredients' });
+    expect(onOpenIngredientCreate).toHaveBeenCalledTimes(1);
     expect(onNavigate).not.toHaveBeenCalledWith('logs');
     expect(onNavigate).not.toHaveBeenCalledWith('ingredients');
     expect(onNavigate).not.toHaveBeenCalledWith('foods');

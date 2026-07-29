@@ -147,6 +147,7 @@ export type HomeMobileDashboardProps = {
   onOpenMealPlans: (planDate: string, mealType: MealType, items: FoodPlanItem[]) => void;
   onOpenActionGroup: (group: InventoryActionGroup) => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
+  onOpenIngredientCreate: () => void;
   onOpenIngredientPriority: () => void;
   onOpenShoppingIntake: () => void;
   onOpenFamilyActivity: () => void;
@@ -223,7 +224,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
         </div>
 
         <div className="mobile-dashboard-actions">
-          <button className="mobile-dashboard-primary" type="button" onClick={() => props.onNavigate({ workspace: 'ingredients' })}>
+          <button className="mobile-dashboard-primary" type="button" onClick={props.onOpenIngredientCreate}>
             <DashboardIcon name="plus" />
             新增食材
           </button>

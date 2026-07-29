@@ -263,6 +263,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
     onOpenMealPlans: vi.fn(),
     onOpenActionGroup: vi.fn(),
     onOpenIngredientShopping: vi.fn(),
+    onOpenIngredientCreate: vi.fn(),
     onOpenIngredientPriority: vi.fn(),
     onOpenShoppingIntake: vi.fn(),
     onOpenFamilyActivity: vi.fn(),
@@ -350,6 +351,17 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('新增食材'))).toBe(true);
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('查看记录'))).toBe(true);
     expect(view.querySelectorAll('[data-testid="mobile-home-stat"]')).toHaveLength(4);
+  });
+
+  it('opens the ingredient create flow from the 新增食材 action', () => {
+    const onOpenIngredientCreate = vi.fn();
+    const onNavigate = vi.fn();
+    const view = renderMobile({ onOpenIngredientCreate, onNavigate });
+
+    act(() => buttonByText(view, '新增食材').click());
+
+    expect(onOpenIngredientCreate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('renders one full recommendation and advances by one', () => {

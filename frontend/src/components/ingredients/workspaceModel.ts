@@ -1401,12 +1401,16 @@ export function buildShoppingCards(
           ? '成品在库'
           : '待补库存'
         : linkedSummary
-        ? linkedSummary.alerts[0]?.title ?? '库存平稳'
+        ? linkedSummary.quantitySummaries.length === 0
+          ? status!.label
+          : linkedSummary.alerts[0]?.title ?? '库存平稳'
         : '暂不读取库存';
       const statusTone: ShoppingCardStatusTone = linkedFood
         ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0 ? 'stable' : 'muted'
         : linkedSummary
-        ? linkedSummary.alerts.length > 0
+        ? linkedSummary.quantitySummaries.length === 0
+          ? 'muted'
+          : linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.tone
           : 'stable'
         : 'muted';

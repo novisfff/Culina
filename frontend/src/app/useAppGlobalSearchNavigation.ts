@@ -4,6 +4,7 @@ import type { AppNavigationService } from './useAppNavigationState';
 
 export type IngredientNavigationRequest =
   | { target: 'catalog'; requestId: number }
+  | { target: 'create'; requestId: number }
   | { target: 'detail'; ingredientId: string; requestId: number }
   | { target: 'shopping'; ingredientId: string; requestId: number }
   | { target: 'priority'; requestId: number };

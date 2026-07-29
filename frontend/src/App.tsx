@@ -807,6 +807,7 @@ function App() {
 
   const {
     openIngredientsCatalog,
+    openIngredientCreate,
     openIngredientDetail,
     openIngredientShopping,
     openIngredientPriority,
@@ -975,6 +976,8 @@ function App() {
     mealLogs,
     foods,
     recipes,
+    weekHighlightCount: activityHighlightsQuery.data?.week_highlight_count,
+    businessDateKey: homeBusinessDateKey,
   });
 
   function retryHomeHighlights() {
@@ -1227,6 +1230,7 @@ function App() {
             onHomeRestockOpen={openHomeRestock}
             onOpenActionGroup={handleOpenActionGroup}
             onOpenIngredientShopping={openIngredientShopping}
+            onOpenIngredientCreate={openIngredientCreate}
             onOpenIngredientPriority={openIngredientPriority}
             onOpenShoppingIntake={() => openShoppingIntake()}
             onOpenFamilyActivity={openFamilyActivity}

@@ -214,7 +214,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       mobileStorageFocus: args.mobileStorageFocus,
       actionableIngredientIds,
     });
-    const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
+    const mobileShoppingCards = pendingShoppingCards;
     const mobileShoppingGroups = buildShoppingCardGroups(mobileShoppingCards);
     const mobileHasCatalogFilters =
       Boolean(args.catalogSearch.trim()) ||

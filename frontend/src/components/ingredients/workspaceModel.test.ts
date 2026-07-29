@@ -534,6 +534,13 @@ describe('ingredient workspace model', () => {
     expect(metricsDecl).toBeLessThan(metricsUsage);
   });
 
+  it('keeps every pending shopping item reachable on mobile', () => {
+    const sourcePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'useIngredientWorkspaceData.ts');
+    const source = readFileSync(sourcePath, 'utf8');
+
+    expect(source).not.toContain('pendingShoppingCards.slice(0, 4)');
+  });
+
   it('shows presence status from State instead of fake quantities for not-tracked ingredients', () => {
     const saltIngredient: Ingredient = {
       id: 'ingredient-salt',
@@ -1665,6 +1672,30 @@ describe('ingredient workspace model', () => {
       sourceLabel: '自由项',
       inventoryLabel: '未关联档案',
       contextTags: ['自由项', '未关联档案', '买完后可补录'],
+    });
+  });
+
+  it('does not describe linked ingredients without inventory records as stable', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients: [ingredients[1]!],
+      inventoryItems: [],
+      recipes: [],
+      referenceDate: '2026-03-20',
+    });
+    const cards = buildShoppingCards(
+      [
+        {
+          ...shoppingItems[1]!,
+          ingredient_id: 'ingredient-flour',
+        },
+      ],
+      summaries
+    );
+
+    expect(cards[0]).toMatchObject({
+      inventoryLabel: '未登记库存',
+      statusLabel: '已空或未登记',
+      statusTone: 'muted',
     });
   });
 

@@ -36,6 +36,7 @@ export type PersistedIngredientWorkspaceState = {
 
 type NavigationRequest =
   | { target: 'catalog'; requestId: number }
+  | { target: 'create'; requestId: number }
   | { target: 'detail'; ingredientId: string; requestId: number }
   | { target: 'shopping'; ingredientId: string; requestId: number }
   | { target: 'priority'; requestId: number }
@@ -172,7 +173,8 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
       return;
     }
 
-    // catalog
+    // create is completed by IngredientWorkspace through openCreateView so the
+    // persisted editor draft and editing id are reset together.
     setExpandedCatalogIngredientId(null);
     setWorkspaceView('hub');
   }, [args.navigationRequest?.requestId]);

@@ -36,20 +36,35 @@ describe('buildAppFamilyViewModel', () => {
     }).activityPhase).toBe('error');
   });
 
-  it('counts only the last 7 days once data is present', () => {
+  it('uses the server week count while deriving todays user activity from logs', () => {
     const model = buildAppFamilyViewModel({
-      data: [recentLog, oldLog],
+      data: [recentLog, { ...oldLog, actor_id: 'user-1' }],
       isLoading: false,
       isError: false,
       isFetching: false,
       refetch: () => undefined,
       currentUserId: 'user-1',
-      now: new Date('2026-07-12T12:00:00.000Z'),
+      weekHighlightCount: 1,
+      businessDateKey: '2026-07-12',
     });
     expect(model.weekActivityValue).toBe(1);
     expect(model.currentUserRecentLogs).toBe(1);
     expect(model.activityPhase).toBe('ready');
     expect(model.hasRefreshError).toBe(false);
+  });
+
+  it('uses the canonical server week highlight count instead of recounting rolling activity logs', () => {
+    const model = buildAppFamilyViewModel({
+      data: [recentLog],
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: () => undefined,
+      currentUserId: 'user-1',
+      weekHighlightCount: 0,
+    });
+
+    expect(model.weekActivityValue).toBe(0);
   });
 
   it('keeps stale counts when refresh fails after cache is present', () => {
@@ -60,7 +75,7 @@ describe('buildAppFamilyViewModel', () => {
       isFetching: false,
       refetch: () => undefined,
       currentUserId: 'user-1',
-      now: new Date('2026-07-12T12:00:00.000Z'),
+      weekHighlightCount: 1,
     });
     expect(model.weekActivityValue).toBe(1);
     expect(model.hasRefreshError).toBe(true);
@@ -74,6 +89,7 @@ describe('buildAppFamilyViewModel', () => {
       isError: false,
       isFetching: false,
       refetch: () => undefined,
+      weekHighlightCount: 0,
     });
     expect(model.activityPhase).toBe('empty');
     expect(model.weekActivityValue).toBe(0);
