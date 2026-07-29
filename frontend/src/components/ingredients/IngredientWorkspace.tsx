@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
@@ -1383,6 +1384,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
 
 type IngredientQuickDetailPopoverProps = {
   summary: IngredientSummaryViewModel;
+  anchorElement: HTMLElement | null;
   onClose: () => void;
   onRestock: () => void;
   onConsume: () => void;
@@ -1399,45 +1401,48 @@ function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) 
   const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [placement, setPlacement] = useState<'left' | 'right'>('left');
+  const [position, setPosition] = useState<CSSProperties>({ top: 16, left: 16 });
 
   useLayoutEffect(() => {
     const node = popoverRef.current;
     if (!node) return;
-    const parentCard = node.parentElement;
+    const parentCard = props.anchorElement;
     if (!parentCard) return;
 
     const parentRect = parentCard.getBoundingClientRect();
-    const windowWidth = window.innerWidth;
+    const popoverRect = node.getBoundingClientRect();
+    const popoverWidth = node.offsetWidth || popoverRect.width;
+    const popoverHeight = node.offsetHeight || popoverRect.height;
+    const alignsRight = window.innerWidth - parentRect.right < 300;
+    const desiredLeft = alignsRight
+      ? parentRect.right - popoverWidth - 10
+      : parentRect.left + 10;
+    const left = Math.min(
+      Math.max(16, desiredLeft),
+      Math.max(16, window.innerWidth - popoverWidth - 16),
+    );
+    const top = Math.min(
+      Math.max(16, parentRect.top + 10),
+      Math.max(16, window.innerHeight - popoverHeight - 16),
+    );
 
-    // If card's right edge is close to the right viewport edge (< 300px), align right to pop leftwards.
-    // Otherwise align left to pop rightwards (staying clear of left sidebar).
-    if (windowWidth - parentRect.right < 300) {
-      setPlacement('right');
-    } else {
-      setPlacement('left');
-    }
-  }, []);
+    setPlacement(alignsRight ? 'right' : 'left');
+    setPosition({ top, left });
+  }, [props.anchorElement]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        props.onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [props]);
-
-  return (
-    <>
-      <div className="ingredient-quick-detail-backdrop" onClick={props.onClose} />
+  return createPortal(
+    <WorkspaceOverlayFrame
+      rootClassName="ingredient-quick-detail-overlay-root"
+      backdropClassName="ingredient-quick-detail-backdrop"
+      labelledBy="quick-popover-title"
+      onClose={props.onClose}
+    >
       <div
         ref={popoverRef}
         className={`ingredient-quick-detail-popover place-${placement}`}
+        style={position}
         onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="quick-popover-title"
+        data-workspace-overlay-panel="true"
       >
         <div className="ingredient-quick-detail-head">
           <div className="ingredient-quick-detail-media-frame">
@@ -1521,7 +1526,8 @@ function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) 
           </button>
         </div>
       </div>
-    </>
+    </WorkspaceOverlayFrame>,
+    document.body,
   );
 }
 
@@ -1538,6 +1544,7 @@ type IngredientCatalogCardProps = {
 
 function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const { summary, expanded } = props;
+  const cardRef = useRef<HTMLElement | null>(null);
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const alertTone = getIngredientAlertTone(summary);
@@ -1558,7 +1565,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
     .join(' ');
 
   return (
-    <article className={cardClassName}>
+    <article ref={cardRef} className={cardClassName}>
       <div className="ingredient-work-card-primary">
         <div className="ingredient-work-card-toggle">
           <button
@@ -1722,6 +1729,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
       {expanded && (
         <IngredientQuickDetailPopover
           summary={summary}
+          anchorElement={cardRef.current}
           onClose={props.onToggle}
           onRestock={props.onRestock}
           onConsume={props.onConsume}

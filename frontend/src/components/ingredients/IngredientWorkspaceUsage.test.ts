@@ -5,6 +5,18 @@ import { describe, expect, it } from 'vitest';
 const sourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
 
 describe('IngredientWorkspace shared overlay usage', () => {
+  it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
+    const source = readFileSync(sourcePath, 'utf8');
+    const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
+
+    expect(source).toContain('rootClassName="ingredient-quick-detail-overlay-root"');
+    expect(source).toContain('createPortal(');
+    expect(source).toContain('data-workspace-overlay-panel="true"');
+    expect(source).not.toContain('<div className="ingredient-quick-detail-backdrop"');
+    expect(source).not.toContain('role="dialog"');
+    expect(styleSource).toMatch(/\.ingredient-quick-detail-close-btn\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?min-height:\s*44px;/);
+  });
+
   it('uses the shared overlay frame for the mobile ingredient detail popover', () => {
     const source = readFileSync(sourcePath, 'utf8');
 

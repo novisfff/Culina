@@ -3389,24 +3389,15 @@
   border-top: 0;
 }
 
-/* Card Container when Popover is Open */
-.ingredient-work-card.is-popover-open {
-  overflow: visible !important;
-  z-index: 60 !important;
-}
-
 /* In-place Popover Floating Component */
 .ingredient-quick-detail-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 110;
   background: transparent;
+  backdrop-filter: none;
 }
 
 .ingredient-quick-detail-popover {
-  position: absolute;
-  top: 10px;
-  z-index: 120;
+  position: fixed;
+  z-index: 1;
   width: 280px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 60px);
@@ -3423,28 +3414,18 @@
 }
 
 .ingredient-quick-detail-popover.place-left {
-  left: 10px;
-  right: auto;
   transform-origin: top left;
 }
 
 .ingredient-quick-detail-popover.place-right {
-  right: 10px;
-  left: auto;
   transform-origin: top right;
 }
 
 @media (max-width: 600px) {
   .ingredient-quick-detail-popover.place-left {
-    left: 4px;
-    right: auto;
-    top: 8px;
     width: calc(100vw - 24px);
   }
   .ingredient-quick-detail-popover.place-right {
-    right: 4px;
-    left: auto;
-    top: 8px;
     width: calc(100vw - 24px);
   }
 }
@@ -3517,9 +3498,9 @@
 }
 
 .ingredient-quick-detail-close-btn {
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
+  flex: 0 0 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(147, 96, 63, 0.12);
   background: rgba(255, 255, 255, 0.85);
