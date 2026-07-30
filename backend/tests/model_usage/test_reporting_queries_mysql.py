@@ -11,23 +11,37 @@ import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
 
+from app.services.model_usage.aggregation import (
+    aggregate_family_current_period,
+    aggregate_family_historical_period,
+)
 from app.services.model_usage.periods import BillingPeriod, shanghai_billing_period
 from app.db.base import Base
 from app.models.domain import Family
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
+    ModelUsageAdjustment,
+    ModelUsageAdjustmentGroup,
+    ModelUsageMeasurementIncident,
+    ModelUsageMeasurementIncidentAttempt,
     ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
     ModelUsagePolicyVersion,
+    ModelUsageReservation,
     ModelUsageSubject,
 )
 from tests.model_usage.test_migration_mysql import MySqlAlembicDatabase
 from app.repos.model_usage.reporting import (
+    active_reservations_statement,
+    adjustment_groups_statement,
+    event_meters_statement,
     family_counters_statement,
     family_events_statement,
     historical_rollups_statement,
+    incidents_statement,
     subject_events_statement,
 )
 
@@ -59,10 +73,19 @@ def test_reporting_statements_always_scope_family_period_and_subject() -> None:
     )
     counter_sql = _sql(family_counters_statement(family_id="family-a", period=PERIOD))
     rollup_sql = _sql(historical_rollups_statement(family_id="family-a", period=PERIOD))
+    bulk_path_sql = tuple(
+        _sql(statement)
+        for statement in (
+            event_meters_statement(family_id="family-a", period=PERIOD),
+            adjustment_groups_statement(family_id="family-a", period=PERIOD),
+            active_reservations_statement(family_id="family-a", period=PERIOD),
+            incidents_statement(family_id="family-a", period=PERIOD),
+        )
+    )
 
-    for sql in (family_sql, subject_sql, counter_sql, rollup_sql):
+    for sql in (family_sql, subject_sql, counter_sql, rollup_sql, *bulk_path_sql):
         assert "family_id = 'family-a'" in sql
-        assert "period_start = '2026-06-30 16:00:00+00:00'" in sql
+        assert "2026-06-30 16:00:00+00:00" in sql
     assert "subject_id = 'subject-a'" in subject_sql
 
 
@@ -281,6 +304,127 @@ def _seed_reference_scale(engine, *, events_in_current_period: int) -> None:
                     )
             connection.execute(ModelUsageEvent.__table__.insert(), event_rows)
             connection.execute(ModelUsageEventMeter.__table__.insert(), meter_rows)
+        connection.execute(
+            ModelUsageReservation.__table__.insert(),
+            {
+                "id": "reservation-reference",
+                "attempt_key": "reservation-reference",
+                "client_attempt_id": "reservation-reference-client",
+                "fingerprint": "reservation-reference-fingerprint",
+                "family_id": "family-a",
+                "subject_id": "subject-a",
+                "subject_key": "mus_reference_subject",
+                "attribution_kind": "system",
+                "operation_source": "background_index",
+                "logical_operation_id": "reference-operation",
+                "operation_kind": "reference",
+                "capability": "llm",
+                "provider": "openai",
+                "requested_model": "gpt-reference",
+                "billing_model": "gpt-reference-snapshot",
+                "variant_key": "reference",
+                "billing_scheme_key": "tokens-v1",
+                "recovery_mode": "none",
+                "idempotency_window_seconds": None,
+                "query_window_seconds": None,
+                "automatic_resend_deadline_at": None,
+                "provider_idempotency_key": None,
+                "policy_version_id": "policy-a",
+                "dispatch_policy_version_id": "policy-a",
+                "pre_dispatch_denial_policy_version_id": None,
+                "pricing_status": "priced",
+                "price_version_id": None,
+                "price_snapshot_checksum": "2" * 64,
+                "period_start": PERIOD.start_at,
+                "period_end": PERIOD.end_at,
+                "reserved_cost_cny": Decimal("0.01"),
+                "status": "reserved",
+                "provider_request_id": None,
+                "reserved_at": now,
+                "dispatching_at": None,
+                "provider_acknowledged_at": None,
+                "expires_at": PERIOD.end_at,
+                "updated_at": now,
+                "error_code": None,
+            },
+        )
+        connection.execute(
+            ModelUsageAdjustmentGroup.__table__.insert(),
+            {
+                "id": "adjustment-reference",
+                "family_id": "family-a",
+                "idempotency_key": "adjustment-reference",
+                "fingerprint": "adjustment-reference-fingerprint",
+                "subject_id": "subject-a",
+                "subject_key": "mus_reference_subject",
+                "period_start": PERIOD.start_at,
+                "period_end": PERIOD.end_at,
+                "source_event_id": "event-000000",
+                "source_reservation_id": None,
+                "reason_code": "reference",
+                "operator": "benchmark",
+                "change_ticket": "REFERENCE-1",
+                "evidence_ref": "benchmark:reference",
+                "created_at": now,
+            },
+        )
+        connection.execute(
+            ModelUsageAdjustment.__table__.insert(),
+            {
+                "id": "adjustment-line-reference",
+                "adjustment_group_id": "adjustment-reference",
+                "line_sequence": 1,
+                "capability": "llm",
+                "meter": "total_tokens",
+                "meter_delta": Decimal("1"),
+                "cost_delta_cny": None,
+                "resolution_kind": "meter_correction",
+                "resulting_provider_outcome": None,
+                "resulting_execution_certainty": None,
+                "resulting_measurement_status": None,
+                "resulting_pricing_status": None,
+                "price_snapshot_json": None,
+                "price_snapshot_checksum": None,
+                "resolved_cost_cny": None,
+                "created_at": now,
+            },
+        )
+        connection.execute(
+            ModelUsageMeasurementIncident.__table__.insert(),
+            {
+                "id": "incident-reference",
+                "incident_key": "incident-reference",
+                "family_id": "family-a",
+                "subject_id": "subject-a",
+                "subject_key": "mus_reference_subject",
+                "capability": "llm",
+                "period_start": PERIOD.start_at,
+                "period_end": PERIOD.end_at,
+                "mode": "fail_open",
+                "cause_code": "reference",
+                "started_at": now,
+                "recovered_at": None,
+                "coverage": "partial_scope",
+                "source_instance": "benchmark",
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        connection.execute(
+            ModelUsageMeasurementIncidentAttempt.__table__.insert(),
+            {
+                "id": "incident-attempt-reference",
+                "incident_id": "incident-reference",
+                "family_id": "family-a",
+                "subject_id": "subject-a",
+                "capability": "llm",
+                "client_attempt_id": "incident-attempt-reference",
+                "recovery_status": "unresolved",
+                "recovered_event_id": None,
+                "created_at": now,
+                "resolved_at": None,
+            },
+        )
 
 
 def _explain(engine, statement) -> list[dict[str, object]]:
@@ -308,6 +452,24 @@ def test_current_breakdown_uses_event_family_period_index(mysql_reporting_engine
         _explain(mysql_reporting_engine, family_events_statement(family_id="family-a", period=PERIOD)),
         "ix_model_usage_event_family_period",
     )
+
+
+def test_current_effective_breakdown_explains_actual_bulk_path(
+    mysql_reporting_engine,
+) -> None:
+    _assert_indexed(
+        _explain(
+            mysql_reporting_engine,
+            event_meters_statement(family_id="family-a", period=PERIOD),
+        ),
+        "ix_model_usage_event_family_period",
+    )
+    for statement in (
+        adjustment_groups_statement(family_id="family-a", period=PERIOD),
+        active_reservations_statement(family_id="family-a", period=PERIOD),
+        incidents_statement(family_id="family-a", period=PERIOD),
+    ):
+        assert _explain(mysql_reporting_engine, statement)
 
 
 def test_personal_breakdown_stays_on_family_period_index(mysql_reporting_engine) -> None:
@@ -372,19 +534,27 @@ def run_reporting_reference_benchmark(
     event.listen(engine, "before_cursor_execute", count_query)
     try:
         started = time.perf_counter()
-        with engine.connect() as connection:
-            connection.execute(
-                family_counters_statement(family_id="family-a", period=PERIOD)
-            ).all()
+        with Session(engine, expire_on_commit=False) as db:
+            current = aggregate_family_current_period(
+                db,
+                family_id="family-a",
+                period=PERIOD,
+            )
+            assert current.source_event_count == events_in_current_period
+            assert current.counter_values["family_cost"] == Decimal("100")
+            assert current.known_unmeasured_attempt_count == 1
         current_wall_ms = (time.perf_counter() - started) * 1000
         current_count = query_count
 
         query_count = 0
         started = time.perf_counter()
-        with engine.connect() as connection:
-            connection.execute(
-                historical_rollups_statement(family_id="family-a", period=PERIOD)
-            ).all()
+        with Session(engine, expire_on_commit=False) as db:
+            historical = aggregate_family_historical_period(
+                db,
+                family_id="family-a",
+                period=PERIOD,
+            )
+            assert historical.source_event_count == events_in_current_period
         historical_wall_ms = (time.perf_counter() - started) * 1000
     finally:
         event.remove(engine, "before_cursor_execute", count_query)

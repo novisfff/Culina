@@ -46,13 +46,19 @@ def rollup_dimension_key(
     return f"{kind.value}|{normalized}" if normalized else kind.value
 
 
+def _database_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _canonical_value(value: object) -> object:
     if isinstance(value, Decimal):
         if value == 0:
             return "0"
         return format(value.normalize(), "f")
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        return _database_utc(value).isoformat(timespec="microseconds")
     if isinstance(value, date):
         return value.isoformat()
     if hasattr(value, "value"):
@@ -183,9 +189,11 @@ def rebuild_monthly_rollups(
             ModelUsageMonthlyRollup.dimension_key
             == rollup_dimension_key(ModelUsageRollupKind.FAMILY_TOTAL, {}),
         )
+        .execution_options(populate_existing=True)
+        .with_for_update()
     )
     if family_existing is not None and (
-        family_existing.correction_status is ModelUsageCorrectionStatus.CLOSED
+        family_existing.correction_status is not ModelUsageCorrectionStatus.OPEN
         or family_existing.raw_data_pruned_at is not None
     ):
         return _result_from_existing(
@@ -321,7 +329,7 @@ def rebuild_monthly_rollups(
 
     for event in events:
         state = effective[event.id]
-        local_day = event.completed_at.astimezone(SHANGHAI).date()
+        local_day = _database_utc(event.completed_at).astimezone(SHANGHAI).date()
         related = (
             family,
             dimension(
@@ -530,21 +538,26 @@ def rebuild_monthly_rollups(
                     accumulator.has_unknown_measurement_gap = True
 
     now = computed_at or datetime.now(timezone.utc)
+    existing_rows = tuple(
+        db.scalars(
+            select(ModelUsageMonthlyRollup)
+            .where(
+                ModelUsageMonthlyRollup.family_id == family_id,
+                ModelUsageMonthlyRollup.period_start == period.start_at,
+            )
+            .order_by(ModelUsageMonthlyRollup.dimension_key)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    )
+    existing_by_key = {row.dimension_key: row for row in existing_rows}
     persisted: list[ModelUsageMonthlyRollup] = []
     for accumulator in sorted(
         accumulators.values(), key=lambda item: item.dimension_key
     ):
         payload = _row_payload(accumulator)
         checksum = _checksum(payload)
-        existing = db.scalar(
-            select(ModelUsageMonthlyRollup)
-            .where(
-                ModelUsageMonthlyRollup.family_id == family_id,
-                ModelUsageMonthlyRollup.period_start == period.start_at,
-                ModelUsageMonthlyRollup.dimension_key == accumulator.dimension_key,
-            )
-            .with_for_update()
-        )
+        existing = existing_by_key.get(accumulator.dimension_key)
         values = {
             **payload,
             "source_watermark": source_watermark,
@@ -569,6 +582,12 @@ def rebuild_monthly_rollups(
                 setattr(existing, key, value)
             existing.revision += 1
             existing.computed_at = now
+        elif existing.source_watermark != source_watermark:
+            existing.source_watermark = source_watermark
         persisted.append(existing)
+    desired_keys = {row.dimension_key for row in persisted}
+    for obsolete in existing_rows:
+        if obsolete.dimension_key not in desired_keys:
+            db.delete(obsolete)
     db.flush()
     return _result_from_existing(persisted)

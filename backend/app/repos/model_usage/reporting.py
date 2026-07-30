@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
@@ -54,6 +54,149 @@ def subject_events_statement(
 ) -> Select:
     return family_events_statement(family_id=family_id, period=period).where(
         ModelUsageEvent.subject_id == subject_id
+    )
+
+
+def event_meters_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageEventMeter)
+        .join(ModelUsageEvent, ModelUsageEvent.id == ModelUsageEventMeter.event_id)
+        .with_hint(
+            ModelUsageEvent,
+            "FORCE INDEX (ix_model_usage_event_family_period)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageEvent.family_id == family_id,
+            ModelUsageEvent.period_start == period.start_at,
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(ModelUsageEvent.subject_id == subject_id)
+    return statement.order_by(
+        ModelUsageEventMeter.event_id, ModelUsageEventMeter.meter_key
+    )
+
+
+def adjustment_groups_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageAdjustmentGroup)
+        .with_hint(
+            ModelUsageAdjustmentGroup,
+            "FORCE INDEX (ix_model_usage_adjustment_group_period)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageAdjustmentGroup.family_id == family_id,
+            ModelUsageAdjustmentGroup.period_start == period.start_at,
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(ModelUsageAdjustmentGroup.subject_id == subject_id)
+    return statement.order_by(
+        ModelUsageAdjustmentGroup.created_at, ModelUsageAdjustmentGroup.id
+    )
+
+
+def adjustment_lines_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageAdjustment)
+        .join(
+            ModelUsageAdjustmentGroup,
+            ModelUsageAdjustmentGroup.id == ModelUsageAdjustment.adjustment_group_id,
+        )
+        .with_hint(
+            ModelUsageAdjustmentGroup,
+            "FORCE INDEX (ix_model_usage_adjustment_group_period)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageAdjustmentGroup.family_id == family_id,
+            ModelUsageAdjustmentGroup.period_start == period.start_at,
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(ModelUsageAdjustmentGroup.subject_id == subject_id)
+    return statement.order_by(
+        ModelUsageAdjustmentGroup.created_at,
+        ModelUsageAdjustmentGroup.id,
+        ModelUsageAdjustment.line_sequence,
+        ModelUsageAdjustment.id,
+    )
+
+
+def active_reservations_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageReservation)
+        .with_hint(
+            ModelUsageReservation,
+            "FORCE INDEX (ix_model_usage_reservation_family_period)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageReservation.family_id == family_id,
+            ModelUsageReservation.period_start == period.start_at,
+            ModelUsageReservation.period_end == period.end_at,
+            ModelUsageReservation.status.in_(ACTIVE_REPORTING_RESERVATION_STATUSES),
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(ModelUsageReservation.subject_id == subject_id)
+    return statement.order_by(ModelUsageReservation.id)
+
+
+def incidents_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageMeasurementIncident)
+        .with_hint(
+            ModelUsageMeasurementIncident,
+            "FORCE INDEX (ix_model_usage_incident_period)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageMeasurementIncident.period_start < period.end_at,
+            ModelUsageMeasurementIncident.period_end > period.start_at,
+            or_(
+                ModelUsageMeasurementIncident.family_id == family_id,
+                ModelUsageMeasurementIncident.family_id.is_(None),
+            ),
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(
+            or_(
+                ModelUsageMeasurementIncident.subject_id == subject_id,
+                ModelUsageMeasurementIncident.subject_id.is_(None),
+            )
+        )
+    return statement.order_by(
+        ModelUsageMeasurementIncident.started_at,
+        ModelUsageMeasurementIncident.id,
     )
 
 
@@ -125,18 +268,12 @@ def event_meters_for_period_events(
 ) -> tuple[ModelUsageEventMeter, ...]:
     if not event_ids:
         return ()
-    statement = select(ModelUsageEventMeter).join(
-        ModelUsageEvent, ModelUsageEvent.id == ModelUsageEventMeter.event_id
-    ).where(
-        ModelUsageEvent.family_id == family_id,
-        ModelUsageEvent.period_start == period.start_at,
-    )
-    if subject_id is not None:
-        statement = statement.where(ModelUsageEvent.subject_id == subject_id)
     return tuple(
         db.scalars(
-            statement.order_by(
-                ModelUsageEventMeter.event_id, ModelUsageEventMeter.meter_key
+            event_meters_statement(
+                family_id=family_id,
+                period=period,
+                subject_id=subject_id,
             )
         )
     )
@@ -152,16 +289,12 @@ def adjustment_groups_for_period(
 ) -> tuple[ModelUsageAdjustmentGroup, ...]:
     if not event_ids:
         return ()
-    statement = select(ModelUsageAdjustmentGroup).where(
-        ModelUsageAdjustmentGroup.family_id == family_id,
-        ModelUsageAdjustmentGroup.period_start == period.start_at,
-    )
-    if subject_id is not None:
-        statement = statement.where(ModelUsageAdjustmentGroup.subject_id == subject_id)
     return tuple(
         db.scalars(
-            statement.order_by(
-                ModelUsageAdjustmentGroup.created_at, ModelUsageAdjustmentGroup.id
+            adjustment_groups_statement(
+                family_id=family_id,
+                period=period,
+                subject_id=subject_id,
             )
         )
     )
@@ -177,22 +310,12 @@ def adjustment_lines_for_period_groups(
 ) -> tuple[ModelUsageAdjustment, ...]:
     if not group_ids:
         return ()
-    statement = select(ModelUsageAdjustment).join(
-        ModelUsageAdjustmentGroup,
-        ModelUsageAdjustmentGroup.id == ModelUsageAdjustment.adjustment_group_id,
-    ).where(
-        ModelUsageAdjustmentGroup.family_id == family_id,
-        ModelUsageAdjustmentGroup.period_start == period.start_at,
-    )
-    if subject_id is not None:
-        statement = statement.where(ModelUsageAdjustmentGroup.subject_id == subject_id)
     return tuple(
         db.scalars(
-            statement.order_by(
-                ModelUsageAdjustmentGroup.created_at,
-                ModelUsageAdjustmentGroup.id,
-                ModelUsageAdjustment.line_sequence,
-                ModelUsageAdjustment.id,
+            adjustment_lines_statement(
+                family_id=family_id,
+                period=period,
+                subject_id=subject_id,
             )
         )
     )
@@ -205,15 +328,15 @@ def active_reservations_for_period(
     period: BillingPeriod,
     subject_id: str | None = None,
 ) -> tuple[ModelUsageReservation, ...]:
-    statement = select(ModelUsageReservation).where(
-        ModelUsageReservation.family_id == family_id,
-        ModelUsageReservation.period_start == period.start_at,
-        ModelUsageReservation.period_end == period.end_at,
-        ModelUsageReservation.status.in_(ACTIVE_REPORTING_RESERVATION_STATUSES),
+    return tuple(
+        db.scalars(
+            active_reservations_statement(
+                family_id=family_id,
+                period=period,
+                subject_id=subject_id,
+            )
+        )
     )
-    if subject_id is not None:
-        statement = statement.where(ModelUsageReservation.subject_id == subject_id)
-    return tuple(db.scalars(statement.order_by(ModelUsageReservation.id)))
 
 
 def incidents_for_period(
@@ -223,26 +346,12 @@ def incidents_for_period(
     period: BillingPeriod,
     subject_id: str | None = None,
 ) -> tuple[ModelUsageMeasurementIncident, ...]:
-    statement = select(ModelUsageMeasurementIncident).where(
-        ModelUsageMeasurementIncident.period_start < period.end_at,
-        ModelUsageMeasurementIncident.period_end > period.start_at,
-        or_(
-            ModelUsageMeasurementIncident.family_id == family_id,
-            ModelUsageMeasurementIncident.family_id.is_(None),
-        ),
-    )
-    if subject_id is not None:
-        statement = statement.where(
-            or_(
-                ModelUsageMeasurementIncident.subject_id == subject_id,
-                ModelUsageMeasurementIncident.subject_id.is_(None),
-            )
-        )
     return tuple(
         db.scalars(
-            statement.order_by(
-                ModelUsageMeasurementIncident.started_at,
-                ModelUsageMeasurementIncident.id,
+            incidents_statement(
+                family_id=family_id,
+                period=period,
+                subject_id=subject_id,
             )
         )
     )
@@ -306,3 +415,29 @@ def family_subjects_for_reporting(
             .order_by(ModelUsageSubject.subject_key, ModelUsageSubject.id)
         )
     )
+
+
+def retained_subject_labels(
+    db: Session,
+    *,
+    family_id: str,
+    subject_ids: Sequence[str],
+) -> Mapping[str, str]:
+    if not subject_ids:
+        return {}
+    rows = tuple(
+        db.scalars(
+            select(ModelUsageSubject)
+            .where(
+                ModelUsageSubject.family_id == family_id,
+                ModelUsageSubject.id.in_(tuple(subject_ids)),
+                ModelUsageSubject.anonymized_label.is_not(None),
+            )
+            .order_by(ModelUsageSubject.id)
+        )
+    )
+    return {
+        subject.id: subject.anonymized_label
+        for subject in rows
+        if subject.anonymized_label is not None
+    }

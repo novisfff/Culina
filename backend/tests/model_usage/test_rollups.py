@@ -1,18 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timezone
+from datetime import datetime, timezone
+from decimal import Decimal
 
+import pytest
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.orm import Session
 
-from app.core.enums import ModelUsageRollupKind
-from app.models.model_usage import ModelUsageEvent
+from app.core.enums import ModelUsageCorrectionStatus, ModelUsageRollupKind
+from app.models.model_usage import (
+    ModelUsageEvent,
+    ModelUsageMonthlyRollup,
+    ModelUsageReservation,
+    ModelUsageSubject,
+)
+from app.repos.model_usage.reporting import retained_subject_labels
+from app.services.model_usage.dispatch import prepare_usage_dispatch_in_session
+from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.adjustments import apply_adjustment, preview_adjustment
 from app.services.model_usage.periods import BillingPeriod, SHANGHAI
+from app.services.model_usage.reservations import reserve_usage_in_session
 from app.services.model_usage.rollups import (
     rebuild_monthly_rollups,
     rollup_dimension_key,
 )
+from app.services.model_usage.types import ProviderRecoveryPolicy, UsageContext
 from tests.model_usage.test_adjustments import (
     meter_correction_command,
     settled_source_event,
@@ -28,6 +41,14 @@ def _period(event: ModelUsageEvent) -> BillingPeriod:
         start_at=event.period_start.replace(tzinfo=timezone.utc),
         end_at=event.period_end.replace(tzinfo=timezone.utc),
     )
+
+
+def _utc_value(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def test_rebuild_generates_every_historical_dimension_from_snapshot_fields(
@@ -138,3 +159,279 @@ def test_late_adjustment_changes_checksum_and_increments_revision_once(
     assert after.revision > before.revision
     assert replay.checksum == after.checksum
     assert replay.revision == after.revision
+
+
+@pytest.mark.parametrize(
+    ("status", "pruned"),
+    (
+        (ModelUsageCorrectionStatus.PRUNING, False),
+        (ModelUsageCorrectionStatus.CLOSED, False),
+        (ModelUsageCorrectionStatus.OPEN, True),
+    ),
+)
+def test_non_open_or_pruned_rebuild_returns_persisted_rows_without_raw_reads(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+    status: ModelUsageCorrectionStatus,
+    pruned: bool,
+) -> None:
+    period = _period(settled_source_event)
+    built = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=period,
+    )
+    family = next(
+        row for row in built.rows if row.rollup_kind is ModelUsageRollupKind.FAMILY_TOTAL
+    )
+    family.correction_status = status
+    family.raw_data_pruned_at = (
+        datetime(2027, 9, 1, tzinfo=timezone.utc) if pruned else None
+    )
+    model_usage_db.flush()
+    before = tuple(
+        (
+            row.id,
+            row.dimension_key,
+            row.revision,
+            row.checksum,
+            row.source_watermark,
+            row.correction_status,
+                _utc_value(row.adjustment_closed_at),
+                _utc_value(row.raw_data_pruned_at),
+                _utc_value(row.computed_at),
+        )
+        for row in built.rows
+    )
+    statements: list[str] = []
+
+    def record(_conn, _cursor, statement, _params, _context, _many) -> None:
+        statements.append(statement.lower())
+
+    engine = model_usage_db.get_bind()
+    sqlalchemy_event.listen(engine, "before_cursor_execute", record)
+    try:
+        result = rebuild_monthly_rollups(
+            model_usage_db,
+            family_id=settled_source_event.family_id,
+            period=period,
+        )
+    finally:
+        sqlalchemy_event.remove(engine, "before_cursor_execute", record)
+
+    assert tuple(
+        (
+            row.id,
+            row.dimension_key,
+            row.revision,
+            row.checksum,
+            row.source_watermark,
+            row.correction_status,
+            _utc_value(row.adjustment_closed_at),
+            _utc_value(row.raw_data_pruned_at),
+            _utc_value(row.computed_at),
+        )
+        for row in result.rows
+    ) == before
+    raw_tables = (
+        "model_usage_events",
+        "model_usage_event_meters",
+        "model_usage_adjustment_groups",
+        "model_usage_reservations",
+        "model_usage_measurement_incidents",
+    )
+    assert not any(any(table in statement for table in raw_tables) for statement in statements)
+
+
+def test_open_rebuild_removes_obsolete_dimensions_and_preserves_lifecycle_fields(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    period = _period(settled_source_event)
+    built = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=period,
+    )
+    family = next(
+        row for row in built.rows if row.rollup_kind is ModelUsageRollupKind.FAMILY_TOTAL
+    )
+    preserved_closed_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    family.adjustment_closed_at = preserved_closed_at
+    obsolete = ModelUsageMonthlyRollup(
+        id="obsolete-provider-rollup",
+        family_id=family.family_id,
+        period_start=family.period_start,
+        period_end=family.period_end,
+        rollup_kind=ModelUsageRollupKind.PROVIDER_MODEL_TOTAL,
+        dimension_key="provider_model_total|billing_model=obsolete|provider=obsolete",
+        subject_id=None,
+        subject_key=None,
+        capability=None,
+        provider="obsolete",
+        billing_model="obsolete",
+        meter=None,
+        local_day=None,
+        exact_event_count=1,
+        estimated_event_count=0,
+        unpriced_event_count=0,
+        uncertain_attempt_count=0,
+        unresolved_unknown_execution_count=0,
+        unresolved_known_unmeasured_count=0,
+        has_unknown_measurement_gap=False,
+        meter_total=None,
+        cost_total_cny=Decimal("1"),
+        source_event_count=1,
+        source_adjustment_count=0,
+        source_incident_count=0,
+        revision=1,
+        source_watermark="obsolete",
+        checksum="f" * 64,
+        correction_status=ModelUsageCorrectionStatus.OPEN,
+        adjustment_closed_at=None,
+        raw_data_pruned_at=None,
+        computed_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    )
+    model_usage_db.add(obsolete)
+    model_usage_db.flush()
+
+    result = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=period,
+    )
+
+    assert obsolete not in result.rows
+    assert model_usage_db.get(ModelUsageMonthlyRollup, obsolete.id) is None
+    refreshed_family = model_usage_db.get(ModelUsageMonthlyRollup, family.id)
+    assert refreshed_family is not None
+    assert refreshed_family.correction_status is ModelUsageCorrectionStatus.OPEN
+    assert _utc_value(refreshed_family.adjustment_closed_at) == preserved_closed_at
+    assert refreshed_family.raw_data_pruned_at is None
+
+
+def test_source_watermark_advances_without_revision_when_display_values_do_not_change(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    decision = reserve_usage_in_session(
+        model_usage_db,
+        reservation_context,
+        estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-watermark-transition",
+        at=datetime(2026, 7, 30, 3, tzinfo=timezone.utc),
+    )
+    reservation = model_usage_db.get(ModelUsageReservation, decision.reservation_id)
+    assert reservation is not None
+    period = BillingPeriod(
+        local_month="2026-07",
+        start_at=reservation.period_start,
+        end_at=reservation.period_end,
+    )
+    first = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=reservation.family_id,
+        period=period,
+    )
+    family_first = next(
+        row for row in first.rows if row.rollup_kind is ModelUsageRollupKind.FAMILY_TOTAL
+    )
+    before = (family_first.source_watermark, family_first.revision, family_first.checksum)
+    prepare_usage_dispatch_in_session(
+        model_usage_db,
+        reservation_id=reservation.id,
+        fingerprint="fp-watermark-transition",
+        recovery_policy=ProviderRecoveryPolicy.none(),
+    )
+
+    second = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=reservation.family_id,
+        period=period,
+    )
+    family_second = next(
+        row for row in second.rows if row.rollup_kind is ModelUsageRollupKind.FAMILY_TOTAL
+    )
+
+    assert family_second.source_watermark != before[0]
+    assert family_second.revision == before[1]
+    assert family_second.checksum == before[2]
+
+
+def test_naive_mysql_utc_daily_bucket_crosses_shanghai_month_boundary(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    settled_source_event.completed_at = datetime(2026, 6, 30, 16, 30)
+    result = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=_period(settled_source_event),
+    )
+
+    family_daily = next(
+        row
+        for row in result.rows
+        if row.rollup_kind is ModelUsageRollupKind.DAILY_CAPABILITY_COST
+        and row.subject_id is None
+    )
+    assert family_daily.local_day.isoformat() == "2026-07-01"
+
+
+def test_naive_and_aware_utc_source_datetimes_have_same_canonical_watermark(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    instant = datetime(2026, 6, 30, 16, 30)
+    settled_source_event.completed_at = instant
+    first = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=_period(settled_source_event),
+    )
+    settled_source_event.completed_at = instant.replace(tzinfo=timezone.utc)
+
+    second = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=_period(settled_source_event),
+    )
+
+    assert second.source_watermark == first.source_watermark
+    assert second.checksum == first.checksum
+    assert second.revision == first.revision
+
+
+def test_deleted_subject_label_resolves_from_retained_subject_without_raw_join(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    subject = model_usage_db.get(ModelUsageSubject, settled_source_event.subject_id)
+    assert subject is not None
+    subject.user_id = None
+    subject.anonymized_label = "已删除成员"
+    model_usage_db.flush()
+    statements: list[str] = []
+
+    def record(_conn, _cursor, statement, _params, _context, _many) -> None:
+        statements.append(statement.lower())
+
+    engine = model_usage_db.get_bind()
+    sqlalchemy_event.listen(engine, "before_cursor_execute", record)
+    try:
+        labels = retained_subject_labels(
+            model_usage_db,
+            family_id=settled_source_event.family_id,
+            subject_ids=(subject.id,),
+        )
+    finally:
+        sqlalchemy_event.remove(engine, "before_cursor_execute", record)
+
+    assert labels == {subject.id: "已删除成员"}
+    assert retained_subject_labels(
+        model_usage_db,
+        family_id="other-family",
+        subject_ids=(subject.id,),
+    ) == {}
+    assert any("model_usage_subjects" in statement for statement in statements)
+    assert not any("model_usage_events" in statement for statement in statements)

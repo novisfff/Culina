@@ -23,7 +23,7 @@ from app.services.model_usage.aggregation import (
 )
 from app.services.model_usage.periods import BillingPeriod, SHANGHAI
 from app.services.model_usage.types import UsageContext
-from app.models.model_usage import ModelUsageEvent
+from app.models.model_usage import ModelUsageEvent, ModelUsageMeasurementIncident
 from app.services.model_usage.rollups import rebuild_monthly_rollups
 from sqlalchemy import event as sqlalchemy_event
 from tests.model_usage.test_adjustments import settled_source_event
@@ -272,3 +272,46 @@ def test_historical_family_aggregation_reads_rollups_without_raw_dependency(
     assert aggregate.known_priced_cost_cny == settled_source_event.cost_cny
     assert not any("model_usage_events" in statement for statement in statements)
     assert any("model_usage_monthly_rollups" in statement for statement in statements)
+
+
+def test_current_aggregation_normalizes_naive_mysql_incident_timestamps_as_utc(
+    model_usage_db,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    period = BillingPeriod(
+        local_month="2026-07",
+        start_at=settled_source_event.period_start,
+        end_at=settled_source_event.period_end,
+    )
+    model_usage_db.add(
+        ModelUsageMeasurementIncident(
+            id="naive-incident",
+            incident_key="naive-incident",
+            family_id=settled_source_event.family_id,
+            subject_id=settled_source_event.subject_id,
+            subject_key=settled_source_event.subject_key,
+            capability=settled_source_event.capability,
+            period_start=period.start_at,
+            period_end=period.end_at,
+            mode="fail_open",
+            cause_code="test",
+            started_at=datetime(2026, 6, 30, 16, 30),
+            recovered_at=None,
+            coverage=ModelUsageIncidentCoverage.PARTIAL_SCOPE,
+            source_instance="test",
+            created_at=datetime(2026, 6, 30, 16, 30),
+            updated_at=datetime(2026, 6, 30, 16, 30),
+        )
+    )
+    model_usage_db.flush()
+
+    aggregate = aggregate_family_current_period(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=period,
+    )
+
+    interval = next(
+        item for item in aggregate.gap_intervals if item.scope[-1] == "capability:llm"
+    )
+    assert interval.started_at == datetime(2026, 6, 30, 16, 30, tzinfo=timezone.utc)

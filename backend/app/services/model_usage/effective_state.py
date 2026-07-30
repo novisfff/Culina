@@ -136,20 +136,20 @@ def project_effective_states(
 
 def effective_event_state(
     db: Session,
-    event_id: str,
     *,
-    family_id: str | None = None,
+    family_id: str,
+    event_id: str,
 ) -> EffectiveUsageState:
     """Project an immutable event through its append-only adjustment history.
 
-    When a family is supplied (for request-facing callers), the event lookup is
-    family-scoped. Adjustment loading remains scoped by the source event's
-    persisted family in ``effective_state_for_event``.
+    The event lookup is always family-scoped. Adjustment loading remains scoped
+    by the source event's persisted family in ``effective_state_for_event``.
     """
 
-    statement = select(ModelUsageEvent).where(ModelUsageEvent.id == event_id)
-    if family_id is not None:
-        statement = statement.where(ModelUsageEvent.family_id == family_id)
+    statement = select(ModelUsageEvent).where(
+        ModelUsageEvent.id == event_id,
+        ModelUsageEvent.family_id == family_id,
+    )
     event = db.scalar(statement)
     if event is None:
         raise LookupError("model_usage_event_not_found")

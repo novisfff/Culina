@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Mapping, Sequence
@@ -97,6 +97,12 @@ class UsageAggregate:
     @property
     def total_cost_cny(self) -> Decimal | None:
         return self.known_priced_cost_cny if self.pricing_complete else None
+
+
+def _database_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def aggregate_usage(
@@ -306,8 +312,14 @@ def _aggregate_current_period(
         AggregateIncident(
             incident_id=incident.id,
             coverage=incident.coverage,
-            started_at=max(incident.started_at, period.start_at),
-            ended_at=min(incident.recovered_at or incident.period_end, period.end_at),
+            started_at=max(
+                _database_utc(incident.started_at),
+                _database_utc(period.start_at),
+            ),
+            ended_at=min(
+                _database_utc(incident.recovered_at or incident.period_end),
+                _database_utc(period.end_at),
+            ),
             scope=tuple(
                 value
                 for value in (

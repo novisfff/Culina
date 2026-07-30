@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
@@ -21,6 +22,7 @@ from app.services.model_usage.adjustments import (
 from app.services.model_usage.effective_state import effective_event_state
 from tests.model_usage.test_adjustments import (
     evidence_snapshot,
+    settled_source_event,
     unknown_source_event,
     unpriced_source_event,
 )
@@ -68,7 +70,11 @@ def test_execution_resolution_removes_unresolved_unknown_without_mutating_event(
     preview = preview_adjustment(model_usage_db, command)
     apply_adjustment(model_usage_db, replace(command, confirm_checksum=preview.checksum))
 
-    effective = effective_event_state(model_usage_db, unknown_source_event.id)
+    effective = effective_event_state(
+        model_usage_db,
+        family_id=unknown_source_event.family_id,
+        event_id=unknown_source_event.id,
+    )
 
     assert effective.execution_certainty is ModelUsageExecutionCertainty.CONFIRMED_EXECUTED
     assert effective.measurement_status is ModelUsageMeasurementStatus.EXACT
@@ -107,8 +113,32 @@ def test_pricing_resolution_uses_evidence_snapshot_without_repricing_event(
     preview = preview_adjustment(model_usage_db, command)
     apply_adjustment(model_usage_db, replace(command, confirm_checksum=preview.checksum))
 
-    effective = effective_event_state(model_usage_db, unpriced_source_event.id)
+    effective = effective_event_state(
+        model_usage_db,
+        family_id=unpriced_source_event.family_id,
+        event_id=unpriced_source_event.id,
+    )
 
     assert effective.pricing_status is ModelUsagePricingStatus.PRICED
     assert effective.cost_cny == Decimal("110")
     assert _event_snapshot(unpriced_source_event) == original
+
+
+def test_effective_state_rejects_wrong_family_scope(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    with pytest.raises(LookupError, match="model_usage_event_not_found"):
+        effective_event_state(
+            model_usage_db,
+            family_id="other-family",
+            event_id=settled_source_event.id,
+        )
+
+
+def test_effective_state_requires_explicit_family_scope(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    with pytest.raises(TypeError):
+        effective_event_state(model_usage_db, settled_source_event.id)
