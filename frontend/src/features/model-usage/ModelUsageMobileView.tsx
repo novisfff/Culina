@@ -36,7 +36,7 @@ function isFamilyOverview(overview: ModelUsageOverview): overview is ModelUsageF
   return overview.scope === 'family';
 }
 
-function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onBack'>) {
+function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onOpenPolicySettings' | 'onBack'>) {
   return (
     <header className="model-usage-mobile-header">
       <div className="model-usage-mobile-title-row">
@@ -49,6 +49,9 @@ function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'sc
         </div>
       </div>
       <div className="model-usage-mobile-controls">
+        {props.isOwner && props.onOpenPolicySettings ? (
+          <button className="model-usage-policy-entry" type="button" onClick={props.onOpenPolicySettings}>预算设置</button>
+        ) : null}
         {props.isOwner ? (
           <div className="model-usage-scope-toggle" aria-label="用量范围">
             <button type="button" aria-pressed={props.scope === 'family'} onClick={() => props.actions.setScope('family')}>家庭</button>

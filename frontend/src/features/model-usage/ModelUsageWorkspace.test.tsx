@@ -259,7 +259,9 @@ describe('ModelUsageWorkspace', () => {
     expect(await screen.findByRole('heading', { name: '我的模型用量' })).toBeVisible();
     expect(screen.queryByRole('button', { name: '家庭' })).not.toBeInTheDocument();
     expect(screen.queryByText('家庭月预算')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '预算设置' })).not.toBeInTheDocument();
     await waitFor(() => expect(modelUsageApi.getFamilyModelUsageOverview).not.toHaveBeenCalled());
+    expect(modelUsageApi.getFamilyModelUsagePolicy).not.toHaveBeenCalled();
   });
 
   it('labels cached data when an offline refresh fails', async () => {

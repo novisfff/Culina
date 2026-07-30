@@ -22,5 +22,6 @@ export type ModelUsageWorkspaceViewProps = {
   isBreakdownLoading: boolean;
   isOffline: boolean;
   actions: ModelUsageWorkspaceActions;
+  onOpenPolicySettings?: () => void;
   onBack: () => void;
 };

@@ -1,8 +1,11 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { UserRole } from '../../api/types';
 import { StateBlock } from '../../components/ui-kit';
 import { ModelUsageDesktopView } from './ModelUsageDesktopView';
 import { ModelUsageMobileView } from './ModelUsageMobileView';
+import { ModelUsagePolicyDesktopDrawer } from './ModelUsagePolicyDesktopDrawer';
+import { ModelUsagePolicyMobilePage } from './ModelUsagePolicyMobilePage';
+import { useModelUsagePolicy } from './useModelUsagePolicy';
 import { useModelUsageQueries } from './useModelUsageQueries';
 import type { ModelUsageWorkspaceActions } from './modelUsageWorkspaceViewModel';
 
@@ -15,11 +18,13 @@ export interface ModelUsageWorkspaceProps {
 }
 
 export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
+  const [isPolicySettingsOpen, setIsPolicySettingsOpen] = useState(false);
   const queries = useModelUsageQueries({
     familyId: props.familyId,
     role: props.role,
     initialPeriod: props.initialPeriod,
   });
+  const policy = useModelUsagePolicy({ familyId: props.familyId, role: props.role });
   const retry = useCallback(() => {
     void queries.overviewQuery.refetch();
     void queries.breakdownQuery.refetch();
@@ -45,18 +50,45 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
   }
 
   const View = props.isPhoneViewport ? ModelUsageMobileView : ModelUsageDesktopView;
+  const openPolicySettings = queries.isOwner ? () => setIsPolicySettingsOpen(true) : undefined;
+  const closePolicySettings = () => setIsPolicySettingsOpen(false);
+  const policySettings = {
+    draft: policy.draft,
+    policy: policy.policy,
+    isLoading: policy.policyQuery.isLoading,
+    isError: policy.policyQuery.isError,
+    isSaving: policy.isSaving,
+    saveError: policy.saveError,
+    conflict: policy.conflict,
+    onRetry: () => { void policy.policyQuery.refetch(); },
+    onPatchDraft: policy.actions.patchDraft,
+    onSave: policy.actions.save,
+    onReviewConflict: () => { void policy.actions.reviewConflict(); },
+    onReapplyRetainedDraft: policy.actions.reapplyRetainedDraft,
+  };
+
+  if (isPolicySettingsOpen && queries.isOwner && props.isPhoneViewport) {
+    return <ModelUsagePolicyMobilePage onClose={closePolicySettings} settings={policySettings} />;
+  }
+
   return (
-    <View
-      model={queries.viewModel}
-      isOwner={queries.isOwner}
-      scope={queries.scope}
-      period={queries.period}
-      groupBy={queries.groupBy}
-      alerts={queries.alerts}
-      isBreakdownLoading={queries.activeBreakdownQuery.isLoading}
-      isOffline={typeof navigator !== 'undefined' && navigator.onLine === false}
-      actions={actions}
-      onBack={props.onBack}
-    />
+    <>
+      <View
+        model={queries.viewModel}
+        isOwner={queries.isOwner}
+        scope={queries.scope}
+        period={queries.period}
+        groupBy={queries.groupBy}
+        alerts={queries.alerts}
+        isBreakdownLoading={queries.activeBreakdownQuery.isLoading}
+        isOffline={typeof navigator !== 'undefined' && navigator.onLine === false}
+        actions={actions}
+        onOpenPolicySettings={openPolicySettings}
+        onBack={props.onBack}
+      />
+      {isPolicySettingsOpen && queries.isOwner && !props.isPhoneViewport ? (
+        <ModelUsagePolicyDesktopDrawer onClose={closePolicySettings} settings={policySettings} />
+      ) : null}
+    </>
   );
 }

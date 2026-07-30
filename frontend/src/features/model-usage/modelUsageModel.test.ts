@@ -11,8 +11,11 @@ import {
   costDisplay,
   createModelUsagePolicyDraft,
   formatModelUsageCny,
+  isModelUsageMissingPriceConfirmationRequired,
   modelUsageHealthNotices,
+  normalizeModelUsageDecimalDraft,
   policyConflictFromApiError,
+  validateModelUsagePolicyDraft,
 } from './modelUsageModel';
 import {
   MODEL_USAGE_CAPABILITY_OPTIONS,
@@ -220,6 +223,56 @@ describe('model usage display model', () => {
     });
   });
 
+  it('keeps a controlled Decimal draft as text while serializing an empty budget as null', () => {
+    const draft = createModelUsagePolicyDraft(policy());
+    draft.monthly_budget_cny = normalizeModelUsageDecimalDraft(' 80.005000000000 ');
+    expect(draft.monthly_budget_cny).toBe('80.005000000000');
+
+    draft.monthly_budget_cny = normalizeModelUsageDecimalDraft('');
+    expect(buildModelUsagePolicyPayload(draft).monthly_budget_cny).toBeNull();
+  });
+
+  it('requires a positive monthly budget before enabling a hard limit or capability guardrail', () => {
+    const hardLimitDraft = createModelUsagePolicyDraft(policy({ monthly_budget_cny: null, hard_limit_enabled: true }));
+    expect(validateModelUsagePolicyDraft(hardLimitDraft)).toEqual({
+      valid: false,
+      field: 'monthly_budget_cny',
+      message: '开启限制前，请先填写大于 0 的家庭月预算。',
+    });
+
+    const guardrailDraft = createModelUsagePolicyDraft(policy({ monthly_budget_cny: null }));
+    expect(validateModelUsagePolicyDraft(guardrailDraft)).toEqual({
+      valid: false,
+      field: 'monthly_budget_cny',
+      message: '开启限制前，请先填写大于 0 的家庭月预算。',
+    });
+  });
+
+  it('rejects duplicated capabilities and meters that do not belong to their capability', () => {
+    const duplicateDraft = createModelUsagePolicyDraft(policy({
+      capability_limits: [
+        { capability: 'llm', limit_kind: 'cost', meter: null, limit_value: '1', enabled: true },
+        { capability: 'llm', limit_kind: 'cost', meter: null, limit_value: '2', enabled: true },
+      ],
+    }));
+    expect(validateModelUsagePolicyDraft(duplicateDraft)).toEqual({
+      valid: false,
+      field: 'capability_limits',
+      message: '每项模型能力只能设置一个护栏。',
+    });
+
+    const invalidMeterDraft = createModelUsagePolicyDraft(policy({
+      capability_limits: [
+        { capability: 'llm', limit_kind: 'meter', meter: 'generated_images', limit_value: '1', enabled: true },
+      ],
+    }));
+    expect(validateModelUsagePolicyDraft(invalidMeterDraft)).toEqual({
+      valid: false,
+      field: 'capability_limits',
+      message: '所选计量项不适用于这项模型能力。',
+    });
+  });
+
   it('parses a policy conflict while leaving unrelated API failures alone', () => {
     const currentPolicy = policy({ version_number: 4 });
     const conflict = policyConflictFromApiError(new ApiError({
@@ -242,5 +295,21 @@ describe('model usage display model', () => {
       recovery_hint: 'review_current_policy_and_reapply',
     });
     expect(policyConflictFromApiError(new Error('offline'))).toBeNull();
+  });
+
+  it('recognizes only the structured missing-price confirmation response', () => {
+    expect(isModelUsageMissingPriceConfirmationRequired(new ApiError({
+      status: 422,
+      detail: '请确认缺价影响',
+      path: '/api/model-usage/family/policy',
+      payload: { detail: { code: 'model_usage_missing_price_confirmation_required' } },
+    }))).toBe(true);
+    expect(isModelUsageMissingPriceConfirmationRequired(new ApiError({
+      status: 422,
+      detail: '其他校验错误',
+      path: '/api/model-usage/family/policy',
+      payload: { detail: { code: 'model_usage_policy_validation_error' } },
+    }))).toBe(false);
+    expect(isModelUsageMissingPriceConfirmationRequired(new Error('offline'))).toBe(false);
   });
 });

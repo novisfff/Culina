@@ -87,7 +87,7 @@ function CapabilityGrid(props: { overview: ModelUsageOverview; items: ModelUsage
   );
 }
 
-function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onBack'>) {
+function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onOpenPolicySettings' | 'onBack'>) {
   const title = props.scope === 'family' ? '家庭模型用量' : '我的模型用量';
   return (
     <header className="model-usage-header">
@@ -101,6 +101,9 @@ function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scop
         <p>查看模型调用的费用、计量状态和可用额度。</p>
       </div>
       <div className="model-usage-header-controls">
+        {props.isOwner && props.onOpenPolicySettings ? (
+          <button className="model-usage-policy-entry" type="button" onClick={props.onOpenPolicySettings}>预算设置</button>
+        ) : null}
         {props.isOwner ? (
           <div className="model-usage-scope-toggle" aria-label="用量范围">
             <button type="button" aria-pressed={props.scope === 'family'} onClick={() => props.actions.setScope('family')}>家庭</button>

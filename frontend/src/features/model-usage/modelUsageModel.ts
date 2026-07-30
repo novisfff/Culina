@@ -10,7 +10,7 @@ import type {
   ModelUsagePolicy,
   UpdateModelUsagePolicyPayload,
 } from '../../api/types';
-import { MODEL_USAGE_HEALTH_OPTIONS } from './modelUsageOptions';
+import { MODEL_USAGE_CAPABILITY_METERS, MODEL_USAGE_HEALTH_OPTIONS } from './modelUsageOptions';
 
 type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;
 
@@ -230,6 +230,72 @@ export function buildModelUsageWorkspaceViewModel(args: {
 
 export interface ModelUsagePolicyDraft extends UpdateModelUsagePolicyPayload {}
 
+export type ModelUsagePolicyValidation =
+  | { valid: true }
+  | {
+    valid: false;
+    field: 'monthly_budget_cny' | 'capability_limits';
+    message: string;
+  };
+
+/**
+ * Keeps Decimal values as strings so policy payloads never pass through a
+ * JavaScript number. An empty controlled field intentionally means no budget.
+ */
+export function normalizeModelUsageDecimalDraft(value: string): string | null {
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): ModelUsagePolicyValidation {
+  const hasBudget = hasNonZeroDecimal(draft.monthly_budget_cny);
+  if (draft.monthly_budget_cny !== null && !hasBudget) {
+    return {
+      valid: false,
+      field: 'monthly_budget_cny',
+      message: '家庭月预算需为大于 0 的金额，或留空不设置预算。',
+    };
+  }
+  if ((draft.hard_limit_enabled || draft.capability_limits.length > 0) && !hasBudget) {
+    return {
+      valid: false,
+      field: 'monthly_budget_cny',
+      message: '开启限制前，请先填写大于 0 的家庭月预算。',
+    };
+  }
+  if (new Set(draft.capability_limits.map((item) => item.capability)).size !== draft.capability_limits.length) {
+    return {
+      valid: false,
+      field: 'capability_limits',
+      message: '每项模型能力只能设置一个护栏。',
+    };
+  }
+  for (const limit of draft.capability_limits) {
+    if (!hasNonZeroDecimal(limit.limit_value)) {
+      return {
+        valid: false,
+        field: 'capability_limits',
+        message: '每项能力护栏都需要填写大于 0 的限制值。',
+      };
+    }
+    if (limit.limit_kind === 'cost' && limit.meter !== null) {
+      return {
+        valid: false,
+        field: 'capability_limits',
+        message: '费用护栏不能同时选择计量项。',
+      };
+    }
+    if (limit.limit_kind === 'meter' && (!limit.meter || !MODEL_USAGE_CAPABILITY_METERS[limit.capability].includes(limit.meter))) {
+      return {
+        valid: false,
+        field: 'capability_limits',
+        message: '所选计量项不适用于这项模型能力。',
+      };
+    }
+  }
+  return { valid: true };
+}
+
 function copyCapabilityLimits(limits: ModelUsageCapabilityLimit[]): ModelUsageCapabilityLimit[] {
   return limits.map((limit) => ({ ...limit }));
 }
@@ -296,4 +362,10 @@ export function policyConflictFromApiError(reason: unknown): ModelUsagePolicyCon
     current_version_number: detail.current_version_number,
     recovery_hint: detail.recovery_hint,
   };
+}
+
+export function isModelUsageMissingPriceConfirmationRequired(reason: unknown): boolean {
+  if (!isApiError(reason) || reason.status !== 422 || !isRecord(reason.payload)) return false;
+  const detail = reason.payload.detail;
+  return isRecord(detail) && detail.code === 'model_usage_missing_price_confirmation_required';
 }
