@@ -11,8 +11,24 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
+from app.core.enums import (
+    ModelUsageCapability,
+    ModelUsageExecutionCertainty,
+    ModelUsageMeasurementStatus,
+    ModelUsageMeter,
+    ModelUsageMeterRole,
+    ModelUsagePricingStatus,
+    ModelUsageProviderOutcome,
+    ModelUsageQuantitySource,
+)
 from app.services.model_usage.errors import ModelUsageReceiptIntegrityError
-from app.services.model_usage.types import ProviderUsageReceipt
+from app.services.model_usage.periods import BillingPeriod, SHANGHAI
+from app.services.model_usage.pricing import UsagePriceRateSnapshot, UsagePriceSnapshot
+from app.services.model_usage.types import (
+    ProviderMeterWatermark,
+    ProviderUsageReceipt,
+    UsageMeterQuantity,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -112,6 +128,169 @@ def receipt_log_payload(receipt: ProviderUsageReceipt) -> dict[str, object]:
     if set(payload) != PROVIDER_USAGE_RECEIPT_LOG_FIELDS:
         raise ModelUsageReceiptIntegrityError("receipt_log_schema_invalid")
     return payload
+
+
+def _parse_datetime(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise ModelUsageReceiptIntegrityError("receipt_log_datetime_invalid")
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ModelUsageReceiptIntegrityError("receipt_log_datetime_invalid") from exc
+
+
+def _required_string(payload: Mapping[str, object], field: str) -> str:
+    value = payload[field]
+    if not isinstance(value, str) or not value:
+        raise TypeError
+    return value
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise TypeError
+    return value
+
+
+def provider_usage_receipt_from_log_payload(
+    payload: Mapping[str, object],
+) -> ProviderUsageReceipt:
+    if set(payload) != PROVIDER_USAGE_RECEIPT_LOG_FIELDS:
+        raise ModelUsageReceiptIntegrityError("receipt_log_schema_invalid")
+    try:
+        required_strings = {
+            field: _required_string(payload, field)
+            for field in (
+                "family_id",
+                "subject_key",
+                "provider",
+                "requested_model",
+                "billing_model",
+                "variant_key",
+                "billing_scheme_key",
+                "attempt_key",
+                "fingerprint",
+                "client_attempt_id",
+                "policy_version_id",
+                "dispatch_policy_version_id",
+                "integrity_key_id",
+                "integrity_hmac",
+            )
+        }
+        meter_payloads = payload["meters"]
+        watermark_payloads = payload["meter_watermarks"]
+        if not isinstance(meter_payloads, list) or not isinstance(watermark_payloads, list):
+            raise TypeError
+        meters = tuple(
+            UsageMeterQuantity(
+                meter=ModelUsageMeter(item["meter"]),
+                quantity=Decimal(item["quantity"]),
+                meter_role=ModelUsageMeterRole(item["meter_role"]),
+                quantity_source=ModelUsageQuantitySource(item["quantity_source"]),
+            )
+            for item in meter_payloads
+            if isinstance(item, dict)
+        )
+        if len(meters) != len(meter_payloads):
+            raise TypeError
+        watermarks = tuple(
+            ProviderMeterWatermark(
+                meter=ModelUsageMeter(item["meter"]),
+                lease_sequence=int(item["lease_sequence"]),
+                baseline_quantity=Decimal(item["baseline_quantity"]),
+                cumulative_quantity=Decimal(item["cumulative_quantity"]),
+            )
+            for item in watermark_payloads
+            if isinstance(item, dict)
+        )
+        if len(watermarks) != len(watermark_payloads):
+            raise TypeError
+        raw_snapshot = payload["price_snapshot"]
+        price_snapshot = None
+        if raw_snapshot is not None:
+            if not isinstance(raw_snapshot, dict):
+                raise TypeError
+            raw_rates = raw_snapshot["rates"]
+            if not isinstance(raw_rates, list):
+                raise TypeError
+            rates = tuple(
+                UsagePriceRateSnapshot(
+                    meter=ModelUsageMeter(item["meter"]),
+                    meter_role=ModelUsageMeterRole(item["meter_role"]),
+                    unit_quantity=Decimal(item["unit_quantity"]),
+                    unit_price=(
+                        Decimal(item["unit_price"])
+                        if item["unit_price"] is not None
+                        else None
+                    ),
+                    source_currency=item["source_currency"],
+                    fx_to_cny=Decimal(item["fx_to_cny"]) if item["fx_to_cny"] is not None else None,
+                    unit_price_cny=(
+                        Decimal(item["unit_price_cny"])
+                        if item["unit_price_cny"] is not None
+                        else None
+                    ),
+                )
+                for item in raw_rates
+                if isinstance(item, dict)
+            )
+            if len(rates) != len(raw_rates):
+                raise TypeError
+            price_snapshot = UsagePriceSnapshot(
+                pricing_status=ModelUsagePricingStatus(raw_snapshot["pricing_status"]),
+                price_version_id=_optional_string(raw_snapshot["price_version_id"]),
+                billing_model=_required_string(raw_snapshot, "billing_model"),
+                billing_scheme_key=_optional_string(raw_snapshot["billing_scheme_key"]),
+                rates=rates,
+                missing_billable_meters=frozenset(
+                    ModelUsageMeter(value)
+                    for value in raw_snapshot["missing_billable_meters"]
+                ),
+                checksum=_optional_string(raw_snapshot["checksum"]),
+            )
+        period_start = _parse_datetime(payload["period_start"])
+        period_end = _parse_datetime(payload["period_end"])
+        return ProviderUsageReceipt(
+            reservation_id=_optional_string(payload["reservation_id"]),
+            family_id=required_strings["family_id"],
+            subject_key=required_strings["subject_key"],
+            capability=ModelUsageCapability(payload["capability"]),
+            provider=required_strings["provider"],
+            requested_model=required_strings["requested_model"],
+            reported_model=_optional_string(payload["reported_model"]),
+            billing_model=required_strings["billing_model"],
+            variant_key=required_strings["variant_key"],
+            billing_scheme_key=required_strings["billing_scheme_key"],
+            attempt_key=required_strings["attempt_key"],
+            fingerprint=required_strings["fingerprint"],
+            client_attempt_id=required_strings["client_attempt_id"],
+            policy_version_id=required_strings["policy_version_id"],
+            dispatch_policy_version_id=required_strings["dispatch_policy_version_id"],
+            provider_request_id=_optional_string(payload["provider_request_id"]),
+            provider_outcome=ModelUsageProviderOutcome(payload["provider_outcome"]),
+            execution_certainty=ModelUsageExecutionCertainty(payload["execution_certainty"]),
+            measurement_status=ModelUsageMeasurementStatus(payload["measurement_status"]),
+            pricing_status=ModelUsagePricingStatus(payload["pricing_status"]),
+            period=BillingPeriod(
+                local_month=period_start.astimezone(SHANGHAI).strftime("%Y-%m"),
+                start_at=period_start,
+                end_at=period_end,
+            ),
+            meters=meters,
+            meter_watermarks=watermarks,
+            dispatched_at=_parse_datetime(payload["dispatched_at"]),
+            completed_at=_parse_datetime(payload["completed_at"]),
+            price_version_id=_optional_string(payload["price_version_id"]),
+            price_snapshot=price_snapshot,
+            price_snapshot_checksum=_optional_string(payload["price_snapshot_checksum"]),
+            fail_open_proof_id=_optional_string(payload["fail_open_proof_id"]),
+            integrity_key_id=required_strings["integrity_key_id"],
+            integrity_hmac=required_strings["integrity_hmac"],
+        )
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise ModelUsageReceiptIntegrityError("receipt_log_payload_invalid") from exc
 
 
 def _canonical_unsigned(receipt: ProviderUsageReceipt) -> bytes:
