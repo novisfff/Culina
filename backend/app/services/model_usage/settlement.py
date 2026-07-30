@@ -23,12 +23,14 @@ from app.db.session import SessionLocal
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
+    ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
 )
 from app.repos.model_usage.ledger import lock_event_by_attempt
 from app.services.model_usage.decimal_math import exact_line_cost, quantize_quantity
 from app.services.model_usage.dispatch import _lock_counters, _remove_reserved
+from app.services.model_usage.alerts import evaluate_budget_alerts
 from app.services.model_usage.errors import (
     ModelUsageAttemptConflict,
     ModelUsageContractError,
@@ -178,7 +180,10 @@ def settle_usage_in_session(
     identity = db.get(ModelUsageReservation, receipt.reservation_id)
     if identity is None:
         raise ModelUsageSettlementPending("reservation_not_found")
-    lock_family_policy(db, family_id=identity.family_id)
+    pointer = lock_family_policy(db, family_id=identity.family_id)
+    current_policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
+    if current_policy is None:
+        raise ModelUsageStateError("current_policy_missing")
     reservation = db.scalar(
         select(ModelUsageReservation)
         .where(
@@ -336,6 +341,12 @@ def settle_usage_in_session(
         ModelUsageReservationStatus.SETTLED,
     )
     reservation.provider_request_id = receipt.provider_request_id
+    family_counter = next(
+        counter
+        for counter in counters
+        if counter.counter_kind is ModelUsageCounterKind.FAMILY_COST
+    )
+    evaluate_budget_alerts(db, policy=current_policy, counter=family_counter)
     db.flush()
     return _settlement_from_event(db, event)
 
