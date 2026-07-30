@@ -731,6 +731,15 @@ class AIImageGenerationJob(Base):
     generated_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     bind_status: Mapped[str | None] = mapped_column(String(32), default="pending", nullable=True, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # These are diagnostic links to the model-usage ledger, deliberately not
+    # foreign keys: image-job cleanup must never retain ledger data (or vice
+    # versa) past its own lifecycle.
+    usage_attempt_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    usage_reservation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    usage_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_execution_status: Mapped[str] = mapped_column(String(32), default="not_started", nullable=False)
+    provider_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

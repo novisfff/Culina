@@ -1830,6 +1830,8 @@ export interface AiRenderResponse {
   job_id?: string | null;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   error?: string | null;
+  error_code?: string | null;
+  can_retry: boolean;
   generated_asset?: MediaAsset | null;
   reference_asset?: MediaAsset | null;
   style_key?: string | null;

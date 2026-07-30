@@ -104,7 +104,7 @@ export function useFoodSceneState(input: {
   const sceneImageComposer = useImageComposer({
     value: {
       pendingJob: sceneDraft.pendingImageJobId
-        ? { job_id: sceneDraft.pendingImageJobId, status: 'running', generation_mode: 'text' }
+        ? { job_id: sceneDraft.pendingImageJobId, status: 'running', generation_mode: 'text', can_retry: false }
         : undefined,
       generatedAsset:
         sceneDraft.imageAssetId && sceneDraft.imageAssetUrl

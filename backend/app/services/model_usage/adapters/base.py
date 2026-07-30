@@ -61,6 +61,12 @@ class MeteredProviderAttempt:
     def client_attempt_id(self) -> str:
         return self.context.client_attempt_id
 
+    @property
+    def dispatch_permit(self) -> DispatchPermit | None:
+        """Expose an already-authorized send without authorizing it twice."""
+
+        return self._permit
+
     def prepare_dispatch(self, *, at: datetime | None = None) -> DispatchPermit:
         """Atomically move the reservation into dispatching before a send."""
 

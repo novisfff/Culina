@@ -83,7 +83,7 @@ describe('useImageComposer', () => {
     const onChange = () => undefined;
 
     const view = renderHarness({
-      value: { pendingJob: { job_id: 'image-job-1', status: 'running', generation_mode: 'text' } },
+      value: { pendingJob: { job_id: 'image-job-1', status: 'running', generation_mode: 'text', can_retry: false } },
       onChange,
       onState,
     });

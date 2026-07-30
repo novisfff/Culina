@@ -50,7 +50,9 @@ function buildImageJobNotice(job: AiRenderResponse): NoticeState {
     return {
       tone: 'danger',
       title: 'AI 图片生成失败',
-      message: job.error || `${targetLabel}主图没有生成成功，可以稍后重试。`,
+      message: job.error || (job.can_retry
+        ? `${targetLabel}主图没有生成成功，可以稍后重试。`
+        : `${targetLabel}主图没有生成成功；为避免重复生成，当前不能直接重试。`),
     };
   }
   if (job.bind_status === 'skipped') {
@@ -110,7 +112,9 @@ function buildImageNotificationJob(job: AiRenderResponse): AppNotificationJob | 
     description = '正在生成图片，可以先处理其他内容';
   } else if (job.status === 'failed') {
     statusLabel = '失败';
-    description = job.error?.trim() || '生成失败，可以直接重试';
+    description = job.error?.trim() || (job.can_retry
+      ? '生成失败，可以直接重试'
+      : '生成失败，当前不能安全地直接重试');
   } else if (job.bind_status === 'skipped') {
     statusLabel = '已生成，未替换';
     description = '已有用户图片，生成图已保留';
@@ -126,7 +130,7 @@ function buildImageNotificationJob(job: AiRenderResponse): AppNotificationJob | 
     title: targetName ? `${targetName}的${targetLabel}图片生成` : `${targetLabel}图片生成`,
     status_label: statusLabel,
     description,
-    can_retry: job.status === 'failed',
+    can_retry: job.can_retry === true,
     can_dismiss: isTerminalImageJob(job),
     created_at: job.created_at ?? null,
     completed_at: job.completed_at ?? null,

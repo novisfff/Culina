@@ -8,6 +8,7 @@ remote request without a dispatch permit.
 
 from app.services.model_usage.adapters.audio import AudioUsageAdapter
 from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
+from app.services.model_usage.adapters.image_generation import ImageGenerationUsageAdapter
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
 from app.services.model_usage.adapters.rerank import RerankUsageAdapter
 from app.services.model_usage.adapters.realtime_audio import RealtimeAudioUsageAdapter
@@ -15,6 +16,7 @@ from app.services.model_usage.adapters.realtime_audio import RealtimeAudioUsageA
 __all__ = (
     "AudioUsageAdapter",
     "EmbeddingUsageAdapter",
+    "ImageGenerationUsageAdapter",
     "LLMUsageAdapter",
     "RealtimeAudioUsageAdapter",
     "RerankUsageAdapter",

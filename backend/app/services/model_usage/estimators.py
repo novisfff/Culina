@@ -127,13 +127,23 @@ def estimate_tts(*, character_count: int) -> UsageEstimate:
     )
 
 
-def estimate_image_generation(*, image_count: int) -> UsageEstimate:
+def estimate_image_generation(
+    *,
+    image_count: int,
+    include_request_fee: bool = True,
+) -> UsageEstimate:
     _positive_integer(image_count, field="image_count")
-    return UsageEstimate(
-        meters=(
-            _quantity(ModelUsageMeter.GENERATED_IMAGES, image_count, role=ModelUsageMeterRole.BILLABLE),
-            _quantity(ModelUsageMeter.REQUEST_UNITS, 1, role=ModelUsageMeterRole.BILLABLE),
+    if not isinstance(include_request_fee, bool):
+        raise ModelUsageContractError("image_request_fee_flag_invalid")
+    meters = [
+        _quantity(ModelUsageMeter.GENERATED_IMAGES, image_count, role=ModelUsageMeterRole.BILLABLE),
+    ]
+    if include_request_fee:
+        meters.append(
+            _quantity(ModelUsageMeter.REQUEST_UNITS, 1, role=ModelUsageMeterRole.BILLABLE)
         )
+    return UsageEstimate(
+        meters=tuple(meters)
     )
 
 
