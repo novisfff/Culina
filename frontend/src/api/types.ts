@@ -736,7 +736,7 @@ export interface RecipeStats {
 
 export type SearchEntityType = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
-export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'budget_blocked';
 export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
 export type SearchResultEntity = Ingredient | Food | Recipe | FoodPlanItem;
 
@@ -757,12 +757,14 @@ export interface SearchResponse {
   query: string;
   search_mode: SearchMode;
   degraded: boolean;
+  degradation_code?: string | null;
 }
 
 export interface SearchIndexJobResponse {
   job_id: string;
   status: SearchIndexJobStatus;
   error?: string | null;
+  error_code?: string | null;
   entity_type: SearchEntityType;
   entity_id: string;
   target_name: string;

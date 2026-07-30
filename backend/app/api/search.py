@@ -44,7 +44,14 @@ def search(
     query = q.strip()
     normalized_scopes = _parse_scopes(scopes)
     if not query:
-        return {"items": [], "total": 0, "query": query, "search_mode": "hybrid", "degraded": False}
+        return {
+            "items": [],
+            "total": 0,
+            "query": query,
+            "search_mode": "hybrid",
+            "degraded": False,
+            "degradation_code": None,
+        }
 
     search_result = hybrid_search(
         db,
@@ -79,6 +86,7 @@ def search(
         "query": search_result.query,
         "search_mode": search_result.search_mode,
         "degraded": search_result.degraded,
+        "degradation_code": search_result.degradation_code,
     }
 
 
@@ -161,6 +169,7 @@ def _render_search_index_job_response(job) -> dict:
         "job_id": job.id,
         "status": job.status,
         "error": job.error,
+        "error_code": job.error_code,
         "entity_type": job.entity_type,
         "entity_id": job.entity_id,
         "target_name": job.target_name,

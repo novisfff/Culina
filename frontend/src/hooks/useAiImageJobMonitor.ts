@@ -144,6 +144,9 @@ function buildSearchIndexNotificationJob(job: SearchIndexJobResponse): AppNotifi
   } else if (job.status === 'running') {
     statusLabel = '正在处理';
     description = '正在更新搜索索引和可用的向量索引';
+  } else if (job.status === 'budget_blocked') {
+    statusLabel = '受预算限制';
+    description = job.error?.trim() || '当前家庭的模型用量预算已到上限，预算调整或新账期后会自动重试';
   } else if (job.status === 'failed') {
     statusLabel = '失败';
     description = job.error?.trim() || '索引更新失败，可以直接重试';

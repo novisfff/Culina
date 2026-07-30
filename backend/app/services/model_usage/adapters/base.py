@@ -147,7 +147,11 @@ class MeteredProviderAdapter:
     ) -> MeteredProviderAttempt:
         decision = self.usage_facade.reserve(context, estimate, fingerprint=fingerprint)
         if decision.decision == "blocked":
-            raise ModelUsageBlocked(decision.error_code or "model_usage_blocked")
+            raise ModelUsageBlocked(
+                decision.error_code or "model_usage_blocked",
+                period_start=decision.period_start,
+                policy_version_id=decision.policy_version_id,
+            )
         if decision.decision == "already_accounted":
             error = ModelUsageAttemptAlreadyAccounted()
             error.existing_event_id = decision.existing_event_id  # type: ignore[attr-defined]

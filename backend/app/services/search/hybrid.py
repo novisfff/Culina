@@ -6,7 +6,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
-from app.core.enums import FoodType, InventoryAvailabilityLevel
+from app.core.enums import (
+    FoodType,
+    InventoryAvailabilityLevel,
+    ModelUsageAttributionKind,
+    ModelUsageOperationSource,
+)
+from app.core.utils import create_id
 from app.models.domain import Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
@@ -18,8 +24,15 @@ from app.services.inventory_usage import (
     remaining_quantity,
     tracks_quantity,
 )
+from app.services.model_usage.errors import ModelUsageError
+from app.services.model_usage.types import UsageAttribution
 from app.services.recipe_recommendations import recipe_recommendation_usage_maps
-from app.services.search.embeddings import EmbeddingClient, EmbeddingUnavailableError, build_embedding_client
+from app.services.search.embeddings import (
+    EmbeddingClient,
+    EmbeddingUnavailableError,
+    MeteredEmbeddingResult,
+    build_embedding_client,
+)
 from app.services.search.keyword_store import KeywordSearchHit, search_exact_name_documents, search_keyword_documents
 from app.services.search.rerank import RerankClient, RerankUnavailableError, build_rerank_client
 from app.services.search.scoring import SearchBusinessSignals, score_search_candidate
@@ -54,6 +67,7 @@ class HybridSearchResponse:
     query: str
     search_mode: str = "hybrid"
     degraded: bool = False
+    degradation_code: str | None = None
 
 
 def hybrid_search(
@@ -95,12 +109,23 @@ def hybrid_search(
     )
 
     degraded = False
+    degradation_code: str | None = None
     semantic_hits: list[VectorSearchHit] = []
     if hybrid_enabled:
         embedding_client = embedding_client or build_embedding_client()
         vector_store = vector_store or build_vector_store()
+        search_request_id = create_id("search-request")
         try:
-            query_vector = embedding_client.embed_text(normalized_query)
+            query_embedding = embedding_client.embed_text(
+                normalized_query,
+                attribution=_query_usage_attribution(
+                    family_id=family_id,
+                    user_id=user_id,
+                    logical_operation_id=search_request_id,
+                ),
+                attempt_key=f"{search_request_id}:embedding:query",
+            )
+            query_vector = _require_single_vector(query_embedding)
             semantic_hits = _search_vectors(
                 vector_store=vector_store,
                 family_id=family_id,
@@ -109,8 +134,15 @@ def hybrid_search(
                 vector=query_vector,
                 limit=semantic_limit,
             )
-        except (EmbeddingUnavailableError, VectorStoreUnavailableError):
+        except ModelUsageError as exc:
             degraded = True
+            degradation_code = exc.code
+        except EmbeddingUnavailableError:
+            degraded = True
+            degradation_code = "search_embedding_unavailable"
+        except VectorStoreUnavailableError:
+            degraded = True
+            degradation_code = "search_vector_unavailable"
 
     rerank_client = (rerank_client or build_rerank_client()) if hybrid_enabled else None
     merged, rerank_degraded = _merge_hits(
@@ -135,7 +167,44 @@ def hybrid_search(
         query=normalized_query,
         search_mode="hybrid" if hybrid_enabled else "keyword",
         degraded=degraded,
+        degradation_code=degradation_code,
     )
+
+
+def _query_usage_attribution(
+    *,
+    family_id: str,
+    user_id: str | None,
+    logical_operation_id: str,
+) -> UsageAttribution:
+    """Build only trusted search attribution from the route/tool context.
+
+    Runtime request paths pass ``user_id`` and therefore create a user event.
+    The system branch keeps direct service callers deterministic while callers
+    are migrated; it never derives a user identity from request content.
+    """
+
+    if user_id:
+        return UsageAttribution(
+            family_id=family_id,
+            attribution_kind=ModelUsageAttributionKind.USER,
+            actor_user_id=user_id,
+            operation_source=ModelUsageOperationSource.INTERACTIVE,
+            logical_operation_id=logical_operation_id,
+        )
+    return UsageAttribution(
+        family_id=family_id,
+        attribution_kind=ModelUsageAttributionKind.SYSTEM,
+        actor_user_id=None,
+        operation_source=ModelUsageOperationSource.BACKGROUND_INDEX,
+        logical_operation_id=logical_operation_id,
+    )
+
+
+def _require_single_vector(result: MeteredEmbeddingResult) -> list[float]:
+    if len(result.vectors) != 1:
+        raise EmbeddingUnavailableError("embedding response count mismatch")
+    return result.vectors[0]
 
 
 def _merge_hits(

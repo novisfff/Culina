@@ -6,6 +6,7 @@ or mark the attempt uncertain.  Provider implementations should never send a
 remote request without a dispatch permit.
 """
 
+from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
 
-__all__ = ("LLMUsageAdapter",)
+__all__ = ("EmbeddingUsageAdapter", "LLMUsageAdapter")

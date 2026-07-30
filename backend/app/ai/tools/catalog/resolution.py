@@ -166,6 +166,7 @@ def _resolve_items(
             search_result = hybrid_search(
                 context.db,
                 family_id=context.family_id,
+                user_id=context.user_id,
                 query=name,
                 scopes=[entity_type],
                 limit=limit,
@@ -284,6 +285,7 @@ def purchasable_resolve_candidates(context: ToolContext, payload: dict[str, Any]
             search_result = hybrid_search(
                 context.db,
                 family_id=context.family_id,
+                user_id=context.user_id,
                 query=name,
                 scopes=["ingredient", "food"],
                 limit=limit,

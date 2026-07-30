@@ -1,22 +1,110 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import select
 
 from app.core.utils import utcnow
 from app.models.domain import SearchDocument, SearchIndexJob
+from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
+from app.services.model_usage.errors import ModelUsageBlocked
+from app.services.model_usage.facade import ModelUsageFacade
+from app.services.model_usage.periods import shanghai_billing_period
+from app.services.model_usage.policies import ensure_family_model_usage_defaults
+from app.services.model_usage.receipts import ProviderUsageReceiptSigner
+from app.services.model_usage.subjects import ensure_user_subject
+from app.services.search.embeddings import MeteredEmbeddingResult
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search.indexing import upsert_search_document
 from app.services.search.jobs import (
     JOB_LOCK_STALE_AFTER,
     MAX_ATTEMPTS,
     SEARCH_INDEX_ENTITY_TYPES,
+    can_requeue_budget_blocked,
     claim_pending_search_index_jobs,
     process_search_index_job,
     recover_interrupted_search_index_jobs,
 )
 from tests.recipes._support import RecipeApiTestCase
+
+
+EMBEDDING_SETTINGS = SimpleNamespace(
+    search_embedding_provider="openai",
+    search_embedding_model="fake-embedding",
+    search_embedding_dimensions=2,
+)
+
+
+class RecordingEmbeddingClient:
+    model = "fake-embedding"
+    dimensions = 2
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def embed_text(self, text: str, *, attribution, attempt_key: str) -> MeteredEmbeddingResult:
+        del text, attribution, attempt_key
+        self.call_count += 1
+        return MeteredEmbeddingResult(vectors=[[0.1, 0.2]], usage_event_id="usage-event-test")
+
+
+class BudgetBlockedEmbeddingClient(RecordingEmbeddingClient):
+    def embed_text(self, text: str, *, attribution, attempt_key: str) -> MeteredEmbeddingResult:
+        del text, attribution, attempt_key
+        self.call_count += 1
+        raise ModelUsageBlocked(
+            "model_usage_budget_exceeded",
+            period_start=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            policy_version_id="policy-blocked",
+        )
+
+
+class FlakyVectorStore:
+    def __init__(self, *, fail_times: int = 0) -> None:
+        self.fail_times = fail_times
+        self.call_count = 0
+
+    def ensure_collection(self, *, vector_size: int) -> None:
+        assert vector_size == 2
+
+    def upsert_point(self, *, point_id: str, vector: list[float], payload: dict[str, object]) -> None:
+        del point_id, vector, payload
+        self.call_count += 1
+        if self.fail_times:
+            self.fail_times -= 1
+            from app.services.search.vector_store import VectorStoreUnavailableError
+
+            raise VectorStoreUnavailableError("qdrant unavailable")
+
+
+class SettlingThenCrashingEmbeddingClient:
+    model = "fake-embedding"
+    dimensions = 2
+
+    def __init__(self, adapter: EmbeddingUsageAdapter) -> None:
+        self.adapter = adapter
+        self.call_count = 0
+
+    def embed_text(self, text: str, *, attribution, attempt_key: str) -> MeteredEmbeddingResult:
+        self.call_count += 1
+        attempt = self.adapter.begin_embedding_batch(
+            attribution=attribution,
+            attempt_key=attempt_key,
+            text_token_estimates=[max(1, len(text))],
+            fingerprint=self.adapter.request_fingerprint(texts=[text]),
+        )
+        permit = attempt.prepare_dispatch()
+        attempt.settle(
+            self.adapter.receipt_from_openai_response(
+                permit,
+                raw_usage={"prompt_tokens": max(1, len(text))},
+                reported_model=self.model,
+                provider_request_id="provider-request-crash-window",
+            )
+        )
+        raise RuntimeError("simulated crash after settlement before vector persistence")
 
 
 class SearchIndexJobsTestCase(RecipeApiTestCase):
@@ -31,6 +119,8 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
         entity_id: str = "ingredient-tomato",
         target_name: str = "番茄",
         error: str | None = None,
+        budget_blocked_period_start: datetime | None = None,
+        budget_blocked_policy_version_id: str | None = None,
         completed_at=None,
         created_at=None,
     ) -> None:
@@ -48,6 +138,8 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
                     target_name=target_name,
                     vector_status="pending",
                     error=error,
+                    budget_blocked_period_start=budget_blocked_period_start,
+                    budget_blocked_policy_version_id=budget_blocked_policy_version_id,
                     attempt_count=attempt_count,
                     locked_at=locked_at,
                     started_at=locked_at,
@@ -193,6 +285,216 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
                 )
             )
             self.assertIsNone(document)
+
+    def test_qdrant_retry_reuses_persisted_job_vector_without_a_second_embedding_call(self) -> None:
+        self._create_job(job_id="job-qdrant-retry")
+        embedding = RecordingEmbeddingClient()
+        vector_store = FlakyVectorStore(fail_times=1)
+        with (
+            patch("app.services.search.jobs.get_settings", return_value=EMBEDDING_SETTINGS),
+            patch("app.services.search.indexing.get_settings", return_value=EMBEDDING_SETTINGS),
+        ):
+            process_search_index_job(
+                "job-qdrant-retry",
+                session_factory=self.SessionLocal,
+                embedding_client=embedding,
+                vector_store=vector_store,
+            )
+            with self.SessionLocal() as db:
+                job = db.get(SearchIndexJob, "job-qdrant-retry")
+                document = db.scalar(select(SearchDocument))
+                assert job is not None and document is not None
+                self.assertEqual(job.status, "failed")
+                self.assertEqual(job.vector_status, "pending")
+                self.assertEqual(job.attempt_count, 1)
+                self.assertEqual(document.pending_vector, [0.1, 0.2])
+
+            process_search_index_job(
+                "job-qdrant-retry",
+                session_factory=self.SessionLocal,
+                embedding_client=embedding,
+                vector_store=vector_store,
+            )
+
+        self.assertEqual(embedding.call_count, 1)
+        self.assertEqual(vector_store.call_count, 2)
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-qdrant-retry")
+            document = db.scalar(select(SearchDocument))
+            assert job is not None and document is not None
+            self.assertEqual(job.status, "succeeded")
+            self.assertEqual(job.vector_status, "indexed")
+            self.assertIsNone(document.pending_vector)
+
+    def test_budget_blocked_job_does_not_count_a_provider_attempt(self) -> None:
+        self._create_job(job_id="job-budget-blocked")
+        embedding = BudgetBlockedEmbeddingClient()
+        vector_store = FlakyVectorStore()
+        with (
+            patch("app.services.search.jobs.get_settings", return_value=EMBEDDING_SETTINGS),
+            patch("app.services.search.indexing.get_settings", return_value=EMBEDDING_SETTINGS),
+        ):
+            process_search_index_job(
+                "job-budget-blocked",
+                session_factory=self.SessionLocal,
+                embedding_client=embedding,
+                vector_store=vector_store,
+            )
+
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-budget-blocked")
+            assert job is not None
+            self.assertEqual(job.status, "budget_blocked")
+            self.assertEqual(job.error_code, "model_usage_budget_exceeded")
+            self.assertEqual(job.attempt_count, 0)
+            self.assertIsNotNone(job.budget_blocked_period_start)
+            self.assertEqual(job.budget_blocked_policy_version_id, "policy-blocked")
+            self.assertEqual(claim_pending_search_index_jobs(db, limit=10), [])
+
+        response = self.client.get("/api/search/index-jobs/active")
+        self.assertEqual(response.status_code, 200)
+        payload = next(item for item in response.json() if item["job_id"] == "job-budget-blocked")
+        self.assertEqual(payload["status"], "budget_blocked")
+        self.assertEqual(payload["error_code"], "model_usage_budget_exceeded")
+        self.assertEqual(payload["error"], "模型用量受当前家庭预算限制，稍后会自动重试")
+        self.assertNotIn("budget_blocked_period_start", payload)
+        self.assertNotIn("budget_blocked_policy_version_id", payload)
+
+    def test_budget_blocked_job_is_requeued_only_when_period_or_policy_changes(self) -> None:
+        blocked_period = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        self._create_job(
+            job_id="job-budget-blocked-requeue",
+            status="budget_blocked",
+            budget_blocked_period_start=blocked_period,
+            budget_blocked_policy_version_id="policy-current",
+        )
+
+        with patch(
+            "app.services.search.jobs._current_budget_scope",
+            return_value=(blocked_period, "policy-current"),
+        ):
+            with self.SessionLocal() as db:
+                self.assertEqual(claim_pending_search_index_jobs(db, limit=10), [])
+
+        with patch(
+            "app.services.search.jobs._current_budget_scope",
+            return_value=(blocked_period, "policy-relaxed"),
+        ):
+            with self.SessionLocal() as db:
+                self.assertEqual(claim_pending_search_index_jobs(db, limit=10), ["job-budget-blocked-requeue"])
+
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-budget-blocked-requeue")
+            assert job is not None
+            self.assertEqual(job.status, "running")
+            self.assertIsNone(job.budget_blocked_period_start)
+            self.assertIsNone(job.budget_blocked_policy_version_id)
+
+    def test_budget_block_scope_compares_database_naive_and_utc_aware_timestamps_as_one_period(self) -> None:
+        job = SimpleNamespace(
+            budget_blocked_period_start=datetime(2026, 6, 30, 16, 0),
+            budget_blocked_policy_version_id="policy-current",
+        )
+
+        self.assertFalse(
+            can_requeue_budget_blocked(
+                job,
+                period_start=datetime(2026, 6, 30, 16, 0, tzinfo=timezone.utc),
+                policy_version_id="policy-current",
+            )
+        )
+
+    def test_budget_block_requeue_does_not_starve_a_changed_job_behind_current_blocks(self) -> None:
+        blocked_period = shanghai_billing_period(utcnow()).start_at
+        with self.SessionLocal() as db:
+            subject = ensure_user_subject(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+            )
+            pointer = ensure_family_model_usage_defaults(
+                db,
+                family_id=self.family.id,
+                creator_subject_id=subject.id,
+            )
+            current_policy_version_id = pointer.current_policy_version_id
+            db.commit()
+        for index in range(20):
+            self._create_job(
+                job_id=f"job-current-budget-{index:02d}",
+                status="budget_blocked",
+                budget_blocked_period_start=blocked_period,
+                budget_blocked_policy_version_id=current_policy_version_id,
+            )
+        self._create_job(
+            job_id="job-z-relaxed-budget",
+            status="budget_blocked",
+            budget_blocked_period_start=blocked_period,
+            budget_blocked_policy_version_id="policy-relaxed-before-worker-scan",
+        )
+
+        with self.SessionLocal() as db:
+            self.assertEqual(claim_pending_search_index_jobs(db, limit=1), ["job-z-relaxed-budget"])
+
+        with self.SessionLocal() as db:
+            changed = db.get(SearchIndexJob, "job-z-relaxed-budget")
+            current = db.get(SearchIndexJob, "job-current-budget-00")
+            assert changed is not None and current is not None
+            self.assertEqual(changed.status, "running")
+            self.assertEqual(current.status, "budget_blocked")
+
+    def test_settled_attempt_without_persisted_vector_is_never_embedded_again(self) -> None:
+        self._create_job(job_id="job-crash-after-settlement")
+        with self.SessionLocal() as db:
+            subject = ensure_user_subject(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+            )
+            ensure_family_model_usage_defaults(
+                db,
+                family_id=self.family.id,
+                creator_subject_id=subject.id,
+            )
+            db.commit()
+
+        signer = ProviderUsageReceiptSigner(
+            active_key_id="search-job-test-key",
+            keys={"search-job-test-key": b"search-job-test-secret"},
+        )
+        adapter = EmbeddingUsageAdapter(
+            provider="openai",
+            model="fake-embedding",
+            dimensions=2,
+            usage_facade=ModelUsageFacade(session_factory=self.SessionLocal),
+            session_factory=self.SessionLocal,
+            signer=signer,
+        )
+        embedding = SettlingThenCrashingEmbeddingClient(adapter)
+        vector_store = FlakyVectorStore()
+        with (
+            patch("app.services.search.jobs.get_settings", return_value=EMBEDDING_SETTINGS),
+            patch("app.services.search.indexing.get_settings", return_value=EMBEDDING_SETTINGS),
+        ):
+            process_search_index_job(
+                "job-crash-after-settlement",
+                session_factory=self.SessionLocal,
+                embedding_client=embedding,
+                vector_store=vector_store,
+            )
+            process_search_index_job(
+                "job-crash-after-settlement",
+                session_factory=self.SessionLocal,
+                embedding_client=embedding,
+                vector_store=vector_store,
+            )
+
+        self.assertEqual(embedding.call_count, 1)
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-crash-after-settlement")
+            assert job is not None
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.error_code, "embedding_output_unavailable_after_provider_success")
 
     def test_active_get_and_retry_search_index_jobs_expose_timestamps(self) -> None:
         created_at = utcnow() - timedelta(minutes=5)

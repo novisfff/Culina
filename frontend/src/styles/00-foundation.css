@@ -1179,7 +1179,8 @@ a[href]:focus-visible,
 }
 
 .app-notification-row.status-queued,
-.app-notification-row.status-running {
+.app-notification-row.status-running,
+.app-notification-row.status-budget_blocked {
   background: #fffaf1;
   border-color: rgba(226, 137, 44, 0.18);
 }
@@ -1205,7 +1206,8 @@ a[href]:focus-visible,
 }
 
 .app-notification-row.status-queued .app-notification-row-icon,
-.app-notification-row.status-running .app-notification-row-icon {
+.app-notification-row.status-running .app-notification-row-icon,
+.app-notification-row.status-budget_blocked .app-notification-row-icon {
   background: rgba(226, 137, 44, 0.12);
   color: #a45f22;
 }
@@ -1264,7 +1266,8 @@ a[href]:focus-visible,
 }
 
 .app-notification-row.status-running .app-notification-row-title em,
-.app-notification-row.status-queued .app-notification-row-title em {
+.app-notification-row.status-queued .app-notification-row-title em,
+.app-notification-row.status-budget_blocked .app-notification-row-title em {
   background: rgba(226, 137, 44, 0.14);
   color: #98551a;
 }

@@ -36,6 +36,7 @@ from app.services.model_usage.errors import ModelUsageAttemptConflict, ModelUsag
 from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.policies import lock_family_policy
 from app.services.model_usage.pricing import UsagePriceRateSnapshot, select_price_snapshot
+from app.services.model_usage.state_machine import transition_reservation
 from app.services.model_usage.subjects import resolve_subject
 from app.services.model_usage.types import (
     ReservationDecision,
@@ -164,12 +165,17 @@ def reserve_usage_in_session(
         meters=validate_usage_meter_quantities(context.capability, estimate.meters)
     )
     family_id = context.attribution.family_id
+    period = shanghai_billing_period(at)
     pointer = lock_family_policy(db, family_id=family_id)
     policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
     if policy is None:
         raise ModelUsageContractError("current_policy_missing")
     if expected_policy_version_id is not None and policy.id != expected_policy_version_id:
-        return ReservationDecision.blocked("model_usage_policy_conflict")
+        return ReservationDecision.blocked(
+            "model_usage_policy_conflict",
+            period_start=period.start_at,
+            policy_version_id=policy.id,
+        )
 
     event = lock_event_by_attempt(db, family_id=family_id, attempt_key=context.attempt_key)
     if event is not None:
@@ -186,7 +192,6 @@ def reserve_usage_in_session(
 
     subject = resolve_subject(db, context.attribution)
     price = select_price_snapshot(db, context, estimate, at=at)
-    period = shanghai_billing_period(at)
     reservation_id = create_id("usage-reservation")
     meter_rows = _reservation_meter_rows(
         reservation_id,
@@ -203,7 +208,11 @@ def reserve_usage_in_session(
         else None
     )
     if policy.hard_limit_enabled and reserved_cost is None:
-        return ReservationDecision.blocked("model_usage_price_unavailable")
+        return ReservationDecision.blocked(
+            "model_usage_price_unavailable",
+            period_start=period.start_at,
+            policy_version_id=policy.id,
+        )
 
     reservation = ModelUsageReservation(
         id=reservation_id,
@@ -284,7 +293,11 @@ def reserve_usage_in_session(
     if error_code:
         db.delete(reservation)
         db.flush()
-        return ReservationDecision.blocked(error_code)
+        return ReservationDecision.blocked(
+            error_code,
+            period_start=period.start_at,
+            policy_version_id=policy.id,
+        )
 
     db.add_all(meter_rows)
     quantities = {line.meter: line.quantity for line in estimate.meters}
@@ -318,3 +331,54 @@ def reserve_usage(
                 fingerprint=fingerprint,
                 at=utcnow(),
             )
+
+
+def release_undispatched_reservation_in_session(
+    db: Session,
+    *,
+    reservation_id: str,
+    error_code: str,
+) -> bool:
+    """Release only a reservation proven not to have entered dispatching.
+
+    Recovery callers use this before creating a fresh logical attempt.  The
+    family pointer, reservation and counters are locked in the same order as
+    normal dispatch, so a concurrent dispatch wins deterministically instead
+    of racing a budget release against a provider send.
+    """
+
+    identity = db.get(ModelUsageReservation, reservation_id)
+    if identity is None:
+        return False
+    lock_family_policy(db, family_id=identity.family_id)
+    reservation = db.scalar(
+        select(ModelUsageReservation)
+        .where(
+            ModelUsageReservation.id == reservation_id,
+            ModelUsageReservation.family_id == identity.family_id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    if reservation is None or reservation.status is not ModelUsageReservationStatus.RESERVED:
+        return False
+    meters = tuple(
+        db.scalars(
+            select(ModelUsageReservationMeter)
+            .where(ModelUsageReservationMeter.reservation_id == reservation.id)
+            .order_by(ModelUsageReservationMeter.meter_key)
+        )
+    )
+    # Reuse the shared deterministic counter lock/release implementation.  It
+    # does not call back into this module, so the import remains acyclic.
+    from app.services.model_usage.dispatch import _lock_counters, _remove_reserved
+
+    counters = _lock_counters(db, reservation, meters)
+    _remove_reserved(reservation, meters, counters)
+    reservation.status = transition_reservation(
+        reservation.status,
+        ModelUsageReservationStatus.RELEASED,
+    )
+    reservation.error_code = error_code
+    db.flush()
+    return True

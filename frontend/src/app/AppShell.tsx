@@ -39,7 +39,7 @@ export type AppNotificationJob = {
   notification_id: string;
   task_id: string;
   kind: 'image' | 'search_index';
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'budget_blocked';
   title: string;
   status_label: string;
   description: string;
@@ -63,16 +63,18 @@ function compareJobsByRecency(left: AppNotificationJob, right: AppNotificationJo
 
 export function orderBackgroundTaskJobs(jobs: AppNotificationJob[]) {
   const failed = jobs.filter((job) => job.status === 'failed').sort(compareJobsByRecency);
+  const budgetBlocked = jobs.filter((job) => job.status === 'budget_blocked').sort(compareJobsByRecency);
   const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running').sort(compareJobsByRecency);
   const succeeded = jobs
     .filter((job) => job.status === 'succeeded')
     .sort(compareJobsByRecency)
     .slice(0, SUCCESSFUL_HISTORY_LIMIT);
-  return [...failed, ...active, ...succeeded];
+  return [...failed, ...budgetBlocked, ...active, ...succeeded];
 }
 
-function notificationSummary(activeCount: number, failedCount: number, totalCount: number) {
+function notificationSummary(activeCount: number, budgetBlockedCount: number, failedCount: number, totalCount: number) {
   if (failedCount > 0) return `${failedCount} 条失败待处理`;
+  if (budgetBlockedCount > 0) return `${budgetBlockedCount} 条任务受预算限制`;
   if (activeCount > 0) return `${activeCount} 条任务正在处理`;
   if (totalCount > 0) return `${totalCount} 条最近任务`;
   return '暂无后台任务';
@@ -197,11 +199,12 @@ export function AppNotificationCenter(props: {
   const variant = props.variant ?? 'desktop';
   const visibleJobs = orderBackgroundTaskJobs(props.jobs);
   const activeCount = visibleJobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
+  const budgetBlockedCount = visibleJobs.filter((job) => job.status === 'budget_blocked').length;
   const failedCount = visibleJobs.filter((job) => job.status === 'failed').length;
-  const attentionCount = activeCount + failedCount;
+  const attentionCount = activeCount + budgetBlockedCount + failedCount;
   const hasJobs = visibleJobs.length > 0;
   const totalCount = visibleJobs.length;
-  const summaryTone = notificationSummaryTone(activeCount, failedCount);
+  const summaryTone = notificationSummaryTone(activeCount + budgetBlockedCount, failedCount);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -252,7 +255,7 @@ export function AppNotificationCenter(props: {
           <strong>后台任务</strong>
         </span>
         <span className={`app-notification-summary tone-${summaryTone}`}>
-          {notificationSummary(activeCount, failedCount, totalCount)}
+          {notificationSummary(activeCount, budgetBlockedCount, failedCount, totalCount)}
         </span>
       </div>
       {props.isLoading ? (
@@ -325,7 +328,7 @@ export function AppNotificationCenter(props: {
       }
     >
       <button
-        className={activeCount > 0 || failedCount > 0 ? 'app-notification-trigger is-active' : 'app-notification-trigger'}
+        className={attentionCount > 0 ? 'app-notification-trigger is-active' : 'app-notification-trigger'}
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
@@ -339,6 +342,9 @@ export function AppNotificationCenter(props: {
           }
           if (activeCount > 0) {
             parts.push(`${activeCount} 个进行中`);
+          }
+          if (budgetBlockedCount > 0) {
+            parts.push(`${budgetBlockedCount} 个受预算限制`);
           }
           return `查看后台任务，${parts.join('，')}`;
         })()}

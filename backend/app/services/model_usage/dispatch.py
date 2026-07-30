@@ -304,7 +304,11 @@ def prepare_usage_dispatch_in_session(
         reservation.dispatch_policy_version_id = None
         reservation.error_code = error
         db.flush()
-        return DispatchGateOutcome.blocked(error)
+        return DispatchGateOutcome.blocked(
+            error,
+            period_start=reservation.period_start,
+            policy_version_id=policy.id,
+        )
     reservation.status = transition_reservation(
         reservation.status,
         ModelUsageReservationStatus.DISPATCHING,

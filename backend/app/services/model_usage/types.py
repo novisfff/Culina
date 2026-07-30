@@ -316,10 +316,22 @@ class ReservationDecision:
     reserved_cost_cny: Decimal | None = None
     fail_open_permit: DispatchPermit | None = None
     error_code: str | None = None
+    period_start: datetime | None = None
 
     @classmethod
-    def blocked(cls, error_code: str) -> ReservationDecision:
-        return cls(decision="blocked", error_code=error_code)
+    def blocked(
+        cls,
+        error_code: str,
+        *,
+        period_start: datetime | None = None,
+        policy_version_id: str | None = None,
+    ) -> ReservationDecision:
+        return cls(
+            decision="blocked",
+            error_code=error_code,
+            period_start=period_start,
+            policy_version_id=policy_version_id,
+        )
 
     @classmethod
     def already_accounted(cls, event_id: str) -> ReservationDecision:
@@ -332,10 +344,23 @@ class DispatchGateOutcome:
     permit: DispatchPermit | None = None
     existing_dispatch_id: str | None = None
     error_code: str | None = None
+    period_start: datetime | None = None
+    policy_version_id: str | None = None
 
     @classmethod
-    def blocked(cls, error_code: str) -> DispatchGateOutcome:
-        return cls(decision="blocked", error_code=error_code)
+    def blocked(
+        cls,
+        error_code: str,
+        *,
+        period_start: datetime | None = None,
+        policy_version_id: str | None = None,
+    ) -> DispatchGateOutcome:
+        return cls(
+            decision="blocked",
+            error_code=error_code,
+            period_start=period_start,
+            policy_version_id=policy_version_id,
+        )
 
     def require_first_send_permit(self) -> DispatchPermit:
         if self.permit is None:
@@ -343,7 +368,11 @@ class DispatchGateOutcome:
                 raise ModelUsageDispatchRecoveryRequired()
             if not self.error_code:
                 raise ModelUsageContractError("missing_dispatch_error_code")
-            raise ModelUsageBlocked(self.error_code)
+            raise ModelUsageBlocked(
+                self.error_code,
+                period_start=self.period_start,
+                policy_version_id=self.policy_version_id,
+            )
         if self.permit.send_kind != "first_send":
             raise ModelUsageContractError("first_send_permit_required")
         return self.permit

@@ -287,6 +287,30 @@ describe('AppNotificationCenter', () => {
     expect(popover?.textContent).toContain('后台任务');
   });
 
+  it('keeps budget-blocked jobs visible as automatic-recovery work instead of completed work', () => {
+    const view = renderNotificationCenter({
+      jobs: [
+        job('budget_blocked', {
+          notification_id: 'search-index:budget-blocked-1',
+          kind: 'search_index',
+          title: '酱油的食材索引更新',
+          status_label: '受预算限制',
+          description: '当前家庭的模型用量预算已到上限，预算调整或新账期后会自动重试',
+          completed_at: null,
+        }),
+      ],
+    });
+
+    expect(view.querySelector('.app-notification-count')?.textContent).toBe('1');
+    expect(view.querySelector('.app-notification-trigger')?.getAttribute('aria-label')).toBe('查看后台任务，1 个受预算限制');
+
+    click(view.querySelector('.app-notification-trigger'));
+
+    expect(view.textContent).toContain('1 条任务受预算限制');
+    expect(view.textContent).toContain('酱油的食材索引更新');
+    expect(view.textContent).toContain('受预算限制');
+  });
+
   it('keeps all active and failed rows while capping successful history at five newest', () => {
     const succeeded = Array.from({ length: 7 }, (_, index) =>
       job('succeeded', {

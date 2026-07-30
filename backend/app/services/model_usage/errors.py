@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import ClassVar
 
 
@@ -22,6 +23,18 @@ class ModelUsageContractError(ModelUsageError):
 
 class ModelUsageBlocked(ModelUsageError):
     default_code = "model_usage_blocked"
+
+    def __init__(
+        self,
+        code: str | None = None,
+        *,
+        message: str | None = None,
+        period_start: datetime | None = None,
+        policy_version_id: str | None = None,
+    ) -> None:
+        self.period_start = period_start
+        self.policy_version_id = policy_version_id
+        super().__init__(code, message=message)
 
 
 class ModelUsageAttemptConflict(ModelUsageError):
