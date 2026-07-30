@@ -42,8 +42,6 @@ def family_events_statement(*, family_id: str, period: BillingPeriod) -> Select:
         .where(
             ModelUsageEvent.family_id == family_id,
             ModelUsageEvent.period_start == period.start_at,
-            ModelUsageEvent.completed_at >= period.start_at,
-            ModelUsageEvent.completed_at < period.end_at,
         )
         .order_by(ModelUsageEvent.created_at, ModelUsageEvent.id)
     )

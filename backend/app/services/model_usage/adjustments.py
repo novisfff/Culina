@@ -68,6 +68,13 @@ QUANTITY_QUANTUM = Decimal("0.000001")
 
 
 @dataclass(frozen=True, slots=True)
+class _MeterPriceEvidence:
+    meter_role: ModelUsageMeterRole
+    unit_quantity: Decimal
+    unit_price_cny: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
 class AdjustmentLineCommand:
     resolution_kind: ModelUsageResolutionKind
     meter: ModelUsageMeter | None = None
@@ -109,15 +116,22 @@ class EffectiveUsageState:
     measurement_status: ModelUsageMeasurementStatus
     pricing_status: ModelUsagePricingStatus
     provider_outcome: ModelUsageProviderOutcome
+    meter_costs: Mapping[ModelUsageMeter, Decimal | None] = field(default_factory=dict)
+    meter_roles: Mapping[ModelUsageMeter, ModelUsageMeterRole] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "meter_quantities", MappingProxyType(dict(self.meter_quantities)))
+        object.__setattr__(self, "meter_costs", MappingProxyType(dict(self.meter_costs)))
+        object.__setattr__(self, "meter_roles", MappingProxyType(dict(self.meter_roles)))
 
     def quantity(self, meter: ModelUsageMeter) -> Decimal:
         return self.meter_quantities.get(meter, Decimal("0"))
 
     def guardrail_quantity(self, meter: ModelUsageMeter) -> Decimal:
         return self.quantity(meter)
+
+    def meter_cost(self, meter: ModelUsageMeter) -> Decimal | None:
+        return self.meter_costs.get(meter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +235,129 @@ def _event_state(db: Session, event: ModelUsageEvent) -> EffectiveUsageState:
         measurement_status=event.measurement_status,
         pricing_status=event.pricing_status,
         provider_outcome=event.provider_outcome,
+        meter_costs={row.meter: row.cost_cny for row in rows},
+        meter_roles={row.meter: row.meter_role for row in rows},
     )
+
+
+def _decimal_from_persisted_snapshot(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ModelUsageAdjustmentValidationError(
+            "pricing_resolution_snapshot_incomplete"
+        )
+    try:
+        decimal = Decimal(str(value))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise ModelUsageAdjustmentValidationError(
+            "pricing_resolution_snapshot_incomplete"
+        ) from exc
+    if not decimal.is_finite():
+        raise ModelUsageAdjustmentValidationError("pricing_resolution_snapshot_incomplete")
+    return decimal
+
+
+def _pricing_evidence_by_meter(
+    line: AdjustmentLineCommand | ModelUsageAdjustment,
+) -> dict[ModelUsageMeter, _MeterPriceEvidence]:
+    if isinstance(line, AdjustmentLineCommand):
+        if line.price_snapshot is None:
+            raise ModelUsageAdjustmentValidationError(
+                "pricing_resolution_snapshot_required"
+            )
+        return {
+            rate.meter: _MeterPriceEvidence(
+                meter_role=rate.meter_role,
+                unit_quantity=rate.unit_quantity,
+                unit_price_cny=rate.unit_price_cny,
+            )
+            for rate in line.price_snapshot.rates
+        }
+
+    snapshot = line.price_snapshot_json
+    if not isinstance(snapshot, Mapping):
+        raise ModelUsageAdjustmentValidationError("pricing_resolution_snapshot_incomplete")
+    raw_rates = snapshot.get("rates")
+    if not isinstance(raw_rates, list):
+        raise ModelUsageAdjustmentValidationError("pricing_resolution_snapshot_incomplete")
+
+    rates: dict[ModelUsageMeter, _MeterPriceEvidence] = {}
+    try:
+        for raw_rate in raw_rates:
+            if not isinstance(raw_rate, Mapping):
+                raise TypeError("pricing_rate_not_mapping")
+            meter = ModelUsageMeter(str(raw_rate["meter"]))
+            if meter in rates:
+                raise ValueError("duplicate_pricing_rate")
+            rates[meter] = _MeterPriceEvidence(
+                meter_role=ModelUsageMeterRole(str(raw_rate["meter_role"])),
+                unit_quantity=(
+                    _decimal_from_persisted_snapshot(raw_rate["unit_quantity"])
+                    or Decimal("0")
+                ),
+                unit_price_cny=_decimal_from_persisted_snapshot(
+                    raw_rate.get("unit_price_cny")
+                ),
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ModelUsageAdjustmentValidationError(
+            "pricing_resolution_snapshot_incomplete"
+        ) from exc
+    return rates
+
+
+def _meter_costs_after_pricing_correction(
+    state: EffectiveUsageState,
+    line: AdjustmentLineCommand | ModelUsageAdjustment,
+) -> tuple[dict[ModelUsageMeter, Decimal | None], dict[ModelUsageMeter, ModelUsageMeterRole]]:
+    evidence_by_meter = _pricing_evidence_by_meter(line)
+    costs = dict(state.meter_costs)
+    roles = dict(state.meter_roles)
+    for meter in state.meter_quantities:
+        evidence = evidence_by_meter.get(meter)
+        role = roles.get(meter)
+        if role is None:
+            if evidence is None:
+                raise ModelUsageAdjustmentValidationError(
+                    "pricing_resolution_snapshot_incomplete"
+                )
+            role = evidence.meter_role
+            roles[meter] = role
+        if role is ModelUsageMeterRole.INFORMATIONAL:
+            costs[meter] = None
+            continue
+        if (
+            evidence is None
+            or evidence.meter_role is not ModelUsageMeterRole.BILLABLE
+            or evidence.unit_quantity <= 0
+            or evidence.unit_price_cny is None
+            or evidence.unit_price_cny < 0
+        ):
+            raise ModelUsageAdjustmentValidationError(
+                "pricing_resolution_snapshot_incomplete"
+            )
+        costs[meter] = exact_line_cost(
+            state.quantity(meter),
+            evidence.unit_price_cny,
+            evidence.unit_quantity,
+        )
+    return costs, roles
+
+
+def _zero_meter_costs_for_not_billed(
+    meter_costs: Mapping[ModelUsageMeter, Decimal | None],
+    meter_roles: Mapping[ModelUsageMeter, ModelUsageMeterRole],
+) -> dict[ModelUsageMeter, Decimal | None]:
+    return {
+        meter: (
+            Decimal("0")
+            if cost is not None
+            or meter_roles.get(meter) is ModelUsageMeterRole.BILLABLE
+            else None
+        )
+        for meter, cost in meter_costs.items()
+    }
 
 
 def _apply_line_to_state(
@@ -249,17 +385,42 @@ def _apply_line_to_state(
         if cost != line.resolved_cost_cny:
             raise ModelUsageAdjustmentValidationError("pricing_resolution_cost_delta_mismatch")
 
+    meter_costs = dict(state.meter_costs)
+    meter_roles = dict(state.meter_roles)
+    if (
+        line.resolution_kind is ModelUsageResolutionKind.METER_CORRECTION
+        and meter is not None
+        and line.cost_delta_cny is not None
+    ):
+        meter_costs[meter] = (
+            meter_costs.get(meter) or Decimal("0")
+        ) + line.cost_delta_cny
+    if line.resolution_kind is ModelUsageResolutionKind.PRICING_CORRECTION:
+        meter_costs, meter_roles = _meter_costs_after_pricing_correction(state, line)
+
+    provider_outcome = line.resulting_provider_outcome or state.provider_outcome
+    execution_certainty = (
+        line.resulting_execution_certainty or state.execution_certainty
+    )
+    measurement_status = line.resulting_measurement_status or state.measurement_status
+    pricing_status = line.resulting_pricing_status or state.pricing_status
+    if (
+        provider_outcome is ModelUsageProviderOutcome.NOT_BILLED
+        and cost == Decimal("0")
+    ):
+        meter_costs = _zero_meter_costs_for_not_billed(meter_costs, meter_roles)
+
     return EffectiveUsageState(
         source_event_id=state.source_event_id,
         capability=state.capability,
         cost_cny=cost,
         meter_quantities=quantities,
-        execution_certainty=(
-            line.resulting_execution_certainty or state.execution_certainty
-        ),
-        measurement_status=(line.resulting_measurement_status or state.measurement_status),
-        pricing_status=(line.resulting_pricing_status or state.pricing_status),
-        provider_outcome=(line.resulting_provider_outcome or state.provider_outcome),
+        execution_certainty=execution_certainty,
+        measurement_status=measurement_status,
+        pricing_status=pricing_status,
+        provider_outcome=provider_outcome,
+        meter_costs=meter_costs,
+        meter_roles=meter_roles,
     )
 
 

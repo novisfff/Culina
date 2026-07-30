@@ -523,6 +523,11 @@ def rebuild_monthly_rollups(
                 meter_dimension.estimated_event_count += 1
             if state.pricing_status is ModelUsagePricingStatus.UNPRICED:
                 meter_dimension.unpriced_event_count += 1
+            else:
+                meter_dimension.known_cost_total_cny += (
+                    state.meter_cost(meter) or Decimal("0")
+                )
+                meter_dimension.priced_event_count += 1
             if state.execution_certainty is ModelUsageExecutionCertainty.UNKNOWN:
                 meter_dimension.unresolved_unknown_execution_count += 1
             meter_dimension.meter_total = (meter_dimension.meter_total or Decimal("0")) + quantity
@@ -542,6 +547,11 @@ def rebuild_monthly_rollups(
                 subject_meter_dimension.estimated_event_count += 1
             if state.pricing_status is ModelUsagePricingStatus.UNPRICED:
                 subject_meter_dimension.unpriced_event_count += 1
+            else:
+                subject_meter_dimension.known_cost_total_cny += (
+                    state.meter_cost(meter) or Decimal("0")
+                )
+                subject_meter_dimension.priced_event_count += 1
             if state.execution_certainty is ModelUsageExecutionCertainty.UNKNOWN:
                 subject_meter_dimension.unresolved_unknown_execution_count += 1
             subject_meter_dimension.meter_total = (

@@ -17,6 +17,7 @@ from app.api.meal_log_insights import router as meal_log_insights_router
 from app.api.meal_log_recording import router as meal_log_recording_router
 from app.api.meal_logs import router as meal_logs_router
 from app.api.media import router as media_router
+from app.api.model_usage import router as model_usage_router
 from app.api.recipe_meta import router as recipe_meta_router
 from app.api.recipes import router as recipes_router
 from app.api.search import router as search_router
@@ -42,6 +43,7 @@ api_router.include_router(meal_log_insights_router)
 api_router.include_router(activity_logs_router)
 api_router.include_router(activity_highlights_router)
 api_router.include_router(media_router)
+api_router.include_router(model_usage_router)
 api_router.include_router(search_router)
 api_router.include_router(ai_router)
 api_router.include_router(ai_audio_router)

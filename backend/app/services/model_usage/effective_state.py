@@ -124,6 +124,18 @@ def project_effective_states(
             measurement_status=event.measurement_status,
             pricing_status=event.pricing_status,
             provider_outcome=event.provider_outcome,
+            meter_costs={
+                meter.meter: meter.cost_cny
+                for meter in sorted(
+                    meters_by_event[event.id], key=lambda item: item.meter_key
+                )
+            },
+            meter_roles={
+                meter.meter: meter.meter_role
+                for meter in sorted(
+                    meters_by_event[event.id], key=lambda item: item.meter_key
+                )
+            },
         )
         for group in sorted(groups_by_event[event.id], key=adjustment_group_order_key):
             for line in sorted(
