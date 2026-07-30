@@ -10,7 +10,7 @@ from app.core.enums import (
     ModelUsageIncidentCoverage,
     ModelUsageIncidentRecoveryStatus,
 )
-from app.models.domain import Family
+from app.models.domain import Family, User
 from app.models.model_usage import (
     ModelUsageMeasurementIncident,
     ModelUsageMeasurementIncidentAttempt,
@@ -23,6 +23,7 @@ from app.services.model_usage.incidents import (
     record_incident,
 )
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
+from app.services.model_usage.subjects import ensure_user_subject
 
 
 def aware(value: str) -> datetime:
@@ -247,5 +248,46 @@ def test_unknown_scope_rejects_attempt_details(model_usage_db: Session) -> None:
                 coverage=ModelUsageIncidentCoverage.UNKNOWN_SCOPE,
                 source_instance="api-1",
                 attempts=(IncidentAttemptCommand("mua_bad", None, None),),
+            ),
+        )
+
+
+def test_scoped_incident_rejects_subject_from_another_family(
+    model_usage_db: Session,
+) -> None:
+    first_family = Family(id="family-incident-a", name="甲家庭", motto="", location="")
+    second_family = Family(id="family-incident-b", name="乙家庭", motto="", location="")
+    other_user = User(
+        id="user-incident-b",
+        username="incident-b",
+        display_name="乙用户",
+        avatar_seed="乙用户",
+        is_active=True,
+    )
+    model_usage_db.add_all([first_family, second_family, other_user])
+    model_usage_db.flush()
+    other_subject = ensure_user_subject(
+        model_usage_db,
+        family_id=second_family.id,
+        user_id=other_user.id,
+    )
+
+    with pytest.raises(ValueError, match="incident_subject_family_mismatch"):
+        record_incident(
+            model_usage_db,
+            IncidentCommand(
+                incident_key="cross-family-incident",
+                family_id=first_family.id,
+                subject_id=other_subject.id,
+                subject_key=other_subject.subject_key,
+                capability=ModelUsageCapability.LLM,
+                period_start=aware("2026-06-30T16:00:00Z"),
+                period_end=aware("2026-07-31T16:00:00Z"),
+                mode="manual",
+                cause_code="operator_recorded",
+                started_at=aware("2026-07-01T00:00:00Z"),
+                recovered_at=None,
+                coverage=ModelUsageIncidentCoverage.EXACT_SCOPE,
+                source_instance="ops-cli",
             ),
         )

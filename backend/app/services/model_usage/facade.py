@@ -9,6 +9,7 @@ from threading import Lock
 from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError, TimeoutError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.enums import ModelUsageCapability, ModelUsagePricingStatus
 from app.core.utils import utcnow
 from app.db.session import SessionLocal
@@ -93,6 +94,7 @@ class FailOpenPermitRegistry:
 
 
 process_fail_open_permit_registry = FailOpenPermitRegistry()
+process_model_usage_outage_latch = ModelUsageOutageLatch()
 
 
 def _monitoring_dispatch_eligibility(
@@ -102,6 +104,7 @@ def _monitoring_dispatch_eligibility(
     estimate: UsageEstimate,
     fingerprint: str,
     at: datetime,
+    proof_ttl: timedelta = PROOF_TTL,
 ) -> DispatchEligibilityProof | None:
     pointer = lock_family_policy(db, family_id=context.attribution.family_id)
     policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
@@ -128,7 +131,7 @@ def _monitoring_dispatch_eligibility(
         policy_version_id=policy.id,
         hard_limit_enabled=False,
         issued_at=at,
-        expires_at=at + PROOF_TTL,
+        expires_at=at + proof_ttl,
         period=period,
         pricing_status=price.pricing_status,
         price_version_id=price.price_version_id,
@@ -146,6 +149,7 @@ def prove_monitoring_dispatch_eligibility(
     estimate: UsageEstimate,
     fingerprint: str,
     at: datetime,
+    proof_ttl: timedelta = PROOF_TTL,
 ) -> DispatchEligibilityProof:
     proof = _monitoring_dispatch_eligibility(
         db,
@@ -153,6 +157,7 @@ def prove_monitoring_dispatch_eligibility(
         estimate=estimate,
         fingerprint=fingerprint,
         at=at,
+        proof_ttl=proof_ttl,
     )
     if proof is None:
         raise ModelUsageLedgerUnavailable()
@@ -231,13 +236,17 @@ class ModelUsageFacade:
         session_factory: Callable[[], Session] = SessionLocal,
         registry: FailOpenPermitRegistry | None = None,
         outage_latch: ModelUsageOutageLatch | None = None,
-        source_instance: str = "model-usage",
+        source_instance: str | None = None,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self._session_factory = session_factory
         self._registry = registry or FailOpenPermitRegistry()
-        self._outage_latch = outage_latch or ModelUsageOutageLatch()
-        self._source_instance = source_instance
+        self._outage_latch = outage_latch or process_model_usage_outage_latch
+        configured = get_settings()
+        self._source_instance = source_instance or configured.model_usage_source_instance
+        self._proof_ttl = timedelta(
+            seconds=configured.model_usage_fail_open_proof_ttl_seconds
+        )
         self._clock = clock
 
     def consume_fail_open_dispatch_permit(
@@ -269,6 +278,7 @@ class ModelUsageFacade:
                     estimate=estimate,
                     fingerprint=fingerprint,
                     at=at,
+                    proof_ttl=self._proof_ttl,
                 )
                 decision = reserve_usage_in_session(
                     db,

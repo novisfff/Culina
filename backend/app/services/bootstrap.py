@@ -13,7 +13,7 @@ from app.services.model_usage.policies import ensure_family_model_usage_defaults
 from app.services.model_usage.subjects import ensure_user_subject
 
 
-def initialize_configured_admin(db: Session) -> bool:
+def initialize_configured_admin(db: Session, *, commit: bool = True) -> bool:
     existing_user_id = db.scalar(select(User.id).limit(1))
     if existing_user_id:
         return False
@@ -81,5 +81,6 @@ def initialize_configured_admin(db: Session) -> bool:
         family_id=family.id,
         creator_subject_id=creator_subject.id,
     )
-    commit_session(db)
+    if commit:
+        commit_session(db)
     return True

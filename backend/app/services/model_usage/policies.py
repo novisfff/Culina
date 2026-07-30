@@ -274,7 +274,7 @@ def ensure_family_model_usage_defaults(
         version_number=1,
         monthly_budget_cny=None,
         alerts_enabled=True,
-        hard_limit_enabled=False,
+        hard_limit_enabled=get_settings().model_usage_default_hard_limit,
         budget_alert_revision=1,
         limits=(),
         created_by_subject_id=creator_subject.id,

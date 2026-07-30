@@ -14,12 +14,14 @@ from app.core.enums import (
 )
 from app.core.utils import create_id
 from app.models.model_usage import (
+    ModelUsageFamilyPolicy,
     ModelUsageMeasurementIncident,
     ModelUsageMeasurementIncidentAttempt,
     ModelUsageSubject,
 )
 from app.repos.model_usage.incidents import overlapping_incidents
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
+from app.services.model_usage.rollups import require_open_rollup_windows_for_range
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +56,52 @@ class IncidentCommand:
     attempts: tuple[IncidentAttemptCommand, ...] = ()
 
 
+def _validate_scoped_incident_subjects(db: Session, command: IncidentCommand) -> None:
+    if command.family_id is None:
+        return
+    if (command.subject_id is None) != (command.subject_key is None):
+        raise ValueError("incident_subject_identity_incomplete")
+    if command.subject_id is not None:
+        subject = db.scalar(
+            select(ModelUsageSubject).where(
+                ModelUsageSubject.id == command.subject_id,
+                ModelUsageSubject.family_id == command.family_id,
+            )
+        )
+        if subject is None or subject.subject_key != command.subject_key:
+            raise ValueError("incident_subject_family_mismatch")
+    for attempt in command.attempts:
+        if attempt.subject_id is None:
+            continue
+        subject = db.scalar(
+            select(ModelUsageSubject).where(
+                ModelUsageSubject.id == attempt.subject_id,
+                ModelUsageSubject.family_id == command.family_id,
+            )
+        )
+        if subject is None:
+            raise ValueError("incident_attempt_subject_family_mismatch")
+
+
+def _lock_incident_family_window(db: Session, command: IncidentCommand) -> None:
+    if command.family_id is None:
+        return
+    # Legacy/bootstrap fixtures may not have a model-usage pointer yet.  When
+    # one exists, take it before the rollup rows to match receipt settlement
+    # and retention's lock order.
+    db.scalar(
+        select(ModelUsageFamilyPolicy)
+        .where(ModelUsageFamilyPolicy.family_id == command.family_id)
+        .with_for_update()
+    )
+    require_open_rollup_windows_for_range(
+        db,
+        family_id=command.family_id,
+        period_start=command.period_start,
+        period_end=command.period_end,
+    )
+
+
 def record_incident(
     db: Session,
     command: IncidentCommand,
@@ -67,6 +115,7 @@ def record_incident(
         raise ValueError("scoped_incident_requires_family")
     if command.period_end <= command.period_start:
         raise ValueError("incident_period_invalid")
+    _validate_scoped_incident_subjects(db, command)
     existing = db.scalar(
         select(ModelUsageMeasurementIncident).where(
             ModelUsageMeasurementIncident.incident_key == command.incident_key
@@ -80,6 +129,7 @@ def record_incident(
         ):
             raise ValueError("incident_key_conflict")
         return existing
+    _lock_incident_family_window(db, command)
     incident = ModelUsageMeasurementIncident(
         id=create_id("usage-incident"),
         incident_key=command.incident_key,

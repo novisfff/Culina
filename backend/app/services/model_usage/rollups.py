@@ -35,6 +35,7 @@ from app.repos.model_usage.reporting import (
 )
 from app.services.model_usage.effective_state import project_effective_states
 from app.services.model_usage.periods import BillingPeriod, SHANGHAI
+from app.services.model_usage.errors import ModelUsageStateError
 
 
 def rollup_dimension_key(
@@ -174,6 +175,100 @@ def _result_from_existing(rows: Sequence[ModelUsageMonthlyRollup]) -> RollupBuil
         checksum=_checksum(payload),
         revision=max((row.revision for row in ordered), default=0),
     )
+
+
+def require_open_rollup_window(
+    db: Session,
+    *,
+    family_id: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> None:
+    """Reject a new raw-ledger write once its family window starts pruning.
+
+    The policy pointer is intentionally locked by the caller first.  Replays
+    can safely return their existing event before calling this helper; only a
+    new write must respect the immutable historical rollup boundary.
+    """
+
+    row = db.scalar(
+        select(ModelUsageMonthlyRollup)
+        .where(
+            ModelUsageMonthlyRollup.family_id == family_id,
+            ModelUsageMonthlyRollup.period_start == period_start,
+            ModelUsageMonthlyRollup.period_end == period_end,
+            ModelUsageMonthlyRollup.dimension_key
+            == rollup_dimension_key(ModelUsageRollupKind.FAMILY_TOTAL, {}),
+        )
+        .with_for_update()
+    )
+    if row is not None and (
+        row.correction_status is not ModelUsageCorrectionStatus.OPEN
+        or row.raw_data_pruned_at is not None
+    ):
+        raise ModelUsageStateError("model_usage_rollup_window_closed")
+
+
+def require_open_rollup_windows_for_range(
+    db: Session,
+    *,
+    family_id: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> None:
+    """Reject a new family-scoped incident overlapping a sealed raw period."""
+
+    rows = tuple(
+        db.scalars(
+            select(ModelUsageMonthlyRollup)
+            .where(
+                ModelUsageMonthlyRollup.family_id == family_id,
+                ModelUsageMonthlyRollup.rollup_kind == ModelUsageRollupKind.FAMILY_TOTAL,
+                ModelUsageMonthlyRollup.period_start < period_end,
+                ModelUsageMonthlyRollup.period_end > period_start,
+            )
+            .order_by(
+                ModelUsageMonthlyRollup.period_start,
+                ModelUsageMonthlyRollup.dimension_key,
+            )
+            .with_for_update()
+        )
+    )
+    if any(
+        row.correction_status is not ModelUsageCorrectionStatus.OPEN
+        or row.raw_data_pruned_at is not None
+        for row in rows
+    ):
+        raise ModelUsageStateError("model_usage_rollup_window_closed")
+
+
+def canonical_rollup_projection(
+    db: Session,
+    *,
+    family_id: str,
+    period: BillingPeriod,
+) -> dict[str, tuple[str, str]]:
+    """Build the canonical raw-ledger projection without persisting it.
+
+    Retention must compare a stored rollup against exactly the same source
+    payload and row checksum rules as the writer.  A nested transaction lets
+    us reuse the canonical builder and rolls every temporary row update back
+    before the caller can perform a dry-run or destructive operation.
+    """
+
+    savepoint = db.begin_nested()
+    try:
+        result = rebuild_monthly_rollups(
+            db,
+            family_id=family_id,
+            period=period,
+        )
+        return {
+            row.dimension_key: (row.source_watermark, row.checksum)
+            for row in result.rows
+        }
+    finally:
+        savepoint.rollback()
 
 
 def rebuild_monthly_rollups(
@@ -587,9 +682,10 @@ def rebuild_monthly_rollups(
             for key, value in values.items():
                 setattr(existing, key, value)
             existing.revision += 1
-            existing.computed_at = now
         elif existing.source_watermark != source_watermark:
             existing.source_watermark = source_watermark
+        if existing.computed_at != now:
+            existing.computed_at = now
         persisted.append(existing)
     desired_keys = {row.dimension_key for row in persisted}
     for obsolete in existing_rows:

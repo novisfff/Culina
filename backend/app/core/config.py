@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import computed_field, field_validator, model_validator
+from pydantic import SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     ai_realtime_output_sample_rate: int = 24000
     ai_realtime_vad_silence_ms: int = 400
     ai_realtime_timeout_seconds: int = 300
+    model_usage_required: bool = False
+    model_usage_maintenance_enabled: bool = True
+    model_usage_default_hard_limit: bool = False
+    model_usage_receipt_queue_size: int = 1000
+    model_usage_receipt_integrity_active_key_id: str = ""
+    model_usage_receipt_integrity_keys_json: SecretStr = SecretStr("")
+    model_usage_fail_open_proof_ttl_seconds: int = 5
+    model_usage_source_instance: str = "culina-api"
     dashscope_api_key: str = ""
     dashscope_workspace_id: str = ""
     dashscope_region: str = "cn-beijing"
@@ -143,6 +151,34 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
+        provider_timeouts = (
+            self.ai_timeout_seconds,
+            self.ai_stt_timeout_seconds,
+            self.ai_tts_timeout_seconds,
+            self.ai_realtime_timeout_seconds,
+            self.search_embedding_timeout_seconds,
+            self.search_rerank_timeout_seconds,
+            self.qdrant_timeout_seconds,
+        )
+        positive_provider_timeouts = tuple(
+            timeout for timeout in provider_timeouts if timeout > 0
+        )
+        if not positive_provider_timeouts:
+            raise ValueError("MODEL_USAGE provider timeouts must be positive")
+        minimum_provider_timeout = min(positive_provider_timeouts)
+        if (
+            self.model_usage_fail_open_proof_ttl_seconds <= 0
+            or self.model_usage_fail_open_proof_ttl_seconds >= minimum_provider_timeout
+        ):
+            raise ValueError(
+                "MODEL_USAGE_FAIL_OPEN_PROOF_TTL_SECONDS must be positive and below "
+                "the minimum configured provider timeout"
+            )
+        if self.model_usage_receipt_queue_size <= 0:
+            raise ValueError("MODEL_USAGE_RECEIPT_QUEUE_SIZE must be positive")
+        if not self.model_usage_source_instance.strip():
+            raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
+
         search_vector_backend = self.search_vector_backend.strip().lower()
         search_embedding_provider = self.search_embedding_provider.strip().lower()
         if self.search_hybrid_enabled and search_vector_backend == "qdrant" and search_embedding_provider not in DISABLED_SEARCH_PROVIDERS:
@@ -179,6 +215,8 @@ class Settings(BaseSettings):
             return self
 
         missing: list[str] = []
+        if not self.model_usage_required:
+            missing.append("MODEL_USAGE_REQUIRED=true")
         if not self.mysql_password:
             missing.append("MYSQL_PASSWORD")
         if not self.jwt_secret:

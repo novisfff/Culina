@@ -54,6 +54,7 @@ from app.services.model_usage.errors import (
 )
 from app.services.model_usage.periods import BillingPeriod, SHANGHAI
 from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.pricing import UsagePriceRateSnapshot
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.settlement import _settlement_from_event, settle_usage_in_session
@@ -639,6 +640,12 @@ def recover_fail_open_receipt_in_session(
             receipt,
         )
         return adjustment_required or settlement
+    require_open_rollup_window(
+        db,
+        family_id=receipt.family_id,
+        period_start=receipt.period.start_at,
+        period_end=receipt.period.end_at,
+    )
     if reservation is not None and reservation.fingerprint != receipt.fingerprint:
         raise ModelUsageAttemptConflict()
     subject = db.scalar(

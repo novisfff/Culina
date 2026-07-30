@@ -39,6 +39,7 @@ from app.services.model_usage.errors import (
     ModelUsageStateError,
 )
 from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.state_machine import transition_reservation, validate_event_outcome
 from app.services.model_usage.types import (
@@ -208,6 +209,12 @@ def settle_usage_in_session(
         if existing.fingerprint != receipt.fingerprint:
             raise ModelUsageAttemptConflict()
         return _settlement_from_event(db, existing)
+    require_open_rollup_window(
+        db,
+        family_id=reservation.family_id,
+        period_start=reservation.period_start,
+        period_end=reservation.period_end,
+    )
     if reservation.status not in {
         ModelUsageReservationStatus.DISPATCHING,
         ModelUsageReservationStatus.UNCERTAIN,

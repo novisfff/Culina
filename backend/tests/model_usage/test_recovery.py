@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import (
+    ModelUsageCorrectionStatus,
     ModelUsageCounterKind,
     ModelUsageExecutionCertainty,
     ModelUsageIncidentCoverage,
@@ -25,6 +26,7 @@ from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
     ModelUsageMeasurementIncidentAttempt,
+    ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
     ModelUsageReservation,
     ModelUsageSubject,
@@ -57,8 +59,12 @@ from app.services.model_usage.incidents import (
     IncidentCommand,
     record_incident,
 )
-from app.services.model_usage.errors import ModelUsageReceiptIntegrityError
+from app.services.model_usage.errors import (
+    ModelUsageReceiptIntegrityError,
+    ModelUsageStateError,
+)
 from app.services.model_usage.periods import shanghai_billing_period
+from app.services.model_usage.rollups import rebuild_monthly_rollups
 from app.services.model_usage.types import (
     DispatchPermit,
     ProviderRecoveryPolicy,
@@ -389,6 +395,33 @@ def test_signed_fail_open_receipt_recovers_without_process_registry_or_reservati
     serialized = json.dumps(recovery_logs, ensure_ascii=False, sort_keys=True)
     assert "user_id" not in serialized
     assert "prompt" not in serialized
+
+
+def test_fail_open_recovery_rejects_a_receipt_for_a_closed_rollup_window(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    signer, receipt = _signed_fail_open_receipt(model_usage_db, reservation_context)
+    rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=receipt.family_id,
+        period=receipt.period,
+    )
+    family_rollup = model_usage_db.scalar(
+        select(ModelUsageMonthlyRollup).where(
+            ModelUsageMonthlyRollup.family_id == receipt.family_id,
+            ModelUsageMonthlyRollup.period_start == receipt.period.start_at,
+            ModelUsageMonthlyRollup.dimension_key == "family_total",
+        )
+    )
+    assert family_rollup is not None
+    family_rollup.correction_status = ModelUsageCorrectionStatus.CLOSED
+    model_usage_db.flush()
+
+    with pytest.raises(ModelUsageStateError, match="model_usage_rollup_window_closed"):
+        recover_fail_open_receipt_in_session(model_usage_db, receipt, signer=signer)
+
+    assert model_usage_db.query(ModelUsageEvent).count() == 0
 
 
 def test_live_fail_open_recovery_validates_consumed_permit_identity(
