@@ -111,10 +111,10 @@ def hybrid_search(
     degraded = False
     degradation_code: str | None = None
     semantic_hits: list[VectorSearchHit] = []
+    search_request_id = create_id("search-request") if hybrid_enabled else None
     if hybrid_enabled:
         embedding_client = embedding_client or build_embedding_client()
         vector_store = vector_store or build_vector_store()
-        search_request_id = create_id("search-request")
         try:
             query_embedding = embedding_client.embed_text(
                 normalized_query,
@@ -145,7 +145,16 @@ def hybrid_search(
             degradation_code = "search_vector_unavailable"
 
     rerank_client = (rerank_client or build_rerank_client()) if hybrid_enabled else None
-    merged, rerank_degraded = _merge_hits(
+    rerank_attribution = (
+        _query_usage_attribution(
+            family_id=family_id,
+            user_id=user_id,
+            logical_operation_id=search_request_id,
+        )
+        if search_request_id is not None
+        else None
+    )
+    merged, rerank_degraded, rerank_degradation_code = _merge_hits(
         db,
         family_id=family_id,
         user_id=user_id,
@@ -158,8 +167,12 @@ def hybrid_search(
         rerank_min_score=settings.search_rerank_min_score or DEFAULT_RERANK_MIN_SCORE,
         literal_fallback_min_score=settings.search_literal_fallback_min_score or DEFAULT_LITERAL_FALLBACK_MIN_SCORE,
         rerank_candidate_limit=settings.search_rerank_candidate_limit or DEFAULT_RERANK_CANDIDATE_LIMIT,
+        rerank_attribution=rerank_attribution,
+        rerank_attempt_key=f"{search_request_id}:rerank" if search_request_id is not None else None,
     )
     degraded = degraded or rerank_degraded
+    if degradation_code is None and rerank_degradation_code is not None:
+        degradation_code = rerank_degradation_code
     paged = merged[offset : offset + limit]
     return HybridSearchResponse(
         items=paged,
@@ -221,7 +234,9 @@ def _merge_hits(
     rerank_min_score: float,
     literal_fallback_min_score: float,
     rerank_candidate_limit: int,
-) -> tuple[list[HybridSearchResult], bool]:
+    rerank_attribution: UsageAttribution | None,
+    rerank_attempt_key: str | None,
+) -> tuple[list[HybridSearchResult], bool, str | None]:
     by_key: dict[tuple[str, str], HybridSearchResult] = {}
     exact_name_by_key = {(hit.entity_type, hit.entity_id): hit for hit in exact_name_hits}
     keyword_by_key = {(hit.entity_type, hit.entity_id): hit for hit in keyword_hits}
@@ -293,6 +308,8 @@ def _merge_hits(
         rerank_min_score=rerank_min_score,
         literal_fallback_min_score=literal_fallback_min_score,
         rerank_candidate_limit=rerank_candidate_limit,
+        rerank_attribution=rerank_attribution,
+        rerank_attempt_key=rerank_attempt_key,
     )
 
 
@@ -348,13 +365,15 @@ def _sort_with_rerank(
     rerank_min_score: float,
     literal_fallback_min_score: float,
     rerank_candidate_limit: int,
-) -> tuple[list[HybridSearchResult], bool]:
+    rerank_attribution: UsageAttribution | None,
+    rerank_attempt_key: str | None,
+) -> tuple[list[HybridSearchResult], bool, str | None]:
     local_sorted = sorted(
         results,
         key=lambda item: (-int(item.exact_name_match), -item.local_score, item.entity_type, item.entity_id),
     )
     if rerank_client is None or not rerank_client.enabled or not local_sorted:
-        return local_sorted, False
+        return _local_rerank_fallback(local_sorted), False, None
 
     rerank_doc_keys: list[tuple[str, str]] = []
     rerank_documents: list[str] = []
@@ -375,12 +394,20 @@ def _sort_with_rerank(
         for result in local_sorted:
             if result.exact_name_match:
                 result.score = round(3.0 + result.local_score, 6)
-        return local_sorted, False
+        return local_sorted, False, None
 
     try:
-        rerank_results = rerank_client.rerank(query=query, documents=rerank_documents, top_n=len(rerank_documents))
-    except RerankUnavailableError:
-        return local_sorted, True
+        rerank_results = rerank_client.rerank(
+            query=query,
+            documents=rerank_documents,
+            top_n=len(rerank_documents),
+            attribution=rerank_attribution,
+            attempt_key=rerank_attempt_key,
+        )
+    except ModelUsageError as exc:
+        return _local_rerank_fallback(local_sorted), True, exc.code
+    except RerankUnavailableError as exc:
+        return _local_rerank_fallback(local_sorted), True, exc.code
 
     rerank_scores: dict[tuple[str, str], float] = {}
     for item in rerank_results:
@@ -418,7 +445,20 @@ def _sort_with_rerank(
         bucket = bucket_by_key[(item.entity_type, item.entity_id)]
         return (bucket, -item.score, -item.local_score, item.entity_type, item.entity_id)
 
-    return sorted(filtered_results, key=sort_key), False
+    return sorted(filtered_results, key=sort_key), False, None
+
+
+def _local_rerank_fallback(results: list[HybridSearchResult]) -> list[HybridSearchResult]:
+    """Return the unfiltered local ranking after a remote rerank is skipped.
+
+    Rerank normally replaces ``score`` with a provider bucket score.  A
+    blocked or unavailable provider must not leave stale/zero scores behind or
+    drop local candidates; the local score remains the response score.
+    """
+
+    for item in results:
+        item.score = item.local_score
+    return results
 
 
 def _literal_fallback_score(*, query: str, document: SearchDocument | None) -> tuple[float, str]:

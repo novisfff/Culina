@@ -113,6 +113,7 @@ def test_search_api_returns_family_scoped_keyword_results() -> None:
     payload = response.json()
     assert payload["search_mode"] == "hybrid"
     assert payload["degraded"] is True
+    assert "degradation_code" in payload
     assert payload["total"] == 1
     assert payload["items"][0]["entity_type"] == "ingredient"
     assert payload["items"][0]["entity_id"] == "ingredient-tomato"

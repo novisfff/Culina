@@ -91,10 +91,22 @@ class FakeRerankClient:
         self.results = results or []
         self.fail = fail
         self.documents: list[str] = []
+        self.attribution: UsageAttribution | None = None
+        self.attempt_key: str | None = None
 
-    def rerank(self, *, query: str, documents: list[str], top_n: int) -> list[RerankResult]:
+    def rerank(
+        self,
+        *,
+        query: str,
+        documents: list[str],
+        top_n: int,
+        attribution: UsageAttribution | None = None,
+        attempt_key: str | None = None,
+    ) -> list[RerankResult]:
         del query, top_n
         self.documents = documents
+        self.attribution = attribution
+        self.attempt_key = attempt_key
         if self.fail:
             raise RerankUnavailableError("rerank failed")
         return self.results

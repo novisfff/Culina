@@ -8,5 +8,6 @@ remote request without a dispatch permit.
 
 from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
+from app.services.model_usage.adapters.rerank import RerankUsageAdapter
 
-__all__ = ("EmbeddingUsageAdapter", "LLMUsageAdapter")
+__all__ = ("EmbeddingUsageAdapter", "LLMUsageAdapter", "RerankUsageAdapter")

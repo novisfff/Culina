@@ -3,6 +3,9 @@ from __future__ import annotations
 from app.models.domain import SearchDocument
 from app.services.search.hybrid import HybridSearchResult, _literal_fallback_score, _sort_with_rerank
 from app.services.search.rerank import RerankResult
+from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
+from app.services.model_usage.errors import ModelUsageBlocked
+from app.services.model_usage.types import UsageAttribution
 from tests.search._support import FakeRerankClient
 
 
@@ -64,7 +67,7 @@ def test_sort_with_rerank_assigns_separate_exact_rerank_and_literal_buckets() ->
     )
     weak = HybridSearchResult(entity_type="ingredient", entity_id="weak", score=0, local_score=0.8, literal_score=0.2)
 
-    sorted_results, degraded = _sort_with_rerank(
+    sorted_results, degraded, degradation_code = _sort_with_rerank(
         query="鸡肉",
         results=[weak, literal, reranked, exact],
         documents_by_key={
@@ -82,9 +85,18 @@ def test_sort_with_rerank_assigns_separate_exact_rerank_and_literal_buckets() ->
         rerank_min_score=0.58,
         literal_fallback_min_score=0.70,
         rerank_candidate_limit=50,
+        rerank_attribution=UsageAttribution(
+            family_id="family-1",
+            attribution_kind=ModelUsageAttributionKind.USER,
+            actor_user_id="user-1",
+            operation_source=ModelUsageOperationSource.INTERACTIVE,
+            logical_operation_id="search-1",
+        ),
+        rerank_attempt_key="search-1:rerank",
     )
 
     assert degraded is False
+    assert degradation_code is None
     assert [item.entity_id for item in sorted_results] == ["exact", "reranked", "literal"]
     assert exact.score == 3.4
     assert reranked.score == 2.95
@@ -97,7 +109,7 @@ def test_sort_with_rerank_uses_local_order_when_reranker_is_disabled() -> None:
     second = HybridSearchResult(entity_type="ingredient", entity_id="second", score=0, local_score=0.8)
     exact = HybridSearchResult(entity_type="ingredient", entity_id="exact", score=0, exact_name_match=True, local_score=0.1)
 
-    sorted_results, degraded = _sort_with_rerank(
+    sorted_results, degraded, degradation_code = _sort_with_rerank(
         query="鸡肉",
         results=[first, second, exact],
         documents_by_key={},
@@ -105,7 +117,64 @@ def test_sort_with_rerank_uses_local_order_when_reranker_is_disabled() -> None:
         rerank_min_score=0.58,
         literal_fallback_min_score=0.70,
         rerank_candidate_limit=50,
+        rerank_attribution=UsageAttribution(
+            family_id="family-1",
+            attribution_kind=ModelUsageAttributionKind.USER,
+            actor_user_id="user-1",
+            operation_source=ModelUsageOperationSource.INTERACTIVE,
+            logical_operation_id="search-1",
+        ),
+        rerank_attempt_key="search-1:rerank",
     )
 
     assert degraded is False
+    assert degradation_code is None
     assert [item.entity_id for item in sorted_results] == ["exact", "second", "first"]
+
+
+def test_sort_with_rerank_returns_local_order_and_usage_block_code() -> None:
+    class BudgetBlockedRerankClient:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.attribution: UsageAttribution | None = None
+            self.attempt_key: str | None = None
+
+        def rerank(self, *, query, documents, top_n, attribution=None, attempt_key=None):
+            del query, documents, top_n
+            self.attribution = attribution
+            self.attempt_key = attempt_key
+            raise ModelUsageBlocked("model_usage_capability_limit_exceeded")
+
+    first = HybridSearchResult(entity_type="ingredient", entity_id="first", score=0, local_score=0.2)
+    second = HybridSearchResult(entity_type="ingredient", entity_id="second", score=0, local_score=0.8)
+    client = BudgetBlockedRerankClient()
+    attribution = UsageAttribution(
+        family_id="family-1",
+        attribution_kind=ModelUsageAttributionKind.USER,
+        actor_user_id="user-1",
+        operation_source=ModelUsageOperationSource.INTERACTIVE,
+        logical_operation_id="search-usage-1",
+    )
+
+    sorted_results, degraded, degradation_code = _sort_with_rerank(
+        query="鸡肉",
+        results=[first, second],
+        documents_by_key={
+            ("ingredient", "first"): _document(entity_id="first", title_text="冷冻鸡肉"),
+            ("ingredient", "second"): _document(entity_id="second", title_text="三黄鸡"),
+        },
+        rerank_client=client,
+        rerank_min_score=0.58,
+        literal_fallback_min_score=0.70,
+        rerank_candidate_limit=50,
+        rerank_attribution=attribution,
+        rerank_attempt_key="search-usage-1:rerank",
+    )
+
+    assert degraded is True
+    assert degradation_code == "model_usage_capability_limit_exceeded"
+    assert [item.entity_id for item in sorted_results] == ["second", "first"]
+    assert [item.score for item in sorted_results] == [0.8, 0.2]
+    assert client.attribution == attribution
+    assert client.attempt_key == "search-usage-1:rerank"
