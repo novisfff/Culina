@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 
@@ -14,9 +15,12 @@ class TranscriptionRequest:
     filename: str
     content_type: str
     surface: AudioSurface
+    family_id: str
+    user_id: str
+    operation_id: str
     language_hint: str | None = None
-    family_id: str | None = None
-    metadata: dict = field(default_factory=dict)
+    measured_duration_seconds: Decimal | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -33,9 +37,11 @@ class TranscriptionResult:
 class SpeechRequest:
     text: str
     surface: AudioSurface
+    family_id: str
+    user_id: str
+    operation_id: str
     voice: str | None = None
-    family_id: str | None = None
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

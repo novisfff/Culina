@@ -141,7 +141,13 @@ async def _voice_events_from_agent_stream(db: Session, *, session: RealtimeVoice
                 if session.provider == "dashscope" and normalize_provider(getattr(settings, "ai_tts_provider", "")) == "dashscope" and final_text:
                     try:
                         speech = await DashScopeAudioProvider(settings, capability="tts").synthesize_realtime_text(
-                            SpeechRequest(text=final_text, surface="recipe_cook_page", family_id=session.family_id)
+                            SpeechRequest(
+                                text=final_text,
+                                surface="recipe_cook_page",
+                                family_id=session.family_id,
+                                user_id=session.user_id,
+                                operation_id=create_id("realtime-tts-operation"),
+                            )
                         )
                     except HTTPException as exc:
                         yield {"type": "error", "message": str(exc.detail)}
@@ -205,7 +211,13 @@ async def _transcribe_voice_event(
         surface="recipe_cook_page",
         language_hint=settings.ai_stt_language_hint,
         family_id=session.family_id,
-        metadata={"sample_rate": event.get("sample_rate")},
+        user_id=session.user_id,
+        operation_id=create_id("realtime-stt-operation"),
+        metadata={
+            "sample_rate": event.get("sample_rate"),
+            "sample_width_bytes": event.get("sample_width_bytes"),
+            "channels": event.get("channels"),
+        },
     )
     if session.provider == "dashscope" and "pcm" in content_type.lower():
         async def send_delta(delta: str) -> None:
@@ -233,6 +245,9 @@ async def transcribe_audio(
     surface: str = Form(...),
     language_hint: str | None = Form(default=None),
     provider: str | None = Form(default=None),
+    sample_rate: int | None = Form(default=None),
+    sample_width_bytes: int | None = Form(default=None),
+    channels: int | None = Form(default=None),
     auth: tuple[User, Membership] = Depends(get_current_auth),
     service: AIAudioService = Depends(get_ai_audio_service),
 ) -> AudioTranscriptionResponse:
@@ -240,7 +255,7 @@ async def transcribe_audio(
     ensure_audio_enabled(settings)
     if surface not in {"main_ai", "recipe_cook_page"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid audio surface")
-    _, membership = auth
+    user, membership = auth
     payload, content_type = await read_audio_upload(file, settings)
     result = service.transcribe(
         TranscriptionRequest(
@@ -250,6 +265,13 @@ async def transcribe_audio(
             surface=surface,  # type: ignore[arg-type]
             language_hint=language_hint or settings.ai_stt_language_hint,
             family_id=membership.family_id,
+            user_id=user.id,
+            operation_id=create_id("stt-operation"),
+            metadata={
+                "sample_rate": sample_rate,
+                "sample_width_bytes": sample_width_bytes,
+                "channels": channels,
+            },
         ),
         provider=provider,
     )
@@ -272,13 +294,15 @@ def synthesize_speech(
     ensure_audio_enabled(settings)
     if request.surface != "recipe_cook_page":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only recipe cook page speech is supported")
-    _, membership = auth
+    user, membership = auth
     speech_result = service.synthesize(
         SpeechRequest(
             text=sanitize_speech_text(request.text),
             surface=request.surface,
             voice=request.voice,
             family_id=membership.family_id,
+            user_id=user.id,
+            operation_id=create_id("tts-operation"),
         ),
         provider=request.provider,
     )

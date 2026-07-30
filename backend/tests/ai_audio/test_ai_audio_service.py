@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import sys
+import wave
+from dataclasses import replace
+from decimal import Decimal
 from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 
-from app.services.ai_audio.service import AIAudioService
+from app.services.ai_audio import service as audio_service_module
+from app.services.ai_audio.service import AIAudioService, SpeechResultCache
 from app.services.ai_audio.realtime import RealtimeVoiceSessionState, realtime_voice_session_store
-from app.services.ai_audio.schemas import CookingRealtimeSessionRequest
+from app.services.ai_audio.schemas import CookingRealtimeSessionRequest, SpeechRequest, SpeechResult
 from app.services.ai_audio.speech import sanitize_speech_text
+from app.services.ai_audio.transcription import AudioDurationError, measure_audio_duration_seconds
 from app.services.ai_audio.dashscope_audio import (
     _dashscope_stt_payload,
     _extract_qwen_asr_delta_text,
@@ -56,6 +62,126 @@ def test_sanitize_speech_text_removes_markdown_and_limits_length() -> None:
     result = sanitize_speech_text(text, max_chars=20)
 
     assert result == "标题 好了，已经切到下一步。"
+
+
+def _wav_payload(*, seconds: int, sample_rate: int = 16000) -> bytes:
+    payload = io.BytesIO()
+    with wave.open(payload, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(sample_rate)
+        writer.writeframes(b"\x00\x00" * sample_rate * seconds)
+    return payload.getvalue()
+
+
+def _webm_payload(*, seconds: int, sample_rate: int = 48000) -> bytes:
+    import av
+
+    payload = io.BytesIO()
+    container = av.open(payload, mode="w", format="webm")
+    stream = container.add_stream("opus", rate=sample_rate)
+    frame = av.AudioFrame(format="s16", layout="mono", samples=sample_rate * seconds)
+    frame.sample_rate = sample_rate
+    frame.planes[0].update(b"\x00\x00" * sample_rate * seconds)
+    for packet in stream.encode(frame):
+        container.mux(packet)
+    for packet in stream.encode(None):
+        container.mux(packet)
+    container.close()
+    return payload.getvalue()
+
+
+def test_server_duration_ignores_client_claim_for_wav() -> None:
+    measured = measure_audio_duration_seconds(
+        _wav_payload(seconds=1),
+        content_type="audio/wav",
+        metadata={"duration_seconds": 0.01},
+    )
+
+    assert measured == Decimal("1.000000")
+
+
+def test_server_duration_ignores_client_claim_for_webm() -> None:
+    measured = measure_audio_duration_seconds(
+        _webm_payload(seconds=1),
+        content_type="audio/webm",
+        metadata={"duration_seconds": 0.01},
+    )
+
+    # Opus/WebM carries codec delay, so use a narrow decode-based tolerance
+    # rather than trusting the spoofed client-side duration.
+    assert float(measured) == pytest.approx(1, rel=0.05)
+
+
+def test_server_duration_measures_validated_pcm_frames() -> None:
+    measured = measure_audio_duration_seconds(
+        b"\x00\x00" * 16000,
+        content_type="audio/pcm",
+        metadata={"sample_rate": 16000, "sample_width_bytes": 2, "channels": 1},
+    )
+
+    assert measured == Decimal("1.000000")
+
+
+def test_server_duration_rejects_invalid_audio_and_oversized_duration() -> None:
+    with pytest.raises(AudioDurationError, match="audio_duration_invalid"):
+        measure_audio_duration_seconds(
+            b"not-an-audio-container",
+            content_type="audio/webm",
+            metadata={},
+        )
+
+
+def test_local_tts_cache_hit_skips_a_second_provider_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    class FakeOpenAIAudioProvider:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def synthesize(self, _request: SpeechRequest) -> SpeechResult:
+            nonlocal calls
+            calls += 1
+            return SpeechResult(
+                content_type="audio/mpeg",
+                audio_bytes=b"cached-audio",
+                audio_stream=None,
+                external_url=None,
+                external_url_expires_at=None,
+                provider="openai",
+                model="tts-test",
+            )
+
+    monkeypatch.setattr(audio_service_module, "OpenAIAudioProvider", FakeOpenAIAudioProvider)
+    service = AIAudioService(
+        settings(
+            ai_tts_provider="openai",
+            ai_tts_model="tts-test",
+            ai_tts_voice="default",
+            model_usage_required=False,
+        ),
+        cache=SpeechResultCache(),
+    )
+    request = SpeechRequest(
+        text="做好啦！",
+        surface="recipe_cook_page",
+        family_id="family-test",
+        user_id="user-test",
+        operation_id="tts-operation-cache",
+    )
+
+    first = service.synthesize(request)
+    second = service.synthesize(replace(request, operation_id="tts-operation-cache-retry"))
+
+    assert first.audio_bytes == second.audio_bytes == b"cached-audio"
+    assert calls == 1
+    with pytest.raises(AudioDurationError, match="audio_duration_exceeded"):
+        measure_audio_duration_seconds(
+            _wav_payload(seconds=2),
+            content_type="audio/wav",
+            metadata={},
+            max_duration_seconds=Decimal("1"),
+        )
 
 
 def test_create_cooking_session_stores_ttl_state() -> None:

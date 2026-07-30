@@ -161,7 +161,14 @@ class AIAudioApiTestCase(unittest.TestCase):
         with patch("app.api.ai_audio.get_settings", return_value=self.settings()):
             response = self.client.post(
                 "/api/ai/audio/transcriptions",
-                data={"surface": "recipe_cook_page", "language_hint": "zh", "provider": "dashscope"},
+                data={
+                    "surface": "recipe_cook_page",
+                    "language_hint": "zh",
+                    "provider": "dashscope",
+                    "sample_rate": "16000",
+                    "sample_width_bytes": "2",
+                    "channels": "1",
+                },
                 files={"file": ("voice.webm", b"audio", "audio/webm")},
             )
 
@@ -170,8 +177,14 @@ class AIAudioApiTestCase(unittest.TestCase):
         self.assertEqual(response.json()["provider"], "dashscope")
         self.assertIsNotNone(self.fake_service.transcription_request)
         self.assertEqual(self.fake_service.transcription_request.family_id, "family-test")
+        self.assertEqual(self.fake_service.transcription_request.user_id, "user-test")
+        self.assertTrue(self.fake_service.transcription_request.operation_id.startswith("stt-operation-"))
         self.assertEqual(self.fake_service.transcription_request.surface, "recipe_cook_page")
         self.assertEqual(self.fake_service.transcription_provider, "dashscope")
+        self.assertEqual(
+            self.fake_service.transcription_request.metadata,
+            {"sample_rate": 16000, "sample_width_bytes": 2, "channels": 1},
+        )
 
     def test_speech_only_allows_recipe_cook_page(self) -> None:
         with patch("app.api.ai_audio.get_settings", return_value=self.settings()):
@@ -195,6 +208,8 @@ class AIAudioApiTestCase(unittest.TestCase):
         self.assertEqual(response.headers["x-ai-audio-provider"], "openai")
         self.assertIsNotNone(self.fake_service.speech_request)
         self.assertEqual(self.fake_service.speech_request.family_id, "family-test")
+        self.assertEqual(self.fake_service.speech_request.user_id, "user-test")
+        self.assertTrue(self.fake_service.speech_request.operation_id.startswith("tts-operation-"))
 
     def test_cooking_session_uses_agent_backed_websocket_contract(self) -> None:
         subject = {"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}}

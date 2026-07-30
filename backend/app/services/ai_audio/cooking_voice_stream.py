@@ -216,6 +216,8 @@ async def stream_cooking_assistant_voice_events(
                     text="",
                     surface="recipe_cook_page",
                     family_id=family_id,
+                    user_id=user_id,
+                    operation_id=create_id("realtime-tts-operation"),
                     metadata={},
                 ),
             ):
