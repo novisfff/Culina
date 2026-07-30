@@ -7,6 +7,7 @@ import { inventoryOperationsApi } from './inventoryOperationsApi';
 import { inventoryStatesApi } from './inventoryStatesApi';
 import { mealLogsApi } from './mealLogsApi';
 import { mediaApi } from './mediaApi';
+import { modelUsageApi } from './modelUsageApi';
 import { recipesApi } from './recipesApi';
 import { searchApi } from './searchApi';
 
@@ -24,4 +25,5 @@ export const api = {
   ...aiApi,
   ...mediaApi,
   ...searchApi,
+  ...modelUsageApi,
 };

@@ -77,4 +77,25 @@ describe('queryKeys', () => {
     expect(queryKeys.mealRecordOperations(false)).toEqual(['meal-logs', 'record-operations', false]);
     expect(queryKeys.mealInsights).toEqual(['meal-logs', 'insights']);
   });
+
+  it('isolates model usage caches by family, scope, period and grouping', () => {
+    const familyAOverview = queryKeys.modelUsageOverview('family-a', 'family', '2026-07');
+    const familyBOverview = queryKeys.modelUsageOverview('family-b', 'family', '2026-07');
+    const personalOverview = queryKeys.modelUsageOverview('family-a', 'me', '2026-07');
+    const capabilityBreakdown = queryKeys.modelUsageBreakdown(
+      'family-a',
+      'family',
+      '2026-07',
+      'capability',
+    );
+    const meterBreakdown = queryKeys.modelUsageBreakdown('family-a', 'family', '2026-07', 'meter');
+
+    expect(queryKeys.modelUsageRoot('family-a')).toEqual(['model-usage', 'family-a']);
+    expect(familyAOverview).toEqual(['model-usage', 'family-a', 'overview', 'family', '2026-07']);
+    expect(familyBOverview).not.toEqual(familyAOverview);
+    expect(personalOverview).not.toEqual(familyAOverview);
+    expect(capabilityBreakdown).not.toEqual(meterBreakdown);
+    expect(queryKeys.modelUsagePolicy('family-a')).toEqual(['model-usage', 'family-a', 'policy']);
+    expect(queryKeys.modelUsageAlerts('family-a')).toEqual(['model-usage', 'family-a', 'alerts']);
+  });
 });
