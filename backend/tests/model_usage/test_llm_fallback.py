@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+from app.ai.errors import ApprovalRequired
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
 from app.ai.runtime.openai_responses import OpenAIResponsesChatProvider
 from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
@@ -166,6 +169,8 @@ def test_pre_dispatch_budget_block_uses_configured_light_model_with_new_attempt(
 
     assert result.status == "completed"
     assert result.model == "gpt-light"
+    assert result.fallback_used is True
+    assert result.fallback_reason_code == "model_usage_budget_exceeded"
     assert [item["model"] for item in adapter.rounds] == ["gpt-large", "gpt-light"]
     assert requests[0]["model"] == "gpt-light"
     assert requests[0]["max_tokens"] == 16
@@ -209,6 +214,169 @@ def test_responses_pre_dispatch_budget_block_uses_configured_light_model() -> No
 
     assert result.status == "completed"
     assert result.model == "gpt-light"
+    assert result.fallback_used is True
+    assert result.fallback_reason_code == "model_usage_budget_exceeded"
     assert [item["model"] for item in adapter.rounds] == ["gpt-large", "gpt-light"]
     assert requests[0]["model"] == "gpt-light"
     assert requests[0]["max_output_tokens"] == 16
+
+
+def test_responses_tool_loop_preserves_first_round_fallback_metadata() -> None:
+    class FirstRoundPrimaryBlockedAdapter(_Adapter):
+        def start_round(self, attribution: UsageAttribution, **kwargs: Any) -> _Attempt:
+            if kwargs["model"] == "gpt-large" and kwargs["provider_round"] == 1:
+                self.rounds.append(kwargs)
+                self.log.append("reserve:blocked-primary")
+                raise ModelUsageBlocked("model_usage_budget_exceeded")
+            return super().start_round(attribution, **kwargs)
+
+    adapter = FirstRoundPrimaryBlockedAdapter()
+    function_call = {
+        "type": "function_call",
+        "call_id": "call-read-items",
+        "name": "inventory_read_available_items",
+        "arguments": "{}",
+        "status": "completed",
+    }
+
+    def create(**_request: Any) -> Any:
+        if len(adapter.rounds) == 2:
+            return iter(
+                [
+                    SimpleNamespace(type="response.output_item.done", item=function_call),
+                    SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[function_call], usage=None)),
+                ]
+            )
+        return iter(
+            [
+                SimpleNamespace(type="response.output_text.delta", delta="已继续完成。"),
+                SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+            ]
+        )
+
+    provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+    provider.model_name = "gpt-large"
+    provider.supports_vision = False
+    provider.prompt_cache_enabled = False
+    provider.max_output_tokens = 64
+    provider.fallback_model = "gpt-light"
+    provider.fallback_max_output_tokens = 16
+    provider.model_usage_required = True
+    provider.usage_adapter = adapter
+    provider.client = SimpleNamespace(responses=SimpleNamespace(create=create))
+
+    result = provider.generate_with_tools(
+        system="system",
+        user="hello",
+        tools=lambda: [],
+        tool_handler=lambda _name, _payload, _event_id=None: {},
+        max_rounds=2,
+        usage_attribution=ATTRIBUTION,
+    )
+
+    assert result.status == "completed"
+    assert result.model == "gpt-large"
+    assert result.fallback_used is True
+    assert result.fallback_reason_code == "model_usage_budget_exceeded"
+
+
+def test_chat_fallback_metadata_survives_draft_approval_interrupt() -> None:
+    adapter = _PrimaryBlockedAdapter()
+
+    def create(**_request: Any) -> Any:
+        return [
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call-draft",
+                                    "function": {
+                                        "name": "recipe_create_draft",
+                                        "arguments": '{"draft":{"title":"番茄炒蛋"}}',
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+            }
+        ]
+
+    provider = _strict_provider(adapter, create)
+    provider.model_name = "gpt-large"
+    provider.fallback_model = "gpt-light"
+    provider.fallback_max_output_tokens = 16
+
+    with pytest.raises(ApprovalRequired) as exc_info:
+        provider.generate_with_tools(
+            system="system",
+            user="hello",
+            tools=lambda: [],
+            tool_handler=lambda _name, _payload, _event_id=None: (_ for _ in ()).throw(
+                ApprovalRequired("approval required")
+            ),
+            usage_attribution=ATTRIBUTION,
+        )
+
+    control_flow = getattr(exc_info.value, "_culina_provider_control_flow", None)
+    assert control_flow is not None
+    assert control_flow.model == "gpt-light"
+    assert control_flow.fallback_used is True
+    assert control_flow.fallback_reason_code == "model_usage_budget_exceeded"
+
+
+def test_responses_fallback_metadata_survives_draft_approval_interrupt() -> None:
+    adapter = _PrimaryBlockedAdapter()
+    function_call = {
+        "type": "function_call",
+        "call_id": "call-draft",
+        "name": "recipe_create_draft",
+        "arguments": '{"draft":{"title":"番茄炒蛋"}}',
+        "status": "completed",
+    }
+
+    def create(**_request: Any) -> Any:
+        return iter(
+            [
+                SimpleNamespace(type="response.output_item.done", item=function_call),
+                SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(
+                        usage={"prompt_tokens": 3, "completion_tokens": 1},
+                        output=[function_call],
+                    ),
+                ),
+            ]
+        )
+
+    provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+    provider.model_name = "gpt-large"
+    provider.supports_vision = False
+    provider.prompt_cache_enabled = False
+    provider.max_output_tokens = 64
+    provider.fallback_model = "gpt-light"
+    provider.fallback_max_output_tokens = 16
+    provider.model_usage_required = True
+    provider.usage_adapter = adapter
+    provider.client = SimpleNamespace(responses=SimpleNamespace(create=create))
+
+    with pytest.raises(ApprovalRequired) as exc_info:
+        provider.generate_with_tools(
+            system="system",
+            user="hello",
+            tools=lambda: [],
+            tool_handler=lambda _name, _payload, _event_id=None: (_ for _ in ()).throw(
+                ApprovalRequired("approval required")
+            ),
+            usage_attribution=ATTRIBUTION,
+        )
+
+    control_flow = getattr(exc_info.value, "_culina_provider_control_flow", None)
+    assert control_flow is not None
+    assert control_flow.model == "gpt-light"
+    assert control_flow.fallback_used is True
+    assert control_flow.fallback_reason_code == "model_usage_budget_exceeded"

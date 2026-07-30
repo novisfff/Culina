@@ -159,6 +159,8 @@ class SkillResult:
     status: str = "completed"
     model: str = "rules"
     error: str | None = None
+    fallback_used: bool = False
+    fallback_reason_code: str | None = None
     diagnostic: str | None = None
     operation: str | None = None
     source_artifact_id: str | None = None

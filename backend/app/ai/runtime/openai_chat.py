@@ -41,6 +41,7 @@ from app.ai.runtime.types import (
     ToolCallHandler,
     ToolPreviewHandler,
     ToolProvider,
+    attach_provider_control_flow_metadata,
 )
 from app.ai.tools.base import ToolDefinition
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
@@ -293,7 +294,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         attempt_index: int,
         mode: str,
         ambiguous_error_code: str,
-    ) -> tuple[Any, Any | None, DispatchPermit | None, str]:
+    ) -> tuple[Any, Any | None, DispatchPermit | None, str, bool, str | None]:
         """Use a configured light model only when the primary was never sent."""
 
         try:
@@ -306,8 +307,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 mode=mode,
                 ambiguous_error_code=ambiguous_error_code,
             )
-            return response, metered_attempt, permit, self.model_name
-        except ModelUsageBlocked:
+            return response, metered_attempt, permit, self.model_name, False, None
+        except ModelUsageBlocked as exc:
             fallback = self._fallback_target()
             if fallback is None:
                 raise
@@ -326,7 +327,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 selected_model=fallback_model,
                 output_cap=fallback_cap,
             )
-            return response, metered_attempt, permit, fallback_model
+            return response, metered_attempt, permit, fallback_model, True, exc.code
 
     def _settle_chat_response(
         self,
@@ -438,13 +439,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             else None
         )
         selected_model = self.model_name
+        fallback_used = False
+        fallback_reason_code: str | None = None
         try:
             request = self._chat_completion_request(
                 messages,
                 temperature=0.5,
                 prompt_cache_options=cache_options,
             )
-            response, metered_attempt, permit, selected_model = self._send_chat_request_with_pre_dispatch_fallback(
+            response, metered_attempt, permit, selected_model, fallback_used, fallback_reason_code = self._send_chat_request_with_pre_dispatch_fallback(
                 request=request,
                 messages=messages,
                 usage_attribution=usage_attribution,
@@ -456,14 +459,28 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         except ModelUsageError as exc:
             if exchange is not None:
                 exchange.fail(error_code=exc.code, error_message=str(exc))
-            return ChatProviderResult(text=None, status="failed", model=selected_model, error=exc.code)
+            return ChatProviderResult(
+                text=None,
+                status="failed",
+                model=selected_model,
+                error=exc.code,
+                fallback_used=fallback_used,
+                fallback_reason_code=fallback_reason_code,
+            )
         except AIExecutionCancelled:
             raise
         except Exception as exc:  # pragma: no cover - network/provider failure
             if exchange is not None:
                 exchange.fail(error_code="provider_unavailable", error_message=str(exc))
             logger.warning("AI provider generate failed model=%s error=%s", self.model_name, exc, exc_info=True)
-            return ChatProviderResult(text=None, status="fallback", model=selected_model, error=str(exc))
+            return ChatProviderResult(
+                text=None,
+                status="fallback",
+                model=selected_model,
+                error=str(exc),
+                fallback_used=fallback_used,
+                fallback_reason_code=fallback_reason_code,
+            )
         try:
             self._settle_chat_response(
                 metered_attempt=metered_attempt,
@@ -475,12 +492,26 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         except ModelUsageError as exc:
             if exchange is not None:
                 exchange.fail(error_code=exc.code, error_message=str(exc))
-            return ChatProviderResult(text=None, status="failed", model=selected_model, error=exc.code)
+            return ChatProviderResult(
+                text=None,
+                status="failed",
+                model=selected_model,
+                error=exc.code,
+                fallback_used=fallback_used,
+                fallback_reason_code=fallback_reason_code,
+            )
         except Exception as exc:  # pragma: no cover - settlement/provider payload failure
             if exchange is not None:
                 exchange.fail(error_code="model_usage_settlement_failed", error_message=str(exc))
             logger.warning("AI provider usage settlement failed model=%s error=%s", self.model_name, exc, exc_info=True)
-            return ChatProviderResult(text=None, status="failed", model=selected_model, error="model_usage_settlement_failed")
+            return ChatProviderResult(
+                text=None,
+                status="failed",
+                model=selected_model,
+                error="model_usage_settlement_failed",
+                fallback_used=fallback_used,
+                fallback_reason_code=fallback_reason_code,
+            )
         if text:
             if exchange is not None:
                 token_usage = self._completion_token_usage(trace_recorder, response)
@@ -490,7 +521,13 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     token_usage=token_usage,
                     status="completed",
                 )
-            return ChatProviderResult(text=text, status="completed", model=selected_model)
+            return ChatProviderResult(
+                text=text,
+                status="completed",
+                model=selected_model,
+                fallback_used=fallback_used,
+                fallback_reason_code=fallback_reason_code,
+            )
         logger.warning("AI provider returned empty response model=%s", self.model_name)
         if exchange is not None:
             token_usage = self._completion_token_usage(trace_recorder, response)
@@ -502,7 +539,14 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 error_code="provider_empty_response",
                 error_message="empty model response",
             )
-        return ChatProviderResult(text=None, status="fallback", model=selected_model, error="empty model response")
+        return ChatProviderResult(
+            text=None,
+            status="fallback",
+            model=selected_model,
+            error="empty model response",
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
+        )
 
     def generate_with_tools(
         self,
@@ -521,6 +565,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         requested_calls: list[dict[str, Any]] = []
         text_parts: list[str] = []
         selected_model = self.model_name
+        fallback_used = False
+        fallback_reason_code: str | None = None
 
         for _round in range(max(1, max_rounds)):
             finalization_round = max_rounds_finalization_round(
@@ -577,7 +623,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         temperature=0,
                         prompt_cache_options=cache_options,
                     )
-                    stream, metered_attempt, permit, selected_model = self._send_chat_request_with_pre_dispatch_fallback(
+                    stream, metered_attempt, permit, selected_model, round_fallback_used, round_fallback_reason_code = self._send_chat_request_with_pre_dispatch_fallback(
                         request=stream_request,
                         messages=request_messages,
                         usage_attribution=usage_attribution,
@@ -586,6 +632,9 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         mode="stream",
                         ambiguous_error_code="provider_stream_transport_ambiguous",
                     )
+                    if round_fallback_used:
+                        fallback_used = True
+                        fallback_reason_code = round_fallback_reason_code
                     response = self._collect_stream_response(
                         stream,
                         message_handler=message_handler,
@@ -613,6 +662,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         model=selected_model,
                         error=exc.code,
                         tool_calls=requested_calls,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
                     )
                 except Exception as exc:  # pragma: no cover - network/provider failure
                     if metered_attempt is not None:
@@ -647,6 +698,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         model=selected_model,
                         error=str(exc),
                         tool_calls=requested_calls,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
                     )
                 if exchange is not None:
                     token_usage = (
@@ -684,6 +737,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         model=selected_model,
                         error="empty model response",
                         tool_calls=requested_calls,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
                     )
             if response is None:
                 return ChatProviderResult(
@@ -692,6 +747,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     model=selected_model,
                     error="empty model response",
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             if response.text:
                 text_parts.append(response.text)
@@ -705,6 +762,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     model=selected_model,
                     error=None,
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             for index, call in enumerate(response.tool_calls):
                 model_name = str(call.get("name") or "")
@@ -725,7 +784,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
-                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
+                except AIExecutionCancelled:
+                    raise
+                except (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
+                    attach_provider_control_flow_metadata(
+                        exc,
+                        model=selected_model,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
+                    )
                     raise
                 except Exception as exc:
                     logger.warning(
@@ -759,6 +826,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             model=selected_model,
             error=f"tool conversation exceeded max_rounds={max_rounds}",
             tool_calls=requested_calls,
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
         )
 
     def _create_chat_completion_stream(
@@ -967,7 +1036,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 temperature=0.5,
                 prompt_cache_options=cache_options,
             )
-            stream, metered_attempt, permit, _selected_model = self._send_chat_request_with_pre_dispatch_fallback(
+            stream, metered_attempt, permit, _selected_model, _fallback_used, _fallback_reason_code = self._send_chat_request_with_pre_dispatch_fallback(
                 request=stream_request,
                 messages=messages,
                 usage_attribution=usage_attribution,

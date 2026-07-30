@@ -573,12 +573,19 @@ def serialize_ai_message(item: AIMessage) -> dict:
 
 
 def serialize_ai_run(item: AIAgentRun) -> dict:
+    fallback_payload = item.output.get("model_usage_fallback") if isinstance(item.output, dict) else None
+    fallback_used = bool(fallback_payload.get("used")) if isinstance(fallback_payload, dict) else False
+    fallback_reason_code = fallback_payload.get("reason_code") if isinstance(fallback_payload, dict) else None
+    if not isinstance(fallback_reason_code, str) or not fallback_reason_code.startswith("model_usage_"):
+        fallback_reason_code = None
     return {
         "id": item.id,
         "agent_key": item.agent_key,
         "intent": item.intent,
         "status": item.status,
         "model": item.model,
+        "fallback_used": fallback_used,
+        "fallback_reason_code": fallback_reason_code if fallback_used else None,
         "created_at": _utc_datetime(item.created_at),
     }
 

@@ -47,6 +47,8 @@ class OrchestratorResultAssembler:
             status=status,
             model=provider_result.model or model_name(context),
             error=provider_result.error,
+            fallback_used=provider_result.fallback_used,
+            fallback_reason_code=provider_result.fallback_reason_code,
             tool_calls=context.tool_executor.records(),
         )
 
@@ -64,27 +66,50 @@ class OrchestratorResultAssembler:
             status="failed",
             model=provider_result.model or model_name(context),
             error=error,
+            fallback_used=provider_result.fallback_used,
+            fallback_reason_code=provider_result.fallback_reason_code,
             diagnostic=json.dumps(diagnostic, ensure_ascii=False, default=str),
             context_summary=self.orchestrator_context_summary(state),
             tool_calls=context.tool_executor.records(),
         )
 
-    def approval_result(self, context: SkillContext, state: OrchestratorRunState) -> SkillResult:
+    def approval_result(
+        self,
+        context: SkillContext,
+        state: OrchestratorRunState,
+        *,
+        model: str | None = None,
+        fallback_used: bool = False,
+        fallback_reason_code: str | None = None,
+    ) -> SkillResult:
         drafts = self.validated_drafts(state.draft_outputs, state.active_skill_keys)
         return SkillResult(
             text="".join(state.streamed_text).strip(),
             drafts=drafts,
             context_summary=self.orchestrator_context_summary(state),
             status="waiting_approval",
-            model=model_name(context),
+            model=model or model_name(context),
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
             tool_calls=context.tool_executor.records(),
         )
 
-    def human_input_result(self, context: SkillContext, state: OrchestratorRunState, request: dict[str, Any]) -> SkillResult:
+    def human_input_result(
+        self,
+        context: SkillContext,
+        state: OrchestratorRunState,
+        request: dict[str, Any],
+        *,
+        model: str | None = None,
+        fallback_used: bool = False,
+        fallback_reason_code: str | None = None,
+    ) -> SkillResult:
         return SkillResult(
             text=str(request.get("question") or "我需要你补充一点信息。"),
             status="waiting_input",
-            model=model_name(context),
+            model=model or model_name(context),
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
             context_summary={
                 **self.orchestrator_context_summary(state),
                 "pendingHumanInput": request,
@@ -105,6 +130,8 @@ class OrchestratorResultAssembler:
             status="failed",
             model=provider_result.model or model_name(context),
             error=provider_result.error or error,
+            fallback_used=provider_result.fallback_used,
+            fallback_reason_code=provider_result.fallback_reason_code,
             diagnostic=provider_result.error or error,
             context_summary=self.orchestrator_context_summary(state),
         )
@@ -113,6 +140,10 @@ class OrchestratorResultAssembler:
         self,
         context: SkillContext,
         state: OrchestratorRunState,
+        *,
+        model: str | None = None,
+        fallback_used: bool = False,
+        fallback_reason_code: str | None = None,
     ) -> SkillResult:
         return SkillResult(
             text=(
@@ -120,8 +151,10 @@ class OrchestratorResultAssembler:
                 "我已经基于目前拿到的信息保留了上下文；你可以发送“继续”，我会从下一轮接着处理剩下的部分。"
             ),
             status="failed",
-            model=model_name(context),
+            model=model or model_name(context),
             error="tool_budget_hard_stop",
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
             diagnostic=json.dumps(
                 {
                     "error": "tool_budget_hard_stop",

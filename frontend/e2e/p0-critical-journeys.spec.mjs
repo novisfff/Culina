@@ -19,7 +19,7 @@ async function attachCheckpointScreenshot(page, testInfo, name) {
 
 async function stabilizeDarwinVisualGutter(page) {
   if (process.platform === 'darwin') {
-    await page.addStyleTag({ content: 'html { scrollbar-gutter: auto !important; }' });
+    await page.addStyleTag({ content: 'html, .app-content { scrollbar-gutter: auto !important; }' });
   }
 }
 

@@ -183,7 +183,7 @@ export interface ModelUsageAlertReceipt {
   dismissed_at: string | null;
 }
 
-export interface ModelUsageAlert extends ModelUsageAlertReceipt {
+export interface ModelUsageAlert {
   id: string;
   period: string;
   threshold: string;
@@ -191,7 +191,9 @@ export interface ModelUsageAlert extends ModelUsageAlertReceipt {
   settled_value: string;
   adjustment_value: string;
   effective_spend_cny: string;
-  severity: string;
+  severity: 'warning' | 'critical';
+  seen_at: string | null;
+  dismissed_at: string | null;
   created_at: string;
 }
 
@@ -1736,6 +1738,11 @@ export interface AiMessage {
   created_at: string;
 }
 
+export interface AiModelUsageFallback {
+  used: true;
+  reasonCode: ModelUsageErrorCode | null;
+}
+
 export type AiRunStatus = 'pending' | 'running' | 'waiting_approval' | 'waiting_input' | 'cancelling' | 'completed' | 'failed' | 'fallback' | 'cancelled';
 export type AiRunEventStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 export type AiRunCancellationPhase = 'idle' | 'requesting' | 'cancelling' | 'cancelled' | 'failed';
@@ -1747,6 +1754,8 @@ export interface AiRun {
   intent: string;
   status: AiRunStatus;
   model: string;
+  fallback_used?: boolean;
+  fallback_reason_code?: ModelUsageErrorCode | null;
   created_at: string;
 }
 

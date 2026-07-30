@@ -5,7 +5,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { AiRenderResponse, SearchIndexJobResponse } from '../api/types';
-import { useAiImageJobMonitor } from './useAiImageJobMonitor';
+import { imageJobNotification, useAiImageJobMonitor } from './useAiImageJobMonitor';
 
 function budgetBlockedSearchIndexJob(): SearchIndexJobResponse {
   return {
@@ -42,7 +42,7 @@ describe('useAiImageJobMonitor', () => {
     vi.restoreAllMocks();
   });
 
-  it('labels a budget-blocked search index job accurately and keeps it active for automatic recovery', async () => {
+  it('normalizes a budget-blocked search index job into non-retryable attention', async () => {
     vi.spyOn(api, 'getActiveAiRenderJobs').mockResolvedValue([]);
     vi.spyOn(api, 'getActiveSearchIndexJobs').mockResolvedValue([budgetBlockedSearchIndexJob()]);
     const client = new QueryClient({
@@ -57,14 +57,15 @@ describe('useAiImageJobMonitor', () => {
 
     const { result, unmount } = renderHook(() => useAiImageJobMonitor(true), { wrapper });
 
-    await waitFor(() => expect(result.current.jobs).toHaveLength(1));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
 
-    expect(result.current.jobs[0]).toMatchObject({
-      status: 'budget_blocked',
-      status_label: '受预算限制',
-      description: '当前家庭的模型用量预算已到上限',
+    expect(result.current.items[0]).toMatchObject({
+      kind: 'background_task',
+      task_kind: 'search_index',
+      status: 'failed',
       can_retry: false,
-      can_dismiss: false,
+      can_dismiss: true,
+      error_code: 'model_usage_budget_exceeded',
     });
 
     unmount();
@@ -86,9 +87,9 @@ describe('useAiImageJobMonitor', () => {
 
     const { result, unmount } = renderHook(() => useAiImageJobMonitor(true), { wrapper });
 
-    await waitFor(() => expect(result.current.jobs).toHaveLength(1));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
 
-    expect(result.current.jobs[0]).toMatchObject({
+    expect(result.current.items[0]).toMatchObject({
       status: 'failed',
       can_retry: false,
       description: '图片生成服务的执行结果暂时无法确认；为避免重复生成，本次不会自动重试。',
@@ -96,5 +97,23 @@ describe('useAiImageJobMonitor', () => {
 
     unmount();
     client.clear();
+  });
+
+  it('keeps a non-limit model-usage image failure distinct from an exhausted quota', () => {
+    const item = imageJobNotification({
+      job_id: 'image-job-usage-config-1',
+      status: 'failed',
+      error: '图片生成的计量服务暂不可用，请稍后再试。',
+      error_code: 'model_usage_contract_error',
+      can_retry: false,
+      generation_mode: 'text',
+      target_entity_type: 'food',
+      bind_status: 'pending',
+      created_at: '2026-07-30T00:00:00Z',
+      completed_at: '2026-07-30T00:01:00Z',
+    });
+
+    expect(item?.description).toBe('图片生成的计量服务暂不可用，请稍后再试。');
+    expect(item?.description).not.toContain('额度达到限制');
   });
 });

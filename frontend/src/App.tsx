@@ -68,6 +68,7 @@ import {
 } from './features/inventory/shoppingIntakeModel';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
+import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
@@ -288,6 +289,16 @@ function App() {
     navigationState: navigation.state,
     isAuthenticated,
     foodPlanWeekRange,
+  });
+
+  const appNotifications = useAppNotifications({
+    enabled: isAuthenticated,
+    familyId: family?.id ?? '',
+    role: membership?.role ?? 'Member',
+    background: aiImageJobMonitor,
+    onOpenModelUsageAlert: (alert) => {
+      navigation.navigate({ workspace: 'family', view: 'modelUsage', period: alert.period });
+    },
   });
 
   // One business date for home action projection; same key is injected again by useAppHomeViewModel.
@@ -1142,12 +1153,14 @@ function App() {
   ) : null;
   const mobileNotificationCenter = (
     <AppNotificationCenter
-      jobs={aiImageJobMonitor.jobs}
-      isLoading={aiImageJobMonitor.isLoading}
+      items={appNotifications.items}
+      isLoading={appNotifications.isLoading}
       variant="mobileIcon"
-      onDismissJob={aiImageJobMonitor.dismissJob}
-      onRetryJob={aiImageJobMonitor.retryJob}
-      retryingJobId={aiImageJobMonitor.retryingJobId}
+      onDismissBackgroundTask={aiImageJobMonitor.dismissJob}
+      onRetryBackgroundTask={aiImageJobMonitor.retryJob}
+      retryingBackgroundTaskId={aiImageJobMonitor.retryingJobId}
+      onOpenModelUsageAlert={appNotifications.openModelUsageAlert}
+      onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
     />
   );
 
@@ -1166,11 +1179,13 @@ function App() {
       userMeta={sidebarUserMeta}
       userNote={sidebarUserNote}
       notice={noticeToast}
-      imageJobs={aiImageJobMonitor.jobs}
-      imageJobsLoading={aiImageJobMonitor.isLoading}
-      onDismissImageJob={aiImageJobMonitor.dismissJob}
-      onRetryImageJob={aiImageJobMonitor.retryJob}
-      retryingImageJobId={aiImageJobMonitor.retryingJobId}
+      notifications={appNotifications.items}
+      notificationsLoading={appNotifications.isLoading}
+      onDismissBackgroundTask={aiImageJobMonitor.dismissJob}
+      onRetryBackgroundTask={aiImageJobMonitor.retryJob}
+      retryingBackgroundTaskId={aiImageJobMonitor.retryingJobId}
+      onOpenModelUsageAlert={appNotifications.openModelUsageAlert}
+      onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
       onTabChange={handlePrimaryTabChange}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}

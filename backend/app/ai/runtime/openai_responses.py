@@ -41,6 +41,7 @@ from app.ai.runtime.types import (
     ToolCallHandler,
     ToolPreviewHandler,
     ToolProvider,
+    attach_provider_control_flow_metadata,
 )
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageContractError, ModelUsageError
@@ -121,6 +122,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         requested_calls: list[dict[str, Any]] = []
         text_parts: list[str] = []
         selected_model = self.model_name
+        fallback_used = False
+        fallback_reason_code: str | None = None
 
         for _round in range(max(1, max_rounds)):
             finalization_round = max_rounds_finalization_round(
@@ -180,7 +183,14 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 request.update(cache_params)
                 if model_tools:
                     request["tools"] = model_tools
-                stream, metered_attempt, permit, selected_model = self._send_responses_request_with_pre_dispatch_fallback(
+                (
+                    stream,
+                    metered_attempt,
+                    permit,
+                    selected_model,
+                    round_fallback_used,
+                    round_fallback_reason_code,
+                ) = self._send_responses_request_with_pre_dispatch_fallback(
                     request=request,
                     request_input=request_input,
                     usage_attribution=usage_attribution,
@@ -188,6 +198,9 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     attempt_index=1,
                     mode="responses_stream",
                 )
+                if round_fallback_used:
+                    fallback_used = True
+                    fallback_reason_code = round_fallback_reason_code
                 for event in stream:
                     event_type = self._event_type(event)
                     if event_type == "response.output_text.delta":
@@ -213,12 +226,19 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     # A stream ending without the provider's terminal event
                     # is not evidence that the remote execution completed.
                     raise RuntimeError("provider_responses_completion_missing")
-            except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
+            except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
                 if metered_attempt is not None:
                     try:
                         metered_attempt.mark_uncertain("provider_responses_stream_cancelled")
                     except ModelUsageError:
                         logger.exception("failed to mark cancelled Responses provider attempt")
+                if isinstance(exc, (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop)):
+                    attach_provider_control_flow_metadata(
+                        exc,
+                        model=selected_model,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
+                    )
                 raise
             except ModelUsageError as exc:
                 if exchange is not None:
@@ -229,6 +249,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     model=selected_model,
                     error=exc.code,
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             except Exception as exc:  # pragma: no cover - network/provider failure
                 if metered_attempt is not None:
@@ -253,6 +275,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     model=selected_model,
                     error=str(exc),
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
 
             try:
@@ -270,6 +294,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     model=selected_model,
                     error=exc.code,
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             except Exception as exc:
                 if exchange is not None:
@@ -285,6 +311,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     model=selected_model,
                     error="model_usage_settlement_failed",
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
 
             response_tool_calls = self._dedupe_responses_tool_calls(
@@ -314,6 +342,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     model=selected_model,
                     error="empty model response",
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             if not response_tool_calls:
                 return ChatProviderResult(
@@ -321,6 +351,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     status="completed",
                     model=selected_model,
                     tool_calls=requested_calls,
+                    fallback_used=fallback_used,
+                    fallback_reason_code=fallback_reason_code,
                 )
             if finalization_round:
                 break
@@ -337,7 +369,15 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 requested_calls.append({"id": call_id, "name": name, "args": args})
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
-                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
+                except AIExecutionCancelled:
+                    raise
+                except (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
+                    attach_provider_control_flow_metadata(
+                        exc,
+                        model=selected_model,
+                        fallback_used=fallback_used,
+                        fallback_reason_code=fallback_reason_code,
+                    )
                     raise
                 except Exception as exc:
                     logger.warning(
@@ -372,6 +412,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             model=selected_model,
             error=f"tool conversation exceeded max_rounds={max_rounds}",
             tool_calls=requested_calls,
+            fallback_used=fallback_used,
+            fallback_reason_code=fallback_reason_code,
         )
 
     def stream_generate(
@@ -551,7 +593,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         provider_round: int,
         attempt_index: int,
         mode: str,
-    ) -> tuple[Any, Any | None, DispatchPermit | None, str]:
+    ) -> tuple[Any, Any | None, DispatchPermit | None, str, bool, str | None]:
         try:
             stream, metered_attempt, permit = self._send_responses_request(
                 request=request,
@@ -561,8 +603,8 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 attempt_index=attempt_index,
                 mode=mode,
             )
-            return stream, metered_attempt, permit, self.model_name
-        except ModelUsageBlocked:
+            return stream, metered_attempt, permit, self.model_name, False, None
+        except ModelUsageBlocked as exc:
             fallback = self._fallback_target()
             if fallback is None:
                 raise
@@ -580,7 +622,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 selected_model=fallback_model,
                 output_cap=fallback_cap,
             )
-            return stream, metered_attempt, permit, fallback_model
+            return stream, metered_attempt, permit, fallback_model, True, exc.code
 
     def _settle_responses_response(
         self,

@@ -3,6 +3,7 @@ import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import type { VoiceRecording } from '../../hooks/useVoiceRecorder';
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription';
 import type { AiVoiceSurface } from '../../api/aiVoiceApi';
+import { ModelUsageDegradationNotice } from '../../features/model-usage/ModelUsageDegradationNotice';
 
 type AiVoiceInputButtonProps = {
   surface: AiVoiceSurface;
@@ -219,7 +220,8 @@ export function AiVoiceInputButton({
   }, [recorder.isRecording]);
 
   return (
-    <button
+    <>
+      <button
       ref={buttonRef}
       type="button"
       className={`ai-voice-input-button ${isPreparing ? 'preparing' : ''} ${isActive ? 'recording' : ''} ${recordingInteraction === 'hold' ? 'hold-recording' : ''} ${isHoldArming ? 'hold-arming' : ''} ${isStarting ? 'starting' : ''} ${isRecognizing ? 'recognizing' : ''} ${isBusy ? 'busy' : ''} ${className}`.trim()}
@@ -231,7 +233,7 @@ export function AiVoiceInputButton({
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
-    >
+      >
       <span className="ai-voice-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Z" />
@@ -263,6 +265,8 @@ export function AiVoiceInputButton({
         <span>准备听</span>
       </span>
       <span className="ai-voice-press-label">{transcription.isTranscribing ? '识别中' : '按住说话'}</span>
-    </button>
+      </button>
+      <ModelUsageDegradationNotice capability="stt" code={transcription.errorCode} />
+    </>
   );
 }

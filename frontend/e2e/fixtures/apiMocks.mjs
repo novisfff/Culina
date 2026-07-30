@@ -662,6 +662,7 @@ const p0Fixtures = {
   '/api/meal-logs/record-operations': [],
   '/api/media/ai-render/active': [],
   '/api/members': [member],
+  '/api/model-usage/alerts': [],
   '/api/recipes': [recipe],
   '/api/search/index-jobs/active': [],
   '/api/shopping-list': shoppingItems,

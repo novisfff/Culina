@@ -48,6 +48,15 @@ def _should_stream_dashscope_tts(provider: str | None, settings: Settings | Any 
     return normalize_provider(provider) == "dashscope" and normalize_provider(getattr(settings, "ai_tts_provider", "disabled")) == "dashscope"
 
 
+def _assistant_audio_error_event(exc: HTTPException) -> dict[str, str]:
+    detail = exc.detail
+    code = detail.get("code") if isinstance(detail, dict) else None
+    event = {"type": "assistant_audio_error", "message": "语音播报失败"}
+    if isinstance(code, str) and code.startswith("model_usage_"):
+        event["code"] = code
+    return event
+
+
 def _result_cards_from_response(response: dict) -> list[dict]:
     included = response.get("included") if isinstance(response.get("included"), dict) else {}
     cards = included.get("result_cards") if isinstance(included.get("result_cards"), list) else []
@@ -238,7 +247,7 @@ async def stream_cooking_assistant_voice_events(
                 mapped = {"type": f"assistant_{event_type}", **{key: value for key, value in audio_event.items() if key != "type"}}
                 await events.put(mapped)
         except HTTPException as exc:
-            await events.put({"type": "assistant_audio_error", "message": str(exc.detail)})
+            await events.put(_assistant_audio_error_event(exc))
         except Exception:
             await events.put({"type": "assistant_audio_error", "message": "语音播报失败"})
         finally:

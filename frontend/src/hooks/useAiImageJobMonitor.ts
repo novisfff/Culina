@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { invalidateAfterAiImageJobChanged, invalidateAfterSearchIndexJobChanged } from '../api/cacheInvalidation';
 import { queryKeys } from '../api/queryKeys';
 import type { AiRenderResponse, SearchIndexJobResponse } from '../api/types';
-import type { AppNotificationJob } from '../app/AppShell';
+import type { BackgroundTaskNotification } from '../app/appNotificationModel';
 import { readJsonStorage, writeJsonStorage } from '../lib/storage';
 import type { NoticeState } from './useNotice';
 
@@ -32,16 +32,16 @@ function searchIndexNotificationId(jobId: string) {
   return `search-index:${jobId}`;
 }
 
-function isTerminalStatus(status: AppNotificationJob['status']) {
-  return status === 'succeeded' || status === 'failed';
-}
-
 function isTerminalImageJob(job: AiRenderResponse) {
   return job.status === 'succeeded' || job.status === 'failed';
 }
 
 function isTerminalSearchIndexJob(job: SearchIndexJobResponse) {
-  return job.status === 'succeeded' || job.status === 'failed';
+  return job.status === 'succeeded' || job.status === 'failed' || job.status === 'budget_blocked';
+}
+
+function isModelUsageLimitCode(errorCode: string | null | undefined) {
+  return errorCode === 'model_usage_budget_exceeded' || errorCode === 'model_usage_capability_limit_exceeded';
 }
 
 function buildImageJobNotice(job: AiRenderResponse): NoticeState {
@@ -78,6 +78,13 @@ function buildImageJobNotice(job: AiRenderResponse): NoticeState {
 
 function buildSearchIndexJobNotice(job: SearchIndexJobResponse): NoticeState {
   const targetLabel = SEARCH_TARGET_LABELS[job.entity_type] ?? '资料';
+  if (job.status === 'budget_blocked') {
+    return {
+      tone: 'warning',
+      title: '搜索索引等待模型额度恢复',
+      message: '额度或策略变化后，系统会自动继续处理。',
+    };
+  }
   if (job.status === 'failed') {
     return {
       tone: 'danger',
@@ -98,83 +105,84 @@ const SEARCH_TARGET_LABELS: Record<string, string> = {
   recipe: '菜谱',
 };
 
-function buildImageNotificationJob(job: AiRenderResponse): AppNotificationJob | null {
+export function imageJobNotification(job: AiRenderResponse): BackgroundTaskNotification | null {
   if (!job.job_id) return null;
   const targetLabel = job.target_entity_type ? TARGET_LABELS[job.target_entity_type] ?? '图片' : '图片';
   const targetName = job.target_entity_name?.trim();
-  let statusLabel = '已生成';
   let description = '生成图已保留在图片资产中';
   if (job.status === 'queued') {
-    statusLabel = '正在处理';
     description = '已加入队列，稍后开始生成';
   } else if (job.status === 'running') {
-    statusLabel = '正在处理';
     description = '正在生成图片，可以先处理其他内容';
   } else if (job.status === 'failed') {
-    statusLabel = '失败';
-    description = job.error?.trim() || (job.can_retry
-      ? '生成失败，可以直接重试'
-      : '生成失败，当前不能安全地直接重试');
+    description = isModelUsageLimitCode(job.error_code)
+      ? '图片生成额度达到限制，本次未调用服务商。'
+      : job.error?.trim() || (job.can_retry
+        ? '生成失败，可以直接重试'
+        : '生成失败，当前不能安全地直接重试');
   } else if (job.bind_status === 'skipped') {
-    statusLabel = '已生成，未替换';
     description = '已有用户图片，生成图已保留';
   } else if (job.bind_status === 'bound') {
-    statusLabel = '已更新';
     description = '主图已自动更新';
   }
   return {
     notification_id: imageNotificationId(job.job_id),
-    task_id: job.job_id,
-    kind: 'image',
+    kind: 'background_task',
+    task_kind: 'image',
     status: job.status,
     title: targetName ? `${targetName}的${targetLabel}图片生成` : `${targetLabel}图片生成`,
-    status_label: statusLabel,
     description,
     can_retry: job.can_retry === true,
     can_dismiss: isTerminalImageJob(job),
-    created_at: job.created_at ?? null,
-    completed_at: job.completed_at ?? null,
+    error_code: job.error_code ?? null,
+    occurred_at: job.completed_at ?? job.created_at ?? null,
   };
 }
 
-function buildSearchIndexNotificationJob(job: SearchIndexJobResponse): AppNotificationJob {
+export function searchJobNotification(job: SearchIndexJobResponse): BackgroundTaskNotification {
   const targetLabel = SEARCH_TARGET_LABELS[job.entity_type] ?? '资料';
   const targetName = job.target_name?.trim();
-  let statusLabel = '已更新';
   let description = job.vector_status === 'indexed' ? '全文索引和向量索引已更新' : '全文索引已更新';
+  const isBudgetBlocked = job.status === 'budget_blocked';
+  const status: BackgroundTaskNotification['status'] = job.status === 'budget_blocked' ? 'failed' : job.status;
   if (job.status === 'queued') {
-    statusLabel = '正在处理';
     description = '已加入队列，稍后更新搜索索引';
   } else if (job.status === 'running') {
-    statusLabel = '正在处理';
     description = '正在更新搜索索引和可用的向量索引';
-  } else if (job.status === 'budget_blocked') {
-    statusLabel = '受预算限制';
-    description = job.error?.trim() || '当前家庭的模型用量预算已到上限，预算调整或新账期后会自动重试';
+  } else if (isBudgetBlocked) {
+    description = '额度或策略变化后，系统会自动继续处理。';
   } else if (job.status === 'failed') {
-    statusLabel = '失败';
     description = job.error?.trim() || '索引更新失败，可以直接重试';
   }
   return {
     notification_id: searchIndexNotificationId(job.job_id),
-    task_id: job.job_id,
-    kind: 'search_index',
-    status: job.status,
-    title: targetName ? `${targetName}的${targetLabel}索引更新` : `${targetLabel}索引更新`,
-    status_label: statusLabel,
+    kind: 'background_task',
+    task_kind: 'search_index',
+    status,
+    title: isBudgetBlocked
+      ? '搜索索引等待模型额度恢复'
+      : targetName ? `${targetName}的${targetLabel}索引更新` : `${targetLabel}索引更新`,
     description,
-    can_retry: job.status === 'failed',
+    can_retry: !isBudgetBlocked && status === 'failed',
     can_dismiss: isTerminalSearchIndexJob(job),
-    created_at: job.created_at,
-    completed_at: job.completed_at ?? null,
+    error_code: job.error_code ?? null,
+    occurred_at: job.completed_at ?? job.created_at ?? null,
   };
 }
+
+export type BackgroundNotificationSource = {
+  items: BackgroundTaskNotification[];
+  isLoading: boolean;
+  dismissJob: (notificationId: string) => void;
+  retryJob: (notificationId: string) => void;
+  retryingJobId: string | null;
+};
 
 export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (notice: NoticeState) => void } = {}) {
   const { onNotice } = options;
   const queryClient = useQueryClient();
   const handledJobsRef = useRef<Set<string>>(new Set());
-  const previousStatusesRef = useRef<Map<string, AppNotificationJob['status']>>(new Map());
+  const previousStatusesRef = useRef<Map<string, AiRenderResponse['status'] | SearchIndexJobResponse['status']>>(new Map());
   const initializedRef = useRef(false);
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set(readJsonStorage<string[]>(DISMISSED_AI_IMAGE_JOB_KEY, [])));
   const activeJobsQuery = useQuery({
@@ -249,9 +257,21 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     if (!activeJobsQuery.data && !activeSearchIndexJobsQuery.data) {
       return;
     }
+    const restoreIfRequeued = (notificationId: string, status: AiRenderResponse['status'] | SearchIndexJobResponse['status']) => {
+      if (status !== 'queued' && status !== 'running') return;
+      handledJobsRef.current.delete(notificationId);
+      setDismissedJobIds((current) => {
+        if (!current.has(notificationId)) return current;
+        const next = new Set(current);
+        next.delete(notificationId);
+        writeJsonStorage(DISMISSED_AI_IMAGE_JOB_KEY, Array.from(next));
+        return next;
+      });
+    };
     (activeJobsQuery.data ?? []).forEach((job) => {
       if (!job.job_id) return;
       const notificationId = imageNotificationId(job.job_id);
+      restoreIfRequeued(notificationId, job.status);
       if (handledJobsRef.current.has(notificationId)) {
         return;
       }
@@ -267,10 +287,11 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     });
     (activeSearchIndexJobsQuery.data ?? []).forEach((job) => {
       const notificationId = searchIndexNotificationId(job.job_id);
+      restoreIfRequeued(notificationId, job.status);
       if (handledJobsRef.current.has(notificationId)) {
         return;
       }
-      if (job.status === 'succeeded' || job.status === 'failed') {
+      if (isTerminalSearchIndexJob(job)) {
         handledJobsRef.current.add(notificationId);
         invalidateAfterSearchIndexJobChanged(queryClient, job);
         const previousStatus = previousStatusesRef.current.get(notificationId);
@@ -285,10 +306,10 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
 
   const dismissJob = useCallback((notificationId: string) => {
     const visibleJob = [
-      ...(activeJobsQuery.data ?? []).map(buildImageNotificationJob).filter((job): job is AppNotificationJob => job !== null),
-      ...(activeSearchIndexJobsQuery.data ?? []).map(buildSearchIndexNotificationJob),
+      ...(activeJobsQuery.data ?? []).map(imageJobNotification).filter((job): job is BackgroundTaskNotification => job !== null),
+      ...(activeSearchIndexJobsQuery.data ?? []).map(searchJobNotification),
     ].find((item) => item.notification_id === notificationId);
-    if (!visibleJob || !isTerminalStatus(visibleJob.status)) {
+    if (!visibleJob || !visibleJob.can_dismiss) {
       return;
     }
     setDismissedJobIds((current) => {
@@ -306,16 +327,16 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     void retryJobMutation.mutateAsync(notificationId).catch(() => undefined);
   }, [retryJobMutation]);
 
-  const visibleJobs = useMemo(
+  const items = useMemo(
     () => [
-      ...(activeJobsQuery.data ?? []).map(buildImageNotificationJob).filter((job): job is AppNotificationJob => job !== null),
-      ...(activeSearchIndexJobsQuery.data ?? []).map(buildSearchIndexNotificationJob),
+      ...(activeJobsQuery.data ?? []).map(imageJobNotification).filter((job): job is BackgroundTaskNotification => job !== null),
+      ...(activeSearchIndexJobsQuery.data ?? []).map(searchJobNotification),
     ].filter((job) => !job.can_dismiss || !dismissedJobIds.has(job.notification_id)),
     [activeJobsQuery.data, activeSearchIndexJobsQuery.data, dismissedJobIds]
   );
 
   return {
-    jobs: visibleJobs,
+    items,
     isLoading: activeJobsQuery.isLoading || activeSearchIndexJobsQuery.isLoading,
     dismissJob,
     retryJob,

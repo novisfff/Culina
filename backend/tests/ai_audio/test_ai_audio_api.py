@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.ai_audio import get_ai_audio_service
@@ -111,6 +112,76 @@ def test_cooking_voice_stream_forwards_realtime_usage_scope_to_tts() -> None:
 
     asyncio.run(run())
     assert captured == {"scope": sentinel_scope, "turn_id": "turn-tts-scope"}
+
+
+def test_cooking_voice_stream_forwards_only_stable_tts_usage_code() -> None:
+    class FakeAIApplicationService:
+        def __init__(self, _db) -> None:
+            return None
+
+        def stream_chat(self, **_kwargs):
+            yield ("message_delta", {"delta": "收到。"})
+            yield (
+                "response",
+                {
+                    "run": {"id": "voice-run-usage-code"},
+                    "message": {"content": "收到。", "parts": []},
+                    "included": {"result_cards": []},
+                },
+            )
+
+    class FailingTtsProvider:
+        def __init__(self, detail) -> None:
+            self.detail = detail
+
+        async def stream_realtime_text(self, text_chunks, _request):
+            async for _chunk in text_chunks:
+                raise HTTPException(
+                    status_code=429,
+                    detail=self.detail,
+                )
+            if False:  # keeps this fake as an async generator
+                yield {}
+
+    async def collect_events(detail) -> list[dict]:
+        events = []
+        async for event in stream_cooking_assistant_voice_events(
+            object(),
+            family_id="family-test",
+            user_id="user-test",
+            message="下一步",
+            subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+            provider="dashscope",
+            settings=SimpleNamespace(ai_tts_provider="dashscope"),
+            service_factory=FakeAIApplicationService,
+            tts_provider_factory=lambda *_args: FailingTtsProvider(detail),
+        ):
+            events.append(event)
+        return events
+
+    audio_error = next(
+        event
+        for event in asyncio.run(
+            collect_events(
+                {
+                    "code": "model_usage_capability_limit_exceeded",
+                    "message": "家庭额度详情不应进入流式事件",
+                }
+            )
+        )
+        if event["type"] == "assistant_audio_error"
+    )
+    assert audio_error == {
+        "type": "assistant_audio_error",
+        "code": "model_usage_capability_limit_exceeded",
+        "message": "语音播报失败",
+    }
+    generic_error = next(
+        event
+        for event in asyncio.run(collect_events({"code": "provider_429", "message": "内部上游错误详情"}))
+        if event["type"] == "assistant_audio_error"
+    )
+    assert generic_error == {"type": "assistant_audio_error", "message": "语音播报失败"}
 
 
 class FakeAudioService:
