@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Iterator
@@ -10,9 +11,13 @@ from openai import OpenAI
 from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
 from app.ai.runtime.messages import dump_value, field_value, responses_input, responses_system_message, responses_text_message
 from app.ai.runtime.prompt_cache import (
+    UnsupportedOptionalProviderParameter,
+    canonical_json,
+    create_stream_once,
     create_stream_with_unsupported_param_fallback,
     prompt_cache_api_params,
     prompt_cache_request_options,
+    remove_confirmed_unsupported_option,
 )
 from app.ai.runtime.tool_loop import (
     MAX_ROUNDS_FINALIZATION_PROMPT,
@@ -37,8 +42,12 @@ from app.ai.runtime.types import (
     ToolPreviewHandler,
     ToolProvider,
 )
+from app.services.model_usage.adapters.llm import LLMUsageAdapter
+from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageContractError, ModelUsageError
+from app.services.model_usage.types import DispatchPermit, UsageAttribution
 
 logger = logging.getLogger(__name__)
+MAX_COMPATIBILITY_ATTEMPTS = 3
 
 
 class OpenAIResponsesChatProvider(BaseChatProvider):
@@ -51,15 +60,27 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         timeout_seconds: float = 20.0,
         supports_vision: bool = False,
         prompt_cache_enabled: bool | None = None,
+        max_output_tokens: int = 1024,
+        usage_adapter: LLMUsageAdapter | None = None,
+        model_usage_required: bool = False,
+        fallback_model: str = "",
+        fallback_max_output_tokens: int = 0,
     ) -> None:
+        if max_output_tokens <= 0 or fallback_max_output_tokens < 0:
+            raise ValueError("max_output_tokens must be positive")
         self.model_name = model_name
         self.supports_vision = supports_vision
         self.prompt_cache_enabled = True if prompt_cache_enabled is None else prompt_cache_enabled
+        self.max_output_tokens = max_output_tokens
+        self.usage_adapter = usage_adapter
+        self.model_usage_required = model_usage_required
+        self.fallback_model = fallback_model.strip()
+        self.fallback_max_output_tokens = fallback_max_output_tokens
         self.client = OpenAI(
             api_key=api_key,
             base_url=api_base.rstrip("/"),
             timeout=timeout_seconds,
-            max_retries=1,
+            max_retries=0,
         )
 
     def generate(
@@ -69,6 +90,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         user: ProviderUserContent,
         trace_recorder: Any | None = None,
         trace_request_options: dict[str, Any] | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
         return self.generate_with_tools(
             system=system,
@@ -78,6 +100,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             trace_recorder=trace_recorder,
             trace_request_options=trace_request_options,
             max_rounds=1,
+            usage_attribution=usage_attribution,
         )
 
     def generate_with_tools(
@@ -92,10 +115,12 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         max_rounds: int = 8,
         trace_recorder: Any | None = None,
         trace_request_options: dict[str, Any] | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
         input_items = self._responses_input(user)
         requested_calls: list[dict[str, Any]] = []
         text_parts: list[str] = []
+        selected_model = self.model_name
 
         for _round in range(max(1, max_rounds)):
             finalization_round = max_rounds_finalization_round(
@@ -124,6 +149,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 "toolCount": len(current_tools),
                 "supportsVision": self.supports_vision,
                 "temperature": 0,
+                "maxOutputTokens": self._output_cap(),
                 "streamOptions": {"includeUsage": True},
                 **self._responses_cache_request_options(system, user, model_tools),
             }
@@ -146,20 +172,22 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             completed_response: Any | None = None
             response_tool_calls: list[dict[str, Any]] = []
             streamed_text_this_round: list[str] = []
+            metered_attempt: Any | None = None
+            permit: DispatchPermit | None = None
             try:
-                request: dict[str, Any] = {
-                    "model": self.model_name,
-                    "input": request_input,
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                    "temperature": 0,
-                    "store": False,
-                }
+                request = self._responses_stream_request(request_input, temperature=0)
                 cache_params = self._prompt_cache_api_params(request_options)
                 request.update(cache_params)
                 if model_tools:
                     request["tools"] = model_tools
-                stream = self._create_responses_stream(request)
+                stream, metered_attempt, permit, selected_model = self._send_responses_request_with_pre_dispatch_fallback(
+                    request=request,
+                    request_input=request_input,
+                    usage_attribution=usage_attribution,
+                    provider_round=_round + 1,
+                    attempt_index=1,
+                    mode="responses_stream",
+                )
                 for event in stream:
                     event_type = self._event_type(event)
                     if event_type == "response.output_text.delta":
@@ -181,9 +209,33 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                         completed_response = self._field_value(event, "response") or event
                     elif event_type in {"response.failed", "response.incomplete"}:
                         raise RuntimeError(self._responses_event_error(event))
+                if completed_response is None:
+                    # A stream ending without the provider's terminal event
+                    # is not evidence that the remote execution completed.
+                    raise RuntimeError("provider_responses_completion_missing")
             except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
+                if metered_attempt is not None:
+                    try:
+                        metered_attempt.mark_uncertain("provider_responses_stream_cancelled")
+                    except ModelUsageError:
+                        logger.exception("failed to mark cancelled Responses provider attempt")
                 raise
+            except ModelUsageError as exc:
+                if exchange is not None:
+                    exchange.fail(error_code=exc.code, error_message=str(exc), response_message=completed_response)
+                return ChatProviderResult(
+                    text=None,
+                    status="failed",
+                    model=selected_model,
+                    error=exc.code,
+                    tool_calls=requested_calls,
+                )
             except Exception as exc:  # pragma: no cover - network/provider failure
+                if metered_attempt is not None:
+                    try:
+                        metered_attempt.mark_uncertain("provider_responses_stream_transport_ambiguous")
+                    except ModelUsageError:
+                        logger.exception("failed to mark ambiguous Responses provider attempt")
                 if exchange is not None:
                     exchange.fail(error_code="provider_stream_failed", error_message=str(exc), response_message=completed_response)
                 logger.warning(
@@ -198,8 +250,40 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 return ChatProviderResult(
                     text=None,
                     status="failed",
-                    model=self.model_name,
+                    model=selected_model,
                     error=str(exc),
+                    tool_calls=requested_calls,
+                )
+
+            try:
+                self._settle_responses_response(
+                    metered_attempt=metered_attempt,
+                    permit=permit,
+                    completed_response=completed_response,
+                )
+            except ModelUsageError as exc:
+                if exchange is not None:
+                    exchange.fail(error_code=exc.code, error_message=str(exc), response_message=completed_response)
+                return ChatProviderResult(
+                    text=None,
+                    status="failed",
+                    model=selected_model,
+                    error=exc.code,
+                    tool_calls=requested_calls,
+                )
+            except Exception as exc:
+                if exchange is not None:
+                    exchange.fail(
+                        error_code="model_usage_settlement_failed",
+                        error_message=str(exc),
+                        response_message=completed_response,
+                    )
+                logger.warning("AI Responses usage settlement failed model=%s error=%s", self.model_name, exc, exc_info=True)
+                return ChatProviderResult(
+                    text=None,
+                    status="failed",
+                    model=selected_model,
+                    error="model_usage_settlement_failed",
                     tool_calls=requested_calls,
                 )
 
@@ -227,7 +311,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 return ChatProviderResult(
                     text=None,
                     status="failed",
-                    model=self.model_name,
+                    model=selected_model,
                     error="empty model response",
                     tool_calls=requested_calls,
                 )
@@ -235,7 +319,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 return ChatProviderResult(
                     text="".join(text_parts).strip() or None,
                     status="completed",
-                    model=self.model_name,
+                    model=selected_model,
                     tool_calls=requested_calls,
                 )
             if finalization_round:
@@ -285,7 +369,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         return ChatProviderResult(
             text=None,
             status="failed",
-            model=self.model_name,
+            model=selected_model,
             error=f"tool conversation exceeded max_rounds={max_rounds}",
             tool_calls=requested_calls,
         )
@@ -296,6 +380,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         system: str,
         user: ProviderUserContent,
         trace_recorder: Any | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> Iterator[str]:
         chunks: list[str] = []
 
@@ -310,6 +395,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             message_handler=collect,
             trace_recorder=trace_recorder,
             max_rounds=1,
+            usage_attribution=usage_attribution,
         )
         if chunks:
             yield from chunks
@@ -333,6 +419,215 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             user=user,
             model_tools=model_tools,
         )
+
+    def _output_cap(self) -> int:
+        cap = int(getattr(self, "max_output_tokens", 1024))
+        if cap <= 0:
+            raise ModelUsageContractError("llm_output_cap_required")
+        return cap
+
+    def _fallback_target(self) -> tuple[str, int] | None:
+        fallback_model = str(getattr(self, "fallback_model", "")).strip()
+        if not fallback_model or fallback_model == self.model_name:
+            return None
+        configured_cap = int(getattr(self, "fallback_max_output_tokens", 0) or 0)
+        return fallback_model, configured_cap if configured_cap > 0 else self._output_cap()
+
+    def _metered_attempt(
+        self,
+        *,
+        request_input: list[dict[str, Any]],
+        request: dict[str, Any],
+        usage_attribution: UsageAttribution | None,
+        provider_round: int,
+        attempt_index: int,
+        mode: str,
+        selected_model: str | None = None,
+        output_cap: int | None = None,
+    ) -> Any | None:
+        adapter = getattr(self, "usage_adapter", None)
+        required = bool(getattr(self, "model_usage_required", False))
+        if usage_attribution is None:
+            if required:
+                raise ModelUsageContractError("model_usage_attribution_required")
+            return None
+        if adapter is None:
+            if required:
+                raise ModelUsageContractError("model_usage_adapter_required")
+            return None
+        fingerprint_payload = {
+            "protocol": "responses",
+            "mode": mode,
+            "model": selected_model or self.model_name,
+            "request": request,
+        }
+        if hasattr(adapter, "request_fingerprint"):
+            fingerprint = adapter.request_fingerprint(fingerprint_payload)
+        else:
+            fingerprint = hashlib.sha256(canonical_json(fingerprint_payload).encode("utf-8")).hexdigest()
+        input_estimate = max(1, (len(canonical_json(request_input)) + 3) // 4)
+        return adapter.start_round(
+            usage_attribution,
+            provider_round=provider_round,
+            attempt_index=attempt_index,
+            model=selected_model or self.model_name,
+            input_estimate=input_estimate,
+            output_cap=output_cap or self._output_cap(),
+            fingerprint=fingerprint,
+        )
+
+    def _send_responses_request(
+        self,
+        *,
+        request: dict[str, Any],
+        request_input: list[dict[str, Any]],
+        usage_attribution: UsageAttribution | None,
+        provider_round: int,
+        attempt_index: int,
+        mode: str,
+        selected_model: str | None = None,
+        output_cap: int | None = None,
+    ) -> tuple[Any, Any | None, DispatchPermit | None]:
+        adapter = getattr(self, "usage_adapter", None)
+        if adapter is None and not bool(getattr(self, "model_usage_required", False)):
+            return (
+                create_stream_with_unsupported_param_fallback(self.client.responses.create, request),
+                None,
+                None,
+            )
+        current_request = dict(request)
+        current_attempt_index = attempt_index
+        for _ in range(MAX_COMPATIBILITY_ATTEMPTS):
+            metered_attempt = self._metered_attempt(
+                request_input=request_input,
+                request=current_request,
+                usage_attribution=usage_attribution,
+                provider_round=provider_round,
+                attempt_index=current_attempt_index,
+                mode=mode,
+                selected_model=selected_model,
+                output_cap=output_cap,
+            )
+            if metered_attempt is None:
+                return (
+                    create_stream_with_unsupported_param_fallback(
+                        self.client.responses.create,
+                        current_request,
+                    ),
+                    None,
+                    None,
+                )
+            permit = metered_attempt.prepare_dispatch()
+            try:
+                stream = create_stream_once(self.client.responses.create, current_request)
+            except UnsupportedOptionalProviderParameter as exc:
+                metered_attempt.settle(
+                    adapter.confirmed_not_executed_receipt(
+                        permit,
+                        stable_provider_request_id=exc.code,
+                    )
+                )
+                current_request = remove_confirmed_unsupported_option(
+                    current_request,
+                    exc.option_group,
+                )
+                current_attempt_index += 1
+                continue
+            except Exception:
+                try:
+                    metered_attempt.mark_uncertain("provider_responses_stream_transport_ambiguous")
+                except ModelUsageError:
+                    logger.exception("failed to mark ambiguous Responses provider attempt")
+                raise
+            return stream, metered_attempt, permit
+        raise ModelUsageContractError("provider_optional_parameter_fallback_exhausted")
+
+    def _send_responses_request_with_pre_dispatch_fallback(
+        self,
+        *,
+        request: dict[str, Any],
+        request_input: list[dict[str, Any]],
+        usage_attribution: UsageAttribution | None,
+        provider_round: int,
+        attempt_index: int,
+        mode: str,
+    ) -> tuple[Any, Any | None, DispatchPermit | None, str]:
+        try:
+            stream, metered_attempt, permit = self._send_responses_request(
+                request=request,
+                request_input=request_input,
+                usage_attribution=usage_attribution,
+                provider_round=provider_round,
+                attempt_index=attempt_index,
+                mode=mode,
+            )
+            return stream, metered_attempt, permit, self.model_name
+        except ModelUsageBlocked:
+            fallback = self._fallback_target()
+            if fallback is None:
+                raise
+            fallback_model, fallback_cap = fallback
+            fallback_request = dict(request)
+            fallback_request["model"] = fallback_model
+            fallback_request["max_output_tokens"] = fallback_cap
+            stream, metered_attempt, permit = self._send_responses_request(
+                request=fallback_request,
+                request_input=request_input,
+                usage_attribution=usage_attribution,
+                provider_round=provider_round,
+                attempt_index=attempt_index,
+                mode=f"{mode}_fallback",
+                selected_model=fallback_model,
+                output_cap=fallback_cap,
+            )
+            return stream, metered_attempt, permit, fallback_model
+
+    def _settle_responses_response(
+        self,
+        *,
+        metered_attempt: Any | None,
+        permit: DispatchPermit | None,
+        completed_response: Any | None,
+    ) -> None:
+        if metered_attempt is None or permit is None:
+            return
+        adapter = getattr(self, "usage_adapter", None)
+        if adapter is None:
+            raise ModelUsageContractError("model_usage_adapter_required")
+        metered_attempt.settle(
+            adapter.receipt_from_openai_usage(
+                permit,
+                raw_usage=(self._field_value(completed_response, "usage") if completed_response is not None else None),
+                reported_model=(
+                    str(self._field_value(completed_response, "model"))
+                    if completed_response is not None and self._field_value(completed_response, "model")
+                    else None
+                ),
+                provider_request_id=(
+                    str(self._field_value(completed_response, "id"))
+                    if completed_response is not None and self._field_value(completed_response, "id")
+                    else None
+                ),
+            )
+        )
+
+    def _responses_stream_request(
+        self,
+        request_input: list[dict[str, Any]],
+        *,
+        temperature: float,
+        selected_model: str | None = None,
+        output_cap: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "model": selected_model or self.model_name,
+            "input": request_input,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "temperature": temperature,
+            "max_output_tokens": output_cap or self._output_cap(),
+            "store": False,
+        }
 
     def _prompt_cache_api_params(self, request_options: dict[str, Any]) -> dict[str, Any]:
         return prompt_cache_api_params(request_options)

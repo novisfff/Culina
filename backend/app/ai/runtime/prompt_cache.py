@@ -68,22 +68,69 @@ def prompt_cache_api_params(request_options: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+class UnsupportedOptionalProviderParameter(TypeError):
+    """A conclusively pre-send optional-parameter rejection.
+
+    Only local SDK ``TypeError`` instances and inspected 4xx rejections may be
+    classified this way.  Timeouts, disconnects and 5xx responses remain
+    ambiguous provider attempts and must never trigger an automatic resend.
+    """
+
+    def __init__(self, option_group: str, message: str) -> None:
+        self.option_group = option_group
+        self.code = f"provider_unsupported_{option_group}"
+        super().__init__(message)
+
+
+def create_stream_once(create, request: dict[str, Any]) -> Any:
+    """Perform exactly one provider SDK call, classifying only safe fallback."""
+
+    try:
+        return create(**request)
+    except TypeError as exc:
+        option_group = _unsupported_option_group(request, str(exc))
+        if option_group is not None:
+            raise UnsupportedOptionalProviderParameter(option_group, str(exc)) from exc
+        raise
+    except Exception as exc:
+        option_group = _unsupported_option_group_from_4xx(request, exc)
+        if option_group is not None:
+            raise UnsupportedOptionalProviderParameter(option_group, str(exc)) from exc
+        raise
+
+
+def remove_confirmed_unsupported_option(
+    request: dict[str, Any],
+    option_group: str,
+) -> dict[str, Any]:
+    updated = dict(request)
+    if option_group == "prompt_cache":
+        updated.pop("prompt_cache_key", None)
+        updated.pop("prompt_cache_retention", None)
+    elif option_group == "stream_options":
+        updated.pop("stream_options", None)
+    else:  # defensive: do not accidentally mutate a request for an unknown group.
+        raise ValueError("unsupported optional provider parameter group")
+    return updated
+
+
 def create_stream_with_unsupported_param_fallback(create, request: dict[str, Any]) -> Any:
-    request = dict(request)
+    """Legacy unmetered compatibility wrapper.
+
+    Metered remote providers call :func:`create_stream_once` directly so each
+    retry receives its own reservation.  Existing local/fake providers retain
+    their historical convenience fallback through this wrapper.
+    """
+
+    current_request = dict(request)
     while True:
         try:
-            return create(**request)
-        except TypeError as exc:
-            message = str(exc)
-            if _drop_prompt_cache_if_unsupported(request, message):
-                continue
-            if _drop_stream_options_if_unsupported(request, message):
-                continue
-            raise
-        except Exception as exc:
-            if _drop_prompt_cache_if_unsupported(request, str(exc)):
-                continue
-            raise
+            return create_stream_once(create, current_request)
+        except UnsupportedOptionalProviderParameter as exc:
+            current_request = remove_confirmed_unsupported_option(
+                current_request,
+                exc.option_group,
+            )
 
 
 def _drop_prompt_cache_if_unsupported(request: dict[str, Any], message: str) -> bool:
@@ -101,3 +148,24 @@ def _drop_stream_options_if_unsupported(request: dict[str, Any], message: str) -
         return False
     request.pop("stream_options", None)
     return True
+
+
+def _unsupported_option_group(request: dict[str, Any], message: str) -> str | None:
+    if _drop_prompt_cache_if_unsupported(dict(request), message):
+        return "prompt_cache"
+    if _drop_stream_options_if_unsupported(dict(request), message):
+        return "stream_options"
+    return None
+
+
+def _unsupported_option_group_from_4xx(request: dict[str, Any], exc: Exception) -> str | None:
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int):
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if not isinstance(status_code, int) or not 400 <= status_code < 500:
+        return None
+    message = str(exc).lower()
+    if not any(marker in message for marker in ("unsupported", "unexpected", "unknown", "invalid parameter", "unrecognized")):
+        return None
+    return _unsupported_option_group(request, message)

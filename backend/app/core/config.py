@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = ""
+    ai_max_output_tokens: int = 1024
+    ai_fallback_model: str = ""
+    ai_fallback_max_output_tokens: int = 0
     ai_supports_vision: bool | None = True
     ai_timeout_seconds: float = 180.0
     ai_prompt_cache_enabled: bool = True
@@ -176,6 +179,10 @@ class Settings(BaseSettings):
             )
         if self.model_usage_receipt_queue_size <= 0:
             raise ValueError("MODEL_USAGE_RECEIPT_QUEUE_SIZE must be positive")
+        if self.ai_max_output_tokens <= 0:
+            raise ValueError("AI_MAX_OUTPUT_TOKENS must be positive")
+        if self.ai_fallback_max_output_tokens < 0:
+            raise ValueError("AI_FALLBACK_MAX_OUTPUT_TOKENS cannot be negative")
         if not self.model_usage_source_instance.strip():
             raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
 

@@ -346,6 +346,19 @@ class ProviderUsageReceiptSigner:
         ).hexdigest()
         return replace(unsigned, integrity_hmac=digest)
 
+    def request_fingerprint(self, payload: bytes) -> str:
+        """Return an opaque, key-backed request fingerprint for idempotency.
+
+        The digest is safe to persist in the ledger while the original prompt
+        or image payload remains only in the provider request path.
+        """
+
+        return hmac.new(
+            self._keys[self._active_key_id],
+            b"culina:model-usage-request-fingerprint:v1\0" + payload,
+            hashlib.sha256,
+        ).hexdigest()
+
     def verify(self, receipt: ProviderUsageReceipt) -> None:
         key = self._keys.get(receipt.integrity_key_id)
         if key is None:

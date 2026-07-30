@@ -24,7 +24,9 @@ from app.ai.workflows.orchestrator.tools import (
     SkillInjectionManager,
 )
 from app.ai.workflows.runner_support.run_summary import record_route_selection
+from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
 from app.core.utils import create_id
+from app.services.model_usage.types import UsageAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +224,14 @@ class WorkspaceOrchestratorAgent:
                     trace_id=context.tracer.trace_id,
                     user_id=context.user_id,
                     span_id=orchestrator_span.span_id if orchestrator_span is not None else context.trace_parent_span_id,
+                )
+            if "usage_attribution" in inspect.signature(self.provider.generate_with_tools).parameters:
+                provider_kwargs["usage_attribution"] = UsageAttribution(
+                    family_id=context.family_id,
+                    attribution_kind=ModelUsageAttributionKind.USER,
+                    actor_user_id=context.user_id,
+                    operation_source=ModelUsageOperationSource.INTERACTIVE,
+                    logical_operation_id=context.run_id,
                 )
             provider_result = self.provider.generate_with_tools(**provider_kwargs)
             if provider_result.status in {"failed", "fallback"}:

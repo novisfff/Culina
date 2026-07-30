@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.tools.base import ToolDefinition
+from app.services.model_usage.types import UsageAttribution
 
 
 @dataclass(slots=True)
@@ -49,8 +50,9 @@ class BaseChatProvider:
         user: ProviderUserContent,
         trace_recorder: Any | None = None,
         trace_request_options: dict[str, Any] | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:  # pragma: no cover - interface
-        del trace_recorder, trace_request_options
+        del trace_recorder, trace_request_options, usage_attribution
         raise NotImplementedError
 
     def generate_with_tools(
@@ -64,9 +66,15 @@ class BaseChatProvider:
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
         trace_recorder: Any | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
         del tools, tool_handler, message_handler, tool_preview_handler, max_rounds
-        return self.generate(system=system, user=user, trace_recorder=trace_recorder)
+        return self.generate(
+            system=system,
+            user=user,
+            trace_recorder=trace_recorder,
+            usage_attribution=usage_attribution,
+        )
 
     def stream_generate(
         self,
@@ -74,8 +82,14 @@ class BaseChatProvider:
         system: str,
         user: ProviderUserContent,
         trace_recorder: Any | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> Iterator[str]:
-        result = self.generate(system=system, user=user, trace_recorder=trace_recorder)
+        result = self.generate(
+            system=system,
+            user=user,
+            trace_recorder=trace_recorder,
+            usage_attribution=usage_attribution,
+        )
         if result.text:
             yield result.text
 
@@ -91,8 +105,9 @@ class DisabledChatProvider(BaseChatProvider):
         user: ProviderUserContent,
         trace_recorder: Any | None = None,
         trace_request_options: dict[str, Any] | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
-        del trace_recorder, trace_request_options
+        del trace_recorder, trace_request_options, usage_attribution
         if isinstance(user, ProviderUserInput) and user.images:
             return ChatProviderResult(
                 text=None,
@@ -113,6 +128,7 @@ class DisabledChatProvider(BaseChatProvider):
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
         trace_recorder: Any | None = None,
+        usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
-        del system, user, tools, tool_handler, message_handler, tool_preview_handler, max_rounds, trace_recorder
+        del system, user, tools, tool_handler, message_handler, tool_preview_handler, max_rounds, trace_recorder, usage_attribution
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="provider unavailable")
