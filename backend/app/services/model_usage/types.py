@@ -359,6 +359,7 @@ class UsageSettlement:
     cost_cny: Decimal | None
     meters: Sequence[UsageMeterQuantity]
     billable_line_costs: Sequence[Decimal]
+    notification_focus_threshold: Decimal | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "meters", tuple(self.meters))

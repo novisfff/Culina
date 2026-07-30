@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import (
     ModelUsageCapability,
+    ModelUsageCounterKind,
     ModelUsageLimitKind,
     ModelUsageMeter,
 )
@@ -20,16 +21,20 @@ from app.core.utils import create_id, utcnow
 from app.models.model_usage import (
     ModelUsageCapabilityLimit,
     ModelUsageFamilyPolicy,
+    ModelUsagePeriodCounter,
     ModelUsagePolicyVersion,
 )
+from app.services.model_usage.alerts import repair_new_budget_revision
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
     configured_usage_variants,
 )
+from app.services.model_usage.counters import family_cost_dimension_key
 from app.services.model_usage.errors import (
     ModelUsagePolicyConflict,
     ModelUsagePolicyValidationError,
 )
+from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.subjects import ensure_system_subject, require_family_subject
 from app.services.model_usage.types import capability_meter_contract
 
@@ -302,6 +307,22 @@ def update_family_policy(
     budget_changed = existing.monthly_budget_cny != command.monthly_budget_cny
     alerts_reenabled = not existing.alerts_enabled and command.alerts_enabled
     revision = existing.budget_alert_revision + int(budget_changed or alerts_reenabled)
+    effective_at = command.effective_at or utcnow()
+    repair_counter: ModelUsagePeriodCounter | None = None
+    if budget_changed or alerts_reenabled:
+        period = shanghai_billing_period(effective_at)
+        repair_counter = db.scalar(
+            select(ModelUsagePeriodCounter)
+            .where(
+                ModelUsagePeriodCounter.family_id == command.family_id,
+                ModelUsagePeriodCounter.period_start == period.start_at,
+                ModelUsagePeriodCounter.counter_kind
+                == ModelUsageCounterKind.FAMILY_COST,
+                ModelUsagePeriodCounter.dimension_key
+                == family_cost_dimension_key(),
+            )
+            .with_for_update()
+        )
     next_version = _insert_policy_version(
         db,
         family_id=command.family_id,
@@ -312,8 +333,14 @@ def update_family_policy(
         budget_alert_revision=revision,
         limits=limits,
         created_by_subject_id=actor.id,
-        effective_at=command.effective_at or utcnow(),
+        effective_at=effective_at,
     )
     pointer.current_policy_version_id = next_version.id
+    if repair_counter is not None and next_version.alerts_enabled:
+        repair_new_budget_revision(
+            db,
+            policy=next_version,
+            counter=repair_counter,
+        )
     db.flush()
     return next_version

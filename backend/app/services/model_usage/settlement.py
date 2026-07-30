@@ -30,7 +30,7 @@ from app.models.model_usage import (
 from app.repos.model_usage.ledger import lock_event_by_attempt
 from app.services.model_usage.decimal_math import exact_line_cost, quantize_quantity
 from app.services.model_usage.dispatch import _lock_counters, _remove_reserved
-from app.services.model_usage.alerts import evaluate_budget_alerts
+from app.services.model_usage.alerts import evaluate_budget_alerts_with_focus
 from app.services.model_usage.errors import (
     ModelUsageAttemptConflict,
     ModelUsageContractError,
@@ -141,6 +141,8 @@ def _validate_identity(
 def _settlement_from_event(
     db: Session,
     event: ModelUsageEvent,
+    *,
+    notification_focus_threshold: Decimal | None = None,
 ) -> UsageSettlement:
     rows = tuple(
         db.scalars(
@@ -164,6 +166,7 @@ def _settlement_from_event(
         billable_line_costs=tuple(
             row.cost_cny for row in rows if row.cost_cny is not None
         ),
+        notification_focus_threshold=notification_focus_threshold,
     )
 
 
@@ -346,9 +349,21 @@ def settle_usage_in_session(
         for counter in counters
         if counter.counter_kind is ModelUsageCounterKind.FAMILY_COST
     )
-    evaluate_budget_alerts(db, policy=current_policy, counter=family_counter)
+    alert_evaluation = evaluate_budget_alerts_with_focus(
+        db,
+        policy=current_policy,
+        counter=family_counter,
+    )
     db.flush()
-    return _settlement_from_event(db, event)
+    return _settlement_from_event(
+        db,
+        event,
+        notification_focus_threshold=(
+            alert_evaluation.notification_focus.threshold
+            if alert_evaluation.notification_focus is not None
+            else None
+        ),
+    )
 
 
 def settle_usage(

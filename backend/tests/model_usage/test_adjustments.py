@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
@@ -411,6 +411,58 @@ def test_one_group_can_hold_multiple_ordered_lines(
     assert result.effective.quantity(ModelUsageMeter.INPUT_TOKENS) == Decimal("95")
 
 
+def test_multi_meter_counter_deltas_apply_in_stable_meter_order(
+    model_usage_db: Session,
+    meter_correction_command: AdjustmentCommand,
+) -> None:
+    command = replace(
+        meter_correction_command,
+        idempotency_key="adjustment-stable-meter-order",
+        fingerprint="fp-adjustment-stable-meter-order",
+        lines=(
+            meter_correction_command.lines[0],
+            AdjustmentLineCommand(
+                resolution_kind=ModelUsageResolutionKind.METER_CORRECTION,
+                meter=ModelUsageMeter.INPUT_TOKENS,
+                meter_delta=Decimal("-5"),
+            ),
+        ),
+    )
+    preview = preview_adjustment(model_usage_db, command)
+    mutation_order: list[ModelUsageMeter] = []
+
+    def record_meter_mutation(
+        target: ModelUsagePeriodCounter,
+        _value: object,
+        _old_value: object,
+        _initiator: object,
+    ) -> None:
+        if target.meter is not None:
+            mutation_order.append(target.meter)
+
+    event.listen(
+        ModelUsagePeriodCounter.adjustment_value,
+        "set",
+        record_meter_mutation,
+    )
+    try:
+        apply_adjustment(
+            model_usage_db,
+            replace(command, confirm_checksum=preview.checksum),
+        )
+    finally:
+        event.remove(
+            ModelUsagePeriodCounter.adjustment_value,
+            "set",
+            record_meter_mutation,
+        )
+
+    assert mutation_order == [
+        ModelUsageMeter.INPUT_TOKENS,
+        ModelUsageMeter.TOTAL_TOKENS,
+    ]
+
+
 def test_preview_projects_counters_alerts_and_rollup_without_mutation(
     model_usage_db: Session,
     reservation_context: UsageContext,
@@ -626,6 +678,111 @@ def test_negative_adjustment_cannot_credit_more_than_effective_meter_usage(
     with pytest.raises(
         ModelUsageAdjustmentValidationError,
         match="effective_usage_cannot_be_negative",
+    ):
+        preview_adjustment(model_usage_db, command)
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        {
+            "resulting_provider_outcome": ModelUsageProviderOutcome.NOT_BILLED,
+            "resulting_execution_certainty": (
+                ModelUsageExecutionCertainty.CONFIRMED_NOT_EXECUTED
+            ),
+            "resulting_measurement_status": ModelUsageMeasurementStatus.EXACT,
+        },
+        {"resulting_pricing_status": ModelUsagePricingStatus.PRICED},
+    ],
+    ids=("execution-status", "pricing-status"),
+)
+def test_meter_correction_cannot_set_resolution_statuses(
+    model_usage_db: Session,
+    meter_correction_command: AdjustmentCommand,
+    invalid_fields: dict[str, object],
+) -> None:
+    command = replace(
+        meter_correction_command,
+        lines=(replace(meter_correction_command.lines[0], **invalid_fields),),
+    )
+
+    with pytest.raises(
+        ModelUsageAdjustmentValidationError,
+        match="meter_correction_fields_invalid",
+    ):
+        preview_adjustment(model_usage_db, command)
+
+
+def test_pricing_correction_rejects_execution_result_fields(
+    model_usage_db: Session,
+    unpriced_source_event: ModelUsageEvent,
+) -> None:
+    command = AdjustmentCommand(
+        family_id=unpriced_source_event.family_id,
+        source_event_id=unpriced_source_event.id,
+        source_reservation_id=unpriced_source_event.reservation_id,
+        idempotency_key="adjustment-pricing-with-execution-fields",
+        fingerprint="fp-adjustment-pricing-with-execution-fields",
+        reason_code="provider_price_evidence",
+        operator="release-owner",
+        change_ticket="CULINA-USAGE-ADJ-PRICE-STRICT",
+        evidence_ref="provider:invoice:strict-price",
+        lines=(
+            AdjustmentLineCommand(
+                resolution_kind=ModelUsageResolutionKind.PRICING_CORRECTION,
+                cost_delta_cny=Decimal("110"),
+                resulting_provider_outcome=ModelUsageProviderOutcome.SUCCEEDED,
+                resulting_pricing_status=ModelUsagePricingStatus.PRICED,
+                price_snapshot=evidence_snapshot(
+                    complete=True,
+                    billing_scheme_key=unpriced_source_event.billing_scheme_key,
+                ),
+                resolved_cost_cny=Decimal("110"),
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ModelUsageAdjustmentValidationError,
+        match="pricing_correction_fields_invalid",
+    ):
+        preview_adjustment(model_usage_db, command)
+
+
+def test_execution_resolution_rejects_pricing_evidence_fields(
+    model_usage_db: Session,
+    unknown_source_event: ModelUsageEvent,
+) -> None:
+    command = AdjustmentCommand(
+        family_id=unknown_source_event.family_id,
+        source_event_id=unknown_source_event.id,
+        source_reservation_id=unknown_source_event.reservation_id,
+        idempotency_key="adjustment-execution-with-pricing-evidence",
+        fingerprint="fp-adjustment-execution-with-pricing-evidence",
+        reason_code="provider_execution_evidence",
+        operator="release-owner",
+        change_ticket="CULINA-USAGE-ADJ-EXECUTION-STRICT",
+        evidence_ref="provider:execution:strict",
+        lines=(
+            AdjustmentLineCommand(
+                resolution_kind=ModelUsageResolutionKind.EXECUTION_RESOLUTION,
+                resulting_provider_outcome=ModelUsageProviderOutcome.SUCCEEDED,
+                resulting_execution_certainty=(
+                    ModelUsageExecutionCertainty.CONFIRMED_EXECUTED
+                ),
+                resulting_measurement_status=ModelUsageMeasurementStatus.EXACT,
+                price_snapshot=evidence_snapshot(
+                    complete=True,
+                    billing_scheme_key=unknown_source_event.billing_scheme_key,
+                ),
+                resolved_cost_cny=unknown_source_event.cost_cny,
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ModelUsageAdjustmentValidationError,
+        match="execution_resolution_fields_invalid",
     ):
         preview_adjustment(model_usage_db, command)
 
@@ -873,3 +1030,49 @@ def test_confirmed_not_executed_resolution_zeros_effective_cost_and_guardrail_me
     )
     assert family_counter is not None
     assert family_counter.adjustment_value == -unknown_source_event.cost_cny
+
+
+def test_confirmed_not_executed_resolution_requires_priced_final_state(
+    model_usage_db: Session,
+    unknown_source_event: ModelUsageEvent,
+) -> None:
+    unknown_source_event.pricing_status = ModelUsagePricingStatus.UNPRICED
+    meters = tuple(
+        model_usage_db.scalars(
+            select(ModelUsageEventMeter)
+            .where(ModelUsageEventMeter.event_id == unknown_source_event.id)
+            .order_by(ModelUsageEventMeter.meter_key)
+        )
+    )
+    assert meters and unknown_source_event.cost_cny is not None
+    command = AdjustmentCommand(
+        family_id=unknown_source_event.family_id,
+        source_event_id=unknown_source_event.id,
+        source_reservation_id=unknown_source_event.reservation_id,
+        idempotency_key="adjustment-not-executed-unpriced-final",
+        fingerprint="fp-adjustment-not-executed-unpriced-final",
+        reason_code="provider_confirmed_not_executed",
+        operator="release-owner",
+        change_ticket="CULINA-USAGE-ADJ-EXECUTION-PRICED",
+        evidence_ref="provider:request:not-executed-unpriced",
+        lines=tuple(
+            AdjustmentLineCommand(
+                resolution_kind=ModelUsageResolutionKind.EXECUTION_RESOLUTION,
+                meter=row.meter,
+                meter_delta=-row.quantity,
+                cost_delta_cny=-unknown_source_event.cost_cny if index == 0 else None,
+                resulting_provider_outcome=ModelUsageProviderOutcome.NOT_BILLED,
+                resulting_execution_certainty=(
+                    ModelUsageExecutionCertainty.CONFIRMED_NOT_EXECUTED
+                ),
+                resulting_measurement_status=ModelUsageMeasurementStatus.EXACT,
+            )
+            for index, row in enumerate(meters)
+        ),
+    )
+
+    with pytest.raises(
+        ModelUsageAdjustmentValidationError,
+        match="execution_resolution_delta_mismatch",
+    ):
+        preview_adjustment(model_usage_db, command)

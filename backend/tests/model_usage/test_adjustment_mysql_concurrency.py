@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from threading import Barrier
 
 import pytest
 from sqlalchemy import select
@@ -23,9 +25,11 @@ from app.core.enums import (
 from app.models.model_usage import (
     ModelUsageAdjustment,
     ModelUsageAdjustmentGroup,
+    ModelUsageAlert,
     ModelUsageEvent,
     ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
+    ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageSubject,
 )
@@ -206,65 +210,12 @@ class MysqlAdjustmentContext:
 
 
 def _settle_source_event(context: MysqlReservationContext) -> tuple[str, str]:
-    decision = context.reserve(
-        9000,
+    signer, receipt = _prepare_pending_receipt(
+        context,
+        index=9000,
         attempt_key="adjustment-source-event",
         fingerprint="adjustment-source-fingerprint",
-    )
-    assert decision.decision == "allowed"
-    assert decision.reservation_id is not None
-    with context.SessionLocal() as db:
-        dispatch = prepare_usage_dispatch_in_session(
-            db,
-            reservation_id=decision.reservation_id,
-            fingerprint="adjustment-source-fingerprint",
-            recovery_policy=ProviderRecoveryPolicy.none(),
-        )
-        assert dispatch.permit is not None
-        permit = dispatch.permit
-        db.commit()
-    signer = ProviderUsageReceiptSigner(active_key_id="key", keys={"key": b"secret"})
-    receipt = signer.sign(
-        ProviderUsageReceipt(
-            reservation_id=permit.reservation_id,
-            family_id=permit.family_id,
-            subject_key=permit.subject_key,
-            capability=permit.capability,
-            provider=permit.provider,
-            requested_model=permit.requested_model,
-            reported_model=permit.billing_model,
-            billing_model=permit.billing_model,
-            variant_key=permit.variant_key,
-            billing_scheme_key=permit.billing_scheme_key,
-            attempt_key=permit.attempt_key,
-            fingerprint=permit.fingerprint,
-            client_attempt_id=permit.client_attempt_id,
-            policy_version_id=permit.policy_version_id,
-            dispatch_policy_version_id=permit.dispatch_policy_version_id,
-            provider_request_id="provider-adjustment-source",
-            provider_outcome=ModelUsageProviderOutcome.SUCCEEDED,
-            execution_certainty=ModelUsageExecutionCertainty.CONFIRMED_EXECUTED,
-            measurement_status=ModelUsageMeasurementStatus.EXACT,
-            pricing_status=ModelUsagePricingStatus.PRICED,
-            period=permit.period,
-            meters=(
-                UsageMeterQuantity(
-                    meter=ModelUsageMeter.OUTPUT_TOKENS,
-                    quantity=Decimal("1"),
-                    meter_role=ModelUsageMeterRole.BILLABLE,
-                    quantity_source=ModelUsageQuantitySource.PROVIDER,
-                ),
-            ),
-            meter_watermarks=(),
-            dispatched_at=permit.dispatched_at,
-            completed_at=datetime(2026, 7, 30, 3, 1, tzinfo=timezone.utc),
-            price_version_id=permit.price_version_id,
-            price_snapshot=permit.price_snapshot,
-            price_snapshot_checksum=permit.price_snapshot_checksum,
-            fail_open_proof_id=None,
-            integrity_key_id="",
-            integrity_hmac="",
-        )
+        provider_request_id="provider-adjustment-source",
     )
     with context.SessionLocal() as db:
         settlement = settle_usage_in_session(db, receipt, signer=signer)
@@ -307,7 +258,106 @@ def _settle_source_event(context: MysqlReservationContext) -> tuple[str, str]:
             )
         )
         db.commit()
-        return event.id, decision.reservation_id
+        return event.id, receipt.reservation_id or ""
+
+
+def _prepare_pending_receipt(
+    context: MysqlReservationContext,
+    *,
+    index: int,
+    attempt_key: str,
+    fingerprint: str,
+    provider_request_id: str,
+) -> tuple[ProviderUsageReceiptSigner, ProviderUsageReceipt]:
+    decision = context.reserve(
+        index,
+        attempt_key=attempt_key,
+        fingerprint=fingerprint,
+    )
+    assert decision.decision == "allowed"
+    assert decision.reservation_id is not None
+    with context.SessionLocal() as db:
+        dispatch = prepare_usage_dispatch_in_session(
+            db,
+            reservation_id=decision.reservation_id,
+            fingerprint=fingerprint,
+            recovery_policy=ProviderRecoveryPolicy.none(),
+        )
+        assert dispatch.permit is not None
+        permit = dispatch.permit
+        db.commit()
+    signer = ProviderUsageReceiptSigner(active_key_id="key", keys={"key": b"secret"})
+    return signer, signer.sign(
+        ProviderUsageReceipt(
+            reservation_id=permit.reservation_id,
+            family_id=permit.family_id,
+            subject_key=permit.subject_key,
+            capability=permit.capability,
+            provider=permit.provider,
+            requested_model=permit.requested_model,
+            reported_model=permit.billing_model,
+            billing_model=permit.billing_model,
+            variant_key=permit.variant_key,
+            billing_scheme_key=permit.billing_scheme_key,
+            attempt_key=permit.attempt_key,
+            fingerprint=permit.fingerprint,
+            client_attempt_id=permit.client_attempt_id,
+            policy_version_id=permit.policy_version_id,
+            dispatch_policy_version_id=permit.dispatch_policy_version_id,
+            provider_request_id=provider_request_id,
+            provider_outcome=ModelUsageProviderOutcome.SUCCEEDED,
+            execution_certainty=ModelUsageExecutionCertainty.CONFIRMED_EXECUTED,
+            measurement_status=ModelUsageMeasurementStatus.EXACT,
+            pricing_status=ModelUsagePricingStatus.PRICED,
+            period=permit.period,
+            meters=(
+                UsageMeterQuantity(
+                    meter=ModelUsageMeter.OUTPUT_TOKENS,
+                    quantity=Decimal("1"),
+                    meter_role=ModelUsageMeterRole.BILLABLE,
+                    quantity_source=ModelUsageQuantitySource.PROVIDER,
+                ),
+            ),
+            meter_watermarks=(),
+            dispatched_at=permit.dispatched_at,
+            completed_at=datetime(2026, 7, 30, 3, 1, tzinfo=timezone.utc),
+            price_version_id=permit.price_version_id,
+            price_snapshot=permit.price_snapshot,
+            price_snapshot_checksum=permit.price_snapshot_checksum,
+            fail_open_proof_id=None,
+            integrity_key_id="",
+            integrity_hmac="",
+        )
+    )
+
+
+def _update_policy_in_session(
+    db: Session,
+    *,
+    budget: Decimal,
+) -> ModelUsagePolicyVersion:
+    policy = current_policy(db, family_id="family-mysql-reserve")
+    subject = db.scalar(
+        select(ModelUsageSubject).where(
+            ModelUsageSubject.family_id == "family-mysql-reserve",
+            ModelUsageSubject.user_id == "owner-mysql-reserve",
+        )
+    )
+    assert subject is not None
+    return update_family_policy(
+        db,
+        PolicyUpdateCommand(
+            family_id="family-mysql-reserve",
+            base_version_number=policy.version_number,
+            monthly_budget_cny=budget,
+            alerts_enabled=True,
+            hard_limit_enabled=False,
+            capability_limits=(),
+            actor_subject_id=subject.id,
+            active_variants=(),
+            effective_at=datetime(2026, 7, 30, 3, 0, tzinfo=timezone.utc),
+        ),
+    )
 
 
 @pytest.fixture()
@@ -409,3 +459,120 @@ def test_negative_adjustment_releases_budget_without_replaying_blocked_call(
     )
     assert allowed.decision == "allowed"
     assert mysql_adjustment_context.reservation_for("blocked-before-credit") is None
+
+
+def test_policy_update_pointer_winner_controls_late_settlement_alert_revision(
+    mysql_adjustment_context: MysqlAdjustmentContext,
+) -> None:
+    signer, receipt = _prepare_pending_receipt(
+        mysql_adjustment_context.reservation_context,
+        index=9300,
+        attempt_key="late-settlement-after-policy",
+        fingerprint="late-settlement-after-policy-fingerprint",
+        provider_request_id="provider-late-settlement-after-policy",
+    )
+    barrier = Barrier(2)
+
+    def update_first() -> tuple[str, int]:
+        with mysql_adjustment_context.SessionLocal() as db:
+            updated = _update_policy_in_session(db, budget=Decimal("4"))
+            barrier.wait(timeout=10)
+            db.commit()
+            return updated.id, updated.budget_alert_revision
+
+    def settle_after_update() -> None:
+        with mysql_adjustment_context.SessionLocal() as db:
+            barrier.wait(timeout=10)
+            settle_usage_in_session(db, receipt, signer=signer)
+            db.commit()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        update_future = pool.submit(update_first)
+        settle_future = pool.submit(settle_after_update)
+        updated_policy_id, updated_revision = update_future.result(timeout=20)
+        settle_future.result(timeout=20)
+
+    with mysql_adjustment_context.SessionLocal() as db:
+        alerts = tuple(
+            db.scalars(
+                select(ModelUsageAlert)
+                .where(
+                    ModelUsageAlert.family_id == "family-mysql-reserve",
+                    ModelUsageAlert.policy_version_id == updated_policy_id,
+                )
+                .order_by(ModelUsageAlert.threshold)
+            )
+        )
+        assert [alert.threshold for alert in alerts] == [
+            Decimal("0.80"),
+            Decimal("1.00"),
+            Decimal("1.10"),
+        ]
+        assert {alert.budget_alert_revision for alert in alerts} == {
+            updated_revision
+        }
+
+
+def test_settlement_pointer_winner_preserves_old_facts_then_repairs_new_revision(
+    mysql_adjustment_context: MysqlAdjustmentContext,
+) -> None:
+    with mysql_adjustment_context.SessionLocal() as db:
+        old_policy = _update_policy_in_session(db, budget=Decimal("4"))
+        db.commit()
+        old_policy_id = old_policy.id
+        old_revision = old_policy.budget_alert_revision
+    signer, receipt = _prepare_pending_receipt(
+        mysql_adjustment_context.reservation_context,
+        index=9400,
+        attempt_key="policy-after-late-settlement",
+        fingerprint="policy-after-late-settlement-fingerprint",
+        provider_request_id="provider-policy-after-late-settlement",
+    )
+    barrier = Barrier(2)
+
+    def settle_first() -> None:
+        with mysql_adjustment_context.SessionLocal() as db:
+            settle_usage_in_session(db, receipt, signer=signer)
+            barrier.wait(timeout=10)
+            db.commit()
+
+    def update_after_settlement() -> tuple[str, int]:
+        with mysql_adjustment_context.SessionLocal() as db:
+            barrier.wait(timeout=10)
+            updated = _update_policy_in_session(db, budget=Decimal("2"))
+            db.commit()
+            return updated.id, updated.budget_alert_revision
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        settlement_future = pool.submit(settle_first)
+        update_future = pool.submit(update_after_settlement)
+        settlement_future.result(timeout=20)
+        updated_policy_id, updated_revision = update_future.result(timeout=20)
+
+    with mysql_adjustment_context.SessionLocal() as db:
+        old_alerts = tuple(
+            db.scalars(
+                select(ModelUsageAlert)
+                .where(ModelUsageAlert.policy_version_id == old_policy_id)
+                .order_by(ModelUsageAlert.threshold)
+            )
+        )
+        new_alerts = tuple(
+            db.scalars(
+                select(ModelUsageAlert)
+                .where(ModelUsageAlert.policy_version_id == updated_policy_id)
+                .order_by(ModelUsageAlert.threshold)
+            )
+        )
+        assert [alert.threshold for alert in old_alerts] == [
+            Decimal("0.80"),
+            Decimal("1.00"),
+            Decimal("1.10"),
+        ]
+        assert {alert.budget_alert_revision for alert in old_alerts} == {
+            old_revision
+        }
+        assert [alert.threshold for alert in new_alerts] == [Decimal("1.10")]
+        assert {alert.budget_alert_revision for alert in new_alerts} == {
+            updated_revision
+        }

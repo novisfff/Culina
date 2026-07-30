@@ -27,6 +27,7 @@ from app.core.utils import create_id
 from app.models.model_usage import (
     ModelUsageAdjustment,
     ModelUsageAdjustmentGroup,
+    ModelUsageAlert,
     ModelUsageEvent,
     ModelUsageEventMeter,
     ModelUsageMonthlyRollup,
@@ -42,7 +43,7 @@ from app.repos.model_usage.adjustments import (
     require_family_event_for_update,
 )
 from app.services.model_usage.alerts import (
-    evaluate_budget_alerts,
+    evaluate_budget_alerts_with_focus,
     pending_budget_alert_thresholds,
 )
 from app.services.model_usage.counters import (
@@ -147,7 +148,8 @@ class AdjustmentResult:
     effective: EffectiveUsageState
     counter_delta: AdjustmentCounterDelta
     preview: AdjustmentPreview | None = None
-    alerts: tuple[object, ...] = field(default_factory=tuple)
+    alerts: tuple[ModelUsageAlert, ...] = field(default_factory=tuple)
+    notification_focus: ModelUsageAlert | None = None
 
 
 def _canonical_decimal(value: Decimal | None) -> str | None:
@@ -318,8 +320,32 @@ def _validate_line(
     if line.resolution_kind is ModelUsageResolutionKind.METER_CORRECTION:
         if line.meter is None or line.meter_delta is None:
             raise ModelUsageAdjustmentValidationError("meter_correction_delta_required")
+        if any(
+            value is not None
+            for value in (
+                line.resulting_provider_outcome,
+                line.resulting_execution_certainty,
+                line.resulting_measurement_status,
+                line.resulting_pricing_status,
+                line.price_snapshot,
+                line.resolved_cost_cny,
+            )
+        ):
+            raise ModelUsageAdjustmentValidationError(
+                "meter_correction_fields_invalid"
+            )
     elif line.resolution_kind is ModelUsageResolutionKind.PRICING_CORRECTION:
         snapshot = line.price_snapshot
+        if (
+            line.meter is not None
+            or line.meter_delta is not None
+            or line.resulting_provider_outcome is not None
+            or line.resulting_execution_certainty is not None
+            or line.resulting_measurement_status is not None
+        ):
+            raise ModelUsageAdjustmentValidationError(
+                "pricing_correction_fields_invalid"
+            )
         if (
             snapshot is None
             or snapshot.checksum is None
@@ -330,12 +356,25 @@ def _validate_line(
         ):
             raise ModelUsageAdjustmentValidationError("pricing_resolution_snapshot_required")
     elif line.resolution_kind is ModelUsageResolutionKind.EXECUTION_RESOLUTION:
+        if line.price_snapshot is not None or line.resolved_cost_cny is not None:
+            raise ModelUsageAdjustmentValidationError(
+                "execution_resolution_fields_invalid"
+            )
         if (
             line.resulting_provider_outcome is None
             or line.resulting_execution_certainty is None
             or line.resulting_measurement_status is None
         ):
             raise ModelUsageAdjustmentValidationError("execution_resolution_status_required")
+        if line.resulting_pricing_status is not None and not (
+            line.resulting_pricing_status is ModelUsagePricingStatus.PRICED
+            and line.resulting_provider_outcome is ModelUsageProviderOutcome.NOT_BILLED
+            and line.resulting_execution_certainty
+            is ModelUsageExecutionCertainty.CONFIRMED_NOT_EXECUTED
+        ):
+            raise ModelUsageAdjustmentValidationError(
+                "execution_resolution_fields_invalid"
+            )
     else:
         raise ModelUsageAdjustmentValidationError("unsupported_adjustment_resolution")
 
@@ -621,6 +660,7 @@ def _validate_execution_resolution_result(
     if (
         state_after.provider_outcome is not ModelUsageProviderOutcome.NOT_BILLED
         or state_after.measurement_status is not ModelUsageMeasurementStatus.EXACT
+        or state_after.pricing_status is not ModelUsagePricingStatus.PRICED
         or state_after.cost_cny != Decimal("0")
     ):
         raise ModelUsageAdjustmentValidationError("execution_resolution_delta_mismatch")
@@ -732,7 +772,10 @@ def _apply_counter_delta(
             counter = by_dimension[dimension]
             counter.adjustment_value += delta.cost
             counter.version += 1
-    for meter, meter_delta in delta.meter_values.items():
+    for meter, meter_delta in sorted(
+        delta.meter_values.items(),
+        key=lambda item: item[0].value,
+    ):
         if not capability_meter_contract(event.capability, meter).guardrail_eligible:
             continue
         counter = by_dimension[capability_meter_dimension_key(event.capability, meter)]
@@ -842,9 +885,14 @@ def apply_adjustment(db: Session, command: AdjustmentCommand) -> AdjustmentResul
         for counter in counters
         if counter.counter_kind is ModelUsageCounterKind.FAMILY_COST
     )
-    alerts = evaluate_budget_alerts(db, policy=policy, counter=family_counter)
+    alert_evaluation = evaluate_budget_alerts_with_focus(
+        db,
+        policy=policy,
+        counter=family_counter,
+    )
     db.flush()
     return replace(
         _result_for_group(db, group=group, preview=preview),
-        alerts=alerts,
+        alerts=alert_evaluation.alerts,
+        notification_focus=alert_evaluation.notification_focus,
     )

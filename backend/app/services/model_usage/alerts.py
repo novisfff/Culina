@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import MembershipStatus, ModelUsageCounterKind, UserRole
 from app.core.utils import create_id
-from app.models.domain import Membership
+from app.models.domain import Membership, User
 from app.models.model_usage import (
     ModelUsageAlert,
     ModelUsageAlertReceipt,
@@ -24,6 +25,12 @@ ALERT_THRESHOLDS: tuple[Decimal, ...] = (
     Decimal("1.00"),
     Decimal("1.10"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetAlertEvaluation:
+    alerts: tuple[ModelUsageAlert, ...]
+    notification_focus: ModelUsageAlert | None
 
 
 def effective_alert_spend(counter: ModelUsagePeriodCounter) -> Decimal:
@@ -135,10 +142,12 @@ def _active_owner_user_ids(db: Session, *, family_id: str) -> tuple[str, ...]:
     return tuple(
         db.scalars(
             select(Membership.user_id)
+            .join(User, User.id == Membership.user_id)
             .where(
                 Membership.family_id == family_id,
                 Membership.role == UserRole.OWNER,
                 Membership.status == MembershipStatus.ACTIVE,
+                User.is_active.is_(True),
             )
             .order_by(Membership.user_id)
         )
@@ -202,19 +211,19 @@ def _claim_alert(
     return alert
 
 
-def evaluate_budget_alerts(
+def evaluate_budget_alerts_with_focus(
     db: Session,
     *,
     policy: ModelUsagePolicyVersion,
     counter: ModelUsagePeriodCounter,
-) -> tuple[ModelUsageAlert, ...]:
+) -> BudgetAlertEvaluation:
     """Append threshold facts for a settled/adjusted family-cost counter.
 
     Reservation values intentionally do not participate: an alert represents spend
     that is already settled or has been corrected in the append-only ledger.
     """
 
-    return tuple(
+    alerts = tuple(
         alert
         for threshold in pending_budget_alert_thresholds(
             db,
@@ -231,6 +240,25 @@ def evaluate_budget_alerts(
         )
         is not None
     )
+    return BudgetAlertEvaluation(
+        alerts=alerts,
+        notification_focus=(
+            max(alerts, key=lambda alert: alert.threshold) if alerts else None
+        ),
+    )
+
+
+def evaluate_budget_alerts(
+    db: Session,
+    *,
+    policy: ModelUsagePolicyVersion,
+    counter: ModelUsagePeriodCounter,
+) -> tuple[ModelUsageAlert, ...]:
+    return evaluate_budget_alerts_with_focus(
+        db,
+        policy=policy,
+        counter=counter,
+    ).alerts
 
 
 def repair_new_budget_revision(

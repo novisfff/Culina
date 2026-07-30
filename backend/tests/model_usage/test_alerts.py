@@ -26,6 +26,7 @@ from app.models.model_usage import (
     ModelUsagePeriodCounter,
     ModelUsagePolicyVersion,
 )
+from app.services.model_usage import alerts as alerts_service
 from app.services.model_usage.dispatch import prepare_usage_dispatch_in_session
 from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
@@ -232,6 +233,28 @@ def test_alerts_are_unique_per_budget_revision_and_threshold(
     } == {"owner-alert"}
 
 
+def test_multi_threshold_evaluation_exposes_highest_notification_focus(
+    model_usage_db: Session,
+    policy_and_counter: tuple[ModelUsagePolicyVersion, ModelUsagePeriodCounter],
+) -> None:
+    policy, counter = policy_and_counter
+    counter.settled_value = Decimal("111")
+
+    evaluation = alerts_service.evaluate_budget_alerts_with_focus(
+        model_usage_db,
+        policy=policy,
+        counter=counter,
+    )
+
+    assert [alert.threshold for alert in evaluation.alerts] == [
+        Decimal("0.80"),
+        Decimal("1.00"),
+        Decimal("1.10"),
+    ]
+    assert evaluation.notification_focus is evaluation.alerts[-1]
+    assert evaluation.notification_focus.threshold == Decimal("1.10")
+
+
 def test_new_revision_repair_inserts_only_highest_without_later_backfill(
     model_usage_db: Session,
     policy_and_counter: tuple[ModelUsagePolicyVersion, ModelUsagePeriodCounter],
@@ -316,6 +339,13 @@ def test_each_active_owner_gets_a_receipt_and_members_do_not(
             is_active=True,
         ),
         User(
+            id="inactive-owner-alert",
+            username="inactive-owner-alert",
+            display_name="Inactive owner",
+            avatar_seed="InactiveOwner",
+            is_active=False,
+        ),
+        User(
             id="member-alert",
             username="member-alert",
             display_name="Member",
@@ -354,6 +384,13 @@ def test_each_active_owner_gets_a_receipt_and_members_do_not(
                 role=UserRole.OWNER,
                 status=MembershipStatus.INVITED,
             ),
+            Membership(
+                id="membership-inactive-owner-alert",
+                family_id=policy.family_id,
+                user_id="inactive-owner-alert",
+                role=UserRole.OWNER,
+                status=MembershipStatus.ACTIVE,
+            ),
         ]
     )
     counter.settled_value = Decimal("80")
@@ -365,6 +402,96 @@ def test_each_active_owner_gets_a_receipt_and_members_do_not(
         receipt.user_id
         for receipt in model_usage_db.scalars(select(ModelUsageAlertReceipt))
     } == {"owner-alert", "owner-alert-2"}
+
+
+def test_budget_change_repairs_only_highest_crossed_threshold(
+    model_usage_db: Session,
+    policy_and_counter: tuple[ModelUsagePolicyVersion, ModelUsagePeriodCounter],
+) -> None:
+    policy, counter = policy_and_counter
+    counter.settled_value = Decimal("111")
+
+    updated = update_family_policy(
+        model_usage_db,
+        PolicyUpdateCommand(
+            family_id=policy.family_id,
+            base_version_number=policy.version_number,
+            monthly_budget_cny=Decimal("50"),
+            alerts_enabled=True,
+            hard_limit_enabled=False,
+            capability_limits=(),
+            actor_subject_id=policy.created_by_subject_id,
+            active_variants=(),
+            effective_at=NOW,
+        ),
+    )
+
+    alerts = tuple(
+        model_usage_db.scalars(
+            select(ModelUsageAlert).where(
+                ModelUsageAlert.budget_alert_revision
+                == updated.budget_alert_revision
+            )
+        )
+    )
+    assert [alert.threshold for alert in alerts] == [Decimal("1.10")]
+    assert evaluate_budget_alerts(
+        model_usage_db,
+        policy=updated,
+        counter=counter,
+    ) == ()
+
+
+def test_alert_reenable_repairs_only_highest_crossed_threshold(
+    model_usage_db: Session,
+    policy_and_counter: tuple[ModelUsagePolicyVersion, ModelUsagePeriodCounter],
+) -> None:
+    policy, counter = policy_and_counter
+    disabled = update_family_policy(
+        model_usage_db,
+        PolicyUpdateCommand(
+            family_id=policy.family_id,
+            base_version_number=policy.version_number,
+            monthly_budget_cny=policy.monthly_budget_cny,
+            alerts_enabled=False,
+            hard_limit_enabled=False,
+            capability_limits=(),
+            actor_subject_id=policy.created_by_subject_id,
+            active_variants=(),
+            effective_at=NOW,
+        ),
+    )
+    counter.settled_value = Decimal("111")
+
+    reenabled = update_family_policy(
+        model_usage_db,
+        PolicyUpdateCommand(
+            family_id=policy.family_id,
+            base_version_number=disabled.version_number,
+            monthly_budget_cny=disabled.monthly_budget_cny,
+            alerts_enabled=True,
+            hard_limit_enabled=False,
+            capability_limits=(),
+            actor_subject_id=policy.created_by_subject_id,
+            active_variants=(),
+            effective_at=NOW,
+        ),
+    )
+
+    alerts = tuple(
+        model_usage_db.scalars(
+            select(ModelUsageAlert).where(
+                ModelUsageAlert.budget_alert_revision
+                == reenabled.budget_alert_revision
+            )
+        )
+    )
+    assert [alert.threshold for alert in alerts] == [Decimal("1.10")]
+    assert evaluate_budget_alerts(
+        model_usage_db,
+        policy=reenabled,
+        counter=counter,
+    ) == ()
 
 
 def test_exact_settlement_creates_alerts_after_counter_mutation(
@@ -403,7 +530,7 @@ def test_exact_settlement_creates_alerts_after_counter_mutation(
     assert dispatch.permit is not None
     signer = ProviderUsageReceiptSigner(active_key_id="key", keys={"key": b"secret"})
 
-    settle_usage_in_session(
+    settlement = settle_usage_in_session(
         model_usage_db,
         _signed_successful_llm_receipt(dispatch.permit, signer),
         signer=signer,
@@ -415,6 +542,7 @@ def test_exact_settlement_creates_alerts_after_counter_mutation(
         Decimal("1.00"),
         Decimal("1.10"),
     ]
+    assert settlement.notification_focus_threshold == Decimal("1.10")
 
 
 def test_late_settlement_uses_current_policy_revision_after_policy_update(
@@ -509,7 +637,12 @@ def test_adjustment_creates_alerts_after_adjustment_counter_mutation(
     )
     preview = preview_adjustment(model_usage_db, command)
 
-    apply_adjustment(model_usage_db, replace(command, confirm_checksum=preview.checksum))
+    result = apply_adjustment(
+        model_usage_db,
+        replace(command, confirm_checksum=preview.checksum),
+    )
 
     alerts = tuple(model_usage_db.scalars(select(ModelUsageAlert)))
     assert [alert.threshold for alert in alerts] == [Decimal("0.80"), Decimal("1.00")]
+    assert result.notification_focus is not None
+    assert result.notification_focus.threshold == Decimal("1.00")
