@@ -5,9 +5,16 @@ import logging
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.enums import ModelUsageCapability, ModelUsageIncidentCoverage
+from app.core.enums import (
+    ModelUsageCapability,
+    ModelUsageIncidentCoverage,
+    ModelUsageIncidentRecoveryStatus,
+)
 from app.models.domain import Family
-from app.models.model_usage import ModelUsageMeasurementIncident
+from app.models.model_usage import (
+    ModelUsageMeasurementIncident,
+    ModelUsageMeasurementIncidentAttempt,
+)
 from app.services.model_usage.incidents import (
     IncidentAttemptCommand,
     IncidentCommand,
@@ -56,6 +63,66 @@ def test_latch_recovery_drain_is_idempotent() -> None:
     latch.recover(at=aware("2026-07-01T00:01:00Z"))
     assert len(latch.drain()) == 1
     assert latch.drain() == ()
+
+
+def test_latch_category_drains_do_not_consume_each_other() -> None:
+    latch = ModelUsageOutageLatch()
+    latch.open_unknown_scope(started_at=aware("2026-07-01T00:00:00Z"), source_instance="api")
+    latch.recover(at=aware("2026-07-01T00:01:00Z"))
+    latch.record_exact_attempt(
+        family_id="family-scoped",
+        subject_key="mus_scoped",
+        capability=ModelUsageCapability.LLM,
+        client_attempt_id="mua_scoped",
+        occurred_at=aware("2026-07-01T00:00:10Z"),
+        source_instance="api",
+    )
+
+    assert len(latch.drain()) == 1
+    assert len(latch.drain_scoped()) == 1
+
+
+def test_outage_latch_keeps_fragments_when_incident_transaction_rolls_back(
+    model_usage_db: Session,
+) -> None:
+    latch = ModelUsageOutageLatch()
+    latch.open_unknown_scope(started_at=aware("2026-07-01T00:00:00Z"), source_instance="api")
+    latch.recover(at=aware("2026-07-01T00:01:00Z"))
+
+    flush_outage_latch(model_usage_db, latch)
+    model_usage_db.rollback()
+
+    assert len(latch.drain()) == 1
+
+
+def test_outage_latch_does_not_ack_during_nested_commit(
+    model_usage_db: Session,
+) -> None:
+    latch = ModelUsageOutageLatch()
+    latch.open_unknown_scope(started_at=aware("2026-07-01T00:00:00Z"), source_instance="api")
+    latch.recover(at=aware("2026-07-01T00:01:00Z"))
+
+    with model_usage_db.begin():
+        with model_usage_db.begin_nested():
+            flush_outage_latch(model_usage_db, latch)
+        assert len(latch.snapshot().fragments) == 1
+
+    assert latch.snapshot().empty
+
+
+def test_outage_latch_rollback_does_not_ack_on_a_later_commit(
+    model_usage_db: Session,
+) -> None:
+    latch = ModelUsageOutageLatch()
+    latch.open_unknown_scope(started_at=aware("2026-07-01T00:00:00Z"), source_instance="api")
+    latch.recover(at=aware("2026-07-01T00:01:00Z"))
+
+    flush_outage_latch(model_usage_db, latch)
+    model_usage_db.rollback()
+    model_usage_db.add(Family(id="family-later-commit", name="后续提交", motto="", location=""))
+    model_usage_db.commit()
+
+    assert len(latch.snapshot().fragments) == 1
 
 
 def test_latch_logs_allowlisted_unknown_and_scoped_incident_metadata(
@@ -145,6 +212,20 @@ def test_exact_scope_counts_only_unresolved_attempt_rows(
     assert incident.family_id == family.id
     assert health.measurement_gap is True
     assert health.known_unmeasured_attempt_count == 2
+
+    for attempt in model_usage_db.query(ModelUsageMeasurementIncidentAttempt):
+        attempt.recovery_status = ModelUsageIncidentRecoveryStatus.RECOVERED
+        attempt.resolved_at = aware("2026-07-01T00:02:00Z")
+    model_usage_db.flush()
+
+    recovered_health = measurement_health(
+        model_usage_db,
+        family_id=family.id,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    assert recovered_health.measurement_gap is False
+    assert recovered_health.known_unmeasured_attempt_count == 0
 
 
 def test_unknown_scope_rejects_attempt_details(model_usage_db: Session) -> None:

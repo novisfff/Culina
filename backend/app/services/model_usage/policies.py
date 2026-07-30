@@ -122,13 +122,16 @@ def validate_policy_command(command: PolicyUpdateCommand) -> tuple[CapabilityLim
 
 def _policy_checksum(
     *,
+    version_number: int,
     monthly_budget_cny: Decimal | None,
     alerts_enabled: bool,
     hard_limit_enabled: bool,
+    budget_alert_revision: int,
     limits: Sequence[CapabilityLimitCommand],
 ) -> str:
     payload = {
         "alerts_enabled": alerts_enabled,
+        "budget_alert_revision": budget_alert_revision,
         "capability_limits": [
             {
                 "capability": limit.capability.value,
@@ -141,6 +144,7 @@ def _policy_checksum(
         ],
         "hard_limit_enabled": hard_limit_enabled,
         "monthly_budget_cny": str(monthly_budget_cny) if monthly_budget_cny is not None else None,
+        "version_number": version_number,
     }
     canonical = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -211,9 +215,11 @@ def _insert_policy_version(
         hard_limit_enabled=hard_limit_enabled,
         budget_alert_revision=budget_alert_revision,
         policy_checksum=_policy_checksum(
+            version_number=version_number,
             monthly_budget_cny=monthly_budget_cny,
             alerts_enabled=alerts_enabled,
             hard_limit_enabled=hard_limit_enabled,
+            budget_alert_revision=budget_alert_revision,
             limits=limits,
         ),
         created_by_subject_id=created_by_subject_id,

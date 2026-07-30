@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -15,7 +16,8 @@ from app.core.enums import (
     ModelUsageRecoveryMode,
     ModelUsageReservationStatus,
 )
-from app.core.utils import create_id
+from app.core.utils import create_id, utcnow
+from app.db.session import SessionLocal
 from app.models.model_usage import (
     ModelUsageCapabilityLimit,
     ModelUsagePeriodCounter,
@@ -35,7 +37,12 @@ from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.policies import lock_family_policy
 from app.services.model_usage.pricing import UsagePriceRateSnapshot, select_price_snapshot
 from app.services.model_usage.subjects import resolve_subject
-from app.services.model_usage.types import ReservationDecision, UsageContext, UsageEstimate
+from app.services.model_usage.types import (
+    ReservationDecision,
+    UsageContext,
+    UsageEstimate,
+    validate_usage_meter_quantities,
+)
 
 
 def _replay_reservation(
@@ -153,6 +160,9 @@ def reserve_usage_in_session(
         raise ModelUsageContractError("reservation_fingerprint_required")
     if not estimate.meters:
         raise ModelUsageContractError("reservation_estimate_required")
+    estimate = UsageEstimate(
+        meters=validate_usage_meter_quantities(context.capability, estimate.meters)
+    )
     family_id = context.attribution.family_id
     pointer = lock_family_policy(db, family_id=family_id)
     policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
@@ -290,3 +300,21 @@ def reserve_usage_in_session(
             counter.version += 1
     db.flush()
     return _replay_reservation(reservation, fingerprint=fingerprint)
+
+
+def reserve_usage(
+    context: UsageContext,
+    estimate: UsageEstimate,
+    *,
+    fingerprint: str,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> ReservationDecision:
+    with session_factory() as db:
+        with db.begin():
+            return reserve_usage_in_session(
+                db,
+                context,
+                estimate,
+                fingerprint=fingerprint,
+                at=utcnow(),
+            )

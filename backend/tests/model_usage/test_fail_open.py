@@ -16,13 +16,15 @@ from app.services.model_usage.facade import (
     prove_monitoring_dispatch_eligibility,
     ModelUsageFacade,
     is_model_usage_ledger_unavailable,
+    process_fail_open_permit_registry,
 )
 from app.services.model_usage.policies import current_policy
 from app.services.model_usage.types import UsageContext
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
 from app.services.model_usage.incidents import flush_outage_latch
-from app.models.model_usage import ModelUsageMeasurementIncidentAttempt
+from app.models.model_usage import ModelUsageMeasurementIncidentAttempt, ModelUsageReservation
 from tests.model_usage.test_reservations import NOW, set_policy
+from tests.model_usage.test_pricing_service import publish, raw_manifest
 
 
 pytest_plugins = ("tests.model_usage.test_reservations",)
@@ -50,6 +52,53 @@ def test_current_monitoring_policy_produces_single_use_fail_open_permit(
         consume_fail_open_dispatch_permit(permit, registry=registry, at=NOW)
 
 
+def test_facade_consumes_permit_from_its_own_registry(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    proof = prove_monitoring_dispatch_eligibility(
+        model_usage_db,
+        context=reservation_context,
+        estimate=estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-facade-consume",
+        at=NOW,
+    )
+    registry = FailOpenPermitRegistry()
+    permit = exchange_proof_for_permit(proof, registry=registry, at=NOW)
+    facade = ModelUsageFacade(
+        session_factory=lambda: model_usage_db,
+        registry=registry,
+        outage_latch=ModelUsageOutageLatch(),
+        clock=lambda: NOW,
+    )
+
+    consumed = facade.consume_fail_open_dispatch_permit(permit, at=NOW)
+
+    assert consumed == permit
+    with pytest.raises(ModelUsageProofConsumed):
+        facade.consume_fail_open_dispatch_permit(permit, at=NOW)
+
+
+def test_public_consume_uses_process_registry_by_default(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    proof = prove_monitoring_dispatch_eligibility(
+        model_usage_db,
+        context=reservation_context,
+        estimate=estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-process-consume",
+        at=NOW,
+    )
+    permit = exchange_proof_for_permit(
+        proof,
+        registry=process_fail_open_permit_registry,
+        at=NOW,
+    )
+
+    assert consume_fail_open_dispatch_permit(permit, at=NOW) == permit
+
+
 def test_hard_limit_cannot_issue_fail_open_proof(
     model_usage_db: Session,
     reservation_context: UsageContext,
@@ -70,7 +119,7 @@ def test_hard_limit_cannot_issue_fail_open_proof(
         )
 
 
-def test_facade_hard_limit_proof_failure_fails_closed(
+def test_facade_hard_limit_without_price_is_blocked_by_admission(
     model_usage_db: Session,
     reservation_context: UsageContext,
 ) -> None:
@@ -95,8 +144,40 @@ def test_facade_hard_limit_proof_failure_fails_closed(
     )
 
     assert decision.decision == "blocked"
-    assert decision.error_code == "model_usage_ledger_unavailable"
+    assert decision.error_code == "model_usage_price_unavailable"
     assert decision.fail_open_permit is None
+
+
+def test_facade_hard_limit_uses_normal_reservation_when_ledger_is_healthy(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    publish(model_usage_db, raw_manifest())
+    set_policy(
+        model_usage_db,
+        reservation_context,
+        budget=Decimal("100"),
+        hard=True,
+    )
+    facade = ModelUsageFacade(
+        session_factory=lambda: model_usage_db,
+        registry=FailOpenPermitRegistry(),
+        outage_latch=ModelUsageOutageLatch(),
+        source_instance="api-test",
+        clock=lambda: NOW,
+    )
+
+    decision = facade.reserve(
+        reservation_context,
+        estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-hard-facade-healthy",
+    )
+
+    assert decision.decision == "allowed"
+    assert decision.reservation_id is not None
+    reservation = model_usage_db.get(ModelUsageReservation, decision.reservation_id)
+    assert reservation is not None
+    assert reservation.pricing_status.value == "priced"
 
 
 def test_expired_proof_cannot_be_exchanged(

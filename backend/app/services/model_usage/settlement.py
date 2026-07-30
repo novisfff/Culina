@@ -31,6 +31,7 @@ from app.services.model_usage.decimal_math import exact_line_cost, quantize_quan
 from app.services.model_usage.dispatch import _lock_counters, _remove_reserved
 from app.services.model_usage.errors import (
     ModelUsageAttemptConflict,
+    ModelUsageContractError,
     ModelUsageReceiptIntegrityError,
     ModelUsageSettlementPending,
     ModelUsageStateError,
@@ -42,13 +43,19 @@ from app.services.model_usage.types import (
     ProviderUsageReceipt,
     UsageMeterQuantity,
     UsageSettlement,
+    validate_usage_meter_quantities,
 )
 
 
 def _normalize_meters(receipt: ProviderUsageReceipt) -> tuple[UsageMeterQuantity, ...]:
-    by_meter = {line.meter: line for line in receipt.meters}
-    if len(by_meter) != len(receipt.meters):
-        raise ModelUsageSettlementPending("duplicate_receipt_meter")
+    try:
+        validated = validate_usage_meter_quantities(
+            receipt.capability,
+            receipt.meters,
+        )
+    except ModelUsageContractError as exc:
+        raise ModelUsageSettlementPending("receipt_meter_quantity_invalid") from exc
+    by_meter = {line.meter: line for line in validated}
     if receipt.capability.value == "llm" and {
         ModelUsageMeter.INPUT_TOKENS,
         ModelUsageMeter.CACHED_INPUT_TOKENS,
@@ -86,6 +93,23 @@ def _validate_identity(
     reservation: ModelUsageReservation,
     receipt: ProviderUsageReceipt,
 ) -> None:
+    is_not_billed = receipt.provider_outcome is ModelUsageProviderOutcome.NOT_BILLED
+    pricing_identity_matches = (
+        (
+            receipt.price_version_id is None
+            and receipt.price_snapshot_checksum is None
+        )
+        or (
+            reservation.price_version_id == receipt.price_version_id
+            and reservation.price_snapshot_checksum == receipt.price_snapshot_checksum
+        )
+        if is_not_billed
+        else (
+            reservation.pricing_status is receipt.pricing_status
+            and reservation.price_version_id == receipt.price_version_id
+            and reservation.price_snapshot_checksum == receipt.price_snapshot_checksum
+        )
+    )
     checks = (
         reservation.family_id == receipt.family_id,
         reservation.subject_key == receipt.subject_key,
@@ -100,8 +124,7 @@ def _validate_identity(
         reservation.client_attempt_id == receipt.client_attempt_id,
         reservation.policy_version_id == receipt.policy_version_id,
         reservation.dispatch_policy_version_id == receipt.dispatch_policy_version_id,
-        reservation.price_version_id == receipt.price_version_id,
-        reservation.price_snapshot_checksum == receipt.price_snapshot_checksum,
+        pricing_identity_matches,
         _same_time(reservation.period_start, receipt.period.start_at),
         _same_time(reservation.period_end, receipt.period.end_at),
         reservation.dispatching_at is not None

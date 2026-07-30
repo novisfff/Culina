@@ -11,6 +11,7 @@ from app.core.enums import (
     ModelUsageCounterKind,
     ModelUsageLimitKind,
     ModelUsagePricingStatus,
+    ModelUsageQuantitySource,
     ModelUsageRecoveryMode,
     ModelUsageReservationStatus,
 )
@@ -42,6 +43,7 @@ from app.services.model_usage.types import (
     DispatchGateOutcome,
     DispatchPermit,
     ProviderRecoveryPolicy,
+    UsageMeterQuantity,
 )
 
 
@@ -226,6 +228,15 @@ def _permit(
                 else None
             ),
         ),
+        required_meters=tuple(
+            UsageMeterQuantity(
+                meter=row.meter,
+                quantity=row.reserved_quantity,
+                meter_role=row.meter_role,
+                quantity_source=ModelUsageQuantitySource.ESTIMATED,
+            )
+            for row in meters
+        ),
     )
 
 
@@ -303,7 +314,10 @@ def prepare_usage_dispatch_in_session(
     reservation.recovery_mode = recovery_policy.mode
     reservation.idempotency_window_seconds = recovery_policy.idempotency_window_seconds
     reservation.query_window_seconds = recovery_policy.query_window_seconds
-    reservation.dispatching_at = utcnow()
+    # The initial governance schema stores MySQL datetimes at whole-second
+    # precision.  Persist the same normalized timestamp carried by the permit
+    # so a signed receipt can be verified after the reservation is reloaded.
+    reservation.dispatching_at = utcnow().replace(microsecond=0)
     reservation.provider_idempotency_key = (
         reservation.client_attempt_id
         if recovery_policy.mode

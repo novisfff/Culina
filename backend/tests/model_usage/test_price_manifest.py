@@ -16,6 +16,12 @@ from app.services.model_usage.configured_variants import (
     configured_usage_variants,
     validate_configured_variant,
 )
+from app.services.model_usage.estimators import (
+    estimate_embedding,
+    estimate_realtime_audio,
+    estimate_stt,
+    estimate_tts,
+)
 from app.services.model_usage.pricing_manifest import (
     PriceManifestError,
     load_price_manifest,
@@ -196,3 +202,41 @@ def test_enabled_settings_are_discovered_for_all_seven_capabilities() -> None:
     variants = configured_usage_variants(settings)
 
     assert {variant.capability for variant in variants} == set(ModelUsageCapability)
+
+
+def test_active_variants_expose_only_meters_their_estimators_can_reserve() -> None:
+    settings = SimpleNamespace(
+        search_embedding_provider="openai",
+        search_embedding_model="embedding-test",
+        search_embedding_dimensions=1536,
+        ai_stt_provider="openai",
+        ai_stt_model="stt-test",
+        ai_stt_audio_format="webm",
+        ai_tts_provider="openai",
+        ai_tts_model="tts-test",
+        ai_tts_voice="default",
+        ai_realtime_provider="dashscope",
+        ai_realtime_model="realtime-test",
+        ai_realtime_voice="default",
+    )
+    variants = {variant.capability: variant for variant in configured_usage_variants(settings)}
+
+    assert variants[ModelUsageCapability.EMBEDDING].produced_meters == {
+        line.meter for line in estimate_embedding(token_count=12).meters
+    }
+    assert variants[ModelUsageCapability.STT].produced_meters == {
+        line.meter for line in estimate_stt(duration_seconds=Decimal("2.5")).meters
+    }
+    assert variants[ModelUsageCapability.TTS].produced_meters == {
+        line.meter for line in estimate_tts(character_count=12).meters
+    }
+    realtime = variants[ModelUsageCapability.REALTIME_AUDIO]
+    assert realtime.produced_meters == {
+        line.meter
+        for line in estimate_realtime_audio(
+            billable_meters=realtime.billable_meters,
+            lease_seconds=Decimal("30"),
+            input_tokens_per_second_cap=realtime.input_tokens_per_second_cap,
+            output_tokens_per_second_cap=realtime.output_tokens_per_second_cap,
+        ).meters
+    }

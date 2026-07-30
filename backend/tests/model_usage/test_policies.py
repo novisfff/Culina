@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+from types import ModuleType
 
 import pytest
 from sqlalchemy import select
@@ -28,6 +31,20 @@ from app.services.model_usage.policies import (
     update_family_policy,
 )
 from app.services.model_usage.subjects import ensure_user_subject, unlink_user_subjects
+
+
+def _load_model_usage_governance_migration() -> ModuleType:
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "2d3e4f5a6b7c_add_model_usage_governance.py"
+    )
+    spec = spec_from_file_location("model_usage_governance_migration", migration_path)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture()
@@ -90,6 +107,19 @@ def test_defaults_create_immutable_version_one(
     assert initial.budget_alert_revision == 1
     assert initial.created_by_subject_id == subject_id
     assert policy_limits(model_usage_db, policy_version_id=initial.id) == ()
+
+
+def test_runtime_default_policy_checksum_matches_migration(
+    model_usage_db: Session,
+    family_defaults: tuple[str, str],
+) -> None:
+    family_id, _ = family_defaults
+    migration = _load_model_usage_governance_migration()
+
+    assert current_policy(
+        model_usage_db,
+        family_id=family_id,
+    ).policy_checksum == migration._default_policy_checksum()
 
 
 def test_update_inserts_history_and_swaps_pointer(

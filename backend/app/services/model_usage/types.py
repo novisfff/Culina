@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from types import MappingProxyType
@@ -25,6 +25,7 @@ from app.services.model_usage.errors import (
     ModelUsageContractError,
     ModelUsageDispatchRecoveryRequired,
 )
+from app.services.model_usage.decimal_math import quantize_quantity
 from app.services.model_usage.periods import BillingPeriod
 
 
@@ -123,6 +124,32 @@ def capability_meter_contract(
     meter: ModelUsageMeter,
 ) -> CapabilityMeterContract:
     return CAPABILITY_METER_CONTRACTS[(capability, meter)]
+
+
+def validate_usage_meter_quantities(
+    capability: ModelUsageCapability,
+    meters: Sequence[UsageMeterQuantity],
+) -> tuple[UsageMeterQuantity, ...]:
+    seen: set[ModelUsageMeter] = set()
+    validated: list[UsageMeterQuantity] = []
+    for line in meters:
+        if line.meter in seen:
+            raise ModelUsageContractError("duplicate_usage_meter")
+        seen.add(line.meter)
+        try:
+            contract = capability_meter_contract(capability, line.meter)
+        except KeyError as exc:
+            raise ModelUsageContractError("meter_not_supported_for_capability") from exc
+        try:
+            quantity = quantize_quantity(line.quantity)
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise ModelUsageContractError("meter_quantity_invalid") from exc
+        if quantity != line.quantity:
+            raise ModelUsageContractError("meter_quantity_precision_invalid")
+        if contract.integer_only and quantity != quantity.to_integral_value():
+            raise ModelUsageContractError("meter_quantity_integer_required")
+        validated.append(replace(line, quantity=quantity))
+    return tuple(validated)
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,10 +263,12 @@ class ProviderUsageReceipt:
     fail_open_proof_id: str | None
     integrity_key_id: str
     integrity_hmac: str
+    required_meters: Sequence[UsageMeterQuantity] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "meters", tuple(self.meters))
         object.__setattr__(self, "meter_watermarks", tuple(self.meter_watermarks))
+        object.__setattr__(self, "required_meters", tuple(self.required_meters))
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +298,10 @@ class DispatchPermit:
     recovery_policy: ProviderRecoveryPolicy
     fail_open_proof_id: str | None = None
     expires_at: datetime | None = None
+    required_meters: Sequence[UsageMeterQuantity] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "required_meters", tuple(self.required_meters))
 
 
 @dataclass(frozen=True, slots=True)

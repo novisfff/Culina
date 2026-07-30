@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import (
     ModelUsageCounterKind,
@@ -40,6 +40,7 @@ from app.services.model_usage.recovery import (
     can_query,
     mark_dispatch_uncertain,
     prepare_idempotent_resend_in_session,
+    record_usage_uncertain,
     settle_expired_uncertain_in_session,
     recover_fail_open_receipt_in_session,
     reconcile_uncertain_in_session,
@@ -130,6 +131,7 @@ def _fail_open_artifacts(
             fail_open_proof_id=permit.fail_open_proof_id,
             integrity_key_id="",
             integrity_hmac="",
+            required_meters=permit.required_meters,
         )
     )
     return signer, permit, receipt
@@ -177,6 +179,42 @@ def test_none_mode_never_queries_or_resends(
         fingerprint="fp-none",
         at=NOW + timedelta(minutes=1),
     ) is None
+
+
+def test_record_usage_uncertain_persists_the_supplied_stable_error_code(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    decision = reserve_usage_in_session(
+        model_usage_db,
+        reservation_context,
+        estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-public-uncertain",
+        at=NOW,
+    )
+    prepare_usage_dispatch_in_session(
+        model_usage_db,
+        reservation_id=decision.reservation_id or "",
+        fingerprint="fp-public-uncertain",
+        recovery_policy=ProviderRecoveryPolicy.none(),
+    )
+    model_usage_db.commit()
+    usage_session_factory = sessionmaker(
+        bind=model_usage_db.get_bind(),
+        expire_on_commit=False,
+    )
+
+    record_usage_uncertain(
+        decision.reservation_id or "",
+        stable_error_code="provider_transport_ambiguous",
+        session_factory=usage_session_factory,
+    )
+
+    with usage_session_factory() as check_db:
+        reservation = check_db.get(ModelUsageReservation, decision.reservation_id)
+        assert reservation is not None
+        assert reservation.status is ModelUsageReservationStatus.UNCERTAIN
+        assert reservation.error_code == "provider_transport_ambiguous"
 
     class ForbiddenHandler:
         def query_original_attempt(self, *, client_attempt_id: str):
@@ -382,6 +420,35 @@ def test_live_fail_open_recovery_validates_consumed_permit_identity(
     assert settlement.event_id is not None
 
 
+def test_live_fail_open_recovery_binds_required_meter_contract_to_consumed_permit(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    signer, consumed_permit, receipt = _fail_open_artifacts(
+        model_usage_db,
+        reservation_context,
+    )
+    incomplete = signer.sign(
+        replace(
+            receipt,
+            meters=receipt.meters[:-1],
+            required_meters=receipt.required_meters[:-1],
+            integrity_hmac="",
+        )
+    )
+
+    with pytest.raises(
+        ModelUsageReceiptIntegrityError,
+        match="fail_open_permit_receipt_mismatch",
+    ):
+        recover_fail_open_receipt_in_session(
+            model_usage_db,
+            incomplete,
+            signer=signer,
+            consumed_permit=consumed_permit,
+        )
+
+
 def test_fail_open_recovery_links_matching_measurement_incident_attempt(
     model_usage_db: Session,
     reservation_context: UsageContext,
@@ -546,7 +613,10 @@ def test_fail_open_recovery_rejects_duplicate_receipt_meter(
         recover_fail_open_receipt_in_session(model_usage_db, duplicate, signer=signer)
 
 
-@pytest.mark.parametrize("quantity", [Decimal("-1"), Decimal("1.5")])
+@pytest.mark.parametrize(
+    "quantity",
+    [Decimal("-1"), Decimal("1.5"), Decimal("1.0000001")],
+)
 def test_fail_open_recovery_rejects_invalid_meter_quantity(
     model_usage_db: Session,
     reservation_context: UsageContext,
@@ -556,7 +626,10 @@ def test_fail_open_recovery_rejects_invalid_meter_quantity(
     invalid = signer.sign(
         replace(
             receipt,
-            meters=(replace(receipt.meters[0], quantity=quantity),),
+            meters=(
+                replace(receipt.meters[0], quantity=quantity),
+                *receipt.meters[1:],
+            ),
             integrity_hmac="",
         )
     )
@@ -595,7 +668,7 @@ def test_confirmed_not_executed_fail_open_receipt_records_zero_quantities(
     assert {row.quantity for row in meters} == {Decimal("0")}
 
 
-def test_fail_open_receipt_reconciles_retry_reservation_with_different_meter_set(
+def test_fail_open_receipt_rejects_incomplete_meter_set_for_retry_reservation(
     model_usage_db: Session,
     reservation_context: UsageContext,
 ) -> None:
@@ -615,11 +688,15 @@ def test_fail_open_receipt_reconciles_retry_reservation_with_different_meter_set
         )
     )
 
-    settlement = recover_fail_open_receipt_in_session(
-        model_usage_db,
-        receipt,
-        signer=signer,
-    )
+    with pytest.raises(
+        ModelUsageReceiptIntegrityError,
+        match="fail_open_receipt_meter_set_mismatch",
+    ):
+        recover_fail_open_receipt_in_session(
+            model_usage_db,
+            receipt,
+            signer=signer,
+        )
     reservation = model_usage_db.get(ModelUsageReservation, decision.reservation_id)
     input_counter = model_usage_db.scalar(
         select(ModelUsagePeriodCounter).where(
@@ -630,14 +707,39 @@ def test_fail_open_receipt_reconciles_retry_reservation_with_different_meter_set
     )
 
     assert reservation is not None
-    assert reservation.status is ModelUsageReservationStatus.SETTLED
-    assert settlement.event_id is not None
+    assert reservation.status is ModelUsageReservationStatus.RESERVED
     assert all(
-        counter.reserved_value == 0
+        counter.reserved_value >= 0
         for counter in model_usage_db.query(ModelUsagePeriodCounter)
     )
     assert input_counter is not None
-    assert input_counter.settled_value == Decimal("10")
+    assert input_counter.settled_value == Decimal("0")
+
+
+def test_fail_open_receipt_without_reservation_rejects_incomplete_meter_set(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    signer, receipt = _signed_fail_open_receipt(model_usage_db, reservation_context)
+    incomplete = signer.sign(
+        replace(
+            receipt,
+            meters=receipt.meters[:-1],
+            integrity_hmac="",
+        )
+    )
+
+    with pytest.raises(
+        ModelUsageReceiptIntegrityError,
+        match="fail_open_receipt_meter_set_mismatch",
+    ):
+        recover_fail_open_receipt_in_session(
+            model_usage_db,
+            incomplete,
+            signer=signer,
+        )
+
+    assert model_usage_db.query(ModelUsageEvent).count() == 0
 
 
 def test_priced_fail_open_event_cost_equals_billable_line_sum(
@@ -669,6 +771,45 @@ def test_priced_fail_open_event_cost_equals_billable_line_sum(
     assert event is not None
     assert event.pricing_status.value == "priced"
     assert event.cost_cny == sum(line_costs, Decimal("0"))
+
+
+def test_fail_open_recovery_downgrades_tampered_price_snapshot_to_unpriced(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    publish(model_usage_db, raw_manifest())
+    signer, receipt = _signed_fail_open_receipt(
+        model_usage_db,
+        reservation_context,
+        include_price_snapshot=True,
+    )
+    assert receipt.price_snapshot is not None
+    first_rate, *remaining_rates = receipt.price_snapshot.rates
+    tampered = signer.sign(
+        replace(
+            receipt,
+            price_snapshot=replace(
+                receipt.price_snapshot,
+                rates=(
+                    replace(first_rate, unit_price_cny=Decimal("999.000000000000")),
+                    *remaining_rates,
+                ),
+            ),
+            integrity_hmac="",
+        )
+    )
+
+    settlement = recover_fail_open_receipt_in_session(
+        model_usage_db,
+        tampered,
+        signer=signer,
+    )
+    event = model_usage_db.get(ModelUsageEvent, settlement.event_id)
+
+    assert event is not None
+    assert event.pricing_status.value == "unpriced"
+    assert event.price_version_id is None
+    assert event.cost_cny is None
 
 
 @pytest.mark.parametrize("mismatch", ["price_version", "billing_model"])

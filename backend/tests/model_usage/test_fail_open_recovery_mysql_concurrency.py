@@ -102,6 +102,14 @@ def _receipt(context: MysqlReservationContext):
             fail_open_proof_id="proof-fail-open",
             integrity_key_id="",
             integrity_hmac="",
+            required_meters=(
+                UsageMeterQuantity(
+                    ModelUsageMeter.OUTPUT_TOKENS,
+                    Decimal("1"),
+                    ModelUsageMeterRole.BILLABLE,
+                    ModelUsageQuantitySource.ESTIMATED,
+                ),
+            ),
         )
     return signer, signer.sign(receipt)
 

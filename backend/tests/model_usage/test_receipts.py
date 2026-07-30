@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
+from threading import Event, Thread
 
 import pytest
 
@@ -103,3 +104,30 @@ def test_bounded_queue_evicts_oldest_and_retries_exact_receipt() -> None:
     queue.retry(lambda item: seen.append(item.attempt_key))
     assert seen == ["attempt-b", "attempt-c"]
     assert len(queue) == 0
+
+
+def test_retry_preserves_receipt_enqueued_while_current_batch_is_handled() -> None:
+    queue = ProviderUsageReceiptQueue(max_size=2)
+    first = receipt()
+    second = replace(first, attempt_key="attempt-b")
+    handler_started = Event()
+    allow_first_to_finish = Event()
+    seen: list[str] = []
+
+    def handler(item: ProviderUsageReceipt) -> None:
+        seen.append(item.attempt_key)
+        if item.attempt_key == first.attempt_key:
+            handler_started.set()
+            assert allow_first_to_finish.wait(timeout=1)
+
+    queue.enqueue(first)
+    worker = Thread(target=lambda: queue.retry(handler))
+    worker.start()
+    assert handler_started.wait(timeout=1)
+    queue.enqueue(second)
+    allow_first_to_finish.set()
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert seen == [first.attempt_key]
+    assert len(queue) == 1

@@ -42,6 +42,16 @@ class ScopedOutageAttempt:
     period: BillingPeriod
 
 
+@dataclass(frozen=True, slots=True)
+class OutageLatchBatch:
+    fragments: tuple[OutageFragment, ...]
+    scoped_attempts: tuple[ScopedOutageAttempt, ...]
+
+    @property
+    def empty(self) -> bool:
+        return not self.fragments and not self.scoped_attempts
+
+
 def incident_fragment_key(
     source_instance: str,
     started_at: datetime,
@@ -167,3 +177,25 @@ class ModelUsageOutageLatch:
             drained = tuple(self._scoped)
             self._scoped.clear()
             return drained
+
+    def snapshot(self) -> OutageLatchBatch:
+        with self._lock:
+            return OutageLatchBatch(
+                fragments=tuple(self._closed),
+                scoped_attempts=tuple(self._scoped),
+            )
+
+    def acknowledge(self, batch: OutageLatchBatch) -> None:
+        fragment_keys = {fragment.incident_key for fragment in batch.fragments}
+        attempt_keys = {attempt.incident_key for attempt in batch.scoped_attempts}
+        with self._lock:
+            self._closed = [
+                fragment
+                for fragment in self._closed
+                if fragment.incident_key not in fragment_keys
+            ]
+            self._scoped = [
+                attempt
+                for attempt in self._scoped
+                if attempt.incident_key not in attempt_keys
+            ]

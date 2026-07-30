@@ -29,6 +29,7 @@ from app.services.model_usage.types import (
     ReservationDecision,
     UsageContext,
     UsageEstimate,
+    UsageMeterQuantity,
 )
 
 
@@ -59,6 +60,7 @@ class DispatchEligibilityProof:
     price_snapshot: UsagePriceSnapshot
     price_snapshot_checksum: str | None
     recovery_policy: ProviderRecoveryPolicy
+    required_meters: tuple[UsageMeterQuantity, ...]
 
 
 class FailOpenPermitRegistry:
@@ -78,19 +80,35 @@ class FailOpenPermitRegistry:
                 raise ModelUsageProofConsumed()
             self._states[proof_id] = "consumed"
 
+    def consume_once(self, permit: DispatchPermit, *, at: datetime) -> DispatchPermit:
+        if (
+            permit.send_kind != "fail_open_single_send"
+            or permit.fail_open_proof_id is None
+            or permit.expires_at is None
+            or at > permit.expires_at
+        ):
+            raise ModelUsageProofConsumed()
+        self.consume(permit.fail_open_proof_id)
+        return permit
 
-def prove_monitoring_dispatch_eligibility(
+
+process_fail_open_permit_registry = FailOpenPermitRegistry()
+
+
+def _monitoring_dispatch_eligibility(
     db: Session,
     *,
     context: UsageContext,
     estimate: UsageEstimate,
     fingerprint: str,
     at: datetime,
-) -> DispatchEligibilityProof:
+) -> DispatchEligibilityProof | None:
     pointer = lock_family_policy(db, family_id=context.attribution.family_id)
     policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if policy is None or policy.hard_limit_enabled:
+    if policy is None:
         raise ModelUsageLedgerUnavailable()
+    if policy.hard_limit_enabled:
+        return None
     subject = resolve_subject(db, context.attribution)
     price = select_price_snapshot(db, context, estimate, at=at)
     period = shanghai_billing_period(at)
@@ -117,7 +135,28 @@ def prove_monitoring_dispatch_eligibility(
         price_snapshot=price,
         price_snapshot_checksum=price.checksum,
         recovery_policy=ProviderRecoveryPolicy.none(),
+        required_meters=tuple(estimate.meters),
     )
+
+
+def prove_monitoring_dispatch_eligibility(
+    db: Session,
+    *,
+    context: UsageContext,
+    estimate: UsageEstimate,
+    fingerprint: str,
+    at: datetime,
+) -> DispatchEligibilityProof:
+    proof = _monitoring_dispatch_eligibility(
+        db,
+        context=context,
+        estimate=estimate,
+        fingerprint=fingerprint,
+        at=at,
+    )
+    if proof is None:
+        raise ModelUsageLedgerUnavailable()
+    return proof
 
 
 def exchange_proof_for_permit(
@@ -155,24 +194,17 @@ def exchange_proof_for_permit(
         recovery_policy=proof.recovery_policy,
         fail_open_proof_id=proof.proof_id,
         expires_at=proof.expires_at,
+        required_meters=proof.required_meters,
     )
 
 
 def consume_fail_open_dispatch_permit(
     permit: DispatchPermit,
     *,
-    registry: FailOpenPermitRegistry,
     at: datetime,
+    registry: FailOpenPermitRegistry = process_fail_open_permit_registry,
 ) -> DispatchPermit:
-    if (
-        permit.send_kind != "fail_open_single_send"
-        or permit.fail_open_proof_id is None
-        or permit.expires_at is None
-        or at > permit.expires_at
-    ):
-        raise ModelUsageProofConsumed()
-    registry.consume(permit.fail_open_proof_id)
-    return permit
+    return registry.consume_once(permit, at=at)
 
 
 class LedgerCommitOutcomeUnknown(SQLAlchemyError):
@@ -208,6 +240,18 @@ class ModelUsageFacade:
         self._source_instance = source_instance
         self._clock = clock
 
+    def consume_fail_open_dispatch_permit(
+        self,
+        permit: DispatchPermit,
+        *,
+        at: datetime | None = None,
+    ) -> DispatchPermit:
+        return consume_fail_open_dispatch_permit(
+            permit,
+            at=at or self._clock(),
+            registry=self._registry,
+        )
+
     def reserve(
         self,
         context: UsageContext,
@@ -219,7 +263,7 @@ class ModelUsageFacade:
         at = self._clock()
         try:
             with self._session_factory() as db:
-                proof = prove_monitoring_dispatch_eligibility(
+                proof = _monitoring_dispatch_eligibility(
                     db,
                     context=context,
                     estimate=estimate,
@@ -232,7 +276,9 @@ class ModelUsageFacade:
                     estimate,
                     fingerprint=fingerprint,
                     at=at,
-                    expected_policy_version_id=proof.policy_version_id,
+                    expected_policy_version_id=(
+                        proof.policy_version_id if proof is not None else None
+                    ),
                 )
                 db.commit()
                 return decision

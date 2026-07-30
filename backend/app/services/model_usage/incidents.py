@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
@@ -123,8 +123,9 @@ def flush_outage_latch(
     db: Session,
     latch: ModelUsageOutageLatch,
 ) -> tuple[ModelUsageMeasurementIncident, ...]:
+    batch = latch.snapshot()
     rows: list[ModelUsageMeasurementIncident] = []
-    for fragment in latch.drain():
+    for fragment in batch.fragments:
         existing = db.scalar(
             select(ModelUsageMeasurementIncident).where(
                 ModelUsageMeasurementIncident.incident_key == fragment.incident_key
@@ -151,7 +152,7 @@ def flush_outage_latch(
         )
         db.add(incident)
         rows.append(incident)
-    for attempt in latch.drain_scoped():
+    for attempt in batch.scoped_attempts:
         subject = db.scalar(
             select(ModelUsageSubject).where(
                 ModelUsageSubject.family_id == attempt.family_id,
@@ -188,6 +189,42 @@ def flush_outage_latch(
             )
         )
     db.flush()
+    if not batch.empty:
+        # `after_commit` also fires for SAVEPOINT commits.  Bind this batch to
+        # the transaction that wrote it and only acknowledge after every
+        # relevant transaction layer has committed.  The callbacks intentionally
+        # stay attached to this Session instance after completion: a Session is
+        # request/operation scoped, and retaining the closure avoids mutating an
+        # event listener collection while SQLAlchemy is iterating it.
+        outer_transaction = db.get_transaction()
+        write_transaction = db.get_nested_transaction() or outer_transaction
+        assert outer_transaction is not None and write_transaction is not None
+        state = {"write_committed": write_transaction is outer_transaction, "discarded": False}
+
+        def _after_commit(session: Session) -> None:
+            nested = session.get_nested_transaction()
+            if write_transaction is not outer_transaction and nested is write_transaction:
+                state["write_committed"] = True
+                return
+            if (
+                nested is None
+                and session.get_transaction() is outer_transaction
+                and state["write_committed"]
+                and not state["discarded"]
+            ):
+                latch.acknowledge(batch)
+                state["discarded"] = True
+
+        def _after_rollback(session: Session) -> None:
+            nested = session.get_nested_transaction()
+            if (
+                (write_transaction is not outer_transaction and nested is write_transaction)
+                or (nested is None and session.get_transaction() is outer_transaction)
+            ):
+                state["discarded"] = True
+
+        event.listen(db, "after_commit", _after_commit)
+        event.listen(db, "after_rollback", _after_rollback)
     return tuple(rows)
 
 
@@ -225,8 +262,16 @@ def measurement_health(
             )
             or 0
         )
+    has_irreducible_gap = any(
+        incident.coverage
+        in {
+            ModelUsageIncidentCoverage.UNKNOWN_SCOPE,
+            ModelUsageIncidentCoverage.PARTIAL_SCOPE,
+        }
+        for incident in incidents
+    )
     return MeasurementHealth(
-        measurement_gap=bool(incidents),
+        measurement_gap=has_irreducible_gap or count > 0,
         known_unmeasured_attempt_count=count,
         known_unmeasured_cost_cny=None,
     )

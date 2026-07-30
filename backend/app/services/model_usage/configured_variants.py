@@ -136,7 +136,12 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 variant_key=f"dimensions={embedding_dimensions}",
                 billing_scheme_key="embedding-token-v1",
                 billable_meters=frozenset({ModelUsageMeter.EMBEDDING_TOKENS}),
-                produced_meters=frozenset({ModelUsageMeter.EMBEDDING_TOKENS}),
+                produced_meters=frozenset(
+                    {
+                        ModelUsageMeter.EMBEDDING_TOKENS,
+                        ModelUsageMeter.REQUEST_UNITS,
+                    }
+                ),
             )
         )
 
@@ -174,13 +179,7 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 variant_key=f"format={stt_format}",
                 billing_scheme_key="stt-seconds-v1",
                 billable_meters=frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
-                produced_meters=frozenset(
-                    {
-                        ModelUsageMeter.AUDIO_INPUT_SECONDS,
-                        ModelUsageMeter.AUDIO_INPUT_TOKENS,
-                        ModelUsageMeter.REQUEST_UNITS,
-                    }
-                ),
+                produced_meters=frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
             )
         )
 
@@ -196,15 +195,7 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 variant_key=f"voice={tts_voice}",
                 billing_scheme_key="tts-characters-v1",
                 billable_meters=frozenset({ModelUsageMeter.TTS_CHARACTERS}),
-                produced_meters=frozenset(
-                    {
-                        ModelUsageMeter.TTS_CHARACTERS,
-                        ModelUsageMeter.TTS_TOKENS,
-                        ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
-                        ModelUsageMeter.AUDIO_OUTPUT_TOKENS,
-                        ModelUsageMeter.REQUEST_UNITS,
-                    }
-                ),
+                produced_meters=frozenset({ModelUsageMeter.TTS_CHARACTERS}),
             )
         )
 
@@ -233,8 +224,6 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                     {
                         ModelUsageMeter.AUDIO_INPUT_SECONDS,
                         ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
-                        ModelUsageMeter.AUDIO_INPUT_TOKENS,
-                        ModelUsageMeter.AUDIO_OUTPUT_TOKENS,
                     }
                 ),
             )

@@ -10,6 +10,7 @@ from dataclasses import fields, is_dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from threading import Lock
 
 from app.core.enums import (
     ModelUsageCapability,
@@ -59,6 +60,7 @@ PROVIDER_USAGE_RECEIPT_LOG_FIELDS = frozenset(
         "measurement_status",
         "pricing_status",
         "meters",
+        "required_meters",
         "meter_watermarks",
         "dispatched_at",
         "completed_at",
@@ -115,6 +117,7 @@ def receipt_log_payload(receipt: ProviderUsageReceipt) -> dict[str, object]:
         "measurement_status": receipt.measurement_status.value,
         "pricing_status": receipt.pricing_status.value,
         "meters": _safe_value(receipt.meters),
+        "required_meters": _safe_value(receipt.required_meters),
         "meter_watermarks": _safe_value(receipt.meter_watermarks),
         "dispatched_at": receipt.dispatched_at.isoformat(),
         "completed_at": receipt.completed_at.isoformat(),
@@ -180,8 +183,13 @@ def provider_usage_receipt_from_log_payload(
             )
         }
         meter_payloads = payload["meters"]
+        required_meter_payloads = payload["required_meters"]
         watermark_payloads = payload["meter_watermarks"]
-        if not isinstance(meter_payloads, list) or not isinstance(watermark_payloads, list):
+        if (
+            not isinstance(meter_payloads, list)
+            or not isinstance(required_meter_payloads, list)
+            or not isinstance(watermark_payloads, list)
+        ):
             raise TypeError
         meters = tuple(
             UsageMeterQuantity(
@@ -194,6 +202,18 @@ def provider_usage_receipt_from_log_payload(
             if isinstance(item, dict)
         )
         if len(meters) != len(meter_payloads):
+            raise TypeError
+        required_meters = tuple(
+            UsageMeterQuantity(
+                meter=ModelUsageMeter(item["meter"]),
+                quantity=Decimal(item["quantity"]),
+                meter_role=ModelUsageMeterRole(item["meter_role"]),
+                quantity_source=ModelUsageQuantitySource(item["quantity_source"]),
+            )
+            for item in required_meter_payloads
+            if isinstance(item, dict)
+        )
+        if len(required_meters) != len(required_meter_payloads):
             raise TypeError
         watermarks = tuple(
             ProviderMeterWatermark(
@@ -288,6 +308,7 @@ def provider_usage_receipt_from_log_payload(
             fail_open_proof_id=_optional_string(payload["fail_open_proof_id"]),
             integrity_key_id=required_strings["integrity_key_id"],
             integrity_hmac=required_strings["integrity_hmac"],
+            required_meters=required_meters,
         )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise ModelUsageReceiptIntegrityError("receipt_log_payload_invalid") from exc
@@ -342,30 +363,53 @@ class ProviderUsageReceiptQueue:
     def __init__(self, *, max_size: int) -> None:
         if max_size <= 0:
             raise ValueError("receipt queue max_size must be positive")
-        self._items: deque[ProviderUsageReceipt] = deque(maxlen=max_size)
+        self._max_size = max_size
+        self._items: deque[ProviderUsageReceipt] = deque()
+        self._lock = Lock()
 
     def __len__(self) -> int:
-        return len(self._items)
+        with self._lock:
+            return len(self._items)
+
+    def _append_locked(self, receipt: ProviderUsageReceipt) -> ProviderUsageReceipt | None:
+        evicted = self._items.popleft() if len(self._items) >= self._max_size else None
+        self._items.append(receipt)
+        return evicted
+
+    @staticmethod
+    def _log_evicted(receipt: ProviderUsageReceipt) -> None:
+        logger.error(
+            "model_usage_receipt_queue_evicted %s",
+            json.dumps(receipt_log_payload(receipt), ensure_ascii=False, sort_keys=True),
+        )
 
     def enqueue(self, receipt: ProviderUsageReceipt) -> None:
-        if len(self._items) == self._items.maxlen:
-            evicted = self._items[0]
-            logger.error(
-                "model_usage_receipt_queue_evicted %s",
-                json.dumps(receipt_log_payload(evicted), ensure_ascii=False, sort_keys=True),
-            )
-        self._items.append(receipt)
+        with self._lock:
+            evicted = self._append_locked(receipt)
+        if evicted is not None:
+            self._log_evicted(evicted)
         logger.warning(
             "model_usage_receipt_pending %s",
             json.dumps(receipt_log_payload(receipt), ensure_ascii=False, sort_keys=True),
         )
 
     def retry(self, handler: Callable[[ProviderUsageReceipt], object]) -> None:
-        remaining: deque[ProviderUsageReceipt] = deque(maxlen=self._items.maxlen)
-        while self._items:
-            receipt = self._items.popleft()
+        with self._lock:
+            batch = tuple(self._items)
+            self._items.clear()
+        remaining: list[ProviderUsageReceipt] = []
+        for receipt in batch:
             try:
                 handler(receipt)
             except Exception:
                 remaining.append(receipt)
-        self._items = remaining
+        with self._lock:
+            concurrent_items = tuple(self._items)
+            self._items.clear()
+            evicted = [
+                dropped
+                for item in (*remaining, *concurrent_items)
+                if (dropped := self._append_locked(item)) is not None
+            ]
+        for dropped in evicted:
+            self._log_evicted(dropped)

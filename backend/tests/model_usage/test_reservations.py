@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import (
     ModelUsageAttributionKind,
@@ -20,7 +20,7 @@ from app.core.enums import (
 )
 from app.models.domain import Family, User
 from app.models.model_usage import ModelUsageEvent, ModelUsagePeriodCounter, ModelUsageReservation
-from app.services.model_usage.errors import ModelUsageAttemptConflict
+from app.services.model_usage.errors import ModelUsageAttemptConflict, ModelUsageContractError
 from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.policies import (
     CapabilityLimitCommand,
@@ -29,7 +29,7 @@ from app.services.model_usage.policies import (
     ensure_family_model_usage_defaults,
     update_family_policy,
 )
-from app.services.model_usage.reservations import reserve_usage_in_session
+from app.services.model_usage.reservations import reserve_usage, reserve_usage_in_session
 from app.services.model_usage.subjects import ensure_user_subject
 from app.services.model_usage.types import (
     UsageAttribution,
@@ -137,6 +137,29 @@ def test_same_attempt_and_fingerprint_replays_reservation(
     assert counter(model_usage_db, "family_cost").reserved_value == first.reserved_cost_cny
 
 
+def test_reserve_usage_commits_only_its_own_transaction(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    model_usage_db.commit()
+    usage_session_factory = sessionmaker(
+        bind=model_usage_db.get_bind(),
+        expire_on_commit=False,
+    )
+
+    decision = reserve_usage(
+        reservation_context,
+        estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-public-reserve",
+        session_factory=usage_session_factory,
+    )
+
+    assert decision.decision == "allowed"
+    with usage_session_factory() as check_db:
+        reservation = check_db.get(ModelUsageReservation, decision.reservation_id)
+        assert reservation is not None
+
+
 def test_same_attempt_with_different_fingerprint_is_rejected(
     model_usage_db: Session,
     reservation_context: UsageContext,
@@ -187,6 +210,43 @@ def test_monitoring_mode_admits_unpriced_and_tracks_meter_counters(
     assert counter(
         model_usage_db, "capability_meter:llm:total_tokens"
     ).reserved_value == Decimal("300")
+
+
+@pytest.mark.parametrize(
+    ("meter", "quantity"),
+    [
+        (ModelUsageMeter.TOTAL_TOKENS, Decimal("-1")),
+        (ModelUsageMeter.TOTAL_TOKENS, Decimal("1.5")),
+        (ModelUsageMeter.TOTAL_TOKENS, Decimal("1.0000001")),
+    ],
+)
+def test_reservation_rejects_invalid_meter_quantity_contract(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+    meter: ModelUsageMeter,
+    quantity: Decimal,
+) -> None:
+    estimate = UsageEstimate(
+        meters=(
+            UsageMeterQuantity(
+                meter=meter,
+                quantity=quantity,
+                meter_role=ModelUsageMeterRole.INFORMATIONAL,
+                quantity_source=ModelUsageQuantitySource.ESTIMATED,
+            ),
+        )
+    )
+
+    with pytest.raises(ModelUsageContractError, match="meter_quantity"):
+        reserve_usage_in_session(
+            model_usage_db,
+            reservation_context,
+            estimate,
+            fingerprint=f"fp-invalid-{quantity}",
+            at=NOW,
+        )
+
+    assert model_usage_db.query(ModelUsageReservation).count() == 0
 
 
 def test_full_precision_budget_comparison_blocks_without_cent_rounding(

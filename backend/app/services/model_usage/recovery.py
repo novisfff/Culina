@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -24,10 +26,12 @@ from app.core.enums import (
     ModelUsageReservationStatus,
 )
 from app.core.utils import create_id, utcnow
+from app.db.session import SessionLocal
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
     ModelUsageMeasurementIncidentAttempt,
+    ModelUsagePriceRate,
     ModelUsagePriceVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
@@ -40,10 +44,11 @@ from app.services.model_usage.counters import (
     family_cost_dimension_key,
     lock_or_create_counter,
 )
-from app.services.model_usage.decimal_math import exact_line_cost, quantize_quantity
+from app.services.model_usage.decimal_math import exact_line_cost
 from app.services.model_usage.dispatch import _lock_counters, _permit, _remove_reserved
 from app.services.model_usage.errors import (
     ModelUsageAttemptConflict,
+    ModelUsageContractError,
     ModelUsageReceiptIntegrityError,
     ModelUsageStateError,
 )
@@ -59,6 +64,7 @@ from app.services.model_usage.types import (
     UsageMeterQuantity,
     UsageSettlement,
     capability_meter_contract,
+    validate_usage_meter_quantities,
 )
 
 
@@ -135,16 +141,66 @@ def _recoverable_price_rates(
     price_version = db.get(ModelUsagePriceVersion, snapshot.price_version_id)
     if price_version is None or price_version.manifest_checksum != snapshot.checksum:
         return None
-    rates = {rate.meter: rate for rate in snapshot.rates}
-    if len(rates) != len(snapshot.rates):
+    catalog_rates = tuple(
+        db.scalars(
+            select(ModelUsagePriceRate)
+            .where(
+                ModelUsagePriceRate.price_version_id == snapshot.price_version_id,
+                ModelUsagePriceRate.provider == receipt.provider,
+                ModelUsagePriceRate.billing_model == receipt.billing_model,
+                ModelUsagePriceRate.capability == receipt.capability,
+                ModelUsagePriceRate.variant_key == receipt.variant_key,
+                ModelUsagePriceRate.billing_scheme_key == receipt.billing_scheme_key,
+            )
+            .order_by(ModelUsagePriceRate.meter)
+        )
+    )
+    snapshot_rates = {rate.meter: rate for rate in snapshot.rates}
+    catalog_by_meter = {rate.meter: rate for rate in catalog_rates}
+    if (
+        len(snapshot_rates) != len(snapshot.rates)
+        or len(catalog_by_meter) != len(catalog_rates)
+        or set(snapshot_rates) != set(catalog_by_meter)
+    ):
         return None
-    return rates
+    for meter, catalog_rate in catalog_by_meter.items():
+        rate = snapshot_rates[meter]
+        if (
+            rate.meter_role is not catalog_rate.meter_role
+            or rate.unit_quantity != catalog_rate.unit_quantity
+            or rate.unit_price != catalog_rate.unit_price
+            or rate.source_currency != catalog_rate.source_currency
+            or rate.fx_to_cny != catalog_rate.fx_to_cny
+            or rate.unit_price_cny != catalog_rate.unit_price_cny
+        ):
+            return None
+    expected_billable = {
+        line.meter
+        for line in receipt.required_meters
+        if line.meter_role is ModelUsageMeterRole.BILLABLE
+    }
+    catalog_billable = {
+        rate.meter
+        for rate in catalog_rates
+        if rate.meter_role is ModelUsageMeterRole.BILLABLE
+        and rate.unit_price_cny is not None
+    }
+    if expected_billable != catalog_billable:
+        return None
+    return snapshot_rates
 
 
 def _validate_consumed_fail_open_permit(
     permit: DispatchPermit,
     receipt: ProviderUsageReceipt,
 ) -> None:
+    permit_required_meters = {line.meter: line for line in permit.required_meters}
+    receipt_required_meters = {line.meter: line for line in receipt.required_meters}
+    required_meter_contract_matches = (
+        len(permit_required_meters) == len(permit.required_meters)
+        and len(receipt_required_meters) == len(receipt.required_meters)
+        and permit_required_meters == receipt_required_meters
+    )
     checks = (
         permit.send_kind == "fail_open_single_send",
         permit.reservation_id is None,
@@ -168,11 +224,81 @@ def _validate_consumed_fail_open_permit(
         _utc(permit.period.start_at) == _utc(receipt.period.start_at),
         _utc(permit.period.end_at) == _utc(receipt.period.end_at),
         _utc(permit.dispatched_at) == _utc(receipt.dispatched_at),
+        required_meter_contract_matches,
     )
     if not all(checks):
         raise ModelUsageReceiptIntegrityError(
             "fail_open_permit_receipt_mismatch"
         )
+
+
+def _validate_retry_reservation_meter_contract(
+    db: Session,
+    *,
+    reservation: ModelUsageReservation,
+    receipt: ProviderUsageReceipt,
+    receipt_meters: tuple[UsageMeterQuantity, ...],
+) -> None:
+    identity_matches = (
+        reservation.family_id == receipt.family_id,
+        reservation.subject_key == receipt.subject_key,
+        reservation.capability is receipt.capability,
+        reservation.provider == receipt.provider,
+        reservation.requested_model == receipt.requested_model,
+        reservation.billing_model == receipt.billing_model,
+        reservation.variant_key == receipt.variant_key,
+        reservation.billing_scheme_key == receipt.billing_scheme_key,
+        reservation.attempt_key == receipt.attempt_key,
+        reservation.fingerprint == receipt.fingerprint,
+        reservation.client_attempt_id == receipt.client_attempt_id,
+        reservation.policy_version_id == receipt.policy_version_id,
+    )
+    if not all(identity_matches):
+        raise ModelUsageReceiptIntegrityError("fail_open_retry_reservation_mismatch")
+    reservation_meters = tuple(
+        db.scalars(
+            select(ModelUsageReservationMeter)
+            .where(ModelUsageReservationMeter.reservation_id == reservation.id)
+            .order_by(ModelUsageReservationMeter.meter_key)
+        )
+    )
+    expected_by_meter = {row.meter: row for row in reservation_meters}
+    actual_by_meter = {line.meter: line for line in receipt_meters}
+    if set(expected_by_meter) != set(actual_by_meter):
+        raise ModelUsageReceiptIntegrityError("fail_open_receipt_meter_set_mismatch")
+    if receipt.provider_outcome is ModelUsageProviderOutcome.NOT_BILLED:
+        return
+    if any(
+        actual_by_meter[meter].meter_role is not expected.meter_role
+        for meter, expected in expected_by_meter.items()
+    ):
+        raise ModelUsageReceiptIntegrityError("fail_open_receipt_meter_role_mismatch")
+
+
+def _validate_fail_open_required_meter_contract(
+    receipt: ProviderUsageReceipt,
+    receipt_meters: tuple[UsageMeterQuantity, ...],
+) -> None:
+    required_by_meter = {line.meter: line for line in receipt.required_meters}
+    if not required_by_meter or len(required_by_meter) != len(receipt.required_meters):
+        raise ModelUsageReceiptIntegrityError("fail_open_required_meter_contract_missing")
+    actual_by_meter = {line.meter: line for line in receipt_meters}
+    if set(required_by_meter) != set(actual_by_meter):
+        raise ModelUsageReceiptIntegrityError("fail_open_receipt_meter_set_mismatch")
+    for line in receipt.required_meters:
+        try:
+            capability_meter_contract(receipt.capability, line.meter)
+        except KeyError as exc:
+            raise ModelUsageReceiptIntegrityError(
+                "fail_open_meter_contract_invalid"
+            ) from exc
+    if receipt.provider_outcome is ModelUsageProviderOutcome.NOT_BILLED:
+        return
+    if any(
+        actual_by_meter[meter].meter_role is not required.meter_role
+        for meter, required in required_by_meter.items()
+    ):
+        raise ModelUsageReceiptIntegrityError("fail_open_receipt_meter_role_mismatch")
 
 
 def _utc(value: datetime) -> datetime:
@@ -241,6 +367,34 @@ def mark_dispatch_uncertain(
     *,
     reservation_id: str,
 ) -> ModelUsageReservation:
+    record_usage_uncertain_in_session(
+        db,
+        reservation_id=reservation_id,
+        stable_error_code="provider_execution_uncertain",
+    )
+    reservation = db.get(ModelUsageReservation, reservation_id)
+    if reservation is None:
+        raise ModelUsageStateError("reservation_not_found")
+    return reservation
+
+
+def _validate_stable_error_code(stable_error_code: str) -> None:
+    if (
+        not isinstance(stable_error_code, str)
+        or not stable_error_code
+        or len(stable_error_code) > 120
+        or re.fullmatch(r"[a-z0-9_]+", stable_error_code) is None
+    ):
+        raise ModelUsageContractError("invalid_stable_error_code")
+
+
+def record_usage_uncertain_in_session(
+    db: Session,
+    *,
+    reservation_id: str,
+    stable_error_code: str,
+) -> None:
+    _validate_stable_error_code(stable_error_code)
     reservation = db.scalar(
         select(ModelUsageReservation)
         .where(ModelUsageReservation.id == reservation_id)
@@ -250,14 +404,32 @@ def mark_dispatch_uncertain(
     if reservation is None:
         raise ModelUsageStateError("reservation_not_found")
     if reservation.status is ModelUsageReservationStatus.UNCERTAIN:
-        return reservation
+        if reservation.error_code != stable_error_code:
+            raise ModelUsageStateError("uncertain_error_code_conflict")
+        return
+    if reservation.status is not ModelUsageReservationStatus.DISPATCHING:
+        raise ModelUsageStateError("reservation_not_markable_uncertain")
     reservation.status = transition_reservation(
         reservation.status,
         ModelUsageReservationStatus.UNCERTAIN,
     )
-    reservation.error_code = "provider_execution_uncertain"
+    reservation.error_code = stable_error_code
     db.flush()
-    return reservation
+
+
+def record_usage_uncertain(
+    reservation_id: str,
+    *,
+    stable_error_code: str,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> None:
+    with session_factory() as db:
+        with db.begin():
+            record_usage_uncertain_in_session(
+                db,
+                reservation_id=reservation_id,
+                stable_error_code=stable_error_code,
+            )
 
 
 def _estimated_receipt(
@@ -411,35 +583,45 @@ def recover_fail_open_receipt_in_session(
     if consumed_permit is not None:
         _validate_consumed_fail_open_permit(consumed_permit, receipt)
     validate_event_outcome(receipt.provider_outcome, receipt.execution_certainty)
-    contracts = {}
-    normalized_meters: list[UsageMeterQuantity] = []
-    for line in receipt.meters:
-        if line.meter in contracts:
-            raise ModelUsageReceiptIntegrityError(
-                "fail_open_receipt_duplicate_meter"
-            )
-        try:
-            contract = capability_meter_contract(
-                receipt.capability,
-                line.meter,
-            )
-        except KeyError as exc:
-            raise ModelUsageReceiptIntegrityError(
-                "fail_open_meter_contract_invalid"
-            ) from exc
-        try:
-            quantity = quantize_quantity(line.quantity)
-        except (TypeError, ValueError, ArithmeticError) as exc:
-            raise ModelUsageReceiptIntegrityError(
-                "fail_open_receipt_meter_quantity_invalid"
-            ) from exc
-        if contract.integer_only and quantity != quantity.to_integral_value():
-            raise ModelUsageReceiptIntegrityError(
-                "fail_open_receipt_meter_quantity_invalid"
-            )
-        contracts[line.meter] = contract
-        normalized_meters.append(replace(line, quantity=quantity))
+    try:
+        normalized_meters = validate_usage_meter_quantities(
+            receipt.capability,
+            receipt.meters,
+        )
+    except ModelUsageContractError as exc:
+        if str(exc) == "duplicate_usage_meter":
+            code = "fail_open_receipt_duplicate_meter"
+        elif str(exc) == "meter_not_supported_for_capability":
+            code = "fail_open_meter_contract_invalid"
+        else:
+            code = "fail_open_receipt_meter_quantity_invalid"
+        raise ModelUsageReceiptIntegrityError(code) from exc
+    contracts = {
+        line.meter: capability_meter_contract(receipt.capability, line.meter)
+        for line in normalized_meters
+    }
     lock_family_policy(db, family_id=receipt.family_id)
+    reservation = db.scalar(
+        select(ModelUsageReservation)
+        .where(
+            ModelUsageReservation.family_id == receipt.family_id,
+            ModelUsageReservation.attempt_key == receipt.attempt_key,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    if reservation is not None:
+        _validate_retry_reservation_meter_contract(
+            db,
+            reservation=reservation,
+            receipt=receipt,
+            receipt_meters=normalized_meters,
+        )
+    else:
+        _validate_fail_open_required_meter_contract(
+            receipt,
+            normalized_meters,
+        )
     existing = db.scalar(
         select(ModelUsageEvent)
         .where(
@@ -457,15 +639,6 @@ def recover_fail_open_receipt_in_session(
             receipt,
         )
         return adjustment_required or settlement
-    reservation = db.scalar(
-        select(ModelUsageReservation)
-        .where(
-            ModelUsageReservation.family_id == receipt.family_id,
-            ModelUsageReservation.attempt_key == receipt.attempt_key,
-        )
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    )
     if reservation is not None and reservation.fingerprint != receipt.fingerprint:
         raise ModelUsageAttemptConflict()
     subject = db.scalar(
