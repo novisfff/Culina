@@ -41,6 +41,7 @@ from app.services.model_usage.errors import (
 from app.services.model_usage.policies import lock_family_policy
 from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
+from app.services.model_usage.realtime_watermarks import apply_realtime_watermarks_in_session
 from app.services.model_usage.state_machine import transition_reservation, validate_event_outcome
 from app.services.model_usage.types import (
     ProviderUsageReceipt,
@@ -346,6 +347,7 @@ def settle_usage_in_session(
         if delta is not None:
             counter.settled_value += delta
             counter.version += 1
+    apply_realtime_watermarks_in_session(db, receipt)
     reservation.status = transition_reservation(
         reservation.status,
         ModelUsageReservationStatus.SETTLED,

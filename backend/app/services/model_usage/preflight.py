@@ -131,6 +131,7 @@ def _require_schema_constraints(db: Session) -> None:
         "model_usage_adjustment_groups",
         "model_usage_period_counters",
         "model_usage_monthly_rollups",
+        "model_usage_realtime_watermarks",
     }
     existing_tables = set(inspector.get_table_names())
     missing_tables = sorted(required_tables - existing_tables)

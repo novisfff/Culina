@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import ModelUsageCorrectionStatus
+from app.core.enums import ModelUsageCorrectionStatus, ModelUsageMeter
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
@@ -15,6 +15,7 @@ from app.models.model_usage import (
     ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
     ModelUsageReservation,
+    ModelUsageRealtimeWatermark,
 )
 from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.errors import ModelUsageStateError
@@ -107,6 +108,35 @@ def test_raw_delete_order_is_fk_safe() -> None:
     assert RAW_DELETE_ORDER.index("model_usage_events") < RAW_DELETE_ORDER.index(
         "model_usage_reservations"
     )
+    assert RAW_DELETE_ORDER.index("model_usage_realtime_watermarks") < RAW_DELETE_ORDER.index(
+        "model_usage_period_counters"
+    )
+
+
+def test_retention_prunes_realtime_watermarks_before_closing_period(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    target = _old_target(model_usage_db, settled_source_event)
+    watermark = ModelUsageRealtimeWatermark(
+        id="retention-realtime-watermark",
+        family_id=target.family_id,
+        period_start=target.period.start_at,
+        period_end=target.period.end_at,
+        session_key="voice-session-retention",
+        provider="dashscope",
+        meter=ModelUsageMeter.AUDIO_INPUT_TOKENS,
+        cumulative_quantity=Decimal("100"),
+        sequence=1,
+    )
+    model_usage_db.add(watermark)
+    model_usage_db.flush()
+
+    result = prune_period(model_usage_db, target, batch_size=1)
+
+    assert result.status is ModelUsageCorrectionStatus.CLOSED
+    assert result.deleted["model_usage_realtime_watermarks"] == 1
+    assert model_usage_db.get(ModelUsageRealtimeWatermark, watermark.id) is None
 
 
 def test_prune_transitions_to_closed_only_after_fk_safe_raw_deletion(

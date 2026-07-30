@@ -61,7 +61,7 @@ class MeteredProviderAttempt:
     def client_attempt_id(self) -> str:
         return self.context.client_attempt_id
 
-    def prepare_dispatch(self) -> DispatchPermit:
+    def prepare_dispatch(self, *, at: datetime | None = None) -> DispatchPermit:
         """Atomically move the reservation into dispatching before a send."""
 
         if self._dispatched or self._permit is not None:
@@ -72,8 +72,12 @@ class MeteredProviderAttempt:
                 fingerprint=self.fingerprint,
                 recovery_policy=ProviderRecoveryPolicy.none(),
                 session_factory=self.session_factory,
+                at=at,
             )
         elif self.fail_open_permit is not None:
+            # The proof is only valid through the physical provider-send
+            # boundary.  Never backdate that single-use check to a caller's
+            # reservation timestamp.
             permit = self.usage_facade.consume_fail_open_dispatch_permit(
                 self.fail_open_permit,
                 at=self.clock(),
@@ -144,8 +148,14 @@ class MeteredProviderAdapter:
         estimate: UsageEstimate,
         *,
         fingerprint: str,
+        at: datetime | None = None,
     ) -> MeteredProviderAttempt:
-        decision = self.usage_facade.reserve(context, estimate, fingerprint=fingerprint)
+        decision = self.usage_facade.reserve(
+            context,
+            estimate,
+            fingerprint=fingerprint,
+            at=at,
+        )
         if decision.decision == "blocked":
             raise ModelUsageBlocked(
                 decision.error_code or "model_usage_blocked",

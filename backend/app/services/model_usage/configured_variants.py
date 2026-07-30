@@ -77,6 +77,8 @@ def validate_configured_variant(
     if uses_token_billing:
         if any(cap is None or cap <= 0 for cap in caps):
             raise PriceManifestError("realtime_token_caps_required")
+        if not AUDIO_SECOND_METERS <= variant.produced_meters:
+            raise PriceManifestError("realtime_server_clock_meters_required")
     elif any(cap is not None for cap in caps):
         raise PriceManifestError("realtime_seconds_scheme_forbids_token_caps")
 

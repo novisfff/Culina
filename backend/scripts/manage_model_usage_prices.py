@@ -15,6 +15,7 @@ from app.core.enums import ModelUsageCapability, ModelUsageMeter, ModelUsageMete
 from app.db.session import SessionLocal
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
 from app.services.model_usage.configured_variants import (
+    AUDIO_SECOND_METERS,
     AUDIO_TOKEN_METERS,
     ConfiguredUsageVariant,
     ProviderUsageContract,
@@ -60,7 +61,9 @@ def _inferred_variants(
                 variant_key=variant_key,
                 billing_scheme_key=scheme_key,
                 billable_meters=frozenset(billable),
-                produced_meters=frozenset(billable),
+                produced_meters=frozenset(
+                    billable | (set(AUDIO_SECOND_METERS) if token_realtime else set())
+                ),
                 input_tokens_per_second_cap=Decimal("1") if token_realtime else None,
                 output_tokens_per_second_cap=Decimal("1") if token_realtime else None,
                 lease_boundary_cumulative_meters=(

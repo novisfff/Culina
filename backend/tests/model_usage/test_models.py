@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "model_usage_alert_receipts",
     "model_usage_measurement_incidents",
     "model_usage_measurement_incident_attempts",
+    "model_usage_realtime_watermarks",
 }
 
 
@@ -45,7 +46,6 @@ def assert_numeric(column_name: str, table_name: str, precision: int, scale: int
 
 def test_model_usage_metadata_has_all_foundational_tables() -> None:
     assert EXPECTED_TABLES <= set(Base.metadata.tables)
-    assert "model_usage_realtime_watermarks" not in Base.metadata.tables
 
 
 def test_ledger_claims_use_non_nullable_unique_dimensions() -> None:

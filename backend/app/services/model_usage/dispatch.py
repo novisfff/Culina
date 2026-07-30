@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -45,6 +45,14 @@ from app.services.model_usage.types import (
     ProviderRecoveryPolicy,
     UsageMeterQuantity,
 )
+
+
+def _database_utc(value: datetime) -> datetime:
+    """Treat timezone-less MySQL datetime values as stored UTC instants."""
+
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _validate_recovery_policy(policy: ProviderRecoveryPolicy) -> None:
@@ -191,6 +199,11 @@ def _permit(
     reservation: ModelUsageReservation,
     meters: tuple[ModelUsageReservationMeter, ...],
 ) -> DispatchPermit:
+    if reservation.dispatching_at is None:
+        raise ModelUsageStateError("reservation_dispatch_time_missing")
+    period_start = _database_utc(reservation.period_start)
+    period_end = _database_utc(reservation.period_end)
+    dispatched_at = _database_utc(reservation.dispatching_at)
     return DispatchPermit(
         reservation_id=reservation.id,
         send_kind="first_send",
@@ -209,11 +222,11 @@ def _permit(
         dispatch_policy_version_id=reservation.dispatch_policy_version_id or "",
         pricing_status=reservation.pricing_status,
         period=BillingPeriod(
-            local_month=reservation.period_start.astimezone(SHANGHAI).strftime("%Y-%m"),
-            start_at=reservation.period_start,
-            end_at=reservation.period_end,
+            local_month=period_start.astimezone(SHANGHAI).strftime("%Y-%m"),
+            start_at=period_start,
+            end_at=period_end,
         ),
-        dispatched_at=reservation.dispatching_at,
+        dispatched_at=dispatched_at,
         price_version_id=reservation.price_version_id,
         price_snapshot=_price_snapshot(reservation, meters),
         price_snapshot_checksum=reservation.price_snapshot_checksum,
@@ -246,6 +259,7 @@ def prepare_usage_dispatch_in_session(
     reservation_id: str,
     fingerprint: str,
     recovery_policy: ProviderRecoveryPolicy,
+    at: datetime | None = None,
 ) -> DispatchGateOutcome:
     _validate_recovery_policy(recovery_policy)
     # All currently configured production adapters explicitly use recovery_mode=none.
@@ -321,7 +335,7 @@ def prepare_usage_dispatch_in_session(
     # The initial governance schema stores MySQL datetimes at whole-second
     # precision.  Persist the same normalized timestamp carried by the permit
     # so a signed receipt can be verified after the reservation is reloaded.
-    reservation.dispatching_at = utcnow().replace(microsecond=0)
+    reservation.dispatching_at = (at or utcnow()).replace(microsecond=0)
     reservation.provider_idempotency_key = (
         reservation.client_attempt_id
         if recovery_policy.mode
@@ -343,6 +357,7 @@ def prepare_usage_dispatch(
     fingerprint: str,
     recovery_policy: ProviderRecoveryPolicy,
     session_factory: Callable[[], Session] = SessionLocal,
+    at: datetime | None = None,
 ) -> DispatchPermit:
     with session_factory() as db:
         with db.begin():
@@ -351,5 +366,6 @@ def prepare_usage_dispatch(
                 reservation_id=reservation_id,
                 fingerprint=fingerprint,
                 recovery_policy=recovery_policy,
+                at=at,
             )
     return outcome.require_first_send_permit()

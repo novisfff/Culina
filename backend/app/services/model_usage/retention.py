@@ -28,6 +28,7 @@ from app.models.model_usage import (
     ModelUsageMeasurementIncidentAttempt,
     ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
+    ModelUsageRealtimeWatermark,
     ModelUsageReservation,
     ModelUsageReservationMeter,
 )
@@ -50,6 +51,7 @@ RAW_DELETE_ORDER = (
     "model_usage_events",
     "model_usage_reservation_meters",
     "model_usage_reservations",
+    "model_usage_realtime_watermarks",
     "model_usage_period_counters",
     "model_usage_measurement_incidents",
 )
@@ -311,6 +313,10 @@ def _ids_for_table(
         statement = select(ModelUsageReservation.id).where(
             *_period_filters(ModelUsageReservation, target)
         )
+    elif table_name == "model_usage_realtime_watermarks":
+        statement = select(ModelUsageRealtimeWatermark.id).where(
+            *_period_filters(ModelUsageRealtimeWatermark, target)
+        )
     elif table_name == "model_usage_period_counters":
         statement = select(ModelUsagePeriodCounter.id).where(
             *_period_filters(ModelUsagePeriodCounter, target)
@@ -341,6 +347,7 @@ _DeletionModel: TypeAlias = (
     | type[ModelUsageEvent]
     | type[ModelUsageReservationMeter]
     | type[ModelUsageReservation]
+    | type[ModelUsageRealtimeWatermark]
     | type[ModelUsagePeriodCounter]
     | type[ModelUsageMeasurementIncident]
 )
@@ -356,6 +363,7 @@ _DELETION_MODELS: dict[str, _DeletionModel] = {
     "model_usage_events": ModelUsageEvent,
     "model_usage_reservation_meters": ModelUsageReservationMeter,
     "model_usage_reservations": ModelUsageReservation,
+    "model_usage_realtime_watermarks": ModelUsageRealtimeWatermark,
     "model_usage_period_counters": ModelUsagePeriodCounter,
     "model_usage_measurement_incidents": ModelUsageMeasurementIncident,
 }

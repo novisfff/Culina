@@ -43,6 +43,14 @@ def _variant(
     token_realtime = capability is ModelUsageCapability.REALTIME_AUDIO and bool(
         billable & {ModelUsageMeter.AUDIO_INPUT_TOKENS, ModelUsageMeter.AUDIO_OUTPUT_TOKENS}
     )
+    produced = set(billable)
+    if token_realtime:
+        produced.update(
+            {
+                ModelUsageMeter.AUDIO_INPUT_SECONDS,
+                ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
+            }
+        )
     return ConfiguredUsageVariant(
         provider=provider,
         billing_model=model,
@@ -50,7 +58,7 @@ def _variant(
         variant_key=variant_key,
         billing_scheme_key=billing_scheme_key,
         billable_meters=frozenset(billable),
-        produced_meters=frozenset(billable),
+        produced_meters=frozenset(produced),
         input_tokens_per_second_cap=Decimal("100") if token_realtime else None,
         output_tokens_per_second_cap=Decimal("200") if token_realtime else None,
         lease_boundary_cumulative_meters=frozenset(billable) if token_realtime else frozenset(),
@@ -171,6 +179,21 @@ def test_realtime_boundary_watermark_requires_adapter_contract() -> None:
 def test_realtime_token_scheme_requires_positive_caps() -> None:
     variant = replace(configured_test_variants()[5], input_tokens_per_second_cap=None)
     with pytest.raises(PriceManifestError, match="realtime_token_caps_required"):
+        validate_configured_variant(variant)
+
+
+def test_realtime_token_scheme_declares_server_clock_meters() -> None:
+    variant = replace(
+        configured_test_variants()[5],
+        produced_meters=frozenset(
+            {
+                ModelUsageMeter.AUDIO_INPUT_TOKENS,
+                ModelUsageMeter.AUDIO_OUTPUT_TOKENS,
+            }
+        ),
+    )
+
+    with pytest.raises(PriceManifestError, match="realtime_server_clock_meters_required"):
         validate_configured_variant(variant)
 
 

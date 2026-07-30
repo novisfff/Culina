@@ -59,6 +59,60 @@ def receive_json_until_status(websocket, expected_status: str) -> dict:
             return message
 
 
+def test_cooking_voice_stream_forwards_realtime_usage_scope_to_tts() -> None:
+    sentinel_scope = object()
+    captured: dict[str, object] = {}
+
+    class FakeAIApplicationService:
+        def __init__(self, _db) -> None:
+            return None
+
+        def stream_chat(self, **_kwargs):
+            yield ("message_delta", {"delta": "收到。"})
+            yield (
+                "response",
+                {
+                    "run": {"id": "voice-run-scope"},
+                    "message": {"content": "收到。", "parts": []},
+                    "included": {"result_cards": []},
+                },
+            )
+
+    class FakeDashScopeProvider:
+        async def stream_realtime_text(
+            self,
+            text_chunks,
+            _request,
+            *,
+            realtime_usage_scope=None,
+            realtime_turn_id=None,
+        ):
+            captured["scope"] = realtime_usage_scope
+            captured["turn_id"] = realtime_turn_id
+            async for _chunk in text_chunks:
+                pass
+            yield {"type": "audio_done", "sequence": 0}
+
+    async def run() -> None:
+        async for _event in stream_cooking_assistant_voice_events(
+            object(),
+            family_id="family-test",
+            user_id="user-test",
+            message="下一步",
+            subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+            provider="dashscope",
+            settings=SimpleNamespace(ai_tts_provider="dashscope"),
+            service_factory=FakeAIApplicationService,
+            tts_provider_factory=lambda *_args: FakeDashScopeProvider(),
+            realtime_usage_scope=sentinel_scope,
+            realtime_turn_id="turn-tts-scope",
+        ):
+            pass
+
+    asyncio.run(run())
+    assert captured == {"scope": sentinel_scope, "turn_id": "turn-tts-scope"}
+
+
 class FakeAudioService:
     def __init__(self) -> None:
         self.transcription_request = None
@@ -1078,6 +1132,287 @@ class AIAudioApiTestCase(unittest.TestCase):
         self.assertEqual(captured["realtime_content_type"], "audio/pcm")
         self.assertEqual(captured["realtime_sample_rate"], 16000)
         self.assertEqual(captured["agent_message"], "下一步")
+
+    def test_realtime_pcm_forwards_the_session_usage_scope_to_dashscope(self) -> None:
+        state = RealtimeVoiceSessionState(
+            session_id="voice_session-scope-forwarding-test",
+            family_id="family-test",
+            user_id="user-test",
+            provider="dashscope",
+            recipe_id="recipe-test",
+            cook_session_id="cook-test",
+            session_revision=3,
+            subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+            created_at=utcnow(),
+            expires_at=utcnow() + timedelta(minutes=10),
+        )
+        sentinel_scope = object()
+        state.realtime_usage_scope = sentinel_scope  # type: ignore[assignment]
+        captured: dict[str, object] = {}
+
+        class FakeDashScopeProvider:
+            def __init__(self, _settings, *, capability: str) -> None:
+                self.capability = capability
+
+            async def transcribe_realtime_audio(
+                self,
+                _request,
+                *,
+                on_delta=None,
+                realtime_usage_scope=None,
+                realtime_turn_id=None,
+            ):
+                captured["scope"] = realtime_usage_scope
+                captured["turn_id"] = realtime_turn_id
+                return TranscriptionResult(
+                    text="下一步",
+                    language="zh",
+                    duration_seconds=None,
+                    provider="dashscope",
+                    model="qwen3-asr-flash-realtime",
+                )
+
+        async def run() -> None:
+            with (
+                patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_stt_max_upload_bytes=1024)),
+                patch("app.api.ai_audio.DashScopeAudioProvider", FakeDashScopeProvider),
+            ):
+                text = await _transcribe_voice_event(
+                    {
+                        "data": base64.b64encode(b"\x00\x00").decode("ascii"),
+                        "mime_type": "audio/pcm",
+                        "sample_rate": 16000,
+                        "sample_width_bytes": 2,
+                        "channels": 1,
+                    },
+                    session=state,
+                    turn_id="turn-scope-forwarding",
+                )
+            self.assertEqual(text, "下一步")
+
+        asyncio.run(run())
+        self.assertIs(captured["scope"], sentinel_scope)
+        self.assertEqual(captured["turn_id"], "turn-scope-forwarding")
+
+    def test_realtime_websocket_pcm_asr_uses_a_server_generated_metering_turn_id(self) -> None:
+        session_id = "voice_session-server-metering-asr-test"
+        self.put_realtime_session(session_id)
+        state = realtime_voice_session_store.get(session_id)
+        captured: dict[str, object] = {}
+
+        class Scope:
+            async def finish_current_lease_once(self, *, completion_reason: str):
+                return SimpleNamespace(decision="ended", error_code=None)
+
+        class FakeDashScopeProvider:
+            def __init__(self, _settings, *, capability: str) -> None:
+                self.capability = capability
+
+            async def transcribe_realtime_audio(
+                self,
+                _request,
+                *,
+                on_delta=None,
+                realtime_usage_scope=None,
+                realtime_turn_id=None,
+            ):
+                captured["scope"] = realtime_usage_scope
+                captured["metering_turn_id"] = realtime_turn_id
+                return TranscriptionResult(
+                    text="下一步",
+                    language="zh",
+                    duration_seconds=None,
+                    provider="dashscope",
+                    model="qwen3-asr-flash-realtime",
+                )
+
+        class FakeAIApplicationService:
+            def __init__(self, _db) -> None:
+                return None
+
+            def stream_chat(self, **_kwargs):
+                yield ("message_delta", {"delta": "收到。"})
+                yield (
+                    "response",
+                    {
+                        "run": {"id": "voice-run-server-metering-asr-test"},
+                        "message": {"content": "收到。", "parts": []},
+                        "included": {"result_cards": []},
+                    },
+                )
+
+        state.realtime_usage_scope = Scope()  # type: ignore[assignment]
+        client_turn_id = "client:private-turn-id"
+        audio_payload = base64.b64encode(b"\x00\x00\x01\x00").decode("ascii")
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_stt_max_upload_bytes=1024)),
+            patch(
+                "app.api.ai_audio._authenticate_websocket_token",
+                return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test")),
+            ),
+            patch("app.api.ai_audio.DashScopeAudioProvider", FakeDashScopeProvider),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+        ):
+            with self.client.websocket_connect(
+                f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake"
+            ) as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json(
+                    {
+                        "type": "audio_chunk_done",
+                        "turn_id": client_turn_id,
+                        "data": f"data:audio/pcm;base64,{audio_payload}",
+                        "mime_type": "audio/pcm",
+                        "sample_rate": 16000,
+                        "sample_width_bytes": 2,
+                        "channels": 1,
+                    }
+                )
+                receive_json_until_type(websocket, "user_transcript_done")
+
+        self.assertIs(captured["scope"], state.realtime_usage_scope)
+        self.assertIsInstance(captured["metering_turn_id"], str)
+        self.assertTrue(str(captured["metering_turn_id"]).startswith("realtime_turn-"))
+        self.assertNotIn(client_turn_id, str(captured["metering_turn_id"]))
+
+    def test_metered_realtime_session_rejects_non_pcm_audio_before_normal_stt(self) -> None:
+        state = RealtimeVoiceSessionState(
+            session_id="voice_session-pcm-only-test",
+            family_id="family-test",
+            user_id="user-test",
+            provider="dashscope",
+            recipe_id="recipe-test",
+            cook_session_id="cook-test",
+            session_revision=3,
+            subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+            created_at=utcnow(),
+            expires_at=utcnow() + timedelta(minutes=10),
+        )
+        state.realtime_usage_scope = object()  # type: ignore[assignment]
+
+        async def run() -> None:
+            from fastapi import HTTPException
+
+            with (
+                patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_stt_max_upload_bytes=1024)),
+                patch("app.api.ai_audio.AIAudioService") as audio_service,
+            ):
+                with self.assertRaises(HTTPException) as error:
+                    await _transcribe_voice_event(
+                        {
+                            "data": base64.b64encode(b"webm-like-content").decode("ascii"),
+                            "mime_type": "audio/webm",
+                        },
+                        session=state,
+                        turn_id="turn-pcm-only",
+                    )
+                self.assertEqual(error.exception.status_code, 415)
+                audio_service.assert_not_called()
+
+        asyncio.run(run())
+
+    def test_realtime_agent_turn_forwards_scope_to_tts_and_terminalizes_it(self) -> None:
+        session_id = "voice_session-agent-scope-test"
+        self.put_realtime_session(session_id)
+        state = realtime_voice_session_store.get(session_id)
+        captured: dict[str, object] = {}
+
+        class Scope:
+            async def finish_current_lease_once(self, *, completion_reason: str):
+                captured.setdefault("finish_reasons", []).append(completion_reason)
+                return SimpleNamespace(decision="ended", error_code=None)
+
+        state.realtime_usage_scope = Scope()  # type: ignore[assignment]
+
+        async def fake_voice_events(*_args, **kwargs):
+            captured["scope"] = kwargs.get("realtime_usage_scope")
+            captured["turn_id"] = kwargs.get("realtime_turn_id")
+            yield {"type": "assistant_transcript_done", "text": "收到。"}
+
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings()),
+            patch(
+                "app.api.ai_audio._authenticate_websocket_token",
+                return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test")),
+            ),
+            patch("app.api.ai_audio.stream_cooking_assistant_voice_events", fake_voice_events),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json({"type": "user_transcript_done", "text": "下一步", "turn_id": "turn-agent-scope"})
+                self.assertEqual(websocket.receive_json(), {"type": "user_transcript_done", "text": "下一步", "turn_id": "turn-agent-scope"})
+                self.assertEqual(websocket.receive_json(), {"type": "status", "status": "thinking", "turn_id": "turn-agent-scope"})
+                self.assertEqual(websocket.receive_json(), {"type": "assistant_transcript_done", "text": "收到。", "turn_id": "turn-agent-scope"})
+                self.assertEqual(websocket.receive_json(), {"type": "status", "status": "listening", "turn_id": "turn-agent-scope"})
+
+        self.assertIs(captured["scope"], state.realtime_usage_scope)
+        self.assertIsInstance(captured["turn_id"], str)
+        self.assertNotEqual(captured["turn_id"], "turn-agent-scope")
+        self.assertTrue(str(captured["turn_id"]).startswith("realtime_turn-"))
+        self.assertEqual(captured["finish_reasons"][0], "turn_complete")
+        self.assertIn("disconnect", captured["finish_reasons"])
+
+    def test_realtime_transcription_failure_terminalizes_the_active_scope(self) -> None:
+        session_id = "voice_session-scope-error-test"
+        self.put_realtime_session(session_id)
+        state = realtime_voice_session_store.get(session_id)
+        finish_reasons: list[str] = []
+
+        class Scope:
+            async def finish_current_lease_once(self, *, completion_reason: str):
+                finish_reasons.append(completion_reason)
+                return SimpleNamespace(decision="ended", error_code=None)
+
+        class FailingDashScopeProvider:
+            def __init__(self, _settings, *, capability: str) -> None:
+                self.capability = capability
+
+            async def transcribe_realtime_audio(self, *_args, **_kwargs):
+                from fastapi import HTTPException
+
+                raise HTTPException(status_code=502, detail="实时语音识别失败")
+
+        class FakeAIApplicationService:
+            def __init__(self, _db) -> None:
+                return None
+
+            def record_run_cancellation(self, **_kwargs):
+                return None
+
+            def apply_run_cancellation(self, **_kwargs):
+                return {"outcome": "cancelled"}
+
+        state.realtime_usage_scope = Scope()  # type: ignore[assignment]
+        payload = base64.b64encode(b"\x00\x00").decode("ascii")
+        with (
+            patch("app.api.ai_audio.get_settings", return_value=self.settings(ai_stt_max_upload_bytes=1024)),
+            patch(
+                "app.api.ai_audio._authenticate_websocket_token",
+                return_value=(SimpleNamespace(id="user-test"), SimpleNamespace(family_id="family-test")),
+            ),
+            patch("app.api.ai_audio.DashScopeAudioProvider", FailingDashScopeProvider),
+            patch("app.api.ai_audio.AIApplicationService", FakeAIApplicationService),
+            patch("app.api.ai_audio.commit_session"),
+        ):
+            with self.client.websocket_connect(f"/api/ai/realtime/cooking/sessions/{session_id}/ws?token=fake") as websocket:
+                self.assertEqual(websocket.receive_json()["type"], "status")
+                websocket.send_json(
+                    {
+                        "type": "audio_chunk_done",
+                        "data": f"data:audio/pcm;base64,{payload}",
+                        "mime_type": "audio/pcm",
+                        "sample_rate": 16000,
+                        "sample_width_bytes": 2,
+                        "channels": 1,
+                    }
+                )
+                self.assertEqual(websocket.receive_json()["type"], "assistant_audio_trace")
+                self.assertEqual(websocket.receive_json()["status"], "transcribing")
+                self.assertEqual(websocket.receive_json()["type"], "error")
+                self.assertEqual(websocket.receive_json()["status"], "listening")
+
+        self.assertEqual(finish_reasons[0], "audio_turn_failed")
 
     def test_cooking_realtime_websocket_sends_dashscope_realtime_tts_audio(self) -> None:
         realtime_voice_session_store.clear()

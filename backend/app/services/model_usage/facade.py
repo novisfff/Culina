@@ -267,9 +267,10 @@ class ModelUsageFacade:
         estimate: UsageEstimate,
         *,
         fingerprint: str,
+        at: datetime | None = None,
     ) -> ReservationDecision:
         proof: DispatchEligibilityProof | None = None
-        at = self._clock()
+        reservation_at = at or self._clock()
         try:
             with self._session_factory() as db:
                 proof = _monitoring_dispatch_eligibility(
@@ -277,7 +278,7 @@ class ModelUsageFacade:
                     context=context,
                     estimate=estimate,
                     fingerprint=fingerprint,
-                    at=at,
+                    at=reservation_at,
                     proof_ttl=self._proof_ttl,
                 )
                 decision = reserve_usage_in_session(
@@ -285,7 +286,7 @@ class ModelUsageFacade:
                     context,
                     estimate,
                     fingerprint=fingerprint,
-                    at=at,
+                    at=reservation_at,
                     expected_policy_version_id=(
                         proof.policy_version_id if proof is not None else None
                     ),
@@ -297,11 +298,14 @@ class ModelUsageFacade:
         except SQLAlchemyError as exc:
             if proof is None or not is_model_usage_ledger_unavailable(exc):
                 return ReservationDecision.blocked("model_usage_ledger_unavailable")
+            dispatch_at = self._clock()
+            if shanghai_billing_period(dispatch_at) != proof.period:
+                return ReservationDecision.blocked("model_usage_ledger_unavailable")
             try:
                 permit = exchange_proof_for_permit(
                     proof,
                     registry=self._registry,
-                    at=self._clock(),
+                    at=dispatch_at,
                 )
             except ModelUsageProofConsumed:
                 return ReservationDecision.blocked("model_usage_ledger_unavailable")
@@ -310,7 +314,7 @@ class ModelUsageFacade:
                 subject_key=proof.subject_key,
                 capability=proof.capability,
                 client_attempt_id=proof.client_attempt_id,
-                occurred_at=self._clock(),
+                occurred_at=dispatch_at,
                 source_instance=self._source_instance,
             )
             return ReservationDecision(

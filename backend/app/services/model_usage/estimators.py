@@ -175,8 +175,23 @@ def estimate_realtime_audio(
         }
         return UsageEstimate(
             meters=tuple(
-                _quantity(meter, lease_seconds * caps[meter], role=ModelUsageMeterRole.BILLABLE)
-                for meter in sorted(billable_meters, key=lambda item: item.value)
+                (
+                    _quantity(
+                        meter,
+                        lease_seconds,
+                        role=ModelUsageMeterRole.INFORMATIONAL,
+                    )
+                    if meter in seconds
+                    else _quantity(
+                        meter,
+                        lease_seconds * caps[meter],
+                        role=ModelUsageMeterRole.BILLABLE,
+                    )
+                )
+                for meter in sorted(
+                    billable_meters | seconds,
+                    key=lambda item: item.value,
+                )
             )
         )
     raise ModelUsageContractError("invalid_realtime_billable_meter_set")

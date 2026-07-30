@@ -322,6 +322,54 @@ class ModelUsagePeriodCounter(Base):
     )
 
 
+class ModelUsageRealtimeWatermark(Base):
+    """Durable absolute provider usage at a realtime lease boundary.
+
+    The value is intentionally scoped to a billing period while remaining an
+    absolute provider total.  A new month therefore starts from the previous
+    row's total rather than treating an old session total as new usage.
+    """
+
+    __tablename__ = "model_usage_realtime_watermarks"
+    __table_args__ = (
+        UniqueConstraint(
+            "family_id",
+            "period_start",
+            "session_key",
+            "provider",
+            "meter",
+            name="uq_model_usage_realtime_watermark",
+        ),
+        Index(
+            "ix_model_usage_realtime_watermark_family_period",
+            "family_id",
+            "period_start",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: create_id("usage-realtime-watermark")
+    )
+    family_id: Mapped[str] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"), nullable=False
+    )
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    session_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    meter: Mapped[ModelUsageMeter] = mapped_column(
+        _enum_type(ModelUsageMeter), nullable=False
+    )
+    cumulative_quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class ModelUsageReservation(Base):
     __tablename__ = "model_usage_reservations"
     __table_args__ = (

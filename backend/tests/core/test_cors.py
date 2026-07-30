@@ -23,6 +23,7 @@ def test_non_local_environment_keeps_cors_to_explicit_origins() -> None:
         mysql_password="safe-password",
         jwt_secret="safe-production-secret",
         minio_secret_key="safe-minio-secret",
+        model_usage_required=True,
     )
 
     assert cors_allowed_origins(settings) == ["https://culina.example.com"]

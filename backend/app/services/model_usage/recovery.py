@@ -57,6 +57,7 @@ from app.services.model_usage.policies import lock_family_policy
 from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.pricing import UsagePriceRateSnapshot
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
+from app.services.model_usage.realtime_watermarks import apply_realtime_watermarks_in_session
 from app.services.model_usage.settlement import _settlement_from_event, settle_usage_in_session
 from app.services.model_usage.state_machine import transition_reservation, validate_event_outcome
 from app.services.model_usage.types import (
@@ -439,6 +440,10 @@ def _estimated_receipt(
     *,
     at: datetime,
 ) -> ProviderUsageReceipt:
+    if reservation.dispatching_at is None:  # guarded by the recovery caller
+        raise ModelUsageStateError("reservation_dispatch_time_missing")
+    period_start = _utc(reservation.period_start)
+    period_end = _utc(reservation.period_end)
     return ProviderUsageReceipt(
         reservation_id=reservation.id,
         family_id=reservation.family_id,
@@ -461,9 +466,9 @@ def _estimated_receipt(
         measurement_status=ModelUsageMeasurementStatus.ESTIMATED,
         pricing_status=reservation.pricing_status,
         period=BillingPeriod(
-            local_month=reservation.period_start.astimezone(SHANGHAI).strftime("%Y-%m"),
-            start_at=reservation.period_start,
-            end_at=reservation.period_end,
+            local_month=period_start.astimezone(SHANGHAI).strftime("%Y-%m"),
+            start_at=period_start,
+            end_at=period_end,
         ),
         meters=tuple(
             UsageMeterQuantity(
@@ -475,7 +480,7 @@ def _estimated_receipt(
             for row in meters
         ),
         meter_watermarks=(),
-        dispatched_at=reservation.dispatching_at,
+        dispatched_at=_utc(reservation.dispatching_at),
         completed_at=at,
         price_version_id=reservation.price_version_id,
         price_snapshot=None,
@@ -817,6 +822,7 @@ def recover_fail_open_receipt_in_session(
         if delta is not None:
             counter.settled_value += delta
             counter.version += 1
+    apply_realtime_watermarks_in_session(db, receipt)
     incident_attempt = db.scalar(
         select(ModelUsageMeasurementIncidentAttempt)
         .where(

@@ -17,7 +17,11 @@ from app.db.session import SessionLocal
 from app.services.ai_audio.dashscope_audio import DashScopeAudioProvider
 from app.services.ai_audio.openai_audio import OpenAIAudioProvider
 from app.services.ai_audio.providers import DISABLED_PROVIDERS, normalize_provider, provider_unavailable
-from app.services.ai_audio.realtime import RealtimeVoiceSessionState, realtime_voice_session_store
+from app.services.ai_audio.realtime import (
+    RealtimeProviderScope,
+    RealtimeVoiceSessionState,
+    realtime_voice_session_store,
+)
 from app.services.ai_audio.schemas import (
     CookingRealtimeSession,
     CookingRealtimeSessionRequest,
@@ -29,7 +33,13 @@ from app.services.ai_audio.schemas import (
 from app.services.ai_audio.speech import sanitize_speech_text
 from app.services.ai_audio.transcription import AudioDurationError, measure_audio_duration_seconds
 from app.services.model_usage.adapters.audio import AudioUsageAdapter
-from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageError
+from app.services.model_usage.adapters.realtime_audio import RealtimeAudioUsageAdapter
+from app.services.model_usage.configured_variants import configured_usage_variants
+from app.services.model_usage.errors import (
+    ModelUsageBlocked,
+    ModelUsageContractError,
+    ModelUsageError,
+)
 from app.services.model_usage.facade import ModelUsageFacade
 from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 
@@ -92,6 +102,31 @@ def _audio_usage_adapter(
         model=model,
         capability=capability,
         variant_key=variant_key,
+        usage_facade=ModelUsageFacade(session_factory=SessionLocal),
+        session_factory=SessionLocal,
+        signer=decode_receipt_integrity_keyring(settings).signer(),
+    )
+
+
+def _realtime_usage_adapter(
+    settings: Settings,
+    *,
+    provider: str,
+) -> RealtimeAudioUsageAdapter | None:
+    """Build the lease adapter without reserving anything for a new session."""
+
+    if not bool(getattr(settings, "model_usage_required", False)):
+        return None
+    variants = tuple(
+        variant
+        for variant in configured_usage_variants(settings)
+        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
+        and variant.provider == provider
+    )
+    if len(variants) != 1:
+        raise ModelUsageContractError("realtime_billing_variant_required")
+    return RealtimeAudioUsageAdapter(
+        billing_variant=variants[0],
         usage_facade=ModelUsageFacade(session_factory=SessionLocal),
         session_factory=SessionLocal,
         signer=decode_receipt_integrity_keyring(settings).signer(),
@@ -242,20 +277,29 @@ class AIAudioService:
         created_at = utcnow()
         expires_at = created_at + timedelta(seconds=self.settings.ai_realtime_timeout_seconds)
         session_id = f"voice_session-{uuid4().hex}"
-        realtime_voice_session_store.put(
-            RealtimeVoiceSessionState(
-                session_id=session_id,
-                family_id=request.family_id,
-                user_id=request.user_id,
-                provider=selected,
-                recipe_id=request.recipe_id,
-                cook_session_id=request.cook_session_id,
-                session_revision=request.session_revision,
-                subject=request.subject,
-                created_at=created_at,
-                expires_at=expires_at,
-            )
+        state = RealtimeVoiceSessionState(
+            session_id=session_id,
+            family_id=request.family_id,
+            user_id=request.user_id,
+            provider=selected,
+            recipe_id=request.recipe_id,
+            cook_session_id=request.cook_session_id,
+            session_revision=request.session_revision,
+            subject=request.subject,
+            created_at=created_at,
+            expires_at=expires_at,
         )
+        try:
+            adapter = _realtime_usage_adapter(self.settings, provider=selected)
+        except ModelUsageError as exc:
+            raise _usage_error_response(exc) from exc
+        if adapter is not None:
+            state.realtime_usage_scope = RealtimeProviderScope(
+                session=state,
+                usage_adapter=adapter,
+                schedule_deadlines=True,
+            )
+        realtime_voice_session_store.put(state)
         return CookingRealtimeSession(
             provider=selected,
             mode="agent_backed_websocket",

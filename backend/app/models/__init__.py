@@ -44,6 +44,7 @@ from app.models.model_usage import (
     ModelUsagePriceVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
+    ModelUsageRealtimeWatermark,
     ModelUsageSubject,
 )
 
@@ -83,6 +84,7 @@ __all__ = [
     "ModelUsagePriceVersion",
     "ModelUsageReservation",
     "ModelUsageReservationMeter",
+    "ModelUsageRealtimeWatermark",
     "ModelUsageSubject",
     "Recipe",
     "RecipeIngredient",
