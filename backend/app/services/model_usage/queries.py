@@ -27,6 +27,7 @@ from app.models.domain import Membership, User
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
+    ModelUsageFamilyPolicy,
     ModelUsageMonthlyRollup,
     ModelUsageReservation,
     ModelUsageSubject,
@@ -87,6 +88,7 @@ class UsageOverview:
     reserved_cost_cny: Decimal
     hard_limit_enabled: bool
     family_budget_state: ModelUsageMemberBudgetState | None = None
+    tracking_started_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,14 +141,28 @@ def _requested_period(
     period: str,
     *,
     at: datetime | None,
-) -> tuple[BillingPeriod, BillingPeriod, Literal["raw", "rollup"], bool]:
+) -> tuple[BillingPeriod, Literal["raw", "rollup"]]:
     requested = parse_local_month(period)
     current = shanghai_billing_period(require_aware_utc(at or utcnow()))
     if requested.start_at > current.start_at:
         raise ValueError("model_usage_future_period_not_allowed")
     if requested.start_at == current.start_at:
-        return requested, current, "raw", True
-    return requested, current, "rollup", False
+        return requested, "raw"
+    return requested, "rollup"
+
+
+def _tracking_started_at(db: Session, *, family_id: str) -> datetime:
+    policy_pointer = db.get(ModelUsageFamilyPolicy, family_id)
+    if policy_pointer is None:
+        raise ValueError("model_usage_family_policy_not_found")
+    started_at = policy_pointer.tracking_started_at
+    if started_at.tzinfo is None or started_at.utcoffset() is None:
+        return started_at.replace(tzinfo=timezone.utc)
+    return started_at.astimezone(timezone.utc)
+
+
+def _is_tracking_start_month(*, period: BillingPeriod, tracking_started_at: datetime) -> bool:
+    return period.start_at < tracking_started_at < period.end_at
 
 
 def _family_counter_values(
@@ -196,8 +212,8 @@ def _family_overview_for_period(
     family_id: str,
     period: BillingPeriod,
     source: Literal["raw", "rollup"],
-    is_partial_period: bool,
 ) -> UsageOverview:
+    tracking_started_at = _tracking_started_at(db, family_id=family_id)
     aggregate = (
         aggregate_family_current_period(db, family_id=family_id, period=period)
         if source == "raw"
@@ -214,12 +230,16 @@ def _family_overview_for_period(
         scope="family",
         period=period,
         source=source,
-        is_partial_period=is_partial_period,
+        is_partial_period=_is_tracking_start_month(
+            period=period,
+            tracking_started_at=tracking_started_at,
+        ),
         aggregate=aggregate,
         monthly_budget_cny=policy.monthly_budget_cny,
         effective_spend_cny=effective_spend_cny,
         reserved_cost_cny=reserved_cost_cny,
         hard_limit_enabled=policy.hard_limit_enabled,
+        tracking_started_at=tracking_started_at,
     )
 
 
@@ -230,13 +250,12 @@ def get_family_usage_overview(
     period: str,
     at: datetime | None = None,
 ) -> UsageOverview:
-    requested, _, source, is_partial_period = _requested_period(period, at=at)
+    requested, source = _requested_period(period, at=at)
     return _family_overview_for_period(
         db,
         family_id=family_id,
         period=requested,
         source=source,
-        is_partial_period=is_partial_period,
     )
 
 
@@ -248,7 +267,7 @@ def get_personal_usage_overview(
     period: str,
     at: datetime | None = None,
 ) -> UsageOverview:
-    requested, _, source, is_partial_period = _requested_period(period, at=at)
+    requested, source = _requested_period(period, at=at)
     aggregate = (
         aggregate_personal_current_period(
             db,
@@ -269,19 +288,19 @@ def get_personal_usage_overview(
         family_id=family_id,
         period=requested,
         source=source,
-        is_partial_period=is_partial_period,
     )
     return UsageOverview(
         family_id=family_id,
         scope="me",
         period=requested,
         source=source,
-        is_partial_period=is_partial_period,
+        is_partial_period=family.is_partial_period,
         aggregate=aggregate,
         monthly_budget_cny=None,
         effective_spend_cny=Decimal("0"),
         reserved_cost_cny=Decimal("0"),
         hard_limit_enabled=False,
+        tracking_started_at=family.tracking_started_at,
         family_budget_state=_member_budget_state(
             aggregate=family.aggregate,
             monthly_budget_cny=family.monthly_budget_cny,
@@ -740,7 +759,8 @@ def _usage_breakdown(
 ) -> UsageBreakdown:
     if group_by not in ALLOWED_BREAKDOWN_GROUP_BY:
         raise ValueError("model_usage_invalid_group_by")
-    requested, _, source, is_partial_period = _requested_period(period, at=at)
+    requested, source = _requested_period(period, at=at)
+    tracking_started_at = _tracking_started_at(db, family_id=family_id)
     subject_id = (
         require_user_subject(db, family_id=family_id, user_id=user_id or "").id
         if scope == "me"
@@ -768,7 +788,10 @@ def _usage_breakdown(
         scope=scope,
         period=requested,
         source=source,
-        is_partial_period=is_partial_period,
+        is_partial_period=_is_tracking_start_month(
+            period=requested,
+            tracking_started_at=tracking_started_at,
+        ),
         group_by=group_by,
         items=items,
     )

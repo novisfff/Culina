@@ -201,6 +201,7 @@ describe('useAppWorkspaceQueries', () => {
       .spyOn(api, 'getFoodPlanItem')
       .mockImplementation(() => new Promise<FoodPlanItem>(() => undefined));
     const harness = renderWorkspaceQueries({
+      ...initialNavigationState,
       primaryTab: 'eat',
       eat: {
         baseView: 'plan',
@@ -223,6 +224,7 @@ describe('useAppWorkspaceQueries', () => {
       id: 'plan-1',
     } as FoodPlanItem);
     renderWorkspaceQueries({
+      ...initialNavigationState,
       primaryTab: 'eat',
       eat: {
         baseView: 'plan',
@@ -239,6 +241,7 @@ describe('useAppWorkspaceQueries', () => {
     [
       'eat food discover',
       {
+        ...initialNavigationState,
         primaryTab: 'eat' as const,
         eat: { baseView: 'discover' as const, discoverSection: 'all' as const, task: null },
       },
@@ -246,6 +249,7 @@ describe('useAppWorkspaceQueries', () => {
     [
       'eat history',
       {
+        ...initialNavigationState,
         primaryTab: 'eat' as const,
         eat: { baseView: 'history' as const, discoverSection: 'all' as const, task: null },
       },
@@ -271,6 +275,7 @@ describe('useAppWorkspaceQueries', () => {
   it('requests meal insights only on eat history', async () => {
     const insights = vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
     renderWorkspaceQueries({
+      ...initialNavigationState,
       primaryTab: 'eat',
       eat: { baseView: 'history', discoverSection: 'all', task: null },
     });
@@ -281,6 +286,7 @@ describe('useAppWorkspaceQueries', () => {
   it('does not request meal insights on eat discover', async () => {
     const insights = vi.spyOn(api, 'getMealInsights').mockResolvedValue([]);
     renderWorkspaceQueries({
+      ...initialNavigationState,
       primaryTab: 'eat',
       eat: { baseView: 'discover', discoverSection: 'all', task: null },
     });
@@ -300,6 +306,7 @@ describe('useAppWorkspaceQueries', () => {
       () => new Promise(() => undefined) as Promise<never>,
     );
     const harness = renderWorkspaceQueries({
+      ...initialNavigationState,
       primaryTab: 'eat',
       eat: { baseView: 'history', discoverSection: 'all', task: null },
     });

@@ -116,6 +116,7 @@ def _serialize_overview_base(overview: UsageOverview) -> dict[str, object]:
         "period": overview.period.local_month,
         "source": overview.source,
         "is_partial_period": overview.is_partial_period,
+        "tracking_started_at": _utc_datetime(overview.tracking_started_at),
         **serialize_cost_summary(overview.aggregate),
         "meter_totals": serialize_meter_totals(overview.aggregate),
         "measurement_health": serialize_measurement_health(overview.aggregate),

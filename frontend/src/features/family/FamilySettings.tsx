@@ -253,6 +253,27 @@ export function FamilySettings(props: FamilySettingsProps) {
           </div>
         </section>
 
+        <section className="family-model-usage-entry-card" aria-labelledby="family-model-usage-heading">
+          <button
+            className="family-model-usage-entry"
+            type="button"
+            onClick={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
+          >
+            <span className="family-model-usage-entry-icon" aria-hidden="true">
+              <DashboardIcon name="bar-chart" />
+            </span>
+            <span className="family-model-usage-entry-copy">
+              <strong id="family-model-usage-heading">模型用量</strong>
+              <small>
+                {props.isOwner
+                  ? '查看家庭额度、个人使用和计量状态'
+                  : '查看个人使用和当前家庭额度状态'}
+              </small>
+            </span>
+            <DashboardIcon name="arrow-right" />
+          </button>
+        </section>
+
         <section className="card family-profile-panel">
           <div className="family-profile-main-row">
             <div className="family-cover-card">

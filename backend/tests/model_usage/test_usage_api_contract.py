@@ -52,6 +52,11 @@ def test_personal_overview_schema_cannot_expose_owner_only_fields() -> None:
     )
 
 
+def test_usage_overview_contract_includes_the_tracking_start_time() -> None:
+    assert "tracking_started_at" in ModelUsagePersonalOverviewOut.model_fields
+    assert "tracking_started_at" in ModelUsageFamilyOverviewOut.model_fields
+
+
 def test_decimal_text_preserves_sub_cent_precision_as_a_string() -> None:
     assert decimal_text(Decimal("0.001")) == "0.001000000000"
     assert decimal_text(Decimal("12.345")) == "12.345000000000"

@@ -46,6 +46,7 @@ class ModelUsageOverviewBaseOut(BaseModel):
     period: str
     source: Literal["raw", "rollup"]
     is_partial_period: bool
+    tracking_started_at: datetime | None = None
     known_priced_cost_cny: str
     pricing_complete: bool
     unpriced_event_count: int

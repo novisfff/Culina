@@ -38,7 +38,7 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
   const previousFamilyIdRef = useRef(args.familyId || null);
 
   useEffect(() => {
-    if (args.initialPeriod) setPeriod(args.initialPeriod);
+    setPeriod(args.initialPeriod ?? currentModelUsagePeriod());
   }, [args.initialPeriod]);
 
   useEffect(() => {
@@ -66,6 +66,16 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
       : api.getMyModelUsageBreakdown(period, groupBy),
     enabled,
   });
+  const dailyTrendQuery = useQuery<ModelUsageBreakdown>({
+    queryKey: queryKeys.modelUsageBreakdown(args.familyId, scope, period, 'daily_capability_cost'),
+    queryFn: () => scope === 'family'
+      ? api.getFamilyModelUsageBreakdown(period, 'daily_capability_cost')
+      : api.getMyModelUsageBreakdown(period, 'daily_capability_cost'),
+    enabled,
+  });
+  const activeBreakdownQuery = groupBy === 'daily_capability_cost'
+    ? dailyTrendQuery
+    : breakdownQuery;
   const policyQuery = useQuery({
     queryKey: queryKeys.modelUsagePolicy(args.familyId),
     queryFn: api.getFamilyModelUsagePolicy,
@@ -80,15 +90,20 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
   const viewModel = useMemo(
     () => buildModelUsageWorkspaceViewModel({
       overview: overviewQuery.data ?? null,
-      breakdown: breakdownQuery.data ?? null,
+      breakdown: activeBreakdownQuery.data ?? null,
+      dailyTrend: dailyTrendQuery.data ?? null,
       isInitialLoading: overviewQuery.isLoading && !overviewQuery.data,
-      isRefreshing: overviewQuery.isFetching || breakdownQuery.isFetching,
-      error: overviewQuery.error ?? breakdownQuery.error,
+      isRefreshing: overviewQuery.isFetching || activeBreakdownQuery.isFetching,
+      isDailyTrendLoading: dailyTrendQuery.isLoading && !dailyTrendQuery.data,
+      error: overviewQuery.error ?? activeBreakdownQuery.error ?? dailyTrendQuery.error,
     }),
     [
-      breakdownQuery.data,
-      breakdownQuery.error,
-      breakdownQuery.isFetching,
+      activeBreakdownQuery.data,
+      activeBreakdownQuery.error,
+      activeBreakdownQuery.isFetching,
+      dailyTrendQuery.data,
+      dailyTrendQuery.error,
+      dailyTrendQuery.isLoading,
       overviewQuery.data,
       overviewQuery.error,
       overviewQuery.isFetching,
@@ -106,11 +121,14 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
     period,
     groupBy,
     overview: overviewQuery.data ?? null,
-    breakdown: breakdownQuery.data ?? null,
+    breakdown: activeBreakdownQuery.data ?? null,
+    dailyTrend: dailyTrendQuery.data ?? null,
     policy: policyQuery.data ?? null,
     alerts: alertsQuery.data ?? [],
     overviewQuery,
     breakdownQuery,
+    dailyTrendQuery,
+    activeBreakdownQuery,
     policyQuery,
     alertsQuery,
     viewModel,

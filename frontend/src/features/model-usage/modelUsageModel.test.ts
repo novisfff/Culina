@@ -150,24 +150,30 @@ describe('model usage display model', () => {
     expect(buildModelUsageWorkspaceViewModel({
       overview: null,
       breakdown: null,
+      dailyTrend: null,
       isInitialLoading: true,
       isRefreshing: false,
+      isDailyTrendLoading: false,
       error: null,
     })).toMatchObject({ state: 'loading' });
 
     expect(buildModelUsageWorkspaceViewModel({
       overview: null,
       breakdown: null,
+      dailyTrend: null,
       isInitialLoading: false,
       isRefreshing: false,
+      isDailyTrendLoading: false,
       error: new Error('network down'),
     })).toMatchObject({ state: 'error', errorMessage: 'network down' });
 
     expect(buildModelUsageWorkspaceViewModel({
       overview: personalOverview(),
       breakdown: null,
+      dailyTrend: null,
       isInitialLoading: false,
       isRefreshing: false,
+      isDailyTrendLoading: false,
       error: null,
     })).toMatchObject({ state: 'empty', cost: '¥0.00' });
 
@@ -178,8 +184,10 @@ describe('model usage display model', () => {
         meter_totals: [{ meter: 'input_tokens', quantity: '100.000000000000' }],
       }),
       breakdown: null,
+      dailyTrend: null,
       isInitialLoading: false,
       isRefreshing: true,
+      isDailyTrendLoading: false,
       error: new Error('offline'),
     });
     expect(ready).toMatchObject({

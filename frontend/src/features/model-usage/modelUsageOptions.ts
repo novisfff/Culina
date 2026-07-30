@@ -18,6 +18,19 @@ export const MODEL_USAGE_CAPABILITY_OPTIONS: Record<
   image_generation: { label: '图片生成', description: '生成菜谱和食物图片' },
 };
 
+export const MODEL_USAGE_CAPABILITY_METERS: Record<
+  ModelUsageCapability,
+  readonly ModelUsageMeter[]
+> = {
+  llm: ['input_tokens', 'uncached_input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens'],
+  embedding: ['embedding_tokens'],
+  rerank: ['rerank_requests', 'rerank_documents'],
+  stt: ['audio_input_seconds', 'audio_input_tokens'],
+  tts: ['audio_output_seconds', 'audio_output_tokens', 'tts_characters', 'tts_tokens'],
+  realtime_audio: ['audio_input_seconds', 'audio_output_seconds', 'audio_input_tokens', 'audio_output_tokens'],
+  image_generation: ['generated_images'],
+};
+
 export const MODEL_USAGE_METER_OPTIONS: Record<ModelUsageMeter, { label: string }> = {
   input_tokens: { label: '输入 Token' },
   uncached_input_tokens: { label: '未缓存输入 Token' },

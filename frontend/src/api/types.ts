@@ -102,6 +102,7 @@ export interface ModelUsageOverviewBase extends ModelUsageCostSummary {
   period: string;
   source: 'raw' | 'rollup';
   is_partial_period: boolean;
+  tracking_started_at?: string | null;
   meter_totals: ModelUsageMeterTotal[];
   measurement_health: ModelUsageMeasurementHealth;
 }

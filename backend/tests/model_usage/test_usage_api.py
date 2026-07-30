@@ -12,7 +12,11 @@ from app.core.enums import (
     ModelUsagePricingStatus,
     ModelUsageResolutionKind,
 )
-from app.models.model_usage import ModelUsageEvent, ModelUsageEventMeter
+from app.models.model_usage import (
+    ModelUsageEvent,
+    ModelUsageEventMeter,
+    ModelUsageFamilyPolicy,
+)
 from app.services.model_usage.adjustments import (
     AdjustmentCommand,
     AdjustmentLineCommand,
@@ -89,6 +93,37 @@ def test_current_usage_period_keeps_an_event_that_settles_after_the_boundary(
     assert overview.aggregate.known_priced_cost_cny == settled_source_event.cost_cny
 
 
+def test_tracking_start_marks_only_its_start_month_as_partial(
+    model_usage_db,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    tracking_started_at = datetime(2026, 7, 10, 3, 0, tzinfo=timezone.utc)
+    policy_pointer = model_usage_db.get(
+        ModelUsageFamilyPolicy,
+        settled_source_event.family_id,
+    )
+    assert policy_pointer is not None
+    policy_pointer.tracking_started_at = tracking_started_at
+    model_usage_db.flush()
+
+    start_month = get_family_usage_overview(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period="2026-07",
+        at=NOW,
+    )
+    later_current_month = get_family_usage_overview(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period="2026-08",
+        at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+
+    assert start_month.is_partial_period is True
+    assert later_current_month.is_partial_period is False
+    assert start_month.tracking_started_at == tracking_started_at
+
+
 def test_current_personal_overview_is_scoped_to_the_authenticated_user_subject(
     model_usage_db,
     reservation_context,
@@ -136,7 +171,8 @@ def test_historical_overview_reads_rollups_without_querying_raw_events(
         sqlalchemy_event.remove(engine, "before_cursor_execute", record_statement)
 
     assert overview.source == "rollup"
-    assert overview.is_partial_period is False
+    assert overview.is_partial_period is True
+    assert overview.tracking_started_at is not None
     assert overview.aggregate.known_priced_cost_cny == settled_source_event.cost_cny
     assert any("model_usage_monthly_rollups" in statement for statement in statements)
     assert not any("model_usage_events" in statement for statement in statements)

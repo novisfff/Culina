@@ -1,4 +1,5 @@
 import { isApiError } from '../../api/request';
+import { businessDateKey } from '../../lib/date';
 import type {
   ModelUsageBreakdown,
   ModelUsageCapabilityLimit,
@@ -59,6 +60,19 @@ export function costDisplay(summary: ModelUsageCostSummary): string {
   if (!summary.pricing_complete && !hasNonZeroDecimal(summary.known_priced_cost_cny)) return '未定价';
   const known = formatModelUsageCny(summary.known_priced_cost_cny);
   return summary.pricing_complete ? known : `已记录 ${known}，另有未定价用量`;
+}
+
+export function formatModelUsageQuantity(value: string): string {
+  return value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+export function formatModelUsageTrackingStartedAt(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  const [year, month, day] = businessDateKey(instant, 'Asia/Shanghai').split('-');
+  if (!year || !month || !day) return null;
+  return `${year} 年 ${Number(month)} 月 ${Number(day)} 日`;
 }
 
 export type ModelUsageHealthNoticeKind =
@@ -141,13 +155,18 @@ export function modelUsageHealthNotices(health: ModelUsageMeasurementHealth): Mo
   return notices;
 }
 
-function hasMeasuredUsage(overview: ModelUsageOverview, breakdown: ModelUsageBreakdown | null): boolean {
+function hasMeasuredUsage(
+  overview: ModelUsageOverview,
+  breakdown: ModelUsageBreakdown | null,
+  dailyTrend: ModelUsageBreakdown | null,
+): boolean {
   const health = overview.measurement_health;
   return Boolean(
     hasNonZeroDecimal(overview.known_priced_cost_cny) ||
       overview.unpriced_event_count > 0 ||
       overview.meter_totals.some((item) => hasNonZeroDecimal(item.quantity)) ||
       breakdown?.items.length ||
+      dailyTrend?.items.length ||
       health.exact_event_count > 0 ||
       health.estimated_event_count > 0 ||
       health.unpriced_event_count > 0 ||
@@ -166,9 +185,11 @@ function errorMessage(reason: unknown): string {
 type WorkspaceDataState = {
   overview: ModelUsageOverview;
   breakdown: ModelUsageBreakdown | null;
+  dailyTrend: ModelUsageBreakdown | null;
   cost: string;
   healthNotices: ModelUsageHealthNotice[];
   isRefreshing: boolean;
+  isDailyTrendLoading: boolean;
   refreshError: string | null;
 };
 
@@ -180,8 +201,10 @@ export type ModelUsageWorkspaceViewModel =
 export function buildModelUsageWorkspaceViewModel(args: {
   overview: ModelUsageOverview | null;
   breakdown: ModelUsageBreakdown | null;
+  dailyTrend: ModelUsageBreakdown | null;
   isInitialLoading: boolean;
   isRefreshing: boolean;
+  isDailyTrendLoading: boolean;
   error: unknown;
 }): ModelUsageWorkspaceViewModel {
   if (!args.overview) {
@@ -192,12 +215,17 @@ export function buildModelUsageWorkspaceViewModel(args: {
   const data: WorkspaceDataState = {
     overview: args.overview,
     breakdown: args.breakdown,
+    dailyTrend: args.dailyTrend,
     cost: costDisplay(args.overview),
     healthNotices: modelUsageHealthNotices(args.overview.measurement_health),
     isRefreshing: args.isRefreshing,
+    isDailyTrendLoading: args.isDailyTrendLoading,
     refreshError: args.error ? errorMessage(args.error) : null,
   };
-  return { state: hasMeasuredUsage(args.overview, args.breakdown) ? 'ready' : 'empty', ...data };
+  return {
+    state: hasMeasuredUsage(args.overview, args.breakdown, args.dailyTrend) ? 'ready' : 'empty',
+    ...data,
+  };
 }
 
 export interface ModelUsagePolicyDraft extends UpdateModelUsagePolicyPayload {}

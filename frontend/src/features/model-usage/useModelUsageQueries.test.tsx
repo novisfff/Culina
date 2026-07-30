@@ -11,7 +11,7 @@ import type {
   ModelUsagePersonalOverview,
   ModelUsagePolicy,
 } from '../../api/types';
-import { useModelUsageQueries } from './useModelUsageQueries';
+import { currentModelUsagePeriod, useModelUsageQueries } from './useModelUsageQueries';
 
 const modelUsageApi = vi.hoisted(() => ({
   getMyModelUsageOverview: vi.fn(),
@@ -211,7 +211,8 @@ describe('useModelUsageQueries', () => {
       .mockImplementationOnce(() => familyBOverview);
     modelUsageApi.getFamilyModelUsageBreakdown
       .mockResolvedValueOnce(breakdown('family'))
-      .mockImplementationOnce(() => familyBBreakdown);
+      .mockResolvedValueOnce({ ...breakdown('family'), group_by: 'daily_capability_cost' })
+      .mockImplementation(() => familyBBreakdown);
     modelUsageApi.getFamilyModelUsagePolicy.mockResolvedValue(policy());
     modelUsageApi.getModelUsageAlerts.mockResolvedValue([]);
 
@@ -263,5 +264,23 @@ describe('useModelUsageQueries', () => {
       overview: { family_id: 'family-a' },
       refreshError: 'offline',
     }));
+  });
+
+  it('returns an alert-supplied period to the current Beijing month when the navigation period is cleared', async () => {
+    const queryClient = makeQueryClient();
+    resolveOwnerQueries();
+    const { result, rerender } = renderHook(
+      ({ initialPeriod }) => useModelUsageQueries({
+        familyId: 'family-a',
+        role: 'Owner',
+        initialPeriod,
+      }),
+      { initialProps: { initialPeriod: '2026-01' as string | null }, wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.period).toBe('2026-01'));
+    rerender({ initialPeriod: null });
+
+    await waitFor(() => expect(result.current.period).toBe(currentModelUsagePeriod()));
   });
 });
