@@ -278,6 +278,11 @@ def build_parser() -> argparse.ArgumentParser:
     show.set_defaults(handler=handle_show)
 
     coverage = subparsers.add_parser("coverage")
+    coverage.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the machine-readable coverage report (the default output is JSON).",
+    )
     coverage.set_defaults(handler=handle_coverage)
 
     cancel = subparsers.add_parser("cancel")

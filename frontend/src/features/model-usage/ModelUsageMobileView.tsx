@@ -192,7 +192,7 @@ export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
   return (
     <main className="model-usage-workspace model-usage-mobile" aria-busy={props.model.isRefreshing || undefined}>
       <CompactHeader {...props} />
-      {props.model.refreshError ? (
+      {props.isOffline || props.model.refreshError ? (
         <p className="model-usage-refresh-error" role="status">
           {props.isOffline ? '当前离线，正在显示已缓存的数据。' : `刷新失败，正在显示上次成功的数据：${props.model.refreshError}`}
         </p>

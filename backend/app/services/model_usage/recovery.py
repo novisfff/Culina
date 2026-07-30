@@ -56,7 +56,10 @@ from app.services.model_usage.periods import BillingPeriod, SHANGHAI
 from app.services.model_usage.policies import lock_family_policy
 from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.pricing import UsagePriceRateSnapshot
-from app.services.model_usage.receipts import ProviderUsageReceiptSigner
+from app.services.model_usage.receipts import (
+    ProviderUsageReceiptSigner,
+    model_usage_log_payload,
+)
 from app.services.model_usage.realtime_watermarks import apply_realtime_watermarks_in_session
 from app.services.model_usage.settlement import _settlement_from_event, settle_usage_in_session
 from app.services.model_usage.state_machine import transition_reservation, validate_event_outcome
@@ -76,7 +79,7 @@ logger = logging.getLogger(__name__)
 def _log_recovery_event(**fields: object) -> None:
     logger.info(
         "model_usage_recovery %s",
-        json.dumps(fields, ensure_ascii=False, sort_keys=True),
+        json.dumps(model_usage_log_payload(fields), ensure_ascii=False, sort_keys=True),
     )
 
 

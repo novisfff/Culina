@@ -99,6 +99,29 @@ def test_read_only_audit_marks_unhealthy_without_repair(
     assert counter.health_status == "drifted"
 
 
+def test_verify_only_audit_does_not_persist_health_metadata(
+    model_usage_db: Session,
+    settled_source_event,
+) -> None:
+    counter = _counter(model_usage_db, kind=ModelUsageCounterKind.FAMILY_COST)
+    previous_health_status = counter.health_status
+    previous_last_verified_at = counter.last_verified_at
+    counter.adjustment_value = Decimal("2")
+    model_usage_db.flush()
+
+    report = audit_counter(
+        model_usage_db,
+        counter.id,
+        repair=False,
+        record_verification=False,
+    )
+
+    assert report.repaired is False
+    assert report.after != report.expected
+    assert counter.health_status == previous_health_status
+    assert counter.last_verified_at == previous_last_verified_at
+
+
 def test_batch_health_is_explicitly_fail_closed_or_fail_open(
     model_usage_db: Session,
     settled_source_event,

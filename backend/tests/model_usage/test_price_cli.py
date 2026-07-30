@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from scripts.manage_model_usage_prices import build_parser
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = BACKEND_ROOT / "scripts" / "manage_model_usage_prices.py"
@@ -68,3 +70,10 @@ def test_validation_error_does_not_echo_secret_input(tmp_path: Path) -> None:
     assert "should-never-be-printed" not in result.stdout
     assert "should-never-be-printed" not in result.stderr
     assert "invalid_price_manifest" in result.stderr
+
+
+def test_coverage_accepts_json_flag_for_launch_report_automation() -> None:
+    args = build_parser().parse_args(["coverage", "--json"])
+
+    assert args.command == "coverage"
+    assert args.json is True

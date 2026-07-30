@@ -73,6 +73,66 @@ PROVIDER_USAGE_RECEIPT_LOG_FIELDS = frozenset(
     }
 )
 
+# These are deliberately names rather than runtime configuration.  Model-usage
+# logs can carry only operational identities and accounting state, never
+# request content, user identifiers, credentials, or headers.  Keep this
+# inventory in one place so a new structured log has a reviewable privacy
+# contract instead of inventing fields at its call site.
+_MODEL_USAGE_OPERATIONAL_LOG_FIELDS = frozenset(
+    {
+        "attempt_key",
+        "capability",
+        "client_attempt_id",
+        "coverage",
+        "event",
+        "event_id",
+        "family_id",
+        "incident_attempt_linked",
+        "incident_key",
+        "incident_keys",
+        "occurred_at",
+        "period_end",
+        "period_start",
+        "recovered_at",
+        "source_instance",
+        "started_at",
+        "subject_key",
+        "task",
+    }
+)
+_MODEL_USAGE_METRIC_LABEL_KEYS = frozenset(
+    {
+        "capability",
+        "measurement_status",
+        "pricing_status",
+        "provider",
+        "provider_outcome",
+        "recovery_mode",
+        "source",
+    }
+)
+
+
+def all_model_usage_log_keys() -> frozenset[str]:
+    """Return the exhaustive, static allowlist for model-usage log fields."""
+
+    return PROVIDER_USAGE_RECEIPT_LOG_FIELDS | _MODEL_USAGE_OPERATIONAL_LOG_FIELDS
+
+
+def model_usage_metric_label_keys() -> frozenset[str]:
+    """Return approved low-cardinality dimensions for future usage metrics."""
+
+    return _MODEL_USAGE_METRIC_LABEL_KEYS
+
+
+def model_usage_log_payload(fields: Mapping[str, object]) -> dict[str, object]:
+    """Validate structured operational logs against the content-free allowlist."""
+
+    unapproved = set(fields) - all_model_usage_log_keys()
+    if unapproved:
+        raise ModelUsageReceiptIntegrityError("model_usage_log_field_unapproved")
+    return dict(fields)
+
 
 def _safe_value(value: object) -> object:
     if value is None or isinstance(value, (str, int, bool)):

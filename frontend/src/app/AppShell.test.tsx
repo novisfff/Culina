@@ -374,11 +374,13 @@ describe('AppShell primary navigation', () => {
 });
 
 describe('AppShell mobile keyboard layout', () => {
-  it('renders orientation guidance for tablet/desktop portrait and mobile landscape', () => {
+  it('keeps tablet portrait workspaces available while retaining mobile landscape guidance', () => {
     const view = renderAppShell(<main>工作区内容</main>);
 
-    expect(view.textContent).toContain('电脑和 iPad 端需要横屏查看');
+    expect(view.textContent).not.toContain('电脑和 iPad 端需要横屏查看');
+    expect(screen.queryByRole('region', { name: '请横屏使用 Culina' })).not.toBeInTheDocument();
     expect(view.textContent).toContain('手机端需要竖屏查看');
+    expect(screen.getByRole('region', { name: '请竖屏使用 Culina' })).toBeInTheDocument();
   });
 
   it('does not keep a keyboard bottom inset when the viewport changes without text focus', () => {

@@ -229,6 +229,7 @@ def audit_counter(
     counter_id: str,
     *,
     repair: bool = False,
+    record_verification: bool = True,
 ) -> CounterAuditReport:
     counter = db.get(ModelUsagePeriodCounter, counter_id)
     if counter is None:
@@ -259,9 +260,10 @@ def audit_counter(
             counter.adjustment_value = expected.adjustment_value
             counter.version += 1
             repaired = True
-    counter.health_status = "healthy" if _values(counter) == expected else "drifted"
-    counter.last_verified_at = datetime.now(timezone.utc)
-    db.flush()
+    if record_verification:
+        counter.health_status = "healthy" if _values(counter) == expected else "drifted"
+        counter.last_verified_at = datetime.now(timezone.utc)
+        db.flush()
     after = _values(counter)
     return CounterAuditReport(
         counter_id=counter.id,
@@ -282,6 +284,7 @@ def audit_counters_batch(
     repair: bool = False,
     limit: int = 100,
     fail_closed: bool = True,
+    record_verification: bool = True,
 ) -> CounterAuditBatchReport:
     rows = tuple(
         db.scalars(
@@ -321,7 +324,14 @@ def audit_counters_batch(
     errors: list[str] = []
     for counter_id in ids:
         try:
-            reports.append(audit_counter(db, counter_id, repair=repair))
+            reports.append(
+                audit_counter(
+                    db,
+                    counter_id,
+                    repair=repair,
+                    record_verification=record_verification,
+                )
+            )
         except ModelUsageCounterAuditError as exc:
             errors.append(f"{counter_id}:{exc.code}")
     healthy = all(report.healthy for report in reports) and (not errors or not fail_closed)

@@ -216,11 +216,12 @@ def _preflight_health_payload() -> tuple[bool, dict[str, object]]:
 
 def handle_health(args: argparse.Namespace) -> int:
     healthy, payload = _preflight_health_payload()
+    exit_code = 0 if healthy else 2
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({**payload, "exitCode": exit_code}, ensure_ascii=False, sort_keys=True))
     else:
         print("healthy" if healthy else "unhealthy")
-    return 0 if healthy else 2
+    return exit_code
 
 
 def handle_reconcile(args: argparse.Namespace) -> int:
@@ -238,6 +239,7 @@ def handle_audit(args: argparse.Namespace) -> int:
                 repair=args.repair,
                 limit=args.limit,
                 fail_closed=not args.fail_open,
+                record_verification=not args.verify_only,
             )
     payload = {
         "healthy": report.healthy,
@@ -245,8 +247,10 @@ def handle_audit(args: argparse.Namespace) -> int:
         "errors": list(report.errors),
         "repaired": sum(item.repaired for item in report.reports),
     }
+    exit_code = 0 if report.healthy or args.fail_open else 2
+    payload["exitCode"] = exit_code
     print(json.dumps(payload, sort_keys=True))
-    return 0 if report.healthy or args.fail_open else 2
+    return exit_code
 
 
 def handle_rollup(args: argparse.Namespace) -> int:
@@ -254,7 +258,12 @@ def handle_rollup(args: argparse.Namespace) -> int:
     with SessionLocal() as db:
         with db.begin():
             result = rebuild_monthly_rollups(db, family_id=args.family_id, period=period)
-    print(json.dumps({"revision": result.revision, "rows": len(result.rows)}, sort_keys=True))
+    print(
+        json.dumps(
+            {"exitCode": 0, "revision": result.revision, "rows": len(result.rows)},
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -368,14 +377,18 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.set_defaults(handler=handle_reconcile)
 
     audit = subparsers.add_parser("audit")
-    audit.add_argument("--repair", action="store_true")
+    audit_mode = audit.add_mutually_exclusive_group()
+    audit_mode.add_argument("--repair", action="store_true")
+    audit_mode.add_argument("--verify-only", action="store_true")
     audit.add_argument("--fail-open", action="store_true")
     audit.add_argument("--limit", type=int, default=100)
+    audit.add_argument("--json", action="store_true")
     audit.set_defaults(handler=handle_audit)
 
     rollup = subparsers.add_parser("rollup")
     rollup.add_argument("--family", dest="family_id", required=True)
     rollup.add_argument("--period", required=True)
+    rollup.add_argument("--json", action="store_true")
     rollup.set_defaults(handler=handle_rollup)
 
     prune = subparsers.add_parser("prune")

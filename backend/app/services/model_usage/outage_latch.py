@@ -9,6 +9,7 @@ from threading import Lock
 
 from app.core.enums import ModelUsageCapability
 from app.services.model_usage.periods import BillingPeriod, shanghai_billing_period
+from app.services.model_usage.receipts import model_usage_log_payload
 
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 def _log_latch_event(**fields: object) -> None:
     logger.info(
         "model_usage_outage_latch %s",
-        json.dumps(fields, ensure_ascii=False, sort_keys=True),
+        json.dumps(model_usage_log_payload(fields), ensure_ascii=False, sort_keys=True),
     )
 
 

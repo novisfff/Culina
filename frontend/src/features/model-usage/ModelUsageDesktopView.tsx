@@ -278,7 +278,7 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
     <main className="model-usage-workspace model-usage-desktop" aria-busy={props.model.isRefreshing || undefined}>
       <UsageHeader {...props} />
       {props.model.isRefreshing ? <p className="model-usage-refresh-status" role="status">正在刷新本账期数据。</p> : null}
-      {props.model.refreshError ? (
+      {props.isOffline || props.model.refreshError ? (
         <p className="model-usage-refresh-error" role="status">
           {props.isOffline ? '当前离线，正在显示已缓存的数据。' : `刷新失败，正在显示上次成功的数据：${props.model.refreshError}`}
         </p>
