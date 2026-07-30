@@ -65,7 +65,9 @@ def event_meters_statement(
 ) -> Select:
     statement = (
         select(ModelUsageEventMeter)
-        .join(ModelUsageEvent, ModelUsageEvent.id == ModelUsageEventMeter.event_id)
+        .select_from(ModelUsageEvent)
+        .join(ModelUsageEventMeter, ModelUsageEventMeter.event_id == ModelUsageEvent.id)
+        .prefix_with("STRAIGHT_JOIN", dialect="mysql")
         .with_hint(
             ModelUsageEvent,
             "FORCE INDEX (ix_model_usage_event_family_period)",
@@ -116,10 +118,12 @@ def adjustment_lines_statement(
 ) -> Select:
     statement = (
         select(ModelUsageAdjustment)
+        .select_from(ModelUsageAdjustmentGroup)
         .join(
-            ModelUsageAdjustmentGroup,
-            ModelUsageAdjustmentGroup.id == ModelUsageAdjustment.adjustment_group_id,
+            ModelUsageAdjustment,
+            ModelUsageAdjustment.adjustment_group_id == ModelUsageAdjustmentGroup.id,
         )
+        .prefix_with("STRAIGHT_JOIN", dialect="mysql")
         .with_hint(
             ModelUsageAdjustmentGroup,
             "FORCE INDEX (ix_model_usage_adjustment_group_period)",
@@ -197,6 +201,82 @@ def incidents_statement(
     return statement.order_by(
         ModelUsageMeasurementIncident.started_at,
         ModelUsageMeasurementIncident.id,
+    )
+
+
+def unresolved_incident_attempts_statement(
+    *,
+    family_id: str,
+    incident_ids: Sequence[str],
+    subject_id: str | None = None,
+) -> Select:
+    statement = (
+        select(ModelUsageMeasurementIncidentAttempt)
+        .with_hint(
+            ModelUsageMeasurementIncidentAttempt,
+            "FORCE INDEX (ix_model_usage_incident_attempt_recovery)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageMeasurementIncidentAttempt.family_id == family_id,
+            ModelUsageMeasurementIncidentAttempt.incident_id.in_(tuple(incident_ids)),
+            ModelUsageMeasurementIncidentAttempt.recovery_status
+            == ModelUsageIncidentRecoveryStatus.UNRESOLVED,
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(
+            ModelUsageMeasurementIncidentAttempt.subject_id == subject_id
+        )
+    return statement.order_by(ModelUsageMeasurementIncidentAttempt.id)
+
+
+def user_subject_statement(*, family_id: str, user_id: str) -> Select:
+    return (
+        select(ModelUsageSubject)
+        .with_hint(
+            ModelUsageSubject,
+            "FORCE INDEX (uq_model_usage_subject_user)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageSubject.family_id == family_id,
+            ModelUsageSubject.user_id == user_id,
+        )
+    )
+
+
+def family_subjects_statement(*, family_id: str) -> Select:
+    return (
+        select(ModelUsageSubject)
+        .with_hint(
+            ModelUsageSubject,
+            "FORCE INDEX (ix_model_usage_subject_family_kind)",
+            dialect_name="mysql",
+        )
+        .where(ModelUsageSubject.family_id == family_id)
+        .order_by(ModelUsageSubject.subject_key, ModelUsageSubject.id)
+    )
+
+
+def retained_subject_labels_statement(
+    *,
+    family_id: str,
+    subject_ids: Sequence[str],
+) -> Select:
+    return (
+        select(ModelUsageSubject)
+        .with_hint(
+            ModelUsageSubject,
+            "FORCE INDEX (PRIMARY)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageSubject.family_id == family_id,
+            ModelUsageSubject.id.in_(tuple(subject_ids)),
+            ModelUsageSubject.anonymized_label.is_not(None),
+        )
+        .order_by(ModelUsageSubject.id)
     )
 
 
@@ -366,17 +446,15 @@ def unresolved_incident_attempts(
 ) -> tuple[ModelUsageMeasurementIncidentAttempt, ...]:
     if not incident_ids:
         return ()
-    statement = select(ModelUsageMeasurementIncidentAttempt).where(
-        ModelUsageMeasurementIncidentAttempt.family_id == family_id,
-        ModelUsageMeasurementIncidentAttempt.incident_id.in_(tuple(incident_ids)),
-        ModelUsageMeasurementIncidentAttempt.recovery_status
-        == ModelUsageIncidentRecoveryStatus.UNRESOLVED,
-    )
-    if subject_id is not None:
-        statement = statement.where(
-            ModelUsageMeasurementIncidentAttempt.subject_id == subject_id
+    return tuple(
+        db.scalars(
+            unresolved_incident_attempts_statement(
+                family_id=family_id,
+                incident_ids=incident_ids,
+                subject_id=subject_id,
+            )
         )
-    return tuple(db.scalars(statement.order_by(ModelUsageMeasurementIncidentAttempt.id)))
+    )
 
 
 def family_counters_for_period(
@@ -394,12 +472,7 @@ def historical_rollups_for_period(
 def require_user_subject(
     db: Session, *, family_id: str, user_id: str
 ) -> ModelUsageSubject:
-    subject = db.scalar(
-        select(ModelUsageSubject).where(
-            ModelUsageSubject.family_id == family_id,
-            ModelUsageSubject.user_id == user_id,
-        )
-    )
+    subject = db.scalar(user_subject_statement(family_id=family_id, user_id=user_id))
     if subject is None:
         raise LookupError("model_usage_subject_not_found")
     return subject
@@ -409,11 +482,7 @@ def family_subjects_for_reporting(
     db: Session, *, family_id: str
 ) -> tuple[ModelUsageSubject, ...]:
     return tuple(
-        db.scalars(
-            select(ModelUsageSubject)
-            .where(ModelUsageSubject.family_id == family_id)
-            .order_by(ModelUsageSubject.subject_key, ModelUsageSubject.id)
-        )
+        db.scalars(family_subjects_statement(family_id=family_id))
     )
 
 
@@ -427,13 +496,10 @@ def retained_subject_labels(
         return {}
     rows = tuple(
         db.scalars(
-            select(ModelUsageSubject)
-            .where(
-                ModelUsageSubject.family_id == family_id,
-                ModelUsageSubject.id.in_(tuple(subject_ids)),
-                ModelUsageSubject.anonymized_label.is_not(None),
+            retained_subject_labels_statement(
+                family_id=family_id,
+                subject_ids=subject_ids,
             )
-            .order_by(ModelUsageSubject.id)
         )
     )
     return {

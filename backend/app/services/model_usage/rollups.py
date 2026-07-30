@@ -20,6 +20,7 @@ from app.core.enums import (
     ModelUsageRollupKind,
 )
 from app.core.utils import create_id
+from app.models.domain import Family
 from app.models.model_usage import ModelUsageMonthlyRollup
 from app.repos.model_usage.reporting import (
     active_reservations_for_period,
@@ -182,6 +183,11 @@ def rebuild_monthly_rollups(
     period: BillingPeriod,
     computed_at: datetime | None = None,
 ) -> RollupBuildResult:
+    family_anchor = db.scalar(
+        select(Family.id).where(Family.id == family_id).with_for_update()
+    )
+    if family_anchor is None:
+        raise LookupError("model_usage_family_not_found")
     family_existing = db.scalar(
         select(ModelUsageMonthlyRollup).where(
             ModelUsageMonthlyRollup.family_id == family_id,

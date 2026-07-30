@@ -15,7 +15,10 @@ from app.models.model_usage import (
     ModelUsageReservation,
     ModelUsageSubject,
 )
-from app.repos.model_usage.reporting import retained_subject_labels
+from app.repos.model_usage.reporting import (
+    historical_rollups_for_period,
+    retained_subject_labels,
+)
 from app.services.model_usage.dispatch import prepare_usage_dispatch_in_session
 from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.adjustments import apply_adjustment, preview_adjustment
@@ -85,6 +88,35 @@ def test_rebuild_generates_every_historical_dimension_from_snapshot_fields(
     assert provider_model.billing_model == settled_source_event.billing_model
     assert provider_model.billing_model != settled_source_event.reported_model
     assert daily.local_day == settled_source_event.completed_at.astimezone(SHANGHAI).date()
+
+
+def test_first_build_locks_guaranteed_family_anchor_before_period_sources(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    model_usage_db.query(ModelUsageMonthlyRollup).filter(
+        ModelUsageMonthlyRollup.family_id == settled_source_event.family_id,
+        ModelUsageMonthlyRollup.period_start == settled_source_event.period_start,
+    ).delete(synchronize_session=False)
+    model_usage_db.flush()
+    statements: list[str] = []
+
+    def record(_conn, _cursor, statement, _params, _context, _many) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    engine = model_usage_db.get_bind()
+    sqlalchemy_event.listen(engine, "before_cursor_execute", record)
+    try:
+        rebuild_monthly_rollups(
+            model_usage_db,
+            family_id=settled_source_event.family_id,
+            period=_period(settled_source_event),
+        )
+    finally:
+        sqlalchemy_event.remove(engine, "before_cursor_execute", record)
+
+    first_select = next(statement for statement in statements if statement.startswith("select"))
+    assert " from families " in f" {first_select} "
 
 
 def test_dimension_key_is_canonical_and_independent_of_mapping_order() -> None:
@@ -378,6 +410,81 @@ def test_naive_mysql_utc_daily_bucket_crosses_shanghai_month_boundary(
     assert family_daily.local_day.isoformat() == "2026-07-01"
 
 
+def test_daily_trend_rolls_family_and_subject_costs_across_shanghai_days(
+    model_usage_db: Session,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    first_instant = datetime(2026, 6, 30, 16, 30)
+    second_instant = datetime(2026, 7, 1, 16, 30, tzinfo=timezone.utc)
+    settled_source_event.completed_at = first_instant
+    values = {
+        column.name: getattr(settled_source_event, column.name)
+        for column in ModelUsageEvent.__table__.columns
+    }
+    values.update(
+        {
+            "id": "usage-event-second-shanghai-day",
+            "reservation_id": None,
+            "attempt_key": "second-shanghai-day",
+            "fingerprint": "fp-second-shanghai-day",
+            "client_attempt_id": "client-second-shanghai-day",
+            "dispatched_at": second_instant,
+            "completed_at": second_instant,
+            "created_at": second_instant,
+        }
+    )
+    model_usage_db.add(ModelUsageEvent(**values))
+    model_usage_db.flush()
+
+    first = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=_period(settled_source_event),
+    )
+    second = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=_period(settled_source_event),
+    )
+
+    family_daily = tuple(
+        row
+        for row in first.rows
+        if row.rollup_kind is ModelUsageRollupKind.DAILY_CAPABILITY_COST
+        and row.subject_id is None
+    )
+    subject_daily = tuple(
+        row
+        for row in first.rows
+        if row.rollup_kind is ModelUsageRollupKind.DAILY_CAPABILITY_COST
+        and row.subject_id == settled_source_event.subject_id
+    )
+    assert [row.local_day.isoformat() for row in family_daily] == [
+        "2026-07-01",
+        "2026-07-02",
+    ]
+    assert [row.local_day.isoformat() for row in subject_daily] == [
+        "2026-07-01",
+        "2026-07-02",
+    ]
+    assert all(row.exact_event_count == 1 for row in (*family_daily, *subject_daily))
+    assert all(row.source_event_count == 1 for row in (*family_daily, *subject_daily))
+    assert all(
+        row.cost_total_cny == settled_source_event.cost_cny
+        for row in (*family_daily, *subject_daily)
+    )
+    assert [row.dimension_key for row in family_daily] == [
+        rollup_dimension_key(
+            ModelUsageRollupKind.DAILY_CAPABILITY_COST,
+            {"capability": "llm", "local_day": local_day},
+        )
+        for local_day in ("2026-07-01", "2026-07-02")
+    ]
+    assert [(row.dimension_key, row.checksum) for row in second.rows] == [
+        (row.dimension_key, row.checksum) for row in first.rows
+    ]
+
+
 def test_naive_and_aware_utc_source_datetimes_have_same_canonical_watermark(
     model_usage_db: Session,
     settled_source_event: ModelUsageEvent,
@@ -411,27 +518,64 @@ def test_deleted_subject_label_resolves_from_retained_subject_without_raw_join(
     subject.user_id = None
     subject.anonymized_label = "已删除成员"
     model_usage_db.flush()
-    statements: list[str] = []
+    period = _period(settled_source_event)
+    built = rebuild_monthly_rollups(
+        model_usage_db,
+        family_id=settled_source_event.family_id,
+        period=period,
+    )
+    family = next(
+        row for row in built.rows if row.rollup_kind is ModelUsageRollupKind.FAMILY_TOTAL
+    )
+    family.correction_status = ModelUsageCorrectionStatus.CLOSED
+    family.adjustment_closed_at = datetime(2026, 8, 31, tzinfo=timezone.utc)
+    family.raw_data_pruned_at = datetime(2027, 9, 1, tzinfo=timezone.utc)
+    model_usage_db.flush()
+    statements: list[tuple[str, object]] = []
 
-    def record(_conn, _cursor, statement, _params, _context, _many) -> None:
-        statements.append(statement.lower())
+    def record(_conn, _cursor, statement, params, _context, _many) -> None:
+        statements.append((statement.lower(), params))
 
     engine = model_usage_db.get_bind()
     sqlalchemy_event.listen(engine, "before_cursor_execute", record)
     try:
+        historical = historical_rollups_for_period(
+            model_usage_db,
+            family_id=settled_source_event.family_id,
+            period=period,
+        )
+        subject_ids = tuple(
+            sorted({row.subject_id for row in historical if row.subject_id is not None})
+        )
         labels = retained_subject_labels(
             model_usage_db,
             family_id=settled_source_event.family_id,
-            subject_ids=(subject.id,),
+            subject_ids=subject_ids,
+        )
+        wrong_family = retained_subject_labels(
+            model_usage_db,
+            family_id="other-family",
+            subject_ids=subject_ids,
         )
     finally:
         sqlalchemy_event.remove(engine, "before_cursor_execute", record)
 
     assert labels == {subject.id: "已删除成员"}
-    assert retained_subject_labels(
-        model_usage_db,
-        family_id="other-family",
-        subject_ids=(subject.id,),
-    ) == {}
-    assert any("model_usage_subjects" in statement for statement in statements)
-    assert not any("model_usage_events" in statement for statement in statements)
+    assert wrong_family == {}
+    sql = [statement for statement, _params in statements]
+    assert any("model_usage_monthly_rollups" in statement for statement in sql)
+    assert any("model_usage_subjects" in statement for statement in sql)
+    forbidden = (
+        "model_usage_events",
+        "model_usage_event_meters",
+        " users ",
+        " foods ",
+        " recipes ",
+    )
+    assert not any(any(table in statement for table in forbidden) for statement in sql)
+    assert all(
+        "family_id" in statement
+        for statement in sql
+        if "model_usage_monthly_rollups" in statement
+        or "model_usage_subjects" in statement
+    )
