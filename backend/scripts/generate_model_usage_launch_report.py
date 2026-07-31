@@ -11,6 +11,7 @@ blocked report and a non-zero exit status.
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -27,8 +28,9 @@ from app.services.model_usage.provider_registry import provider_usage_registrati
 from scripts.check_model_usage_adapter_coverage import build_coverage_report
 
 
-REPORT_SCHEMA_VERSION = "model_usage_first_launch_report.v1"
+REPORT_SCHEMA_VERSION = "model_usage_first_launch_report.v2"
 _SMOKE_SCHEMA_VERSION = "model_usage_provider_smoke.v1"
+_VERIFICATION_SCHEMA_VERSION = "model_usage_launch_verification.v1"
 _REFERENCE_PROFILE = "culina-first-launch-mysql84-v1"
 _EXPECTED_CAPABILITIES = (
     "llm",
@@ -47,6 +49,30 @@ _EXPECTED_VIEWPORTS = (
     "768x1024",
     "1024x768",
     "1440x900",
+)
+_VERIFICATION_ENVIRONMENT_KEYS = (
+    "architecture",
+    "browser",
+    "containerRuntime",
+    "database",
+    "node",
+    "os",
+    "profile",
+    "python",
+    "runner",
+)
+_SAFE_VERSION = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.\d+)?$")
+_REQUIRED_VERIFICATION_COMMANDS = (
+    ("focusedModelUsageTests", "focused_model_usage_tests", "pytest tests/model_usage -q"),
+    ("backendQuality", "backend_quality", "npm run backend:quality"),
+    ("frontendQuality", "frontend_quality", "npm run frontend:quality"),
+    ("frontendBuild", "frontend_build", "npm run frontend:build"),
+    ("frontendStyleTokens", "frontend_style_tokens", "npm --prefix frontend run check:style-tokens"),
+    ("frontendSmoke", "frontend_smoke", "npm run frontend:smoke"),
+    ("frontendE2EP0", "frontend_e2e_p0", "npm run frontend:e2e:p0"),
+    ("dockerBuild", "docker_build", "docker compose -f deploy/docker-compose.yml build backend frontend"),
+    ("mysqlMigrationConcurrency", "mysql_migration_concurrency", "model-usage MySQL migration/concurrency/query-plan suite"),
+    ("dispatchPolicyInterleaving", "dispatch_policy_interleaving", "dispatch-policy MySQL interleaving suite"),
 )
 
 
@@ -83,6 +109,143 @@ def _read_json(path: Path | None) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(decoded, dict):
         return None, None
     return decoded, hashlib.sha256(raw).hexdigest()
+
+
+def _safe_verification_environment(value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) - set(_VERIFICATION_ENVIRONMENT_KEYS):
+        return {}
+    environment: dict[str, str] = {}
+    for key in _VERIFICATION_ENVIRONMENT_KEYS:
+        item = value.get(key)
+        if item is None:
+            continue
+        if not isinstance(item, str) or not item or len(item) > 160:
+            return {}
+        summary = _safe_verification_environment_value(key, item)
+        if summary is None:
+            return {}
+        environment[key] = summary
+    return environment
+
+
+def _safe_verification_environment_value(key: str, value: str) -> str | None:
+    """Return a fixed public category, never an operator-provided value."""
+
+    normalized = value.strip().lower()
+    if key == "architecture":
+        if normalized in {"arm64", "aarch64"}:
+            return "arm64"
+        if normalized in {"x64", "x86_64", "amd64"}:
+            return "x64"
+        return None
+    if key == "browser":
+        for browser in ("chromium", "firefox", "webkit"):
+            if normalized.startswith(browser):
+                return browser
+        return "none" if normalized == "none" else None
+    if key == "containerRuntime":
+        for runtime in ("docker", "podman"):
+            if normalized.startswith(runtime):
+                return runtime
+        return "none" if normalized == "none" else None
+    if key == "database":
+        if normalized.startswith("mysql"):
+            return "mysql"
+        if normalized.startswith("sqlite"):
+            return "sqlite"
+        return None
+    if key in {"node", "python"}:
+        match = _SAFE_VERSION.fullmatch(normalized)
+        if match is None:
+            return None
+        major, minor = match.groups()
+        if key == "python" and major != "3":
+            return None
+        return f"{major}.{minor}" if minor is not None else major
+    if key == "os":
+        for operating_system in ("ubuntu", "macos", "darwin", "windows", "linux"):
+            if normalized.startswith(operating_system):
+                return "macos" if operating_system == "darwin" else operating_system
+        return None
+    if key == "profile":
+        return _REFERENCE_PROFILE if normalized == _REFERENCE_PROFILE else None
+    if key == "runner":
+        if normalized.startswith("github-actions"):
+            return "github-actions"
+        return "local" if normalized == "local" else None
+    return None
+
+
+def _required_verification_evidence(
+    path: Path,
+    *,
+    expected_commit: str | None,
+) -> tuple[dict[str, object], list[str]]:
+    document, digest = _read_json(path)
+    if document is None:
+        return (
+            {"status": "not_run", "sha256": None, "commands": {}},
+            ["required_verification_evidence_not_run"],
+        )
+    commands = document.get("commands")
+    if document.get("schemaVersion") != _VERIFICATION_SCHEMA_VERSION or not isinstance(commands, dict):
+        return (
+            {"status": "blocked", "sha256": digest, "commands": {}},
+            ["required_verification_evidence_invalid"],
+        )
+
+    evidence_commands: dict[str, object] = {}
+    blockers: list[str] = []
+    for command_id, blocker_prefix, canonical_command in _REQUIRED_VERIFICATION_COMMANDS:
+        row = commands.get(command_id)
+        if not isinstance(row, dict):
+            evidence_commands[command_id] = {
+                "command": canonical_command,
+                "status": "not_run",
+                "commit": None,
+                "environment": {},
+                "exitCode": None,
+            }
+            blockers.append(f"required_verification_{blocker_prefix}_not_run")
+            continue
+
+        commit = row.get("commit") if isinstance(row.get("commit"), str) else None
+        environment = _safe_verification_environment(row.get("environment"))
+        exit_code = row.get("exitCode") if type(row.get("exitCode")) is int else None
+        assertions = row.get("assertions")
+        assertions_passed = (
+            isinstance(assertions, dict)
+            and bool(assertions)
+            and all(value is True for value in assertions.values())
+        )
+        status = "passed"
+        if expected_commit is None or commit != expected_commit:
+            status = "blocked"
+            blockers.append(f"required_verification_{blocker_prefix}_commit_mismatch")
+        elif not environment:
+            status = "blocked"
+            blockers.append(f"required_verification_{blocker_prefix}_environment_missing")
+        elif exit_code != 0:
+            status = "blocked"
+            blockers.append(f"required_verification_{blocker_prefix}_failed")
+        elif not assertions_passed:
+            status = "blocked"
+            blockers.append(f"required_verification_{blocker_prefix}_assertions_not_passed")
+        evidence_commands[command_id] = {
+            "command": canonical_command,
+            "status": status,
+            "commit": commit,
+            "environment": environment,
+            "exitCode": exit_code,
+        }
+    return (
+        {
+            "status": "passed" if not blockers else "blocked",
+            "sha256": digest,
+            "commands": evidence_commands,
+        },
+        blockers,
+    )
 
 
 def _command_payload(document: dict[str, Any] | None) -> tuple[dict[str, Any] | None, int | None]:
@@ -332,7 +495,9 @@ def build_launch_report(
     health: Path,
     visual_review: Path,
     performance: Path | None,
+    verification_evidence: Path,
 ) -> dict[str, object]:
+    git_commit = _git_commit()
     smoke, smoke_blocker = _provider_smoke_evidence(provider_smoke)
     audit_evidence, audit_blockers = _audit_evidence(audit)
     rollup_evidence, rollup_blockers = _rollup_evidence(rollup)
@@ -341,6 +506,10 @@ def build_launch_report(
     visual_evidence, visual_blockers = _visual_review_evidence(visual_review)
     send_coverage, send_coverage_blocker = _send_coverage_evidence()
     preflight, variants, preflight_blockers = _preflight_evidence()
+    required_verification, required_verification_blockers = _required_verification_evidence(
+        verification_evidence,
+        expected_commit=git_commit,
+    )
 
     blockers = [
         *([smoke_blocker] if smoke_blocker else []),
@@ -351,13 +520,14 @@ def build_launch_report(
         *visual_blockers,
         *([send_coverage_blocker] if send_coverage_blocker else []),
         *preflight_blockers,
+        *required_verification_blockers,
     ]
     unique_blockers = sorted(set(blockers))
     ready = not unique_blockers
     return {
         "schemaVersion": REPORT_SCHEMA_VERSION,
         "generatedAt": _now(),
-        "gitCommit": _git_commit(),
+        "gitCommit": git_commit,
         "readyForFirstOpen": ready,
         "status": "ready" if ready else "blocked",
         "blockers": unique_blockers,
@@ -370,6 +540,7 @@ def build_launch_report(
             "visualReview": visual_evidence,
             "providerSendCoverage": send_coverage,
             "firstLaunchPreflight": preflight,
+            "requiredVerification": required_verification,
             "configuredVariants": variants,
         },
     }
@@ -427,6 +598,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--health", type=Path, required=True)
     parser.add_argument("--visual-review", type=Path, required=True)
     parser.add_argument("--performance", type=Path)
+    parser.add_argument("--verification-evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--force", action="store_true")
     return parser
@@ -442,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             health=args.health,
             visual_review=args.visual_review,
             performance=args.performance,
+            verification_evidence=args.verification_evidence,
         )
         _write_report(args.output, _render_report(report), force=args.force)
     except (OSError, ValueError):

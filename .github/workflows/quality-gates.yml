@@ -81,6 +81,38 @@ jobs:
       - name: Run backend search tests
         run: npm run backend:test:search
 
+  backend-model-usage:
+    name: Backend Model Usage Tests
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: culina_model_usage_test
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      CULINA_TEST_MYSQL_URL: mysql+pymysql://root:root@127.0.0.1:3306/culina_model_usage_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Run focused model-usage tests with MySQL 8.4
+        run: npm run backend:test:model-usage
+
   frontend-vitest:
     name: Frontend Vitest
     runs-on: ubuntu-latest

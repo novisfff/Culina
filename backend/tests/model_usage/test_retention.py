@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import ModelUsageCorrectionStatus, ModelUsageMeter
 from app.models.model_usage import (
@@ -74,6 +74,22 @@ def _old_target(
     return RetentionTarget(settled_source_event.family_id, period)
 
 
+def _retention_session_factory(db: Session):
+    return sessionmaker(bind=db.get_bind(), expire_on_commit=False, future=True)
+
+
+def _prune_period(model_usage_db: Session, target: RetentionTarget, **kwargs):
+    model_usage_db.commit()
+    try:
+        return prune_period(
+            target,
+            session_factory=_retention_session_factory(model_usage_db),
+            **kwargs,
+        )
+    finally:
+        model_usage_db.expire_all()
+
+
 def test_retention_keeps_thirteen_complete_months() -> None:
     now = datetime(2026, 7, 30, tzinfo=timezone.utc)
     old = shanghai_billing_period(datetime(2025, 5, 10, tzinfo=timezone.utc))
@@ -131,12 +147,14 @@ def test_retention_prunes_realtime_watermarks_before_closing_period(
     )
     model_usage_db.add(watermark)
     model_usage_db.flush()
+    watermark_id = watermark.id
 
-    result = prune_period(model_usage_db, target, batch_size=1)
+    result = _prune_period(model_usage_db, target, batch_size=1)
+    assert result is not None
 
     assert result.status is ModelUsageCorrectionStatus.CLOSED
     assert result.deleted["model_usage_realtime_watermarks"] == 1
-    assert model_usage_db.get(ModelUsageRealtimeWatermark, watermark.id) is None
+    assert model_usage_db.get(ModelUsageRealtimeWatermark, watermark_id) is None
 
 
 def test_prune_transitions_to_closed_only_after_fk_safe_raw_deletion(
@@ -144,13 +162,16 @@ def test_prune_transitions_to_closed_only_after_fk_safe_raw_deletion(
     settled_source_event: ModelUsageEvent,
 ) -> None:
     target = _old_target(model_usage_db, settled_source_event)
+    event_id = settled_source_event.id
+    reservation_id = settled_source_event.reservation_id
 
-    result = prune_period(model_usage_db, target, batch_size=1)
+    result = _prune_period(model_usage_db, target, batch_size=1)
+    assert result is not None
 
     assert result.verification.eligible is True
     assert result.status is ModelUsageCorrectionStatus.CLOSED
-    assert model_usage_db.get(ModelUsageEvent, settled_source_event.id) is None
-    assert model_usage_db.get(ModelUsageReservation, settled_source_event.reservation_id) is None
+    assert model_usage_db.get(ModelUsageEvent, event_id) is None
+    assert model_usage_db.get(ModelUsageReservation, reservation_id) is None
     family_rollup = model_usage_db.scalar(
         select(ModelUsageMonthlyRollup).where(
             ModelUsageMonthlyRollup.family_id == target.family_id,
@@ -182,7 +203,7 @@ def test_retention_preflight_rejects_rollup_checksum_drift_before_any_delete(
     assert verification.eligible is False
     assert verification.checksum_matches is False
     with pytest.raises(ModelUsageStateError, match="model_usage_retention_preflight_failed"):
-        prune_period(model_usage_db, target, batch_size=1)
+        _prune_period(model_usage_db, target, batch_size=1)
     assert model_usage_db.get(ModelUsageEvent, settled_source_event.id) is not None
 
 
@@ -191,6 +212,8 @@ def test_pruning_state_is_monotonic_and_resumes_after_interrupted_batch(
     settled_source_event: ModelUsageEvent,
 ) -> None:
     target = _old_target(model_usage_db, settled_source_event)
+    model_usage_db.commit()
+    session_factory = _retention_session_factory(model_usage_db)
 
     def fail_after_events(table_name: str) -> None:
         if table_name == "model_usage_events":
@@ -198,22 +221,24 @@ def test_pruning_state_is_monotonic_and_resumes_after_interrupted_batch(
 
     with pytest.raises(SimulatedCrash):
         prune_period(
-            model_usage_db,
             target,
+            session_factory=session_factory,
             batch_size=1,
             on_batch=fail_after_events,
         )
-    in_progress = model_usage_db.scalar(
-        select(ModelUsageMonthlyRollup).where(
-            ModelUsageMonthlyRollup.family_id == target.family_id,
-            ModelUsageMonthlyRollup.period_start == target.period.start_at,
-            ModelUsageMonthlyRollup.dimension_key == "family_total",
+    with session_factory() as restarted_db:
+        in_progress = restarted_db.scalar(
+            select(ModelUsageMonthlyRollup).where(
+                ModelUsageMonthlyRollup.family_id == target.family_id,
+                ModelUsageMonthlyRollup.period_start == target.period.start_at,
+                ModelUsageMonthlyRollup.dimension_key == "family_total",
+            )
         )
-    )
-    assert in_progress is not None
-    assert in_progress.correction_status is ModelUsageCorrectionStatus.PRUNING
+        assert in_progress is not None
+        assert in_progress.correction_status is ModelUsageCorrectionStatus.PRUNING
+        assert restarted_db.get(ModelUsageEvent, settled_source_event.id) is None
 
-    resumed = prune_period(model_usage_db, target, batch_size=1)
+    resumed = prune_period(target, session_factory=session_factory, batch_size=1)
 
     assert resumed.status is ModelUsageCorrectionStatus.CLOSED
 
@@ -248,6 +273,7 @@ def test_global_incident_is_preserved_while_family_raw_rows_are_pruned(
     )
 
     assert retention_preflight(model_usage_db, target).eligible is True
-    prune_period(model_usage_db, target, batch_size=1)
+    result = _prune_period(model_usage_db, target, batch_size=1)
+    assert result is not None
 
     assert model_usage_db.get(ModelUsageMeasurementIncident, global_incident.id) is not None

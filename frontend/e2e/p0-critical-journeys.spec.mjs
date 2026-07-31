@@ -76,6 +76,7 @@ test.describe('P0 authenticated family workflow', () => {
       .poll(() => requestedApiPaths.includes('/api/activity-highlights'))
       .toBe(true);
     expect(requestedApiPaths).not.toContain('/api/activity-logs');
+    await expect(page.getByRole('button', { name: /查看通知.*需要处理/ })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await stabilizeDarwinVisualGutter(page);
     await expect(page).toHaveScreenshot('family-home.png', { timeout: 15_000 });

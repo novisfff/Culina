@@ -5696,9 +5696,12 @@ PYTHONPATH=. .venv/bin/python scripts/generate_model_usage_launch_report.py \
   --rollup .artifacts/model-usage-rollup.json \
   --health .artifacts/model-usage-health.json \
   --visual-review .artifacts/model-usage-visual-review \
+  --verification-evidence .artifacts/model-usage-required-verification.json \
   --output ../docs/plans/model-usage-first-launch-report.md
 cd ..
 ```
+
+`model-usage-required-verification.json` is a content-free release evidence summary with schema version `model_usage_launch_verification.v1`. For every fixed command ID — `focusedModelUsageTests`, `backendQuality`, `frontendQuality`, `frontendBuild`, `frontendStyleTokens`, `frontendSmoke`, `frontendE2EP0`, `dockerBuild`, `mysqlMigrationConcurrency`, and `dispatchPolicyInterleaving` — it records the current git commit, an allowlisted environment summary, integer exit code, and non-empty all-true key assertions. The report normalizes that summary to fixed public categories and rejects unknown keys or unrecognized values. Missing command records, commit mismatches, absent environment, non-zero exits, or false assertions are first-launch blockers. Never copy raw command output, credentials, Provider content, or arbitrary environment variables into this artifact.
 
 The generated report must contain actual timestamps, git commit, Alembic head, verified idempotency unique keys, configured variants/guardrail meter coverage, recovery modes, dispatch-policy interleaving result, counter-kind audit result, command exit codes, viewport evidence, unresolved P0/P1 count, and a machine-derived `ready_for_first_open` decision.
 

@@ -369,27 +369,6 @@ _DELETION_MODELS: dict[str, _DeletionModel] = {
 }
 
 
-def _delete_table_batches(
-    db: Session,
-    table_name: str,
-    target: RetentionTarget,
-    *,
-    batch_size: int,
-    on_batch: Callable[[str], None] | None,
-) -> int:
-    deleted = 0
-    model = _DELETION_MODELS[table_name]
-    while True:
-        ids = _ids_for_table(db, table_name, target, batch_size=batch_size)
-        if not ids:
-            return deleted
-        result = db.execute(delete(model).where(model.id.in_(ids)))
-        deleted += result.rowcount or len(ids)
-        db.flush()
-        if on_batch is not None:
-            on_batch(table_name)
-
-
 def _dry_run_result(
     db: Session,
     target: RetentionTarget,
@@ -408,26 +387,157 @@ def _dry_run_result(
     )
 
 
-def _prune_period_after_policy_lock(
+def _checkpointed_pruning_verification() -> RetentionVerification:
+    """Represent the preflight that was durably accepted before pruning began."""
+
+    return RetentionVerification(
+        old_enough=True,
+        no_active_reservations=True,
+        no_pending_recovery=True,
+        rollups_complete=True,
+        checksum_matches=True,
+    )
+
+
+def _lock_retention_policy(
+    db: Session,
+    *,
+    family_id: str,
+    skip_locked: bool,
+) -> bool:
+    if not skip_locked:
+        lock_family_policy(db, family_id=family_id)
+        return True
+    pointer = db.scalar(
+        select(ModelUsageFamilyPolicy)
+        .where(ModelUsageFamilyPolicy.family_id == family_id)
+        .with_for_update(skip_locked=True)
+    )
+    return pointer is not None
+
+
+def _locked_retention_rollups(
+    db: Session,
+    target: RetentionTarget,
+) -> tuple[ModelUsageMonthlyRollup, ...]:
+    rows = _family_rollups(db, target, for_update=True)
+    if not rows:
+        raise ModelUsageStateError("model_usage_rollup_missing")
+    return rows
+
+
+def _start_or_resume_pruning_in_session(
     db: Session,
     target: RetentionTarget,
     *,
+    skip_locked: bool,
+) -> tuple[RetentionVerification, ModelUsageCorrectionStatus] | None:
+    if not _lock_retention_policy(db, family_id=target.family_id, skip_locked=skip_locked):
+        return None
+    rows = _locked_retention_rollups(db, target)
+    statuses = {row.correction_status for row in rows}
+    if ModelUsageCorrectionStatus.CLOSED in statuses:
+        if statuses != {ModelUsageCorrectionStatus.CLOSED}:
+            raise ModelUsageStateError("model_usage_retention_state_invalid")
+        return _checkpointed_pruning_verification(), ModelUsageCorrectionStatus.CLOSED
+    if statuses == {ModelUsageCorrectionStatus.PRUNING}:
+        return _checkpointed_pruning_verification(), ModelUsageCorrectionStatus.PRUNING
+    if statuses != {ModelUsageCorrectionStatus.OPEN}:
+        raise ModelUsageStateError("model_usage_retention_state_invalid")
+
+    verification = retention_preflight(db, target)
+    if not verification.eligible:
+        raise ModelUsageStateError(
+            "model_usage_retention_preflight_failed:" + ",".join(verification.failures)
+        )
+    checkpointed_at = utcnow()
+    for row in rows:
+        row.correction_status = ModelUsageCorrectionStatus.PRUNING
+        row.adjustment_closed_at = row.adjustment_closed_at or checkpointed_at
+    db.flush()
+    return verification, ModelUsageCorrectionStatus.PRUNING
+
+
+def _delete_next_pruning_batch_in_session(
+    db: Session,
+    target: RetentionTarget,
+    *,
+    batch_size: int,
+    skip_locked: bool,
+) -> tuple[bool, str | None, int]:
+    if not _lock_retention_policy(db, family_id=target.family_id, skip_locked=skip_locked):
+        return False, None, 0
+    rows = _locked_retention_rollups(db, target)
+    statuses = {row.correction_status for row in rows}
+    if statuses == {ModelUsageCorrectionStatus.CLOSED}:
+        return True, None, 0
+    if statuses != {ModelUsageCorrectionStatus.PRUNING}:
+        raise ModelUsageStateError("model_usage_retention_state_invalid")
+    for table_name in RAW_DELETE_ORDER:
+        ids = _ids_for_table(db, table_name, target, batch_size=batch_size)
+        if not ids:
+            continue
+        model = _DELETION_MODELS[table_name]
+        result = db.execute(delete(model).where(model.id.in_(ids)))
+        deleted = result.rowcount or len(ids)
+        db.flush()
+        return True, table_name, deleted
+    return True, None, 0
+
+
+def _close_pruning_period_in_session(
+    db: Session,
+    target: RetentionTarget,
+    *,
+    skip_locked: bool,
+) -> tuple[bool, ModelUsageCorrectionStatus]:
+    if not _lock_retention_policy(db, family_id=target.family_id, skip_locked=skip_locked):
+        return False, ModelUsageCorrectionStatus.PRUNING
+    rows = _locked_retention_rollups(db, target)
+    statuses = {row.correction_status for row in rows}
+    if statuses == {ModelUsageCorrectionStatus.CLOSED}:
+        return True, ModelUsageCorrectionStatus.CLOSED
+    if statuses != {ModelUsageCorrectionStatus.PRUNING}:
+        raise ModelUsageStateError("model_usage_retention_state_invalid")
+    if any(_ids_for_table(db, table_name, target, batch_size=1) for table_name in RAW_DELETE_ORDER):
+        return True, ModelUsageCorrectionStatus.PRUNING
+    pruned_at = utcnow()
+    for row in rows:
+        row.correction_status = ModelUsageCorrectionStatus.CLOSED
+        row.raw_data_pruned_at = pruned_at
+    db.flush()
+    return True, ModelUsageCorrectionStatus.CLOSED
+
+
+def prune_period(
+    target: RetentionTarget,
+    *,
+    session_factory: Callable[[], Session] = SessionLocal,
     batch_size: int = 500,
     dry_run: bool = False,
     verify_only: bool = False,
     on_batch: Callable[[str], None] | None = None,
-) -> RetentionPruneResult:
+    skip_locked: bool = False,
+) -> RetentionPruneResult | None:
+    """Prune one period through durable checkpoint and short delete transactions."""
+
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-    verification = retention_preflight(db, target)
     if dry_run or verify_only:
-        return _dry_run_result(db, target, verification)
+        with session_factory() as db:
+            return _dry_run_result(db, target, retention_preflight(db, target))
 
-    rows = _family_rollups(db, target, for_update=True)
-    if not rows:
-        raise ModelUsageStateError("model_usage_rollup_missing")
-    statuses = {row.correction_status for row in rows}
-    if ModelUsageCorrectionStatus.CLOSED in statuses:
+    with session_factory() as db:
+        with db.begin():
+            checkpoint = _start_or_resume_pruning_in_session(
+                db,
+                target,
+                skip_locked=skip_locked,
+            )
+    if checkpoint is None:
+        return None
+    verification, initial_status = checkpoint
+    if initial_status is ModelUsageCorrectionStatus.CLOSED:
         return RetentionPruneResult(
             target=target,
             verification=verification,
@@ -435,91 +545,52 @@ def _prune_period_after_policy_lock(
             status=ModelUsageCorrectionStatus.CLOSED,
             dry_run=False,
         )
-    if ModelUsageCorrectionStatus.PRUNING not in statuses:
-        if not verification.eligible:
-            raise ModelUsageStateError(
-                "model_usage_retention_preflight_failed:" + ",".join(verification.failures)
-            )
-        for row in rows:
-            if row.correction_status is not ModelUsageCorrectionStatus.OPEN:
-                raise ModelUsageStateError("model_usage_retention_state_invalid")
-            row.correction_status = ModelUsageCorrectionStatus.PRUNING
-        db.flush()
 
-    deleted = {
-        table_name: _delete_table_batches(
-            db,
-            table_name,
-            target,
-            batch_size=batch_size,
-            on_batch=on_batch,
+    deleted = {table_name: 0 for table_name in RAW_DELETE_ORDER}
+    while True:
+        with session_factory() as db:
+            with db.begin():
+                acquired, table_name, deleted_count = _delete_next_pruning_batch_in_session(
+                    db,
+                    target,
+                    batch_size=batch_size,
+                    skip_locked=skip_locked,
+                )
+        if not acquired:
+            return None
+        if table_name is None:
+            break
+        deleted[table_name] += deleted_count
+        # This intentionally runs after the batch commits so a process crash
+        # cannot roll the durable PRUNING checkpoint back to OPEN.
+        if on_batch is not None:
+            on_batch(table_name)
+
+    with session_factory() as db:
+        with db.begin():
+            acquired, status = _close_pruning_period_in_session(
+                db,
+                target,
+                skip_locked=skip_locked,
+            )
+    if not acquired:
+        return None
+    if status is not ModelUsageCorrectionStatus.CLOSED:
+        # Another short-lived worker may have observed remaining rows before
+        # this finalization transaction.  Leave the durable checkpoint intact.
+        return RetentionPruneResult(
+            target=target,
+            verification=verification,
+            deleted=deleted,
+            status=ModelUsageCorrectionStatus.PRUNING,
+            dry_run=False,
         )
-        for table_name in RAW_DELETE_ORDER
-    }
-    pruned_at = utcnow()
-    for row in rows:
-        row.correction_status = ModelUsageCorrectionStatus.CLOSED
-        row.adjustment_closed_at = row.adjustment_closed_at or pruned_at
-        row.raw_data_pruned_at = pruned_at
-    db.flush()
     return RetentionPruneResult(
         target=target,
         verification=verification,
         deleted=deleted,
         status=ModelUsageCorrectionStatus.CLOSED,
         dry_run=False,
-    )
-
-
-def prune_period(
-    db: Session,
-    target: RetentionTarget,
-    *,
-    batch_size: int = 500,
-    dry_run: bool = False,
-    verify_only: bool = False,
-    on_batch: Callable[[str], None] | None = None,
-) -> RetentionPruneResult:
-    """Prune one period under the same policy-pointer lock as ledger writes."""
-
-    if dry_run or verify_only:
-        return _dry_run_result(db, target, retention_preflight(db, target))
-    # A settled event/reservation/adjustment takes this pointer first.  Holding
-    # it throughout the state transition and raw deletion makes the preflight
-    # snapshot authoritative instead of racing a late settlement.
-    lock_family_policy(db, family_id=target.family_id)
-    return _prune_period_after_policy_lock(
-        db,
-        target,
-        batch_size=batch_size,
-        dry_run=False,
-        verify_only=False,
-        on_batch=on_batch,
-    )
-
-
-def _try_prune_period_skip_locked(
-    db: Session,
-    target: RetentionTarget,
-    *,
-    batch_size: int,
-) -> RetentionPruneResult | None:
-    """Return None when another worker owns the family policy pointer."""
-
-    pointer = db.scalar(
-        select(ModelUsageFamilyPolicy)
-        .where(ModelUsageFamilyPolicy.family_id == target.family_id)
-        .with_for_update(skip_locked=True)
-    )
-    if pointer is None:
-        return None
-    return _prune_period_after_policy_lock(
-        db,
-        target,
-        batch_size=batch_size,
-        dry_run=False,
-        verify_only=False,
-        on_batch=None,
     )
 
 
@@ -565,18 +636,17 @@ def prune_eligible_periods_batch(
         )
     results: list[RetentionPruneResult] = []
     for status, target in candidates:
-        with session_factory() as db:
-            with db.begin():
+        if status is not ModelUsageCorrectionStatus.PRUNING:
+            with session_factory() as db:
                 verification = retention_preflight(db, target)
-                if status is not ModelUsageCorrectionStatus.PRUNING and not verification.old_enough:
-                    continue
-                if status is not ModelUsageCorrectionStatus.PRUNING and not verification.eligible:
-                    continue
-                result = _try_prune_period_skip_locked(
-                    db,
-                    target,
-                    batch_size=batch_size,
-                )
-                if result is not None:
-                    results.append(result)
+            if not verification.old_enough or not verification.eligible:
+                continue
+        result = prune_period(
+            target,
+            session_factory=session_factory,
+            batch_size=batch_size,
+            skip_locked=True,
+        )
+        if result is not None:
+            results.append(result)
     return tuple(results)

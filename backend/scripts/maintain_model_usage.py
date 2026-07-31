@@ -269,15 +269,15 @@ def handle_rollup(args: argparse.Namespace) -> int:
 
 def handle_prune(args: argparse.Namespace) -> int:
     target = RetentionTarget(args.family_id, _period(args.period))
-    with SessionLocal() as db:
-        with db.begin():
-            result = prune_period(
-                db,
-                target,
-                batch_size=args.batch_size,
-                dry_run=args.dry_run,
-                verify_only=args.verify_only,
-            )
+    result = prune_period(
+        target,
+        session_factory=SessionLocal,
+        batch_size=args.batch_size,
+        dry_run=args.dry_run,
+        verify_only=args.verify_only,
+    )
+    if result is None:  # pragma: no cover - CLI never requests SKIP LOCKED
+        raise RuntimeError("model_usage_retention_lock_unavailable")
     print(
         json.dumps(
             {
