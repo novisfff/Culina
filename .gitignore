@@ -8,6 +8,9 @@ frontend/dist/
 frontend/node_modules/
 frontend/playwright-report/
 frontend/test-results/
+# Root-level Playwright local artifacts (for direct editor/CLI runs)
+/playwright-report/
+/test-results/
 frontend/.env
 frontend/*.tsbuildinfo
 frontend/vite.config.js
