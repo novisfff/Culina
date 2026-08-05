@@ -1,17 +1,11 @@
 ---
 schema_version: model_usage_first_launch_report.v2
-generated_at: 2026-08-05T09:04:49.330078Z
-git_commit: e927013e0887f662f2171641e951fb427fd959f3
+generated_at: 2026-08-05T13:15:21.460186Z
+git_commit: 47b2e27d789011df2a6a6bd8409cab2a6ce8b409
 ready_for_first_open: false
 status: blocked
 blockers:
-  - health_command_failed
-  - health_not_healthy
-  - model_usage_price_coverage_missing
-  - provider_smoke_not_run
   - reference_performance_not_run
-  - rollup_not_run
-  - visual_review_not_passed
 ---
 
 # 模型用量首发门禁报告
@@ -25,13 +19,7 @@ blockers:
 ```json
 {
   "blockers": [
-    "health_command_failed",
-    "health_not_healthy",
-    "model_usage_price_coverage_missing",
-    "provider_smoke_not_run",
-    "reference_performance_not_run",
-    "rollup_not_run",
-    "visual_review_not_passed"
+    "reference_performance_not_run"
   ],
   "evidence": {
     "configuredVariants": [
@@ -95,14 +83,12 @@ blockers:
     "counterAudit": {
       "exitCode": 0,
       "healthy": true,
-      "sha256": "0e9abe0df0257ae04032dddf49fde5589c29b5bb5e89c473333208b79e64e5cc",
+      "sha256": "83d6bf9f76d0285620f4149a63747c8ac37b8d211b3bbce0a4f0342449be4cc3",
       "status": "passed"
     },
     "firstLaunchPreflight": {
       "activeProviderAttempts": 0,
-      "blockers": [
-        "model_usage_price_coverage_missing"
-      ],
+      "blockers": [],
       "configuredCapabilities": [
         "embedding",
         "image_generation",
@@ -128,19 +114,11 @@ blockers:
       "missingSchemaTables": [],
       "priceCoverage": {
         "error": null,
-        "healthy": false,
-        "missingCapabilities": [
-          "embedding",
-          "image_generation",
-          "llm",
-          "realtime_audio",
-          "rerank",
-          "stt",
-          "tts"
-        ],
-        "priceVersionId": null
+        "healthy": true,
+        "missingCapabilities": [],
+        "priceVersionId": "model-usage-price-276f37d0e7d4"
       },
-      "ready": false,
+      "ready": true,
       "receiptIntegrityError": null,
       "receiptIntegrityKeyringValid": true,
       "registryErrors": [],
@@ -162,10 +140,10 @@ blockers:
       "unsupportedLeaseBoundaryCumulativeMeters": []
     },
     "health": {
-      "exitCode": 2,
-      "healthy": false,
-      "sha256": "1bdf6e5675823224e660c90c60a37139b43c510c14d9e1dc85729cfa97c337d1",
-      "status": "blocked"
+      "exitCode": 0,
+      "healthy": true,
+      "sha256": "d3c9fcd25f1c7b3f0d2d8db55a35688ca3e4d7876a7dc7c98baad47192cd9044",
+      "status": "passed"
     },
     "providerSendCoverage": {
       "exitCode": 0,
@@ -174,8 +152,10 @@ blockers:
       "status": "covered"
     },
     "providerSmoke": {
-      "sha256": null,
-      "status": "not_run"
+      "capabilityCount": 7,
+      "executionMode": "real_provider",
+      "sha256": "8703c7c642b3d11c35bfcecaffaf59d35d2d7b8dff775eb25b2b74634ba1a5f1",
+      "status": "passed"
     },
     "referencePerformance": {
       "exitCode": null,
@@ -186,7 +166,7 @@ blockers:
       "commands": {
         "backendQuality": {
           "command": "npm run backend:quality",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "database": "sqlite",
@@ -199,7 +179,7 @@ blockers:
         },
         "dispatchPolicyInterleaving": {
           "command": "dispatch-policy MySQL interleaving suite",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -213,7 +193,7 @@ blockers:
         },
         "dockerBuild": {
           "command": "docker compose -f deploy/docker-compose.yml build backend frontend",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -225,10 +205,10 @@ blockers:
         },
         "focusedModelUsageTests": {
           "command": "pytest tests/model_usage -q",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
-            "database": "mysql",
+            "database": "sqlite",
             "os": "macos",
             "python": "3.12",
             "runner": "local"
@@ -238,10 +218,10 @@ blockers:
         },
         "frontendBuild": {
           "command": "npm run frontend:build",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
-            "node": "20.18",
+            "node": "22",
             "os": "macos",
             "runner": "local"
           },
@@ -250,11 +230,11 @@ blockers:
         },
         "frontendE2EP0": {
           "command": "npm run frontend:e2e:p0",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
-            "node": "20.18",
+            "node": "22",
             "os": "macos",
             "runner": "local"
           },
@@ -263,10 +243,11 @@ blockers:
         },
         "frontendQuality": {
           "command": "npm run frontend:quality",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
-            "node": "20.18",
+            "browser": "none",
+            "node": "22",
             "os": "macos",
             "runner": "local"
           },
@@ -275,11 +256,11 @@ blockers:
         },
         "frontendSmoke": {
           "command": "npm run frontend:smoke",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
-            "node": "20.18",
+            "node": "22",
             "os": "macos",
             "runner": "local"
           },
@@ -288,10 +269,10 @@ blockers:
         },
         "frontendStyleTokens": {
           "command": "npm --prefix frontend run check:style-tokens",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
-            "node": "20.18",
+            "node": "22",
             "os": "macos",
             "runner": "local"
           },
@@ -300,7 +281,7 @@ blockers:
         },
         "mysqlMigrationConcurrency": {
           "command": "model-usage MySQL migration/concurrency/query-plan suite",
-          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
+          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -313,17 +294,19 @@ blockers:
           "status": "passed"
         }
       },
-      "sha256": "381eef87e6eaa1afac6373358be180a7490b51bd3356efdaed8ffab962e43997",
+      "sha256": "57bf2f451783ca813e22e760a892b52a94c5465fe46e45924ddb198078d15e2f",
       "status": "passed"
     },
     "rollup": {
-      "exitCode": null,
-      "sha256": null,
-      "status": "not_run"
+      "exitCode": 0,
+      "revision": 1,
+      "rows": 65,
+      "sha256": "73d8b57cd2b87e8a9428b0dc4be3a135d8596f511b9bbaa84cf7e857d0f925ff",
+      "status": "passed"
     },
     "visualReview": {
-      "sha256": "df189067f8ebf8f95d7773005d748924c775906995a811c65f2d14695ca84a53",
-      "status": "blocked",
+      "sha256": "8424bd826819e0fc4b3917e3007411a89c701782b6e0d49560d9bd594fde70e0",
+      "status": "passed",
       "unresolvedP0P1": 0,
       "viewports": [
         "1024x768",
@@ -336,8 +319,8 @@ blockers:
       ]
     }
   },
-  "generatedAt": "2026-08-05T09:04:49.330078Z",
-  "gitCommit": "e927013e0887f662f2171641e951fb427fd959f3",
+  "generatedAt": "2026-08-05T13:15:21.460186Z",
+  "gitCommit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
   "readyForFirstOpen": false,
   "schemaVersion": "model_usage_first_launch_report.v2",
   "status": "blocked"
