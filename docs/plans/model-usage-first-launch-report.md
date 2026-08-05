@@ -1,19 +1,17 @@
 ---
-schema_version: model_usage_first_launch_report.v1
-generated_at: 2026-07-30T21:38:58.627572Z
-git_commit: 5af8b0c1f5e1d81b151f3fd5f3524a3674aafeae
+schema_version: model_usage_first_launch_report.v2
+generated_at: 2026-08-05T05:01:26.027478Z
+git_commit: fb73e1ad8aa206f97672584481232c4ada37031c
 ready_for_first_open: false
 status: blocked
 blockers:
-  - counter_audit_not_run
   - health_command_failed
   - health_not_healthy
   - model_usage_price_coverage_missing
-  - provider_smoke_not_passed
-  - receipt_integrity_keyring_required
+  - provider_smoke_not_run
   - reference_performance_not_run
   - rollup_not_run
-  - visual_review_not_run
+  - visual_review_not_passed
 ---
 
 # 模型用量首发门禁报告
@@ -27,15 +25,13 @@ blockers:
 ```json
 {
   "blockers": [
-    "counter_audit_not_run",
     "health_command_failed",
     "health_not_healthy",
     "model_usage_price_coverage_missing",
-    "provider_smoke_not_passed",
-    "receipt_integrity_keyring_required",
+    "provider_smoke_not_run",
     "reference_performance_not_run",
     "rollup_not_run",
-    "visual_review_not_run"
+    "visual_review_not_passed"
   ],
   "evidence": {
     "configuredVariants": [
@@ -97,14 +93,14 @@ blockers:
       }
     ],
     "counterAudit": {
-      "exitCode": null,
-      "sha256": null,
-      "status": "not_run"
+      "exitCode": 0,
+      "healthy": true,
+      "sha256": "0e9abe0df0257ae04032dddf49fde5589c29b5bb5e89c473333208b79e64e5cc",
+      "status": "passed"
     },
     "firstLaunchPreflight": {
       "activeProviderAttempts": 0,
       "blockers": [
-        "receipt_integrity_keyring_required",
         "model_usage_price_coverage_missing"
       ],
       "configuredCapabilities": [
@@ -145,8 +141,8 @@ blockers:
         "priceVersionId": null
       },
       "ready": false,
-      "receiptIntegrityError": "receipt_integrity_keyring_required",
-      "receiptIntegrityKeyringValid": false,
+      "receiptIntegrityError": null,
+      "receiptIntegrityKeyringValid": true,
       "registryErrors": [],
       "requiredCapabilities": [
         "embedding",
@@ -168,7 +164,7 @@ blockers:
     "health": {
       "exitCode": 2,
       "healthy": false,
-      "sha256": "35351b57fc97aed25a65be2c996ceec2083d90726b19dbc712c71debc6d3570c",
+      "sha256": "1bdf6e5675823224e660c90c60a37139b43c510c14d9e1dc85729cfa97c337d1",
       "status": "blocked"
     },
     "providerSendCoverage": {
@@ -178,15 +174,147 @@ blockers:
       "status": "covered"
     },
     "providerSmoke": {
-      "capabilityCount": 7,
-      "executionMode": "not_run",
-      "sha256": "601133c8812d87222259fc283c6006b761cb3121bc7ecaebd65ba92fa2a97269",
-      "status": "blocked"
+      "sha256": null,
+      "status": "not_run"
     },
     "referencePerformance": {
       "exitCode": null,
       "sha256": null,
       "status": "not_run"
+    },
+    "requiredVerification": {
+      "commands": {
+        "backendQuality": {
+          "command": "npm run backend:quality",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "database": "sqlite",
+            "os": "macos",
+            "python": "3.12",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "dispatchPolicyInterleaving": {
+          "command": "dispatch-policy MySQL interleaving suite",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "containerRuntime": "docker",
+            "database": "mysql",
+            "os": "macos",
+            "python": "3.12",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "dockerBuild": {
+          "command": "docker compose -f deploy/docker-compose.yml build backend frontend",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "containerRuntime": "docker",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "focusedModelUsageTests": {
+          "command": "pytest tests/model_usage -q",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "database": "mysql",
+            "os": "macos",
+            "python": "3.12",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "frontendBuild": {
+          "command": "npm run frontend:build",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "node": "20.18",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "frontendE2EP0": {
+          "command": "npm run frontend:e2e:p0",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "browser": "chromium",
+            "node": "20.18",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "frontendQuality": {
+          "command": "npm run frontend:quality",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "node": "20.18",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "frontendSmoke": {
+          "command": "npm run frontend:smoke",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "browser": "chromium",
+            "node": "20.18",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "frontendStyleTokens": {
+          "command": "npm --prefix frontend run check:style-tokens",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "node": "20.18",
+            "os": "macos",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "mysqlMigrationConcurrency": {
+          "command": "model-usage MySQL migration/concurrency/query-plan suite",
+          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "environment": {
+            "architecture": "arm64",
+            "containerRuntime": "docker",
+            "database": "mysql",
+            "os": "macos",
+            "python": "3.12",
+            "runner": "local"
+          },
+          "exitCode": 0,
+          "status": "passed"
+        }
+      },
+      "sha256": "2e202394c439fa08d6730f10cb06f6a99dc967acbcc8fc56b4a55af7e1703128",
+      "status": "passed"
     },
     "rollup": {
       "exitCode": null,
@@ -194,15 +322,24 @@ blockers:
       "status": "not_run"
     },
     "visualReview": {
-      "sha256": null,
-      "status": "not_run",
-      "viewports": []
+      "sha256": "df189067f8ebf8f95d7773005d748924c775906995a811c65f2d14695ca84a53",
+      "status": "blocked",
+      "unresolvedP0P1": 0,
+      "viewports": [
+        "1024x768",
+        "1440x900",
+        "360x800",
+        "375x812",
+        "390x844",
+        "430x932",
+        "768x1024"
+      ]
     }
   },
-  "generatedAt": "2026-07-30T21:38:58.627572Z",
-  "gitCommit": "5af8b0c1f5e1d81b151f3fd5f3524a3674aafeae",
+  "generatedAt": "2026-08-05T05:01:26.027478Z",
+  "gitCommit": "fb73e1ad8aa206f97672584481232c4ada37031c",
   "readyForFirstOpen": false,
-  "schemaVersion": "model_usage_first_launch_report.v1",
+  "schemaVersion": "model_usage_first_launch_report.v2",
   "status": "blocked"
 }
 ```
