@@ -34,7 +34,7 @@ from app.services.model_usage.counters import (
 from app.services.model_usage.decimal_math import reservation_line_cost, would_exceed_limit
 from app.services.model_usage.errors import ModelUsageAttemptConflict, ModelUsageContractError
 from app.services.model_usage.periods import shanghai_billing_period
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy, lock_family_policy
 from app.services.model_usage.pricing import UsagePriceRateSnapshot, select_price_snapshot
 from app.services.model_usage.state_machine import transition_reservation
 from app.services.model_usage.subjects import resolve_subject
@@ -166,10 +166,10 @@ def reserve_usage_in_session(
     )
     family_id = context.attribution.family_id
     period = shanghai_billing_period(at)
-    pointer = lock_family_policy(db, family_id=family_id)
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if policy is None:
-        raise ModelUsageContractError("current_policy_missing")
+    try:
+        _, policy = lock_current_policy(db, family_id=family_id)
+    except ValueError as exc:
+        raise ModelUsageContractError("current_policy_missing") from exc
     if expected_policy_version_id is not None and policy.id != expected_policy_version_id:
         return ReservationDecision.blocked(
             "model_usage_policy_conflict",

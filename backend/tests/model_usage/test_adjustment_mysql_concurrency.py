@@ -482,6 +482,10 @@ def test_policy_update_pointer_winner_controls_late_settlement_alert_revision(
 
     def settle_after_update() -> None:
         with mysql_adjustment_context.SessionLocal() as db:
+            # Establish a consistent-read snapshot before the policy update commits.
+            # Settlement must still observe the policy row selected by the pointer's
+            # later locking read under MySQL REPEATABLE READ.
+            assert db.get(ModelUsageReservation, receipt.reservation_id) is not None
             barrier.wait(timeout=10)
             settle_usage_in_session(db, receipt, signer=signer)
             db.commit()

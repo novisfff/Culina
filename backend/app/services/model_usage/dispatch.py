@@ -36,7 +36,7 @@ from app.services.model_usage.errors import (
     ModelUsageStateError,
 )
 from app.services.model_usage.periods import BillingPeriod, SHANGHAI
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy
 from app.services.model_usage.pricing import UsagePriceRateSnapshot, UsagePriceSnapshot
 from app.services.model_usage.state_machine import transition_reservation
 from app.services.model_usage.types import (
@@ -269,8 +269,10 @@ def prepare_usage_dispatch_in_session(
     identity = db.get(ModelUsageReservation, reservation_id)
     if identity is None:
         raise ModelUsageStateError("reservation_not_found")
-    pointer = lock_family_policy(db, family_id=identity.family_id)
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
+    try:
+        _, policy = lock_current_policy(db, family_id=identity.family_id)
+    except ValueError as exc:
+        raise ModelUsageStateError("dispatch_identity_missing") from exc
     reservation = db.scalar(
         select(ModelUsageReservation)
         .where(
@@ -280,7 +282,7 @@ def prepare_usage_dispatch_in_session(
         .execution_options(populate_existing=True)
         .with_for_update()
     )
-    if reservation is None or policy is None:
+    if reservation is None:
         raise ModelUsageStateError("dispatch_identity_missing")
     if reservation.fingerprint != fingerprint:
         raise ModelUsageAttemptConflict()

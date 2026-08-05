@@ -23,7 +23,6 @@ from app.db.session import SessionLocal
 from app.models.model_usage import (
     ModelUsageMonthlyRollup,
     ModelUsagePeriodCounter,
-    ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
 )
@@ -33,7 +32,7 @@ from app.services.model_usage.counters import family_cost_dimension_key
 from app.services.model_usage.dispatch import _lock_counters, _remove_reserved
 from app.services.model_usage.incidents import flush_outage_latch
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy, lock_family_policy
 from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 from app.services.model_usage.pricing import price_coverage
 from app.services.model_usage.configured_variants import configured_usage_variants
@@ -209,8 +208,10 @@ def _repair_alert_for_counter_in_session(
     identity = db.get(ModelUsagePeriodCounter, counter_id)
     if identity is None:
         return 0
-    pointer = lock_family_policy(db, family_id=identity.family_id)
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
+    try:
+        _, policy = lock_current_policy(db, family_id=identity.family_id)
+    except ValueError:
+        return 0
     counter = db.scalar(
         select(ModelUsagePeriodCounter)
         .where(
@@ -222,7 +223,7 @@ def _repair_alert_for_counter_in_session(
         .execution_options(populate_existing=True)
         .with_for_update(skip_locked=True)
     )
-    if policy is None or counter is None:
+    if counter is None:
         return 0
     # Treat an alert repair attempt as maintenance verification so the bounded
     # scanner rotates across family/month counters instead of selecting the

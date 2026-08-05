@@ -58,7 +58,7 @@ from app.services.model_usage.errors import (
     ModelUsageAdjustmentWindowClosed,
     ModelUsageStateError,
 )
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy
 from app.services.model_usage.pricing import UsagePriceSnapshot
 from app.services.model_usage.types import capability_meter_contract
 
@@ -677,10 +677,10 @@ def _lock_current_policy(
     *,
     family_id: str,
 ) -> ModelUsagePolicyVersion:
-    pointer = lock_family_policy(db, family_id=family_id)
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if policy is None:
-        raise ModelUsageStateError("current_policy_missing")
+    try:
+        _, policy = lock_current_policy(db, family_id=family_id)
+    except ValueError as exc:
+        raise ModelUsageStateError("current_policy_missing") from exc
     return policy
 
 

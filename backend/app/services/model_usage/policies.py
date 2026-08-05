@@ -169,11 +169,33 @@ def lock_family_policy(db: Session, *, family_id: str) -> ModelUsageFamilyPolicy
 def _require_current_policy(
     db: Session,
     pointer: ModelUsageFamilyPolicy,
+    *,
+    for_update: bool = False,
 ) -> ModelUsagePolicyVersion:
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if policy is None or policy.family_id != pointer.family_id:
+    statement = (
+        select(ModelUsagePolicyVersion)
+        .where(
+            ModelUsagePolicyVersion.id == pointer.current_policy_version_id,
+            ModelUsagePolicyVersion.family_id == pointer.family_id,
+        )
+        .execution_options(populate_existing=True)
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    policy = db.scalar(statement)
+    if policy is None:
         raise ValueError("model_usage_current_policy_not_found")
     return policy
+
+
+def lock_current_policy(
+    db: Session,
+    *,
+    family_id: str,
+) -> tuple[ModelUsageFamilyPolicy, ModelUsagePolicyVersion]:
+    pointer = lock_family_policy(db, family_id=family_id)
+    policy = _require_current_policy(db, pointer, for_update=True)
+    return pointer, policy
 
 
 def current_policy(db: Session, *, family_id: str) -> ModelUsagePolicyVersion:
@@ -294,8 +316,7 @@ def update_family_policy(
     db: Session,
     command: PolicyUpdateCommand,
 ) -> ModelUsagePolicyVersion:
-    pointer = lock_family_policy(db, family_id=command.family_id)
-    existing = _require_current_policy(db, pointer)
+    pointer, existing = lock_current_policy(db, family_id=command.family_id)
     if existing.version_number != command.base_version_number:
         raise ModelUsagePolicyConflict(existing)
     limits = validate_policy_command(command)

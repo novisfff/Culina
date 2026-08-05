@@ -23,7 +23,6 @@ from app.db.session import SessionLocal
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
-    ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
 )
@@ -38,7 +37,7 @@ from app.services.model_usage.errors import (
     ModelUsageSettlementPending,
     ModelUsageStateError,
 )
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy
 from app.services.model_usage.rollups import require_open_rollup_window
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.realtime_watermarks import apply_realtime_watermarks_in_session
@@ -185,10 +184,10 @@ def settle_usage_in_session(
     identity = db.get(ModelUsageReservation, receipt.reservation_id)
     if identity is None:
         raise ModelUsageSettlementPending("reservation_not_found")
-    pointer = lock_family_policy(db, family_id=identity.family_id)
-    current_policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if current_policy is None:
-        raise ModelUsageStateError("current_policy_missing")
+    try:
+        _, current_policy = lock_current_policy(db, family_id=identity.family_id)
+    except ValueError as exc:
+        raise ModelUsageStateError("current_policy_missing") from exc
     reservation = db.scalar(
         select(ModelUsageReservation)
         .where(

@@ -13,14 +13,13 @@ from app.core.config import get_settings
 from app.core.enums import ModelUsageCapability, ModelUsagePricingStatus
 from app.core.utils import utcnow
 from app.db.session import SessionLocal
-from app.models.model_usage import ModelUsagePolicyVersion
 from app.services.model_usage.errors import (
     ModelUsageLedgerUnavailable,
     ModelUsageProofConsumed,
 )
 from app.services.model_usage.periods import BillingPeriod, shanghai_billing_period
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
-from app.services.model_usage.policies import lock_family_policy
+from app.services.model_usage.policies import lock_current_policy
 from app.services.model_usage.pricing import UsagePriceSnapshot, select_price_snapshot
 from app.services.model_usage.reservations import reserve_usage_in_session
 from app.services.model_usage.subjects import resolve_subject
@@ -106,9 +105,12 @@ def _monitoring_dispatch_eligibility(
     at: datetime,
     proof_ttl: timedelta = PROOF_TTL,
 ) -> DispatchEligibilityProof | None:
-    pointer = lock_family_policy(db, family_id=context.attribution.family_id)
-    policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
-    if policy is None:
+    try:
+        _, policy = lock_current_policy(
+            db,
+            family_id=context.attribution.family_id,
+        )
+    except ValueError:
         raise ModelUsageLedgerUnavailable()
     if policy.hard_limit_enabled:
         return None
