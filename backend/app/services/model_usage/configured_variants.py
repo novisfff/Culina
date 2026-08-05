@@ -27,6 +27,7 @@ class ConfiguredUsageVariant:
     produced_meters: frozenset[ModelUsageMeter]
     input_tokens_per_second_cap: Decimal | None = None
     output_tokens_per_second_cap: Decimal | None = None
+    tts_characters_per_lease_cap: int | None = None
     lease_boundary_cumulative_meters: frozenset[ModelUsageMeter] = frozenset()
     provider_contract: ProviderUsageContract = ProviderUsageContract()
     realtime_input_model: str | None = None
@@ -93,6 +94,7 @@ def validate_configured_variant(
         if (
             variant.lease_boundary_cumulative_meters
             or any(cap is not None for cap in caps)
+            or variant.tts_characters_per_lease_cap is not None
             or variant.realtime_input_model is not None
             or variant.realtime_output_model is not None
         ):
@@ -111,6 +113,9 @@ def validate_configured_variant(
 
     uses_token_billing = bool(variant.billable_meters & AUDIO_TOKEN_METERS)
     uses_second_billing = bool(variant.billable_meters & AUDIO_SECOND_METERS)
+    uses_tts_character_billing = (
+        ModelUsageMeter.TTS_CHARACTERS in variant.billable_meters
+    )
     if uses_token_billing and uses_second_billing:
         raise PriceManifestError("overlapping_billable_meters")
     if uses_token_billing:
@@ -120,6 +125,16 @@ def validate_configured_variant(
             raise PriceManifestError("realtime_server_clock_meters_required")
     elif any(cap is not None for cap in caps):
         raise PriceManifestError("realtime_seconds_scheme_forbids_token_caps")
+    if uses_tts_character_billing:
+        character_cap = variant.tts_characters_per_lease_cap
+        if (
+            isinstance(character_cap, bool)
+            or not isinstance(character_cap, int)
+            or character_cap <= 0
+        ):
+            raise PriceManifestError("realtime_tts_character_cap_required")
+    elif variant.tts_characters_per_lease_cap is not None:
+        raise PriceManifestError("realtime_tts_character_cap_forbidden")
 
     if (
         variant.lease_boundary_cumulative_meters
@@ -198,13 +213,9 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 billing_model=rerank_model,
                 capability=ModelUsageCapability.RERANK,
                 variant_key=f"top_n={rerank_limit}",
-                billing_scheme_key="rerank-request-document-v1",
-                billable_meters=frozenset(
-                    {ModelUsageMeter.RERANK_REQUESTS, ModelUsageMeter.RERANK_DOCUMENTS}
-                ),
-                produced_meters=frozenset(
-                    {ModelUsageMeter.RERANK_REQUESTS, ModelUsageMeter.RERANK_DOCUMENTS}
-                ),
+                billing_scheme_key="rerank-token-v1",
+                billable_meters=frozenset({ModelUsageMeter.INPUT_TOKENS}),
+                produced_meters=frozenset({ModelUsageMeter.INPUT_TOKENS}),
             )
         )
 
@@ -267,21 +278,24 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 ),
                 capability=ModelUsageCapability.REALTIME_AUDIO,
                 variant_key=f"voice={realtime_voice}",
-                billing_scheme_key="realtime-audio-seconds-v1",
+                billing_scheme_key="realtime-asr-seconds-tts-characters-v1",
                 billable_meters=frozenset(
                     {
                         ModelUsageMeter.AUDIO_INPUT_SECONDS,
-                        ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
+                        ModelUsageMeter.TTS_CHARACTERS,
                     }
                 ),
                 produced_meters=frozenset(
                     {
                         ModelUsageMeter.AUDIO_INPUT_SECONDS,
-                        ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
+                        ModelUsageMeter.TTS_CHARACTERS,
                     }
                 ),
                 realtime_input_model=realtime_input_model,
                 realtime_output_model=realtime_output_model,
+                tts_characters_per_lease_cap=int(
+                    getattr(settings, "ai_realtime_tts_max_characters", 4096) or 4096
+                ),
             )
         )
 
@@ -309,13 +323,9 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                 billing_model=model,
                 capability=ModelUsageCapability.IMAGE_GENERATION,
                 variant_key=f"mode={mode}|size=1536*1152|quality=standard",
-                billing_scheme_key="image-count-request-v1",
-                billable_meters=frozenset(
-                    {ModelUsageMeter.GENERATED_IMAGES, ModelUsageMeter.REQUEST_UNITS}
-                ),
-                produced_meters=frozenset(
-                    {ModelUsageMeter.GENERATED_IMAGES, ModelUsageMeter.REQUEST_UNITS}
-                ),
+                billing_scheme_key="image-count-v1",
+                billable_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
+                produced_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
             )
         )
 

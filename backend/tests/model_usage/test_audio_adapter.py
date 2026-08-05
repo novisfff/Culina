@@ -46,10 +46,11 @@ def _adapter(
     capability: ModelUsageCapability,
     model: str,
     variant_key: str,
+    provider: str = "openai",
 ) -> AudioUsageAdapter:
     factory = sessionmaker(bind=model_usage_db.get_bind(), expire_on_commit=False)
     return AudioUsageAdapter(
-        provider="openai",
+        provider=provider,
         model=model,
         capability=capability,
         variant_key=variant_key,
@@ -145,6 +146,29 @@ def test_tts_counts_only_sanitized_text(
     )
 
     assert attempt.estimate.quantity(ModelUsageMeter.TTS_CHARACTERS) == Decimal("4")
+
+
+def test_dashscope_tts_uses_provider_billable_character_rules(
+    model_usage_db: Session,
+    receipt_signer: ProviderUsageReceiptSigner,
+    reservation_context,
+) -> None:
+    adapter = _adapter(
+        model_usage_db,
+        receipt_signer,
+        capability=ModelUsageCapability.TTS,
+        model="qwen3-tts-flash",
+        variant_key="voice=default",
+        provider="dashscope",
+    )
+
+    attempt = adapter.begin_tts(
+        _speech_request(reservation_context, text="你好 A。"),
+        sanitized_text="你好 A。",
+        fingerprint="hmac:dashscope-tts-request",
+    )
+
+    assert attempt.estimate.quantity(ModelUsageMeter.TTS_CHARACTERS) == Decimal("7")
 
 
 def test_tts_empty_sanitized_text_creates_no_reservation(

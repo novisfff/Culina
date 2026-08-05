@@ -8,12 +8,12 @@ import type {
 import { DashboardIcon } from '../../app/shellIcons';
 import { StateBlock, StatusBadge } from '../../components/ui-kit';
 import {
-  MODEL_USAGE_CAPABILITY_METERS,
   MODEL_USAGE_CAPABILITY_OPTIONS,
   MODEL_USAGE_MEMBER_BUDGET_STATE_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
 } from './modelUsageOptions';
 import {
+  capabilityMeterFallback,
   costDisplay,
   formatModelUsageCny,
   formatModelUsageQuantity,
@@ -128,8 +128,9 @@ function MobileCapabilities(props: { overview: ModelUsageOverview; items: ModelU
         {Object.entries(MODEL_USAGE_CAPABILITY_OPTIONS).map(([capability, option]) => {
           const typedCapability = capability as ModelUsageCapability;
           const item = entriesByCapability.get(typedCapability);
-          const meter = props.overview.meter_totals.find((total) =>
-            MODEL_USAGE_CAPABILITY_METERS[typedCapability].includes(total.meter),
+          const meter = capabilityMeterFallback(
+            props.overview.meter_totals,
+            typedCapability,
           );
           return (
             <li key={capability}>

@@ -441,9 +441,13 @@ def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
 
         def __init__(self) -> None:
             self.output_durations: list[Decimal] = []
+            self.tts_character_counts: list[int] = []
 
         def add_output_seconds(self, value: Decimal) -> None:
             self.output_durations.append(value)
+
+        def add_tts_characters(self, value: int) -> None:
+            self.tts_character_counts.append(value)
 
     class Scope:
         def __init__(self) -> None:
@@ -463,6 +467,8 @@ def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
             yield self.operation
 
     async def fake_tts_stream(**_kwargs: object):
+        async for _text in _kwargs["text_chunks"]:  # type: ignore[union-attr]
+            pass
         yield {"type": "audio", "audio": b"\x00\x00" * 24000}
 
     async def text_chunks():
@@ -513,6 +519,7 @@ def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
         ("turn-realtime-tts", "duplex", "output", "qwen-realtime-test")
     ]
     assert scope.operation.output_durations == [Decimal("1.000000")]
+    assert scope.operation.tts_character_counts == [7]
 
 
 def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
@@ -524,9 +531,13 @@ def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
 
         def __init__(self) -> None:
             self.output_durations: list[Decimal] = []
+            self.tts_character_counts: list[int] = []
 
         def add_output_seconds(self, value: Decimal) -> None:
             self.output_durations.append(value)
+
+        def add_tts_characters(self, value: int) -> None:
+            self.tts_character_counts.append(value)
 
     class Scope:
         def __init__(self) -> None:
@@ -587,6 +598,7 @@ def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
         ("output", "qwen3-tts-flash-realtime"),
     ]
     assert scope.operation.output_durations == [Decimal("1.000000")]
+    assert scope.operation.tts_character_counts == [7]
 
 
 def test_extract_qwen_asr_delta_text_supports_realtime_subtitle_event() -> None:

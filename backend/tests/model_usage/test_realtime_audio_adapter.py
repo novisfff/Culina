@@ -132,6 +132,61 @@ def test_realtime_adapter_rejects_a_provider_model_outside_the_duplex_mapping(
         )
 
 
+def test_dashscope_realtime_scope_settles_asr_seconds_and_tts_characters(
+    model_usage_db: Session,
+    reservation_context,
+    realtime_signer: ProviderUsageReceiptSigner,
+) -> None:
+    adapter = _adapter(model_usage_db, realtime_signer)
+    adapter.billing_variant = next(
+        variant
+        for variant in configured_usage_variants(
+            SimpleNamespace(
+                ai_realtime_provider="dashscope",
+                ai_realtime_model="qwen3-asr-flash-realtime",
+                ai_realtime_voice="Cherry",
+                ai_tts_model="qwen3-tts-flash",
+                ai_realtime_tts_max_characters=4096,
+            )
+        )
+        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
+    )
+    session = RealtimeVoiceSessionState(
+        session_id="voice-session-provider-units",
+        family_id=reservation_context.attribution.family_id,
+        user_id=reservation_context.attribution.actor_user_id or "user-test",
+        provider="dashscope",
+        recipe_id="recipe-provider-units",
+        cook_session_id="cook-provider-units",
+        session_revision=1,
+        subject={"source": "recipe_cook_page"},
+        created_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+
+    async def run() -> object:
+        scope = RealtimeProviderScope(session=session, usage_adapter=adapter)
+        async with scope.provider_audio_operation(
+            turn_id="turn-provider-units",
+            segment="duplex",
+            direction="output",
+            provider_model="qwen3-tts-flash-realtime",
+            at=NOW,
+        ) as operation:
+            operation.add_input_seconds(Decimal("2"))
+            operation.add_tts_characters(7)
+        terminal = await scope.finish_current_lease_once(
+            at=NOW + timedelta(seconds=2),
+            completion_reason="test",
+        )
+        assert terminal.settlement is not None
+        return terminal.settlement
+
+    settlement = asyncio.run(run())
+    assert settlement.quantity(ModelUsageMeter.AUDIO_INPUT_SECONDS) == Decimal("2")
+    assert settlement.quantity(ModelUsageMeter.TTS_CHARACTERS) == Decimal("7")
+
+
 def test_realtime_cumulative_usage_settles_monotonic_lease_deltas(
     model_usage_db: Session,
     reservation_context,

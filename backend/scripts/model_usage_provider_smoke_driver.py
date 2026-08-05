@@ -268,7 +268,9 @@ class CulinaProviderSmokeDriver:
         provider = str(getattr(self.settings, "ai_realtime_provider", "") or "").strip().lower()
         if provider != "dashscope":
             raise ProviderSmokeDriverError("provider_smoke_realtime_driver_unsupported")
-        operation_id = self._operation_id(ModelUsageCapability.REALTIME_AUDIO)
+        # Realtime lease attempt keys use ':' as their structural delimiter,
+        # so every identity component must remain delimiter-free.
+        operation_id = f"{self.run_id}-realtime-audio"
         session = AIAudioService(self.settings).create_cooking_session(
             CookingRealtimeSessionRequest(
                 provider=provider,

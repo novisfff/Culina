@@ -8,12 +8,12 @@ import type {
 import { StateBlock, StatusBadge } from '../../components/ui-kit';
 import { DashboardIcon } from '../../app/shellIcons';
 import {
-  MODEL_USAGE_CAPABILITY_METERS,
   MODEL_USAGE_CAPABILITY_OPTIONS,
   MODEL_USAGE_MEMBER_BUDGET_STATE_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
 } from './modelUsageOptions';
 import {
+  capabilityMeterFallback,
   costDisplay,
   formatModelUsageCny,
   formatModelUsageQuantity,
@@ -64,8 +64,9 @@ function CapabilityGrid(props: { overview: ModelUsageOverview; items: ModelUsage
         {(Object.entries(MODEL_USAGE_CAPABILITY_OPTIONS) as Array<[ModelUsageCapability, typeof MODEL_USAGE_CAPABILITY_OPTIONS.llm]>).map(
           ([capability, option]) => {
             const item = itemsByCapability.get(capability);
-            const meter = props.overview.meter_totals.find((total) =>
-              MODEL_USAGE_CAPABILITY_METERS[capability].includes(total.meter),
+            const meter = capabilityMeterFallback(
+              props.overview.meter_totals,
+              capability,
             );
             return (
               <article key={capability} className="model-usage-capability-card">

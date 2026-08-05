@@ -19,6 +19,7 @@ from app.core.enums import (
     ModelUsageQuantitySource,
 )
 from app.services.ai_audio.schemas import SpeechRequest, TranscriptionRequest
+from app.services.ai_audio.speech import dashscope_tts_billable_characters
 from app.services.model_usage.adapters.base import MeteredProviderAdapter, MeteredProviderAttempt
 from app.services.model_usage.estimators import estimate_stt, estimate_tts
 from app.services.model_usage.errors import ModelUsageContractError
@@ -83,6 +84,11 @@ class AudioUsageAdapter(MeteredProviderAdapter):
     variant_key: str = ""
     operation_kind: str = "audio_provider_request"
 
+    def _tts_character_count(self, sanitized_text: str) -> int:
+        if self.provider.strip().lower() == "dashscope":
+            return dashscope_tts_billable_characters(sanitized_text)
+        return len(sanitized_text)
+
     def request_fingerprint(self, payload: object) -> str:
         """HMAC transient provider input without retaining its raw content."""
 
@@ -129,7 +135,9 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         return self._begin(
             request=request,
             attempt_suffix="tts",
-            estimate=estimate_tts(character_count=len(sanitized_text)),
+            estimate=estimate_tts(
+                character_count=self._tts_character_count(sanitized_text)
+            ),
             fingerprint=fingerprint,
         )
 
@@ -176,7 +184,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
             raise ModelUsageContractError("audio_tts_text_empty")
         meters, measurement_status = self._tts_meters(
             permit,
-            character_count=len(sanitized_text),
+            character_count=self._tts_character_count(sanitized_text),
             provider_usage=provider_usage,
         )
         return self._success_receipt(

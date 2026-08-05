@@ -2,10 +2,12 @@ import { isApiError } from '../../api/request';
 import { businessDateKey } from '../../lib/date';
 import type {
   ModelUsageBreakdown,
+  ModelUsageCapability,
   ModelUsageCapabilityLimit,
   ModelUsageCostSummary,
   ModelUsageFamilyOverview,
   ModelUsageMeasurementHealth,
+  ModelUsageMeterTotal,
   ModelUsagePersonalOverview,
   ModelUsagePolicy,
   UpdateModelUsagePolicyPayload,
@@ -64,6 +66,19 @@ export function costDisplay(summary: ModelUsageCostSummary): string {
 
 export function formatModelUsageQuantity(value: string): string {
   return value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+export function capabilityMeterFallback(
+  meterTotals: ModelUsageMeterTotal[],
+  capability: ModelUsageCapability,
+): ModelUsageMeterTotal | null {
+  for (const total of meterTotals) {
+    if (!MODEL_USAGE_CAPABILITY_METERS[capability].includes(total.meter)) continue;
+    const matchingCapabilities = (Object.keys(MODEL_USAGE_CAPABILITY_METERS) as ModelUsageCapability[])
+      .filter((candidate) => MODEL_USAGE_CAPABILITY_METERS[candidate].includes(total.meter));
+    if (matchingCapabilities.length === 1) return total;
+  }
+  return null;
 }
 
 export function formatModelUsageTrackingStartedAt(value: string | null | undefined): string | null {

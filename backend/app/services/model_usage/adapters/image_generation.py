@@ -44,7 +44,7 @@ class ImageGenerationUsageAdapter(MeteredProviderAdapter):
     provider: str = "dashscope"
     model: str = ""
     operation_kind: str = "image_generation_job"
-    include_request_fee_by_default: bool = True
+    include_request_fee_by_default: bool = False
 
     def request_fingerprint(self, payload: object) -> str:
         """HMAC request material without storing its prompt or media bytes."""

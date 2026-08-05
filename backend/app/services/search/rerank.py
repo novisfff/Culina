@@ -126,7 +126,11 @@ class OpenAICompatibleRerankClient:
             attempt = adapter.begin(
                 attribution=attribution,
                 attempt_key=attempt_key,
-                document_count=len(documents),
+                estimated_input_tokens=estimate_rerank_input_tokens(
+                    query=query,
+                    documents=documents,
+                    instruct=self.instruct,
+                ),
                 fingerprint=fingerprint_rerank_request(
                     signer=adapter.signer,
                     model=self.model,
@@ -170,10 +174,14 @@ class OpenAICompatibleRerankClient:
                         permit,
                         reported_model=self.model,
                         provider_request_id=_provider_request_id(response),
+                        provider_input_tokens=_provider_total_tokens(response),
                     )
                 )
                 settled = True
-            return _parse_rerank_response(response, document_count=len(documents))
+            return _parse_rerank_response(
+                response,
+                document_count=len(documents),
+            )
         except RerankUnavailableError:
             # A 2xx response was already recorded before parsing.  Returning a
             # local rank keeps search usable without creating a second send.
@@ -321,6 +329,36 @@ def fingerprint_rerank_request(
 def _provider_request_id(response: httpx.Response) -> str | None:
     value = response.headers.get("x-request-id")
     return value if value else None
+
+
+def estimate_rerank_input_tokens(
+    *,
+    query: str,
+    documents: list[str],
+    instruct: str,
+) -> int:
+    """Return a content-free conservative reservation estimate.
+
+    Qwen rerank reports the exact total at settlement.  UTF-8 byte length plus
+    per-field framing is an upper bound for its byte-fallback tokenizer and is
+    persisted only as an aggregate quantity.
+    """
+
+    fields = [instruct, query, *documents]
+    return max(1, sum(len(value.encode("utf-8")) + 8 for value in fields))
+
+
+def _provider_total_tokens(response: httpx.Response) -> int:
+    try:
+        body = response.json()
+        usage = body.get("usage") if isinstance(body, dict) else None
+        value = usage.get("total_tokens") if isinstance(usage, dict) else None
+    except (TypeError, ValueError):
+        value = None
+    parsed = _int_value(value)
+    if parsed is None or parsed <= 0:
+        raise ModelUsageContractError("rerank_provider_usage_invalid")
+    return parsed
 
 
 def _int_value(value: object) -> int | None:

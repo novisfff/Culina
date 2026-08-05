@@ -173,7 +173,7 @@ def _run_all_fake_adapters(
     rerank_attempt = rerank.begin(
         attribution=user_attribution,
         attempt_key="privacy:rerank",
-        document_count=1,
+        estimated_input_tokens=1,
         fingerprint=fingerprint_rerank_request(
             signer=signer,
             model="rerank-test",
@@ -187,6 +187,7 @@ def _run_all_fake_adapters(
         rerank_attempt.prepare_dispatch(),
         reported_model="rerank-test",
         provider_request_id="privacy-rerank-request",
+        provider_input_tokens=1,
         completed_at=NOW + timedelta(seconds=3),
     )
     rerank_attempt.settle(rerank_receipt)

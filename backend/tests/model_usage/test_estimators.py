@@ -54,11 +54,25 @@ def test_realtime_token_scheme_uses_explicit_conservative_caps() -> None:
     assert estimate.quantity(ModelUsageMeter.AUDIO_OUTPUT_TOKENS) == Decimal("3000.000000")
 
 
+def test_realtime_dashscope_scheme_reserves_seconds_and_tts_character_cap() -> None:
+    estimate = estimate_realtime_audio(
+        billable_meters=frozenset(
+            {ModelUsageMeter.AUDIO_INPUT_SECONDS, ModelUsageMeter.TTS_CHARACTERS}
+        ),
+        lease_seconds=Decimal("30"),
+        input_tokens_per_second_cap=None,
+        output_tokens_per_second_cap=None,
+        tts_characters_per_lease_cap=4096,
+    )
+
+    assert estimate.quantity(ModelUsageMeter.AUDIO_INPUT_SECONDS) == Decimal("30")
+    assert estimate.quantity(ModelUsageMeter.TTS_CHARACTERS) == Decimal("4096")
+
+
 def test_other_estimators_use_exact_server_known_quantities() -> None:
     assert estimate_embedding(token_count=123).quantity(ModelUsageMeter.EMBEDDING_TOKENS) == Decimal("123.000000")
-    rerank = estimate_rerank(document_count=17)
-    assert rerank.quantity(ModelUsageMeter.RERANK_REQUESTS) == Decimal("1.000000")
-    assert rerank.quantity(ModelUsageMeter.RERANK_DOCUMENTS) == Decimal("17.000000")
+    rerank = estimate_rerank(input_tokens=17)
+    assert rerank.quantity(ModelUsageMeter.INPUT_TOKENS) == Decimal("17.000000")
     assert estimate_stt(duration_seconds=Decimal("2.25")).quantity(ModelUsageMeter.AUDIO_INPUT_SECONDS) == Decimal("2.250000")
     assert estimate_tts(character_count=42).quantity(ModelUsageMeter.TTS_CHARACTERS) == Decimal("42.000000")
     assert estimate_image_generation(image_count=2).quantity(ModelUsageMeter.GENERATED_IMAGES) == Decimal("2.000000")
@@ -67,4 +81,4 @@ def test_other_estimators_use_exact_server_known_quantities() -> None:
 @pytest.mark.parametrize("value", [0, -1, True])
 def test_integer_estimators_reject_non_positive_counts(value: object) -> None:
     with pytest.raises(ModelUsageContractError):
-        estimate_rerank(document_count=value)  # type: ignore[arg-type]
+        estimate_rerank(input_tokens=value)  # type: ignore[arg-type]

@@ -98,12 +98,15 @@ def estimate_embedding(*, token_count: int) -> UsageEstimate:
     )
 
 
-def estimate_rerank(*, document_count: int) -> UsageEstimate:
-    _positive_integer(document_count, field="document_count")
+def estimate_rerank(*, input_tokens: int) -> UsageEstimate:
+    _positive_integer(input_tokens, field="input_tokens")
     return UsageEstimate(
         meters=(
-            _quantity(ModelUsageMeter.RERANK_REQUESTS, 1, role=ModelUsageMeterRole.BILLABLE),
-            _quantity(ModelUsageMeter.RERANK_DOCUMENTS, document_count, role=ModelUsageMeterRole.BILLABLE),
+            _quantity(
+                ModelUsageMeter.INPUT_TOKENS,
+                input_tokens,
+                role=ModelUsageMeterRole.BILLABLE,
+            ),
         )
     )
 
@@ -130,7 +133,7 @@ def estimate_tts(*, character_count: int) -> UsageEstimate:
 def estimate_image_generation(
     *,
     image_count: int,
-    include_request_fee: bool = True,
+    include_request_fee: bool = False,
 ) -> UsageEstimate:
     _positive_integer(image_count, field="image_count")
     if not isinstance(include_request_fee, bool):
@@ -153,6 +156,7 @@ def estimate_realtime_audio(
     lease_seconds: Decimal,
     input_tokens_per_second_cap: Decimal | None,
     output_tokens_per_second_cap: Decimal | None,
+    tts_characters_per_lease_cap: int | None = None,
 ) -> UsageEstimate:
     if not isinstance(lease_seconds, Decimal) or lease_seconds <= 0:
         raise ModelUsageContractError("lease_seconds_must_be_positive")
@@ -164,6 +168,32 @@ def estimate_realtime_audio(
         ModelUsageMeter.AUDIO_INPUT_TOKENS,
         ModelUsageMeter.AUDIO_OUTPUT_TOKENS,
     }
+    supported = seconds | tokens | {ModelUsageMeter.TTS_CHARACTERS}
+    if not billable_meters or not billable_meters <= supported:
+        raise ModelUsageContractError("invalid_realtime_billable_meter_set")
+    if ModelUsageMeter.TTS_CHARACTERS in billable_meters:
+        if (
+            isinstance(tts_characters_per_lease_cap, bool)
+            or not isinstance(tts_characters_per_lease_cap, int)
+            or tts_characters_per_lease_cap <= 0
+        ):
+            raise ModelUsageContractError("realtime_tts_character_cap_required")
+        if billable_meters & tokens:
+            raise ModelUsageContractError("invalid_realtime_billable_meter_set")
+        return UsageEstimate(
+            meters=tuple(
+                _quantity(
+                    meter,
+                    (
+                        tts_characters_per_lease_cap
+                        if meter is ModelUsageMeter.TTS_CHARACTERS
+                        else lease_seconds
+                    ),
+                    role=ModelUsageMeterRole.BILLABLE,
+                )
+                for meter in sorted(billable_meters, key=lambda item: item.value)
+            )
+        )
     if billable_meters and billable_meters <= seconds:
         return UsageEstimate(
             meters=tuple(

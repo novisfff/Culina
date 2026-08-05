@@ -94,7 +94,7 @@ def test_image_variant_uses_only_billable_dimensions_and_receipt_stays_content_f
     assert attempt.context.variant_key == "mode=reference|size=1024*1024|quality=standard"
     assert "prompt" not in attempt.context.__dataclass_fields__
     assert attempt.estimate.quantity(ModelUsageMeter.GENERATED_IMAGES) == Decimal("1.000000")
-    assert attempt.estimate.quantity(ModelUsageMeter.REQUEST_UNITS) == Decimal("1.000000")
+    assert attempt.estimate.quantity(ModelUsageMeter.REQUEST_UNITS) == Decimal("0")
 
     permit = attempt.prepare_dispatch()
     assert permit.recovery_policy.mode is ModelUsageRecoveryMode.NONE
@@ -115,7 +115,7 @@ def test_image_variant_uses_only_billable_dimensions_and_receipt_stays_content_f
     assert event.reported_model == "image-test-2026-07-30"
 
 
-def test_image_adapter_can_omit_independent_request_fee_when_variant_does_not_declare_one(
+def test_image_adapter_can_include_independent_request_fee_when_variant_declares_one(
     image_adapter: ImageGenerationUsageAdapter,
     reservation_context,
 ) -> None:
@@ -126,12 +126,12 @@ def test_image_adapter_can_omit_independent_request_fee_when_variant_does_not_de
         image_count=2,
         size="1024*1024",
         quality="standard",
-        include_request_fee=False,
-        fingerprint="hmac:image-request-no-request-fee",
+        include_request_fee=True,
+        fingerprint="hmac:image-request-with-request-fee",
     )
 
     assert attempt.estimate.quantity(ModelUsageMeter.GENERATED_IMAGES) == Decimal("2.000000")
-    assert attempt.estimate.quantity(ModelUsageMeter.REQUEST_UNITS) == Decimal("0")
+    assert attempt.estimate.quantity(ModelUsageMeter.REQUEST_UNITS) == Decimal("1.000000")
 
 
 def test_image_adapter_blocks_budget_before_provider_dispatch(

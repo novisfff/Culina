@@ -68,6 +68,7 @@ _CAPABILITY_METERS: tuple[CapabilityMeterContract, ...] = (
     _meter_contract(ModelUsageCapability.LLM, ModelUsageMeter.REQUEST_UNITS, "requests"),
     _meter_contract(ModelUsageCapability.EMBEDDING, ModelUsageMeter.EMBEDDING_TOKENS, "tokens"),
     _meter_contract(ModelUsageCapability.EMBEDDING, ModelUsageMeter.REQUEST_UNITS, "requests"),
+    _meter_contract(ModelUsageCapability.RERANK, ModelUsageMeter.INPUT_TOKENS, "tokens"),
     _meter_contract(ModelUsageCapability.RERANK, ModelUsageMeter.RERANK_REQUESTS, "requests"),
     _meter_contract(ModelUsageCapability.RERANK, ModelUsageMeter.RERANK_DOCUMENTS, "documents"),
     _meter_contract(ModelUsageCapability.RERANK, ModelUsageMeter.REQUEST_UNITS, "requests"),
@@ -103,6 +104,7 @@ _CAPABILITY_METERS: tuple[CapabilityMeterContract, ...] = (
     ),
     _meter_contract(ModelUsageCapability.REALTIME_AUDIO, ModelUsageMeter.AUDIO_INPUT_TOKENS, "tokens"),
     _meter_contract(ModelUsageCapability.REALTIME_AUDIO, ModelUsageMeter.AUDIO_OUTPUT_TOKENS, "tokens"),
+    _meter_contract(ModelUsageCapability.REALTIME_AUDIO, ModelUsageMeter.TTS_CHARACTERS, "characters"),
     _meter_contract(ModelUsageCapability.REALTIME_AUDIO, ModelUsageMeter.REQUEST_UNITS, "requests"),
     _meter_contract(
         ModelUsageCapability.IMAGE_GENERATION,

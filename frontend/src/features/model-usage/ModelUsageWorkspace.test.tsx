@@ -218,12 +218,12 @@ describe('ModelUsageWorkspace', () => {
     expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-06', 'daily_capability_cost');
   });
 
-  it('uses the same capability meter fallback on phone as on desktop', async () => {
+  it('uses the same unambiguous capability meter fallback on phone as on desktop', async () => {
     resolveOwner();
     modelUsageApi.getFamilyModelUsageOverview.mockResolvedValue(familyOverview({
       known_priced_cost_cny: '0.000000000000',
       total_cost_cny: '0.000000000000',
-      meter_totals: [{ meter: 'input_tokens', quantity: '120.000000000000' }],
+      meter_totals: [{ meter: 'generated_images', quantity: '2.000000000000' }],
     }));
     modelUsageApi.getFamilyModelUsageBreakdown.mockResolvedValue({
       ...breakdown('family'),
@@ -231,7 +231,7 @@ describe('ModelUsageWorkspace', () => {
     });
     renderWorkspace({ isPhoneViewport: true });
 
-    expect(await screen.findByText('120 输入 Token')).toBeVisible();
+    expect(await screen.findByText('2 生成图片')).toBeVisible();
   });
 
   it('shows the actual tracking start for a partial first month', async () => {

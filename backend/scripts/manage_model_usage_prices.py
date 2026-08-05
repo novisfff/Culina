@@ -66,6 +66,12 @@ def _inferred_variants(
                 ),
                 input_tokens_per_second_cap=Decimal("1") if token_realtime else None,
                 output_tokens_per_second_cap=Decimal("1") if token_realtime else None,
+                tts_characters_per_lease_cap=(
+                    1
+                    if capability is ModelUsageCapability.REALTIME_AUDIO
+                    and ModelUsageMeter.TTS_CHARACTERS in billable
+                    else None
+                ),
                 lease_boundary_cumulative_meters=(
                     frozenset(billable & AUDIO_TOKEN_METERS)
                     if token_realtime

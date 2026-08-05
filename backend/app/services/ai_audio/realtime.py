@@ -46,6 +46,20 @@ class CumulativeAudioClock:
         self.total += normalized
 
 
+@dataclass(slots=True)
+class CumulativeCharacterClock:
+    total: Decimal = Decimal("0")
+
+    def add(self, character_count: int) -> None:
+        if (
+            isinstance(character_count, bool)
+            or not isinstance(character_count, int)
+            or character_count <= 0
+        ):
+            raise ModelUsageContractError("realtime_tts_character_count_invalid")
+        self.total += Decimal(character_count)
+
+
 @dataclass(frozen=True, slots=True)
 class RealtimeLeaseOutcome:
     """The only decisions a realtime provider send may act on."""
@@ -90,6 +104,19 @@ class RealtimeProviderOperation:
     def add_output_seconds(self, duration_seconds: Decimal) -> None:
         self._require_active().output_clock.add(duration_seconds)
 
+    def add_tts_characters(self, character_count: int) -> None:
+        scope = self._require_active()
+        lease = self.lease
+        if lease is None:  # pragma: no cover - guarded by _require_active
+            raise ModelUsageContractError("realtime_provider_send_not_authorized")
+        cap = scope.usage_adapter._variant().tts_characters_per_lease_cap
+        if cap is None:
+            raise ModelUsageContractError("realtime_tts_character_meter_not_enabled")
+        projected = scope.tts_character_clock.total + Decimal(character_count)
+        if projected - lease.server_tts_character_baseline > Decimal(cap):
+            raise ModelUsageContractError("realtime_tts_character_cap_exceeded")
+        scope.tts_character_clock.add(character_count)
+
     def _require_active(self) -> RealtimeProviderScope:
         if not self.outcome.may_send_audio:
             raise ModelUsageContractError("realtime_provider_send_not_authorized")
@@ -132,6 +159,9 @@ class RealtimeProviderScope:
     usage_adapter: RealtimeAudioUsageAdapter
     input_clock: CumulativeAudioClock = field(default_factory=CumulativeAudioClock)
     output_clock: CumulativeAudioClock = field(default_factory=CumulativeAudioClock)
+    tts_character_clock: CumulativeCharacterClock = field(
+        default_factory=CumulativeCharacterClock
+    )
     schedule_deadlines: bool = False
     _deadline_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
@@ -299,6 +329,7 @@ class RealtimeProviderScope:
                 server_output_total=self.output_clock.total,
                 provider_cumulative=provider_cumulative,
                 previous_provider_watermarks=self.session.provider_meter_watermarks,
+                server_tts_character_total=self.tts_character_clock.total,
             )
         except ModelUsageBlocked as exc:
             self.session.remote_voice_ended = True
@@ -342,6 +373,7 @@ class RealtimeProviderScope:
                 server_input_total=self.input_clock.total,
                 server_output_total=self.output_clock.total,
                 provider_cumulative=provider_cumulative,
+                server_tts_character_total=self.tts_character_clock.total,
                 completed_at=at,
             )
         except ModelUsageSettlementPending as exc:

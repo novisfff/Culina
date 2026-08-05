@@ -62,12 +62,11 @@ def test_rerank_exact_candidate_count_and_content_free_receipt(
     attempt = rerank_adapter.begin(
         attribution=reservation_context.attribution,
         attempt_key="search-1:rerank",
-        document_count=17,
+        estimated_input_tokens=71,
         fingerprint="hmac:rerank-request",
     )
 
-    assert attempt.estimate.quantity(ModelUsageMeter.RERANK_REQUESTS) == Decimal("1")
-    assert attempt.estimate.quantity(ModelUsageMeter.RERANK_DOCUMENTS) == Decimal("17")
+    assert attempt.estimate.quantity(ModelUsageMeter.INPUT_TOKENS) == Decimal("71")
 
     permit = attempt.prepare_dispatch()
     assert permit.recovery_policy.mode is ModelUsageRecoveryMode.NONE
@@ -75,14 +74,14 @@ def test_rerank_exact_candidate_count_and_content_free_receipt(
         permit,
         reported_model="rerank-test-2026-07-01",
         provider_request_id="rerank-request-1",
+        provider_input_tokens=43,
         completed_at=NOW + timedelta(seconds=1),
     )
 
     by_meter = {line.meter: line for line in receipt.meters}
     assert receipt.measurement_status is ModelUsageMeasurementStatus.EXACT
-    assert by_meter[ModelUsageMeter.RERANK_REQUESTS].quantity == Decimal("1")
-    assert by_meter[ModelUsageMeter.RERANK_DOCUMENTS].quantity == Decimal("17")
-    assert all(line.quantity_source is ModelUsageQuantitySource.SERVER_MEASURED for line in receipt.meters)
+    assert by_meter[ModelUsageMeter.INPUT_TOKENS].quantity == Decimal("43")
+    assert all(line.quantity_source is ModelUsageQuantitySource.PROVIDER for line in receipt.meters)
     assert "鸡肉" not in repr(receipt)
 
     settlement = attempt.settle(receipt)
@@ -94,16 +93,16 @@ def test_rerank_exact_candidate_count_and_content_free_receipt(
     assert event.fingerprint == "hmac:rerank-request"
 
 
-def test_rerank_rejects_empty_document_count_without_a_reservation(
+def test_rerank_rejects_empty_input_token_estimate_without_a_reservation(
     rerank_adapter: RerankUsageAdapter,
     reservation_context,
     model_usage_db: Session,
 ) -> None:
-    with pytest.raises(ModelUsageContractError, match="rerank_document_count_invalid"):
+    with pytest.raises(ModelUsageContractError, match="rerank_input_tokens_invalid"):
         rerank_adapter.begin(
             attribution=reservation_context.attribution,
             attempt_key="search-empty:rerank",
-            document_count=0,
+            estimated_input_tokens=0,
             fingerprint="hmac:rerank-empty",
         )
 
@@ -125,7 +124,7 @@ def test_rerank_budget_block_happens_before_dispatch(
             CapabilityLimitCommand(
                 capability=ModelUsageCapability.RERANK,
                 limit_kind=ModelUsageLimitKind.METER,
-                meter=ModelUsageMeter.RERANK_DOCUMENTS,
+                meter=ModelUsageMeter.INPUT_TOKENS,
                 limit_value=Decimal("1"),
             ),
         ),
@@ -135,6 +134,6 @@ def test_rerank_budget_block_happens_before_dispatch(
         rerank_adapter.begin(
             attribution=reservation_context.attribution,
             attempt_key="search-blocked:rerank",
-            document_count=2,
+            estimated_input_tokens=2,
             fingerprint="hmac:rerank-blocked",
         )

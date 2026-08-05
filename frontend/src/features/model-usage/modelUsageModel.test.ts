@@ -8,6 +8,7 @@ import type {
 import {
   buildModelUsagePolicyPayload,
   buildModelUsageWorkspaceViewModel,
+  capabilityMeterFallback,
   costDisplay,
   createModelUsagePolicyDraft,
   formatModelUsageCny,
@@ -19,6 +20,7 @@ import {
 } from './modelUsageModel';
 import {
   MODEL_USAGE_CAPABILITY_OPTIONS,
+  MODEL_USAGE_CAPABILITY_METERS,
   MODEL_USAGE_ERROR_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
 } from './modelUsageOptions';
@@ -147,6 +149,25 @@ describe('model usage display model', () => {
     expect(MODEL_USAGE_CAPABILITY_OPTIONS.llm.label).toBe('文本与视觉理解');
     expect(MODEL_USAGE_METER_OPTIONS.generated_images.label).toBe('生成图片');
     expect(MODEL_USAGE_ERROR_OPTIONS.model_usage_budget_exceeded.title).toBe('本月模型额度已用完');
+  });
+
+  it('keeps policy meter choices aligned with production provider billing contracts', () => {
+    expect(MODEL_USAGE_CAPABILITY_METERS.rerank).toEqual(['input_tokens']);
+    expect(MODEL_USAGE_CAPABILITY_METERS.realtime_audio).toEqual([
+      'audio_input_seconds',
+      'tts_characters',
+    ]);
+  });
+
+  it('uses overview meter totals only when the meter identifies one capability', () => {
+    const totals = [
+      { meter: 'input_tokens' as const, quantity: '120.000000000000' },
+      { meter: 'generated_images' as const, quantity: '2.000000000000' },
+    ];
+
+    expect(capabilityMeterFallback(totals, 'llm')).toBeNull();
+    expect(capabilityMeterFallback(totals, 'rerank')).toBeNull();
+    expect(capabilityMeterFallback(totals, 'image_generation')).toEqual(totals[1]);
   });
 
   it('distinguishes first load, full error, empty data, ready data and stale refresh errors', () => {

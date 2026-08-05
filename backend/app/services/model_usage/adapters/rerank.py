@@ -9,6 +9,7 @@ from app.core.enums import (
     ModelUsageCapability,
     ModelUsageExecutionCertainty,
     ModelUsageMeasurementStatus,
+    ModelUsageMeter,
     ModelUsageMeterRole,
     ModelUsageProviderOutcome,
     ModelUsageQuantitySource,
@@ -43,7 +44,7 @@ class RerankUsageAdapter(MeteredProviderAdapter):
         *,
         attribution: UsageAttribution,
         attempt_key: str,
-        document_count: int,
+        estimated_input_tokens: int,
         fingerprint: str,
     ) -> MeteredProviderAttempt:
         if (
@@ -56,8 +57,12 @@ class RerankUsageAdapter(MeteredProviderAdapter):
             raise ModelUsageContractError("rerank_adapter_configuration_invalid")
         if not attempt_key.strip() or not fingerprint:
             raise ModelUsageContractError("rerank_attempt_identity_required")
-        if isinstance(document_count, bool) or not isinstance(document_count, int) or document_count <= 0:
-            raise ModelUsageContractError("rerank_document_count_invalid")
+        if (
+            isinstance(estimated_input_tokens, bool)
+            or not isinstance(estimated_input_tokens, int)
+            or estimated_input_tokens <= 0
+        ):
+            raise ModelUsageContractError("rerank_input_tokens_invalid")
 
         context = UsageContext(
             attribution=attribution,
@@ -74,7 +79,7 @@ class RerankUsageAdapter(MeteredProviderAdapter):
         )
         return self.start_attempt(
             context,
-            estimate_rerank(document_count=document_count),
+            estimate_rerank(input_tokens=estimated_input_tokens),
             fingerprint=fingerprint,
         )
 
@@ -84,21 +89,29 @@ class RerankUsageAdapter(MeteredProviderAdapter):
         *,
         reported_model: str | None,
         provider_request_id: str | None,
+        provider_input_tokens: int,
         completed_at: datetime | None = None,
     ) -> ProviderUsageReceipt:
         if permit.capability is not ModelUsageCapability.RERANK:
             raise ModelUsageContractError("rerank_receipt_capability_mismatch")
+        if (
+            isinstance(provider_input_tokens, bool)
+            or not isinstance(provider_input_tokens, int)
+            or provider_input_tokens <= 0
+        ):
+            raise ModelUsageContractError("rerank_provider_usage_invalid")
         meters = tuple(
             UsageMeterQuantity(
                 meter=line.meter,
-                quantity=line.quantity,
+                quantity=Decimal(provider_input_tokens),
                 meter_role=line.meter_role,
-                # Candidate count is measured from the exact list sent in this
-                # request, rather than a provider response that may omit it.
-                quantity_source=ModelUsageQuantitySource.SERVER_MEASURED,
+                quantity_source=ModelUsageQuantitySource.PROVIDER,
             )
             for line in permit.required_meters
+            if line.meter is ModelUsageMeter.INPUT_TOKENS
         )
+        if len(meters) != len(permit.required_meters):
+            raise ModelUsageContractError("rerank_meter_unsupported")
         return self.signer.sign(
             ProviderUsageReceipt(
                 reservation_id=permit.reservation_id,

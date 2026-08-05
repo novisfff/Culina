@@ -117,6 +117,7 @@ class ActiveRealtimeUsageLease:
     expires_at: datetime
     server_input_clock_baseline: Decimal
     server_output_clock_baseline: Decimal
+    server_tts_character_baseline: Decimal
     provider_meter_baselines: Mapping[ModelUsageMeter, Decimal]
     terminal_receipt: ProviderUsageReceipt | None = None
     terminal_settlement: UsageSettlement | None = None
@@ -155,6 +156,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         server_output_total: Decimal,
         provider_cumulative: Mapping[ModelUsageMeter, Decimal],
         previous_provider_watermarks: Mapping[ModelUsageMeter, Decimal],
+        server_tts_character_total: Decimal = Decimal("0"),
     ) -> ActiveRealtimeUsageLease:
         variant = self._variant()
         input_baseline = _quantity(
@@ -164,6 +166,10 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         output_baseline = _quantity(
             server_output_total,
             code="realtime_server_output_clock_invalid",
+        )
+        tts_character_baseline = _quantity(
+            server_tts_character_total,
+            code="realtime_server_tts_character_clock_invalid",
         )
         attempt_key = realtime_attempt_key(session_id, turn_id, segment, lease_sequence)
         baselines = _required_cumulative_baselines(
@@ -199,6 +205,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                 lease_seconds=LEASE_SECONDS,
                 input_tokens_per_second_cap=variant.input_tokens_per_second_cap,
                 output_tokens_per_second_cap=variant.output_tokens_per_second_cap,
+                tts_characters_per_lease_cap=variant.tts_characters_per_lease_cap,
             ),
             fingerprint=self.signer.request_fingerprint(attempt_key.encode("utf-8")),
             at=at,
@@ -218,6 +225,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
             expires_at=permit.dispatched_at + timedelta(seconds=int(LEASE_SECONDS)),
             server_input_clock_baseline=input_baseline,
             server_output_clock_baseline=output_baseline,
+            server_tts_character_baseline=tts_character_baseline,
             provider_meter_baselines=baselines,
         )
 
@@ -228,6 +236,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         server_input_total: Decimal,
         server_output_total: Decimal,
         provider_cumulative: Mapping[ModelUsageMeter, Decimal],
+        server_tts_character_total: Decimal = Decimal("0"),
         completed_at: datetime | None = None,
     ) -> UsageSettlement:
         if lease.terminal_settlement is not None:
@@ -240,6 +249,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                     lease,
                     server_input_total=server_input_total,
                     server_output_total=server_output_total,
+                    server_tts_character_total=server_tts_character_total,
                     provider_cumulative=provider_cumulative,
                     completed_at=completed_at,
                 )
@@ -345,7 +355,8 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         server_input_total: Decimal,
         server_output_total: Decimal,
         provider_cumulative: Mapping[ModelUsageMeter, Decimal],
-        completed_at: datetime | None,
+        server_tts_character_total: Decimal = Decimal("0"),
+        completed_at: datetime | None = None,
     ) -> ProviderUsageReceipt:
         input_delta = _quantity(
             server_input_total - lease.server_input_clock_baseline,
@@ -354,6 +365,10 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         output_delta = _quantity(
             server_output_total - lease.server_output_clock_baseline,
             code="realtime_server_output_clock_decreased",
+        )
+        tts_character_delta = _quantity(
+            server_tts_character_total - lease.server_tts_character_baseline,
+            code="realtime_server_tts_character_clock_decreased",
         )
         cumulative: dict[ModelUsageMeter, Decimal] = {}
         watermarks: list[ProviderMeterWatermark] = []
@@ -383,6 +398,9 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                 source = ModelUsageQuantitySource.SERVER_MEASURED
             elif line.meter is ModelUsageMeter.AUDIO_OUTPUT_SECONDS:
                 quantity = output_delta
+                source = ModelUsageQuantitySource.SERVER_MEASURED
+            elif line.meter is ModelUsageMeter.TTS_CHARACTERS:
+                quantity = tts_character_delta
                 source = ModelUsageQuantitySource.SERVER_MEASURED
             elif line.meter in cumulative:
                 quantity = cumulative[line.meter] - lease.provider_meter_baselines[line.meter]

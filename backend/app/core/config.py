@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     ai_realtime_output_sample_rate: int = 24000
     ai_realtime_vad_silence_ms: int = 400
     ai_realtime_timeout_seconds: int = 300
+    ai_realtime_tts_max_characters: int = 4096
     model_usage_required: bool = False
     model_usage_maintenance_enabled: bool = True
     model_usage_default_hard_limit: bool = False
@@ -183,6 +184,8 @@ class Settings(BaseSettings):
             raise ValueError("AI_MAX_OUTPUT_TOKENS must be positive")
         if self.ai_fallback_max_output_tokens < 0:
             raise ValueError("AI_FALLBACK_MAX_OUTPUT_TOKENS cannot be negative")
+        if self.ai_realtime_tts_max_characters <= 0:
+            raise ValueError("AI_REALTIME_TTS_MAX_CHARACTERS must be positive")
         if not self.model_usage_source_instance.strip():
             raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
 

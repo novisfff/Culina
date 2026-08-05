@@ -233,6 +233,8 @@ def test_realtime_smoke_terminalizes_the_lease_and_returns_its_event(
 
         async def synthesize_realtime_text(self, _request: object, **kwargs: object) -> object:
             assert kwargs["realtime_usage_scope"] is scope
+            assert ":" not in kwargs["realtime_turn_id"]
+            assert ":" not in _request.operation_id
             lifecycle.append("provider_send")
             return SimpleNamespace(audio_bytes=b"audio")
 

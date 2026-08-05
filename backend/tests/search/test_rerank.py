@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.enums import ModelUsageReservationStatus
-from app.models.model_usage import ModelUsageEvent, ModelUsageReservation
+from app.core.enums import ModelUsageMeter, ModelUsageReservationStatus
+from app.models.model_usage import (
+    ModelUsageEvent,
+    ModelUsageEventMeter,
+    ModelUsageReservation,
+)
 from app.services.model_usage.adapters.rerank import RerankUsageAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageStateError
 from app.services.model_usage.facade import ModelUsageFacade
@@ -129,7 +135,10 @@ def test_rerank_client_dispatches_before_http_and_settles_exact_document_count(
         return httpx.Response(
             200,
             headers={"x-request-id": "rerank-provider-request"},
-            json={"results": [{"index": 1, "relevance_score": 0.93}]},
+            json={
+                "results": [{"index": 1, "relevance_score": 0.93}],
+                "usage": {"total_tokens": 19},
+            },
         )
 
     client = OpenAICompatibleRerankClient(
@@ -156,7 +165,62 @@ def test_rerank_client_dispatches_before_http_and_settles_exact_document_count(
     event = model_usage_db.scalar(select(ModelUsageEvent))
     assert event is not None
     assert event.attempt_key == "search-1:rerank"
+    meter = model_usage_db.scalar(
+        select(ModelUsageEventMeter).where(ModelUsageEventMeter.event_id == event.id)
+    )
+    assert meter is not None
+    assert meter.meter is ModelUsageMeter.INPUT_TOKENS
+    assert meter.quantity == Decimal("19")
     assert "鸡肉" not in repr(event)
+
+
+def test_rerank_client_settles_provider_usage_before_rejecting_invalid_results(
+    model_usage_db: Session,
+    reservation_context,
+) -> None:
+    publish(model_usage_db, raw_manifest())
+    adapter = _usage_adapter(model_usage_db)
+    client = OpenAICompatibleRerankClient(
+        provider="dashscope",
+        api_base="https://rerank.example/v1",
+        api_key="test-key",
+        model="rerank-test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                request=request,
+                json={
+                    "results": [{"index": 9, "relevance_score": 0.93}],
+                    "usage": {"total_tokens": 23},
+                },
+            )
+        ),
+        usage_adapter=adapter,
+        model_usage_required=True,
+    )
+
+    with pytest.raises(RerankUnavailableError) as exc_info:
+        client.rerank(
+            query="鸡肉",
+            documents=["鸡蛋", "三黄鸡"],
+            top_n=2,
+            attribution=reservation_context.attribution,
+            attempt_key="search-invalid-results:rerank",
+        )
+
+    assert exc_info.value.code == "search_rerank_provider_response_invalid"
+    reservation = model_usage_db.scalar(select(ModelUsageReservation))
+    assert reservation is not None
+    assert reservation.status is ModelUsageReservationStatus.SETTLED
+    event = model_usage_db.scalar(select(ModelUsageEvent))
+    assert event is not None
+    meter = model_usage_db.scalar(
+        select(ModelUsageEventMeter).where(ModelUsageEventMeter.event_id == event.id)
+    )
+    assert meter is not None
+    assert meter.meter is ModelUsageMeter.INPUT_TOKENS
+    assert meter.quantity == Decimal("23")
 
 
 def test_rerank_client_empty_input_makes_no_usage_attempt(

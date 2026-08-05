@@ -19,7 +19,10 @@ from app.services.ai_audio.providers import provider_unavailable
 from app.services.ai_audio.realtime import RealtimeProviderScope
 from app.services.model_usage.adapters.realtime_audio import LEASE_SECONDS
 from app.services.ai_audio.schemas import SpeechRequest, SpeechResult, TranscriptionRequest, TranscriptionResult
-from app.services.ai_audio.speech import sanitize_speech_text
+from app.services.ai_audio.speech import (
+    dashscope_tts_billable_characters,
+    sanitize_speech_text,
+)
 from app.services.ai_audio.transcription import (
     AudioDurationError,
     measure_audio_duration_seconds,
@@ -440,11 +443,12 @@ class DashScopeAudioProvider:
         model = dashscope_realtime_output_model(self.settings)
         voice = request.voice or self.settings.ai_realtime_voice.strip() or self.settings.ai_tts_voice.strip() or "Cherry"
         audio_format = self.settings.ai_tts_format.strip() or "mp3"
+        sanitized_text = sanitize_speech_text(request.text)
         async def synthesize_provider_audio() -> bytes:
             return await _qwen_tts_realtime_synthesize(
                 url=dashscope_realtime_url(self.settings, model),
                 api_key=self.api_key,
-                text=sanitize_speech_text(request.text),
+                text=sanitized_text,
                 voice=voice,
                 audio_format=audio_format,
                 sample_rate=self.settings.ai_realtime_output_sample_rate,
@@ -463,6 +467,9 @@ class DashScopeAudioProvider:
             ) as operation:
                 if operation.decision not in {"active", "renewed"}:
                     raise _realtime_usage_limit_error(operation.error_code)
+                operation.add_tts_characters(
+                    dashscope_tts_billable_characters(sanitized_text)
+                )
                 audio_bytes = await synthesize_provider_audio()
                 operation.add_output_seconds(
                     _realtime_output_duration_seconds(
@@ -510,11 +517,26 @@ class DashScopeAudioProvider:
         }
         sequence = 0
         trace_started_at = request.metadata.get("trace_started_at") if isinstance(request.metadata, dict) else None
-        async def stream_events() -> AsyncIterator[dict]:
+        async def metered_text_chunks(operation: object) -> AsyncIterator[str]:
+            async for text in text_chunks:
+                try:
+                    sanitized = sanitize_speech_text(text, max_chars=1000)
+                except HTTPException:
+                    continue
+                operation.add_tts_characters(  # type: ignore[attr-defined]
+                    dashscope_tts_billable_characters(sanitized)
+                )
+                yield sanitized
+
+        async def stream_events(operation: object | None = None) -> AsyncIterator[dict]:
             async for event in _qwen_tts_realtime_stream(
                 url=dashscope_realtime_url(self.settings, model),
                 api_key=self.api_key,
-                text_chunks=text_chunks,
+                text_chunks=(
+                    metered_text_chunks(operation)
+                    if operation is not None
+                    else text_chunks
+                ),
                 voice=voice,
                 audio_format=audio_format,
                 sample_rate=sample_rate,
@@ -526,7 +548,7 @@ class DashScopeAudioProvider:
 
         async def emit_audio_events(operation: object | None = None) -> AsyncIterator[dict]:
             nonlocal sequence
-            async for event in stream_events():
+            async for event in stream_events(operation):
                 if event["type"] == "audio_trace":
                     yield event
                     continue
