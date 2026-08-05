@@ -11,21 +11,12 @@ from typing import Iterator
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
+from sqlalchemy import MetaData, Table, create_engine, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.enums import MembershipStatus, UserRole
-from app.models.domain import (
-    AIImageGenerationJob,
-    AIRunTraceSpan,
-    Family,
-    Membership,
-    SearchIndexJob,
-    User,
-)
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -127,108 +118,134 @@ class MySqlAlembicDatabase:
 
     def seed_existing_families(self) -> None:
         now = datetime.now(timezone.utc)
-        with Session(self.engine) as db, db.begin():
-            families = (
-                Family(id="family-a", name="家庭 A", created_at=now, updated_at=now),
-                Family(id="family-b", name="家庭 B", created_at=now, updated_at=now),
-            )
-            users = (
-                User(
-                    id="user-a",
-                    username="model-usage-a",
-                    display_name="成员 A",
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                ),
-                User(
-                    id="user-b",
-                    username="model-usage-b",
-                    display_name="成员 B",
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                ),
-                User(
-                    id="user-c",
-                    username="model-usage-c",
-                    display_name="成员 C",
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                ),
-            )
-            db.add_all((*families, *users))
-            db.flush()
-            db.add_all(
+        with self.engine.begin() as connection:
+            metadata = MetaData()
+            families = Table("families", metadata, autoload_with=connection)
+            users = Table("users", metadata, autoload_with=connection)
+            memberships = Table("memberships", metadata, autoload_with=connection)
+            image_jobs = Table("ai_image_generation_jobs", metadata, autoload_with=connection)
+            search_jobs = Table("search_index_jobs", metadata, autoload_with=connection)
+            trace_spans = Table("ai_run_trace_spans", metadata, autoload_with=connection)
+            connection.execute(
+                families.insert(),
                 (
-                    Membership(
-                        id="membership-a",
-                        family_id="family-a",
-                        user_id="user-a",
-                        role=UserRole.OWNER,
-                        status=MembershipStatus.ACTIVE,
-                        created_at=now,
-                        updated_at=now,
-                    ),
-                    Membership(
-                        id="membership-b",
-                        family_id="family-a",
-                        user_id="user-b",
-                        role=UserRole.MEMBER,
-                        status=MembershipStatus.ACTIVE,
-                        created_at=now,
-                        updated_at=now,
-                    ),
-                    Membership(
-                        id="membership-c",
-                        family_id="family-b",
-                        user_id="user-c",
-                        role=UserRole.OWNER,
-                        status=MembershipStatus.ACTIVE,
-                        created_at=now,
-                        updated_at=now,
-                    ),
-                    AIImageGenerationJob(
-                        id="existing-image-job",
-                        family_id="family-a",
-                        user_id="user-a",
-                        status="succeeded",
-                        request_payload={"historical": True},
-                        attempt_count=1,
-                        created_at=now,
-                        updated_at=now,
-                    ),
-                    SearchIndexJob(
-                        id="existing-search-job",
-                        family_id="family-b",
-                        user_id="user-c",
-                        status="succeeded",
-                        entity_type="food",
-                        entity_id="historical-food",
-                        target_name="历史索引",
-                        vector_status="indexed",
-                        attempt_count=1,
-                        created_at=now,
-                        updated_at=now,
-                    ),
-                    AIRunTraceSpan(
-                        id="existing-trace-span",
-                        family_id="family-a",
-                        run_id="historical-run",
-                        trace_id="historical-trace",
-                        span_id="historical-span",
-                        span_type="provider",
-                        name="historical-provider-call",
-                        status="succeeded",
-                        started_at=now,
-                        ended_at=now,
-                        duration_ms=1,
-                        input_summary={},
-                        output_summary={},
-                        payload={},
-                    ),
-                )
+                    {
+                        "id": "family-a",
+                        "name": "家庭 A",
+                        "motto": "",
+                        "location": "",
+                        "food_preferences": [],
+                        "food_avoidances": [],
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    {
+                        "id": "family-b",
+                        "name": "家庭 B",
+                        "motto": "",
+                        "location": "",
+                        "food_preferences": [],
+                        "food_avoidances": [],
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                ),
+            )
+            connection.execute(
+                users.insert(),
+                tuple(
+                    {
+                        "id": f"user-{suffix}",
+                        "username": f"model-usage-{suffix}",
+                        "display_name": f"成员 {suffix.upper()}",
+                        "avatar_seed": f"成员 {suffix.upper()}",
+                        "is_active": True,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for suffix in ("a", "b", "c")
+                ),
+            )
+            connection.execute(
+                memberships.insert(),
+                (
+                    {
+                        "id": "membership-a",
+                        "family_id": "family-a",
+                        "user_id": "user-a",
+                        "role": UserRole.OWNER.name,
+                        "status": MembershipStatus.ACTIVE.name,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    {
+                        "id": "membership-b",
+                        "family_id": "family-a",
+                        "user_id": "user-b",
+                        "role": UserRole.MEMBER.name,
+                        "status": MembershipStatus.ACTIVE.name,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    {
+                        "id": "membership-c",
+                        "family_id": "family-b",
+                        "user_id": "user-c",
+                        "role": UserRole.OWNER.name,
+                        "status": MembershipStatus.ACTIVE.name,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                ),
+            )
+            connection.execute(
+                image_jobs.insert(),
+                {
+                    "id": "existing-image-job",
+                    "family_id": "family-a",
+                    "user_id": "user-a",
+                    "status": "succeeded",
+                    "request_payload": {"historical": True},
+                    "bind_status": "pending",
+                    "attempt_count": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+            connection.execute(
+                search_jobs.insert(),
+                {
+                    "id": "existing-search-job",
+                    "family_id": "family-b",
+                    "user_id": "user-c",
+                    "status": "succeeded",
+                    "entity_type": "food",
+                    "entity_id": "historical-food",
+                    "target_name": "历史索引",
+                    "vector_status": "indexed",
+                    "attempt_count": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+            connection.execute(
+                trace_spans.insert(),
+                {
+                    "id": "existing-trace-span",
+                    "family_id": "family-a",
+                    "run_id": "historical-run",
+                    "trace_id": "historical-trace",
+                    "span_id": "historical-span",
+                    "span_type": "provider",
+                    "name": "historical-provider-call",
+                    "status": "succeeded",
+                    "started_at": now,
+                    "ended_at": now,
+                    "duration_ms": 1,
+                    "input_summary": {},
+                    "output_summary": {},
+                    "payload": {},
+                },
             )
 
     def scalar(self, sql: str, params: dict[str, object] | None = None):

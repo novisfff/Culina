@@ -14,19 +14,49 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPORT_SCRIPT = BACKEND_ROOT / "scripts" / "generate_model_usage_launch_report.py"
 
 
+REQUIRED_ASSERTIONS = {
+    "focusedModelUsageTests": {
+        "focusedSuitePassed",
+    },
+    "backendQuality": {
+        "compileCheckPassed",
+        "pytestSuitePassed",
+    },
+    "frontendQuality": {
+        "styleTokenScanCompleted",
+        "typecheckPassed",
+        "vitestPassed",
+    },
+    "frontendBuild": {
+        "productionBuildPassed",
+    },
+    "frontendStyleTokens": {
+        "newViolationsAbsentOrAccepted",
+        "reportReviewed",
+    },
+    "frontendSmoke": {
+        "modelUsageSmokePassed",
+    },
+    "frontendE2EP0": {
+        "p0JourneysPassed",
+        "targetViewportsCovered",
+    },
+    "dockerBuild": {
+        "backendImageBuilt",
+        "frontendImageBuilt",
+    },
+    "mysqlMigrationConcurrency": {
+        "concurrencyPassed",
+        "migrationPassed",
+        "queryPlansPassed",
+    },
+    "dispatchPolicyInterleaving": {
+        "interleavingPassed",
+    },
+}
+
+
 def _required_command_evidence(*, commit: str, failed_command: str | None = None) -> dict[str, object]:
-    command_ids = (
-        "focusedModelUsageTests",
-        "backendQuality",
-        "frontendQuality",
-        "frontendBuild",
-        "frontendStyleTokens",
-        "frontendSmoke",
-        "frontendE2EP0",
-        "dockerBuild",
-        "mysqlMigrationConcurrency",
-        "dispatchPolicyInterleaving",
-    )
     return {
         "schemaVersion": "model_usage_launch_verification.v1",
         "commands": {
@@ -34,9 +64,12 @@ def _required_command_evidence(*, commit: str, failed_command: str | None = None
                 "commit": commit,
                 "environment": {"os": "ubuntu-24.04", "python": "3.12"},
                 "exitCode": 1 if command_id == failed_command else 0,
-                "assertions": {"passed": command_id != failed_command},
+                "assertions": {
+                    assertion: command_id != failed_command
+                    for assertion in required_assertions
+                },
             }
-            for command_id in command_ids
+            for command_id, required_assertions in REQUIRED_ASSERTIONS.items()
         },
     }
 
@@ -85,6 +118,73 @@ def test_launch_report_blocks_when_any_required_command_evidence_failed(tmp_path
     frontend_quality = commands["frontendQuality"]
     assert isinstance(frontend_quality, dict)
     assert frontend_quality["environment"] == {"os": "ubuntu", "python": "3.12"}
+
+
+def test_launch_report_blocks_when_command_uses_unrelated_true_assertion(tmp_path: Path) -> None:
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=BACKEND_ROOT.parent,
+        text=True,
+    ).strip()
+    verification_evidence = _required_command_evidence(commit=commit)
+    commands = verification_evidence["commands"]
+    assert isinstance(commands, dict)
+    commands["mysqlMigrationConcurrency"]["assertions"] = {"passed": True}
+    evidence_path = tmp_path / "verification-evidence.json"
+    evidence_path.write_text(json.dumps(verification_evidence), encoding="utf-8")
+
+    report = build_launch_report(
+        provider_smoke=tmp_path / "missing-provider-smoke.json",
+        audit=tmp_path / "missing-audit.json",
+        rollup=tmp_path / "missing-rollup.json",
+        health=tmp_path / "missing-health.json",
+        visual_review=tmp_path / "missing-visual-review",
+        performance=None,
+        verification_evidence=evidence_path,
+    )
+
+    assert "required_verification_mysql_migration_concurrency_assertions_not_passed" in report["blockers"]
+    assert report["evidence"]["requiredVerification"]["status"] == "blocked"
+
+
+def test_launch_report_rejects_unknown_verification_keys_at_every_level(tmp_path: Path) -> None:
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=BACKEND_ROOT.parent,
+        text=True,
+    ).strip()
+
+    def mutate_document(document: dict[str, object], level: str) -> None:
+        commands = document["commands"]
+        assert isinstance(commands, dict)
+        if level == "document":
+            document["rawOutput"] = "must-not-be-accepted"
+        elif level == "commands":
+            commands["unreviewedCommand"] = commands["backendQuality"]
+        elif level == "command":
+            commands["backendQuality"]["durationMs"] = 1
+        elif level == "assertions":
+            commands["backendQuality"]["assertions"]["unreviewedAssertion"] = True
+        else:  # pragma: no cover - protects the test table itself
+            raise AssertionError(level)
+
+    for level in ("document", "commands", "command", "assertions"):
+        verification_evidence = _required_command_evidence(commit=commit)
+        mutate_document(verification_evidence, level)
+        evidence_path = tmp_path / f"verification-evidence-{level}.json"
+        evidence_path.write_text(json.dumps(verification_evidence), encoding="utf-8")
+
+        report = build_launch_report(
+            provider_smoke=tmp_path / "missing-provider-smoke.json",
+            audit=tmp_path / "missing-audit.json",
+            rollup=tmp_path / "missing-rollup.json",
+            health=tmp_path / "missing-health.json",
+            visual_review=tmp_path / "missing-visual-review",
+            performance=None,
+            verification_evidence=evidence_path,
+        )
+
+        assert report["evidence"]["requiredVerification"]["status"] == "blocked", level
 
 
 def test_launch_report_blocks_and_does_not_copy_untrusted_environment_values(tmp_path: Path) -> None:

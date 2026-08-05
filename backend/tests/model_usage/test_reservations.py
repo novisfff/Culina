@@ -56,11 +56,12 @@ def reservation_context(model_usage_db: Session) -> UsageContext:
     model_usage_db.add_all([family, owner])
     model_usage_db.flush()
     subject = ensure_user_subject(model_usage_db, family_id=family.id, user_id=owner.id)
-    ensure_family_model_usage_defaults(
+    policy_pointer = ensure_family_model_usage_defaults(
         model_usage_db,
         family_id=family.id,
         creator_subject_id=subject.id,
     )
+    policy_pointer.tracking_started_at = NOW
     return UsageContext(
         attribution=UsageAttribution(
             family_id=family.id,

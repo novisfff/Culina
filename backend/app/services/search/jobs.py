@@ -140,14 +140,17 @@ def can_requeue_budget_blocked(
     )
 
 
-def _normalize_period_start(value: datetime | None) -> datetime | None:
-    """Compare billing boundaries consistently across MySQL/SQLite reloads."""
-
+def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
+    """Compare persisted datetimes consistently across MySQL/SQLite reloads."""
     if value is None:
         return None
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _normalize_period_start(value: datetime | None) -> datetime | None:
+    return _normalize_utc_datetime(value)
 
 
 def _current_budget_scope(db: Session, *, family_id: str) -> tuple[datetime, str] | None:
@@ -461,7 +464,13 @@ def _start_job(
             return False
         now = utcnow()
         stale_lock_cutoff = now - JOB_LOCK_STALE_AFTER
-        if not claimed and job.status == "running" and job.locked_at and job.locked_at > stale_lock_cutoff:
+        locked_at = _normalize_utc_datetime(job.locked_at)
+        if (
+            not claimed
+            and job.status == "running"
+            and locked_at is not None
+            and locked_at > stale_lock_cutoff
+        ):
             return False
         if job.status in {"succeeded", "budget_blocked"}:
             return False

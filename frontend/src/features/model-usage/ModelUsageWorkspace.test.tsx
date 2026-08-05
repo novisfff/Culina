@@ -189,15 +189,21 @@ describe('ModelUsageWorkspace', () => {
   });
 
   it('loads the daily trend alongside the default capability breakdown', async () => {
-    resolveOwner();
-    modelUsageApi.getFamilyModelUsageBreakdown.mockImplementation((period: string, groupBy: string) =>
-      Promise.resolve(groupBy === 'daily_capability_cost' ? dailyBreakdown('family') : breakdown('family')),
-    );
-    renderWorkspace();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-07-30T03:00:00.000Z'));
+    try {
+      resolveOwner();
+      modelUsageApi.getFamilyModelUsageBreakdown.mockImplementation((period: string, groupBy: string) =>
+        Promise.resolve(groupBy === 'daily_capability_cost' ? dailyBreakdown('family') : breakdown('family')),
+      );
+      renderWorkspace();
 
-    expect(await screen.findByRole('img', { name: '本月每日模型费用趋势' })).toBeVisible();
-    expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'capability');
-    expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'daily_capability_cost');
+      expect(await screen.findByRole('img', { name: '本月每日模型费用趋势' })).toBeVisible();
+      expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'capability');
+      expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'daily_capability_cost');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('requests overview, selected breakdown and daily trend for the selected historical month', async () => {

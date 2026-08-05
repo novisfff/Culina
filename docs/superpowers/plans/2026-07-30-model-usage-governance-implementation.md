@@ -5703,6 +5703,21 @@ cd ..
 
 `model-usage-required-verification.json` is a content-free release evidence summary with schema version `model_usage_launch_verification.v1`. For every fixed command ID — `focusedModelUsageTests`, `backendQuality`, `frontendQuality`, `frontendBuild`, `frontendStyleTokens`, `frontendSmoke`, `frontendE2EP0`, `dockerBuild`, `mysqlMigrationConcurrency`, and `dispatchPolicyInterleaving` — it records the current git commit, an allowlisted environment summary, integer exit code, and non-empty all-true key assertions. The report normalizes that summary to fixed public categories and rejects unknown keys or unrecognized values. Missing command records, commit mismatches, absent environment, non-zero exits, or false assertions are first-launch blockers. Never copy raw command output, credentials, Provider content, or arbitrary environment variables into this artifact.
 
+Each command row contains exactly `commit`, `environment`, `exitCode`, and `assertions`; its assertion object must contain exactly the command-specific keys below, all set to `true`. Unknown document, command, command-row, environment, or assertion keys are rejected rather than ignored.
+
+| Command ID | Required and allowed assertion keys |
+| --- | --- |
+| `focusedModelUsageTests` | `focusedSuitePassed` |
+| `backendQuality` | `compileCheckPassed`, `pytestSuitePassed` |
+| `frontendQuality` | `styleTokenScanCompleted`, `typecheckPassed`, `vitestPassed` |
+| `frontendBuild` | `productionBuildPassed` |
+| `frontendStyleTokens` | `newViolationsAbsentOrAccepted`, `reportReviewed` |
+| `frontendSmoke` | `modelUsageSmokePassed` |
+| `frontendE2EP0` | `p0JourneysPassed`, `targetViewportsCovered` |
+| `dockerBuild` | `backendImageBuilt`, `frontendImageBuilt` |
+| `mysqlMigrationConcurrency` | `concurrencyPassed`, `migrationPassed`, `queryPlansPassed` |
+| `dispatchPolicyInterleaving` | `interleavingPassed` |
+
 The generated report must contain actual timestamps, git commit, Alembic head, verified idempotency unique keys, configured variants/guardrail meter coverage, recovery modes, dispatch-policy interleaving result, counter-kind audit result, command exit codes, viewport evidence, unresolved P0/P1 count, and a machine-derived `ready_for_first_open` decision.
 
 - [ ] Review `git status`, ensure no `.env`, key, secure manifest, provider content, logs, database dump, or `.artifacts` file is staged, then commit only code/tests/report.

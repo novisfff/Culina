@@ -22,7 +22,7 @@ from app.services.model_usage.aggregation import (
 )
 from app.services.model_usage.periods import BillingPeriod, shanghai_billing_period
 from app.db.base import Base
-from app.models.domain import Family
+from app.models.domain import Family, User
 from app.models.model_usage import (
     ModelUsageEvent,
     ModelUsageEventMeter,
@@ -170,18 +170,43 @@ def _seed_reference_scale(engine, *, events_in_current_period: int) -> None:
             },
         )
         connection.execute(
-            ModelUsageSubject.__table__.insert(),
+            User.__table__.insert(),
             {
-                "id": "subject-a",
-                "subject_key": "mus_reference_subject",
-                "family_id": "family-a",
-                "user_id": None,
-                "subject_kind": "system",
-                "dimension_key": "system",
-                "anonymized_label": "系统",
+                "id": "user-a",
+                "username": "reference-user-a",
+                "display_name": "成员 A",
+                "avatar_seed": "成员 A",
+                "is_active": True,
                 "created_at": now,
-                "unlinked_at": None,
+                "updated_at": now,
             },
+        )
+        connection.execute(
+            ModelUsageSubject.__table__.insert(),
+            (
+                {
+                    "id": "subject-a",
+                    "subject_key": "mus_reference_subject",
+                    "family_id": "family-a",
+                    "user_id": None,
+                    "subject_kind": "system",
+                    "dimension_key": "system",
+                    "anonymized_label": "系统",
+                    "created_at": now,
+                    "unlinked_at": None,
+                },
+                {
+                    "id": "subject-user-a",
+                    "subject_key": "mus_reference_user_subject",
+                    "family_id": "family-a",
+                    "user_id": "user-a",
+                    "subject_kind": "user",
+                    "dimension_key": "user:reference-a",
+                    "anonymized_label": "成员 A",
+                    "created_at": now,
+                    "unlinked_at": None,
+                },
+            ),
         )
         connection.execute(
             ModelUsagePolicyVersion.__table__.insert(),

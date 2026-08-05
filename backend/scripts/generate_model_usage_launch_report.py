@@ -62,17 +62,72 @@ _VERIFICATION_ENVIRONMENT_KEYS = (
     "runner",
 )
 _SAFE_VERSION = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.\d+)?$")
+_SAFE_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_VERIFICATION_DOCUMENT_KEYS = frozenset({"schemaVersion", "commands"})
+_VERIFICATION_COMMAND_ROW_KEYS = frozenset(
+    {"commit", "environment", "exitCode", "assertions"}
+)
 _REQUIRED_VERIFICATION_COMMANDS = (
-    ("focusedModelUsageTests", "focused_model_usage_tests", "pytest tests/model_usage -q"),
-    ("backendQuality", "backend_quality", "npm run backend:quality"),
-    ("frontendQuality", "frontend_quality", "npm run frontend:quality"),
-    ("frontendBuild", "frontend_build", "npm run frontend:build"),
-    ("frontendStyleTokens", "frontend_style_tokens", "npm --prefix frontend run check:style-tokens"),
-    ("frontendSmoke", "frontend_smoke", "npm run frontend:smoke"),
-    ("frontendE2EP0", "frontend_e2e_p0", "npm run frontend:e2e:p0"),
-    ("dockerBuild", "docker_build", "docker compose -f deploy/docker-compose.yml build backend frontend"),
-    ("mysqlMigrationConcurrency", "mysql_migration_concurrency", "model-usage MySQL migration/concurrency/query-plan suite"),
-    ("dispatchPolicyInterleaving", "dispatch_policy_interleaving", "dispatch-policy MySQL interleaving suite"),
+    (
+        "focusedModelUsageTests",
+        "focused_model_usage_tests",
+        "pytest tests/model_usage -q",
+        frozenset({"focusedSuitePassed"}),
+    ),
+    (
+        "backendQuality",
+        "backend_quality",
+        "npm run backend:quality",
+        frozenset({"compileCheckPassed", "pytestSuitePassed"}),
+    ),
+    (
+        "frontendQuality",
+        "frontend_quality",
+        "npm run frontend:quality",
+        frozenset({"styleTokenScanCompleted", "typecheckPassed", "vitestPassed"}),
+    ),
+    (
+        "frontendBuild",
+        "frontend_build",
+        "npm run frontend:build",
+        frozenset({"productionBuildPassed"}),
+    ),
+    (
+        "frontendStyleTokens",
+        "frontend_style_tokens",
+        "npm --prefix frontend run check:style-tokens",
+        frozenset({"newViolationsAbsentOrAccepted", "reportReviewed"}),
+    ),
+    (
+        "frontendSmoke",
+        "frontend_smoke",
+        "npm run frontend:smoke",
+        frozenset({"modelUsageSmokePassed"}),
+    ),
+    (
+        "frontendE2EP0",
+        "frontend_e2e_p0",
+        "npm run frontend:e2e:p0",
+        frozenset({"p0JourneysPassed", "targetViewportsCovered"}),
+    ),
+    (
+        "dockerBuild",
+        "docker_build",
+        "docker compose -f deploy/docker-compose.yml build backend frontend",
+        frozenset({"backendImageBuilt", "frontendImageBuilt"}),
+    ),
+    (
+        "mysqlMigrationConcurrency",
+        "mysql_migration_concurrency",
+        "model-usage MySQL migration/concurrency/query-plan suite",
+        frozenset({"concurrencyPassed", "migrationPassed", "queryPlansPassed"}),
+    ),
+    (
+        "dispatchPolicyInterleaving",
+        "dispatch_policy_interleaving",
+        "dispatch-policy MySQL interleaving suite",
+        frozenset({"interleavingPassed"}),
+    ),
 )
 
 
@@ -188,7 +243,16 @@ def _required_verification_evidence(
             ["required_verification_evidence_not_run"],
         )
     commands = document.get("commands")
-    if document.get("schemaVersion") != _VERIFICATION_SCHEMA_VERSION or not isinstance(commands, dict):
+    command_ids = {
+        command_id
+        for command_id, _blocker_prefix, _canonical_command, _required_assertions in _REQUIRED_VERIFICATION_COMMANDS
+    }
+    if (
+        set(document) != _VERIFICATION_DOCUMENT_KEYS
+        or document.get("schemaVersion") != _VERIFICATION_SCHEMA_VERSION
+        or not isinstance(commands, dict)
+        or bool(set(commands) - command_ids)
+    ):
         return (
             {"status": "blocked", "sha256": digest, "commands": {}},
             ["required_verification_evidence_invalid"],
@@ -196,7 +260,12 @@ def _required_verification_evidence(
 
     evidence_commands: dict[str, object] = {}
     blockers: list[str] = []
-    for command_id, blocker_prefix, canonical_command in _REQUIRED_VERIFICATION_COMMANDS:
+    for (
+        command_id,
+        blocker_prefix,
+        canonical_command,
+        required_assertions,
+    ) in _REQUIRED_VERIFICATION_COMMANDS:
         row = commands.get(command_id)
         if not isinstance(row, dict):
             evidence_commands[command_id] = {
@@ -209,13 +278,29 @@ def _required_verification_evidence(
             blockers.append(f"required_verification_{blocker_prefix}_not_run")
             continue
 
-        commit = row.get("commit") if isinstance(row.get("commit"), str) else None
+        if set(row) != _VERIFICATION_COMMAND_ROW_KEYS:
+            evidence_commands[command_id] = {
+                "command": canonical_command,
+                "status": "blocked",
+                "commit": None,
+                "environment": {},
+                "exitCode": None,
+            }
+            blockers.append(f"required_verification_{blocker_prefix}_schema_invalid")
+            continue
+
+        raw_commit = row.get("commit")
+        commit = (
+            raw_commit
+            if isinstance(raw_commit, str) and _SAFE_COMMIT.fullmatch(raw_commit)
+            else None
+        )
         environment = _safe_verification_environment(row.get("environment"))
         exit_code = row.get("exitCode") if type(row.get("exitCode")) is int else None
         assertions = row.get("assertions")
         assertions_passed = (
             isinstance(assertions, dict)
-            and bool(assertions)
+            and set(assertions) == required_assertions
             and all(value is True for value in assertions.values())
         )
         status = "passed"
