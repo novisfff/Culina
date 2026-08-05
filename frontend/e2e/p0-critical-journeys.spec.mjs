@@ -125,11 +125,16 @@ test.describe('P0 authenticated family workflow', () => {
     await searchResults.getByRole('option', { name: /番茄炒蛋/ }).click();
     await expect(mealComposer.getByRole('listitem').filter({ hasText: '番茄炒蛋' })).toBeVisible();
 
-    const recordRequestPromise = page.waitForRequest(
-      (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/api/meal-logs/record',
-    );
-    await mealComposer.getByRole('button', { name: '记下这餐' }).click();
-    const recordRequest = await recordRequestPromise;
+    const isMealRecordRequest = (request) =>
+      request.method() === 'POST' && new URL(request.url()).pathname === '/api/meal-logs/record';
+    const [recordRequest, recordResponse] = await Promise.all([
+      page.waitForRequest(isMealRecordRequest),
+      page.waitForResponse(
+        (response) => isMealRecordRequest(response.request()) && response.ok(),
+      ),
+      mealComposer.getByRole('button', { name: '记下这餐' }).click(),
+    ]);
+    expect(recordResponse.ok()).toBe(true);
     const recordPayload = recordRequest.postDataJSON();
     expect(recordPayload).toMatchObject({
       date: '2026-07-12',
