@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from scripts.model_usage_reference_artifact import (
+    finalize_reference_performance_artifact,
+)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -23,6 +26,19 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "model_usage_reference: absolute model-usage latency gate for the first-launch MySQL 8.4 reference host",
     )
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    try:
+        finalize_reference_performance_artifact(
+            session.config,
+            exit_code=int(exitstatus),
+        )
+    except (OSError, ValueError):
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line("model_usage_reference_artifact_write_failed", red=True)
 
 
 @pytest.fixture()

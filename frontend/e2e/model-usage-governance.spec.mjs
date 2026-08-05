@@ -1,4 +1,6 @@
 import { expect, test } from './fixtures/p0App.mjs';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 const MODEL_USAGE_VIEWPORTS = [
   { width: 360, height: 800 },
@@ -15,6 +17,19 @@ async function expectNoHorizontalOverflow(page) {
     () => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
   );
   expect(overflow, '模型用量页面不应产生横向溢出').toBeLessThanOrEqual(1);
+}
+
+async function saveVisualReviewScreenshot(page, filename) {
+  const outputDirectory = process.env.MODEL_USAGE_VISUAL_REVIEW_DIR;
+  if (!outputDirectory) return;
+
+  const absoluteDirectory = path.resolve(outputDirectory);
+  await mkdir(absoluteDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(absoluteDirectory, filename),
+    fullPage: true,
+    animations: 'disabled',
+  });
 }
 
 async function openModelUsage(page) {
@@ -34,8 +49,19 @@ for (const viewport of MODEL_USAGE_VIEWPORTS) {
 
     await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
     await expectNoHorizontalOverflow(page);
+    await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-owner.png`);
   });
 }
+
+test('@p0 @model-usage-390x844 long provider and model names wrap without horizontal overflow', async ({ app }) => {
+  const { page } = app;
+  await openModelUsage(page);
+
+  await page.getByLabel('统计维度').selectOption('provider_model');
+  await expect(page.getByText(/gpt-smoke-regional-routing-snapshot-2026-08-05-with-a-very-long-model-name/)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await saveVisualReviewScreenshot(page, '390x844-long-model.png');
+});
 
 test('@p0 @model-usage-1440x900 owner switches between family and personal model usage', async ({ app }) => {
   const { page, requestedApiPaths } = app;

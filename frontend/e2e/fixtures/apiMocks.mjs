@@ -665,7 +665,7 @@ const modelUsageCapabilityBreakdown = [
     label: 'llm',
     capability: 'llm',
     provider: 'openai',
-    billing_model: 'gpt-smoke',
+    billing_model: 'gpt-smoke-regional-routing-snapshot-2026-08-05-with-a-very-long-model-name',
     meter: null,
     meter_total: null,
     local_day: null,
@@ -751,6 +751,35 @@ const modelUsageCapabilityBreakdown = [
     pricing_complete: true,
     unpriced_event_count: 0,
     measurement_health: modelUsageHealthFixture,
+  },
+];
+
+const modelUsageProviderModelBreakdown = modelUsageCapabilityBreakdown.slice(0, 2).map((item) => ({
+  ...item,
+  label: `${item.provider} / ${item.billing_model}`,
+  capability: null,
+}));
+
+const modelUsageMeterBreakdown = [{
+  ...modelUsageCapabilityBreakdown[0],
+  label: 'input_tokens',
+  capability: null,
+  provider: null,
+  billing_model: null,
+  meter: 'input_tokens',
+  meter_total: '1600.000000',
+}];
+
+const modelUsageDailyBreakdown = [
+  {
+    ...modelUsageCapabilityBreakdown[0],
+    label: '2026-07-03 / llm',
+    local_day: '2026-07-03',
+  },
+  {
+    ...modelUsageCapabilityBreakdown[1],
+    label: '2026-07-18 / embedding',
+    local_day: '2026-07-18',
   },
 ];
 
@@ -844,7 +873,7 @@ function modelUsageFamilyBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: groupBy === 'capability' ? modelUsageCapabilityBreakdown : modelUsageCapabilityBreakdown.slice(0, 2),
+    items: modelUsageBreakdownItems(groupBy),
   };
 }
 
@@ -856,8 +885,15 @@ function modelUsagePersonalBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: groupBy === 'capability' ? modelUsageCapabilityBreakdown : modelUsageCapabilityBreakdown.slice(0, 2),
+    items: modelUsageBreakdownItems(groupBy),
   };
+}
+
+function modelUsageBreakdownItems(groupBy) {
+  if (groupBy === 'provider_model') return modelUsageProviderModelBreakdown;
+  if (groupBy === 'meter') return modelUsageMeterBreakdown;
+  if (groupBy === 'daily_capability_cost') return modelUsageDailyBreakdown;
+  return modelUsageCapabilityBreakdown;
 }
 
 function copyFixture(value) {

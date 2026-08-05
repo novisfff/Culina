@@ -5642,6 +5642,7 @@ CULINA_TEST_MYSQL_URL=mysql+pymysql://culina:culina@127.0.0.1:3306/culina_model_
   tests/model_usage/test_realtime_audio_mysql.py \
   tests/model_usage/test_reporting_queries_mysql.py -q
 MODEL_USAGE_REFERENCE_PROFILE=culina-first-launch-mysql84-v1 \
+  MODEL_USAGE_REFERENCE_OUTPUT=.artifacts/model-usage-reference-performance.json \
   CULINA_TEST_MYSQL_URL=mysql+pymysql://culina:culina@127.0.0.1:3306/culina_model_usage_test \
   .venv/bin/python -m pytest tests/model_usage/test_performance_reference.py \
   -m model_usage_reference -q
@@ -5695,6 +5696,7 @@ PYTHONPATH=. .venv/bin/python scripts/generate_model_usage_launch_report.py \
   --audit .artifacts/model-usage-audit.json \
   --rollup .artifacts/model-usage-rollup.json \
   --health .artifacts/model-usage-health.json \
+  --performance .artifacts/model-usage-reference-performance.json \
   --visual-review .artifacts/model-usage-visual-review \
   --verification-evidence .artifacts/model-usage-required-verification.json \
   --output ../docs/plans/model-usage-first-launch-report.md
@@ -5702,6 +5704,10 @@ cd ..
 ```
 
 `model-usage-required-verification.json` is a content-free release evidence summary with schema version `model_usage_launch_verification.v1`. For every fixed command ID — `focusedModelUsageTests`, `backendQuality`, `frontendQuality`, `frontendBuild`, `frontendStyleTokens`, `frontendSmoke`, `frontendE2EP0`, `dockerBuild`, `mysqlMigrationConcurrency`, and `dispatchPolicyInterleaving` — it records the current git commit, an allowlisted environment summary, integer exit code, and non-empty all-true key assertions. The report normalizes that summary to fixed public categories and rejects unknown keys or unrecognized values. Missing command records, commit mismatches, absent environment, non-zero exits, or false assertions are first-launch blockers. Never copy raw command output, credentials, Provider content, or arbitrary environment variables into this artifact.
+
+`model-usage-reference-performance.json` is created only after the designated-profile pytest session finishes. It uses schema version `model_usage_reference_performance.v1`, refuses to overwrite an existing path, records only aggregate p95/query-count evidence, and remains blocked unless the complete reference suite exits 0. Do not set `MODEL_USAGE_REFERENCE_PROFILE` on an ordinary developer machine merely to produce this artifact.
+
+The visual-review directory must contain `review.json` with schema version `model_usage_visual_review.v1`. Its document keys and check keys are exact: all seven viewports, zero unresolved P0/P1 issues, and `keyboard`, `reducedMotion`, `textZoom200`, `noHorizontalOverflow`, `screenReaderLabels`, `voiceOver`, `safeArea`, `offlineRestore`, and `longModelNames` must all be explicitly true. Unknown or missing keys fail closed; automated label assertions do not substitute for a real VoiceOver traversal.
 
 Each command row contains exactly `commit`, `environment`, `exitCode`, and `assertions`; its assertion object must contain exactly the command-specific keys below, all set to `true`. Unknown document, command, command-row, environment, or assertion keys are rejected rather than ignored.
 

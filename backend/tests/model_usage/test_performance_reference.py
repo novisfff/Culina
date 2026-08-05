@@ -40,6 +40,10 @@ from app.services.model_usage.queries import (
     get_family_usage_overview,
 )
 from app.services.model_usage.subjects import ensure_user_subject
+from scripts.model_usage_reference_artifact import (
+    record_reference_latency,
+    record_reference_query_plan,
+)
 from tests.model_usage.test_migration_mysql import MySqlAlembicDatabase
 from tests.model_usage.test_pricing_service import publish, raw_manifest
 from tests.model_usage.test_reporting_queries_mysql import (
@@ -419,6 +423,7 @@ def test_reference_host_profile_refuses_an_unexpected_name() -> None:
 def test_reference_profile_latency(
     reference_dataset: ReferenceDataset,
     reference_host_profile: ReferenceHostProfile,
+    pytestconfig: pytest.Config,
 ) -> None:
     reference_host_profile.require_enabled()
     result = benchmark_usage_queries(reference_dataset)
@@ -428,13 +433,18 @@ def test_reference_profile_latency(
     assert result.current_overview_p95_ms <= 300
     assert result.current_breakdown_p95_ms <= 1000
     assert result.historical_rollup_p95_ms <= 500
+    record_reference_latency(pytestconfig, result)
 
 
 @pytest.mark.model_usage_reference
-def test_usage_query_plans_and_counts(reference_dataset: ReferenceDataset) -> None:
+def test_usage_query_plans_and_counts(
+    reference_dataset: ReferenceDataset,
+    pytestconfig: pytest.Config,
+) -> None:
     result = inspect_usage_query_plans(reference_dataset)
 
     assert result.has_full_table_scan is False
     assert result.current_aggregate_query_count <= 11
     assert result.current_breakdown_query_count <= 6
     assert result.historical_rollup_query_count <= 3
+    record_reference_query_plan(pytestconfig, result)

@@ -11,6 +11,7 @@ blocked report and a non-zero exit status.
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -30,6 +31,7 @@ from scripts.check_model_usage_adapter_coverage import build_coverage_report
 
 REPORT_SCHEMA_VERSION = "model_usage_first_launch_report.v2"
 _SMOKE_SCHEMA_VERSION = "model_usage_provider_smoke.v1"
+_PERFORMANCE_SCHEMA_VERSION = "model_usage_reference_performance.v1"
 _VERIFICATION_SCHEMA_VERSION = "model_usage_launch_verification.v1"
 _REFERENCE_PROFILE = "culina-first-launch-mysql84-v1"
 _EXPECTED_CAPABILITIES = (
@@ -50,6 +52,39 @@ _EXPECTED_VIEWPORTS = (
     "1024x768",
     "1440x900",
 )
+_VISUAL_REVIEW_DOCUMENT_KEYS = frozenset(
+    {"schemaVersion", "status", "viewports", "unresolvedP0P1", "checks", "notes"}
+)
+_VISUAL_REVIEW_CHECK_KEYS = frozenset(
+    {
+        "keyboard",
+        "reducedMotion",
+        "textZoom200",
+        "noHorizontalOverflow",
+        "screenReaderLabels",
+        "voiceOver",
+        "safeArea",
+        "offlineRestore",
+        "longModelNames",
+    }
+)
+_PERFORMANCE_DOCUMENT_KEYS = frozenset({"schemaVersion", "exitCode", "payload"})
+_PERFORMANCE_PAYLOAD_KEYS = frozenset(
+    {
+        "profile",
+        "status",
+        "sampleCount",
+        "reserveP95Ms",
+        "settleP95Ms",
+        "currentOverviewP95Ms",
+        "currentBreakdownP95Ms",
+        "historicalRollupP95Ms",
+        "hasFullTableScan",
+        "currentAggregateQueryCount",
+        "currentBreakdownQueryCount",
+        "historicalRollupQueryCount",
+    }
+)
 _VERIFICATION_ENVIRONMENT_KEYS = (
     "architecture",
     "browser",
@@ -63,6 +98,13 @@ _VERIFICATION_ENVIRONMENT_KEYS = (
 )
 _SAFE_VERSION = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.\d+)?$")
 _SAFE_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_SAFE_EVENT_ID = re.compile(r"^usage-event-[a-z0-9]+$")
+_SMOKE_DOCUMENT_KEYS = frozenset(
+    {"schemaVersion", "generatedAt", "status", "executionMode", "blockers", "capabilities"}
+)
+_SMOKE_PASSED_CAPABILITY_KEYS = frozenset(
+    {"capability", "status", "eventId"}
+)
 _VERIFICATION_DOCUMENT_KEYS = frozenset({"schemaVersion", "commands"})
 _VERIFICATION_COMMAND_ROW_KEYS = frozenset(
     {"commit", "environment", "exitCode", "assertions"}
@@ -357,12 +399,26 @@ def _provider_smoke_evidence(path: Path) -> tuple[dict[str, object], str | None]
         if isinstance(capability_rows, list)
         else {}
     )
+    generated_at = document.get("generatedAt")
     passed = (
-        document.get("schemaVersion") == _SMOKE_SCHEMA_VERSION
+        set(document) == _SMOKE_DOCUMENT_KEYS
+        and document.get("schemaVersion") == _SMOKE_SCHEMA_VERSION
+        and isinstance(generated_at, str)
+        and 1 <= len(generated_at) <= 40
+        and generated_at.endswith("Z")
         and document.get("status") == "passed"
         and document.get("executionMode") == "real_provider"
+        and document.get("blockers") == []
+        and isinstance(capability_rows, list)
+        and len(capability_rows) == len(_EXPECTED_CAPABILITIES)
         and set(by_capability) == set(_EXPECTED_CAPABILITIES)
-        and all(by_capability[item].get("status") == "passed" for item in _EXPECTED_CAPABILITIES)
+        and all(
+            set(by_capability[item]) == _SMOKE_PASSED_CAPABILITY_KEYS
+            and by_capability[item].get("status") == "passed"
+            and isinstance(by_capability[item].get("eventId"), str)
+            and _SAFE_EVENT_ID.fullmatch(by_capability[item]["eventId"])
+            for item in _EXPECTED_CAPABILITIES
+        )
     )
     return (
         {
@@ -467,15 +523,32 @@ def _performance_evidence(path: Path | None) -> tuple[dict[str, object], str | N
         "currentBreakdownP95Ms": 1000,
         "historicalRollupP95Ms": 500,
     }
+    query_targets = {
+        "currentAggregateQueryCount": 11,
+        "currentBreakdownQueryCount": 6,
+        "historicalRollupQueryCount": 3,
+    }
     timings_valid = all(
-        type(payload.get(field)) in {int, float} and payload[field] <= maximum
+        type(payload.get(field)) in {int, float}
+        and math.isfinite(payload[field])
+        and 0 <= payload[field] <= maximum
         for field, maximum in targets.items()
     )
+    query_counts_valid = all(
+        type(payload.get(field)) is int and 0 <= payload[field] <= maximum
+        for field, maximum in query_targets.items()
+    )
     passed = (
-        payload.get("profile") == _REFERENCE_PROFILE
+        document is not None
+        and set(document) == _PERFORMANCE_DOCUMENT_KEYS
+        and document.get("schemaVersion") == _PERFORMANCE_SCHEMA_VERSION
+        and set(payload) == _PERFORMANCE_PAYLOAD_KEYS
+        and payload.get("profile") == _REFERENCE_PROFILE
         and payload.get("status") == "passed"
+        and payload.get("sampleCount") == 20
         and payload.get("hasFullTableScan") is False
         and timings_valid
+        and query_counts_valid
         and exit_code == 0
     )
     return (
@@ -484,6 +557,20 @@ def _performance_evidence(path: Path | None) -> tuple[dict[str, object], str | N
             "sha256": digest,
             "exitCode": exit_code,
             "profile": payload.get("profile") if payload.get("profile") == _REFERENCE_PROFILE else None,
+            "sampleCount": payload.get("sampleCount") if type(payload.get("sampleCount")) is int else None,
+            **{
+                field: payload.get(field)
+                if type(payload.get(field)) in {int, float} and math.isfinite(payload[field])
+                else None
+                for field in targets
+            },
+            "hasFullTableScan": payload.get("hasFullTableScan")
+            if type(payload.get("hasFullTableScan")) is bool
+            else None,
+            **{
+                field: payload.get(field) if type(payload.get(field)) is int else None
+                for field in query_targets
+            },
         },
         None if passed else "reference_performance_not_passed",
     )
@@ -496,15 +583,23 @@ def _visual_review_evidence(path: Path) -> tuple[dict[str, object], list[str]]:
     viewports = document.get("viewports")
     observed_viewports = tuple(item for item in viewports if isinstance(item, str)) if isinstance(viewports, list) else ()
     checks = document.get("checks") if isinstance(document.get("checks"), dict) else {}
+    notes = document.get("notes")
+    notes_valid = (
+        isinstance(notes, list)
+        and len(notes) <= 20
+        and all(isinstance(item, str) and len(item) <= 200 for item in notes)
+    )
     passed = (
-        document.get("schemaVersion") == "model_usage_visual_review.v1"
+        set(document) == _VISUAL_REVIEW_DOCUMENT_KEYS
+        and document.get("schemaVersion") == "model_usage_visual_review.v1"
         and document.get("status") == "passed"
-        and set(_EXPECTED_VIEWPORTS) <= set(observed_viewports)
+        and len(observed_viewports) == len(_EXPECTED_VIEWPORTS)
+        and set(observed_viewports) == set(_EXPECTED_VIEWPORTS)
+        and type(document.get("unresolvedP0P1")) is int
         and document.get("unresolvedP0P1") == 0
-        and all(
-            checks.get(name) is True
-            for name in ("keyboard", "reducedMotion", "textZoom200", "noHorizontalOverflow")
-        )
+        and set(checks) == _VISUAL_REVIEW_CHECK_KEYS
+        and all(checks.get(name) is True for name in _VISUAL_REVIEW_CHECK_KEYS)
+        and notes_valid
     )
     return (
         {
