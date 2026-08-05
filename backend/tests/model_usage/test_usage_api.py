@@ -73,6 +73,34 @@ def test_current_family_overview_uses_raw_health_and_strong_counter_values(
     assert overview.reserved_cost_cny == Decimal("0")
 
 
+def test_current_family_overview_uses_at_most_eight_bounded_queries(
+    model_usage_db,
+    settled_source_event: ModelUsageEvent,
+) -> None:
+    query_count = 0
+
+    def count_query(*_args: object) -> None:
+        nonlocal query_count
+        query_count += 1
+
+    bind = model_usage_db.get_bind()
+    family_id = settled_source_event.family_id
+    model_usage_db.expire_all()
+    sqlalchemy_event.listen(bind, "before_cursor_execute", count_query)
+    try:
+        overview = get_family_usage_overview(
+            model_usage_db,
+            family_id=family_id,
+            period="2026-07",
+            at=NOW,
+        )
+    finally:
+        sqlalchemy_event.remove(bind, "before_cursor_execute", count_query)
+
+    assert overview.aggregate.source_event_count == 1
+    assert query_count <= 8
+
+
 def test_current_usage_period_keeps_an_event_that_settles_after_the_boundary(
     model_usage_db,
     settled_source_event: ModelUsageEvent,

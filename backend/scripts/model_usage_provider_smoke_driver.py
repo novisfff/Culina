@@ -280,38 +280,52 @@ class CulinaProviderSmokeDriver:
                 subject={"source": "recipe_cook_page"},
             )
         )
-        try:
+
+        async def synthesize_and_terminalize() -> tuple[SpeechResult, str]:
             state = realtime_voice_session_store.require_owner(
                 session.session_id,
                 family_id=self.family_id,
                 user_id=self.user_id,
             )
-            if state.realtime_usage_scope is None:
+            scope = state.realtime_usage_scope
+            if scope is None:
                 raise ProviderSmokeDriverError("provider_smoke_realtime_adapter_missing")
-            result = asyncio.run(
-                DashScopeAudioProvider(
-                    self.settings,
-                    capability="tts",
-                ).synthesize_realtime_text(
-                    SpeechRequest(
-                        text="测试",
-                        surface="recipe_cook_page",
-                        family_id=self.family_id,
-                        user_id=self.user_id,
-                        operation_id=operation_id,
-                    ),
-                    realtime_usage_scope=state.realtime_usage_scope,
-                    realtime_turn_id=operation_id,
-                )
+            result = await DashScopeAudioProvider(
+                self.settings,
+                capability="tts",
+            ).synthesize_realtime_text(
+                SpeechRequest(
+                    text="测试",
+                    surface="recipe_cook_page",
+                    family_id=self.family_id,
+                    user_id=self.user_id,
+                    operation_id=operation_id,
+                ),
+                realtime_usage_scope=scope,
+                realtime_turn_id=operation_id,
             )
+            terminal = await scope.finish_current_lease_once(
+                completion_reason="provider_smoke",
+            )
+            if terminal.decision == "settlement_pending":
+                raise ProviderSmokeDriverError(
+                    "provider_smoke_realtime_settlement_pending"
+                )
+            settlement = terminal.settlement
+            event_id = str(getattr(settlement, "event_id", "") or "")
+            if terminal.decision != "ended" or not event_id:
+                raise ProviderSmokeDriverError(
+                    "provider_smoke_realtime_audio_event_missing"
+                )
+            return result, event_id
+
+        try:
+            result, event_id = asyncio.run(synthesize_and_terminalize())
         finally:
             realtime_voice_session_store.close(session.session_id)
         if not result.audio_bytes:
             raise ProviderSmokeDriverError("provider_smoke_realtime_result_invalid")
-        return self._event_for_operation(
-            capability=ModelUsageCapability.REALTIME_AUDIO,
-            operation_id=operation_id,
-        )
+        return event_id
 
     def _run_image_generation(self) -> str:
         operation_id = self._operation_id(ModelUsageCapability.IMAGE_GENERATION)

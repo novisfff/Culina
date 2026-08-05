@@ -26,6 +26,10 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.core.config import get_settings
 from app.services.model_usage.preflight import run_first_launch_preflight
 from app.services.model_usage.provider_registry import provider_usage_registrations
+from app.services.model_usage.reference_targets import (
+    REFERENCE_LATENCY_TARGETS_MS,
+    REFERENCE_QUERY_COUNT_TARGETS,
+)
 from scripts.check_model_usage_adapter_coverage import build_coverage_report
 
 
@@ -516,18 +520,8 @@ def _performance_evidence(path: Path | None) -> tuple[dict[str, object], str | N
     payload, exit_code = _command_payload(document)
     if payload is None:
         return {"status": "not_run", "sha256": None, "exitCode": None}, "reference_performance_not_run"
-    targets = {
-        "reserveP95Ms": 150,
-        "settleP95Ms": 150,
-        "currentOverviewP95Ms": 300,
-        "currentBreakdownP95Ms": 1000,
-        "historicalRollupP95Ms": 500,
-    }
-    query_targets = {
-        "currentAggregateQueryCount": 11,
-        "currentBreakdownQueryCount": 6,
-        "historicalRollupQueryCount": 3,
-    }
+    targets = REFERENCE_LATENCY_TARGETS_MS
+    query_targets = REFERENCE_QUERY_COUNT_TARGETS
     timings_valid = all(
         type(payload.get(field)) in {int, float}
         and math.isfinite(payload[field])

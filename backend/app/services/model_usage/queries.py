@@ -29,6 +29,7 @@ from app.models.model_usage import (
     ModelUsageEventMeter,
     ModelUsageFamilyPolicy,
     ModelUsageMonthlyRollup,
+    ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageSubject,
 )
@@ -36,7 +37,6 @@ from app.repos.model_usage.reporting import (
     adjustment_groups_for_period,
     adjustment_lines_for_period_groups,
     event_meters_for_period_events,
-    family_counters_for_period,
     family_events_for_period,
     historical_rollups_for_period,
     require_user_subject,
@@ -60,7 +60,6 @@ from app.services.model_usage.periods import (
     require_aware_utc,
     shanghai_billing_period,
 )
-from app.services.model_usage.policies import current_policy
 
 
 _MONTH_PATTERN = re.compile(r"^(?P<year>[1-9][0-9]{3})-(?P<month>0[1-9]|1[0-2])$")
@@ -151,10 +150,27 @@ def _requested_period(
     return requested, "rollup"
 
 
-def _tracking_started_at(db: Session, *, family_id: str) -> datetime:
-    policy_pointer = db.get(ModelUsageFamilyPolicy, family_id)
-    if policy_pointer is None:
+def _family_policy_state(
+    db: Session,
+    *,
+    family_id: str,
+) -> tuple[ModelUsageFamilyPolicy, ModelUsagePolicyVersion]:
+    row = db.execute(
+        select(ModelUsageFamilyPolicy, ModelUsagePolicyVersion)
+        .join(
+            ModelUsagePolicyVersion,
+            ModelUsagePolicyVersion.id
+            == ModelUsageFamilyPolicy.current_policy_version_id,
+        )
+        .where(ModelUsageFamilyPolicy.family_id == family_id)
+    ).one_or_none()
+    if row is None:
         raise ValueError("model_usage_family_policy_not_found")
+    return row[0], row[1]
+
+
+def _tracking_started_at(db: Session, *, family_id: str) -> datetime:
+    policy_pointer, _policy = _family_policy_state(db, family_id=family_id)
     started_at = policy_pointer.tracking_started_at
     if started_at.tzinfo is None or started_at.utcoffset() is None:
         return started_at.replace(tzinfo=timezone.utc)
@@ -166,22 +182,13 @@ def _is_tracking_start_month(*, period: BillingPeriod, tracking_started_at: date
 
 
 def _family_counter_values(
-    db: Session,
     *,
-    family_id: str,
-    period: BillingPeriod,
+    aggregate: UsageAggregate,
 ) -> tuple[Decimal, Decimal]:
-    counter = next(
-        (
-            row
-            for row in family_counters_for_period(db, family_id=family_id, period=period)
-            if row.dimension_key == family_cost_dimension_key()
-        ),
-        None,
-    )
-    if counter is None:
-        return Decimal("0"), Decimal("0")
-    return counter.settled_value + counter.adjustment_value, counter.reserved_value
+    key = family_cost_dimension_key()
+    effective = aggregate.counter_values.get(key, Decimal("0"))
+    reserved = aggregate.counter_reserved_values.get(key, Decimal("0"))
+    return effective - reserved, reserved
 
 
 def _member_budget_state(
@@ -213,18 +220,22 @@ def _family_overview_for_period(
     period: BillingPeriod,
     source: Literal["raw", "rollup"],
 ) -> UsageOverview:
-    tracking_started_at = _tracking_started_at(db, family_id=family_id)
+    policy_pointer, policy = _family_policy_state(db, family_id=family_id)
+    tracking_started_at = policy_pointer.tracking_started_at
+    if tracking_started_at.tzinfo is None or tracking_started_at.utcoffset() is None:
+        tracking_started_at = tracking_started_at.replace(tzinfo=timezone.utc)
+    else:
+        tracking_started_at = tracking_started_at.astimezone(timezone.utc)
     aggregate = (
         aggregate_family_current_period(db, family_id=family_id, period=period)
         if source == "raw"
         else aggregate_family_historical_period(db, family_id=family_id, period=period)
     )
     effective_spend_cny, reserved_cost_cny = (
-        _family_counter_values(db, family_id=family_id, period=period)
+        _family_counter_values(aggregate=aggregate)
         if source == "raw"
         else (aggregate.known_priced_cost_cny, Decimal("0"))
     )
-    policy = current_policy(db, family_id=family_id)
     return UsageOverview(
         family_id=family_id,
         scope="family",

@@ -80,6 +80,7 @@ class UsageAggregate:
     gap_intervals: tuple[UsageGapInterval, ...] = ()
     meter_totals: Mapping[ModelUsageMeter, Decimal] = field(default_factory=dict)
     counter_values: Mapping[str, Decimal] = field(default_factory=dict)
+    counter_reserved_values: Mapping[str, Decimal] = field(default_factory=dict)
     source_event_count: int = 0
     source_reservation_count: int = 0
     source_incident_count: int = 0
@@ -89,6 +90,11 @@ class UsageAggregate:
         object.__setattr__(self, "gap_intervals", tuple(self.gap_intervals))
         object.__setattr__(self, "meter_totals", MappingProxyType(dict(self.meter_totals)))
         object.__setattr__(self, "counter_values", MappingProxyType(dict(self.counter_values)))
+        object.__setattr__(
+            self,
+            "counter_reserved_values",
+            MappingProxyType(dict(self.counter_reserved_values)),
+        )
 
     @property
     def pricing_complete(self) -> bool:
@@ -111,6 +117,7 @@ def aggregate_usage(
     reservations: Sequence[AggregateReservation] = (),
     incidents: Sequence[AggregateIncident] = (),
     counter_values: Mapping[str, Decimal] | None = None,
+    counter_reserved_values: Mapping[str, Decimal] | None = None,
 ) -> UsageAggregate:
     known_cost = Decimal("0")
     conservative_cost = Decimal("0")
@@ -191,6 +198,7 @@ def aggregate_usage(
         gap_intervals=gap_intervals,
         meter_totals=meter_totals,
         counter_values=counter_values or {},
+        counter_reserved_values=counter_reserved_values or {},
         source_event_count=len(events),
         source_reservation_count=len(reservations),
         source_incident_count=len(incidents),
@@ -203,12 +211,14 @@ def aggregate_raw_usage(
     reservations: Sequence[AggregateReservation] = (),
     incidents: Sequence[AggregateIncident] = (),
     counter_values: Mapping[str, Decimal] | None = None,
+    counter_reserved_values: Mapping[str, Decimal] | None = None,
 ) -> UsageAggregate:
     return aggregate_usage(
         events=events,
         reservations=reservations,
         incidents=incidents,
         counter_values=counter_values,
+        counter_reserved_values=counter_reserved_values,
     )
 
 
@@ -227,9 +237,8 @@ def _aggregate_current_period(
         event_meters_for_period_events,
         family_counters_for_period,
         family_events_for_period,
-        incidents_for_period,
+        incidents_with_unresolved_attempts_for_period,
         subject_events_for_period,
-        unresolved_incident_attempts,
     )
 
     events = (
@@ -276,16 +285,10 @@ def _aggregate_current_period(
         period=period,
         subject_id=subject_id,
     )
-    incidents = incidents_for_period(
+    incidents, attempts = incidents_with_unresolved_attempts_for_period(
         db,
         family_id=family_id,
         period=period,
-        subject_id=subject_id,
-    )
-    attempts = unresolved_incident_attempts(
-        db,
-        family_id=family_id,
-        incident_ids=tuple(incident.id for incident in incidents),
         subject_id=subject_id,
     )
     attempt_counts: dict[str, int] = {}
@@ -352,6 +355,9 @@ def _aggregate_current_period(
         incidents=aggregate_incidents,
         counter_values={
             counter.dimension_key: effective_counter_value(counter) for counter in counters
+        },
+        counter_reserved_values={
+            counter.dimension_key: counter.reserved_value for counter in counters
         },
     )
 

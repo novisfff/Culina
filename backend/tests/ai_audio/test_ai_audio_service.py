@@ -301,12 +301,19 @@ def test_dashscope_realtime_asr_records_server_input_in_its_realtime_scope(
 
     class Scope:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, str, str]] = []
             self.operation = ActiveOperation()
 
         @asynccontextmanager
-        async def provider_audio_operation(self, *, turn_id: str, segment: str):
-            self.calls.append((turn_id, segment))
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            direction: str,
+            provider_model: str,
+        ):
+            self.calls.append((turn_id, segment, direction, provider_model))
             yield self.operation
 
     async def fake_transcribe(**_kwargs: object) -> str:
@@ -350,7 +357,9 @@ def test_dashscope_realtime_asr_records_server_input_in_its_realtime_scope(
     )
 
     assert result.text == "下一步"
-    assert scope.calls == [("turn-realtime-asr", "duplex")]
+    assert scope.calls == [
+        ("turn-realtime-asr", "duplex", "input", "qwen-realtime-test")
+    ]
     assert scope.operation.input_durations == [Decimal("1.000000")]
 
 
@@ -438,12 +447,19 @@ def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
 
     class Scope:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, str, str]] = []
             self.operation = ActiveOperation()
 
         @asynccontextmanager
-        async def provider_audio_operation(self, *, turn_id: str, segment: str):
-            self.calls.append((turn_id, segment))
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            direction: str,
+            provider_model: str,
+        ):
+            self.calls.append((turn_id, segment, direction, provider_model))
             yield self.operation
 
     async def fake_tts_stream(**_kwargs: object):
@@ -493,7 +509,9 @@ def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
     events = asyncio.run(run())
 
     assert events[-1] == {"type": "audio_done", "sequence": 1}
-    assert scope.calls == [("turn-realtime-tts", "duplex")]
+    assert scope.calls == [
+        ("turn-realtime-tts", "duplex", "output", "qwen-realtime-test")
+    ]
     assert scope.operation.output_durations == [Decimal("1.000000")]
 
 
@@ -513,10 +531,19 @@ def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
     class Scope:
         def __init__(self) -> None:
             self.operation = ActiveOperation()
+            self.provider_models: list[tuple[str, str]] = []
 
         @asynccontextmanager
-        async def provider_audio_operation(self, *, turn_id: str, segment: str):
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            provider_model: str | None = None,
+            direction: str | None = None,
+        ):
             assert (turn_id, segment) == ("turn-realtime-tts-response", "duplex")
+            self.provider_models.append((str(direction), str(provider_model)))
             yield self.operation
 
     async def fake_tts(**_kwargs: object) -> bytes:
@@ -527,7 +554,7 @@ def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
         SimpleNamespace(
             ai_tts_api_key="test-key",
             dashscope_api_key="test-key",
-            ai_tts_model="qwen-realtime-test",
+            ai_tts_model="qwen3-tts-flash",
             ai_realtime_voice="Cherry",
             ai_tts_voice="Cherry",
             ai_tts_format="pcm",
@@ -555,6 +582,10 @@ def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
     )
 
     assert speech.audio_bytes is not None
+    assert speech.model == "qwen3-tts-flash-realtime"
+    assert scope.provider_models == [
+        ("output", "qwen3-tts-flash-realtime"),
+    ]
     assert scope.operation.output_durations == [Decimal("1.000000")]
 
 

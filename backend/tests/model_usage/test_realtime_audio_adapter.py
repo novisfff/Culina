@@ -27,7 +27,11 @@ from app.models.model_usage import (
 )
 from app.services.ai_audio.realtime import RealtimeProviderScope, RealtimeVoiceSessionState
 from app.services.model_usage.adapters.realtime_audio import RealtimeAudioUsageAdapter
-from app.services.model_usage.errors import ModelUsageSettlementPending
+from app.services.model_usage.configured_variants import configured_usage_variants
+from app.services.model_usage.errors import (
+    ModelUsageContractError,
+    ModelUsageSettlementPending,
+)
 from app.services.model_usage.facade import ModelUsageFacade
 from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.policies import CapabilityLimitCommand
@@ -90,6 +94,42 @@ def _adapter(
         signer=signer,
         clock=active_clock,
     )
+
+
+def test_realtime_adapter_rejects_a_provider_model_outside_the_duplex_mapping(
+    model_usage_db: Session,
+    realtime_signer: ProviderUsageReceiptSigner,
+) -> None:
+    adapter = _adapter(model_usage_db, realtime_signer)
+    adapter.billing_variant = next(
+        variant
+        for variant in configured_usage_variants(
+            SimpleNamespace(
+                ai_realtime_provider="dashscope",
+                ai_realtime_model="qwen3-asr-flash-realtime",
+                ai_realtime_voice="Cherry",
+                ai_tts_model="qwen3-tts-flash",
+            )
+        )
+        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
+    )
+
+    adapter.validate_provider_model(
+        direction="input",
+        provider_model="qwen3-asr-flash-realtime",
+    )
+    adapter.validate_provider_model(
+        direction="output",
+        provider_model="qwen3-tts-flash-realtime",
+    )
+    with pytest.raises(
+        ModelUsageContractError,
+        match="realtime_provider_model_identity_mismatch",
+    ):
+        adapter.validate_provider_model(
+            direction="output",
+            provider_model="qwen3-asr-flash-realtime",
+        )
 
 
 def test_realtime_cumulative_usage_settles_monotonic_lease_deltas(
@@ -554,6 +594,8 @@ def test_realtime_scope_terminalizes_a_lease_before_renewing(
         async with scope.provider_audio_operation(
             turn_id="turn-scope",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative=initial,
         ) as first:
@@ -564,6 +606,8 @@ def test_realtime_scope_terminalizes_a_lease_before_renewing(
         async with scope.provider_audio_operation(
             turn_id="turn-scope",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=30),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("100"),
@@ -629,6 +673,8 @@ def test_realtime_scope_terminalizes_three_non_overlapping_leases_for_sixty_five
         async with scope.provider_audio_operation(
             turn_id="turn-sixty-five-seconds",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative=initial,
         ) as first:
@@ -638,6 +684,8 @@ def test_realtime_scope_terminalizes_three_non_overlapping_leases_for_sixty_five
         async with scope.provider_audio_operation(
             turn_id="turn-sixty-five-seconds",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=30),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("100"),
@@ -652,6 +700,8 @@ def test_realtime_scope_terminalizes_three_non_overlapping_leases_for_sixty_five
         async with scope.provider_audio_operation(
             turn_id="turn-sixty-five-seconds",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=60),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("145"),
@@ -724,6 +774,8 @@ def test_realtime_scope_concurrent_terminal_callbacks_settle_one_lease_once(
         async with scope.provider_audio_operation(
             turn_id="turn-concurrent-terminal",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -813,6 +865,8 @@ def test_realtime_scope_budget_blocked_renewal_never_authorizes_a_second_provide
         async with scope.provider_audio_operation(
             turn_id="turn-budget-blocked-renewal",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -825,6 +879,8 @@ def test_realtime_scope_budget_blocked_renewal_never_authorizes_a_second_provide
         async with scope.provider_audio_operation(
             turn_id="turn-budget-blocked-renewal",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=30),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("100"),
@@ -882,6 +938,8 @@ def test_realtime_scope_missing_terminal_boundary_data_never_opens_a_new_lease(
         async with scope.provider_audio_operation(
             turn_id="turn-pending-renewal",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -893,6 +951,8 @@ def test_realtime_scope_missing_terminal_boundary_data_never_opens_a_new_lease(
         async with scope.provider_audio_operation(
             turn_id="turn-pending-renewal",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=30),
             provider_cumulative={},
         ) as pending:
@@ -937,6 +997,8 @@ def test_realtime_scope_late_pre_send_cumulative_growth_blocks_renewal(
         async with scope.provider_audio_operation(
             turn_id="turn-late-cumulative",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW,
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -958,6 +1020,8 @@ def test_realtime_scope_late_pre_send_cumulative_growth_blocks_renewal(
         async with scope.provider_audio_operation(
             turn_id="turn-late-cumulative",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=NOW + timedelta(seconds=2),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("105"),
@@ -1132,6 +1196,8 @@ def test_realtime_scope_deadline_ends_a_quiet_lease_when_boundary_usage_is_missi
         async with scope.provider_audio_operation(
             turn_id="turn-deadline",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=now - timedelta(seconds=31),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -1177,6 +1243,8 @@ def test_realtime_scope_marks_an_ambiguous_provider_failure_uncertain(
             async with scope.provider_audio_operation(
                 turn_id="turn-uncertain",
                 segment="duplex",
+                direction="input",
+                provider_model="realtime-test",
                 at=NOW,
                 provider_cumulative={
                     ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -1259,6 +1327,8 @@ def test_realtime_session_expiry_terminalizes_a_quiet_lease_before_the_lease_dea
         async with scope.provider_audio_operation(
             turn_id="turn-expiry-deadline",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=now,
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -1276,6 +1346,8 @@ def test_realtime_session_expiry_terminalizes_a_quiet_lease_before_the_lease_dea
         async with scope.provider_audio_operation(
             turn_id="turn-expiry-deadline",
             segment="duplex",
+            direction="input",
+            provider_model="realtime-test",
             at=now + timedelta(seconds=1),
             provider_cumulative={
                 ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -1318,6 +1390,8 @@ def test_realtime_scope_interrupts_an_inflight_provider_operation_at_the_deadlin
             async with scope.provider_audio_operation(
                 turn_id="turn-inflight-deadline",
                 segment="duplex",
+                direction="input",
+                provider_model="realtime-test",
                 at=now,
                 provider_cumulative={
                     ModelUsageMeter.AUDIO_INPUT_TOKENS: Decimal("0"),
@@ -1374,6 +1448,9 @@ def test_realtime_scope_uses_the_physical_send_clock_after_dispatch_setup(
         def __init__(self) -> None:
             self.aborted_leases: list[object] = []
 
+        def validate_provider_model(self, **_kwargs: object) -> None:
+            return None
+
         def begin_lease(self, **_kwargs: object):
             return lease
 
@@ -1404,6 +1481,8 @@ def test_realtime_scope_uses_the_physical_send_clock_after_dispatch_setup(
             async with scope.provider_audio_operation(
                 turn_id="turn",
                 segment="duplex",
+                direction="input",
+                provider_model="realtime-test",
                 provider_cumulative={},
             ):
                 raise AssertionError("expired permit must not authorize a provider send")

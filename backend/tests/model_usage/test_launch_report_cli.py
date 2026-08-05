@@ -363,7 +363,7 @@ def _write_reference_performance(
         "currentBreakdownP95Ms": 30.0,
         "historicalRollupP95Ms": 20.0,
         "hasFullTableScan": False,
-        "currentAggregateQueryCount": 11,
+        "currentAggregateQueryCount": 8,
         "currentBreakdownQueryCount": 6,
         "historicalRollupQueryCount": 3,
     }
@@ -393,7 +393,7 @@ def test_reference_performance_requires_exact_content_free_schema(tmp_path: Path
     non_finite = tmp_path / "non-finite.json"
     _write_reference_performance(non_finite, payload_updates={"reserveP95Ms": float("nan")})
     excessive_queries = tmp_path / "excessive-queries.json"
-    _write_reference_performance(excessive_queries, payload_updates={"currentAggregateQueryCount": 12})
+    _write_reference_performance(excessive_queries, payload_updates={"currentAggregateQueryCount": 9})
 
     for path in (unknown_document, unknown_payload, non_finite, excessive_queries):
         evidence, blocker = _performance_evidence(path)

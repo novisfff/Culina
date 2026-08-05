@@ -199,6 +199,67 @@ def test_realtime_smoke_closes_the_session_when_the_adapter_is_missing(
     assert closed == ["voice-session-test"]
 
 
+def test_realtime_smoke_terminalizes_the_lease_and_returns_its_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = CulinaProviderSmokeDriver.__new__(CulinaProviderSmokeDriver)
+    driver.family_id = "family-model-usage-smoke"
+    driver.user_id = "user-smoke"
+    driver.run_id = "provider-smoke-test"
+    driver.settings = SimpleNamespace(ai_realtime_provider="dashscope")
+    closed: list[str] = []
+    lifecycle: list[str] = []
+
+    class FakeScope:
+        async def finish_current_lease_once(self, *, completion_reason: str) -> object:
+            lifecycle.append(f"finish:{completion_reason}")
+            return SimpleNamespace(
+                decision="ended",
+                settlement=SimpleNamespace(event_id="usage-event-realtime"),
+            )
+
+    scope = FakeScope()
+
+    class FakeAudioService:
+        def __init__(self, _settings: object) -> None:
+            pass
+
+        def create_cooking_session(self, _request: object) -> object:
+            return SimpleNamespace(session_id="voice-session-test")
+
+    class FakeProvider:
+        def __init__(self, _settings: object, *, capability: str) -> None:
+            assert capability == "tts"
+
+        async def synthesize_realtime_text(self, _request: object, **kwargs: object) -> object:
+            assert kwargs["realtime_usage_scope"] is scope
+            lifecycle.append("provider_send")
+            return SimpleNamespace(audio_bytes=b"audio")
+
+    class FakeStore:
+        def require_owner(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(realtime_usage_scope=scope)
+
+        def close(self, session_id: str) -> None:
+            lifecycle.append("close")
+            closed.append(session_id)
+
+    monkeypatch.setattr(smoke_driver_module, "AIAudioService", FakeAudioService)
+    monkeypatch.setattr(smoke_driver_module, "DashScopeAudioProvider", FakeProvider)
+    monkeypatch.setattr(smoke_driver_module, "realtime_voice_session_store", FakeStore())
+    monkeypatch.setattr(
+        driver,
+        "_event_for_operation",
+        lambda **_kwargs: pytest.fail("realtime smoke must use the terminal settlement event"),
+    )
+
+    event_id = driver._run_realtime_audio()
+
+    assert event_id == "usage-event-realtime"
+    assert lifecycle == ["provider_send", "finish:provider_smoke", "close"]
+    assert closed == ["voice-session-test"]
+
+
 def test_cli_requires_explicit_cost_acknowledgement_and_a_designated_test_family(
     tmp_path: Path,
 ) -> None:

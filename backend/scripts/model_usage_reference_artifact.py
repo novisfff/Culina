@@ -14,6 +14,11 @@ import os
 from pathlib import Path
 from typing import Mapping
 
+from app.services.model_usage.reference_targets import (
+    REFERENCE_LATENCY_TARGETS_MS,
+    REFERENCE_QUERY_COUNT_TARGETS,
+)
+
 
 REFERENCE_PROFILE = "culina-first-launch-mysql84-v1"
 REFERENCE_SCHEMA_VERSION = "model_usage_reference_performance.v1"
@@ -98,6 +103,25 @@ def _write_new_json(path: Path, payload: dict[str, object]) -> None:
         raise
 
 
+def _within_reference_targets(payload: Mapping[str, object]) -> bool:
+    timings_valid = all(
+        type(payload.get(field)) in {int, float}
+        and math.isfinite(float(payload[field]))
+        and 0 <= float(payload[field]) <= maximum
+        for field, maximum in REFERENCE_LATENCY_TARGETS_MS.items()
+    )
+    query_counts_valid = all(
+        type(payload.get(field)) is int
+        and 0 <= int(payload[field]) <= maximum
+        for field, maximum in REFERENCE_QUERY_COUNT_TARGETS.items()
+    )
+    return (
+        timings_valid
+        and query_counts_valid
+        and payload.get("hasFullTableScan") is False
+    )
+
+
 def finalize_reference_performance_artifact(
     config: object,
     *,
@@ -137,7 +161,7 @@ def finalize_reference_performance_artifact(
         for key, value in payload.items()
         if key not in {"profile", "status"}
     )
-    if exit_code == 0 and complete:
+    if exit_code == 0 and complete and _within_reference_targets(payload):
         payload["status"] = "passed"
 
     artifact = {

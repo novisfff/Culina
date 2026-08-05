@@ -227,6 +227,28 @@ def test_enabled_settings_are_discovered_for_all_seven_capabilities() -> None:
     assert {variant.capability for variant in variants} == set(ModelUsageCapability)
 
 
+def test_realtime_variant_uses_an_explicit_duplex_provider_model_identity() -> None:
+    settings = SimpleNamespace(
+        ai_realtime_provider="dashscope",
+        ai_realtime_model="qwen3-asr-flash-realtime",
+        ai_realtime_voice="Cherry",
+        ai_tts_model="qwen3-tts-flash",
+    )
+
+    realtime = next(
+        variant
+        for variant in configured_usage_variants(settings)
+        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
+    )
+
+    assert realtime.billing_model == (
+        "realtime-duplex-v1|input=qwen3-asr-flash-realtime"
+        "|output=qwen3-tts-flash-realtime"
+    )
+    assert realtime.realtime_input_model == "qwen3-asr-flash-realtime"
+    assert realtime.realtime_output_model == "qwen3-tts-flash-realtime"
+
+
 def test_active_variants_expose_only_meters_their_estimators_can_reserve() -> None:
     settings = SimpleNamespace(
         search_embedding_provider="openai",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
@@ -229,6 +229,65 @@ def unresolved_incident_attempts_statement(
     return statement.order_by(ModelUsageMeasurementIncidentAttempt.id)
 
 
+def incidents_with_unresolved_attempts_statement(
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> Select:
+    attempt_join = [
+        ModelUsageMeasurementIncidentAttempt.incident_id
+        == ModelUsageMeasurementIncident.id,
+        ModelUsageMeasurementIncidentAttempt.family_id == family_id,
+        ModelUsageMeasurementIncidentAttempt.recovery_status
+        == ModelUsageIncidentRecoveryStatus.UNRESOLVED,
+    ]
+    if subject_id is not None:
+        attempt_join.append(
+            ModelUsageMeasurementIncidentAttempt.subject_id == subject_id
+        )
+    statement = (
+        select(
+            ModelUsageMeasurementIncident,
+            ModelUsageMeasurementIncidentAttempt,
+        )
+        .outerjoin(
+            ModelUsageMeasurementIncidentAttempt,
+            and_(*attempt_join),
+        )
+        .with_hint(
+            ModelUsageMeasurementIncident,
+            "FORCE INDEX (ix_model_usage_incident_period)",
+            dialect_name="mysql",
+        )
+        .with_hint(
+            ModelUsageMeasurementIncidentAttempt,
+            "FORCE INDEX (ix_model_usage_incident_attempt_recovery)",
+            dialect_name="mysql",
+        )
+        .where(
+            ModelUsageMeasurementIncident.period_start < period.end_at,
+            ModelUsageMeasurementIncident.period_end > period.start_at,
+            or_(
+                ModelUsageMeasurementIncident.family_id == family_id,
+                ModelUsageMeasurementIncident.family_id.is_(None),
+            ),
+        )
+    )
+    if subject_id is not None:
+        statement = statement.where(
+            or_(
+                ModelUsageMeasurementIncident.subject_id == subject_id,
+                ModelUsageMeasurementIncident.subject_id.is_(None),
+            )
+        )
+    return statement.order_by(
+        ModelUsageMeasurementIncident.started_at,
+        ModelUsageMeasurementIncident.id,
+        ModelUsageMeasurementIncidentAttempt.id,
+    )
+
+
 def user_subject_statement(*, family_id: str, user_id: str) -> Select:
     return (
         select(ModelUsageSubject)
@@ -453,6 +512,32 @@ def unresolved_incident_attempts(
             )
         )
     )
+
+
+def incidents_with_unresolved_attempts_for_period(
+    db: Session,
+    *,
+    family_id: str,
+    period: BillingPeriod,
+    subject_id: str | None = None,
+) -> tuple[
+    tuple[ModelUsageMeasurementIncident, ...],
+    tuple[ModelUsageMeasurementIncidentAttempt, ...],
+]:
+    rows = db.execute(
+        incidents_with_unresolved_attempts_statement(
+            family_id=family_id,
+            period=period,
+            subject_id=subject_id,
+        )
+    )
+    incidents: dict[str, ModelUsageMeasurementIncident] = {}
+    attempts: list[ModelUsageMeasurementIncidentAttempt] = []
+    for incident, attempt in rows:
+        incidents.setdefault(incident.id, incident)
+        if attempt is not None:
+            attempts.append(attempt)
+    return tuple(incidents.values()), tuple(attempts)
 
 
 def family_counters_for_period(

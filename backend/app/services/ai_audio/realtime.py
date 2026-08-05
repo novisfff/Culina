@@ -141,11 +141,17 @@ class RealtimeProviderScope:
         *,
         turn_id: str,
         segment: str,
+        direction: Literal["input", "output"],
+        provider_model: str,
         at: datetime | None = None,
         provider_cumulative: Mapping[ModelUsageMeter, Decimal] | None = None,
     ) -> AsyncIterator[RealtimeProviderOperation]:
         """Hold the session gate throughout one actual remote audio send."""
 
+        self.usage_adapter.validate_provider_model(
+            direction=direction,
+            provider_model=provider_model,
+        )
         async with self.session.usage_lease_lock:
             operation_at = at or utcnow()
             outcome = self._ensure_active_lease_locked(

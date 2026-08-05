@@ -29,6 +29,8 @@ class ConfiguredUsageVariant:
     output_tokens_per_second_cap: Decimal | None = None
     lease_boundary_cumulative_meters: frozenset[ModelUsageMeter] = frozenset()
     provider_contract: ProviderUsageContract = ProviderUsageContract()
+    realtime_input_model: str | None = None
+    realtime_output_model: str | None = None
 
     @property
     def identity(self) -> tuple[str, str, ModelUsageCapability, str, str]:
@@ -49,6 +51,28 @@ AUDIO_SECOND_METERS = frozenset(
 )
 
 
+def dashscope_realtime_input_model(settings: object) -> str:
+    return (
+        str(getattr(settings, "ai_realtime_model", "") or "").strip()
+        or str(getattr(settings, "ai_stt_model", "") or "").strip()
+        or "qwen3-asr-flash-realtime"
+    )
+
+
+def dashscope_realtime_output_model(settings: object) -> str:
+    configured = str(getattr(settings, "ai_tts_model", "") or "").strip()
+    return configured if "realtime" in configured else "qwen3-tts-flash-realtime"
+
+
+def realtime_duplex_billing_model(*, input_model: str, output_model: str) -> str:
+    if not input_model or not output_model or "|" in input_model or "|" in output_model:
+        raise PriceManifestError("realtime_provider_model_identity_invalid")
+    identity = f"realtime-duplex-v1|input={input_model}|output={output_model}"
+    if len(identity) > 160:
+        raise PriceManifestError("realtime_provider_model_identity_invalid")
+    return identity
+
+
 def validate_configured_variant(
     variant: ConfiguredUsageVariant,
 ) -> ConfiguredUsageVariant:
@@ -66,9 +90,24 @@ def validate_configured_variant(
         variant.output_tokens_per_second_cap,
     )
     if variant.capability is not ModelUsageCapability.REALTIME_AUDIO:
-        if variant.lease_boundary_cumulative_meters or any(cap is not None for cap in caps):
+        if (
+            variant.lease_boundary_cumulative_meters
+            or any(cap is not None for cap in caps)
+            or variant.realtime_input_model is not None
+            or variant.realtime_output_model is not None
+        ):
             raise PriceManifestError("realtime_contract_on_non_realtime_variant")
         return variant
+
+    has_input_model = variant.realtime_input_model is not None
+    has_output_model = variant.realtime_output_model is not None
+    if has_input_model != has_output_model:
+        raise PriceManifestError("realtime_provider_model_identity_invalid")
+    if has_input_model and variant.billing_model != realtime_duplex_billing_model(
+        input_model=variant.realtime_input_model or "",
+        output_model=variant.realtime_output_model or "",
+    ):
+        raise PriceManifestError("realtime_composite_billing_model_invalid")
 
     uses_token_billing = bool(variant.billable_meters & AUDIO_TOKEN_METERS)
     uses_second_billing = bool(variant.billable_meters & AUDIO_SECOND_METERS)
@@ -209,10 +248,23 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
         getattr(settings, "ai_realtime_voice", "default") or "default"
     )
     if realtime_provider not in {"", "disabled", "mock"} and realtime_model:
+        realtime_input_model = (
+            dashscope_realtime_input_model(settings)
+            if realtime_provider == "dashscope"
+            else realtime_model
+        )
+        realtime_output_model = (
+            dashscope_realtime_output_model(settings)
+            if realtime_provider == "dashscope"
+            else realtime_model
+        )
         variants.append(
             ConfiguredUsageVariant(
                 provider=realtime_provider,
-                billing_model=realtime_model,
+                billing_model=realtime_duplex_billing_model(
+                    input_model=realtime_input_model,
+                    output_model=realtime_output_model,
+                ),
                 capability=ModelUsageCapability.REALTIME_AUDIO,
                 variant_key=f"voice={realtime_voice}",
                 billing_scheme_key="realtime-audio-seconds-v1",
@@ -228,6 +280,8 @@ def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant,
                         ModelUsageMeter.AUDIO_OUTPUT_SECONDS,
                     }
                 ),
+                realtime_input_model=realtime_input_model,
+                realtime_output_model=realtime_output_model,
             )
         )
 

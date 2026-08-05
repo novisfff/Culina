@@ -130,6 +130,17 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
     billing_variant: ConfiguredUsageVariant | None = None
     operation_kind: str = "realtime_audio_lease"
 
+    def validate_provider_model(self, *, direction: str, provider_model: str) -> None:
+        variant = self._variant()
+        if direction == "input":
+            expected = variant.realtime_input_model or variant.billing_model
+        elif direction == "output":
+            expected = variant.realtime_output_model or variant.billing_model
+        else:
+            raise ModelUsageContractError("realtime_provider_model_direction_invalid")
+        if not provider_model or provider_model != expected:
+            raise ModelUsageContractError("realtime_provider_model_identity_mismatch")
+
     def begin_lease(
         self,
         *,
@@ -389,6 +400,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                 )
             )
         permit = lease.dispatch_permit
+        variant = self._variant()
         return self.signer.sign(
             ProviderUsageReceipt(
                 reservation_id=permit.reservation_id,
@@ -397,7 +409,19 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                 capability=permit.capability,
                 provider=permit.provider,
                 requested_model=permit.requested_model,
-                reported_model=permit.requested_model,
+                # A duplex lease may cover distinct input/output provider
+                # models.  Their explicit composite mapping is the immutable
+                # billing model; there is no truthful single reported model.
+                reported_model=(
+                    variant.realtime_input_model
+                    if variant.realtime_input_model is not None
+                    and variant.realtime_input_model == variant.realtime_output_model
+                    else (
+                        None
+                        if variant.realtime_input_model is not None
+                        else permit.requested_model
+                    )
+                ),
                 billing_model=permit.billing_model,
                 variant_key=permit.variant_key,
                 billing_scheme_key=permit.billing_scheme_key,

@@ -5459,10 +5459,15 @@ def test_reference_profile_latency(reference_dataset, reference_host_profile) ->
 def test_usage_query_plans_and_counts(reference_dataset) -> None:
     result = inspect_usage_query_plans(reference_dataset)
     assert result.has_full_table_scan is False
-    assert result.current_overview_query_count <= 5
+    assert result.current_overview_query_count <= 8
     assert result.current_breakdown_query_count <= 6
     assert result.historical_rollup_query_count <= 3
 ```
+
+Task 22 复用 Task 9 的完整 `get_family_usage_overview()` 安全视图，而不是另建缺少
+policy、counter、adjustment、reservation 或 incident 状态的精简查询。该路径的查询数
+预算统一为 8；代码中的 reference test、artifact collector 与 launch report 必须共同
+引用同一目标常量，任一层不得单独放宽。
 
 Absolute timing runs only when `MODEL_USAGE_REFERENCE_PROFILE` names the documented reference host; otherwise the marked test skips. Ordinary CI always gates query plans, query counts, correctness, and absence of N+1.
 

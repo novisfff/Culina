@@ -39,6 +39,10 @@ from app.services.model_usage.queries import (
     get_family_usage_breakdown,
     get_family_usage_overview,
 )
+from app.services.model_usage.reference_targets import (
+    REFERENCE_LATENCY_TARGETS_MS,
+    REFERENCE_QUERY_COUNT_TARGETS,
+)
 from app.services.model_usage.subjects import ensure_user_subject
 from scripts.model_usage_reference_artifact import (
     record_reference_latency,
@@ -385,9 +389,6 @@ def inspect_usage_query_plans(dataset: ReferenceDataset) -> UsageQueryPlanInspec
     )
     return UsageQueryPlanInspection(
         has_full_table_scan=has_full_table_scan,
-        # Task 9 intentionally performs eight bounded, bulk reads to retain
-        # exact health and correction state.  The former task-22 draft's
-        # threshold of five conflicts with that already verified contract.
         current_aggregate_query_count=_count_queries(
             dataset.engine,
             lambda: _family_overview(dataset, period="2026-07", at=NOW),
@@ -428,11 +429,20 @@ def test_reference_profile_latency(
     reference_host_profile.require_enabled()
     result = benchmark_usage_queries(reference_dataset)
 
-    assert result.reserve_p95_ms <= 150
-    assert result.settle_p95_ms <= 150
-    assert result.current_overview_p95_ms <= 300
-    assert result.current_breakdown_p95_ms <= 1000
-    assert result.historical_rollup_p95_ms <= 500
+    assert result.reserve_p95_ms <= REFERENCE_LATENCY_TARGETS_MS["reserveP95Ms"]
+    assert result.settle_p95_ms <= REFERENCE_LATENCY_TARGETS_MS["settleP95Ms"]
+    assert (
+        result.current_overview_p95_ms
+        <= REFERENCE_LATENCY_TARGETS_MS["currentOverviewP95Ms"]
+    )
+    assert (
+        result.current_breakdown_p95_ms
+        <= REFERENCE_LATENCY_TARGETS_MS["currentBreakdownP95Ms"]
+    )
+    assert (
+        result.historical_rollup_p95_ms
+        <= REFERENCE_LATENCY_TARGETS_MS["historicalRollupP95Ms"]
+    )
     record_reference_latency(pytestconfig, result)
 
 
@@ -444,7 +454,16 @@ def test_usage_query_plans_and_counts(
     result = inspect_usage_query_plans(reference_dataset)
 
     assert result.has_full_table_scan is False
-    assert result.current_aggregate_query_count <= 11
-    assert result.current_breakdown_query_count <= 6
-    assert result.historical_rollup_query_count <= 3
+    assert (
+        result.current_aggregate_query_count
+        <= REFERENCE_QUERY_COUNT_TARGETS["currentAggregateQueryCount"]
+    )
+    assert (
+        result.current_breakdown_query_count
+        <= REFERENCE_QUERY_COUNT_TARGETS["currentBreakdownQueryCount"]
+    )
+    assert (
+        result.historical_rollup_query_count
+        <= REFERENCE_QUERY_COUNT_TARGETS["historicalRollupQueryCount"]
+    )
     record_reference_query_plan(pytestconfig, result)

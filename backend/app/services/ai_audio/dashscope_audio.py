@@ -27,6 +27,10 @@ from app.services.ai_audio.transcription import (
 )
 from app.services.model_usage.adapters.audio import AudioUsageAdapter
 from app.services.model_usage.adapters.base import MeteredProviderAttempt
+from app.services.model_usage.configured_variants import (
+    dashscope_realtime_input_model,
+    dashscope_realtime_output_model,
+)
 from app.services.model_usage.decimal_math import quantize_quantity
 from app.services.model_usage.errors import ModelUsageContractError, ModelUsageError
 from app.services.model_usage.types import DispatchPermit
@@ -360,7 +364,7 @@ class DashScopeAudioProvider:
             raise provider_unavailable("dashscope", "realtime transcription")
         if "pcm" not in request.content_type.lower():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="DashScope realtime ASR requires PCM audio")
-        model = self.settings.ai_realtime_model.strip() or self.settings.ai_stt_model.strip() or "qwen3-asr-flash-realtime"
+        model = dashscope_realtime_input_model(self.settings)
         if realtime_usage_scope is None:
             transcript = await _qwen_asr_realtime_transcribe(
                 url=dashscope_realtime_url(self.settings, model),
@@ -397,6 +401,8 @@ class DashScopeAudioProvider:
             async with realtime_usage_scope.provider_audio_operation(
                 turn_id=realtime_turn_id or request.operation_id,
                 segment="duplex",
+                direction="input",
+                provider_model=model,
             ) as operation:
                 if operation.decision not in {"active", "renewed"}:
                     raise _realtime_usage_limit_error(operation.error_code)
@@ -431,8 +437,7 @@ class DashScopeAudioProvider:
     ) -> SpeechResult:
         if not self.api_key:
             raise provider_unavailable("dashscope", "realtime speech")
-        configured_model = self.settings.ai_tts_model.strip()
-        model = configured_model if "realtime" in configured_model else "qwen3-tts-flash-realtime"
+        model = dashscope_realtime_output_model(self.settings)
         voice = request.voice or self.settings.ai_realtime_voice.strip() or self.settings.ai_tts_voice.strip() or "Cherry"
         audio_format = self.settings.ai_tts_format.strip() or "mp3"
         async def synthesize_provider_audio() -> bytes:
@@ -453,6 +458,8 @@ class DashScopeAudioProvider:
             async with realtime_usage_scope.provider_audio_operation(
                 turn_id=realtime_turn_id or request.operation_id,
                 segment="duplex",
+                direction="output",
+                provider_model=model,
             ) as operation:
                 if operation.decision not in {"active", "renewed"}:
                     raise _realtime_usage_limit_error(operation.error_code)
@@ -488,8 +495,7 @@ class DashScopeAudioProvider:
     ) -> AsyncIterator[dict]:
         if not self.api_key:
             raise provider_unavailable("dashscope", "realtime speech")
-        configured_model = self.settings.ai_tts_model.strip()
-        model = configured_model if "realtime" in configured_model else "qwen3-tts-flash-realtime"
+        model = dashscope_realtime_output_model(self.settings)
         voice = request.voice or self.settings.ai_realtime_voice.strip() or self.settings.ai_tts_voice.strip() or "Cherry"
         audio_format = "pcm"
         sample_rate = self.settings.ai_realtime_output_sample_rate
@@ -543,6 +549,8 @@ class DashScopeAudioProvider:
             async with realtime_usage_scope.provider_audio_operation(
                 turn_id=realtime_turn_id or request.operation_id,
                 segment="duplex",
+                direction="output",
+                provider_model=model,
             ) as operation:
                 if operation.decision not in {"active", "renewed"}:
                     raise _realtime_usage_limit_error(operation.error_code)
