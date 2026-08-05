@@ -1,7 +1,7 @@
 ---
 schema_version: model_usage_first_launch_report.v2
-generated_at: 2026-08-05T05:01:26.027478Z
-git_commit: fb73e1ad8aa206f97672584481232c4ada37031c
+generated_at: 2026-08-05T09:04:49.330078Z
+git_commit: e927013e0887f662f2171641e951fb427fd959f3
 ready_for_first_open: false
 status: blocked
 blockers:
@@ -64,7 +64,7 @@ blockers:
         "variantKey": "default"
       },
       {
-        "billingModel": "qwen3-asr-flash-realtime",
+        "billingModel": "realtime-duplex-v1|input=qwen3-asr-flash-realtime|output=qwen3-tts-flash-realtime",
         "capability": "realtime_audio",
         "provider": "dashscope",
         "recoveryMode": "none",
@@ -186,7 +186,7 @@ blockers:
       "commands": {
         "backendQuality": {
           "command": "npm run backend:quality",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "database": "sqlite",
@@ -199,7 +199,7 @@ blockers:
         },
         "dispatchPolicyInterleaving": {
           "command": "dispatch-policy MySQL interleaving suite",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -213,7 +213,7 @@ blockers:
         },
         "dockerBuild": {
           "command": "docker compose -f deploy/docker-compose.yml build backend frontend",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -225,7 +225,7 @@ blockers:
         },
         "focusedModelUsageTests": {
           "command": "pytest tests/model_usage -q",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "database": "mysql",
@@ -238,7 +238,7 @@ blockers:
         },
         "frontendBuild": {
           "command": "npm run frontend:build",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "node": "20.18",
@@ -250,7 +250,7 @@ blockers:
         },
         "frontendE2EP0": {
           "command": "npm run frontend:e2e:p0",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
@@ -263,7 +263,7 @@ blockers:
         },
         "frontendQuality": {
           "command": "npm run frontend:quality",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "node": "20.18",
@@ -275,7 +275,7 @@ blockers:
         },
         "frontendSmoke": {
           "command": "npm run frontend:smoke",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
@@ -288,7 +288,7 @@ blockers:
         },
         "frontendStyleTokens": {
           "command": "npm --prefix frontend run check:style-tokens",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "node": "20.18",
@@ -300,7 +300,7 @@ blockers:
         },
         "mysqlMigrationConcurrency": {
           "command": "model-usage MySQL migration/concurrency/query-plan suite",
-          "commit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+          "commit": "e927013e0887f662f2171641e951fb427fd959f3",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -313,7 +313,7 @@ blockers:
           "status": "passed"
         }
       },
-      "sha256": "2e202394c439fa08d6730f10cb06f6a99dc967acbcc8fc56b4a55af7e1703128",
+      "sha256": "381eef87e6eaa1afac6373358be180a7490b51bd3356efdaed8ffab962e43997",
       "status": "passed"
     },
     "rollup": {
@@ -336,8 +336,8 @@ blockers:
       ]
     }
   },
-  "generatedAt": "2026-08-05T05:01:26.027478Z",
-  "gitCommit": "fb73e1ad8aa206f97672584481232c4ada37031c",
+  "generatedAt": "2026-08-05T09:04:49.330078Z",
+  "gitCommit": "e927013e0887f662f2171641e951fb427fd959f3",
   "readyForFirstOpen": false,
   "schemaVersion": "model_usage_first_launch_report.v2",
   "status": "blocked"
