@@ -1,7 +1,7 @@
 ---
 schema_version: model_usage_first_launch_report.v2
-generated_at: 2026-08-05T13:15:21.460186Z
-git_commit: 47b2e27d789011df2a6a6bd8409cab2a6ce8b409
+generated_at: 2026-08-05T14:14:48.933951Z
+git_commit: fdbf8d367de480f1be7f9820c9982742622473b4
 ready_for_first_open: false
 status: blocked
 blockers:
@@ -83,7 +83,7 @@ blockers:
     "counterAudit": {
       "exitCode": 0,
       "healthy": true,
-      "sha256": "83d6bf9f76d0285620f4149a63747c8ac37b8d211b3bbce0a4f0342449be4cc3",
+      "sha256": "680103c74a43c4400d4d72891a31e0d6fb684faaabff7e7ad9b4bd74193d1fd2",
       "status": "passed"
     },
     "firstLaunchPreflight": {
@@ -142,7 +142,7 @@ blockers:
     "health": {
       "exitCode": 0,
       "healthy": true,
-      "sha256": "d3c9fcd25f1c7b3f0d2d8db55a35688ca3e4d7876a7dc7c98baad47192cd9044",
+      "sha256": "a3d9b843e6eb8ce8d00f87c51960d147d274d22935a537260ad490dccbe6beda",
       "status": "passed"
     },
     "providerSendCoverage": {
@@ -154,7 +154,7 @@ blockers:
     "providerSmoke": {
       "capabilityCount": 7,
       "executionMode": "real_provider",
-      "sha256": "8703c7c642b3d11c35bfcecaffaf59d35d2d7b8dff775eb25b2b74634ba1a5f1",
+      "sha256": "188481fb42ceed1294c877a855e7610125aee3b980af2eadf03843bd05b1a22d",
       "status": "passed"
     },
     "referencePerformance": {
@@ -166,7 +166,7 @@ blockers:
       "commands": {
         "backendQuality": {
           "command": "npm run backend:quality",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "database": "sqlite",
@@ -179,7 +179,7 @@ blockers:
         },
         "dispatchPolicyInterleaving": {
           "command": "dispatch-policy MySQL interleaving suite",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -193,7 +193,7 @@ blockers:
         },
         "dockerBuild": {
           "command": "docker compose -f deploy/docker-compose.yml build backend frontend",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -205,10 +205,11 @@ blockers:
         },
         "focusedModelUsageTests": {
           "command": "pytest tests/model_usage -q",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
-            "database": "sqlite",
+            "containerRuntime": "docker",
+            "database": "mysql",
             "os": "macos",
             "python": "3.12",
             "runner": "local"
@@ -218,7 +219,7 @@ blockers:
         },
         "frontendBuild": {
           "command": "npm run frontend:build",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "node": "22",
@@ -230,7 +231,7 @@ blockers:
         },
         "frontendE2EP0": {
           "command": "npm run frontend:e2e:p0",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
@@ -243,7 +244,7 @@ blockers:
         },
         "frontendQuality": {
           "command": "npm run frontend:quality",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "browser": "none",
@@ -256,7 +257,7 @@ blockers:
         },
         "frontendSmoke": {
           "command": "npm run frontend:smoke",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "browser": "chromium",
@@ -269,7 +270,7 @@ blockers:
         },
         "frontendStyleTokens": {
           "command": "npm --prefix frontend run check:style-tokens",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "node": "22",
@@ -281,7 +282,7 @@ blockers:
         },
         "mysqlMigrationConcurrency": {
           "command": "model-usage MySQL migration/concurrency/query-plan suite",
-          "commit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+          "commit": "fdbf8d367de480f1be7f9820c9982742622473b4",
           "environment": {
             "architecture": "arm64",
             "containerRuntime": "docker",
@@ -294,14 +295,14 @@ blockers:
           "status": "passed"
         }
       },
-      "sha256": "57bf2f451783ca813e22e760a892b52a94c5465fe46e45924ddb198078d15e2f",
+      "sha256": "9fd27c14724c78603c59bf6785b842e92e72ad02d648f861999e72122e55b22c",
       "status": "passed"
     },
     "rollup": {
       "exitCode": 0,
-      "revision": 1,
+      "revision": 2,
       "rows": 65,
-      "sha256": "73d8b57cd2b87e8a9428b0dc4be3a135d8596f511b9bbaa84cf7e857d0f925ff",
+      "sha256": "fa02be96dca745bd70f82b30c26c36cec2a09c62e41c63305bb2ce7c25299e07",
       "status": "passed"
     },
     "visualReview": {
@@ -319,8 +320,8 @@ blockers:
       ]
     }
   },
-  "generatedAt": "2026-08-05T13:15:21.460186Z",
-  "gitCommit": "47b2e27d789011df2a6a6bd8409cab2a6ce8b409",
+  "generatedAt": "2026-08-05T14:14:48.933951Z",
+  "gitCommit": "fdbf8d367de480f1be7f9820c9982742622473b4",
   "readyForFirstOpen": false,
   "schemaVersion": "model_usage_first_launch_report.v2",
   "status": "blocked"
