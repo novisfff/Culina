@@ -67,9 +67,9 @@ export const MODEL_USAGE_HEALTH_OPTIONS = {
   unpriced: { title: '存在未定价用量' },
   uncertain: { title: '仍有调用待核对' },
   pending: { title: '结算正在处理' },
-  conservative_unknown_execution: { title: '执行情况未知的保守估算' },
-  known_unmeasured: { title: '可定位但尚未恢复' },
-  measurement_gap: { title: '计量可能不完整' },
+  conservative_unknown_execution: { title: '执行情况待确认' },
+  known_unmeasured: { title: '用量明细待恢复' },
+  measurement_gap: { title: '部分时段记录不完整' },
 } as const;
 
 export const MODEL_USAGE_ERROR_OPTIONS: Record<ModelUsageErrorCode, { title: string; message: string }> = {

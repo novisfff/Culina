@@ -193,7 +193,8 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    expect(screen.getByText('保存后，尚未取得首次持久化发送授权的普通预留会按新策略重新核验。已经开始发送的调用，以及保存前已签发的短时计量故障放行凭证，仍可能完成。')).toBeVisible();
+    expect(screen.getByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).toBeVisible();
+    expect(screen.queryByText(/Decimal|持久化发送授权|放行凭证/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
@@ -251,7 +252,7 @@ describe('ModelUsagePolicySettings', () => {
     await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
-    const confirmation = await screen.findByRole('checkbox', { name: '我知道保存后，尚未取得发送授权的缺价调用会被阻止。' });
+    const confirmation = await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新调用会被阻止。' });
     expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled();
     expect(modelUsageApi.updateFamilyModelUsagePolicy).toHaveBeenCalledWith(expect.objectContaining({
       hard_limit_enabled: true,
@@ -286,7 +287,7 @@ describe('ModelUsagePolicySettings', () => {
     await user.click(screen.getByRole('button', { name: '预算设置' }));
     await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
-    await screen.findByRole('checkbox', { name: '我知道保存后，尚未取得发送授权的缺价调用会被阻止。' });
+    await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新调用会被阻止。' });
 
     fireEvent.submit(screen.getByLabelText('家庭月预算（元）').closest('form')!);
 

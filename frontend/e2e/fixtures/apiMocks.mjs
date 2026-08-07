@@ -865,6 +865,35 @@ function modelUsagePersonalOverview(period) {
   };
 }
 
+function modelUsageEmptyPersonalOverview(period) {
+  return {
+    family_id: family.id,
+    scope: 'me',
+    period,
+    source: 'raw',
+    is_partial_period: true,
+    tracking_started_at: '2026-08-05T00:00:00.000Z',
+    known_priced_cost_cny: '0.000000000000',
+    pricing_complete: true,
+    unpriced_event_count: 0,
+    family_budget_state: 'sufficient',
+    meter_totals: [],
+    measurement_health: {
+      exact_event_count: 0,
+      estimated_event_count: 0,
+      unpriced_event_count: 0,
+      uncertain_attempt_count: 0,
+      pending_attempt_count: 0,
+      unresolved_unknown_execution_attempt_count: 0,
+      conservative_estimated_cost_cny: null,
+      known_unmeasured_attempt_count: 0,
+      measurement_gap: false,
+      measurement_gap_scope: [],
+      gap_intervals: [],
+    },
+  };
+}
+
 function modelUsageFamilyBreakdown(period, groupBy) {
   return {
     family_id: family.id,
@@ -1043,7 +1072,10 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
     }
 
     if (request.method() === 'GET' && url.pathname === '/api/model-usage/me/overview') {
-      await fulfillJson(route, modelUsagePersonalOverview(url.searchParams.get('period') ?? '2026-07'));
+      const period = url.searchParams.get('period') ?? '2026-07';
+      await fulfillJson(route, modelUsageScenario === 'owner-empty-personal'
+        ? modelUsageEmptyPersonalOverview(period)
+        : modelUsagePersonalOverview(period));
       return;
     }
 
@@ -1056,10 +1088,13 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
     }
 
     if (request.method() === 'GET' && url.pathname === '/api/model-usage/me/breakdown') {
-      await fulfillJson(route, modelUsagePersonalBreakdown(
+      const breakdown = modelUsagePersonalBreakdown(
         url.searchParams.get('period') ?? '2026-07',
         url.searchParams.get('group_by') ?? 'capability',
-      ));
+      );
+      await fulfillJson(route, modelUsageScenario === 'owner-empty-personal'
+        ? { ...breakdown, items: [] }
+        : breakdown);
       return;
     }
 

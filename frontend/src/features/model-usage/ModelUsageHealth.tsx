@@ -1,6 +1,6 @@
 import type { ModelUsageMeasurementHealth } from '../../api/types';
 import { StatusBadge } from '../../components/ui-kit';
-import { modelUsageHealthNotices } from './modelUsageModel';
+import { actionableModelUsageHealthNotices } from './modelUsageModel';
 
 const HEALTH_TONES = {
   exact: 'success',
@@ -36,11 +36,35 @@ function formatGapIntervals(health: ModelUsageMeasurementHealth): string | null 
 export interface ModelUsageHealthProps {
   health: ModelUsageMeasurementHealth;
   compact?: boolean;
+  hideHeading?: boolean;
 }
 
 export function ModelUsageHealth(props: ModelUsageHealthProps) {
-  const notices = modelUsageHealthNotices(props.health);
+  const notices = actionableModelUsageHealthNotices(props.health);
   const gapIntervals = formatGapIntervals(props.health);
+  if (notices.length === 0) return null;
+
+  const list = (
+    <ul className="model-usage-health-list">
+      {notices.map((notice) => (
+        <li key={notice.kind}>
+          <StatusBadge tone={HEALTH_TONES[notice.kind]}>{notice.title}</StatusBadge>
+          <p>{notice.description}</p>
+          {notice.kind === 'measurement_gap' && gapIntervals ? (
+            <small>受影响时段：{gapIntervals}</small>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (props.hideHeading) {
+    return (
+      <div className={['model-usage-health', 'is-embedded', props.compact ? 'is-compact' : ''].filter(Boolean).join(' ')}>
+        {list}
+      </div>
+    );
+  }
 
   return (
     <section
@@ -49,25 +73,10 @@ export function ModelUsageHealth(props: ModelUsageHealthProps) {
     >
       <div className="model-usage-section-head">
         <div>
-          <h2 id="model-usage-health-heading">计量完整度</h2>
-          <p>费用、估算和待核对状态会分别保留，避免把未知情况伪装成精确数据。</p>
+          <h2 id="model-usage-health-heading">需要核对的用量</h2>
         </div>
       </div>
-      {notices.length === 0 ? (
-        <p className="model-usage-health-clear">本账期暂无需要额外说明的计量状态。</p>
-      ) : (
-        <ul className="model-usage-health-list">
-          {notices.map((notice) => (
-            <li key={notice.kind}>
-              <StatusBadge tone={HEALTH_TONES[notice.kind]}>{notice.title}</StatusBadge>
-              <p>{notice.description}</p>
-              {notice.kind === 'measurement_gap' && gapIntervals ? (
-                <small>受影响时段：{gapIntervals}</small>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+      {list}
     </section>
   );
 }

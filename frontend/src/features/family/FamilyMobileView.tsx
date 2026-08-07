@@ -126,7 +126,7 @@ export function FamilyMobileView(props: {
 
       <section className="mobile-family-panel mobile-family-model-usage-panel" aria-labelledby="mobile-family-model-usage-heading">
         <div className="mobile-family-section-head">
-          <h2 id="mobile-family-model-usage-heading">模型用量</h2>
+          <h2 id="mobile-family-model-usage-heading">家庭工具</h2>
         </div>
         <button
           className="mobile-family-model-usage-entry"
@@ -134,11 +134,11 @@ export function FamilyMobileView(props: {
           onClick={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
         >
           <span aria-hidden="true"><DashboardIcon name="bar-chart" /></span>
-          <strong>查看模型用量</strong>
+          <strong>模型用量</strong>
           <small>
             {props.isOwner
-              ? '家庭额度、个人使用和计量状态'
-              : '个人使用和当前家庭额度状态'}
+              ? '查看本账期费用、家庭额度和使用明细'
+              : '查看个人费用和当前家庭额度'}
           </small>
           <DashboardIcon name="arrow-right" />
         </button>

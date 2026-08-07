@@ -119,14 +119,14 @@ export function modelUsageHealthNotices(health: ModelUsageMeasurementHealth): Mo
     notices.push({
       kind: 'estimated',
       title: MODEL_USAGE_HEALTH_OPTIONS.estimated.title,
-      description: `${health.estimated_event_count} 次调用使用了估算用量。`,
+      description: `${health.estimated_event_count} 次调用采用估算用量，费用可能随后调整。`,
     });
   }
   if (health.unpriced_event_count > 0) {
     notices.push({
       kind: 'unpriced',
       title: MODEL_USAGE_HEALTH_OPTIONS.unpriced.title,
-      description: `${health.unpriced_event_count} 次调用尚未取得价格。`,
+      description: `${health.unpriced_event_count} 次调用尚未定价，暂未计入上方费用。`,
     });
   }
   if (health.uncertain_attempt_count > 0) {
@@ -168,6 +168,12 @@ export function modelUsageHealthNotices(health: ModelUsageMeasurementHealth): Mo
     });
   }
   return notices;
+}
+
+export function actionableModelUsageHealthNotices(
+  health: ModelUsageMeasurementHealth,
+): ModelUsageHealthNotice[] {
+  return modelUsageHealthNotices(health).filter((notice) => notice.kind !== 'exact');
 }
 
 function hasMeasuredUsage(

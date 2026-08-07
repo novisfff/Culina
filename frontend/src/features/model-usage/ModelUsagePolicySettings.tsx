@@ -151,14 +151,14 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
             aria-invalid={validationField === 'monthly_budget_cny' ? true : undefined}
           />
         </label>
-        <p id="model-usage-budget-help" className="model-usage-policy-help">保留原始 Decimal 文本，不会转换为浏览器数字。</p>
+        <p id="model-usage-budget-help" className="model-usage-policy-help">按元填写，可输入小数；留空表示不设置预算。</p>
         {validationField === 'monthly_budget_cny' ? <p className="model-usage-policy-field-error" role="alert">{validationMessage}</p> : null}
       </section>
 
       <section className="model-usage-policy-section" aria-labelledby="model-usage-policy-limits-heading">
         <div className="model-usage-policy-section-head">
           <h2 id="model-usage-policy-limits-heading">提醒和限制</h2>
-          <p>提醒只通知 Owner；硬限制会在新的发送授权前重新核验当前策略。</p>
+          <p>预算提醒仅家庭创建者可见；开启硬限制后，新发起的模型调用会按当前额度检查。</p>
         </div>
         <label className="model-usage-policy-toggle">
           <input
@@ -180,7 +180,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
           <span>开启家庭硬限制</span>
         </label>
         <p id="model-usage-hard-limit-inflight-help" className="model-usage-policy-help">
-          保存后，尚未取得首次持久化发送授权的普通预留会按新策略重新核验。已经开始发送的调用，以及保存前已签发的短时计量故障放行凭证，仍可能完成。
+          保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。
         </p>
         {requiresMissingPriceConfirmation ? (
           <label className="model-usage-price-confirmation">
@@ -190,7 +190,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
               onChange={(event) => props.onPatchDraft({ confirm_missing_price_impact: event.target.checked })}
               disabled={props.isSaving}
             />
-            <span>我知道保存后，尚未取得发送授权的缺价调用会被阻止。</span>
+            <span>我知道保存后，没有价格信息的新调用会被阻止。</span>
           </label>
         ) : null}
       </section>
@@ -198,7 +198,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
       <section className="model-usage-policy-section" aria-labelledby="model-usage-policy-guardrails-heading">
         <div className="model-usage-policy-section-head">
           <h2 id="model-usage-policy-guardrails-heading">能力护栏</h2>
-          <p>可为每项模型能力设置一个费用或原生计量上限。</p>
+          <p>可为每项模型能力设置费用或使用量上限。</p>
         </div>
         <div className="model-usage-policy-guardrails">
           {(Object.entries(MODEL_USAGE_CAPABILITY_OPTIONS) as CapabilityOptionEntry[]).map(([capability, option]) => {
@@ -237,7 +237,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
                         disabled={props.isSaving}
                       >
                         <option value="cost">费用（元）</option>
-                        <option value="meter">原生计量</option>
+                        <option value="meter">使用量</option>
                       </select>
                     </label>
                     {activeKind === 'meter' ? (

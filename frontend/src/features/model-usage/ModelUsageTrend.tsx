@@ -72,59 +72,129 @@ export function ModelUsageTrend(props: ModelUsageTrendProps) {
 
   const highest = points.reduce((current, point) => point.amount > current.amount ? point : current, points[0]!);
   const maximum = highest.amount > 0n ? highest.amount : 1n;
-  const summary = `共 ${points.length} 天有已记录费用。本月最高已记录费用出现在 ${monthDayLabel(highest.date)}，为 ${formatModelUsageCny(scaledIntegerToDecimal(highest.amount))}。`;
+  const highestAmountDec = formatModelUsageCny(scaledIntegerToDecimal(highest.amount));
+  const summary = `共 ${points.length} 天有已记录费用。本月最高已记录费用出现在 ${monthDayLabel(highest.date)}，为 ${highestAmountDec}。`;
+
   const chartWidth = 640;
-  const chartHeight = 180;
-  const chartPadding = { top: 16, right: 16, bottom: 34, left: 16 };
+  const chartHeight = 200;
+  const chartPadding = { top: 32, right: 24, bottom: 36, left: 54 };
   const plotWidth = chartWidth - chartPadding.left - chartPadding.right;
   const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
-  const step = plotWidth / points.length;
-  const barWidth = Math.max(8, Math.min(44, step * 0.62));
+  const step = plotWidth / Math.max(1, points.length);
+
+  // If points are few, keep barWidth controlled and neat
+  const barWidth = points.length === 1 ? 32 : Math.max(12, Math.min(36, step * 0.5));
 
   return (
     <div className="model-usage-trend">
-      <svg
-        className="model-usage-trend-chart"
-        role="img"
-        aria-labelledby={`${chartId}-title`}
-        aria-describedby={`${chartId}-desc`}
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-      >
-        <title id={`${chartId}-title`}>本月每日模型费用趋势</title>
-        <desc id={`${chartId}-desc`}>{summary}</desc>
-        <line
-          className="model-usage-trend-baseline"
-          x1={chartPadding.left}
-          x2={chartWidth - chartPadding.right}
-          y1={chartPadding.top + plotHeight}
-          y2={chartPadding.top + plotHeight}
-        />
-        {points.map((point, index) => {
-          const height = Number((point.amount * BigInt(Math.round(plotHeight * 1000))) / maximum) / 1000;
-          const x = chartPadding.left + step * index + (step - barWidth) / 2;
-          const y = chartPadding.top + plotHeight - height;
-          return (
-            <g key={point.date}>
-              <rect
-                className="model-usage-trend-bar"
-                x={x}
-                y={y}
-                width={barWidth}
-                height={height}
-                rx="4"
-              />
-              <text
-                className="model-usage-trend-label"
-                x={x + barWidth / 2}
-                y={chartHeight - 12}
-                textAnchor="middle"
-              >
-                {monthDayLabel(point.date).replace(' 月 ', '/').replace(' 日', '')}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+      <div className="model-usage-trend-header-pills">
+        <div className="model-usage-trend-pill">
+          <span>最高单日费用</span>
+          <strong>{highestAmountDec}</strong>
+          <small>（{monthDayLabel(highest.date)}）</small>
+        </div>
+        <div className="model-usage-trend-pill">
+          <span>有记录天数</span>
+          <strong>{points.length} 天</strong>
+        </div>
+      </div>
+
+      <div className="model-usage-trend-chart-wrapper">
+        <svg
+          className="model-usage-trend-chart"
+          role="img"
+          aria-labelledby={`${chartId}-title`}
+          aria-describedby={`${chartId}-desc`}
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        >
+          <defs>
+            <linearGradient id={`${chartId}-barGrad`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.95" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.65" />
+            </linearGradient>
+            <linearGradient id={`${chartId}-peakGrad`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent-strong)" stopOpacity="1" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.8" />
+            </linearGradient>
+          </defs>
+          <title id={`${chartId}-title`}>本月每日模型费用趋势</title>
+          <desc id={`${chartId}-desc`}>{summary}</desc>
+
+          {/* Y-axis gridlines & labels */}
+          <line
+            className="model-usage-trend-gridline"
+            x1={chartPadding.left}
+            x2={chartWidth - chartPadding.right}
+            y1={chartPadding.top}
+            y2={chartPadding.top}
+          />
+          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + 4} textAnchor="end">
+            {highestAmountDec}
+          </text>
+
+          <line
+            className="model-usage-trend-gridline"
+            x1={chartPadding.left}
+            x2={chartWidth - chartPadding.right}
+            y1={chartPadding.top + plotHeight / 2}
+            y2={chartPadding.top + plotHeight / 2}
+          />
+          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + plotHeight / 2 + 4} textAnchor="end">
+            {formatModelUsageCny(scaledIntegerToDecimal(highest.amount / 2n))}
+          </text>
+
+          <line
+            className="model-usage-trend-baseline"
+            x1={chartPadding.left}
+            x2={chartWidth - chartPadding.right}
+            y1={chartPadding.top + plotHeight}
+            y2={chartPadding.top + plotHeight}
+          />
+          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + plotHeight + 4} textAnchor="end">
+            ¥0.00
+          </text>
+
+          {/* Bar elements */}
+          {points.map((point, index) => {
+            const height = Math.max(6, Number((point.amount * BigInt(Math.round(plotHeight * 1000))) / maximum) / 1000);
+            const x = chartPadding.left + step * index + (step - barWidth) / 2;
+            const y = chartPadding.top + plotHeight - height;
+            const isPeak = point.date === highest.date && highest.amount > 0n;
+            const pointCostStr = formatModelUsageCny(scaledIntegerToDecimal(point.amount));
+
+            return (
+              <g key={point.date} className="model-usage-trend-group">
+                <rect
+                  className={`model-usage-trend-bar ${isPeak ? 'is-peak' : ''}`}
+                  x={x}
+                  y={y}
+                  width={barWidth}
+                  height={height}
+                  rx="6"
+                  fill={`url(#${chartId}-${isPeak ? 'peakGrad' : 'barGrad'})`}
+                />
+                {/* Value badge over top of bar */}
+                <text
+                  className="model-usage-trend-val-badge"
+                  x={x + barWidth / 2}
+                  y={Math.max(14, y - 8)}
+                  textAnchor="middle"
+                >
+                  {pointCostStr}
+                </text>
+                <text
+                  className={`model-usage-trend-label ${isPeak ? 'is-peak-label' : ''}`}
+                  x={x + barWidth / 2}
+                  y={chartHeight - 12}
+                  textAnchor="middle"
+                >
+                  {monthDayLabel(point.date).replace(' 月 ', '/').replace(' 日', '')}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
       <p className="model-usage-trend-summary">{summary}</p>
     </div>
   );

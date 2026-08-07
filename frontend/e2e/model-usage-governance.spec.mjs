@@ -48,6 +48,9 @@ for (const viewport of MODEL_USAGE_VIEWPORTS) {
     await openModelUsage(page);
 
     await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '每日费用趋势' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '费用细分' })).toBeVisible();
+    await expect(page.getByText('按日期', { exact: true }).or(page.getByText('每日', { exact: true }))).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-owner.png`);
   });
@@ -57,10 +60,28 @@ test('@p0 @model-usage-390x844 long provider and model names wrap without horizo
   const { page } = app;
   await openModelUsage(page);
 
-  await page.getByLabel('统计维度').selectOption('provider_model');
+  await page.getByLabel('细分方式').selectOption('provider_model');
   await expect(page.getByText(/gpt-smoke-regional-routing-snapshot-2026-08-05-with-a-very-long-model-name/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await saveVisualReviewScreenshot(page, '390x844-long-model.png');
+});
+
+test.describe('personal empty model usage', () => {
+  test.use({ modelUsageScenario: 'owner-empty-personal' });
+
+  test('@p0 @model-usage-390x844 @model-usage-1440x900 personal partial month keeps the empty state concise', async ({ app }) => {
+    const { page } = app;
+    await openModelUsage(page);
+    await page.getByRole('button', { name: '我的' }).click();
+
+    await expect(page.getByRole('heading', { name: '我的模型用量' })).toBeVisible();
+    await expect(page.getByText('从 2026 年 8 月 5 日开始记录')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '本月还没有模型调用' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '需要核对的用量' })).toHaveCount(0);
+    await expect(page.getByText(/避免把未知情况伪装成精确数据/)).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 'unknown'}-personal-empty.png`);
+  });
 });
 
 test('@p0 @model-usage-1440x900 owner switches between family and personal model usage', async ({ app }) => {
@@ -71,7 +92,7 @@ test('@p0 @model-usage-1440x900 owner switches between family and personal model
 
   await expect(page.getByRole('heading', { name: '我的模型用量' })).toBeVisible();
   await expect.poll(() => requestedApiPaths.some((path) => path === '/api/model-usage/me/overview')).toBe(true);
-  await expect(page.getByText('家庭月预算', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('家庭额度', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: '家庭' }).last().click();
   await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
@@ -93,6 +114,7 @@ test('@p0 @model-usage-1440x900 owner alert deep links to its period and can be 
 
   await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
   await expect(page.getByLabel('选择账期')).toHaveValue('2026-06');
+  await expect(page.getByRole('heading', { name: '家庭预算已达到 80%' })).toBeVisible();
 
   await page.getByRole('button', { name: /查看通知/ }).first().click();
   const dismissRequest = page.waitForRequest((request) => (
@@ -110,7 +132,8 @@ test('@p0 @model-usage-1440x900 owner sees hard-limit in-flight disclosure and s
 
   await page.getByRole('button', { name: '预算设置' }).click();
   await expect(page.getByRole('heading', { name: '模型预算设置' })).toBeVisible();
-  await expect(page.getByText(/尚未取得首次持久化发送授权的普通预留会按新策略重新核验/)).toBeVisible();
+  await expect(page.getByText(/新发起的模型调用会按新额度检查/)).toBeVisible();
+  await expect(page.getByText(/Decimal|持久化发送授权|放行凭证/)).toHaveCount(0);
 
   const saveRequest = page.waitForRequest((request) => (
     request.method() === 'PUT'
@@ -131,7 +154,7 @@ test.describe('@p0 @model-usage-390x844 ordinary member model-usage privacy', ()
     await expect(page.getByRole('heading', { name: '我的模型用量' })).toBeVisible();
     await expect(page.getByRole('button', { name: '预算设置' })).toHaveCount(0);
     await expect(page.locator('.model-usage-scope-toggle:visible')).toHaveCount(0);
-    await expect(page.getByText('家庭月预算', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('家庭额度', { exact: true })).toHaveCount(0);
     await expect(page.getByText('￥80.00', { exact: true })).toHaveCount(0);
     expect(requestedApiPaths.some((path) => path.startsWith('/api/model-usage/family/'))).toBe(false);
     expect(requestedApiPaths.some((path) => path.startsWith('/api/model-usage/me/'))).toBe(true);
@@ -176,14 +199,14 @@ test('@p0 @model-usage-1440x900 owner keeps the last model-usage data visible du
     });
   });
   await context.setOffline(true);
-  await page.getByLabel('统计维度').selectOption('provider_model');
+  await page.getByLabel('细分方式').selectOption('provider_model');
 
   await expect(page.getByText('当前离线，正在显示已缓存的数据。')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('家庭月预算', { exact: true })).toBeVisible();
+  await expect(page.getByText('家庭额度', { exact: true })).toBeVisible();
 
   await context.setOffline(false);
   await page.unroute(failingBreakdown);
-  await page.getByLabel('统计维度').selectOption('capability');
+  await page.getByLabel('细分方式').selectOption('capability');
   await expect(page.getByText('当前离线，正在显示已缓存的数据。')).toHaveCount(0, { timeout: 15_000 });
 });
 
@@ -196,7 +219,7 @@ test('@p0 @model-usage-390x844 model usage keeps keyboard controls and accessibl
   const budgetSettings = page.getByRole('button', { name: '预算设置' });
   await expect(budgetSettings).toBeVisible();
   await expect(page.getByLabel('选择账期')).toBeVisible();
-  await expect(page.getByLabel('统计维度')).toBeVisible();
+  await expect(page.getByLabel('细分方式')).toBeVisible();
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
 
   await page.evaluate(() => {

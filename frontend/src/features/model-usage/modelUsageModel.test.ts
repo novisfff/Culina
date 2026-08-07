@@ -22,6 +22,7 @@ import {
   MODEL_USAGE_CAPABILITY_OPTIONS,
   MODEL_USAGE_CAPABILITY_METERS,
   MODEL_USAGE_ERROR_OPTIONS,
+  MODEL_USAGE_HEALTH_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
 } from './modelUsageOptions';
 
@@ -149,6 +150,9 @@ describe('model usage display model', () => {
     expect(MODEL_USAGE_CAPABILITY_OPTIONS.llm.label).toBe('文本与视觉理解');
     expect(MODEL_USAGE_METER_OPTIONS.generated_images.label).toBe('生成图片');
     expect(MODEL_USAGE_ERROR_OPTIONS.model_usage_budget_exceeded.title).toBe('本月模型额度已用完');
+    expect(MODEL_USAGE_HEALTH_OPTIONS.conservative_unknown_execution.title).toBe('执行情况待确认');
+    expect(MODEL_USAGE_HEALTH_OPTIONS.known_unmeasured.title).toBe('用量明细待恢复');
+    expect(MODEL_USAGE_HEALTH_OPTIONS.measurement_gap.title).toBe('部分时段记录不完整');
   });
 
   it('keeps policy meter choices aligned with production provider billing contracts', () => {
