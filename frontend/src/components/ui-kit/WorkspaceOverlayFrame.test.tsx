@@ -175,6 +175,27 @@ describe('WorkspaceOverlayFrame', () => {
     trigger.remove();
   });
 
+  it('does not re-steal focus from an in-dialog control when its deferred focus frame runs', () => {
+    let deferredFocusFrame: FrameRequestCallback | undefined;
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      deferredFocusFrame = callback;
+      return 1;
+    });
+    try {
+      const { view } = renderOverlay();
+      const inside = view.querySelector<HTMLButtonElement>('#inside-action');
+
+      expect(inside).not.toBeNull();
+      act(() => inside?.focus());
+      expect(document.activeElement).toBe(inside);
+
+      act(() => deferredFocusFrame?.(0));
+      expect(document.activeElement).toBe(inside);
+    } finally {
+      requestAnimationFrame.mockRestore();
+    }
+  });
+
   it('closes on Escape unless busy', () => {
     const idle = renderOverlay();
     act(() => {

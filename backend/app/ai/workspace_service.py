@@ -37,7 +37,7 @@ from app.ai.workflows.run_lifecycle import (
     build_regenerate_part_chat_request,
     build_retry_chat_request,
 )
-from app.core.enums import AiMode
+from app.core.enums import AiMode, ModelUsageAttributionKind, ModelUsageOperationSource
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIAgentRun,
@@ -61,6 +61,7 @@ from app.services.ai_operations.run_cancellation import (
 )
 from app.ai.draft_contracts import DraftContractCapabilities
 from app.services.ai_client_projection import project_ai_approval, require_viewer_contract
+from app.services.model_usage.types import UsageAttribution
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -255,6 +256,14 @@ class AIApplicationService:
                     conversation_id=None,
                     trace_id=tracer.trace_id,
                     user_id=user_id,
+                )
+            if "usage_attribution" in inspect.signature(self.provider.generate_with_tools).parameters:
+                provider_kwargs["usage_attribution"] = UsageAttribution(
+                    family_id=family_id,
+                    attribution_kind=ModelUsageAttributionKind.USER,
+                    actor_user_id=user_id,
+                    operation_source=ModelUsageOperationSource.INTERACTIVE,
+                    logical_operation_id=run.id,
                 )
             result = self.provider.generate_with_tools(**provider_kwargs)
         except Exception as exc:

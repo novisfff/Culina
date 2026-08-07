@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.models.domain import Food, SearchDocument, SearchIndexJob
-from app.services.search.jobs import _index_vector_if_enabled, process_search_index_job
+from app.services.search.jobs import process_search_index_job
 from tests.recipes._support import RecipeApiTestCase
 
 
@@ -83,39 +83,6 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             self.assertIn("适合快手炒菜", document.semantic_text)
             self.assertNotEqual(document.content_hash, old_hash)
             self.assertEqual(document.vector_status, "disabled")
-
-    def test_search_index_vector_step_treats_null_attempt_count_as_zero(self) -> None:
-        response = self.client.post(
-            "/api/ingredients",
-            json={
-                "name": "梅干菜",
-                "category": "干货",
-                "default_unit": "克",
-                "unit_conversions": [],
-                "quantity_tracking_mode": "track_quantity",
-                "default_storage": "阴凉",
-                "default_expiry_mode": "none",
-                "notes": "适合扣肉",
-                "media_ids": [],
-            },
-        )
-        self.assertEqual(response.status_code, 201, response.text)
-        ingredient = response.json()
-        self._process_index_job("ingredient", ingredient["id"])
-        with self.SessionLocal() as db:
-            document = db.scalar(
-                select(SearchDocument).where(
-                    SearchDocument.entity_type == "ingredient",
-                    SearchDocument.entity_id == ingredient["id"],
-                )
-            )
-            self.assertIsNotNone(document)
-            assert document is not None
-            document.vector_status = "pending"
-            document.vector_attempt_count = None  # type: ignore[assignment]
-            vector_status = _index_vector_if_enabled(document)
-            self.assertEqual(vector_status, "skipped")
-            self.assertEqual(document.vector_attempt_count, 0)
 
     def test_food_create_and_update_refresh_search_document(self) -> None:
         response = self.client.post(

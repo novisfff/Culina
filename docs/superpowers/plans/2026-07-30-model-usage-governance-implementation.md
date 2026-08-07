@@ -5459,10 +5459,15 @@ def test_reference_profile_latency(reference_dataset, reference_host_profile) ->
 def test_usage_query_plans_and_counts(reference_dataset) -> None:
     result = inspect_usage_query_plans(reference_dataset)
     assert result.has_full_table_scan is False
-    assert result.current_overview_query_count <= 5
+    assert result.current_overview_query_count <= 8
     assert result.current_breakdown_query_count <= 6
     assert result.historical_rollup_query_count <= 3
 ```
+
+Task 22 复用 Task 9 的完整 `get_family_usage_overview()` 安全视图，而不是另建缺少
+policy、counter、adjustment、reservation 或 incident 状态的精简查询。该路径的查询数
+预算统一为 8；代码中的 reference test、artifact collector 与 launch report 必须共同
+引用同一目标常量，任一层不得单独放宽。
 
 Absolute timing runs only when `MODEL_USAGE_REFERENCE_PROFILE` names the documented reference host; otherwise the marked test skips. Ordinary CI always gates query plans, query counts, correctness, and absence of N+1.
 
@@ -5642,6 +5647,7 @@ CULINA_TEST_MYSQL_URL=mysql+pymysql://culina:culina@127.0.0.1:3306/culina_model_
   tests/model_usage/test_realtime_audio_mysql.py \
   tests/model_usage/test_reporting_queries_mysql.py -q
 MODEL_USAGE_REFERENCE_PROFILE=culina-first-launch-mysql84-v1 \
+  MODEL_USAGE_REFERENCE_OUTPUT=.artifacts/model-usage-reference-performance.json \
   CULINA_TEST_MYSQL_URL=mysql+pymysql://culina:culina@127.0.0.1:3306/culina_model_usage_test \
   .venv/bin/python -m pytest tests/model_usage/test_performance_reference.py \
   -m model_usage_reference -q
@@ -5695,10 +5701,33 @@ PYTHONPATH=. .venv/bin/python scripts/generate_model_usage_launch_report.py \
   --audit .artifacts/model-usage-audit.json \
   --rollup .artifacts/model-usage-rollup.json \
   --health .artifacts/model-usage-health.json \
+  --performance .artifacts/model-usage-reference-performance.json \
   --visual-review .artifacts/model-usage-visual-review \
+  --verification-evidence .artifacts/model-usage-required-verification.json \
   --output ../docs/plans/model-usage-first-launch-report.md
 cd ..
 ```
+
+`model-usage-required-verification.json` is a content-free release evidence summary with schema version `model_usage_launch_verification.v1`. For every fixed command ID — `focusedModelUsageTests`, `backendQuality`, `frontendQuality`, `frontendBuild`, `frontendStyleTokens`, `frontendSmoke`, `frontendE2EP0`, `dockerBuild`, `mysqlMigrationConcurrency`, and `dispatchPolicyInterleaving` — it records the current git commit, an allowlisted environment summary, integer exit code, and non-empty all-true key assertions. The report normalizes that summary to fixed public categories and rejects unknown keys or unrecognized values. Missing command records, commit mismatches, absent environment, non-zero exits, or false assertions are first-launch blockers. Never copy raw command output, credentials, Provider content, or arbitrary environment variables into this artifact.
+
+`model-usage-reference-performance.json` is created only after the designated-profile pytest session finishes. It uses schema version `model_usage_reference_performance.v1`, refuses to overwrite an existing path, records only aggregate p95/query-count evidence, and remains blocked unless the complete reference suite exits 0. Do not set `MODEL_USAGE_REFERENCE_PROFILE` on an ordinary developer machine merely to produce this artifact.
+
+The visual-review directory must contain `review.json` with schema version `model_usage_visual_review.v1`. Its document keys and check keys are exact: all seven viewports, zero unresolved P0/P1 issues, and `keyboard`, `reducedMotion`, `textZoom200`, `noHorizontalOverflow`, `screenReaderLabels`, `voiceOver`, `safeArea`, `offlineRestore`, and `longModelNames` must all be explicitly true. Unknown or missing keys fail closed; automated label assertions do not substitute for a real VoiceOver traversal.
+
+Each command row contains exactly `commit`, `environment`, `exitCode`, and `assertions`; its assertion object must contain exactly the command-specific keys below, all set to `true`. Unknown document, command, command-row, environment, or assertion keys are rejected rather than ignored.
+
+| Command ID | Required and allowed assertion keys |
+| --- | --- |
+| `focusedModelUsageTests` | `focusedSuitePassed` |
+| `backendQuality` | `compileCheckPassed`, `pytestSuitePassed` |
+| `frontendQuality` | `styleTokenScanCompleted`, `typecheckPassed`, `vitestPassed` |
+| `frontendBuild` | `productionBuildPassed` |
+| `frontendStyleTokens` | `newViolationsAbsentOrAccepted`, `reportReviewed` |
+| `frontendSmoke` | `modelUsageSmokePassed` |
+| `frontendE2EP0` | `p0JourneysPassed`, `targetViewportsCovered` |
+| `dockerBuild` | `backendImageBuilt`, `frontendImageBuilt` |
+| `mysqlMigrationConcurrency` | `concurrencyPassed`, `migrationPassed`, `queryPlansPassed` |
+| `dispatchPolicyInterleaving` | `interleavingPassed` |
 
 The generated report must contain actual timestamps, git commit, Alembic head, verified idempotency unique keys, configured variants/guardrail meter coverage, recovery modes, dispatch-policy interleaving result, counter-kind audit result, command exit codes, viewport evidence, unresolved P0/P1 count, and a machine-derived `ready_for_first_open` decision.
 

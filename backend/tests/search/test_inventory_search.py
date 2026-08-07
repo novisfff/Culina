@@ -14,9 +14,9 @@ from tests.recipes._support import RecipeApiTestCase
 class _FakeHybridSearch:
     calls: list[dict[str, object]]
 
-    def __call__(self, db, *, family_id: str, query: str, scopes: list[str], limit: int, offset: int):
+    def __call__(self, db, *, family_id: str, user_id: str, query: str, scopes: list[str], limit: int, offset: int):
         del db, limit, offset
-        self.calls.append({"family_id": family_id, "query": query, "scopes": scopes})
+        self.calls.append({"family_id": family_id, "user_id": user_id, "query": query, "scopes": scopes})
         return HybridSearchResponse(
             items=[
                 HybridSearchResult(
@@ -84,4 +84,7 @@ class InventorySearchTestCase(RecipeApiTestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([item["id"] for item in response.json()], ["inventory-tomato"])
-        self.assertEqual(fake_search.calls, [{"family_id": self.family.id, "query": "西红柿", "scopes": ["ingredient"]}])
+        self.assertEqual(
+            fake_search.calls,
+            [{"family_id": self.family.id, "user_id": self.user.id, "query": "西红柿", "scopes": ["ingredient"]}],
+        )

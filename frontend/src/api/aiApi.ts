@@ -64,6 +64,7 @@ export type AssistantAudioDoneEvent = {
 };
 export type AssistantAudioErrorEvent = {
   message: string;
+  code?: string | null;
 };
 export type AssistantAudioTraceEvent = {
   stage: string;

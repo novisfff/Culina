@@ -521,6 +521,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
     def test_orchestrator_llm_exchanges_are_linked_to_trace_span(self) -> None:
         class TraceableProvider(BaseChatProvider):
             model_name = "traceable-provider"
+            usage_attribution = None
 
             def generate(self, *, system: str, user: str, trace_recorder=None) -> ChatProviderResult:
                 raise AssertionError("workspace orchestrator should use generate_with_tools")
@@ -535,8 +536,10 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 message_handler=None,
                 max_rounds: int = 8,
                 trace_recorder=None,
+                usage_attribution=None,
             ) -> ChatProviderResult:
                 del tools, tool_handler, max_rounds
+                TraceableProvider.usage_attribution = usage_attribution
                 text = "这是带 trace span 的回复。"
                 if trace_recorder is not None:
                     exchange = trace_recorder.start_exchange(
@@ -561,6 +564,11 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         run_id = response.json()["run"]["id"]
+        attribution = TraceableProvider.usage_attribution
+        self.assertIsNotNone(attribution)
+        self.assertEqual(attribution.family_id, self.family.id)
+        self.assertEqual(attribution.actor_user_id, self.user.id)
+        self.assertEqual(attribution.logical_operation_id, run_id)
 
         trace_response = self.client.get(f"/api/ai/runs/{run_id}/trace")
         self.assertEqual(trace_response.status_code, 200, trace_response.text)
@@ -1076,6 +1084,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
     def test_recipe_draft_provider_call_records_llm_exchange(self) -> None:
         class TraceableRecipeProvider(BaseChatProvider):
             model_name = "traceable-recipe-provider"
+            usage_attribution = None
 
             def generate(self, *, system: str, user: str, trace_recorder=None) -> ChatProviderResult:
                 raise AssertionError("recipe draft should use generate_with_tools")
@@ -1090,8 +1099,10 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 message_handler=None,
                 max_rounds: int = 8,
                 trace_recorder=None,
+                usage_attribution=None,
             ) -> ChatProviderResult:
                 del message_handler, max_rounds
+                TraceableRecipeProvider.usage_attribution = usage_attribution
                 draft = {
                     "title": "番茄炒蛋",
                     "servings": 2,
@@ -1147,6 +1158,11 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 generate_image=False,
             )
             db.commit()
+        attribution = TraceableRecipeProvider.usage_attribution
+        self.assertIsNotNone(attribution)
+        self.assertEqual(attribution.family_id, self.family.id)
+        self.assertEqual(attribution.actor_user_id, self.user.id)
+        self.assertEqual(attribution.logical_operation_id, result["agent_run_id"])
 
         self.assertEqual(result["status"], "completed")
         exchange_response = self.client.get(f"/api/ai/runs/{result['agent_run_id']}/llm-exchanges")

@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "e2e:p0": "playwright test --grep @p0",
     "e2e:p0:update": "playwright test --grep @p0 --update-snapshots",
+    "smoke": "playwright test e2e/model-usage-governance.spec.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
     "check:bundle": "node scripts/check-bundle-budgets.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",

@@ -25,7 +25,9 @@ from app.ai.workflows.runner_support.message_parts import (
 from app.ai.workflows.state import WorkspaceGraphState
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
+from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
 from app.models.domain import AIConversation, AIMessage
+from app.services.model_usage.types import UsageAttribution
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     finalize_run_cancellation,
@@ -233,6 +235,19 @@ class ApprovalFollowupStreamer:
                 trace_id=tracer.trace_id,
                 user_id=state.get("user_id"),
                 span_id=span_id,
+            )
+        user_id = state.get("user_id")
+        if (
+            "usage_attribution" in inspect.signature(self.provider.stream_generate).parameters
+            and isinstance(user_id, str)
+            and user_id
+        ):
+            provider_kwargs["usage_attribution"] = UsageAttribution(
+                family_id=state["family_id"],
+                attribution_kind=ModelUsageAttributionKind.USER,
+                actor_user_id=user_id,
+                operation_source=ModelUsageOperationSource.INTERACTIVE,
+                logical_operation_id=state["run_id"],
             )
         return provider_kwargs
 

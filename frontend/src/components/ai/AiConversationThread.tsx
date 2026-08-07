@@ -15,6 +15,10 @@ import type {
   UserSummary,
 } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
+import {
+  ModelUsageDegradationNotice,
+  modelUsageFallbackCodeFromMessageMetadata,
+} from '../../features/model-usage/ModelUsageDegradationNotice';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -702,6 +706,7 @@ export function MessageBubble({
   const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
   const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
   const firstPendingApprovalId = message.parts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
+  const fallbackCode = isUser ? null : modelUsageFallbackCodeFromMessageMetadata(message.metadata);
 
   const [messageCopied, setMessageCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -752,6 +757,7 @@ export function MessageBubble({
       <div className="ai-message-content">
         <div className="ai-message-role">{isUser ? userName : 'AI 厨房助手'}</div>
         <div className="ai-message-body">
+          {fallbackCode ? <ModelUsageDegradationNotice capability="llm" code={fallbackCode} /> : null}
           {timelineItems.map((item) => {
             if (item.type === 'activity') {
               return <RunActivityInline key={item.key} entries={[item.entry]} isLive={isUnfinishedAssistantMessage(message)} includeCompletedSkill />;

@@ -1,4 +1,4 @@
-import { API_BASE_URL, getAccessToken, request } from './request';
+import { API_BASE_URL, ApiError, getAccessToken, request } from './request';
 
 export type AiVoiceSurface = 'main_ai' | 'recipe_cook_page';
 export type AiVoiceProvider = 'openai' | 'dashscope';
@@ -26,6 +26,19 @@ export type CookingRealtimeSessionResponse = {
   websocket_url: string;
   expires_at: string;
 };
+
+function speechErrorDetail(payload: unknown, fallback: string) {
+  if (typeof payload === 'string' && payload.trim()) return payload;
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'detail' in payload) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail) && 'message' in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+  }
+  return fallback || '语音播报失败';
+}
 
 export async function transcribeAudio(args: {
   file: Blob;
@@ -69,8 +82,14 @@ export async function synthesizeSpeech(args: {
     }),
   });
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || response.statusText || '语音播报失败');
+    const isJson = response.headers.get('Content-Type')?.includes('application/json');
+    const payload = isJson ? await response.json() : await response.text();
+    throw new ApiError({
+      status: response.status,
+      detail: speechErrorDetail(payload, response.statusText),
+      path: '/api/ai/audio/speech',
+      payload,
+    });
   }
   return response.blob();
 }

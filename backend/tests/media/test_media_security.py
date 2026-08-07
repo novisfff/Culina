@@ -300,7 +300,9 @@ class MediaSecurityTestCase(unittest.TestCase):
             self.assertIsNotNone(job)
             assert job is not None
             job.status = "failed"
-            job.error = "provider down"
+            job.error = "图片生成请求暂时无法处理，请检查图片设置后再试。"
+            job.error_code = "image_provider_request_rejected"
+            job.provider_execution_status = "confirmed_not_executed"
             job.attempt_count = 3
             job.locked_at = failed_at
             job.started_at = failed_at
@@ -313,6 +315,7 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.assertEqual(payload["job_id"], job_id)
         self.assertEqual(payload["status"], "queued")
         self.assertIsNone(payload["error"])
+        self.assertFalse(payload["can_retry"])
 
         with self.SessionLocal() as db:
             job = db.get(AIImageGenerationJob, job_id)
@@ -320,12 +323,14 @@ class MediaSecurityTestCase(unittest.TestCase):
             assert job is not None
             self.assertEqual(job.status, "queued")
             self.assertIsNone(job.error)
-            self.assertEqual(job.attempt_count, 0)
+            self.assertIsNone(job.error_code)
+            self.assertEqual(job.attempt_count, 3)
             self.assertIsNone(job.locked_at)
-            self.assertIsNone(job.started_at)
+            self.assertEqual(job.provider_execution_status, "not_started")
+            self.assertIsNotNone(job.started_at)
             self.assertIsNone(job.completed_at)
 
-    def test_retryable_ai_render_failure_stays_active_until_attempts_are_exhausted(self) -> None:
+    def test_uncertain_ai_render_failure_is_terminal_and_cannot_be_retried(self) -> None:
         response = self.client.post(
             "/api/media/ai-render",
             json={
@@ -346,46 +351,26 @@ class MediaSecurityTestCase(unittest.TestCase):
         first_poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
         self.assertEqual(first_poll_response.status_code, 200)
         first_payload = first_poll_response.json()
-        self.assertEqual(first_payload["status"], "queued")
-        self.assertEqual(first_payload["error"], "provider down")
-        with self.SessionLocal() as db:
-            job = db.get(AIImageGenerationJob, job_id)
-            self.assertIsNotNone(job)
-            assert job is not None
-            self.assertEqual(job.status, "queued")
-            self.assertEqual(job.attempt_count, 1)
-            self.assertIsNone(job.locked_at)
-            self.assertIsNone(job.completed_at)
-            claimed_ids = claim_pending_image_generation_jobs(db)
-            self.assertEqual(claimed_ids, [job_id])
-
-        process_image_generation_job(
-            job_id,
-            session_factory=self.SessionLocal,
-            client_factory=FakeFailingImageGenerationClient,
-            claimed=True,
-        )
-        process_image_generation_job(
-            job_id,
-            session_factory=self.SessionLocal,
-            client_factory=FakeFailingImageGenerationClient,
-        )
-
-        final_poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
-        self.assertEqual(final_poll_response.status_code, 200)
-        final_payload = final_poll_response.json()
-        self.assertEqual(final_payload["status"], "failed")
-        self.assertEqual(final_payload["error"], "provider down")
+        self.assertEqual(first_payload["status"], "failed")
+        self.assertEqual(first_payload["error_code"], "image_provider_outcome_uncertain")
+        self.assertFalse(first_payload["can_retry"])
+        self.assertIn("执行结果暂时无法确认", first_payload["error"])
         with self.SessionLocal() as db:
             job = db.get(AIImageGenerationJob, job_id)
             self.assertIsNotNone(job)
             assert job is not None
             self.assertEqual(job.status, "failed")
-            self.assertEqual(job.attempt_count, MAX_ATTEMPTS)
+            self.assertEqual(job.attempt_count, 1)
+            self.assertEqual(job.provider_execution_status, "uncertain")
             self.assertIsNone(job.locked_at)
             self.assertIsNotNone(job.completed_at)
+            claimed_ids = claim_pending_image_generation_jobs(db)
+            self.assertEqual(claimed_ids, [])
 
-    def test_startup_recovery_requeues_interrupted_ai_render_job(self) -> None:
+        retry_response = self.client.post(f"/api/media/ai-render/{job_id}/retry")
+        self.assertEqual(retry_response.status_code, 400)
+
+    def test_startup_recovery_marks_interrupted_provider_attempt_uncertain(self) -> None:
         response = self.client.post(
             "/api/media/ai-render",
             json={
@@ -416,13 +401,14 @@ class MediaSecurityTestCase(unittest.TestCase):
             job = db.get(AIImageGenerationJob, job_id)
             self.assertIsNotNone(job)
             assert job is not None
-            self.assertEqual(job.status, "queued")
-            self.assertIsNone(job.error)
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.error_code, "image_provider_outcome_uncertain")
+            self.assertEqual(job.provider_execution_status, "uncertain")
             self.assertEqual(job.attempt_count, 1)
             self.assertIsNone(job.locked_at)
-            self.assertIsNone(job.completed_at)
+            self.assertIsNotNone(job.completed_at)
             claimed_ids = claim_pending_image_generation_jobs(db)
-            self.assertEqual(claimed_ids, [job_id])
+            self.assertEqual(claimed_ids, [])
 
     def test_recovery_fails_interrupted_ai_render_after_max_attempts(self) -> None:
         response = self.client.post(
@@ -455,13 +441,16 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.assertEqual(poll_response.status_code, 200)
         payload = poll_response.json()
         self.assertEqual(payload["status"], "failed")
-        self.assertIn("最大重试次数", payload["error"])
+        self.assertEqual(payload["error_code"], "image_provider_outcome_uncertain")
+        self.assertFalse(payload["can_retry"])
+        self.assertIn("执行结果暂时无法确认", payload["error"])
 
         with self.SessionLocal() as db:
             job = db.get(AIImageGenerationJob, job_id)
             self.assertIsNotNone(job)
             assert job is not None
             self.assertEqual(job.status, "failed")
+            self.assertEqual(job.provider_execution_status, "uncertain")
             self.assertIsNone(job.locked_at)
             self.assertIsNotNone(job.completed_at)
             claimed_ids = claim_pending_image_generation_jobs(db)

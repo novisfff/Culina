@@ -49,7 +49,7 @@ export function useAppNavigationState(): AppNavigationService {
 
   useEffect(() => {
     writeJsonStorage(NAVIGATION_V2_KEY, persistedNavigationFromState(state));
-  }, [state.primaryTab, state.eat.baseView, state.eat.discoverSection]);
+  }, [state.primaryTab, state.eat.baseView, state.eat.discoverSection, state.family.view]);
 
   const navigate = useCallback((target: AppNavigationTarget, trigger?: HTMLElement | null) => {
     triggerRef.current = trigger ?? null;

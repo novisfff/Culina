@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.core.utils import create_id
 from app.services.ai_audio.dashscope_audio import DashScopeAudioProvider
 from app.services.ai_audio.providers import normalize_provider
+from app.services.ai_audio.realtime import RealtimeProviderScope
 from app.services.ai_audio.schemas import SpeechRequest
 
 
@@ -45,6 +46,15 @@ def _text_from_response_message(response: dict) -> str:
 def _should_stream_dashscope_tts(provider: str | None, settings: Settings | Any | None = None) -> bool:
     settings = settings or get_settings()
     return normalize_provider(provider) == "dashscope" and normalize_provider(getattr(settings, "ai_tts_provider", "disabled")) == "dashscope"
+
+
+def _assistant_audio_error_event(exc: HTTPException) -> dict[str, str]:
+    detail = exc.detail
+    code = detail.get("code") if isinstance(detail, dict) else None
+    event = {"type": "assistant_audio_error", "message": "语音播报失败"}
+    if isinstance(code, str) and code.startswith("model_usage_"):
+        event["code"] = code
+    return event
 
 
 def _result_cards_from_response(response: dict) -> list[dict]:
@@ -80,6 +90,8 @@ async def stream_cooking_assistant_voice_events(
     service_factory: Callable[[Session], Any] | None = None,
     tts_provider_factory: Callable[[Any, str], Any] | None = None,
     db_session_factory: Callable[[], Any] | None = None,
+    realtime_usage_scope: RealtimeProviderScope | None = None,
+    realtime_turn_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     loop = asyncio.get_running_loop()
     events: asyncio.Queue[dict[str, Any] | object] = asyncio.Queue()
@@ -210,20 +222,32 @@ async def stream_cooking_assistant_voice_events(
         else:
             provider_client = tts_provider_factory(stream_settings, "tts")
         try:
-            async for audio_event in provider_client.stream_realtime_text(
-                tts_text_iterator(),
-                SpeechRequest(
-                    text="",
-                    surface="recipe_cook_page",
-                    family_id=family_id,
-                    metadata={},
-                ),
-            ):
+            speech_request = SpeechRequest(
+                text="",
+                surface="recipe_cook_page",
+                family_id=family_id,
+                user_id=user_id,
+                operation_id=create_id("realtime-tts-operation"),
+                metadata={},
+            )
+            if realtime_usage_scope is None:
+                audio_events = provider_client.stream_realtime_text(
+                    tts_text_iterator(),
+                    speech_request,
+                )
+            else:
+                audio_events = provider_client.stream_realtime_text(
+                    tts_text_iterator(),
+                    speech_request,
+                    realtime_usage_scope=realtime_usage_scope,
+                    realtime_turn_id=realtime_turn_id or speech_request.operation_id,
+                )
+            async for audio_event in audio_events:
                 event_type = str(audio_event.get("type") or "")
                 mapped = {"type": f"assistant_{event_type}", **{key: value for key, value in audio_event.items() if key != "type"}}
                 await events.put(mapped)
         except HTTPException as exc:
-            await events.put({"type": "assistant_audio_error", "message": str(exc.detail)})
+            await events.put(_assistant_audio_error_event(exc))
         except Exception:
             await events.put({"type": "assistant_audio_error", "message": "语音播报失败"})
         finally:

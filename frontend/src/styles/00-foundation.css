@@ -300,28 +300,6 @@ a[href]:focus-visible,
   line-height: 1.5;
 }
 
-@media (min-width: 768px) and (orientation: portrait) {
-  .app-shell:has(> .app-orientation-lock-landscape) {
-    min-height: 100vh;
-    min-height: 100dvh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-  }
-
-  .app-shell:has(> .app-orientation-lock-landscape) > :not(.app-orientation-lock-landscape) {
-    display: none !important;
-  }
-
-  .app-orientation-lock-landscape {
-    width: 100%;
-    min-height: calc(100vh - 48px);
-    min-height: calc(100dvh - 48px);
-    display: grid;
-    place-items: center;
-  }
-}
-
 @media (orientation: landscape) and (max-width: 991px) and (max-height: 767px) and (hover: none) and (pointer: coarse) {
   .app-shell:has(> .app-orientation-lock-portrait) {
     min-height: 100vh;
@@ -495,14 +473,15 @@ a[href]:focus-visible,
 }
 
 .sidebar-notification-center .app-notification-trigger {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
+  width: var(--tap-min);
+  min-width: var(--tap-min);
+  height: var(--tap-min);
+  min-height: var(--tap-min);
   justify-content: center;
   gap: 0;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-faint);
   box-shadow: none;
@@ -510,7 +489,7 @@ a[href]:focus-visible,
 
 .sidebar-notification-center .app-notification-trigger:hover,
 .sidebar-notification-center .app-notification-trigger.is-active {
-  background: rgba(147, 96, 63, 0.08);
+  background: var(--surface-muted);
   color: var(--accent-strong);
 }
 
@@ -521,7 +500,7 @@ a[href]:focus-visible,
 .sidebar-notification-center .app-notification-icon {
   width: 28px;
   height: 28px;
-  border-radius: 9px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: currentColor;
 }
@@ -537,8 +516,8 @@ a[href]:focus-visible,
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
-  background: #de7336;
-  box-shadow: 0 0 0 2px #fff8f0;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface-2);
   font-size: 0.58rem;
 }
 
@@ -1021,24 +1000,24 @@ a[href]:focus-visible,
 .app-notification-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 14px 0 10px;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4) 0 var(--space-3);
   border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  background: rgba(255, 253, 250, 0.96);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
   color: var(--text-soft);
   box-shadow: var(--shadow-sm);
   font: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  transition: border-color var(--motion-fast) ease, color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .app-notification-trigger:hover,
 .app-notification-trigger.is-active {
-  border-color: rgba(210, 107, 51, 0.24);
-  background: #fff8f1;
+  border-color: var(--accent-line);
+  background: var(--surface-3);
   color: var(--accent-strong);
 }
 
@@ -1047,18 +1026,18 @@ a[href]:focus-visible,
 }
 
 .app-notification-trigger strong {
-  font-size: 0.875rem;
+  font-size: var(--text-meta);
   font-weight: 800;
 }
 
 .app-notification-icon {
   position: relative;
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: var(--space-9);
+  height: var(--space-9);
   place-items: center;
-  border-radius: 12px;
-  background: #fff0e4;
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -1076,10 +1055,10 @@ a[href]:focus-visible,
   display: inline-grid;
   place-items: center;
   padding: 0 4px;
-  border-radius: 999px;
-  background: #de7336;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
   color: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 248, 240, 0.96);
+  box-shadow: 0 0 0 2px var(--surface-2);
   font-size: 0.64rem;
   font-weight: 900;
   line-height: 1;
@@ -1091,13 +1070,13 @@ a[href]:focus-visible,
   right: 0;
   z-index: var(--z-notification);
   display: grid;
-  gap: 12px;
+  gap: var(--space-4);
   width: min(380px, calc(100vw - 32px));
-  padding: 16px;
-  border: 1px solid rgba(92, 67, 48, 0.12);
-  border-radius: 24px;
-  background: rgba(255, 253, 250, 0.98);
-  box-shadow: 0 18px 44px rgba(74, 54, 40, 0.13);
+  padding: var(--space-5);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
   backdrop-filter: blur(20px);
 }
 
@@ -1105,26 +1084,26 @@ a[href]:focus-visible,
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(92, 67, 48, 0.08);
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .app-notification-head-copy {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .app-notification-head-copy > span {
   color: var(--text-faint);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
 .app-notification-head-copy strong {
   color: var(--text);
-  font-size: 1.125rem;
+  font-size: var(--text-md);
   font-weight: 800;
   line-height: 1.35;
 }
@@ -1132,92 +1111,152 @@ a[href]:focus-visible,
 .app-notification-summary {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
   font-weight: 800;
   white-space: nowrap;
 }
 
 .app-notification-summary.tone-active {
-  background: var(--warning-soft);
-  color: #9a5a1d;
+  background: var(--info-soft);
+  color: var(--info);
 }
 
 .app-notification-summary.tone-danger {
   background: var(--danger-soft);
-  color: #b53b32;
+  color: var(--danger);
 }
 
 .app-notification-summary.tone-quiet {
-  background: rgba(92, 67, 48, 0.06);
+  background: var(--surface-muted);
   color: var(--text-soft);
 }
 
 .app-notification-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-3);
   max-height: 366px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  padding-right: var(--space-1);
   scrollbar-width: thin;
+}
+
+.app-notification-group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.app-notification-group + .app-notification-group {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+.app-notification-group-title {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .app-notification-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: var(--space-9) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 56px;
-  padding: 8px 10px;
-  border: 1px solid rgba(92, 67, 48, 0.1);
-  border-radius: 15px;
-  background: #fffdf9;
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  gap: var(--space-3);
+  min-height: calc(var(--tap-min) + var(--space-3));
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .app-notification-row.status-queued,
 .app-notification-row.status-running {
-  background: #fffaf1;
-  border-color: rgba(226, 137, 44, 0.18);
+  background: var(--info-soft);
+  border-color: var(--info-line);
+}
+
+.app-notification-row.severity-warning {
+  background: var(--warning-soft);
+  border-color: var(--warning-line);
 }
 
 .app-notification-row.status-succeeded {
-  background: #f8fcf8;
-  border-color: rgba(79, 154, 88, 0.16);
+  background: var(--success-soft);
+  border-color: var(--success-line);
 }
 
-.app-notification-row.status-failed {
-  background: #fffbfa;
-  border-color: rgba(217, 75, 61, 0.2);
+.app-notification-row.status-failed,
+.app-notification-row.severity-critical {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+
+.app-notification-row.is-actionable {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0;
+}
+
+.app-notification-open {
+  display: grid;
+  grid-template-columns: var(--space-9) minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  min-height: var(--tap-min);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.app-notification-open:hover {
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.app-notification-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .app-notification-row-icon {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: var(--space-9);
+  height: var(--space-9);
   place-items: center;
-  border-radius: 12px;
-  background: rgba(92, 67, 48, 0.06);
+  border-radius: var(--radius-xs);
+  background: var(--surface-muted);
   color: var(--text-soft);
 }
 
 .app-notification-row.status-queued .app-notification-row-icon,
 .app-notification-row.status-running .app-notification-row-icon {
-  background: rgba(226, 137, 44, 0.12);
-  color: #a45f22;
+  background: var(--surface-2);
+  color: var(--info);
+}
+
+.app-notification-row.severity-warning .app-notification-row-icon {
+  background: var(--surface-2);
+  color: var(--warning);
 }
 
 .app-notification-row.status-succeeded .app-notification-row-icon {
-  background: rgba(79, 154, 88, 0.12);
-  color: #438152;
+  background: var(--surface-2);
+  color: var(--success);
 }
 
-.app-notification-row.status-failed .app-notification-row-icon {
-  background: rgba(217, 75, 61, 0.1);
-  color: #bd4036;
+.app-notification-row.status-failed .app-notification-row-icon,
+.app-notification-row.severity-critical .app-notification-row-icon {
+  background: var(--surface-2);
+  color: var(--danger);
 }
 
 .app-notification-row-icon svg {
@@ -1227,37 +1266,33 @@ a[href]:focus-visible,
 
 .app-notification-row-copy {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .app-notification-row-title {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: var(--space-2);
   min-width: 0;
 }
 
 .app-notification-row-copy strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-notification-row-copy strong {
+  min-width: 0;
   color: var(--text);
-  font-size: 0.875rem;
+  font-size: var(--text-meta);
   font-weight: 800;
   line-height: 1.28;
+  overflow-wrap: anywhere;
 }
 
 .app-notification-row-title em {
   flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(92, 67, 48, 0.06);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
   color: var(--text-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-style: normal;
   font-weight: 800;
   line-height: 1.35;
@@ -1265,78 +1300,89 @@ a[href]:focus-visible,
 
 .app-notification-row.status-running .app-notification-row-title em,
 .app-notification-row.status-queued .app-notification-row-title em {
-  background: rgba(226, 137, 44, 0.14);
-  color: #98551a;
+  background: var(--surface-2);
+  color: var(--info);
+}
+
+.app-notification-row.severity-warning .app-notification-row-title em {
+  background: var(--surface-2);
+  color: var(--warning);
 }
 
 .app-notification-row.status-succeeded .app-notification-row-title em {
-  background: var(--success-soft);
-  color: #3f7d45;
+  background: var(--surface-2);
+  color: var(--success);
 }
 
-.app-notification-row.status-failed .app-notification-row-title em {
-  background: var(--danger-soft);
-  color: #b53b32;
+.app-notification-row.status-failed .app-notification-row-title em,
+.app-notification-row.severity-critical .app-notification-row-title em {
+  background: var(--surface-2);
+  color: var(--danger);
 }
 
 .app-notification-row-copy small {
+  min-width: 0;
   color: var(--text-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 500;
   line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .app-notification-row-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.app-notification-row.is-actionable .app-notification-row-actions {
+  padding: var(--space-3) var(--space-4) var(--space-3) 0;
 }
 
 .app-notification-retry,
 .app-notification-clear {
-  border: 1px solid rgba(92, 67, 48, 0.14);
-  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
   color: var(--text-soft);
-  box-shadow: 0 1px 2px rgba(92, 67, 48, 0.02);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .app-notification-retry {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 32px;
-  padding: 0 10px;
-  border-color: rgba(217, 75, 61, 0.24);
-  border-radius: 999px;
-  background: #fff8f6;
-  color: #aa3a31;
-  font-size: 0.75rem;
+  gap: var(--space-1);
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border-color: var(--danger-line);
+  border-radius: var(--radius-pill);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-xs);
   font-weight: 800;
   white-space: nowrap;
 }
 
 .app-notification-retry span {
   display: grid;
-  width: 13px;
-  height: 13px;
+  width: var(--space-4);
+  height: var(--space-4);
   place-items: center;
 }
 
 .app-notification-retry svg {
-  width: 13px;
-  height: 13px;
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 .app-notification-retry:hover:not(:disabled) {
-  border-color: rgba(217, 75, 61, 0.34);
-  background: var(--danger-soft);
-  color: #922d26;
+  border-color: var(--danger);
+  background: var(--surface-2);
+  color: var(--danger);
 }
 
 .app-notification-retry:active:not(:disabled),
@@ -1351,11 +1397,13 @@ a[href]:focus-visible,
 
 .app-notification-clear {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: var(--tap-min);
+  min-width: var(--tap-min);
+  height: var(--tap-min);
+  min-height: var(--tap-min);
   place-items: center;
   padding: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
 }
 
 .app-notification-clear svg {
@@ -1364,19 +1412,72 @@ a[href]:focus-visible,
 }
 
 .app-notification-clear:hover {
-  border-color: rgba(210, 107, 51, 0.3);
-  background: rgba(210, 107, 51, 0.04);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
   color: var(--accent-strong);
+}
+
+.app-notification-retry:focus-visible,
+.app-notification-clear:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .app-notification-empty {
   margin: 0;
-  padding: 14px;
-  border-radius: 16px;
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--text-soft);
-  font-size: 0.875rem;
+  font-size: var(--text-meta);
   font-weight: 600;
+}
+
+.model-usage-degradation {
+  display: grid;
+  grid-template-columns: var(--space-5) minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.model-usage-degradation svg {
+  width: var(--space-5);
+  height: var(--space-5);
+  margin-top: 2px;
+}
+
+.model-usage-degradation span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-usage-degradation.tone-warning {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+}
+
+.model-usage-degradation.tone-warning svg {
+  color: var(--warning);
+}
+
+.model-usage-degradation.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.model-usage-degradation.tone-danger svg {
+  color: var(--danger);
 }
 
 .tab-button {

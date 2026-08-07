@@ -1,4 +1,202 @@
 export type UserRole = 'Owner' | 'Member';
+
+export type ModelUsageCapability =
+  | 'llm'
+  | 'embedding'
+  | 'rerank'
+  | 'stt'
+  | 'tts'
+  | 'realtime_audio'
+  | 'image_generation';
+
+export type ModelUsageMeter =
+  | 'input_tokens'
+  | 'uncached_input_tokens'
+  | 'cached_input_tokens'
+  | 'output_tokens'
+  | 'total_tokens'
+  | 'embedding_tokens'
+  | 'rerank_requests'
+  | 'rerank_documents'
+  | 'audio_input_seconds'
+  | 'audio_output_seconds'
+  | 'audio_input_tokens'
+  | 'audio_output_tokens'
+  | 'tts_characters'
+  | 'tts_tokens'
+  | 'generated_images'
+  | 'request_units';
+
+export type ModelUsageScope = 'me' | 'family';
+export type ModelUsageGroupBy =
+  | 'capability'
+  | 'provider_model'
+  | 'subject'
+  | 'meter'
+  | 'daily_capability_cost';
+export type ModelUsageLimitKind = 'cost' | 'meter';
+export type ModelUsageMemberBudgetState =
+  | 'sufficient'
+  | 'approaching_limit'
+  | 'alert_threshold_reached'
+  | 'capability_degraded'
+  | 'measurement_unavailable';
+export type ModelUsageIncidentCoverage = 'exact_scope' | 'partial_scope' | 'unknown_scope';
+
+export type ModelUsageErrorCode =
+  | 'model_usage_adjustment_window_closed'
+  | 'model_usage_alert_not_found'
+  | 'model_usage_attempt_already_accounted'
+  | 'model_usage_attempt_conflict'
+  | 'model_usage_budget_exceeded'
+  | 'model_usage_capability_limit_exceeded'
+  | 'model_usage_dispatch_recovery_required'
+  | 'model_usage_future_period_not_allowed'
+  | 'model_usage_guardrail_quantity_unavailable'
+  | 'model_usage_historical_rollup_not_found'
+  | 'model_usage_invalid_group_by'
+  | 'model_usage_invalid_period'
+  | 'model_usage_ledger_unavailable'
+  | 'model_usage_missing_price_confirmation_required'
+  | 'model_usage_policy_conflict'
+  | 'model_usage_policy_validation_error'
+  | 'model_usage_price_unavailable'
+  | 'model_usage_query_unavailable'
+  | 'model_usage_settlement_pending';
+
+export interface ModelUsageGapInterval {
+  started_at: string;
+  ended_at: string;
+  scope: string[];
+  coverage: ModelUsageIncidentCoverage;
+}
+
+export interface ModelUsageMeasurementHealth {
+  exact_event_count: number;
+  estimated_event_count: number;
+  unpriced_event_count: number;
+  uncertain_attempt_count: number;
+  pending_attempt_count: number;
+  unresolved_unknown_execution_attempt_count: number;
+  conservative_estimated_cost_cny: string | null;
+  known_unmeasured_attempt_count: number;
+  measurement_gap: boolean;
+  measurement_gap_scope: string[];
+  gap_intervals: ModelUsageGapInterval[];
+}
+
+export interface ModelUsageCostSummary {
+  known_priced_cost_cny: string;
+  pricing_complete: boolean;
+  unpriced_event_count: number;
+  total_cost_cny?: string;
+}
+
+export interface ModelUsageMeterTotal {
+  meter: ModelUsageMeter;
+  quantity: string;
+}
+
+export interface ModelUsageOverviewBase extends ModelUsageCostSummary {
+  family_id: string;
+  period: string;
+  source: 'raw' | 'rollup';
+  is_partial_period: boolean;
+  tracking_started_at?: string | null;
+  meter_totals: ModelUsageMeterTotal[];
+  measurement_health: ModelUsageMeasurementHealth;
+}
+
+export interface ModelUsagePersonalOverview extends ModelUsageOverviewBase {
+  scope: 'me';
+  family_budget_state: ModelUsageMemberBudgetState;
+}
+
+export interface ModelUsageFamilyOverview extends ModelUsageOverviewBase {
+  scope: 'family';
+  monthly_budget_cny: string | null;
+  effective_spend_cny: string;
+  reserved_cost_cny: string;
+  hard_limit_enabled: boolean;
+}
+
+export interface ModelUsageBreakdownItem extends ModelUsageCostSummary {
+  label: string;
+  capability?: ModelUsageCapability | null;
+  provider?: string | null;
+  billing_model?: string | null;
+  meter?: ModelUsageMeter | null;
+  meter_total?: string | null;
+  local_day?: string | null;
+  measurement_health: ModelUsageMeasurementHealth;
+}
+
+export interface ModelUsageBreakdownBase {
+  family_id: string;
+  period: string;
+  source: 'raw' | 'rollup';
+  is_partial_period: boolean;
+  group_by: ModelUsageGroupBy;
+  items: ModelUsageBreakdownItem[];
+}
+
+export interface ModelUsagePersonalBreakdown extends ModelUsageBreakdownBase {
+  scope: 'me';
+}
+
+export interface ModelUsageFamilyBreakdown extends ModelUsageBreakdownBase {
+  scope: 'family';
+}
+
+export type ModelUsageBreakdown = ModelUsagePersonalBreakdown | ModelUsageFamilyBreakdown;
+
+export interface ModelUsageCapabilityLimit {
+  capability: ModelUsageCapability;
+  limit_kind: ModelUsageLimitKind;
+  meter: ModelUsageMeter | null;
+  limit_value: string;
+  enabled: boolean;
+}
+
+export interface ModelUsagePolicy {
+  version_number: number;
+  monthly_budget_cny: string | null;
+  alerts_enabled: boolean;
+  hard_limit_enabled: boolean;
+  budget_alert_revision: number;
+  capability_limits: ModelUsageCapabilityLimit[];
+  effective_at: string;
+}
+
+export interface UpdateModelUsagePolicyPayload {
+  base_version_number: number;
+  monthly_budget_cny: string | null;
+  alerts_enabled: boolean;
+  hard_limit_enabled: boolean;
+  capability_limits: ModelUsageCapabilityLimit[];
+  confirm_missing_price_impact: boolean;
+}
+
+export interface ModelUsageAlertReceipt {
+  alert_id: string;
+  seen_at: string | null;
+  dismissed_at: string | null;
+}
+
+export interface ModelUsageAlert {
+  id: string;
+  period: string;
+  threshold: string;
+  budget_cny: string;
+  settled_value: string;
+  adjustment_value: string;
+  effective_spend_cny: string;
+  severity: 'warning' | 'critical';
+  seen_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
 export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'readyMade' | 'instant' | 'packaged';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 export type Difficulty = 'easy' | 'medium' | 'hard';
@@ -736,7 +934,7 @@ export interface RecipeStats {
 
 export type SearchEntityType = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
-export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'budget_blocked';
 export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
 export type SearchResultEntity = Ingredient | Food | Recipe | FoodPlanItem;
 
@@ -757,12 +955,14 @@ export interface SearchResponse {
   query: string;
   search_mode: SearchMode;
   degraded: boolean;
+  degradation_code?: string | null;
 }
 
 export interface SearchIndexJobResponse {
   job_id: string;
   status: SearchIndexJobStatus;
   error?: string | null;
+  error_code?: ModelUsageErrorCode | SearchIndexJobErrorCode | null;
   entity_type: SearchEntityType;
   entity_id: string;
   target_name: string;
@@ -770,6 +970,15 @@ export interface SearchIndexJobResponse {
   created_at: string;
   completed_at?: string | null;
 }
+
+export type SearchIndexJobErrorCode =
+  | 'embedding_output_unavailable_after_provider_success'
+  | 'search_embedding_response_invalid'
+  | 'search_embedding_superseded_before_dispatch'
+  | 'search_embedding_unavailable'
+  | 'search_index_failed'
+  | 'search_index_target_missing'
+  | 'search_vector_unavailable';
 
 export interface FoodPlanItem {
   id: string;
@@ -1529,6 +1738,11 @@ export interface AiMessage {
   created_at: string;
 }
 
+export interface AiModelUsageFallback {
+  used: true;
+  reasonCode: ModelUsageErrorCode | null;
+}
+
 export type AiRunStatus = 'pending' | 'running' | 'waiting_approval' | 'waiting_input' | 'cancelling' | 'completed' | 'failed' | 'fallback' | 'cancelled';
 export type AiRunEventStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 export type AiRunCancellationPhase = 'idle' | 'requesting' | 'cancelling' | 'cancelled' | 'failed';
@@ -1540,6 +1754,8 @@ export interface AiRun {
   intent: string;
   status: AiRunStatus;
   model: string;
+  fallback_used?: boolean;
+  fallback_reason_code?: ModelUsageErrorCode | null;
   created_at: string;
 }
 
@@ -1828,6 +2044,8 @@ export interface AiRenderResponse {
   job_id?: string | null;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   error?: string | null;
+  error_code?: string | null;
+  can_retry: boolean;
   generated_asset?: MediaAsset | null;
   reference_asset?: MediaAsset | null;
   style_key?: string | null;

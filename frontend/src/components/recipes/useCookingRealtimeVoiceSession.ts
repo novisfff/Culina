@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { aiVoiceApi, type CookingRealtimeSessionResponse } from '../../api/aiVoiceApi';
 import type { VoiceRecording } from '../../hooks/useVoiceRecorder';
+import { onsiteModelUsageOption } from '../../features/model-usage/ModelUsageDegradationNotice';
 
 export type CookingRealtimeVoiceStatus =
   | 'idle'
@@ -175,6 +176,17 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(String(event.data));
+          if (message.type === 'usage_limit') {
+            const code = typeof message.code === 'string' ? message.code : null;
+            const text = onsiteModelUsageOption(code, 'realtime_audio')?.message
+              ?? '本次语音会话已结束，可以继续使用文字。';
+            settlePendingTurnCancellation();
+            setError(text);
+            setStatus('closed');
+            options.onError?.(text);
+            socket.close(1000, 'usage lease not renewed');
+            return;
+          }
           if (!belongsToActiveTurn(message)) {
             return;
           }

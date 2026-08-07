@@ -521,6 +521,8 @@ class AIRunDTO(BaseModel):
     intent: str
     status: str
     model: str = ""
+    fallback_used: bool = False
+    fallback_reason_code: str | None = None
     created_at: datetime
 
 

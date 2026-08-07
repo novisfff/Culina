@@ -20,6 +20,7 @@ from app.ai.workflows.runner_support.message_persistence import (
     initial_assistant_message_metadata,
     merge_assistant_skill_metadata,
     message_metadata_with_draft_ids,
+    message_metadata_with_model_usage_fallback,
     run_output_payload,
     sync_message_parts_with_current_approval_state,
 )
@@ -140,6 +141,12 @@ class AssistantResultPersister:
             message.parts = dedupe_message_parts([*existing_parts, *next_parts])
             metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
             message.message_metadata = metadata
+        metadata = message_metadata_with_model_usage_fallback(
+            metadata,
+            fallback_used=result.fallback_used,
+            fallback_reason_code=result.fallback_reason_code,
+        )
+        message.message_metadata = metadata
         runner.db.flush()
         drafts: list[AITaskDraft] = []
         approvals: list[AIApprovalRequest] = []
@@ -213,6 +220,8 @@ class AssistantResultPersister:
                     text=aggregate_text,
                     cards=all_cards,
                     routing=(run.context_summary or {}).get("routing", {}),
+                    fallback_used=result.fallback_used,
+                    fallback_reason_code=result.fallback_reason_code,
                 )
             )
             run.tool_calls = runner._json_record([*(run.tool_calls or []), *result.tool_calls])

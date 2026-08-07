@@ -141,7 +141,13 @@ async def _voice_events_from_agent_stream(db: Session, *, session: RealtimeVoice
                 if session.provider == "dashscope" and normalize_provider(getattr(settings, "ai_tts_provider", "")) == "dashscope" and final_text:
                     try:
                         speech = await DashScopeAudioProvider(settings, capability="tts").synthesize_realtime_text(
-                            SpeechRequest(text=final_text, surface="recipe_cook_page", family_id=session.family_id)
+                            SpeechRequest(
+                                text=final_text,
+                                surface="recipe_cook_page",
+                                family_id=session.family_id,
+                                user_id=session.user_id,
+                                operation_id=create_id("realtime-tts-operation"),
+                            )
                         )
                     except HTTPException as exc:
                         yield {"type": "error", "message": str(exc.detail)}
@@ -193,6 +199,7 @@ async def _transcribe_voice_event(
     send_json: Callable[[dict], Awaitable[None]] | None = None,
     turn_id: str = "",
     expose_turn_id: bool = False,
+    realtime_turn_id: str | None = None,
 ) -> str:
     settings = get_settings()
     audio_bytes, content_type, filename = _decode_audio_event(event)
@@ -205,8 +212,30 @@ async def _transcribe_voice_event(
         surface="recipe_cook_page",
         language_hint=settings.ai_stt_language_hint,
         family_id=session.family_id,
-        metadata={"sample_rate": event.get("sample_rate")},
+        user_id=session.user_id,
+        operation_id=create_id("realtime-stt-operation"),
+        metadata={
+            "sample_rate": event.get("sample_rate"),
+            "sample_width_bytes": event.get("sample_width_bytes"),
+            "channels": event.get("channels"),
+        },
     )
+    if session.realtime_usage_scope is not None and session.provider != "dashscope":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "realtime_provider_metering_unavailable",
+                "message": "当前实时语音服务不可用，请改用文字。",
+            },
+        )
+    if session.realtime_usage_scope is not None and "pcm" not in content_type.lower():
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "code": "realtime_pcm_required",
+                "message": "当前实时语音只支持 PCM 音频，请改用文字或重新开始语音。",
+            },
+        )
     if session.provider == "dashscope" and "pcm" in content_type.lower():
         async def send_delta(delta: str) -> None:
             if not delta:
@@ -221,7 +250,16 @@ async def _transcribe_voice_event(
             elif websocket is not None:
                 await websocket.send_json(payload)
 
-        result = await DashScopeAudioProvider(settings, capability="stt").transcribe_realtime_audio(request, on_delta=send_delta)
+        provider = DashScopeAudioProvider(settings, capability="stt")
+        if session.realtime_usage_scope is None:
+            result = await provider.transcribe_realtime_audio(request, on_delta=send_delta)
+        else:
+            result = await provider.transcribe_realtime_audio(
+                request,
+                on_delta=send_delta,
+                realtime_usage_scope=session.realtime_usage_scope,
+                realtime_turn_id=realtime_turn_id or turn_id or request.operation_id,
+            )
     else:
         result = await asyncio.to_thread(lambda: AIAudioService(settings).transcribe(request, provider=session.provider))
     return result.text.strip()
@@ -233,6 +271,9 @@ async def transcribe_audio(
     surface: str = Form(...),
     language_hint: str | None = Form(default=None),
     provider: str | None = Form(default=None),
+    sample_rate: int | None = Form(default=None),
+    sample_width_bytes: int | None = Form(default=None),
+    channels: int | None = Form(default=None),
     auth: tuple[User, Membership] = Depends(get_current_auth),
     service: AIAudioService = Depends(get_ai_audio_service),
 ) -> AudioTranscriptionResponse:
@@ -240,7 +281,7 @@ async def transcribe_audio(
     ensure_audio_enabled(settings)
     if surface not in {"main_ai", "recipe_cook_page"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid audio surface")
-    _, membership = auth
+    user, membership = auth
     payload, content_type = await read_audio_upload(file, settings)
     result = service.transcribe(
         TranscriptionRequest(
@@ -250,6 +291,13 @@ async def transcribe_audio(
             surface=surface,  # type: ignore[arg-type]
             language_hint=language_hint or settings.ai_stt_language_hint,
             family_id=membership.family_id,
+            user_id=user.id,
+            operation_id=create_id("stt-operation"),
+            metadata={
+                "sample_rate": sample_rate,
+                "sample_width_bytes": sample_width_bytes,
+                "channels": channels,
+            },
         ),
         provider=provider,
     )
@@ -272,13 +320,15 @@ def synthesize_speech(
     ensure_audio_enabled(settings)
     if request.surface != "recipe_cook_page":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only recipe cook page speech is supported")
-    _, membership = auth
+    user, membership = auth
     speech_result = service.synthesize(
         SpeechRequest(
             text=sanitize_speech_text(request.text),
             surface=request.surface,
             voice=request.voice,
             family_id=membership.family_id,
+            user_id=user.id,
+            operation_id=create_id("tts-operation"),
         ),
         provider=request.provider,
     )
@@ -418,6 +468,22 @@ async def cooking_realtime_session_ws(
     active_turn_id = ""
     current_turn_task: asyncio.Task | None = None
 
+    async def finish_realtime_audio_once(*, completion_reason: str) -> None:
+        scope = session.realtime_usage_scope
+        if scope is None:
+            return
+        outcome = await scope.finish_current_lease_once(
+            completion_reason=completion_reason,
+        )
+        if outcome.decision in {"blocked", "settlement_pending"}:
+            await send_json(
+                {
+                    "type": "usage_limit",
+                    "code": outcome.error_code or "model_usage_realtime_unavailable",
+                    "message": "本次语音会话已结束，可以继续使用文字。",
+                }
+            )
+
     async def cancel_current_turn(*, reason: str) -> dict | None:
         nonlocal active_turn_id, current_turn_task
         run_id = active_turn_id
@@ -450,7 +516,13 @@ async def cooking_realtime_session_ws(
             current_turn_task = None
         return result
 
-    async def run_agent_turn(*, text: str, turn_id: str, expose_turn_id: bool) -> None:
+    async def run_agent_turn(
+        *,
+        text: str,
+        turn_id: str,
+        metering_turn_id: str,
+        expose_turn_id: bool,
+    ) -> None:
         nonlocal active_turn_id
         if not text:
             if active_turn_id == turn_id:
@@ -461,19 +533,22 @@ async def cooking_realtime_session_ws(
         await send_json(_with_turn_id({"type": "status", "status": "thinking"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
         speaking_sent = False
         try:
-            async for voice_event in stream_cooking_assistant_voice_events(
-                db,
-                family_id=session.family_id,
-                user_id=session.user_id,
-                message=text,
-                subject=session.subject,
-                provider=session.provider,
-                client_run_id=turn_id,
-                settings=settings,
-                service_factory=AIApplicationService,
-                tts_provider_factory=lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
-                db_session_factory=SessionLocal,
-            ):
+            stream_kwargs = {
+                "family_id": session.family_id,
+                "user_id": session.user_id,
+                "message": text,
+                "subject": session.subject,
+                "provider": session.provider,
+                "client_run_id": turn_id,
+                "settings": settings,
+                "service_factory": AIApplicationService,
+                "tts_provider_factory": lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
+                "db_session_factory": SessionLocal,
+            }
+            if session.realtime_usage_scope is not None:
+                stream_kwargs["realtime_usage_scope"] = session.realtime_usage_scope
+                stream_kwargs["realtime_turn_id"] = metering_turn_id
+            async for voice_event in stream_cooking_assistant_voice_events(db, **stream_kwargs):
                 if active_turn_id != turn_id:
                     break
                 event_type = voice_event.get("type")
@@ -497,13 +572,22 @@ async def cooking_realtime_session_ws(
         except asyncio.CancelledError:
             raise
         finally:
+            await finish_realtime_audio_once(completion_reason="turn_complete")
             if active_turn_id == turn_id:
                 await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
                 active_turn_id = ""
 
-    async def run_audio_turn(*, event: dict, turn_id: str, expose_turn_id: bool) -> None:
+    async def run_audio_turn(
+        *,
+        event: dict,
+        turn_id: str,
+        metering_turn_id: str,
+        expose_turn_id: bool,
+    ) -> None:
+        nonlocal active_turn_id, current_turn_task
         await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_audio_received"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
         await send_json(_with_turn_id({"type": "status", "status": "transcribing"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        completed_agent_turn = False
         try:
             text = await _transcribe_voice_event(
                 event,
@@ -512,28 +596,55 @@ async def cooking_realtime_session_ws(
                 send_json=send_json,
                 turn_id=turn_id,
                 expose_turn_id=expose_turn_id,
+                realtime_turn_id=metering_turn_id,
             )
         except HTTPException as exc:
             if active_turn_id == turn_id:
                 await send_json(_with_turn_id({"type": "error", "message": str(exc.detail)}, turn_id=turn_id, expose_turn_id=expose_turn_id))
                 await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
-            return
-        if active_turn_id == turn_id:
-            await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_stt_done"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
-            await run_agent_turn(text=text, turn_id=turn_id, expose_turn_id=expose_turn_id)
+                active_turn_id = ""
+                current_turn_task = None
+        else:
+            if active_turn_id == turn_id:
+                await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_stt_done"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+                await run_agent_turn(
+                    text=text,
+                    turn_id=turn_id,
+                    metering_turn_id=metering_turn_id,
+                    expose_turn_id=expose_turn_id,
+                )
+                completed_agent_turn = True
+        finally:
+            if not completed_agent_turn:
+                await finish_realtime_audio_once(completion_reason="audio_turn_failed")
 
     async def start_turn(event: dict) -> None:
         nonlocal active_turn_id, current_turn_task
         expose_turn_id = isinstance(event.get("turn_id"), str) and bool(str(event.get("turn_id")).strip())
         turn_id = str(event.get("turn_id") or create_id("voice_turn"))
+        metering_turn_id = create_id("realtime_turn")
         await cancel_current_turn(reason="replaced_by_new_turn")
         active_turn_id = turn_id
         event_type = event.get("type")
         if event_type == "audio_chunk_done":
-            current_turn_task = asyncio.create_task(run_audio_turn(event=event, turn_id=turn_id, expose_turn_id=expose_turn_id))
+            current_turn_task = asyncio.create_task(
+                run_audio_turn(
+                    event=event,
+                    turn_id=turn_id,
+                    metering_turn_id=metering_turn_id,
+                    expose_turn_id=expose_turn_id,
+                )
+            )
             return
         text = str(event.get("text") or "").strip()
-        current_turn_task = asyncio.create_task(run_agent_turn(text=text, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        current_turn_task = asyncio.create_task(
+            run_agent_turn(
+                text=text,
+                turn_id=turn_id,
+                metering_turn_id=metering_turn_id,
+                expose_turn_id=expose_turn_id,
+            )
+        )
 
     try:
         while True:
@@ -544,6 +655,7 @@ async def cooking_realtime_session_ws(
                 continue
             if event_type == "hangup":
                 await cancel_current_turn(reason="hangup")
+                await finish_realtime_audio_once(completion_reason="hangup")
                 realtime_voice_session_store.close(session_id)
                 await send_json({"type": "status", "status": "closed"})
                 await websocket.close(code=1000)
@@ -597,4 +709,5 @@ async def cooking_realtime_session_ws(
             await send_json({"type": "error", "message": "Unsupported voice event"})
     except WebSocketDisconnect:
         await cancel_current_turn(reason="disconnect")
+        await finish_realtime_audio_once(completion_reason="disconnect")
         realtime_voice_session_store.close(session_id)

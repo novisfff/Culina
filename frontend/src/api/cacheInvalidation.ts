@@ -42,6 +42,10 @@ export async function invalidateAfterFamilyChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [queryKeys.family, queryKeys.authMe, queryKeys.activityLogs]);
 }
 
+export async function invalidateAfterModelUsagePolicyChanged(queryClient: QueryClient, familyId: string) {
+  await invalidateMany(queryClient, [queryKeys.modelUsageRoot(familyId)]);
+}
+
 export async function invalidateAfterIngredientChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [queryKeys.ingredients, queryKeys.activityLogs]);
 }

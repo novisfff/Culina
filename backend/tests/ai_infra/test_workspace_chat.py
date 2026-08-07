@@ -1,5 +1,9 @@
 from ._support import *
 
+from types import SimpleNamespace
+
+from app.ai.errors import ApprovalRequired
+
 
 class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
         def test_workspace_chat_records_completed_graph_run_with_tools(self) -> None:
@@ -164,6 +168,128 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 db.flush()
                 self.assertEqual(run.context_summary["observedAt"], "2026-06-16T01:46:15")
                 self.assertEqual(run.tool_calls[0]["output_summary"]["updatedAt"], "2026-06-16T01:46:15")
+
+        def test_workspace_chat_persists_and_serializes_model_usage_fallback(self) -> None:
+            class FallbackProvider(BaseChatProvider):
+                model_name = "gpt-light"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    del system, user
+                    return ChatProviderResult(
+                        text="我已改用可用模型继续完成回复。",
+                        status="completed",
+                        model=self.model_name,
+                        fallback_used=True,
+                        fallback_reason_code="model_usage_budget_exceeded",
+                    )
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, message_handler=None, **kwargs):
+                    del system, user, tools, tool_handler, kwargs
+                    result = self.generate(system="", user="")
+                    if message_handler is not None and result.text:
+                        message_handler(result.text)
+                    return result
+
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=FallbackProvider()):
+                response = self.client.post("/api/ai/chat", json={"message": "给我一个晚餐建议"})
+
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(
+                data["message"]["metadata"]["modelUsageFallback"],
+                {
+                    "used": True,
+                    "reasonCode": "model_usage_budget_exceeded",
+                },
+            )
+            self.assertTrue(data["run"]["fallback_used"])
+            self.assertEqual(data["run"]["fallback_reason_code"], "model_usage_budget_exceeded")
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, data["run"]["id"])
+                self.assertIsNotNone(run)
+                assert run is not None
+                self.assertEqual(
+                    run.output["model_usage_fallback"],
+                    {
+                        "used": True,
+                        "reason_code": "model_usage_budget_exceeded",
+                    },
+                )
+
+        def test_workspace_chat_persists_model_usage_fallback_from_approval_interrupt(self) -> None:
+            class FallbackApprovalProvider(BaseChatProvider):
+                model_name = "gpt-large"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    del system, user
+                    raise AssertionError("workspace orchestrator must use generate_with_tools")
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, message_handler=None, **kwargs):
+                    del system, user, message_handler, kwargs
+                    tool_handler(
+                        "skill.inject",
+                        {"skills": ["meal_plan"], "reason": "测试草稿审批中的模型降级状态"},
+                    )
+                    if "meal_plan.create_draft" not in {tool.name for tool in tools()}:
+                        raise AssertionError("meal plan draft tool was not injected")
+                    try:
+                        tool_handler(
+                            "meal_plan.create_draft",
+                            {
+                                "draft": {
+                                    "draftType": "meal_plan",
+                                    "schemaVersion": "meal_plan.v1",
+                                    "items": [
+                                        {
+                                            "date": date.today().isoformat(),
+                                            "mealType": "dinner",
+                                            "title": "番茄小炒",
+                                            "foodId": "food-tomato",
+                                            "recipeId": None,
+                                            "reason": "测试模型降级后的草稿审批",
+                                            "usedInventory": ["番茄"],
+                                            "missingIngredients": ["鸡蛋"],
+                                        }
+                                    ],
+                                    "source": {"days": 1, "mealTypes": ["dinner"]},
+                                }
+                            },
+                        )
+                    except ApprovalRequired as interrupt:
+                        interrupt._culina_provider_control_flow = SimpleNamespace(
+                            model="gpt-light",
+                            fallback_used=True,
+                            fallback_reason_code="model_usage_budget_exceeded",
+                        )
+                        raise
+                    raise AssertionError("meal plan draft must interrupt for approval")
+
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=FallbackApprovalProvider()):
+                response = self.client.post("/api/ai/chat", json={"message": "请生成晚餐草稿"})
+
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(
+                data["message"]["metadata"]["modelUsageFallback"],
+                {
+                    "used": True,
+                    "reasonCode": "model_usage_budget_exceeded",
+                },
+            )
+            self.assertEqual(data["run"]["model"], "gpt-light")
+            self.assertTrue(data["run"]["fallback_used"])
+            self.assertEqual(data["run"]["fallback_reason_code"], "model_usage_budget_exceeded")
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, data["run"]["id"])
+                self.assertIsNotNone(run)
+                assert run is not None
+                self.assertEqual(
+                    run.output["model_usage_fallback"],
+                    {
+                        "used": True,
+                        "reason_code": "model_usage_budget_exceeded",
+                    },
+                )
 
         def test_legacy_ai_query_api_is_removed(self) -> None:
             response = self.client.post("/api/ai/query", json={"mode": "inventoryQa", "prompt": "库存怎么样"})

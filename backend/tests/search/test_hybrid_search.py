@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -32,8 +32,30 @@ from app.services.search.hybrid import MAX_RERANK_DOCUMENT_CHARS, _rerank_docume
 from app.services.search.indexing import upsert_search_document
 from app.services.search.rerank import RerankResult
 from app.services.search.vector_store import VectorSearchHit
+from app.services.model_usage.errors import ModelUsageBlocked
 from app.services.clock import today_for_family
 from tests.search._support import ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
+
+
+class BudgetBlockedEmbeddingClient:
+    model = "fake-embedding"
+    dimensions = 2
+
+    def embed_text(self, text: str, *, attribution, attempt_key: str):
+        del text, attribution, attempt_key
+        raise ModelUsageBlocked(
+            "model_usage_budget_exceeded",
+            period_start=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            policy_version_id="policy-budget-blocked",
+        )
+
+
+class BudgetBlockedRerankClient:
+    enabled = True
+
+    def rerank(self, *, query: str, documents: list[str], top_n: int, attribution=None, attempt_key=None):
+        del query, documents, top_n, attribution, attempt_key
+        raise ModelUsageBlocked("model_usage_capability_limit_exceeded")
 
 
 def test_rerank_document_texts_preserve_priority_fields_before_truncating_long_fields() -> None:
@@ -204,6 +226,60 @@ def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
 
     assert response.search_mode == "keyword"
     assert response.degraded is False
+    assert [item.entity_id for item in response.items] == ["ingredient-tomato"]
+    assert response.items[0].semantic_score == 0
+
+
+def test_hybrid_search_uses_keyword_only_results_when_embedding_budget_is_blocked(monkeypatch) -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭"))
+        ingredient = Ingredient(
+            id="ingredient-tomato",
+            family_id="family-1",
+            name="番茄",
+            category="蔬菜",
+            default_unit="个",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+        )
+        db.add(ingredient)
+        db.flush()
+        upsert_search_document(
+            db,
+            SearchDocumentPayload(
+                family_id="family-1",
+                entity_type="ingredient",
+                entity_id=ingredient.id,
+                title_text=ingredient.name,
+                keyword_text="番茄 蔬菜",
+                detail_text="",
+                semantic_text="食材：番茄",
+                metadata_json={},
+                content_hash="hash-ingredient-budget-blocked",
+            ),
+        )
+        db.commit()
+
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings(search_hybrid_enabled=True))
+
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            query="番茄",
+            scopes=["ingredient"],
+            limit=10,
+            offset=0,
+            embedding_client=BudgetBlockedEmbeddingClient(),
+            vector_store=ExplodingVectorStore(),
+            rerank_client=FakeRerankClient(),
+        )
+
+    assert response.degraded is True
+    assert response.degradation_code == "model_usage_budget_exceeded"
     assert [item.entity_id for item in response.items] == ["ingredient-tomato"]
     assert response.items[0].semantic_score == 0
 
@@ -1104,7 +1180,77 @@ def test_hybrid_search_falls_back_when_rerank_fails() -> None:
         )
 
     assert response.degraded is True
+    assert response.degradation_code == "search_rerank_unavailable"
     assert [item.entity_id for item in response.items] == ["ingredient-semantic", "ingredient-keyword"]
+
+
+def test_hybrid_search_preserves_local_results_when_rerank_usage_is_blocked(monkeypatch) -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭"))
+        db.add_all(
+            [
+                Ingredient(
+                    id="ingredient-first",
+                    family_id="family-1",
+                    name="冷冻鸡肉",
+                    category="肉类",
+                    default_unit="克",
+                    unit_conversions=[],
+                    default_storage="冷冻",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                ),
+                Ingredient(
+                    id="ingredient-second",
+                    family_id="family-1",
+                    name="三黄鸡",
+                    category="肉类",
+                    default_unit="只",
+                    unit_conversions=[],
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                ),
+            ]
+        )
+        db.flush()
+        for ingredient in db.scalars(select(Ingredient)):
+            upsert_search_document(
+                db,
+                SearchDocumentPayload(
+                    family_id="family-1",
+                    entity_type="ingredient",
+                    entity_id=ingredient.id,
+                    title_text=ingredient.name,
+                    keyword_text=f"{ingredient.name} {ingredient.category}",
+                    detail_text="",
+                    semantic_text=f"食材：{ingredient.name}",
+                    metadata_json={},
+                    content_hash=f"hash-{ingredient.id}",
+                ),
+            )
+        db.commit()
+
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings(search_hybrid_enabled=True))
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            query="鸡肉",
+            scopes=["ingredient"],
+            limit=10,
+            offset=0,
+            embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore(
+                [VectorSearchHit(entity_type="ingredient", entity_id="ingredient-second", semantic_score=0.9, semantic_rank=1)]
+            ),
+            rerank_client=BudgetBlockedRerankClient(),
+        )
+
+    assert response.degraded is True
+    assert response.degradation_code == "model_usage_capability_limit_exceeded"
+    assert [item.entity_id for item in response.items] == ["ingredient-second", "ingredient-first"]
+    assert all(item.score == item.local_score for item in response.items)
 
 
 def test_hybrid_search_drops_hits_without_business_entity() -> None:

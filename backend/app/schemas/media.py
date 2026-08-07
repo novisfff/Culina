@@ -72,6 +72,8 @@ class AiRenderResponse(BaseModel):
     job_id: str | None = None
     status: AiImageJobStatus = "succeeded"
     error: str | None = None
+    error_code: str | None = None
+    can_retry: bool = False
     generated_asset: MediaAssetOut | None = None
     reference_asset: MediaAssetOut | None = None
     style_key: str | None = None

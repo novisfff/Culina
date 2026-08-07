@@ -13,6 +13,7 @@ import {
   invalidateAfterMealRecorded,
   invalidateAfterMealRecordReverted,
   invalidateAfterMemberChanged,
+  invalidateAfterModelUsagePolicyChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterSearchIndexJobChanged,
   invalidateAfterShoppingChanged,
@@ -365,5 +366,15 @@ describe('cacheInvalidation', () => {
     expect(containsKey(keys, queryKeys.mealInsights)).toBe(true);
     expect(containsKey(keys, queryKeys.inventory)).toBe(true);
     expect(containsKey(keys, queryKeys.foodPlanRoot)).toBe(true);
+  });
+
+  it('invalidates only the affected family model usage root after a policy update', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterModelUsagePolicyChanged(queryClient, 'family-a');
+
+    expect(invalidatedKeys(queryClient)).toEqual([queryKeys.modelUsageRoot('family-a')]);
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.modelUsageRoot('family-b'));
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(['model-usage']);
   });
 });

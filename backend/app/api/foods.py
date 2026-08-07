@@ -458,7 +458,7 @@ def list_foods(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
+    user, membership = auth
     query = q.strip()
     if query:
         search_limit = limit or 100
@@ -466,6 +466,7 @@ def list_foods(
         search_result = hybrid_search(
             db,
             family_id=membership.family_id,
+            user_id=user.id,
             query=query,
             scopes=["food"],
             limit=search_limit,

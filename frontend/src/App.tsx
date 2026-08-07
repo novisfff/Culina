@@ -68,6 +68,7 @@ import {
 } from './features/inventory/shoppingIntakeModel';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
+import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
@@ -93,6 +94,11 @@ const HomeDashboardDialogs = lazy(() =>
 );
 const FamilySettings = lazy(() =>
   import('./features/family/FamilySettings').then((module) => ({ default: module.FamilySettings }))
+);
+const ModelUsageWorkspace = lazy(() =>
+  import('./features/model-usage/ModelUsageWorkspace').then((module) => ({
+    default: module.ModelUsageWorkspace,
+  }))
 );
 
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
@@ -232,7 +238,12 @@ function App() {
 
   useEffect(() => {
     resetPageScroll();
-  }, [navigation.state.primaryTab, navigation.state.eat.baseView, navigation.state.eat.task?.kind]);
+  }, [
+    navigation.state.primaryTab,
+    navigation.state.eat.baseView,
+    navigation.state.eat.task?.kind,
+    navigation.state.family.view,
+  ]);
 
   useEffect(() => {
     writeStringStorage(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
@@ -278,6 +289,16 @@ function App() {
     navigationState: navigation.state,
     isAuthenticated,
     foodPlanWeekRange,
+  });
+
+  const appNotifications = useAppNotifications({
+    enabled: isAuthenticated,
+    familyId: family?.id ?? '',
+    role: membership?.role ?? 'Member',
+    background: aiImageJobMonitor,
+    onOpenModelUsageAlert: (alert) => {
+      navigation.navigate({ workspace: 'family', view: 'modelUsage', period: alert.period });
+    },
   });
 
   // One business date for home action projection; same key is injected again by useAppHomeViewModel.
@@ -1132,12 +1153,14 @@ function App() {
   ) : null;
   const mobileNotificationCenter = (
     <AppNotificationCenter
-      jobs={aiImageJobMonitor.jobs}
-      isLoading={aiImageJobMonitor.isLoading}
+      items={appNotifications.items}
+      isLoading={appNotifications.isLoading}
       variant="mobileIcon"
-      onDismissJob={aiImageJobMonitor.dismissJob}
-      onRetryJob={aiImageJobMonitor.retryJob}
-      retryingJobId={aiImageJobMonitor.retryingJobId}
+      onDismissBackgroundTask={aiImageJobMonitor.dismissJob}
+      onRetryBackgroundTask={aiImageJobMonitor.retryJob}
+      retryingBackgroundTaskId={aiImageJobMonitor.retryingJobId}
+      onOpenModelUsageAlert={appNotifications.openModelUsageAlert}
+      onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
     />
   );
 
@@ -1156,11 +1179,13 @@ function App() {
       userMeta={sidebarUserMeta}
       userNote={sidebarUserNote}
       notice={noticeToast}
-      imageJobs={aiImageJobMonitor.jobs}
-      imageJobsLoading={aiImageJobMonitor.isLoading}
-      onDismissImageJob={aiImageJobMonitor.dismissJob}
-      onRetryImageJob={aiImageJobMonitor.retryJob}
-      retryingImageJobId={aiImageJobMonitor.retryingJobId}
+      notifications={appNotifications.items}
+      notificationsLoading={appNotifications.isLoading}
+      onDismissBackgroundTask={aiImageJobMonitor.dismissJob}
+      onRetryBackgroundTask={aiImageJobMonitor.retryJob}
+      retryingBackgroundTaskId={aiImageJobMonitor.retryingJobId}
+      onOpenModelUsageAlert={appNotifications.openModelUsageAlert}
+      onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
       onTabChange={handlePrimaryTabChange}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
@@ -1525,54 +1550,66 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'family' && (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
-            <FamilySettings
-              family={family}
-              isLoading={familyQuery.isLoading}
-              errorMessage={familyQuery.error instanceof Error ? familyQuery.error.message : null}
-              members={members}
-              currentUser={currentUser}
-              membership={membership}
-              isOwner={isOwner}
-              familyHeroImageUrl={familyHeroImageUrl}
-              familyStatCards={familyStatCards}
-              currentUserRecentLogs={currentUserRecentLogs}
-              familyOwnerMember={familyOwnerMember}
-              activityQuery={familyActivityQuery}
-              activityPhase={familyActivityPhase}
-              isPhoneViewport={isPhoneViewport}
-              notificationCenter={mobileNotificationCenter}
-              overlayMode={familyOverlayMode}
-              editingMember={editingMember}
-              inviteForm={inviteForm}
-              profileForm={profileForm}
-              memberEditForm={memberEditForm}
-              passwordForm={passwordForm}
-              familyForm={familyForm}
-              isCreatingMember={isCreatingMember}
-              isUpdatingProfile={isUpdatingProfile}
-              isUpdatingMember={isUpdatingMember}
-              isUpdatingPassword={isUpdatingPassword}
-              isUpdatingFamily={isUpdatingFamily}
-              familyFormError={familyFormError}
-              profileImageControls={profileImageControls}
-              familyImageControls={familyImageControls}
-              resolveAssetUrl={resolveDashboardAssetUrl}
-              onOverlayChange={setFamilyOverlayMode}
-              onNavigate={navigation.navigate}
-              onMemberEdit={openMemberEdit}
-              onInviteFormChange={setInviteForm}
-              onProfileFormChange={setProfileForm}
-              onMemberEditFormChange={setMemberEditForm}
-              onPasswordFormChange={setPasswordForm}
-              onFamilyFormChange={setFamilyForm}
-              onInviteSubmit={submitInvite}
-              onProfileSubmit={submitProfile}
-              onMemberEditSubmit={submitMemberEdit}
-              onPasswordSubmit={submitPassword}
-              onFamilySubmit={submitFamily}
-            />
-          </Suspense>
+          navigation.state.family.view === 'modelUsage' ? (
+            <Suspense fallback={<WorkspaceLoadingFallback />}>
+              <ModelUsageWorkspace
+                familyId={family?.id ?? ''}
+                role={membership?.role ?? 'Member'}
+                initialPeriod={navigation.state.family.period}
+                isPhoneViewport={isPhoneViewport}
+                onBack={() => navigation.navigate({ workspace: 'family', view: 'profile' })}
+              />
+            </Suspense>
+          ) : (
+            <Suspense fallback={<WorkspaceLoadingFallback />}>
+              <FamilySettings
+                family={family}
+                isLoading={familyQuery.isLoading}
+                errorMessage={familyQuery.error instanceof Error ? familyQuery.error.message : null}
+                members={members}
+                currentUser={currentUser}
+                membership={membership}
+                isOwner={isOwner}
+                familyHeroImageUrl={familyHeroImageUrl}
+                familyStatCards={familyStatCards}
+                currentUserRecentLogs={currentUserRecentLogs}
+                familyOwnerMember={familyOwnerMember}
+                activityQuery={familyActivityQuery}
+                activityPhase={familyActivityPhase}
+                isPhoneViewport={isPhoneViewport}
+                notificationCenter={mobileNotificationCenter}
+                overlayMode={familyOverlayMode}
+                editingMember={editingMember}
+                inviteForm={inviteForm}
+                profileForm={profileForm}
+                memberEditForm={memberEditForm}
+                passwordForm={passwordForm}
+                familyForm={familyForm}
+                isCreatingMember={isCreatingMember}
+                isUpdatingProfile={isUpdatingProfile}
+                isUpdatingMember={isUpdatingMember}
+                isUpdatingPassword={isUpdatingPassword}
+                isUpdatingFamily={isUpdatingFamily}
+                familyFormError={familyFormError}
+                profileImageControls={profileImageControls}
+                familyImageControls={familyImageControls}
+                resolveAssetUrl={resolveDashboardAssetUrl}
+                onOverlayChange={setFamilyOverlayMode}
+                onNavigate={navigation.navigate}
+                onMemberEdit={openMemberEdit}
+                onInviteFormChange={setInviteForm}
+                onProfileFormChange={setProfileForm}
+                onMemberEditFormChange={setMemberEditForm}
+                onPasswordFormChange={setPasswordForm}
+                onFamilyFormChange={setFamilyForm}
+                onInviteSubmit={submitInvite}
+                onProfileSubmit={submitProfile}
+                onMemberEditSubmit={submitMemberEdit}
+                onPasswordSubmit={submitPassword}
+                onFamilySubmit={submitFamily}
+              />
+            </Suspense>
+          )
         )}
 
         <GlobalSearchOverlay

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -14,15 +16,102 @@ from fastapi import HTTPException, status
 from app.core.config import Settings
 from app.services.ai_audio.config import dashscope_api_key, dashscope_http_base, dashscope_realtime_url, join_api_url
 from app.services.ai_audio.providers import provider_unavailable
+from app.services.ai_audio.realtime import RealtimeProviderScope
+from app.services.model_usage.adapters.realtime_audio import LEASE_SECONDS
 from app.services.ai_audio.schemas import SpeechRequest, SpeechResult, TranscriptionRequest, TranscriptionResult
-from app.services.ai_audio.speech import sanitize_speech_text
-from app.services.ai_audio.transcription import normalize_transcript
+from app.services.ai_audio.speech import (
+    dashscope_tts_billable_characters,
+    sanitize_speech_text,
+)
+from app.services.ai_audio.transcription import (
+    AudioDurationError,
+    measure_audio_duration_seconds,
+    normalize_transcript,
+)
+from app.services.model_usage.adapters.audio import AudioUsageAdapter
+from app.services.model_usage.adapters.base import MeteredProviderAttempt
+from app.services.model_usage.configured_variants import (
+    dashscope_realtime_input_model,
+    dashscope_realtime_output_model,
+)
+from app.services.model_usage.decimal_math import quantize_quantity
+from app.services.model_usage.errors import ModelUsageContractError, ModelUsageError
+from app.services.model_usage.types import DispatchPermit
+
+
+_CONFIRMED_NOT_EXECUTED_STATUS_CODES = frozenset({400, 401, 403, 404, 405, 406, 413, 415, 422, 429})
+
+
+class _ConfirmedAudioProviderFailure(RuntimeError):
+    def __init__(self, *, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"audio provider returned HTTP {status_code}")
+
+
+class _AmbiguousAudioProviderFailure(RuntimeError):
+    pass
+
+
+def _realtime_usage_limit_error(code: str | None) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={
+            "code": code or "model_usage_realtime_unavailable",
+            "message": "本次语音会话已结束，可以继续使用文字。",
+        },
+    )
+
+
+def _pcm16_duration_seconds(payload: bytes, *, sample_rate: int) -> Decimal:
+    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="实时语音服务返回了无效音频参数",
+        )
+    if not payload or len(payload) % 2:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="实时语音服务返回了无效音频",
+        )
+    return quantize_quantity(Decimal(len(payload) // 2) / Decimal(sample_rate))
+
+
+def _realtime_output_duration_seconds(
+    payload: bytes,
+    *,
+    audio_format: str,
+    sample_rate: int,
+) -> Decimal:
+    if audio_format.lower() == "pcm":
+        return _pcm16_duration_seconds(payload, sample_rate=sample_rate)
+    try:
+        return measure_audio_duration_seconds(
+            payload,
+            content_type=_content_type_for_format(audio_format),
+            metadata={},
+        )
+    except AudioDurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="实时语音服务返回了无效音频",
+        ) from exc
 
 
 class DashScopeAudioProvider:
-    def __init__(self, settings: Settings, *, capability: str) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        capability: str,
+        usage_adapter: AudioUsageAdapter | None = None,
+        model_usage_required: bool = False,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self.settings = settings
         self.capability = capability
+        self.usage_adapter = usage_adapter
+        self.model_usage_required = model_usage_required
+        self.transport = transport
 
     @property
     def api_key(self) -> str:
@@ -46,34 +135,77 @@ class DashScopeAudioProvider:
         )
         if request.language_hint and request.language_hint != "auto":
             payload["parameters"]["language"] = request.language_hint
+        adapter = self._require_usage_adapter()
+        attempt: MeteredProviderAttempt | None = None
+        permit: DispatchPermit | None = None
+        settled = False
+        if adapter is not None:
+            duration = _required_measured_duration(request)
+            attempt = adapter.begin_stt(
+                request,
+                duration_seconds=duration,
+                fingerprint=adapter.request_fingerprint(
+                    _stt_fingerprint_payload(
+                        provider="dashscope",
+                        model=model,
+                        request=request,
+                    )
+                ),
+            )
+            permit = attempt.prepare_dispatch()
         try:
-            with httpx.Client(timeout=self.settings.ai_stt_timeout_seconds) as client:
-                response = client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                        "X-DashScope-SSE": "disable",
-                    },
-                    json=payload,
-                )
-                response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+            response = self._post_json(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "X-DashScope-SSE": "disable",
+                },
+                payload=payload,
+                timeout=self.settings.ai_stt_timeout_seconds,
+            )
+        except _ConfirmedAudioProviderFailure as exc:
+            self._settle_confirmed_not_executed(attempt, permit, adapter, exc.status_code)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别服务返回错误") from exc
-        except httpx.HTTPError as exc:
+        except _AmbiguousAudioProviderFailure as exc:
+            self._mark_uncertain(attempt)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别服务不可用") from exc
-        body = response.json()
-        text = _extract_dashscope_text(body)
-        if not text:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别结果为空")
-        return TranscriptionResult(
-            text=text,
-            language=request.language_hint,
-            duration_seconds=None,
-            provider="dashscope",
-            model=model,
-            raw_metadata={"request_id": body.get("request_id")},
-        )
+        try:
+            if attempt is not None and permit is not None and adapter is not None:
+                attempt.settle(
+                    adapter.stt_receipt(
+                        permit,
+                        duration_seconds=_required_measured_duration(request),
+                        reported_model=model,
+                        provider_request_id=_provider_request_id(response),
+                    )
+                )
+                settled = True
+            body = response.json()
+            if not isinstance(body, dict):
+                raise ValueError("transcription response must be an object")
+            text = _extract_dashscope_text(body)
+            if not text:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别结果为空")
+            request_id = body.get("request_id")
+            return TranscriptionResult(
+                text=text,
+                language=request.language_hint,
+                duration_seconds=None,
+                provider="dashscope",
+                model=model,
+                raw_metadata={"request_id": request_id} if isinstance(request_id, str) else {},
+            )
+        except HTTPException:
+            if not settled:
+                self._mark_uncertain(attempt)
+            raise
+        except Exception as exc:
+            if not settled:
+                self._mark_uncertain(attempt)
+            if isinstance(exc, ModelUsageError):
+                raise
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别结果无效") from exc
 
     def synthesize(self, request: SpeechRequest) -> SpeechResult:
         if not self.api_key:
@@ -94,55 +226,199 @@ class DashScopeAudioProvider:
                 "sample_rate": self.settings.ai_tts_sample_rate,
             },
         }
+        adapter = self._require_usage_adapter()
+        attempt: MeteredProviderAttempt | None = None
+        permit: DispatchPermit | None = None
+        settled = False
+        if adapter is not None:
+            attempt = adapter.begin_tts(
+                request,
+                sanitized_text=text,
+                fingerprint=adapter.request_fingerprint(
+                    _tts_fingerprint_payload(
+                        provider="dashscope",
+                        model=model,
+                        voice=voice,
+                        audio_format=self.settings.ai_tts_format,
+                        text=text,
+                    )
+                ),
+            )
+            permit = attempt.prepare_dispatch()
         try:
-            with httpx.Client(timeout=self.settings.ai_tts_timeout_seconds) as client:
-                response = client.post(
-                    url,
-                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    json=payload,
-                )
-                response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+            response = self._post_json(
+                url,
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                payload=payload,
+                timeout=self.settings.ai_tts_timeout_seconds,
+            )
+        except _ConfirmedAudioProviderFailure as exc:
+            self._settle_confirmed_not_executed(attempt, permit, adapter, exc.status_code)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成服务返回错误") from exc
-        except httpx.HTTPError as exc:
+        except _AmbiguousAudioProviderFailure as exc:
+            self._mark_uncertain(attempt)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成服务不可用") from exc
-        body = response.json()
-        audio_bytes = _extract_dashscope_audio_bytes(body)
-        if audio_bytes is None:
-            audio_url = _extract_dashscope_audio_url(body)
-            if not audio_url:
+        try:
+            if attempt is not None and permit is not None and adapter is not None:
+                # Downloading a generated URL is post-provider processing, not
+                # another model attempt.  Settle before parsing or downloading.
+                attempt.settle(
+                    adapter.tts_receipt(
+                        permit,
+                        sanitized_text=text,
+                        reported_model=model,
+                        provider_request_id=_provider_request_id(response),
+                    )
+                )
+                settled = True
+            body = response.json()
+            if not isinstance(body, dict):
+                raise ValueError("speech response must be an object")
+            audio_bytes = _extract_dashscope_audio_bytes(body)
+            if audio_bytes is None:
+                audio_url = _extract_dashscope_audio_url(body)
+                if not audio_url:
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成结果为空")
+                audio_bytes = _download_provider_audio(audio_url, timeout=self.settings.ai_tts_timeout_seconds)
+            if not audio_bytes:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成结果为空")
-            audio_bytes = _download_provider_audio(audio_url, timeout=self.settings.ai_tts_timeout_seconds)
-        return SpeechResult(
-            content_type=_content_type_for_format(self.settings.ai_tts_format),
-            audio_bytes=audio_bytes,
-            audio_stream=None,
-            external_url=None,
-            external_url_expires_at=None,
-            provider="dashscope",
-            model=model,
-        )
+            return SpeechResult(
+                content_type=_content_type_for_format(self.settings.ai_tts_format),
+                audio_bytes=audio_bytes,
+                audio_stream=None,
+                external_url=None,
+                external_url_expires_at=None,
+                provider="dashscope",
+                model=model,
+            )
+        except HTTPException:
+            if not settled:
+                self._mark_uncertain(attempt)
+            raise
+        except Exception as exc:
+            if not settled:
+                self._mark_uncertain(attempt)
+            if isinstance(exc, ModelUsageError):
+                raise
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成结果无效") from exc
+
+    def _require_usage_adapter(self) -> AudioUsageAdapter | None:
+        if self.usage_adapter is None and self.model_usage_required:
+            raise ModelUsageContractError("model_usage_adapter_required")
+        return self.usage_adapter
+
+    def _post_json(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        payload: dict,
+        timeout: float,
+    ) -> httpx.Response:
+        try:
+            with httpx.Client(timeout=timeout, transport=self.transport) as client:
+                response = client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                return response
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in _CONFIRMED_NOT_EXECUTED_STATUS_CODES:
+                raise _ConfirmedAudioProviderFailure(status_code=exc.response.status_code) from exc
+            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
+        except httpx.TransportError as exc:
+            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
+
+    @staticmethod
+    def _mark_uncertain(attempt: MeteredProviderAttempt | None) -> None:
+        if attempt is None:
+            return
+        try:
+            attempt.mark_uncertain("audio_provider_result_unavailable")
+        except Exception:
+            pass
+
+    def _settle_confirmed_not_executed(
+        self,
+        attempt: MeteredProviderAttempt | None,
+        permit: DispatchPermit | None,
+        adapter: AudioUsageAdapter | None,
+        status_code: int,
+    ) -> None:
+        if attempt is None or permit is None or adapter is None:
+            return
+        try:
+            attempt.settle(
+                adapter.confirmed_not_executed_receipt(
+                    permit,
+                    stable_provider_request_id=f"http_status_{status_code}",
+                )
+            )
+        except Exception:
+            self._mark_uncertain(attempt)
 
     async def transcribe_realtime_audio(
         self,
         request: TranscriptionRequest,
         *,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        realtime_usage_scope: RealtimeProviderScope | None = None,
+        realtime_turn_id: str | None = None,
     ) -> TranscriptionResult:
         if not self.api_key:
             raise provider_unavailable("dashscope", "realtime transcription")
         if "pcm" not in request.content_type.lower():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="DashScope realtime ASR requires PCM audio")
-        model = self.settings.ai_realtime_model.strip() or self.settings.ai_stt_model.strip() or "qwen3-asr-flash-realtime"
-        transcript = await _qwen_asr_realtime_transcribe(
-            url=dashscope_realtime_url(self.settings, model),
-            api_key=self.api_key,
-            audio_bytes=request.audio_bytes,
-            sample_rate=_metadata_sample_rate(request.metadata, self.settings.ai_realtime_input_sample_rate),
-            language=request.language_hint,
-            timeout_seconds=self.settings.ai_realtime_timeout_seconds,
-            on_delta=on_delta,
-        )
+        model = dashscope_realtime_input_model(self.settings)
+        if realtime_usage_scope is None:
+            transcript = await _qwen_asr_realtime_transcribe(
+                url=dashscope_realtime_url(self.settings, model),
+                api_key=self.api_key,
+                audio_bytes=request.audio_bytes,
+                sample_rate=_metadata_sample_rate(request.metadata, self.settings.ai_realtime_input_sample_rate),
+                language=request.language_hint,
+                timeout_seconds=self.settings.ai_realtime_timeout_seconds,
+                on_delta=on_delta,
+            )
+        else:
+            try:
+                duration = measure_audio_duration_seconds(
+                    request.audio_bytes,
+                    content_type=request.content_type,
+                    metadata=request.metadata,
+                )
+            except AudioDurationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": exc.code,
+                        "message": "无法识别实时语音音频参数。",
+                    },
+                ) from exc
+            if duration > LEASE_SECONDS:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail={
+                        "code": "realtime_audio_lease_duration_exceeded",
+                        "message": "单次实时语音片段不能超过 30 秒，请分段说话。",
+                    },
+                )
+            async with realtime_usage_scope.provider_audio_operation(
+                turn_id=realtime_turn_id or request.operation_id,
+                segment="duplex",
+                direction="input",
+                provider_model=model,
+            ) as operation:
+                if operation.decision not in {"active", "renewed"}:
+                    raise _realtime_usage_limit_error(operation.error_code)
+                transcript = await _qwen_asr_realtime_transcribe(
+                    url=dashscope_realtime_url(self.settings, model),
+                    api_key=self.api_key,
+                    audio_bytes=request.audio_bytes,
+                    sample_rate=_metadata_sample_rate(request.metadata, self.settings.ai_realtime_input_sample_rate),
+                    language=request.language_hint,
+                    timeout_seconds=self.settings.ai_realtime_timeout_seconds,
+                    on_delta=on_delta,
+                )
+                operation.add_input_seconds(duration)
         text = normalize_transcript(transcript)
         if not text:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="实时语音识别结果为空")
@@ -155,23 +431,53 @@ class DashScopeAudioProvider:
             raw_metadata={"mode": "qwen_asr_realtime"},
         )
 
-    async def synthesize_realtime_text(self, request: SpeechRequest) -> SpeechResult:
+    async def synthesize_realtime_text(
+        self,
+        request: SpeechRequest,
+        *,
+        realtime_usage_scope: RealtimeProviderScope | None = None,
+        realtime_turn_id: str | None = None,
+    ) -> SpeechResult:
         if not self.api_key:
             raise provider_unavailable("dashscope", "realtime speech")
-        configured_model = self.settings.ai_tts_model.strip()
-        model = configured_model if "realtime" in configured_model else "qwen3-tts-flash-realtime"
+        model = dashscope_realtime_output_model(self.settings)
         voice = request.voice or self.settings.ai_realtime_voice.strip() or self.settings.ai_tts_voice.strip() or "Cherry"
         audio_format = self.settings.ai_tts_format.strip() or "mp3"
-        audio_bytes = await _qwen_tts_realtime_synthesize(
-            url=dashscope_realtime_url(self.settings, model),
-            api_key=self.api_key,
-            text=sanitize_speech_text(request.text),
-            voice=voice,
-            audio_format=audio_format,
-            sample_rate=self.settings.ai_realtime_output_sample_rate,
-            language_type=self.settings.ai_tts_language_type,
-            timeout_seconds=self.settings.ai_realtime_timeout_seconds,
-        )
+        sanitized_text = sanitize_speech_text(request.text)
+        async def synthesize_provider_audio() -> bytes:
+            return await _qwen_tts_realtime_synthesize(
+                url=dashscope_realtime_url(self.settings, model),
+                api_key=self.api_key,
+                text=sanitized_text,
+                voice=voice,
+                audio_format=audio_format,
+                sample_rate=self.settings.ai_realtime_output_sample_rate,
+                language_type=self.settings.ai_tts_language_type,
+                timeout_seconds=self.settings.ai_realtime_timeout_seconds,
+            )
+
+        if realtime_usage_scope is None:
+            audio_bytes = await synthesize_provider_audio()
+        else:
+            async with realtime_usage_scope.provider_audio_operation(
+                turn_id=realtime_turn_id or request.operation_id,
+                segment="duplex",
+                direction="output",
+                provider_model=model,
+            ) as operation:
+                if operation.decision not in {"active", "renewed"}:
+                    raise _realtime_usage_limit_error(operation.error_code)
+                operation.add_tts_characters(
+                    dashscope_tts_billable_characters(sanitized_text)
+                )
+                audio_bytes = await synthesize_provider_audio()
+                operation.add_output_seconds(
+                    _realtime_output_duration_seconds(
+                        audio_bytes,
+                        audio_format=audio_format,
+                        sample_rate=self.settings.ai_realtime_output_sample_rate,
+                    )
+                )
         if audio_format.lower() == "pcm":
             audio_bytes = _pcm16_to_wav(audio_bytes, sample_rate=self.settings.ai_realtime_output_sample_rate)
         if not audio_bytes:
@@ -190,11 +496,13 @@ class DashScopeAudioProvider:
         self,
         text_chunks: AsyncIterator[str],
         request: SpeechRequest,
+        *,
+        realtime_usage_scope: RealtimeProviderScope | None = None,
+        realtime_turn_id: str | None = None,
     ) -> AsyncIterator[dict]:
         if not self.api_key:
             raise provider_unavailable("dashscope", "realtime speech")
-        configured_model = self.settings.ai_tts_model.strip()
-        model = configured_model if "realtime" in configured_model else "qwen3-tts-flash-realtime"
+        model = dashscope_realtime_output_model(self.settings)
         voice = request.voice or self.settings.ai_realtime_voice.strip() or self.settings.ai_tts_voice.strip() or "Cherry"
         audio_format = "pcm"
         sample_rate = self.settings.ai_realtime_output_sample_rate
@@ -209,27 +517,67 @@ class DashScopeAudioProvider:
         }
         sequence = 0
         trace_started_at = request.metadata.get("trace_started_at") if isinstance(request.metadata, dict) else None
-        async for event in _qwen_tts_realtime_stream(
-            url=dashscope_realtime_url(self.settings, model),
-            api_key=self.api_key,
-            text_chunks=text_chunks,
-            voice=voice,
-            audio_format=audio_format,
-            sample_rate=sample_rate,
-            language_type=self.settings.ai_tts_language_type,
-            timeout_seconds=self.settings.ai_realtime_timeout_seconds,
-            trace_started_at=trace_started_at if isinstance(trace_started_at, (int, float)) else None,
-        ):
-            if event["type"] == "audio_trace":
+        async def metered_text_chunks(operation: object) -> AsyncIterator[str]:
+            async for text in text_chunks:
+                try:
+                    sanitized = sanitize_speech_text(text, max_chars=1000)
+                except HTTPException:
+                    continue
+                operation.add_tts_characters(  # type: ignore[attr-defined]
+                    dashscope_tts_billable_characters(sanitized)
+                )
+                yield sanitized
+
+        async def stream_events(operation: object | None = None) -> AsyncIterator[dict]:
+            async for event in _qwen_tts_realtime_stream(
+                url=dashscope_realtime_url(self.settings, model),
+                api_key=self.api_key,
+                text_chunks=(
+                    metered_text_chunks(operation)
+                    if operation is not None
+                    else text_chunks
+                ),
+                voice=voice,
+                audio_format=audio_format,
+                sample_rate=sample_rate,
+                language_type=self.settings.ai_tts_language_type,
+                timeout_seconds=self.settings.ai_realtime_timeout_seconds,
+                trace_started_at=trace_started_at if isinstance(trace_started_at, (int, float)) else None,
+            ):
                 yield event
-                continue
-            chunk = event["audio"]
-            sequence += 1
-            yield {
-                "type": "audio_delta",
-                "audio": base64.b64encode(chunk).decode("ascii"),
-                "sequence": sequence,
-            }
+
+        async def emit_audio_events(operation: object | None = None) -> AsyncIterator[dict]:
+            nonlocal sequence
+            async for event in stream_events(operation):
+                if event["type"] == "audio_trace":
+                    yield event
+                    continue
+                chunk = event["audio"]
+                if operation is not None:
+                    operation.add_output_seconds(  # type: ignore[attr-defined]
+                        _pcm16_duration_seconds(chunk, sample_rate=sample_rate)
+                    )
+                sequence += 1
+                yield {
+                    "type": "audio_delta",
+                    "audio": base64.b64encode(chunk).decode("ascii"),
+                    "sequence": sequence,
+                }
+
+        if realtime_usage_scope is None:
+            async for event in emit_audio_events():
+                yield event
+        else:
+            async with realtime_usage_scope.provider_audio_operation(
+                turn_id=realtime_turn_id or request.operation_id,
+                segment="duplex",
+                direction="output",
+                provider_model=model,
+            ) as operation:
+                if operation.decision not in {"active", "renewed"}:
+                    raise _realtime_usage_limit_error(operation.error_code)
+                async for event in emit_audio_events(operation):
+                    yield event
         yield {"type": "audio_done", "sequence": sequence}
 
 
@@ -330,6 +678,60 @@ def _download_provider_audio(url: str, timeout: float) -> bytes:
 
 def _content_type_for_format(audio_format: str) -> str:
     return {"mp3": "audio/mpeg", "wav": "audio/wav", "pcm": "audio/wav"}.get(audio_format.lower(), "audio/mpeg")
+
+
+def _required_measured_duration(request: TranscriptionRequest) -> Decimal:
+    duration = request.measured_duration_seconds
+    if not isinstance(duration, Decimal) or duration <= 0:
+        raise ModelUsageContractError("audio_stt_server_duration_required")
+    return duration
+
+
+def _stt_fingerprint_payload(*, provider: str, model: str, request: TranscriptionRequest) -> bytes:
+    return json.dumps(
+        {
+            "audio_sha256": hashlib.sha256(request.audio_bytes).hexdigest(),
+            "content_type": request.content_type,
+            "filename": request.filename,
+            "kind": "stt",
+            "model": model,
+            "provider": provider,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _tts_fingerprint_payload(
+    *,
+    provider: str,
+    model: str,
+    voice: str,
+    audio_format: str,
+    text: str,
+) -> bytes:
+    return json.dumps(
+        {
+            "audio_format": audio_format,
+            "kind": "tts",
+            "model": model,
+            "provider": provider,
+            "text": text,
+            "voice": voice,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _provider_request_id(response: object) -> str | None:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    value = headers.get("x-request-id") or headers.get("request-id")
+    return value if isinstance(value, str) and value else None
 
 
 def _metadata_sample_rate(metadata: dict, fallback: int) -> int:

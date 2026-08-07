@@ -68,6 +68,7 @@ function createNavigationService(
       discoverSection: 'all',
       ...stateOverrides.eat,
     },
+    family: { view: 'profile', period: null },
   };
 
   return {

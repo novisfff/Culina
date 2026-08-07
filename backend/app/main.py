@@ -22,6 +22,8 @@ from app.ai.images.jobs import ImageGenerationWorker
 from app.core.config import LOCAL_ENVIRONMENTS, Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal
+from app.services.model_usage.maintenance import ModelUsageMaintenanceWorker
+from app.services.model_usage.preflight import run_model_usage_preflight
 from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
@@ -80,14 +82,25 @@ class UnhandledApiExceptionMiddleware:
 async def lifespan(app: FastAPI):
     _ = app
     with SessionLocal() as db:
-        initialize_configured_admin(db)
+        with db.begin():
+            initialize_configured_admin(db, commit=False)
+            if settings.model_usage_required:
+                run_model_usage_preflight(settings, session_factory=SessionLocal, db=db)
     image_worker = ImageGenerationWorker()
     search_index_worker = SearchIndexWorker()
+    model_usage_worker = ModelUsageMaintenanceWorker()
     image_worker.start()
     search_index_worker.start()
+    if settings.model_usage_maintenance_enabled:
+        model_usage_worker.start()
     logger.info("AI image generation worker started")
     logger.info("Search index worker started")
+    if settings.model_usage_maintenance_enabled:
+        logger.info("Model usage maintenance worker started")
     yield
+    if settings.model_usage_maintenance_enabled:
+        model_usage_worker.stop()
+        logger.info("Model usage maintenance worker stopped")
     search_index_worker.stop()
     image_worker.stop()
     logger.info("Search index worker stopped")
