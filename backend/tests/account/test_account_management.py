@@ -16,6 +16,7 @@ from app.core.security import get_password_hash, verify_password
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import Base, Family, Membership, User, UserCredential
+from app.models.model_usage import ModelUsageFamilyPolicy, ModelUsagePolicyVersion, ModelUsageSubject
 from app.services.bootstrap import initialize_configured_admin
 
 
@@ -221,6 +222,16 @@ class InitialAdminBootstrapTestCase(unittest.TestCase):
                 self.assertEqual(db.query(UserCredential).count(), 1)
                 membership = db.query(Membership).one()
                 self.assertEqual(membership.role, UserRole.OWNER)
+                subjects = db.query(ModelUsageSubject).all()
+                self.assertEqual(len(subjects), 2)
+                self.assertEqual({item.user_id for item in subjects}, {None, membership.user_id})
+                pointer = db.query(ModelUsageFamilyPolicy).one()
+                policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
+                self.assertIsNotNone(policy)
+                assert policy is not None
+                owner_subject = next(item for item in subjects if item.user_id == membership.user_id)
+                self.assertEqual(policy.version_number, 1)
+                self.assertEqual(policy.created_by_subject_id, owner_subject.id)
 
     def test_existing_user_skips_initialization(self) -> None:
         with self.SessionLocal() as db:

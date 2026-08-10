@@ -179,7 +179,7 @@ describe('GlobalSearchOverlay', () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it('searches supported global scopes and renders type labels', async () => {
+  it('keeps local results and explains a rerank quota fallback without showing family budget data', async () => {
     await renderOverlay({
       items: [
         {
@@ -227,6 +227,7 @@ describe('GlobalSearchOverlay', () => {
       query: '番茄',
       search_mode: 'hybrid',
       degraded: true,
+      degradation_code: 'model_usage_capability_limit_exceeded',
     });
 
     changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]')!, '番茄');
@@ -243,7 +244,8 @@ describe('GlobalSearchOverlay', () => {
     expect(document.body.textContent).toContain('菜谱');
     expect(document.body.textContent).toContain('餐食计划');
     expect(document.body.textContent).toContain('晚餐安排');
-    expect(document.body.textContent).toContain('检索结果可能不完整');
+    expect(document.body.textContent).toContain('模型排序额度达到限制，本次已改用基础排序。');
+    expect(document.body.textContent).not.toMatch(/¥|预算比例|家庭已用/);
   });
 
   it('emits the selected result', async () => {

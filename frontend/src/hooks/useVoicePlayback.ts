@@ -1,5 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 import { aiVoiceApi, type AiVoiceProvider } from '../api/aiVoiceApi';
+import {
+  hasOnsiteModelUsageOption,
+  modelUsageErrorCodeFromReason,
+} from '../features/model-usage/ModelUsageDegradationNotice';
 
 type PcmStreamOptions = {
   sampleRate: number;
@@ -59,6 +63,7 @@ export function useVoicePlayback() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isEnabled, setIsEnabled] = useState(true);
   const [error, setError] = useState('');
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [traceEvents, setTraceEvents] = useState<VoicePlaybackTraceEvent[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string>('');
@@ -217,6 +222,7 @@ export function useVoicePlayback() {
     lowWaterCountRef.current = 0;
     setTraceEvents([]);
     setError('');
+    setErrorCode(null);
     setIsSpeaking(true);
     try {
       const context = getAudioContext();
@@ -333,8 +339,10 @@ export function useVoicePlayback() {
     }, remainingMs);
   }, [clearFinishTimer, flushPcmQueue]);
 
-  const failStream = useCallback((message: string) => {
-    setError(message || '语音播报失败');
+  const failStream = useCallback((message: string, code: string | null = null) => {
+    const errorCode = code?.startsWith('model_usage_') ? code : null;
+    setErrorCode(errorCode);
+    setError(hasOnsiteModelUsageOption(errorCode, 'tts') ? '' : message || '语音播报失败');
     finishStream();
   }, [finishStream]);
 
@@ -346,6 +354,7 @@ export function useVoicePlayback() {
     if (!isEnabled || !text.trim()) return;
     stop();
     setError('');
+    setErrorCode(null);
     try {
       const blob = await aiVoiceApi.synthesizeSpeech({
         surface: 'recipe_cook_page',
@@ -364,7 +373,13 @@ export function useVoicePlayback() {
       setIsSpeaking(true);
       await audio.play();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '语音播报失败');
+      const nextErrorCode = modelUsageErrorCodeFromReason(reason);
+      setErrorCode(nextErrorCode);
+      setError(
+        hasOnsiteModelUsageOption(nextErrorCode, 'tts')
+          ? ''
+          : reason instanceof Error ? reason.message : '语音播报失败',
+      );
       stop();
     }
   }, [isEnabled, stop]);
@@ -396,6 +411,7 @@ export function useVoicePlayback() {
     setIsEnabled,
     isSpeaking,
     error,
+    errorCode,
     traceEvents,
     speak,
     playBlob,

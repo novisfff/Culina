@@ -37,6 +37,10 @@ def upsert_search_document(db: Session, payload: SearchDocumentPayload) -> Searc
             entity_id=payload.entity_id,
             content_hash=payload.content_hash,
             document_builder_version=payload.document_builder_version,
+            # SQLAlchemy column defaults are populated at flush time.  The
+            # indexing worker reads this value before committing a freshly
+            # created document, so make the lifecycle state explicit here.
+            vector_status="pending",
         )
         db.add(document)
 
@@ -52,6 +56,10 @@ def upsert_search_document(db: Session, payload: SearchDocumentPayload) -> Searc
     if is_new or hash_changed:
         document.embedding_model = payload.embedding_model
         document.embedding_dimensions = payload.embedding_dimensions
+        document.pending_vector = None
+        document.pending_vector_content_hash = None
+        document.pending_vector_model = None
+        document.pending_vector_dimensions = None
     if hash_changed or document.vector_status == "disabled":
         document.vector_status = "pending"
         document.vector_error = None

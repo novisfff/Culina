@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     exclude: [...configDefaults.exclude, 'e2e/**'],
+    // Several workspace tests exercise real async rendering paths. Run files
+    // serially so their behavioral timeouts are not starved by unrelated JSDOM work.
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.domain import Base
+from app.services.model_usage.types import UsageAttribution
+from app.services.search.embeddings import MeteredEmbeddingResult
 from app.services.search.rerank import RerankResult, RerankUnavailableError
 from app.services.search.vector_store import VectorSearchHit
 
@@ -17,12 +19,28 @@ class FakeEmbeddingClient:
     model: str = "fake-embedding"
     dimensions: int = 2
 
-    def embed_text(self, text: str) -> list[float]:
-        del text
-        return [0.1, 0.2]
+    def embed_text(
+        self,
+        text: str,
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+    ) -> MeteredEmbeddingResult:
+        del text, attribution, attempt_key
+        return MeteredEmbeddingResult(vectors=[[0.1, 0.2]], usage_event_id=None)
 
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [[0.1, 0.2] for _ in texts]
+    def embed_batch(
+        self,
+        texts: list[str],
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+    ) -> MeteredEmbeddingResult:
+        del attribution, attempt_key
+        return MeteredEmbeddingResult(
+            vectors=[[0.1, 0.2] for _ in texts],
+            usage_event_id=None,
+        )
 
 
 @dataclass
@@ -30,12 +48,24 @@ class ExplodingEmbeddingClient:
     model: str = "fake-embedding"
     dimensions: int = 2
 
-    def embed_text(self, text: str) -> list[float]:
-        del text
+    def embed_text(
+        self,
+        text: str,
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+    ) -> MeteredEmbeddingResult:
+        del text, attribution, attempt_key
         raise AssertionError("embedding client should not be called")
 
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        del texts
+    def embed_batch(
+        self,
+        texts: list[str],
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+    ) -> MeteredEmbeddingResult:
+        del texts, attribution, attempt_key
         raise AssertionError("embedding client should not be called")
 
 
@@ -61,10 +91,22 @@ class FakeRerankClient:
         self.results = results or []
         self.fail = fail
         self.documents: list[str] = []
+        self.attribution: UsageAttribution | None = None
+        self.attempt_key: str | None = None
 
-    def rerank(self, *, query: str, documents: list[str], top_n: int) -> list[RerankResult]:
+    def rerank(
+        self,
+        *,
+        query: str,
+        documents: list[str],
+        top_n: int,
+        attribution: UsageAttribution | None = None,
+        attempt_key: str | None = None,
+    ) -> list[RerankResult]:
         del query, top_n
         self.documents = documents
+        self.attribution = attribution
+        self.attempt_key = attempt_key
         if self.fail:
             raise RerankUnavailableError("rerank failed")
         return self.results

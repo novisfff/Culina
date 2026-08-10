@@ -50,7 +50,7 @@ def list_ingredients(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
+    user, membership = auth
     query = q.strip()
     if query:
         search_limit = limit or 100
@@ -58,6 +58,7 @@ def list_ingredients(
         search_result = hybrid_search(
             db,
             family_id=membership.family_id,
+            user_id=user.id,
             query=query,
             scopes=["ingredient"],
             limit=search_limit,

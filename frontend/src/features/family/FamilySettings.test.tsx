@@ -345,4 +345,30 @@ describe('FamilySettings activity overlay control', () => {
     expect(onNavigate).toHaveBeenCalledWith({ workspace: 'eat', view: 'history' });
     expect(onNavigate).not.toHaveBeenCalledWith('logs');
   });
+
+  it('opens model usage from the dedicated desktop and mobile family entries', () => {
+    const onNavigate = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: false,
+      onNavigate,
+    });
+
+    const desktopEntry = view.querySelector<HTMLButtonElement>('.family-model-usage-entry');
+    expect(desktopEntry?.textContent).toContain('模型用量');
+    expect(desktopEntry?.querySelectorAll('svg')).toHaveLength(1);
+    act(() => desktopEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
+
+    rerenderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      onNavigate,
+    });
+    const mobileEntry = view.querySelector<HTMLButtonElement>('.mobile-family-model-usage-entry');
+    expect(mobileEntry?.textContent).toContain('模型用量');
+    expect(mobileEntry?.querySelectorAll('svg')).toHaveLength(1);
+    act(() => mobileEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
+  });
 });

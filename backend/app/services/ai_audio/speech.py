@@ -1,11 +1,34 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from fastapi import HTTPException, status
 
 
 MARKDOWN_TABLE_LINE = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def dashscope_tts_billable_characters(text: str) -> int:
+    """Count DashScope TTS characters without retaining the input text.
+
+    DashScope bills each Han ideograph as two characters and every other
+    Unicode character (including whitespace and punctuation) as one.
+    """
+
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+    total = 0
+    for character in text:
+        name = unicodedata.name(character, "")
+        total += (
+            2
+            if name.startswith(
+                ("CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH")
+            )
+            else 1
+        )
+    return total
 
 
 def sanitize_speech_text(text: str, max_chars: int = 300) -> str:

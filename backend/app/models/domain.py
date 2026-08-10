@@ -183,6 +183,13 @@ class SearchDocument(Base):
     document_builder_version: Mapped[str] = mapped_column(String(32), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     embedding_dimensions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # A provider-success vector is committed here before its Qdrant handoff.
+    # It is intentionally kept out of the model-usage ledger, which must not
+    # retain document content or vectors.
+    pending_vector: Mapped[list[float] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    pending_vector_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_vector_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    pending_vector_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     vector_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     vector_attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -724,6 +731,15 @@ class AIImageGenerationJob(Base):
     generated_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     bind_status: Mapped[str | None] = mapped_column(String(32), default="pending", nullable=True, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # These are diagnostic links to the model-usage ledger, deliberately not
+    # foreign keys: image-job cleanup must never retain ledger data (or vice
+    # versa) past its own lifecycle.
+    usage_attempt_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    usage_reservation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    usage_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_execution_status: Mapped[str] = mapped_column(String(32), default="not_started", nullable=False)
+    provider_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -746,6 +762,13 @@ class SearchIndexJob(Base):
     target_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Diagnostic links deliberately remain scalar strings rather than ledger
+    # foreign keys so retained usage data and search-job cleanup are decoupled.
+    usage_attempt_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    usage_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    budget_blocked_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    budget_blocked_policy_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -22,6 +22,7 @@ describe('useAppNavigationState', () => {
       primaryTab: 'eat',
       eatBaseView: 'discover',
       discoverSection: 'all',
+      familyView: 'profile',
     });
   });
 
@@ -40,6 +41,28 @@ describe('useAppNavigationState', () => {
     expect(result.current.state).toMatchObject({
       primaryTab: 'eat',
       eat: { baseView: 'discover', discoverSection: 'selfMade', task: null },
+    });
+  });
+
+  it('persists a family subview but never an alert-supplied period', () => {
+    const { result } = renderHook(() => useAppNavigationState());
+
+    act(() => result.current.navigate({
+      workspace: 'family',
+      view: 'modelUsage',
+      period: '2026-06',
+    }));
+
+    expect(result.current.state).toMatchObject({
+      primaryTab: 'family',
+      family: { view: 'modelUsage', period: '2026-06' },
+    });
+    expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).toEqual({
+      version: 2,
+      primaryTab: 'family',
+      eatBaseView: 'discover',
+      discoverSection: 'all',
+      familyView: 'modelUsage',
     });
   });
 

@@ -5775,9 +5775,10 @@
   }
 
   .mobile-notification-center .app-notification-trigger {
-    width: 38px;
-    height: 38px;
-    min-height: 38px;
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
     display: grid;
     place-items: center;
     padding: 0;
@@ -5792,8 +5793,8 @@
   }
 
   .mobile-notification-center .app-notification-icon {
-    width: 38px;
-    height: 38px;
+    width: calc(var(--tap-min) - var(--space-2));
+    height: calc(var(--tap-min) - var(--space-2));
     background: transparent;
     color: currentColor;
   }
@@ -5823,7 +5824,8 @@
     right: max(14px, calc((100vw - 480px) / 2 + 14px));
     z-index: var(--z-mobile-notification);
     width: min(360px, calc(100vw - 28px));
-    max-height: min(456px, max(280px, calc(100dvh - 164px - env(safe-area-inset-bottom, 0px))));
+    grid-template-rows: auto minmax(0, 1fr);
+    max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
     overflow: hidden;
     border-radius: 22px;
     isolation: isolate;
@@ -5831,8 +5833,8 @@
 
   .mobile-notification-center .app-notification-list,
   .mobile-notification-popover .app-notification-list {
-    gap: 8px;
-    max-height: min(320px, max(220px, calc(100dvh - 288px - env(safe-area-inset-bottom, 0px))));
+    min-height: 0;
+    max-height: none;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -5844,95 +5846,114 @@
 
   .mobile-notification-center .app-notification-summary,
   .mobile-notification-popover .app-notification-summary {
-    max-width: 136px;
-    white-space: nowrap;
+    min-width: 0;
+    max-width: 48%;
+    white-space: normal;
     text-align: right;
     line-height: 1.25;
+    overflow-wrap: anywhere;
   }
 
   .mobile-notification-center .app-notification-row,
   .mobile-notification-popover .app-notification-row {
     width: 100%;
     max-width: 100%;
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 7px;
-    min-height: 48px;
-    overflow: hidden;
-    padding: 7px 8px;
+    grid-template-columns: var(--space-8) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
+    min-height: var(--tap-min);
+    overflow: visible;
+    padding: var(--space-3);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable,
+  .mobile-notification-popover .app-notification-row.is-actionable {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .mobile-notification-center .app-notification-open,
+  .mobile-notification-popover .app-notification-open {
+    grid-template-columns: var(--space-8) minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3);
   }
 
   .mobile-notification-center .app-notification-row-actions,
   .mobile-notification-popover .app-notification-row-actions {
-    grid-column: auto;
+    grid-column: 2;
     min-width: 0;
-    justify-content: flex-end;
-    flex-wrap: nowrap;
-    gap: 4px;
-    white-space: nowrap;
+    justify-content: flex-start;
+    gap: var(--space-2);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable .app-notification-row-actions,
+  .mobile-notification-popover .app-notification-row.is-actionable .app-notification-row-actions {
+    grid-column: 1;
+    padding: 0 var(--space-3) var(--space-3);
   }
 
   .mobile-notification-center .app-notification-row-icon,
   .mobile-notification-popover .app-notification-row-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 11px;
+    width: var(--space-8);
+    height: var(--space-8);
+    border-radius: var(--radius-xs);
   }
 
   .mobile-notification-center .app-notification-row-title,
   .mobile-notification-popover .app-notification-row-title {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
     min-width: 0;
-    align-items: center;
+    align-items: flex-start;
   }
 
   .mobile-notification-center .app-notification-row-copy small,
   .mobile-notification-popover .app-notification-row-copy small {
-    display: none;
+    display: block;
+    overflow-wrap: anywhere;
   }
 
   .mobile-notification-center .app-notification-row-copy strong,
   .mobile-notification-popover .app-notification-row-copy strong {
     min-width: 0;
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
 
   .mobile-notification-center .app-notification-row-title em,
   .mobile-notification-popover .app-notification-row-title em {
-    max-width: 54px;
-    overflow: hidden;
-    padding: 1px 5px;
-    font-size: 0.7rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: none;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
+    white-space: normal;
   }
 
   .mobile-notification-center .app-notification-retry,
   .mobile-notification-popover .app-notification-retry {
-    flex: 0 0 32px;
-    width: 32px;
-    min-width: 32px;
-    min-height: 32px;
-    padding: 0;
-    border-radius: 10px;
-    font-size: 0;
-    gap: 0;
+    flex: 0 1 auto;
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    gap: var(--space-2);
   }
 
   .mobile-notification-center .app-notification-retry span,
   .mobile-notification-popover .app-notification-retry span {
-    width: 14px;
-    height: 14px;
+    width: var(--space-4);
+    height: var(--space-4);
   }
 
   .mobile-notification-center .app-notification-clear,
   .mobile-notification-popover .app-notification-clear {
-    flex: 0 0 32px;
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
+    flex: 0 0 var(--tap-min);
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
   }
 
   .mobile-dashboard-family {
@@ -7324,7 +7345,7 @@
     top: calc(env(safe-area-inset-top, 0px) + 86px);
     right: max(14px, calc((100vw - 480px) / 2 + 14px));
     width: min(360px, calc(100vw - 28px));
-    max-height: min(456px, max(280px, calc(100dvh - 164px - env(safe-area-inset-bottom, 0px))));
+    max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
     overflow: hidden;
   }
 

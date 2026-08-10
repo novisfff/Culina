@@ -3,13 +3,14 @@ import { installApiMocks } from './apiMocks.mjs';
 
 export const test = base.extend({
   authenticated: [true, { option: true }],
-  app: async ({ authenticated, context, page }, use) => {
+  modelUsageScenario: ['owner', { option: true }],
+  app: async ({ authenticated, context, modelUsageScenario, page }, use) => {
     const consoleErrors = [];
     const pageErrors = [];
     const requestedApiPaths = [];
     const unexpectedRequests = [];
 
-    await installApiMocks(context, unexpectedRequests, { requestedApiPaths });
+    await installApiMocks(context, unexpectedRequests, { modelUsageScenario, requestedApiPaths });
 
     if (authenticated) {
       await context.addInitScript(() => {

@@ -1,6 +1,9 @@
+import type { ModelUsageGroupBy, ModelUsageScope } from './types';
+
 const inventoryOverviewRoot = ['inventory', 'overview'] as const;
 const foodPlanRoot = ['food-plan'] as const;
 const mealCandidatesRoot = ['meal-logs', 'candidates'] as const;
+const modelUsageRoot = (familyId: string) => ['model-usage', familyId] as const;
 
 export const queryKeys = {
   authMe: ['auth', 'me'] as const,
@@ -78,4 +81,13 @@ export const queryKeys = {
   aiRunLlmExchanges: (runId: string | null, includePayload = true) => ['ai-run-llm-exchanges', runId, includePayload] as const,
   aiRunLlmExchange: (runId: string | null, exchangeId: string | null) => ['ai-run-llm-exchange', runId, exchangeId] as const,
   aiPendingApprovals: (conversationId: string | null) => ['ai-pending-approvals', conversationId] as const,
+  modelUsageRoot,
+  modelUsageOverview: (familyId: string, scope: ModelUsageScope, period: string) =>
+    [...modelUsageRoot(familyId), 'overview', scope, period] as const,
+  modelUsageBreakdown: (familyId: string, scope: ModelUsageScope, period: string, groupBy: ModelUsageGroupBy) =>
+    [...modelUsageRoot(familyId), 'breakdown', scope, period, groupBy] as const,
+  modelUsageRequests: (familyId: string, scope: ModelUsageScope, dateFrom: string, dateTo: string) =>
+    [...modelUsageRoot(familyId), 'requests', scope, dateFrom, dateTo] as const,
+  modelUsagePolicy: (familyId: string) => [...modelUsageRoot(familyId), 'policy'] as const,
+  modelUsageAlerts: (familyId: string) => [...modelUsageRoot(familyId), 'alerts'] as const,
 };

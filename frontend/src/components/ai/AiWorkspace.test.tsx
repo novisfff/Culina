@@ -1543,6 +1543,53 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('renders an LLM fallback notice only from explicit stable message metadata', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-fallback',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '已完成晚餐建议。',
+        content_type: 'parts',
+        parts: [{ id: 'text-fallback', type: 'text', text: '已完成晚餐建议。' }],
+        run_id: 'run-fallback',
+        status: 'completed',
+        metadata: {
+          modelUsageFallback: {
+            used: true,
+            reasonCode: 'model_usage_budget_exceeded',
+          },
+        },
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      {
+        id: 'message-no-fallback',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '另一条正常回复。',
+        content_type: 'parts',
+        parts: [{ id: 'text-no-fallback', type: 'text', text: '另一条正常回复。' }],
+        run_id: 'run-light-model-without-fallback-metadata',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:01Z',
+      },
+    ]);
+    vi.spyOn(api, 'getAiRunEvents').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+    await flushAsync();
+
+    const fallbackNotice = '当前模型额度受限，已切换到可用模型继续完成回复。';
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain(fallbackNotice);
+    expect(desktopView.querySelectorAll('.model-usage-degradation')).toHaveLength(1);
+    expect(desktopView.textContent).not.toMatch(/¥|预算比例|家庭已用/);
+    rendered.unmount();
+  });
+
   it('restores collapsed run progress when reopening a conversation', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {

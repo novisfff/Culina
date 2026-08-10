@@ -52,6 +52,23 @@ def message_metadata_with_draft_ids(
     return next_metadata
 
 
+def message_metadata_with_model_usage_fallback(
+    metadata: dict[str, Any] | None,
+    *,
+    fallback_used: bool,
+    fallback_reason_code: str | None,
+) -> dict[str, Any]:
+    next_metadata = dict(metadata or {})
+    if not fallback_used:
+        next_metadata.pop("modelUsageFallback", None)
+        return next_metadata
+    next_metadata["modelUsageFallback"] = {
+        "used": True,
+        "reasonCode": fallback_reason_code,
+    }
+    return next_metadata
+
+
 def dedupe_message_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     deduped: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -101,11 +118,17 @@ def run_output_payload(
     text: str,
     cards: list[dict[str, Any]],
     routing: dict[str, Any] | None,
+    fallback_used: bool = False,
+    fallback_reason_code: str | None = None,
 ) -> dict[str, Any]:
     return {
         "text": text,
         "cards": cards,
         "routing": dict(routing or {}),
+        "model_usage_fallback": {
+            "used": bool(fallback_used),
+            "reason_code": fallback_reason_code if fallback_used else None,
+        },
     }
 
 

@@ -7,6 +7,7 @@ from time import perf_counter
 from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.runtime.provider import BaseChatProvider
+from app.ai.runtime.types import provider_control_flow_metadata
 from app.ai.skills.base import SkillContext, SkillResult
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.shared import model_name
@@ -24,7 +25,9 @@ from app.ai.workflows.orchestrator.tools import (
     SkillInjectionManager,
 )
 from app.ai.workflows.runner_support.run_summary import record_route_selection
+from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
 from app.core.utils import create_id
+from app.services.model_usage.types import UsageAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +226,14 @@ class WorkspaceOrchestratorAgent:
                     user_id=context.user_id,
                     span_id=orchestrator_span.span_id if orchestrator_span is not None else context.trace_parent_span_id,
                 )
+            if "usage_attribution" in inspect.signature(self.provider.generate_with_tools).parameters:
+                provider_kwargs["usage_attribution"] = UsageAttribution(
+                    family_id=context.family_id,
+                    attribution_kind=ModelUsageAttributionKind.USER,
+                    actor_user_id=context.user_id,
+                    operation_source=ModelUsageOperationSource.INTERACTIVE,
+                    logical_operation_id=context.run_id,
+                )
             provider_result = self.provider.generate_with_tools(**provider_kwargs)
             if provider_result.status in {"failed", "fallback"}:
                 result = self.result_assembler.failed_result(
@@ -236,16 +247,38 @@ class WorkspaceOrchestratorAgent:
             result = self.result_assembler.completed_result(provider_result, context, state)
             log_turn_completed(result)
             return finish_orchestrator_span(result)
-        except ApprovalRequired:
-            result = self.result_assembler.approval_result(context, state)
+        except ApprovalRequired as exc:
+            control_flow = provider_control_flow_metadata(exc)
+            result = self.result_assembler.approval_result(
+                context,
+                state,
+                model=control_flow.model,
+                fallback_used=control_flow.fallback_used,
+                fallback_reason_code=control_flow.fallback_reason_code,
+            )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
         except HumanInputRequired as exc:
-            result = self.result_assembler.human_input_result(context, state, exc.request)
+            control_flow = provider_control_flow_metadata(exc)
+            result = self.result_assembler.human_input_result(
+                context,
+                state,
+                exc.request,
+                model=control_flow.model,
+                fallback_used=control_flow.fallback_used,
+                fallback_reason_code=control_flow.fallback_reason_code,
+            )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
-        except ToolBudgetHardStop:
-            result = self.result_assembler.tool_budget_hard_stop_result(context, state)
+        except ToolBudgetHardStop as exc:
+            control_flow = provider_control_flow_metadata(exc)
+            result = self.result_assembler.tool_budget_hard_stop_result(
+                context,
+                state,
+                model=control_flow.model,
+                fallback_used=control_flow.fallback_used,
+                fallback_reason_code=control_flow.fallback_reason_code,
+            )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
         except AIExecutionCancelled:

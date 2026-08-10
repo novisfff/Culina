@@ -456,15 +456,17 @@ describe('aiApi', () => {
     const audioStart = { content_type: 'audio/pcm', format: 'pcm16', sample_rate: 24000, channels: 1 };
     const audioDelta = { audio: 'ZmFrZS1hdWRpbw==', sequence: 1 };
     const audioDone = { sequence: 1 };
+    const audioError = { message: '语音播报失败', code: 'model_usage_capability_limit_exceeded' };
     const audioTrace = { stage: 'tts_segment_commit', elapsed_ms: 120, segment_sequence: 1 };
     const messageDelta = { delta: '收' };
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFrom(
-      `${sseBlock('assistant_audio_start', audioStart)}${sseBlock('assistant_audio_trace', audioTrace)}${sseBlock('message_delta', messageDelta)}${sseBlock('assistant_audio_delta', audioDelta)}${sseBlock('assistant_audio_done', audioDone)}${sseBlock('response', response)}`,
+      `${sseBlock('assistant_audio_start', audioStart)}${sseBlock('assistant_audio_trace', audioTrace)}${sseBlock('message_delta', messageDelta)}${sseBlock('assistant_audio_delta', audioDelta)}${sseBlock('assistant_audio_done', audioDone)}${sseBlock('assistant_audio_error', audioError)}${sseBlock('response', response)}`,
     ), { status: 200 }));
     const startSpy = vi.fn();
     const messageDeltaSpy = vi.fn();
     const deltaSpy = vi.fn();
     const doneSpy = vi.fn();
+    const errorSpy = vi.fn();
     const traceSpy = vi.fn();
 
     await expect(
@@ -475,6 +477,7 @@ describe('aiApi', () => {
           onMessageDelta: messageDeltaSpy,
           onAssistantAudioDelta: deltaSpy,
           onAssistantAudioDone: doneSpy,
+          onAssistantAudioError: errorSpy,
           onAssistantAudioTrace: traceSpy,
         },
       ),
@@ -484,6 +487,7 @@ describe('aiApi', () => {
     expect(messageDeltaSpy).toHaveBeenCalledWith(messageDelta);
     expect(deltaSpy).toHaveBeenCalledWith(audioDelta);
     expect(doneSpy).toHaveBeenCalledWith(audioDone);
+    expect(errorSpy).toHaveBeenCalledWith(audioError);
   });
 
 

@@ -2,18 +2,32 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import sys
+import wave
+from contextlib import asynccontextmanager
+from dataclasses import replace
+from decimal import Decimal
 from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 
-from app.services.ai_audio.service import AIAudioService
+from app.services.ai_audio import service as audio_service_module
+from app.services.ai_audio import dashscope_audio as dashscope_audio_module
+from app.services.ai_audio.service import AIAudioService, SpeechResultCache
 from app.services.ai_audio.realtime import RealtimeVoiceSessionState, realtime_voice_session_store
-from app.services.ai_audio.schemas import CookingRealtimeSessionRequest
+from app.services.ai_audio.schemas import (
+    CookingRealtimeSessionRequest,
+    SpeechRequest,
+    SpeechResult,
+    TranscriptionRequest,
+)
 from app.services.ai_audio.speech import sanitize_speech_text
+from app.services.ai_audio.transcription import AudioDurationError, measure_audio_duration_seconds
 from app.services.ai_audio.dashscope_audio import (
+    DashScopeAudioProvider,
     _dashscope_stt_payload,
     _extract_qwen_asr_delta_text,
     _qwen_tts_realtime_stream,
@@ -58,6 +72,126 @@ def test_sanitize_speech_text_removes_markdown_and_limits_length() -> None:
     assert result == "标题 好了，已经切到下一步。"
 
 
+def _wav_payload(*, seconds: int, sample_rate: int = 16000) -> bytes:
+    payload = io.BytesIO()
+    with wave.open(payload, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(sample_rate)
+        writer.writeframes(b"\x00\x00" * sample_rate * seconds)
+    return payload.getvalue()
+
+
+def _webm_payload(*, seconds: int, sample_rate: int = 48000) -> bytes:
+    import av
+
+    payload = io.BytesIO()
+    container = av.open(payload, mode="w", format="webm")
+    stream = container.add_stream("opus", rate=sample_rate)
+    frame = av.AudioFrame(format="s16", layout="mono", samples=sample_rate * seconds)
+    frame.sample_rate = sample_rate
+    frame.planes[0].update(b"\x00\x00" * sample_rate * seconds)
+    for packet in stream.encode(frame):
+        container.mux(packet)
+    for packet in stream.encode(None):
+        container.mux(packet)
+    container.close()
+    return payload.getvalue()
+
+
+def test_server_duration_ignores_client_claim_for_wav() -> None:
+    measured = measure_audio_duration_seconds(
+        _wav_payload(seconds=1),
+        content_type="audio/wav",
+        metadata={"duration_seconds": 0.01},
+    )
+
+    assert measured == Decimal("1.000000")
+
+
+def test_server_duration_ignores_client_claim_for_webm() -> None:
+    measured = measure_audio_duration_seconds(
+        _webm_payload(seconds=1),
+        content_type="audio/webm",
+        metadata={"duration_seconds": 0.01},
+    )
+
+    # Opus/WebM carries codec delay, so use a narrow decode-based tolerance
+    # rather than trusting the spoofed client-side duration.
+    assert float(measured) == pytest.approx(1, rel=0.05)
+
+
+def test_server_duration_measures_validated_pcm_frames() -> None:
+    measured = measure_audio_duration_seconds(
+        b"\x00\x00" * 16000,
+        content_type="audio/pcm",
+        metadata={"sample_rate": 16000, "sample_width_bytes": 2, "channels": 1},
+    )
+
+    assert measured == Decimal("1.000000")
+
+
+def test_server_duration_rejects_invalid_audio_and_oversized_duration() -> None:
+    with pytest.raises(AudioDurationError, match="audio_duration_invalid"):
+        measure_audio_duration_seconds(
+            b"not-an-audio-container",
+            content_type="audio/webm",
+            metadata={},
+        )
+
+
+def test_local_tts_cache_hit_skips_a_second_provider_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    class FakeOpenAIAudioProvider:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def synthesize(self, _request: SpeechRequest) -> SpeechResult:
+            nonlocal calls
+            calls += 1
+            return SpeechResult(
+                content_type="audio/mpeg",
+                audio_bytes=b"cached-audio",
+                audio_stream=None,
+                external_url=None,
+                external_url_expires_at=None,
+                provider="openai",
+                model="tts-test",
+            )
+
+    monkeypatch.setattr(audio_service_module, "OpenAIAudioProvider", FakeOpenAIAudioProvider)
+    service = AIAudioService(
+        settings(
+            ai_tts_provider="openai",
+            ai_tts_model="tts-test",
+            ai_tts_voice="default",
+            model_usage_required=False,
+        ),
+        cache=SpeechResultCache(),
+    )
+    request = SpeechRequest(
+        text="做好啦！",
+        surface="recipe_cook_page",
+        family_id="family-test",
+        user_id="user-test",
+        operation_id="tts-operation-cache",
+    )
+
+    first = service.synthesize(request)
+    second = service.synthesize(replace(request, operation_id="tts-operation-cache-retry"))
+
+    assert first.audio_bytes == second.audio_bytes == b"cached-audio"
+    assert calls == 1
+    with pytest.raises(AudioDurationError, match="audio_duration_exceeded"):
+        measure_audio_duration_seconds(
+            _wav_payload(seconds=2),
+            content_type="audio/wav",
+            metadata={},
+            max_duration_seconds=Decimal("1"),
+        )
+
+
 def test_create_cooking_session_stores_ttl_state() -> None:
     realtime_voice_session_store.clear()
     service = AIAudioService(settings(ai_realtime_provider="dashscope"))
@@ -80,6 +214,391 @@ def test_create_cooking_session_stores_ttl_state() -> None:
     assert state.recipe_id == "recipe-test"
     assert state.cook_session_id == "cook-test"
     assert state.session_revision == 7
+
+
+def test_realtime_session_creation_installs_scope_without_opening_a_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    realtime_voice_session_store.clear()
+    sentinel_adapter = object()
+    calls: list[str] = []
+
+    def build_adapter(*_args: object, provider: str, **_kwargs: object) -> object:
+        calls.append(provider)
+        return sentinel_adapter
+
+    monkeypatch.setattr(audio_service_module, "_realtime_usage_adapter", build_adapter)
+    service = AIAudioService(
+        settings(
+            ai_realtime_provider="dashscope",
+            ai_realtime_model="realtime-test",
+            model_usage_required=True,
+        )
+    )
+
+    session = service.create_cooking_session(
+        CookingRealtimeSessionRequest(
+            provider="dashscope",
+            family_id="family-test",
+            user_id="user-test",
+            recipe_id="recipe-test",
+            cook_session_id="cook-test",
+            session_revision=7,
+            subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+        )
+    )
+
+    state = realtime_voice_session_store.require_owner(
+        session.session_id,
+        family_id="family-test",
+        user_id="user-test",
+    )
+    assert calls == ["dashscope"]
+    assert state.realtime_usage_scope is not None
+    assert state.realtime_usage_scope.usage_adapter is sentinel_adapter
+    assert state.active_usage_lease is None
+    assert state.next_lease_sequence == 1
+
+
+def test_realtime_usage_required_fails_closed_without_a_configured_variant() -> None:
+    service = AIAudioService(
+        settings(
+            ai_realtime_provider="dashscope",
+            ai_realtime_model="",
+            model_usage_required=True,
+        )
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        service.create_cooking_session(
+            CookingRealtimeSessionRequest(
+                provider="dashscope",
+                family_id="family-test",
+                user_id="user-test",
+                recipe_id="recipe-test",
+                cook_session_id="cook-test",
+                session_revision=7,
+                subject={"source": "recipe_cook_page", "extra": {"surface": "recipe_cook_page"}},
+            )
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 503
+    assert exc_info.value.detail["code"] == "realtime_billing_variant_required"
+
+
+def test_dashscope_realtime_asr_records_server_input_in_its_realtime_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ActiveOperation:
+        decision = "active"
+        error_code = None
+
+        def __init__(self) -> None:
+            self.input_durations: list[Decimal] = []
+
+        def add_input_seconds(self, value: Decimal) -> None:
+            self.input_durations.append(value)
+
+    class Scope:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str, str]] = []
+            self.operation = ActiveOperation()
+
+        @asynccontextmanager
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            direction: str,
+            provider_model: str,
+        ):
+            self.calls.append((turn_id, segment, direction, provider_model))
+            yield self.operation
+
+    async def fake_transcribe(**_kwargs: object) -> str:
+        return "下一步"
+
+    monkeypatch.setattr(
+        dashscope_audio_module,
+        "_qwen_asr_realtime_transcribe",
+        fake_transcribe,
+    )
+    provider = DashScopeAudioProvider(
+        SimpleNamespace(
+            ai_stt_api_key="test-key",
+            dashscope_api_key="test-key",
+            ai_realtime_model="qwen-realtime-test",
+            ai_stt_model="",
+            ai_realtime_api_base="wss://dashscope.example/realtime",
+            ai_realtime_input_sample_rate=16000,
+            ai_realtime_timeout_seconds=5,
+        ),
+        capability="stt",
+    )
+    scope = Scope()
+    request = TranscriptionRequest(
+        audio_bytes=b"\x00\x00" * 16000,
+        filename="voice.pcm",
+        content_type="audio/pcm",
+        surface="recipe_cook_page",
+        family_id="family-test",
+        user_id="user-test",
+        operation_id="realtime-asr-operation",
+        metadata={"sample_rate": 16000, "sample_width_bytes": 2, "channels": 1},
+    )
+
+    result = asyncio.run(
+        provider.transcribe_realtime_audio(
+            request,
+            realtime_usage_scope=scope,  # type: ignore[arg-type]
+            realtime_turn_id="turn-realtime-asr",
+        )
+    )
+
+    assert result.text == "下一步"
+    assert scope.calls == [
+        ("turn-realtime-asr", "duplex", "input", "qwen-realtime-test")
+    ]
+    assert scope.operation.input_durations == [Decimal("1.000000")]
+
+
+def test_dashscope_realtime_asr_rejects_a_pcm_segment_over_one_lease_before_provider_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One realtime ASR provider operation cannot outlive its 30-second lease."""
+
+    calls = 0
+
+    class ActiveOperation:
+        decision = "active"
+        error_code = None
+
+        def add_input_seconds(self, _value: Decimal) -> None:
+            return None
+
+    class Scope:
+        @asynccontextmanager
+        async def provider_audio_operation(self, *, turn_id: str, segment: str):
+            assert (turn_id, segment) == ("turn-realtime-asr-long", "duplex")
+            yield ActiveOperation()
+
+    async def fake_transcribe(**_kwargs: object) -> str:
+        nonlocal calls
+        calls += 1
+        return "不应发送"
+
+    monkeypatch.setattr(
+        dashscope_audio_module,
+        "_qwen_asr_realtime_transcribe",
+        fake_transcribe,
+    )
+    provider = DashScopeAudioProvider(
+        SimpleNamespace(
+            ai_stt_api_key="test-key",
+            dashscope_api_key="test-key",
+            ai_realtime_model="qwen-realtime-test",
+            ai_stt_model="",
+            ai_realtime_api_base="wss://dashscope.example/realtime",
+            ai_realtime_input_sample_rate=16000,
+            ai_realtime_timeout_seconds=5,
+        ),
+        capability="stt",
+    )
+    request = TranscriptionRequest(
+        audio_bytes=b"\x00\x00" * 16000 * 31,
+        filename="voice.pcm",
+        content_type="audio/pcm",
+        surface="recipe_cook_page",
+        family_id="family-test",
+        user_id="user-test",
+        operation_id="realtime-asr-long-operation",
+        metadata={"sample_rate": 16000, "sample_width_bytes": 2, "channels": 1},
+    )
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            provider.transcribe_realtime_audio(
+                request,
+                realtime_usage_scope=Scope(),  # type: ignore[arg-type]
+                realtime_turn_id="turn-realtime-asr-long",
+            )
+        )
+
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.detail["code"] == "realtime_audio_lease_duration_exceeded"
+    assert calls == 0
+
+
+def test_dashscope_realtime_tts_records_server_output_in_its_realtime_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ActiveOperation:
+        decision = "active"
+        error_code = None
+
+        def __init__(self) -> None:
+            self.output_durations: list[Decimal] = []
+            self.tts_character_counts: list[int] = []
+
+        def add_output_seconds(self, value: Decimal) -> None:
+            self.output_durations.append(value)
+
+        def add_tts_characters(self, value: int) -> None:
+            self.tts_character_counts.append(value)
+
+    class Scope:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str, str]] = []
+            self.operation = ActiveOperation()
+
+        @asynccontextmanager
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            direction: str,
+            provider_model: str,
+        ):
+            self.calls.append((turn_id, segment, direction, provider_model))
+            yield self.operation
+
+    async def fake_tts_stream(**_kwargs: object):
+        async for _text in _kwargs["text_chunks"]:  # type: ignore[union-attr]
+            pass
+        yield {"type": "audio", "audio": b"\x00\x00" * 24000}
+
+    async def text_chunks():
+        yield "做好啦。"
+
+    monkeypatch.setattr(
+        dashscope_audio_module,
+        "_qwen_tts_realtime_stream",
+        fake_tts_stream,
+    )
+    provider = DashScopeAudioProvider(
+        SimpleNamespace(
+            ai_tts_api_key="test-key",
+            dashscope_api_key="test-key",
+            ai_tts_model="qwen-realtime-test",
+            ai_realtime_voice="Cherry",
+            ai_tts_voice="Cherry",
+            ai_realtime_output_sample_rate=24000,
+            ai_tts_language_type="Chinese",
+            ai_realtime_timeout_seconds=5,
+            ai_realtime_api_base="wss://dashscope.example/realtime",
+        ),
+        capability="tts",
+    )
+    scope = Scope()
+
+    async def run() -> list[dict]:
+        return [
+            event
+            async for event in provider.stream_realtime_text(
+                text_chunks(),
+                SpeechRequest(
+                    text="",
+                    surface="recipe_cook_page",
+                    family_id="family-test",
+                    user_id="user-test",
+                    operation_id="realtime-tts-operation",
+                ),
+                realtime_usage_scope=scope,  # type: ignore[arg-type]
+                realtime_turn_id="turn-realtime-tts",
+            )
+        ]
+
+    events = asyncio.run(run())
+
+    assert events[-1] == {"type": "audio_done", "sequence": 1}
+    assert scope.calls == [
+        ("turn-realtime-tts", "duplex", "output", "qwen-realtime-test")
+    ]
+    assert scope.operation.output_durations == [Decimal("1.000000")]
+    assert scope.operation.tts_character_counts == [7]
+
+
+def test_dashscope_realtime_tts_response_records_server_output_in_its_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ActiveOperation:
+        decision = "active"
+        error_code = None
+
+        def __init__(self) -> None:
+            self.output_durations: list[Decimal] = []
+            self.tts_character_counts: list[int] = []
+
+        def add_output_seconds(self, value: Decimal) -> None:
+            self.output_durations.append(value)
+
+        def add_tts_characters(self, value: int) -> None:
+            self.tts_character_counts.append(value)
+
+    class Scope:
+        def __init__(self) -> None:
+            self.operation = ActiveOperation()
+            self.provider_models: list[tuple[str, str]] = []
+
+        @asynccontextmanager
+        async def provider_audio_operation(
+            self,
+            *,
+            turn_id: str,
+            segment: str,
+            provider_model: str | None = None,
+            direction: str | None = None,
+        ):
+            assert (turn_id, segment) == ("turn-realtime-tts-response", "duplex")
+            self.provider_models.append((str(direction), str(provider_model)))
+            yield self.operation
+
+    async def fake_tts(**_kwargs: object) -> bytes:
+        return b"\x00\x00" * 24000
+
+    monkeypatch.setattr(dashscope_audio_module, "_qwen_tts_realtime_synthesize", fake_tts)
+    provider = DashScopeAudioProvider(
+        SimpleNamespace(
+            ai_tts_api_key="test-key",
+            dashscope_api_key="test-key",
+            ai_tts_model="qwen3-tts-flash",
+            ai_realtime_voice="Cherry",
+            ai_tts_voice="Cherry",
+            ai_tts_format="pcm",
+            ai_realtime_output_sample_rate=24000,
+            ai_tts_language_type="Chinese",
+            ai_realtime_timeout_seconds=5,
+            ai_realtime_api_base="wss://dashscope.example/realtime",
+        ),
+        capability="tts",
+    )
+    scope = Scope()
+
+    speech = asyncio.run(
+        provider.synthesize_realtime_text(
+            SpeechRequest(
+                text="做好啦。",
+                surface="recipe_cook_page",
+                family_id="family-test",
+                user_id="user-test",
+                operation_id="realtime-tts-response-operation",
+            ),
+            realtime_usage_scope=scope,  # type: ignore[arg-type]
+            realtime_turn_id="turn-realtime-tts-response",
+        )
+    )
+
+    assert speech.audio_bytes is not None
+    assert speech.model == "qwen3-tts-flash-realtime"
+    assert scope.provider_models == [
+        ("output", "qwen3-tts-flash-realtime"),
+    ]
+    assert scope.operation.output_durations == [Decimal("1.000000")]
+    assert scope.operation.tts_character_counts == [7]
 
 
 def test_extract_qwen_asr_delta_text_supports_realtime_subtitle_event() -> None:
@@ -215,3 +734,35 @@ def test_realtime_session_store_keeps_one_active_session_per_user() -> None:
     with pytest.raises(Exception) as exc_info:
         realtime_voice_session_store.get("voice_session-first")
     assert getattr(exc_info.value, "status_code", None) == 404
+
+
+def test_realtime_session_store_requires_matching_family_and_owner() -> None:
+    realtime_voice_session_store.clear()
+    now = utcnow()
+    state = RealtimeVoiceSessionState(
+        session_id="voice_session-owner-isolation",
+        family_id="family-owner",
+        user_id="user-owner",
+        provider="dashscope",
+        recipe_id="recipe-owner",
+        cook_session_id="cook-owner",
+        session_revision=1,
+        subject={"source": "recipe_cook_page"},
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+    )
+    realtime_voice_session_store.put(state)
+
+    assert realtime_voice_session_store.require_owner(
+        state.session_id,
+        family_id="family-owner",
+        user_id="user-owner",
+    ) is state
+    for family_id, user_id in (("family-other", "user-owner"), ("family-owner", "user-other")):
+        with pytest.raises(Exception) as exc_info:
+            realtime_voice_session_store.require_owner(
+                state.session_id,
+                family_id=family_id,
+                user_id=user_id,
+            )
+        assert getattr(exc_info.value, "status_code", None) == 403

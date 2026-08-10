@@ -7,6 +7,10 @@ import { AiVoiceInputButton } from '../ai/AiVoiceInputButton';
 import { useAiThreadAutoScroll } from '../ai/useAiThreadAutoScroll';
 import { useVoicePlayback } from '../../hooks/useVoicePlayback';
 import {
+  hasOnsiteModelUsageOption,
+  ModelUsageDegradationNotice,
+} from '../../features/model-usage/ModelUsageDegradationNotice';
+import {
   buildCookingAssistantRuntimeState,
   buildCookingAssistantSubject,
   describeCookingAction,
@@ -146,7 +150,7 @@ export function CookingAssistantPanel({
       playback.finishStream();
     },
     onAssistantAudioError: (event) => {
-      playback.failStream(event.message);
+      playback.failStream(event.message, event.code ?? null);
     },
     onAssistantAudioTrace: recordBackendAudioTrace,
     onCancellationAccepted: () => {
@@ -154,6 +158,7 @@ export function CookingAssistantPanel({
     },
   });
   const isCancellationInFlight = assistant.cancellationPhase === 'requesting' || assistant.cancellationPhase === 'cancelling';
+  const hasTtsDegradationNotice = hasOnsiteModelUsageOption(playback.errorCode, 'tts');
 
   function mergeVoiceTranscript(current: string, text: string) {
     const transcript = text.trim();
@@ -450,7 +455,9 @@ export function CookingAssistantPanel({
             </div>
           ) : null}
 
-          {playback.error ? (
+          {hasTtsDegradationNotice ? (
+            <ModelUsageDegradationNotice capability="tts" code={playback.errorCode} />
+          ) : playback.error ? (
             <div className="recipe-cook-ai-confirm-note">{playback.error}</div>
           ) : null}
 

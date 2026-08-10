@@ -83,6 +83,7 @@ def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]
         search_result = hybrid_search(
             context.db,
             family_id=context.family_id,
+            user_id=context.user_id,
             query=query,
             scopes=["food"],
             limit=max(limit + offset + 1, 80),

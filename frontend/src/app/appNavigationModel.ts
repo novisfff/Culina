@@ -2,6 +2,7 @@ import type { MealType } from '../api/types';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
 export type EatBaseView = 'discover' | 'plan' | 'history';
+export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests';
 
 export type CookLaunchContext = {
   date: string;
@@ -35,10 +36,12 @@ export type EatTask =
 export type AppNavigationState = {
   primaryTab: PrimaryTabKey;
   eat: { baseView: EatBaseView; task: EatTask | null; discoverSection: 'all' | 'selfMade' };
+  family: { view: FamilyView; period: string | null };
 };
 
 export type AppNavigationTarget =
-  | { workspace: 'home' | 'ingredients' | 'ai' | 'family' }
+  | { workspace: 'home' | 'ingredients' | 'ai' }
+  | { workspace: 'family'; view?: FamilyView; period?: string | null }
   | { workspace: 'eat'; view: 'discover'; section?: 'all' | 'selfMade' }
   | { workspace: 'eat'; view: 'food'; foodId: string }
   | { workspace: 'eat'; view: 'recipe'; recipeId: string; mode?: 'view' | 'edit' }
@@ -64,6 +67,7 @@ export type PersistedNavigationV2 = {
   primaryTab: PrimaryTabKey;
   eatBaseView: EatBaseView;
   discoverSection?: 'all' | 'selfMade';
+  familyView?: FamilyView;
 };
 
 export type AppQueryScope = {
@@ -86,11 +90,13 @@ export type AppQueryScope = {
 export const initialNavigationState: AppNavigationState = {
   primaryTab: 'home',
   eat: { baseView: 'discover', task: null, discoverSection: 'all' },
+  family: { view: 'profile', period: null },
 };
 
 const PRIMARY_TABS: ReadonlySet<PrimaryTabKey> = new Set(['home', 'eat', 'ingredients', 'ai', 'family']);
 const EAT_BASE_VIEWS: ReadonlySet<EatBaseView> = new Set(['discover', 'plan', 'history']);
 const DISCOVER_SECTIONS: ReadonlySet<'all' | 'selfMade'> = new Set(['all', 'selfMade']);
+const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set(['profile', 'modelUsage', 'modelUsageRequests']);
 
 const EMPTY_QUERY_SCOPE: AppQueryScope = {
   needsMembers: false,
@@ -125,6 +131,10 @@ function isDiscoverSection(value: unknown): value is 'all' | 'selfMade' {
   return typeof value === 'string' && DISCOVER_SECTIONS.has(value as 'all' | 'selfMade');
 }
 
+function isFamilyView(value: unknown): value is FamilyView {
+  return typeof value === 'string' && FAMILY_VIEWS.has(value as FamilyView);
+}
+
 function withEat(
   state: AppNavigationState,
   eat: Partial<AppNavigationState['eat']>,
@@ -136,6 +146,7 @@ function withEat(
       ...state.eat,
       ...eat,
     },
+    family: state.family,
   };
 }
 
@@ -150,6 +161,22 @@ function closeTaskState(state: AppNavigationState): AppNavigationState {
 }
 
 function applyTarget(state: AppNavigationState, target: AppNavigationTarget): AppNavigationState {
+  if (target.workspace === 'family') {
+    return {
+      primaryTab: 'family',
+      eat: {
+        ...state.eat,
+        task: null,
+      },
+      family: {
+        view: target.view ?? 'profile',
+        // Alert links may supply a month, but normal family navigation must
+        // never resurrect an earlier deep-link period.
+        period: target.period ?? null,
+      },
+    };
+  }
+
   if (target.workspace !== 'eat') {
     return {
       primaryTab: target.workspace,
@@ -157,6 +184,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
         ...state.eat,
         task: null,
       },
+      family: state.family,
     };
   }
 
@@ -320,6 +348,7 @@ export function parsePersistedNavigation(raw: string | null | undefined): AppNav
   const discoverSection = isDiscoverSection(parsed.discoverSection)
     ? parsed.discoverSection
     : 'all';
+  const familyView = isFamilyView(parsed.familyView) ? parsed.familyView : 'profile';
 
   return {
     primaryTab: parsed.primaryTab,
@@ -330,6 +359,9 @@ export function parsePersistedNavigation(raw: string | null | undefined): AppNav
       task: null,
       discoverSection,
     },
+    // V2 snapshots predating model usage have no familyView. Treat those as
+    // the profile page rather than dropping a valid stored navigation state.
+    family: { view: familyView, period: null },
   };
 }
 
@@ -339,6 +371,7 @@ export function persistedNavigationFromState(state: AppNavigationState): Persist
     primaryTab: state.primaryTab,
     eatBaseView: state.eat.baseView,
     discoverSection: state.eat.discoverSection,
+    familyView: state.family.view,
   };
 }
 

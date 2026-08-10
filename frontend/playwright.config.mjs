@@ -6,6 +6,21 @@ const expectTimeout = Number(process.env.PLAYWRIGHT_EXPECT_TIMEOUT || 5_000);
 const outputDir = process.env.PLAYWRIGHT_OUTPUT_DIR || 'test-results';
 const reportDir = process.env.PLAYWRIGHT_HTML_OUTPUT_DIR || 'playwright-report';
 const retainFailureEvidence = process.env.PLAYWRIGHT_DISABLE_FAILURE_EVIDENCE !== '1';
+const modelUsageGovernanceSpec = /model-usage-governance\.spec\.mjs/;
+const modelUsageViewportProjects = [
+  { name: 'model-usage-360x800', viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true },
+  { name: 'model-usage-375x812', viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true },
+  { name: 'model-usage-390x844', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true },
+  { name: 'model-usage-430x932', viewport: { width: 430, height: 932 }, hasTouch: true, isMobile: true },
+  { name: 'model-usage-768x1024', viewport: { width: 768, height: 1024 }, hasTouch: true },
+  { name: 'model-usage-1024x768', viewport: { width: 1024, height: 768 }, hasTouch: true },
+  { name: 'model-usage-1440x900', viewport: { width: 1440, height: 900 } },
+].map(({ name, viewport, ...use }) => ({
+  name,
+  use: { viewport, ...use },
+  testMatch: modelUsageGovernanceSpec,
+  grep: new RegExp(`@${name}\\b`),
+}));
 
 export default defineConfig({
   testDir: './e2e',
@@ -41,6 +56,7 @@ export default defineConfig({
   projects: [
     {
       name: 'phone-375x812',
+      testIgnore: modelUsageGovernanceSpec,
       use: {
         viewport: { width: 375, height: 812 },
         hasTouch: true,
@@ -49,6 +65,7 @@ export default defineConfig({
     },
     {
       name: 'tablet-1180x820',
+      testIgnore: modelUsageGovernanceSpec,
       use: {
         viewport: { width: 1180, height: 820 },
         hasTouch: true,
@@ -56,10 +73,12 @@ export default defineConfig({
     },
     {
       name: 'desktop-1440x960',
+      testIgnore: modelUsageGovernanceSpec,
       use: {
         viewport: { width: 1440, height: 960 },
       },
     },
+    ...modelUsageViewportProjects,
   ],
   webServer: {
     command: `npm run preview -- --host 127.0.0.1 --port ${port} --strictPort`,

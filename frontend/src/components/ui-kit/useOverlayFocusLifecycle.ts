@@ -93,7 +93,11 @@ export function useOverlayFocusLifecycle(options: {
       }
     };
     focusNow();
-    const focusFrame = window.requestAnimationFrame(focusNow);
+    const focusFrame = window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && focusScope.contains(activeElement)) return;
+      focusNow();
+    });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (getTopmostOverlay() !== root) return;

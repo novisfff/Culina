@@ -61,11 +61,15 @@ class BlockingStreamingChatProvider(BaseChatProvider):
 class EmptyApprovalFollowupProvider(BaseChatProvider):
     model_name = "empty-approval-followup-model"
 
+    def __init__(self) -> None:
+        self.usage_attribution = None
+
     def generate(self, *, system: str, user: str) -> ChatProviderResult:
         raise AssertionError("approval follow-up should use stream_generate")
 
-    def stream_generate(self, *, system: str, user: str):
+    def stream_generate(self, *, system: str, user: str, usage_attribution=None):
         del system, user
+        self.usage_attribution = usage_attribution
         if False:
             yield ""
 
@@ -1899,7 +1903,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, run, message])
                 db.commit()
 
-                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=EmptyApprovalFollowupProvider()))
+                provider = EmptyApprovalFollowupProvider()
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
                 runner.approval_followup_streamer.stream_followup(
                     {
                         "family_id": self.family.id,
@@ -1924,6 +1929,10 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     terminal_status="completed",
                 )
                 db.commit()
+                self.assertIsNotNone(provider.usage_attribution)
+                self.assertEqual(provider.usage_attribution.family_id, self.family.id)
+                self.assertEqual(provider.usage_attribution.actor_user_id, self.user.id)
+                self.assertEqual(provider.usage_attribution.logical_operation_id, run.id)
 
             with self.SessionLocal() as db:
                 message = db.get(AIMessage, "message-empty-followup")

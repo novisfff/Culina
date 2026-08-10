@@ -1,6 +1,8 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { aiVoiceApi } from '../api/aiVoiceApi';
+import { ApiError } from '../api/request';
 import { useVoicePlayback } from './useVoicePlayback';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -195,5 +197,65 @@ describe('useVoicePlayback', () => {
 
     expect(startedAtValues).toHaveLength(2);
     expect(latest?.traceEvents.some((event) => event.stage === 'frontend_playback_rebuffered')).toBe(true);
+  });
+
+  it('keeps a stable usage-limit code when speech synthesis is blocked before provider dispatch', async () => {
+    renderProbe();
+    vi.spyOn(aiVoiceApi, 'synthesizeSpeech').mockRejectedValue(new ApiError({
+      status: 429,
+      detail: '当前语音额度受限，请改用文字阅读。',
+      path: '/api/ai/audio/speech',
+      payload: {
+        detail: {
+          code: 'model_usage_capability_limit_exceeded',
+          message: '当前语音额度受限，请改用文字阅读。',
+        },
+      },
+    }));
+
+    await act(async () => {
+      await latest?.speak('请继续下一步。');
+    });
+
+    expect((latest as unknown as { errorCode?: string } | null)?.errorCode)
+      .toBe('model_usage_capability_limit_exceeded');
+    expect(latest?.error).not.toMatch(/¥|预算比例|家庭已用/);
+  });
+
+  it('keeps a non-degradation model-usage error from speech synthesis', async () => {
+    renderProbe();
+    const message = '暂时无法确认语音用量，请稍后再试。';
+    vi.spyOn(aiVoiceApi, 'synthesizeSpeech').mockRejectedValue(new ApiError({
+      status: 503,
+      detail: message,
+      path: '/api/ai/audio/speech',
+      payload: {
+        detail: {
+          code: 'model_usage_guardrail_quantity_unavailable',
+          message,
+        },
+      },
+    }));
+
+    await act(async () => {
+      await latest?.speak('请继续下一步。');
+    });
+
+    expect((latest as unknown as { errorCode?: string } | null)?.errorCode)
+      .toBe('model_usage_guardrail_quantity_unavailable');
+    expect(latest?.error).toBe(message);
+  });
+
+  it('keeps a non-degradation model-usage error from streamed speech', () => {
+    renderProbe();
+    const message = '暂时无法确认语音用量，请稍后再试。';
+
+    act(() => {
+      latest?.failStream(message, 'model_usage_guardrail_quantity_unavailable');
+    });
+
+    expect((latest as unknown as { errorCode?: string } | null)?.errorCode)
+      .toBe('model_usage_guardrail_quantity_unavailable');
+    expect(latest?.error).toBe(message);
   });
 });

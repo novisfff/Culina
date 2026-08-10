@@ -146,7 +146,7 @@ def list_recipes(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
+    user, membership = auth
     normalized_q = (q or "").strip().lower()
     normalized_scene = (scene or "").strip()
     normalized_availability = (availability or "").strip()
@@ -157,6 +157,7 @@ def list_recipes(
         search_result = hybrid_search(
             db,
             family_id=membership.family_id,
+            user_id=user.id,
             query=normalized_q,
             scopes=["recipe"],
             limit=max(100, requested_window * 4),

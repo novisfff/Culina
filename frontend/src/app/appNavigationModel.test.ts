@@ -22,6 +22,7 @@ function eatState(
       discoverSection: 'all',
       ...eat,
     },
+    family: initialNavigationState.family,
   };
 }
 
@@ -101,6 +102,7 @@ describe('appNavigationModel', () => {
     expect(restored).toEqual({
       primaryTab: 'eat',
       eat: { baseView: 'discover', task: null, discoverSection: 'selfMade' },
+      family: { view: 'profile', period: null },
     });
   });
 
@@ -126,9 +128,65 @@ describe('appNavigationModel', () => {
       primaryTab: 'eat',
       eatBaseView: 'discover',
       discoverSection: 'all',
+      familyView: 'profile',
     });
     expect(JSON.stringify(persistedNavigationFromState(state))).not.toContain('food-1');
     expect(JSON.stringify(persistedNavigationFromState(state))).not.toContain('recipe-1');
+  });
+
+  it('opens model usage inside the family workspace with an optional alert period', () => {
+    const withTask = reduceNavigation(migrateLegacyNavigation('foods'), {
+      type: 'navigate',
+      target: { workspace: 'eat', view: 'food', foodId: 'food-1' },
+    });
+
+    const next = reduceNavigation(withTask, {
+      type: 'navigate',
+      target: { workspace: 'family', view: 'modelUsage', period: '2026-06' },
+    });
+
+    expect(next).toMatchObject({
+      primaryTab: 'family',
+      family: { view: 'modelUsage', period: '2026-06' },
+      eat: { task: null },
+    });
+  });
+
+  it('clears a transient alert period for ordinary family navigation', () => {
+    const fromAlert = reduceNavigation(initialNavigationState, {
+      type: 'navigate',
+      target: { workspace: 'family', view: 'modelUsage', period: '2026-06' },
+    });
+
+    const next = reduceNavigation(fromAlert, {
+      type: 'navigate',
+      target: { workspace: 'family', view: 'modelUsage' },
+    });
+
+    expect(next).toMatchObject({ family: { view: 'modelUsage', period: null } });
+  });
+
+  it('migrates prior v2 snapshots to the family profile and persists no alert period', () => {
+    const restored = parsePersistedNavigation(
+      JSON.stringify({
+        version: 2,
+        primaryTab: 'family',
+        eatBaseView: 'discover',
+        discoverSection: 'all',
+      }),
+    );
+
+    expect(restored).toMatchObject({ family: { view: 'profile', period: null } });
+
+    const fromAlert = reduceNavigation(restored, {
+      type: 'navigate',
+      target: { workspace: 'family', view: 'modelUsage', period: '2026-06' },
+    });
+
+    expect(persistedNavigationFromState(fromAlert)).toMatchObject({ familyView: 'modelUsage' });
+    expect(JSON.stringify(persistedNavigationFromState(fromAlert))).not.toContain('2026-06');
+    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(fromAlert))))
+      .toMatchObject({ family: { view: 'modelUsage', period: null } });
   });
 
   it('opens and closes a direct Cook task with its explicit launch context', () => {
@@ -497,17 +555,17 @@ describe('appNavigationModel', () => {
     },
     {
       name: 'ingredients',
-      state: { primaryTab: 'ingredients' as const, eat: initialNavigationState.eat },
+      state: { primaryTab: 'ingredients' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
       expected: ['needsIngredients', 'needsInventory', 'needsShopping', 'needsRecipes'],
     },
     {
       name: 'ai',
-      state: { primaryTab: 'ai' as const, eat: initialNavigationState.eat },
+      state: { primaryTab: 'ai' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
       expected: ['needsAiConversations'],
     },
     {
       name: 'family',
-      state: { primaryTab: 'family' as const, eat: initialNavigationState.eat },
+      state: { primaryTab: 'family' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
       expected: ['needsMembers', 'needsRecipes', 'needsFoods', 'needsMealLogs', 'needsActivityLogs'],
     },
   ])('derives query scope for $name', ({ state, expected }) => {

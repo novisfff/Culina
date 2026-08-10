@@ -8,6 +8,7 @@ import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { resolveAssetUrl } from '../../lib/assets';
+import { ModelUsageDegradationNotice, onsiteModelUsageOption } from '../model-usage/ModelUsageDegradationNotice';
 import { buildGlobalSearchResultView, type GlobalSearchResultView } from './globalSearchModel';
 
 const GLOBAL_SEARCH_SCOPES: SearchEntityType[] = ['ingredient', 'food', 'recipe', 'meal_plan'];
@@ -113,6 +114,7 @@ export function GlobalSearchOverlay(props: Props) {
   const isLoading = isWaitingForDebounce || searchQuery.isFetching;
   const hasResolvedSearch = searchDataMatchesCurrentQuery && Boolean(searchValue);
   const showContent = hasResolvedSearch;
+  const degradedNotice = onsiteModelUsageOption(searchQuery.data?.degradation_code, 'rerank');
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
@@ -153,7 +155,14 @@ export function GlobalSearchOverlay(props: Props) {
         {showContent && (
           <div className="global-search-content">
             {searchDataMatchesCurrentQuery && searchQuery.data?.degraded && (
-              <p className="global-search-degraded">检索结果可能不完整</p>
+              degradedNotice ? (
+                <ModelUsageDegradationNotice
+                  capability="rerank"
+                  code={searchQuery.data?.degradation_code}
+                />
+              ) : (
+                <p className="global-search-degraded">检索结果可能不完整</p>
+              )
             )}
             {results.length > 0 && (
               <div className="global-search-result-list" role="list" aria-label="搜索结果">

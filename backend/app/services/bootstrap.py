@@ -9,9 +9,11 @@ from app.core.security import get_password_hash
 from app.core.utils import create_id
 from app.db.transactions import commit_session
 from app.models.domain import Family, Membership, User, UserCredential
+from app.services.model_usage.policies import ensure_family_model_usage_defaults
+from app.services.model_usage.subjects import ensure_user_subject
 
 
-def initialize_configured_admin(db: Session) -> bool:
+def initialize_configured_admin(db: Session, *, commit: bool = True) -> bool:
     existing_user_id = db.scalar(select(User.id).limit(1))
     if existing_user_id:
         return False
@@ -68,5 +70,17 @@ def initialize_configured_admin(db: Session) -> bool:
         updated_by=system_actor,
     )
     db.add_all([credential, membership])
-    commit_session(db)
+    db.flush()
+    creator_subject = ensure_user_subject(
+        db,
+        family_id=family.id,
+        user_id=user.id,
+    )
+    ensure_family_model_usage_defaults(
+        db,
+        family_id=family.id,
+        creator_subject_id=creator_subject.id,
+    )
+    if commit:
+        commit_session(db)
     return True

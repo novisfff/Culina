@@ -14,8 +14,10 @@ from app.ai.images.jobs import (
     attach_image_generation_job_to_entity,
     enqueue_image_generation,
     get_image_generation_job,
+    image_job_can_retry,
     list_active_image_generation_jobs,
     retry_failed_image_generation_job,
+    safe_image_job_error,
 )
 from app.services.media import (
     delete_media_file,
@@ -135,7 +137,9 @@ def _render_job_response(job: AIImageGenerationJob, *, db: Session, family_id: s
     return {
         "job_id": job.id,
         "status": job.status,
-        "error": job.error,
+        "error": safe_image_job_error(job),
+        "error_code": job.error_code,
+        "can_retry": image_job_can_retry(job),
         "generated_asset": serialize_media(generated_asset_model) if generated_asset_model else None,
         "reference_asset": serialize_media(reference_asset) if reference_asset else None,
         "style_key": generated_asset_model.style_key if generated_asset_model else None,

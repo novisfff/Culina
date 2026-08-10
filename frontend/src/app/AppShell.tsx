@@ -1,8 +1,25 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar } from '../components/ui-kit';
 import type { PrimaryTabKey } from './appNavigationModel';
+import {
+  appNotificationStatusLabel,
+  groupAppNotifications,
+  type AppNotificationItem,
+  type BackgroundTaskNotification,
+  type ModelUsageAlertNotification,
+} from './appNotificationModel';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
+
+export {
+  groupAppNotifications,
+  modelUsageAlertNotification,
+  type AppNotificationGroup,
+  type AppNotificationGroupKey,
+  type AppNotificationItem,
+  type BackgroundTaskNotification,
+  type ModelUsageAlertNotification,
+} from './appNotificationModel';
 
 /** @deprecated Prefer PrimaryTabKey; retained for legacy workspace consumers. */
 export type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
@@ -35,51 +52,16 @@ const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
 const MOBILE_VIEWPORT_LAYOUT_HEIGHT_VAR = '--app-visual-viewport-layout-height';
 const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
-export type AppNotificationJob = {
-  notification_id: string;
-  task_id: string;
-  kind: 'image' | 'search_index';
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
-  title: string;
-  status_label: string;
-  description: string;
-  can_retry: boolean;
-  can_dismiss: boolean;
-  created_at?: string | null;
-  completed_at?: string | null;
-};
-
-const SUCCESSFUL_HISTORY_LIMIT = 5;
-
-function jobSortTimestamp(job: AppNotificationJob) {
-  return job.completed_at ?? job.created_at ?? '';
+function notificationSummary(attentionCount: number, activeCount: number, totalCount: number) {
+  if (attentionCount > 0 && activeCount > 0) return `${attentionCount} 项需要处理，${activeCount} 项进行中`;
+  if (attentionCount > 0) return `${attentionCount} 项需要处理`;
+  if (activeCount > 0) return `${activeCount} 项进行中`;
+  if (totalCount > 0) return `${totalCount} 项最近动态`;
+  return '暂无通知';
 }
 
-function compareJobsByRecency(left: AppNotificationJob, right: AppNotificationJob) {
-  const timestampDiff = jobSortTimestamp(right).localeCompare(jobSortTimestamp(left));
-  if (timestampDiff !== 0) return timestampDiff;
-  return right.notification_id.localeCompare(left.notification_id);
-}
-
-export function orderBackgroundTaskJobs(jobs: AppNotificationJob[]) {
-  const failed = jobs.filter((job) => job.status === 'failed').sort(compareJobsByRecency);
-  const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running').sort(compareJobsByRecency);
-  const succeeded = jobs
-    .filter((job) => job.status === 'succeeded')
-    .sort(compareJobsByRecency)
-    .slice(0, SUCCESSFUL_HISTORY_LIMIT);
-  return [...failed, ...active, ...succeeded];
-}
-
-function notificationSummary(activeCount: number, failedCount: number, totalCount: number) {
-  if (failedCount > 0) return `${failedCount} 条失败待处理`;
-  if (activeCount > 0) return `${activeCount} 条任务正在处理`;
-  if (totalCount > 0) return `${totalCount} 条最近任务`;
-  return '暂无后台任务';
-}
-
-function notificationSummaryTone(activeCount: number, failedCount: number) {
-  if (failedCount > 0) return 'danger';
+function notificationSummaryTone(attentionCount: number, activeCount: number) {
+  if (attentionCount > 0) return 'danger';
   if (activeCount > 0) return 'active';
   return 'quiet';
 }
@@ -160,23 +142,21 @@ function useMobileVisualViewportMetrics(activeTab: PrimaryTabKey) {
   }, [activeTab]);
 }
 
-function OrientationLockScreen(props: { mode: 'landscape' | 'portrait' }) {
-  const isLandscapeMode = props.mode === 'landscape';
-
+function OrientationLockScreen() {
   return (
     <section
-      className={`app-orientation-lock app-orientation-lock-${props.mode}`}
+      className="app-orientation-lock app-orientation-lock-portrait"
       aria-live="polite"
-      aria-label={isLandscapeMode ? '请横屏使用 Culina' : '请竖屏使用 Culina'}
+      aria-label="请竖屏使用 Culina"
     >
       <div className="app-orientation-card" role="status">
         <span className="app-orientation-logo" aria-hidden="true">
           <ShellIcon name="logo" />
         </span>
         <div className="app-orientation-copy">
-          <p>{isLandscapeMode ? '请横屏使用 Culina' : '请竖屏使用 Culina'}</p>
-          <strong>{isLandscapeMode ? '电脑和 iPad 端需要横屏查看' : '手机端需要竖屏查看'}</strong>
-          <span>{isLandscapeMode ? '旋转设备后，家庭厨房工作台会自动恢复。' : '旋转手机后，就能继续记录和查看。'}</span>
+          <p>请竖屏使用 Culina</p>
+          <strong>手机端需要竖屏查看</strong>
+          <span>旋转手机后，就能继续记录和查看。</span>
         </div>
       </div>
     </section>
@@ -184,24 +164,47 @@ function OrientationLockScreen(props: { mode: 'landscape' | 'portrait' }) {
 }
 
 export function AppNotificationCenter(props: {
-  jobs: AppNotificationJob[];
+  items: AppNotificationItem[];
   isLoading?: boolean;
   variant?: 'desktop' | 'sidebar' | 'mobileIcon';
-  onDismissJob?: (jobId: string) => void;
-  onRetryJob?: (jobId: string) => void;
-  retryingJobId?: string | null;
+  onDismissBackgroundTask?: (notificationId: string) => void;
+  onRetryBackgroundTask?: (notificationId: string) => void;
+  retryingBackgroundTaskId?: string | null;
+  onOpenModelUsageAlert?: (alert: ModelUsageAlertNotification) => void;
+  onDismissModelUsageAlert?: (alertId: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const centerRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreFocusOnCloseRef = useRef(false);
   const variant = props.variant ?? 'desktop';
-  const visibleJobs = orderBackgroundTaskJobs(props.jobs);
-  const activeCount = visibleJobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
-  const failedCount = visibleJobs.filter((job) => job.status === 'failed').length;
-  const attentionCount = activeCount + failedCount;
-  const hasJobs = visibleJobs.length > 0;
-  const totalCount = visibleJobs.length;
-  const summaryTone = notificationSummaryTone(activeCount, failedCount);
+  const groups = groupAppNotifications(props.items);
+  const visibleItems = groups.flatMap((group) => group.items);
+  const attentionCount = groups.find((group) => group.key === 'needs_attention')?.items.length ?? 0;
+  const activeCount = groups.find((group) => group.key === 'in_progress')?.items.length ?? 0;
+  const badgeCount = attentionCount + activeCount;
+  const hasItems = visibleItems.length > 0;
+  const totalCount = visibleItems.length;
+  const summaryTone = notificationSummaryTone(attentionCount, activeCount);
+
+  const closePopover = useCallback((restoreFocus = false) => {
+    restoreFocusOnCloseRef.current = restoreFocus;
+    setIsOpen(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (isOpen) {
+      const firstAction = popoverRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      (firstAction ?? popoverRef.current)?.focus({ preventScroll: true });
+      return;
+    }
+
+    if (restoreFocusOnCloseRef.current) {
+      restoreFocusOnCloseRef.current = false;
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -212,19 +215,19 @@ export function AppNotificationCenter(props: {
 
     function handlePointerDown(event: PointerEvent) {
       if (!isInsideCenter(event.target)) {
-        setIsOpen(false);
+        closePopover();
       }
     }
 
     function handleFocusIn(event: FocusEvent) {
       if (!isInsideCenter(event.target)) {
-        setIsOpen(false);
+        closePopover();
       }
     }
 
-    function handleKeyDown(event: KeyboardEvent) {
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
-        setIsOpen(false);
+        closePopover(true);
       }
     }
 
@@ -236,79 +239,122 @@ export function AppNotificationCenter(props: {
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [closePopover, isOpen]);
 
   const popover = (
     <div
       ref={popoverRef}
       className={variant === 'mobileIcon' ? 'app-notification-popover mobile-notification-popover' : 'app-notification-popover'}
       role="dialog"
-      aria-label="后台任务"
+      aria-label="通知"
       aria-live="polite"
+      tabIndex={-1}
     >
       <div className="app-notification-popover-head">
         <span className="app-notification-head-copy">
-          <span>进度</span>
-          <strong>后台任务</strong>
+          <span>动态</span>
+          <strong>通知</strong>
         </span>
         <span className={`app-notification-summary tone-${summaryTone}`}>
-          {notificationSummary(activeCount, failedCount, totalCount)}
+          {notificationSummary(attentionCount, activeCount, totalCount)}
         </span>
       </div>
       {props.isLoading ? (
-        <p className="app-notification-empty">正在读取后台任务...</p>
-      ) : hasJobs ? (
+        <p className="app-notification-empty">正在读取通知...</p>
+      ) : hasItems ? (
         <div className="app-notification-list">
-          {visibleJobs.map((job) => {
-            const jobId = job.notification_id;
-            const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
-            const canRetry = Boolean(jobId && job.can_retry && props.onRetryJob);
-            return (
-              <div key={jobId} className={`app-notification-row status-${job.status}`}>
-                <span className="app-notification-row-icon" aria-hidden="true">
-                  <DashboardIcon name={job.status === 'failed' ? 'bell' : job.status === 'succeeded' ? 'check' : 'circle'} />
-                </span>
-                <span className="app-notification-row-copy">
-                  <span className="app-notification-row-title">
-                    <strong title={job.title}>{job.title}</strong>
-                    <em>{job.status_label}</em>
-                  </span>
-                  <small title={job.description}>{job.description}</small>
-                </span>
-                {jobId && job.can_dismiss && (
-                  <span className="app-notification-row-actions">
-                    {canRetry && (
+          {groups.map((group) => (
+            <section className="app-notification-group" key={group.key} aria-labelledby={`notification-${group.key}`}>
+              <h3 className="app-notification-group-title" id={`notification-${group.key}`}>{group.label}</h3>
+              {group.items.map((item) => {
+                const isBackgroundTask = item.kind === 'background_task';
+                const isRetrying = isBackgroundTask && props.retryingBackgroundTaskId === item.notification_id;
+                const canRetry = isBackgroundTask && item.can_retry && Boolean(props.onRetryBackgroundTask);
+                const canDismiss = isBackgroundTask
+                  ? item.can_dismiss && Boolean(props.onDismissBackgroundTask)
+                  : Boolean(props.onDismissModelUsageAlert);
+                const statusClass = isBackgroundTask ? `status-${item.status}` : `severity-${item.severity}`;
+                const rowIcon = isBackgroundTask
+                  ? item.status === 'failed' ? 'bell' : item.status === 'succeeded' ? 'check' : 'circle'
+                  : 'bell';
+                const handleOpenAlert = () => {
+                  if (item.kind !== 'model_usage_alert') return;
+                  closePopover(true);
+                  props.onOpenModelUsageAlert?.(item);
+                };
+                const notificationContent = (
+                  <>
+                    <span className="app-notification-row-icon" aria-hidden="true">
+                      <DashboardIcon name={rowIcon} />
+                    </span>
+                    <span className="app-notification-row-copy">
+                      <span className="app-notification-row-title">
+                        <strong title={item.title}>{item.title}</strong>
+                        <em>{appNotificationStatusLabel(item)}</em>
+                      </span>
+                      <small title={item.description}>{item.description}</small>
+                    </span>
+                  </>
+                );
+                return (
+                  <div
+                    key={item.notification_id}
+                    className={`app-notification-row ${statusClass}${item.kind === 'model_usage_alert' ? ' is-actionable' : ''}`}
+                  >
+                    {item.kind === 'model_usage_alert' ? (
                       <button
-                        className="app-notification-retry"
+                        className="app-notification-open"
                         type="button"
-                        onClick={() => props.onRetryJob?.(jobId)}
-                        disabled={isRetrying}
-                        aria-label={`重试${job.title}`}
-                        title={isRetrying ? '提交中' : '重试'}
+                        onClick={handleOpenAlert}
+                        aria-label={`查看${item.title}`}
                       >
-                        <span aria-hidden="true">
-                          <DashboardIcon name="refresh" />
-                        </span>
-                        {isRetrying ? '提交中' : '重试'}
+                        {notificationContent}
                       </button>
+                    ) : notificationContent}
+                    {(canRetry || canDismiss) && (
+                      <span className="app-notification-row-actions">
+                        {canRetry && (
+                          <button
+                            className="app-notification-retry"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onRetryBackgroundTask?.(item.notification_id);
+                            }}
+                            disabled={isRetrying}
+                            aria-label={`重试${item.title}`}
+                            title={isRetrying ? '提交中' : '重试'}
+                          >
+                            <span aria-hidden="true"><DashboardIcon name="refresh" /></span>
+                            {isRetrying ? '提交中' : '重试'}
+                          </button>
+                        )}
+                        <button
+                          className="app-notification-clear"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (item.kind === 'background_task') {
+                              props.onDismissBackgroundTask?.(item.notification_id);
+                            } else {
+                              props.onDismissModelUsageAlert?.(item.alert_id);
+                            }
+                          }}
+                          aria-label={`清除${item.title}通知`}
+                          title="清除"
+                        >
+                          <DashboardIcon name="x" />
+                        </button>
+                      </span>
                     )}
-                    <button
-                      className="app-notification-clear"
-                      type="button"
-                      onClick={() => props.onDismissJob?.(jobId)}
-                      aria-label={`清除${job.title}通知`}
-                      title="清除"
-                    >
-                      <DashboardIcon name="x" />
-                    </button>
-                  </span>
-                )}
-              </div>
-            );
-          })}
+                  </div>
+                );
+              })}
+            </section>
+          ))}
         </div>
       ) : (
-        <p className="app-notification-empty">当前没有后台任务。</p>
+        <p className="app-notification-empty">当前没有通知。</p>
       )}
     </div>
   );
@@ -325,31 +371,32 @@ export function AppNotificationCenter(props: {
       }
     >
       <button
-        className={activeCount > 0 || failedCount > 0 ? 'app-notification-trigger is-active' : 'app-notification-trigger'}
+        ref={triggerRef}
+        className={badgeCount > 0 ? 'app-notification-trigger is-active' : 'app-notification-trigger'}
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
         aria-label={(() => {
-          if (attentionCount <= 0) {
-            return '查看后台任务';
+          if (badgeCount <= 0) {
+            return '查看通知';
           }
           const parts: string[] = [];
-          if (failedCount > 0) {
-            parts.push(`${failedCount} 个失败`);
+          if (attentionCount > 0) {
+            parts.push(`${attentionCount} 项需要处理`);
           }
           if (activeCount > 0) {
-            parts.push(`${activeCount} 个进行中`);
+            parts.push(`${activeCount} 项进行中`);
           }
-          return `查看后台任务，${parts.join('，')}`;
+          return `查看通知，${parts.join('，')}`;
         })()}
       >
         <span className="app-notification-icon" aria-hidden="true">
           <DashboardIcon name="bell" />
-          {attentionCount > 0 && (
-            <span className="app-notification-count">{attentionCount > 99 ? '99+' : attentionCount}</span>
+          {badgeCount > 0 && (
+            <span className="app-notification-count">{badgeCount > 99 ? '99+' : badgeCount}</span>
           )}
         </span>
-        {variant !== 'mobileIcon' && <strong>后台任务</strong>}
+        {variant !== 'mobileIcon' && <strong>通知</strong>}
       </button>
       {isOpen && (variant === 'mobileIcon' ? createPortal(popover, document.body) : popover)}
     </div>
@@ -370,11 +417,13 @@ type AppShellProps = {
   userMeta: string;
   userNote: string;
   notice?: ReactNode;
-  imageJobs?: AppNotificationJob[];
-  imageJobsLoading?: boolean;
-  onDismissImageJob?: (jobId: string) => void;
-  onRetryImageJob?: (jobId: string) => void;
-  retryingImageJobId?: string | null;
+  notifications?: AppNotificationItem[];
+  notificationsLoading?: boolean;
+  onDismissBackgroundTask?: (notificationId: string) => void;
+  onRetryBackgroundTask?: (notificationId: string) => void;
+  retryingBackgroundTaskId?: string | null;
+  onOpenModelUsageAlert?: (alert: ModelUsageAlertNotification) => void;
+  onDismissModelUsageAlert?: (alertId: string) => void;
   children: ReactNode;
   onTabChange: (tab: PrimaryTabKey) => void;
   onToggleSidebar: () => void;
@@ -396,11 +445,13 @@ export function AppShell({
   userMeta,
   userNote,
   notice,
-  imageJobs = [],
-  imageJobsLoading = false,
-  onDismissImageJob,
-  onRetryImageJob,
-  retryingImageJobId,
+  notifications = [],
+  notificationsLoading = false,
+  onDismissBackgroundTask,
+  onRetryBackgroundTask,
+  retryingBackgroundTaskId,
+  onOpenModelUsageAlert,
+  onDismissModelUsageAlert,
   children,
   onTabChange,
   onToggleSidebar,
@@ -412,8 +463,7 @@ export function AppShell({
 
   return (
     <div className={isAiActive ? 'app-shell app-shell-ai' : 'app-shell'}>
-      <OrientationLockScreen mode="landscape" />
-      <OrientationLockScreen mode="portrait" />
+      <OrientationLockScreen />
       {notice}
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />
@@ -431,12 +481,14 @@ export function AppShell({
                 </div>
                 <div className="sidebar-brand-actions">
                   <AppNotificationCenter
-                    jobs={imageJobs}
-                    isLoading={imageJobsLoading}
+                    items={notifications}
+                    isLoading={notificationsLoading}
                     variant="sidebar"
-                    onDismissJob={onDismissImageJob}
-                    onRetryJob={onRetryImageJob}
-                    retryingJobId={retryingImageJobId}
+                    onDismissBackgroundTask={onDismissBackgroundTask}
+                    onRetryBackgroundTask={onRetryBackgroundTask}
+                    retryingBackgroundTaskId={retryingBackgroundTaskId}
+                    onOpenModelUsageAlert={onOpenModelUsageAlert}
+                    onDismissModelUsageAlert={onDismissModelUsageAlert}
                   />
                   <button
                     className="sidebar-toggle"

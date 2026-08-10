@@ -286,6 +286,23 @@ describe('useCookingRealtimeVoiceSession', () => {
     expect(latest?.status).toBe('closed');
   });
 
+  it('ends the voice session and keeps text available when the server sends a usage-limit event', async () => {
+    renderProbe();
+    await startSession();
+
+    act(() => {
+      latestSocket?.emit({
+        type: 'usage_limit',
+        code: 'model_usage_capability_limit_exceeded',
+      });
+    });
+
+    expect(latestSocket?.closeCount).toBe(1);
+    expect(latest?.status).toBe('closed');
+    expect(latest?.error).toBe('语音额度已达到限制，本次会话已结束；可以继续使用文字。');
+    expect(latest?.error).not.toMatch(/¥|预算比例|家庭已用/);
+  });
+
   it.each<CookingRealtimeVoiceStatus>(['listening', 'recording', 'transcribing', 'thinking', 'speaking'])(
     'keeps the call microphone available while status is %s',
     (status) => {

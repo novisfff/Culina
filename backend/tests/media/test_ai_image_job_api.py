@@ -188,7 +188,9 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
             job = db.get(AIImageGenerationJob, job_id)
             assert job is not None
             job.status = "failed"
-            job.error = "provider down"
+            job.error = "图片生成请求暂时无法处理，请检查图片设置后再试。"
+            job.error_code = "image_provider_request_rejected"
+            job.provider_execution_status = "confirmed_not_executed"
             job.completed_at = completed_at
             db.commit()
             created_at = job.created_at
@@ -197,6 +199,8 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
         self.assertEqual(active_response.status_code, 200)
         active_payload = next(item for item in active_response.json() if item["job_id"] == job_id)
         self._assert_timestamp_fields(active_payload, created_at=created_at, completed_at=completed_at)
+        self.assertEqual(active_payload["error_code"], "image_provider_request_rejected")
+        self.assertTrue(active_payload["can_retry"])
 
         get_response = self.client.get(f"/api/media/ai-render/{job_id}")
         self.assertEqual(get_response.status_code, 200)

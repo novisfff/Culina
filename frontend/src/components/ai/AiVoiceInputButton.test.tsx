@@ -3,6 +3,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { aiVoiceApi } from '../../api/aiVoiceApi';
+import { ApiError } from '../../api/request';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -131,5 +133,73 @@ describe('AiVoiceInputButton', () => {
 
     expect(button.classList.contains('preparing')).toBe(false);
     expect(button.title).toBe('麦克风权限没有打开');
+  });
+
+  it('shows the text-entry alternative when transcription is blocked by a stable model-usage code', async () => {
+    const getUserMedia = vi.fn().mockResolvedValue(fakeStream());
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.spyOn(aiVoiceApi, 'transcribeAudio').mockRejectedValue(new ApiError({
+      status: 429,
+      detail: '当前语音额度受限，请改用文字输入。',
+      path: '/api/ai/audio/transcriptions',
+      payload: {
+        detail: {
+          code: 'model_usage_capability_limit_exceeded',
+          message: '当前语音额度受限，请改用文字输入。',
+        },
+      },
+    }));
+    const button = renderButton({ interactionMode: 'hold' });
+
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('语音转文字额度达到限制，可以直接输入文字继续。');
+    expect(container.textContent).not.toMatch(/¥|预算比例|家庭已用/);
+  });
+
+  it('keeps a non-degradation model-usage transcription error accessible', async () => {
+    const getUserMedia = vi.fn().mockResolvedValue(fakeStream());
+    const message = '暂时无法确认语音用量，请稍后再试。';
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.spyOn(aiVoiceApi, 'transcribeAudio').mockRejectedValue(new ApiError({
+      status: 503,
+      detail: message,
+      path: '/api/ai/audio/transcriptions',
+      payload: {
+        detail: {
+          code: 'model_usage_guardrail_quantity_unavailable',
+          message,
+        },
+      },
+    }));
+    const button = renderButton({ interactionMode: 'hold' });
+
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(button.title).toBe(message);
+    expect(button.getAttribute('aria-label')).toBe(message);
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 });

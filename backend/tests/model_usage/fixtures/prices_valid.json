@@ -1,0 +1,30 @@
+{
+  "catalogVersion": "test-2026-07-30",
+  "effectiveFrom": "2026-07-30T00:00:00+08:00",
+  "reviewedAt": "2026-07-30T00:00:00+08:00",
+  "sourceRef": "tests:model-usage-price-contract",
+  "changeNote": "Deterministic seven-capability test catalog",
+  "fxRates": {"USD": "7.200000000000", "CNY": "1.000000000000"},
+  "modelAliases": {
+    "openai:gpt-test-2026-07-01": "gpt-test",
+    "openai:embedding-test-2026-07-01": "embedding-test",
+    "dashscope:rerank-test-2026-07-01": "rerank-test",
+    "openai:stt-test-2026-07-01": "stt-test",
+    "openai:tts-test-2026-07-01": "tts-test",
+    "dashscope:realtime-test-2026-07-01": "realtime-test",
+    "dashscope:image-test-2026-07-01": "image-test"
+  },
+  "rates": [
+    {"provider":"openai","billingModel":"gpt-test","capability":"llm","variant":"default","billingSchemeKey":"llm-split-v1","meter":"uncached_input_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"1.000000000000","sourceCurrency":"USD"},
+    {"provider":"openai","billingModel":"gpt-test","capability":"llm","variant":"default","billingSchemeKey":"llm-split-v1","meter":"cached_input_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"0.500000000000","sourceCurrency":"USD"},
+    {"provider":"openai","billingModel":"gpt-test","capability":"llm","variant":"default","billingSchemeKey":"llm-split-v1","meter":"output_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"2.000000000000","sourceCurrency":"USD"},
+    {"provider":"openai","billingModel":"embedding-test","capability":"embedding","variant":"dimensions=1536","billingSchemeKey":"embedding-token-v1","meter":"embedding_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"0.100000000000","sourceCurrency":"USD"},
+    {"provider":"dashscope","billingModel":"rerank-test","capability":"rerank","variant":"top_n=20","billingSchemeKey":"rerank-token-v1","meter":"input_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"0.500000000000","sourceCurrency":"CNY"},
+    {"provider":"openai","billingModel":"stt-test","capability":"stt","variant":"format=webm","billingSchemeKey":"stt-seconds-v1","meter":"audio_input_seconds","meterRole":"billable","unitQuantity":"60","unitPrice":"0.006000000000","sourceCurrency":"USD"},
+    {"provider":"openai","billingModel":"tts-test","capability":"tts","variant":"voice=default","billingSchemeKey":"tts-characters-v1","meter":"tts_characters","meterRole":"billable","unitQuantity":"1000","unitPrice":"0.015000000000","sourceCurrency":"USD"},
+    {"provider":"dashscope","billingModel":"realtime-test","capability":"realtime_audio","variant":"voice=default","billingSchemeKey":"realtime-audio-token-v1","meter":"audio_input_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"1.000000000000","sourceCurrency":"CNY"},
+    {"provider":"dashscope","billingModel":"realtime-test","capability":"realtime_audio","variant":"voice=default","billingSchemeKey":"realtime-audio-token-v1","meter":"audio_output_tokens","meterRole":"billable","unitQuantity":"1000000","unitPrice":"2.000000000000","sourceCurrency":"CNY"},
+    {"provider":"dashscope","billingModel":"image-test","capability":"image_generation","variant":"mode=text|size=1024*1024|quality=standard","billingSchemeKey":"image-count-request-v1","meter":"generated_images","meterRole":"billable","unitQuantity":"1","unitPrice":"0.200000000000","sourceCurrency":"CNY"},
+    {"provider":"dashscope","billingModel":"image-test","capability":"image_generation","variant":"mode=text|size=1024*1024|quality=standard","billingSchemeKey":"image-count-request-v1","meter":"request_units","meterRole":"billable","unitQuantity":"1","unitPrice":"0.010000000000","sourceCurrency":"CNY"}
+  ]
+}
