@@ -64,21 +64,21 @@ describe('useModelUsagePolicy', () => {
       { wrapper: wrapper(queryClient) },
     );
 
-    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('80.005000000000'));
+    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('80.005'));
     await act(async () => {
       await result.current.actions.save();
     });
 
     expect(modelUsageApi.updateFamilyModelUsagePolicy.mock.calls[0]?.[0]).toEqual({
       base_version_number: 3,
-      monthly_budget_cny: '80.005000000000',
+      monthly_budget_cny: '80.005',
       alerts_enabled: true,
       hard_limit_enabled: false,
       capability_limits: [{
         capability: 'llm',
         limit_kind: 'cost',
         meter: null,
-        limit_value: '12.345000000000',
+        limit_value: '12.345',
         enabled: true,
       }],
       confirm_missing_price_impact: false,
@@ -210,18 +210,18 @@ describe('useModelUsagePolicy', () => {
       ({ familyId }) => useModelUsagePolicy({ familyId, role: 'Owner' }),
       { initialProps: { familyId: 'family-a' }, wrapper: wrapper(queryClient) },
     );
-    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('80.005000000000'));
+    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('80.005'));
 
     const pending = result.current.actions.save();
     rerender({ familyId: 'family-b' });
-    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('120.000000000000'));
+    await waitFor(() => expect(result.current.draft?.monthly_budget_cny).toBe('120'));
 
     await act(async () => {
       resolveSave?.(familyAPolicy);
       await pending;
     });
 
-    expect(result.current.draft?.monthly_budget_cny).toBe('120.000000000000');
+    expect(result.current.draft?.monthly_budget_cny).toBe('120');
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: queryKeys.modelUsageRoot('family-a') });
     expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.modelUsageRoot('family-b') });
   });

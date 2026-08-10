@@ -159,11 +159,28 @@ describe('ModelUsagePolicySettings', () => {
     expect(await screen.findByText('模型预算设置暂时不可用')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: '重新加载' }));
-    expect(await screen.findByLabelText('家庭月预算（元）')).toHaveValue('80.005000000000');
+    expect(await screen.findByLabelText('家庭月预算（元）')).toHaveValue('80.005');
     view.unmount();
   });
 
-  it('preserves Decimal text and sends null when an owner clears an optional monthly budget', async () => {
+  it('shows a concise policy summary and hides storage precision from the editable budget', async () => {
+    resolveOwner();
+    const user = userEvent.setup();
+    const view = renderPolicySettings();
+
+    await screen.findByRole('heading', { name: '家庭模型用量' });
+    await user.click(screen.getByRole('button', { name: '预算设置' }));
+
+    const summary = screen.getByRole('region', { name: '当前预算策略' });
+    expect(summary).toHaveTextContent('¥80.01');
+    expect(summary).toHaveTextContent('预算提醒已开启');
+    expect(summary).toHaveTextContent('硬限制未开启');
+    expect(summary).toHaveTextContent('0 项护栏');
+    expect(screen.getByLabelText('家庭月预算（元）')).toHaveValue('80.005');
+    view.unmount();
+  });
+
+  it('preserves edited Decimal text and sends null when an owner clears an optional monthly budget', async () => {
     resolveOwner();
     modelUsageApi.updateFamilyModelUsagePolicy.mockResolvedValue(policy({ monthly_budget_cny: null }));
     const user = userEvent.setup();
@@ -173,7 +190,7 @@ describe('ModelUsagePolicySettings', () => {
     await user.click(screen.getByRole('button', { name: '预算设置' }));
 
     const budget = screen.getByLabelText('家庭月预算（元）');
-    expect(budget).toHaveValue('80.005000000000');
+    expect(budget).toHaveValue('80.005');
     await user.clear(budget);
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
@@ -193,9 +210,10 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    expect(screen.getByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).toBeVisible();
+    expect(screen.queryByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).not.toBeInTheDocument();
     expect(screen.queryByText(/Decimal|持久化发送授权|放行凭证/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
+    expect(screen.getByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
     expect(screen.getByText('开启限制前，请先填写大于 0 的家庭月预算。')).toBeVisible();
@@ -211,7 +229,10 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
+    expect(screen.getByRole('button', { name: '展开文本与视觉理解护栏设置' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('文本与视觉理解护栏类型')).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: '文本与视觉理解护栏' }));
+    expect(screen.getByRole('button', { name: '收起文本与视觉理解护栏设置' })).toHaveAttribute('aria-expanded', 'true');
     await user.selectOptions(screen.getByLabelText('文本与视觉理解护栏类型'), 'meter');
 
     expect(screen.getByLabelText('文本与视觉理解计量项')).toHaveValue('input_tokens');
@@ -227,7 +248,7 @@ describe('ModelUsagePolicySettings', () => {
         capability: 'llm',
         limit_kind: 'meter',
         meter: 'input_tokens',
-        limit_value: '120.005000000000',
+        limit_value: '120.005',
         enabled: true,
       }],
     }));
@@ -305,7 +326,7 @@ describe('ModelUsagePolicySettings', () => {
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
     const budget = screen.getByLabelText('家庭月预算（元）');
-    expect(budget).toHaveValue('80.005000000000');
+    expect(budget).toHaveValue('80.005');
     await user.clear(budget);
     await waitFor(() => expect(budget).toHaveValue(''));
     await user.type(budget, '95.005000000000');
@@ -428,6 +449,7 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
+    expect(screen.getByText('家庭额度管理')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
     expect(await screen.findByRole('button', { name: '正在保存设置…' })).toBeDisabled();

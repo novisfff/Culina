@@ -268,6 +268,19 @@ export function normalizeModelUsageDecimalDraft(value: string): string | null {
   return normalized || null;
 }
 
+/**
+ * Removes database-only trailing precision before a Decimal value enters an
+ * editable form. The value stays a string, so no precision is lost through a
+ * JavaScript number conversion.
+ */
+export function conciseModelUsageDecimalDraft(value: string | null): string | null {
+  if (value === null) return null;
+  const normalized = value.trim();
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized) || !normalized.includes('.')) return normalized;
+  const concise = normalized.replace(/0+$/, '').replace(/\.$/, '');
+  return concise || '0';
+}
+
 export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): ModelUsagePolicyValidation {
   const hasBudget = hasNonZeroDecimal(draft.monthly_budget_cny);
   if (draft.monthly_budget_cny !== null && !hasBudget) {
@@ -318,13 +331,16 @@ export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): Mod
 }
 
 function copyCapabilityLimits(limits: ModelUsageCapabilityLimit[]): ModelUsageCapabilityLimit[] {
-  return limits.map((limit) => ({ ...limit }));
+  return limits.map((limit) => ({
+    ...limit,
+    limit_value: conciseModelUsageDecimalDraft(limit.limit_value) ?? '',
+  }));
 }
 
 export function createModelUsagePolicyDraft(policy: ModelUsagePolicy): ModelUsagePolicyDraft {
   return {
     base_version_number: policy.version_number,
-    monthly_budget_cny: policy.monthly_budget_cny,
+    monthly_budget_cny: conciseModelUsageDecimalDraft(policy.monthly_budget_cny),
     alerts_enabled: policy.alerts_enabled,
     hard_limit_enabled: policy.hard_limit_enabled,
     capability_limits: copyCapabilityLimits(policy.capability_limits),

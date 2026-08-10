@@ -40,6 +40,14 @@ export interface ModelUsagePolicySettingsProps {
 
 type CapabilityOptionEntry = [ModelUsageCapability, typeof MODEL_USAGE_CAPABILITY_OPTIONS.llm];
 
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m8 10 4 4 4-4" />
+    </svg>
+  );
+}
+
 function defaultCapabilityLimit(capability: ModelUsageCapability): ModelUsageCapabilityLimit {
   return {
     capability,
@@ -50,9 +58,116 @@ function defaultCapabilityLimit(capability: ModelUsageCapability): ModelUsageCap
   };
 }
 
+function CapabilityGuardrail(props: {
+  capability: ModelUsageCapability;
+  option: typeof MODEL_USAGE_CAPABILITY_OPTIONS.llm;
+  limit: ModelUsageCapabilityLimit | undefined;
+  isSaving: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  onPatch: (patch: Partial<ModelUsageCapabilityLimit>) => void;
+}) {
+  const panelId = useId();
+  const isEnabled = Boolean(props.limit?.enabled);
+  const [isExpanded, setIsExpanded] = useState(isEnabled);
+  const meters = MODEL_USAGE_CAPABILITY_METERS[props.capability];
+  const activeKind = props.limit?.limit_kind ?? 'cost';
+  const activeMeter = props.limit?.meter ?? meters[0] ?? null;
+  const activeSummary = isEnabled
+    ? activeKind === 'cost'
+      ? `费用上限 ¥${props.limit?.limit_value ?? '1'}`
+      : `${activeMeter ? MODEL_USAGE_METER_OPTIONS[activeMeter].label : '使用量'} ${props.limit?.limit_value ?? '1'}`
+    : '未设置';
+
+  function handleEnabledChange(enabled: boolean) {
+    setIsExpanded(enabled);
+    props.onEnabledChange(enabled);
+  }
+
+  return (
+    <article className={['model-usage-policy-guardrail', isEnabled ? 'is-enabled' : '', isExpanded ? 'is-expanded' : ''].filter(Boolean).join(' ')}>
+      <div className="model-usage-policy-guardrail-head">
+        <button
+          type="button"
+          className="model-usage-policy-guardrail-expand"
+          aria-expanded={isExpanded}
+          aria-controls={panelId}
+          aria-label={`${isExpanded ? '收起' : '展开'}${props.option.label}护栏设置`}
+          disabled={!isEnabled || props.isSaving}
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          <span className="model-usage-policy-guardrail-copy">
+            <strong>{props.option.label}</strong>
+            <small>{props.option.description}</small>
+          </span>
+          <span className={isEnabled ? 'is-enabled' : ''}>{activeSummary}</span>
+          <ChevronIcon />
+        </button>
+        <label className="model-usage-policy-switch model-usage-policy-guardrail-switch">
+          <input
+            type="checkbox"
+            aria-label={`${props.option.label}护栏`}
+            checked={isEnabled}
+            onChange={(event) => handleEnabledChange(event.target.checked)}
+            disabled={props.isSaving}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+      {isExpanded && isEnabled ? (
+        <div id={panelId} className="model-usage-policy-guardrail-fields">
+          <label className="model-usage-policy-field">
+            <span>护栏类型</span>
+            <select
+              aria-label={`${props.option.label}护栏类型`}
+              value={activeKind}
+              onChange={(event) => {
+                const limitKind = event.target.value as ModelUsageLimitKind;
+                props.onPatch({
+                  limit_kind: limitKind,
+                  meter: limitKind === 'meter' ? activeMeter : null,
+                });
+              }}
+              disabled={props.isSaving}
+            >
+              <option value="cost">费用（元）</option>
+              <option value="meter">使用量</option>
+            </select>
+          </label>
+          {activeKind === 'meter' ? (
+            <label className="model-usage-policy-field">
+              <span>计量项</span>
+              <select
+                aria-label={`${props.option.label}计量项`}
+                value={activeMeter ?? ''}
+                onChange={(event) => props.onPatch({ meter: event.target.value as ModelUsageMeter })}
+                disabled={props.isSaving}
+              >
+                {meters.map((meter) => <option key={meter} value={meter}>{MODEL_USAGE_METER_OPTIONS[meter].label}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label className="model-usage-policy-field">
+            <span>{activeKind === 'cost' ? '费用上限（元）' : '使用量上限'}</span>
+            <input
+              aria-label={`${props.option.label}护栏上限`}
+              inputMode="decimal"
+              value={props.limit?.limit_value ?? ''}
+              onChange={(event) => props.onPatch({
+                limit_value: normalizeModelUsageDecimalDraft(event.target.value) ?? '',
+              })}
+              disabled={props.isSaving}
+            />
+          </label>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
   const generatedFormId = useId();
   const formId = props.formId ?? generatedFormId;
+  const budgetInputId = `${formId}-monthly-budget`;
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
 
   if (props.isLoading && !props.draft) {
@@ -133,55 +248,92 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
           className="model-usage-policy-save-error"
         />
       ) : null}
-      <section className="model-usage-policy-section" aria-labelledby="model-usage-policy-budget-heading">
+      <section className="model-usage-policy-summary" role="region" aria-label="当前预算策略">
+        <div className="model-usage-policy-summary-head">
+          <p>当前设置</p>
+          <strong>{draft.monthly_budget_cny ? formatModelUsageCny(draft.monthly_budget_cny) : '未设置预算'}</strong>
+        </div>
+        <div className="model-usage-policy-summary-facts">
+          <span className={draft.alerts_enabled ? 'is-on' : ''}>预算提醒{draft.alerts_enabled ? '已开启' : '未开启'}</span>
+          <span className={draft.hard_limit_enabled ? 'is-warning' : ''}>硬限制{draft.hard_limit_enabled ? '已开启' : '未开启'}</span>
+          <span>{draft.capability_limits.length} 项护栏</span>
+        </div>
+      </section>
+
+      <section className="model-usage-policy-section model-usage-policy-budget-section" aria-labelledby="model-usage-policy-budget-heading">
         <div className="model-usage-policy-section-head">
           <h2 id="model-usage-policy-budget-heading">家庭月预算</h2>
-          <p>留空表示只记录模型用量，不设置家庭月预算。</p>
+          <p>用于预算提醒和硬限制；不设置也会继续记录用量。</p>
         </div>
-        <label className="model-usage-policy-field">
-          <span>家庭月预算（元）</span>
-          <input
-            inputMode="decimal"
-            value={draft.monthly_budget_cny ?? ''}
-            onChange={(event) => props.onPatchDraft({
-              monthly_budget_cny: normalizeModelUsageDecimalDraft(event.target.value),
-            })}
-            disabled={props.isSaving}
-            aria-describedby="model-usage-budget-help"
-            aria-invalid={validationField === 'monthly_budget_cny' ? true : undefined}
-          />
-        </label>
-        <p id="model-usage-budget-help" className="model-usage-policy-help">按元填写，可输入小数；留空表示不设置预算。</p>
+        <div className="model-usage-policy-field">
+          <label htmlFor={budgetInputId}>家庭月预算（元）</label>
+          <span className="model-usage-policy-money-input">
+            <span aria-hidden="true">¥</span>
+            <input
+              id={budgetInputId}
+              aria-label="家庭月预算（元）"
+              inputMode="decimal"
+              placeholder="不设置"
+              value={draft.monthly_budget_cny ?? ''}
+              onChange={(event) => props.onPatchDraft({
+                monthly_budget_cny: normalizeModelUsageDecimalDraft(event.target.value),
+              })}
+              disabled={props.isSaving}
+              aria-describedby="model-usage-budget-help"
+              aria-invalid={validationField === 'monthly_budget_cny' ? true : undefined}
+            />
+            {draft.monthly_budget_cny ? (
+              <button type="button" onClick={() => props.onPatchDraft({ monthly_budget_cny: null })} disabled={props.isSaving}>不设置</button>
+            ) : null}
+          </span>
+        </div>
+        <p id="model-usage-budget-help" className="model-usage-policy-help">按人民币填写，可输入小数。</p>
         {validationField === 'monthly_budget_cny' ? <p className="model-usage-policy-field-error" role="alert">{validationMessage}</p> : null}
       </section>
 
       <section className="model-usage-policy-section" aria-labelledby="model-usage-policy-limits-heading">
         <div className="model-usage-policy-section-head">
           <h2 id="model-usage-policy-limits-heading">提醒和限制</h2>
-          <p>预算提醒仅家庭创建者可见；开启硬限制后，新发起的模型调用会按当前额度检查。</p>
+          <p>先提醒，再按需限制新请求。</p>
         </div>
-        <label className="model-usage-policy-toggle">
-          <input
-            type="checkbox"
-            checked={draft.alerts_enabled}
-            onChange={(event) => props.onPatchDraft({ alerts_enabled: event.target.checked })}
-            disabled={props.isSaving}
-          />
-          <span>开启预算提醒</span>
+        <label className="model-usage-policy-setting-row">
+          <span className="model-usage-policy-setting-copy">
+            <strong>预算提醒</strong>
+            <small>用量接近预算时提醒家庭创建者</small>
+          </span>
+          <span className="model-usage-policy-switch">
+            <input
+              type="checkbox"
+              aria-label="开启预算提醒"
+              checked={draft.alerts_enabled}
+              onChange={(event) => props.onPatchDraft({ alerts_enabled: event.target.checked })}
+              disabled={props.isSaving}
+            />
+            <span aria-hidden="true" />
+          </span>
         </label>
-        <label className="model-usage-policy-toggle">
-          <input
-            type="checkbox"
-            checked={draft.hard_limit_enabled}
-            onChange={(event) => props.onPatchDraft({ hard_limit_enabled: event.target.checked })}
-            disabled={props.isSaving}
-            aria-describedby="model-usage-hard-limit-inflight-help"
-          />
-          <span>开启家庭硬限制</span>
+        <label className="model-usage-policy-setting-row">
+          <span className="model-usage-policy-setting-copy">
+            <strong>家庭硬限制</strong>
+            <small>预算或能力额度达到上限后阻止新请求</small>
+          </span>
+          <span className="model-usage-policy-switch">
+            <input
+              type="checkbox"
+              aria-label="开启家庭硬限制"
+              checked={draft.hard_limit_enabled}
+              onChange={(event) => props.onPatchDraft({ hard_limit_enabled: event.target.checked })}
+              disabled={props.isSaving}
+              aria-describedby={draft.hard_limit_enabled ? 'model-usage-hard-limit-inflight-help' : undefined}
+            />
+            <span aria-hidden="true" />
+          </span>
         </label>
-        <p id="model-usage-hard-limit-inflight-help" className="model-usage-policy-help">
-          保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。
-        </p>
+        {draft.hard_limit_enabled ? (
+          <p id="model-usage-hard-limit-inflight-help" className="model-usage-policy-impact-note">
+            保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。
+          </p>
+        ) : null}
         {requiresMissingPriceConfirmation ? (
           <label className="model-usage-price-confirmation">
             <input
@@ -197,77 +349,25 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
 
       <section className="model-usage-policy-section" aria-labelledby="model-usage-policy-guardrails-heading">
         <div className="model-usage-policy-section-head">
-          <h2 id="model-usage-policy-guardrails-heading">能力护栏</h2>
-          <p>可为每项模型能力设置费用或使用量上限。</p>
+          <div className="model-usage-policy-section-title-row">
+            <h2 id="model-usage-policy-guardrails-heading">能力护栏</h2>
+            <span>{draft.capability_limits.length} 项已启用</span>
+          </div>
+          <p>按能力设置费用或使用量上限，未启用的能力不受单项限制。</p>
         </div>
         <div className="model-usage-policy-guardrails">
           {(Object.entries(MODEL_USAGE_CAPABILITY_OPTIONS) as CapabilityOptionEntry[]).map(([capability, option]) => {
             const limit = draft.capability_limits.find((item) => item.capability === capability);
-            const isEnabled = Boolean(limit?.enabled);
-            const meters = MODEL_USAGE_CAPABILITY_METERS[capability];
-            const activeKind = limit?.limit_kind ?? 'cost';
-            const activeMeter = limit?.meter ?? meters[0] ?? null;
             return (
-              <fieldset key={capability} className="model-usage-policy-guardrail">
-                <legend>{option.label}</legend>
-                <p>{option.description}</p>
-                <label className="model-usage-policy-toggle">
-                  <input
-                    type="checkbox"
-                    checked={isEnabled}
-                    onChange={(event) => setCapabilityLimitEnabled(capability, event.target.checked)}
-                    disabled={props.isSaving}
-                  />
-                  <span>{option.label}护栏</span>
-                </label>
-                {isEnabled ? (
-                  <div className="model-usage-policy-guardrail-fields">
-                    <label className="model-usage-policy-field">
-                      <span>护栏类型</span>
-                      <select
-                        aria-label={`${option.label}护栏类型`}
-                        value={activeKind}
-                        onChange={(event) => {
-                          const limitKind = event.target.value as ModelUsageLimitKind;
-                          updateCapabilityLimit(capability, {
-                            limit_kind: limitKind,
-                            meter: limitKind === 'meter' ? activeMeter : null,
-                          });
-                        }}
-                        disabled={props.isSaving}
-                      >
-                        <option value="cost">费用（元）</option>
-                        <option value="meter">使用量</option>
-                      </select>
-                    </label>
-                    {activeKind === 'meter' ? (
-                      <label className="model-usage-policy-field">
-                        <span>计量项</span>
-                        <select
-                          aria-label={`${option.label}计量项`}
-                          value={activeMeter ?? ''}
-                          onChange={(event) => updateCapabilityLimit(capability, { meter: event.target.value as ModelUsageMeter })}
-                          disabled={props.isSaving}
-                        >
-                          {meters.map((meter) => <option key={meter} value={meter}>{MODEL_USAGE_METER_OPTIONS[meter].label}</option>)}
-                        </select>
-                      </label>
-                    ) : null}
-                    <label className="model-usage-policy-field">
-                      <span>护栏上限</span>
-                      <input
-                        aria-label={`${option.label}护栏上限`}
-                        inputMode="decimal"
-                        value={limit?.limit_value ?? ''}
-                        onChange={(event) => updateCapabilityLimit(capability, {
-                          limit_value: normalizeModelUsageDecimalDraft(event.target.value) ?? '',
-                        })}
-                        disabled={props.isSaving}
-                      />
-                    </label>
-                  </div>
-                ) : null}
-              </fieldset>
+              <CapabilityGuardrail
+                key={capability}
+                capability={capability}
+                option={option}
+                limit={limit}
+                isSaving={props.isSaving}
+                onEnabledChange={(enabled) => setCapabilityLimitEnabled(capability, enabled)}
+                onPatch={(patch) => updateCapabilityLimit(capability, patch)}
+              />
             );
           })}
         </div>

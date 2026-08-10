@@ -230,18 +230,18 @@ describe('model usage display model', () => {
     const draft = createModelUsagePolicyDraft(policy());
     const payload = buildModelUsagePolicyPayload(draft);
 
-    expect(draft.monthly_budget_cny).toBe('80.005000000000');
-    expect(draft.capability_limits[0]?.limit_value).toBe('12.345000000000');
+    expect(draft.monthly_budget_cny).toBe('80.005');
+    expect(draft.capability_limits[0]?.limit_value).toBe('12.345');
     expect(payload).toEqual({
       base_version_number: 3,
-      monthly_budget_cny: '80.005000000000',
+      monthly_budget_cny: '80.005',
       alerts_enabled: true,
       hard_limit_enabled: false,
       capability_limits: [{
         capability: 'llm',
         limit_kind: 'cost',
         meter: null,
-        limit_value: '12.345000000000',
+        limit_value: '12.345',
         enabled: true,
       }],
       confirm_missing_price_impact: false,

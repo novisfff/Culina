@@ -183,14 +183,21 @@ test('@p0 @model-usage-1440x900 owner alert deep links to its period and can be 
   await expect(page.getByRole('button', { name: '查看模型用量需要处理' })).toHaveCount(0);
 });
 
-test('@p0 @model-usage-1440x900 owner sees hard-limit in-flight disclosure and saves a policy', async ({ app }) => {
+test('@p0 @model-usage-375x812 @model-usage-390x844 @model-usage-430x932 @model-usage-768x1024 @model-usage-1024x768 @model-usage-1440x900 owner sees a concise budget workspace and saves a policy', async ({ app }) => {
   const { page } = app;
   await openModelUsage(page);
 
   await page.getByRole('button', { name: '预算设置' }).click();
   await expect(page.getByRole('heading', { name: '模型预算设置' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '当前预算策略' })).toBeVisible();
+  await expect(page.getByLabel('家庭月预算（元）')).toHaveValue('80');
   await expect(page.getByText(/新发起的模型调用会按新额度检查/)).toBeVisible();
   await expect(page.getByText(/Decimal|持久化发送授权|放行凭证/)).toHaveCount(0);
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    await expect(page.locator('.model-usage-policy-mobile > .model-usage-policy-settings')).toHaveCSS('overflow-y', 'visible');
+  }
+  await expectNoHorizontalOverflow(page);
+  await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 'unknown'}x${page.viewportSize()?.height ?? 'unknown'}-budget-settings.png`);
 
   const saveRequest = page.waitForRequest((request) => (
     request.method() === 'PUT'
