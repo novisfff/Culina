@@ -15,6 +15,7 @@ export interface ModelUsageWorkspaceProps {
   initialPeriod?: string | null;
   isPhoneViewport: boolean;
   onBack: () => void;
+  onOpenRequestLogs?: () => void;
 }
 
 export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
@@ -85,6 +86,7 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
         actions={actions}
         onOpenPolicySettings={openPolicySettings}
         onBack={props.onBack}
+        onOpenRequestLogs={props.onOpenRequestLogs ?? (() => undefined)}
       />
       {isPolicySettingsOpen && queries.isOwner && !props.isPhoneViewport ? (
         <ModelUsagePolicyDesktopDrawer onClose={closePolicySettings} settings={policySettings} />

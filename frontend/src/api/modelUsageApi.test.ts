@@ -38,6 +38,23 @@ describe('modelUsageApi transport', () => {
     );
   });
 
+  it('loads request logs by an explicit date range without a billing period', async () => {
+    mockRequest.mockResolvedValue({});
+
+    await modelUsageApi.getFamilyModelUsageRequests({
+      date_from: '2026-07-28',
+      date_to: '2026-08-03',
+      limit: 20,
+      offset: 0,
+    });
+
+    const url = String(mockRequest.mock.calls.at(-1)?.[0]);
+    expect(url).toContain('/api/model-usage/family/requests?');
+    expect(url).toContain('date_from=2026-07-28');
+    expect(url).toContain('date_to=2026-08-03');
+    expect(url).not.toContain('period=');
+  });
+
   it('gets and updates the family policy while preserving decimal strings for OCC', async () => {
     mockRequest.mockResolvedValue({ version_number: 3, monthly_budget_cny: '80.000000000000' });
 

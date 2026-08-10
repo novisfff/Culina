@@ -140,7 +140,6 @@ export function FamilyMobileView(props: {
               ? '查看本账期费用、家庭额度和使用明细'
               : '查看个人费用和当前家庭额度'}
           </small>
-          <DashboardIcon name="arrow-right" />
         </button>
       </section>
 

@@ -66,6 +66,63 @@ test('@p0 @model-usage-390x844 long provider and model names wrap without horizo
   await saveVisualReviewScreenshot(page, '390x844-long-model.png');
 });
 
+test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal entry card and open a filterable paginated child page', async ({ app }) => {
+  const { page } = app;
+  await openModelUsage(page);
+
+  const entry = page.getByRole('button', { name: /请求日志/ });
+  const arrow = entry.locator('svg');
+  await expect(entry).toBeVisible();
+  await expect(arrow).toHaveCSS('width', '18px');
+  await expect(arrow).toHaveCSS('height', '18px');
+  expect((await entry.boundingBox())?.height).toBeLessThan(120);
+  await expectNoHorizontalOverflow(page);
+
+  await entry.click();
+  await expect(page.getByRole('heading', { name: '请求日志' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '筛选请求' })).toBeVisible();
+  const requestPageHeader = page.locator('.model-usage-request-page-header');
+  const requestPageBack = page.getByRole('button', { name: '返回模型用量' });
+  const requestPageHeaderBox = await requestPageHeader.boundingBox();
+  expect(requestPageHeaderBox?.height).toBeLessThan(180);
+  if ((page.viewportSize()?.width ?? 0) <= 390) {
+    expect(requestPageHeaderBox?.y).toBeGreaterThanOrEqual(12);
+    await expect(page.locator('.model-usage-request-logs-page')).toHaveCSS('padding-bottom', '0px');
+  }
+  expect((await requestPageBack.boundingBox())?.width).toBeLessThan(80);
+  await expect(page.getByRole('button', { name: /请求日期/ })).toBeVisible();
+  await expect(page.getByText('模型能力', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '全部能力' })).toBeVisible();
+  await expect(page.getByText('核对状态', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '全部状态' })).toBeVisible();
+  await expect(page.getByLabel('Provider')).toBeVisible();
+  await expect(page.getByLabel('模型', { exact: true })).toBeVisible();
+  await expect(page.locator('input[type="date"], input[type="month"]')).toHaveCount(0);
+  await expect(page.getByText('共 23 次请求')).toBeVisible();
+  await expect(page.getByText('第 1 / 2 页')).toBeVisible();
+
+  const filteredRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === '/api/model-usage/family/requests'
+      && url.searchParams.get('provider') === 'dashscope'
+      && url.searchParams.get('date_from') === '2026-08-06'
+      && url.searchParams.get('date_to') === '2026-08-08'
+      && !url.searchParams.has('period');
+  });
+  await page.getByRole('button', { name: /请求日期/ }).click();
+  await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 'unknown'}x${page.viewportSize()?.height ?? 'unknown'}-date-range-picker.png`);
+  await page.getByRole('gridcell', { name: /2026年8月6日/ }).click();
+  await page.getByRole('gridcell', { name: /2026年8月8日/ }).click();
+  await page.getByRole('button', { name: '应用范围' }).click();
+  await page.getByLabel('Provider').fill('dashscope');
+  await page.getByRole('button', { name: '查询记录' }).click();
+  await filteredRequest;
+  await expect(page.getByText('qwen3-rerank').first()).toBeVisible();
+  await expect(page.getByText(/model-usage-request-|provider-request-/)).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 'unknown'}x${page.viewportSize()?.height ?? 'unknown'}-request-logs.png`);
+});
+
 test.describe('personal empty model usage', () => {
   test.use({ modelUsageScenario: 'owner-empty-personal' });
 

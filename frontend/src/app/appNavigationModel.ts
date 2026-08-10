@@ -2,7 +2,7 @@ import type { MealType } from '../api/types';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
 export type EatBaseView = 'discover' | 'plan' | 'history';
-export type FamilyView = 'profile' | 'modelUsage';
+export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests';
 
 export type CookLaunchContext = {
   date: string;
@@ -96,7 +96,7 @@ export const initialNavigationState: AppNavigationState = {
 const PRIMARY_TABS: ReadonlySet<PrimaryTabKey> = new Set(['home', 'eat', 'ingredients', 'ai', 'family']);
 const EAT_BASE_VIEWS: ReadonlySet<EatBaseView> = new Set(['discover', 'plan', 'history']);
 const DISCOVER_SECTIONS: ReadonlySet<'all' | 'selfMade'> = new Set(['all', 'selfMade']);
-const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set(['profile', 'modelUsage']);
+const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set(['profile', 'modelUsage', 'modelUsageRequests']);
 
 const EMPTY_QUERY_SCOPE: AppQueryScope = {
   needsMembers: false,

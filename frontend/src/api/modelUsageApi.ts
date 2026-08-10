@@ -7,6 +7,7 @@ import type {
   ModelUsageGroupBy,
   ModelUsagePersonalBreakdown,
   ModelUsagePersonalOverview,
+  ModelUsageRequestLogPage,
   ModelUsagePolicy,
   UpdateModelUsagePolicyPayload,
 } from './types';
@@ -26,6 +27,10 @@ export const modelUsageApi = {
     request<ModelUsageFamilyOverview>(`/api/model-usage/family/overview?${periodParams(period)}`),
   getFamilyModelUsageBreakdown: (period: string, groupBy: ModelUsageGroupBy) =>
     request<ModelUsageFamilyBreakdown>(`/api/model-usage/family/breakdown?${periodParams(period, groupBy)}`),
+  getMyModelUsageRequests: (filters: Record<string, string | number>) =>
+    request<ModelUsageRequestLogPage>(`/api/model-usage/me/requests?${new URLSearchParams({ limit: '20', ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== undefined).map(([key, value]) => [key, String(value)])) })}`),
+  getFamilyModelUsageRequests: (filters: Record<string, string | number>) =>
+    request<ModelUsageRequestLogPage>(`/api/model-usage/family/requests?${new URLSearchParams({ limit: '20', ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== undefined).map(([key, value]) => [key, String(value)])) })}`),
   getFamilyModelUsagePolicy: () => request<ModelUsagePolicy>('/api/model-usage/family/policy'),
   updateFamilyModelUsagePolicy: (payload: UpdateModelUsagePolicyPayload) =>
     request<ModelUsagePolicy>('/api/model-usage/family/policy', {

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -19,8 +22,9 @@ from app.schemas.model_usage import (
     ModelUsagePolicyUpdateRequest,
     ModelUsagePersonalBreakdownOut,
     ModelUsagePersonalOverviewOut,
+    ModelUsageRequestLogPageOut,
 )
-from app.models.model_usage import ModelUsageAlert, ModelUsageAlertReceipt
+from app.models.model_usage import ModelUsageAlert, ModelUsageAlertReceipt, ModelUsageEvent, ModelUsageEventMeter, ModelUsageSubject
 from app.services.model_usage.queries import (
     get_family_usage_breakdown,
     get_family_usage_overview,
@@ -48,11 +52,119 @@ from app.services.model_usage.serializers import (
     serialize_usage_breakdown,
 )
 from app.services.model_usage.subjects import ensure_user_subject
+from app.repos.model_usage.identity import find_user_subject
 from app.services.activity import log_activity
 from app.core.utils import utcnow
 
 
 router = APIRouter(tags=["model-usage"])
+
+
+def _request_log_page(
+    db: Session,
+    *,
+    family_id: str,
+    date_from: date,
+    date_to: date,
+    scope: str,
+    user_id: str | None,
+    limit: int,
+    offset: int,
+    capability: str | None,
+    provider: str | None,
+    model: str | None,
+    status_filter: str | None,
+) -> dict[str, object]:
+    if date_from > date_to or (date_to - date_from).days > 366:
+        raise ValueError("model_usage_invalid_date_range")
+    subject_id = None
+    if scope == "me":
+        if user_id is None:
+            raise LookupError("model_usage_subject_not_found")
+        subject = find_user_subject(db, family_id=family_id, user_id=user_id)
+        if subject is None:
+            raise LookupError("model_usage_subject_not_found")
+        subject_id = subject.id
+    local_zone = ZoneInfo("Asia/Shanghai")
+    start_boundary = datetime.combine(date_from, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+    end_boundary = (datetime.combine(date_to, datetime.min.time(), tzinfo=local_zone) + timedelta(days=1)).astimezone(timezone.utc)
+    filters = [
+        ModelUsageEvent.family_id == family_id,
+        ModelUsageEvent.completed_at >= start_boundary,
+        ModelUsageEvent.completed_at < end_boundary,
+    ]
+    if subject_id is not None:
+        filters.append(ModelUsageEvent.subject_id == subject_id)
+    if capability:
+        filters.append(ModelUsageEvent.capability == capability)
+    if provider:
+        filters.append(ModelUsageEvent.provider == provider)
+    if model:
+        filters.append(ModelUsageEvent.billing_model.ilike(f"%{model.strip()}%"))
+    if status_filter == "priced":
+        filters.append(ModelUsageEvent.pricing_status == "priced")
+    elif status_filter == "unpriced":
+        filters.append(ModelUsageEvent.pricing_status == "unpriced")
+    elif status_filter == "estimated":
+        filters.append(ModelUsageEvent.measurement_status == "estimated")
+    elif status_filter == "needs_review":
+        filters.append(or_(
+            ModelUsageEvent.provider_outcome != "succeeded",
+            ModelUsageEvent.measurement_status == "estimated",
+            ModelUsageEvent.pricing_status != "priced",
+        ))
+    total = int(db.scalar(select(func.count()).select_from(ModelUsageEvent).where(*filters)) or 0)
+    page_events = tuple(db.scalars(
+        select(ModelUsageEvent)
+        .where(*filters)
+        .order_by(ModelUsageEvent.completed_at.desc(), ModelUsageEvent.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ))
+    meters = tuple(db.scalars(
+        select(ModelUsageEventMeter)
+        .where(ModelUsageEventMeter.event_id.in_([event.id for event in page_events]))
+        .order_by(ModelUsageEventMeter.event_id, ModelUsageEventMeter.meter_key)
+    )) if page_events else ()
+    meters_by_event: dict[str, list[dict[str, str]]] = {}
+    for meter in meters:
+        meters_by_event.setdefault(meter.event_id, []).append({
+            "meter": meter.meter.value,
+            "quantity": str(meter.quantity),
+        })
+    subject_labels: dict[str, str] = {}
+    if page_events and scope == "family":
+        subjects = db.scalars(select(ModelUsageSubject).where(ModelUsageSubject.id.in_({event.subject_id for event in page_events})))
+        subject_labels = {subject.id: subject.anonymized_label or subject.subject_key for subject in subjects}
+    return {
+        "family_id": family_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "scope": scope,
+        "source": "raw",
+        "items": [
+            {
+                "id": event.id,
+                "occurred_at": event.completed_at,
+                "capability": event.capability.value,
+                "provider": event.provider,
+                "requested_model": event.requested_model,
+                "billing_model": event.billing_model,
+                "provider_request_id": event.provider_request_id,
+                "subject_label": subject_labels.get(event.subject_id),
+                "provider_outcome": event.provider_outcome.value,
+                "execution_certainty": event.execution_certainty.value,
+                "measurement_status": event.measurement_status.value,
+                "pricing_status": event.pricing_status.value,
+                "cost_cny": str(event.cost_cny) if event.cost_cny is not None else None,
+                "meters": meters_by_event.get(event.id, []),
+            }
+            for event in page_events
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def _query_error(exc: ValueError | LookupError) -> HTTPException:
@@ -61,6 +173,7 @@ def _query_error(exc: ValueError | LookupError) -> HTTPException:
         "model_usage_invalid_period",
         "model_usage_future_period_not_allowed",
         "model_usage_invalid_group_by",
+        "model_usage_invalid_date_range",
     }:
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -219,6 +332,80 @@ def family_breakdown(
     except (ValueError, LookupError) as exc:
         raise _query_error(exc) from exc
     return serialize_usage_breakdown(breakdown)
+
+
+@router.get(
+    "/api/model-usage/me/requests",
+    response_model=ModelUsageRequestLogPageOut,
+    response_model_exclude_none=True,
+)
+def personal_request_logs(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    capability: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    user, membership = auth
+    try:
+        return _request_log_page(
+            db,
+            family_id=membership.family_id,
+            date_from=date_from,
+            date_to=date_to,
+            scope="me",
+            user_id=user.id,
+            limit=limit,
+            offset=offset,
+            capability=capability,
+            provider=provider,
+            model=model,
+            status_filter=status_filter,
+        )
+    except (ValueError, LookupError) as exc:
+        raise _query_error(exc) from exc
+
+
+@router.get(
+    "/api/model-usage/family/requests",
+    response_model=ModelUsageRequestLogPageOut,
+    response_model_exclude_none=True,
+)
+def family_request_logs(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    capability: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _, membership = auth
+    try:
+        return _request_log_page(
+            db,
+            family_id=membership.family_id,
+            date_from=date_from,
+            date_to=date_to,
+            scope="family",
+            user_id=None,
+            limit=limit,
+            offset=offset,
+            capability=capability,
+            provider=provider,
+            model=model,
+            status_filter=status_filter,
+        )
+    except (ValueError, LookupError) as exc:
+        raise _query_error(exc) from exc
 
 
 @router.get(

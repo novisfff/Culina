@@ -925,6 +925,76 @@ function modelUsageBreakdownItems(groupBy) {
   return modelUsageCapabilityBreakdown;
 }
 
+const modelUsageRequestLogsFixture = Array.from({ length: 23 }, (_, index) => {
+  const isEmbedding = index % 3 === 1;
+  const isRerank = index % 3 === 2;
+  const capability = isEmbedding ? 'embedding' : isRerank ? 'rerank' : 'llm';
+  const provider = isRerank ? 'dashscope' : 'openai-compatible';
+  const billingModel = isEmbedding ? 'text-embedding-v4' : isRerank ? 'qwen3-rerank' : 'gpt-5.6-terra';
+  const day = String(6 + (index % 4)).padStart(2, '0');
+  return {
+    id: `model-usage-request-${index + 1}`,
+    occurred_at: `2026-08-${day}T0${index % 9}:40:00.000Z`,
+    capability,
+    provider,
+    requested_model: billingModel,
+    billing_model: billingModel,
+    provider_request_id: `provider-request-${index + 1}`,
+    subject_label: 'Smoke User',
+    provider_outcome: 'succeeded',
+    execution_certainty: 'confirmed',
+    measurement_status: index === 2 ? 'estimated' : 'exact',
+    pricing_status: index === 3 ? 'unpriced' : 'priced',
+    cost_cny: index === 3 ? null : isEmbedding || isRerank ? '0.004000000000' : '0.080000000000',
+    meters: isEmbedding
+      ? [{ meter: 'embedding_tokens', quantity: '2048.000000' }]
+      : isRerank
+        ? [{ meter: 'input_tokens', quantity: '5360.000000' }]
+        : [
+            { meter: 'cached_input_tokens', quantity: '0.000000' },
+            { meter: 'input_tokens', quantity: '6017.000000' },
+            { meter: 'output_tokens', quantity: '38.000000' },
+          ],
+  };
+});
+
+function modelUsageRequestLogPage(url, scope) {
+  const requestedDateFrom = url.searchParams.get('date_from') ?? '2026-08-01';
+  const requestedDateTo = url.searchParams.get('date_to') ?? '2026-08-31';
+  const capability = url.searchParams.get('capability');
+  const provider = url.searchParams.get('provider')?.toLocaleLowerCase();
+  const model = url.searchParams.get('model')?.toLocaleLowerCase();
+  const dateFrom = requestedDateFrom;
+  const dateTo = requestedDateTo;
+  const status = url.searchParams.get('status');
+  const limit = Number(url.searchParams.get('limit') ?? 20);
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const items = modelUsageRequestLogsFixture.filter((item) => {
+    const localDate = item.occurred_at.slice(0, 10);
+    if (capability && item.capability !== capability) return false;
+    if (provider && !item.provider.toLocaleLowerCase().includes(provider)) return false;
+    if (model && !item.billing_model.toLocaleLowerCase().includes(model)) return false;
+    if (dateFrom && localDate < dateFrom) return false;
+    if (dateTo && localDate > dateTo) return false;
+    if (status === 'priced' && item.pricing_status !== 'priced') return false;
+    if (status === 'estimated' && item.measurement_status !== 'estimated') return false;
+    if (status === 'unpriced' && item.pricing_status === 'priced') return false;
+    if (status === 'needs_review' && item.provider_outcome === 'succeeded' && item.measurement_status !== 'estimated' && item.pricing_status === 'priced') return false;
+    return true;
+  });
+  return {
+    family_id: family.id,
+    date_from: requestedDateFrom,
+    date_to: requestedDateTo,
+    scope,
+    source: 'raw',
+    items: items.slice(offset, offset + limit),
+    total: items.length,
+    limit,
+    offset,
+  };
+}
+
 function copyFixture(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -1095,6 +1165,16 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
       await fulfillJson(route, modelUsageScenario === 'owner-empty-personal'
         ? { ...breakdown, items: [] }
         : breakdown);
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/model-usage/family/requests') {
+      await fulfillJson(route, modelUsageRequestLogPage(url, 'family'));
+      return;
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/model-usage/me/requests') {
+      await fulfillJson(route, modelUsageRequestLogPage(url, 'me'));
       return;
     }
 

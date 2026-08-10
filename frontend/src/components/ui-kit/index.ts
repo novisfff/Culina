@@ -19,3 +19,4 @@ export * from './TouchFields';
 export * from './WorkspaceOverlay';
 export * from './WorkspaceOverlayFrame';
 export * from './DatePickerField';
+export * from './DateRangePickerField';

@@ -280,6 +280,10 @@ export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
             isBreakdownLoading={props.isBreakdownLoading}
             items={breakdown?.items ?? null}
           />
+          <button className="model-usage-request-logs-entry" type="button" onClick={props.onOpenRequestLogs}>
+            <span><strong>请求日志</strong><small>按日期、模型和状态查看</small></span>
+            <DashboardIcon name="arrow-right" />
+          </button>
         </>
       )}
     </main>

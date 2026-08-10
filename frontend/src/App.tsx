@@ -100,6 +100,9 @@ const ModelUsageWorkspace = lazy(() =>
     default: module.ModelUsageWorkspace,
   }))
 );
+const ModelUsageRequestLogsPage = lazy(() =>
+  import('./features/model-usage/ModelUsageRequestLogsPage').then((module) => ({ default: module.ModelUsageRequestLogsPage }))
+);
 
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
 const PHONE_VIEWPORT_QUERY = '(max-width: 767px)';
@@ -1550,7 +1553,17 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'family' && (
-          navigation.state.family.view === 'modelUsage' ? (
+          navigation.state.family.view === 'modelUsageRequests' ? (
+            <Suspense fallback={<WorkspaceLoadingFallback />}>
+              <ModelUsageRequestLogsPage
+                familyId={family?.id ?? ''}
+                role={membership?.role ?? 'Member'}
+                initialPeriod={navigation.state.family.period}
+                isPhoneViewport={isPhoneViewport}
+                onBack={() => navigation.navigate({ workspace: 'family', view: 'modelUsage' })}
+              />
+            </Suspense>
+          ) : navigation.state.family.view === 'modelUsage' ? (
             <Suspense fallback={<WorkspaceLoadingFallback />}>
               <ModelUsageWorkspace
                 familyId={family?.id ?? ''}
@@ -1558,6 +1571,7 @@ function App() {
                 initialPeriod={navigation.state.family.period}
                 isPhoneViewport={isPhoneViewport}
                 onBack={() => navigation.navigate({ workspace: 'family', view: 'profile' })}
+                onOpenRequestLogs={() => navigation.navigate({ workspace: 'family', view: 'modelUsageRequests' })}
               />
             </Suspense>
           ) : (

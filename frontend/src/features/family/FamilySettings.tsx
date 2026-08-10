@@ -355,10 +355,9 @@ export function FamilySettings(props: FamilySettingsProps) {
               <small>
                 {props.isOwner
                   ? '查看本账期费用、家庭额度和使用明细'
-                  : '查看个人费用和当前家庭额度'}
+                : '查看个人费用和当前家庭额度'}
               </small>
             </span>
-            <DashboardIcon name="arrow-right" />
           </button>
         </section>
 

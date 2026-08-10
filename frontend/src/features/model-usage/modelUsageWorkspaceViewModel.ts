@@ -24,4 +24,5 @@ export type ModelUsageWorkspaceViewProps = {
   actions: ModelUsageWorkspaceActions;
   onOpenPolicySettings?: () => void;
   onBack: () => void;
+  onOpenRequestLogs: () => void;
 };

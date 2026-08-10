@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -96,6 +96,40 @@ class ModelUsageBreakdownBaseOut(BaseModel):
         "daily_capability_cost",
     ]
     items: list[ModelUsageBreakdownItemOut] = Field(default_factory=list)
+
+
+class ModelUsageRequestMeterOut(BaseModel):
+    meter: ModelUsageMeter
+    quantity: str
+
+
+class ModelUsageRequestLogOut(BaseModel):
+    id: str
+    occurred_at: datetime
+    capability: ModelUsageCapability
+    provider: str
+    requested_model: str
+    billing_model: str
+    provider_request_id: str | None = None
+    subject_label: str | None = None
+    provider_outcome: str
+    execution_certainty: str
+    measurement_status: str
+    pricing_status: str
+    cost_cny: str | None = None
+    meters: list[ModelUsageRequestMeterOut] = Field(default_factory=list)
+
+
+class ModelUsageRequestLogPageOut(BaseModel):
+    family_id: str
+    date_from: date
+    date_to: date
+    scope: Literal["family", "me"]
+    source: Literal["raw"]
+    items: list[ModelUsageRequestLogOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
 
 
 class ModelUsagePersonalBreakdownOut(ModelUsageBreakdownBaseOut):

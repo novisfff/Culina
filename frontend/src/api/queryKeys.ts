@@ -86,6 +86,8 @@ export const queryKeys = {
     [...modelUsageRoot(familyId), 'overview', scope, period] as const,
   modelUsageBreakdown: (familyId: string, scope: ModelUsageScope, period: string, groupBy: ModelUsageGroupBy) =>
     [...modelUsageRoot(familyId), 'breakdown', scope, period, groupBy] as const,
+  modelUsageRequests: (familyId: string, scope: ModelUsageScope, dateFrom: string, dateTo: string) =>
+    [...modelUsageRoot(familyId), 'requests', scope, dateFrom, dateTo] as const,
   modelUsagePolicy: (familyId: string) => [...modelUsageRoot(familyId), 'policy'] as const,
   modelUsageAlerts: (familyId: string) => [...modelUsageRoot(familyId), 'alerts'] as const,
 };

@@ -34,6 +34,40 @@ export type ModelUsageGroupBy =
   | 'subject'
   | 'meter'
   | 'daily_capability_cost';
+
+export interface ModelUsageRequestMeter {
+  meter: ModelUsageMeter;
+  quantity: string;
+}
+
+export interface ModelUsageRequestLog {
+  id: string;
+  occurred_at: string;
+  capability: ModelUsageCapability;
+  provider: string;
+  requested_model: string;
+  billing_model: string;
+  provider_request_id?: string | null;
+  subject_label?: string | null;
+  provider_outcome: string;
+  execution_certainty: string;
+  measurement_status: string;
+  pricing_status: string;
+  cost_cny?: string | null;
+  meters: ModelUsageRequestMeter[];
+}
+
+export interface ModelUsageRequestLogPage {
+  family_id: string;
+  date_from: string;
+  date_to: string;
+  scope: ModelUsageScope;
+  source: 'raw';
+  items: ModelUsageRequestLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
 export type ModelUsageLimitKind = 'cost' | 'meter';
 export type ModelUsageMemberBudgetState =
   | 'sufficient'
