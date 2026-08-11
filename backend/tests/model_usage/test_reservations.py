@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import (
@@ -136,6 +136,49 @@ def test_same_attempt_and_fingerprint_replays_reservation(
     assert first.reservation_id == second.reservation_id
     assert model_usage_db.query(ModelUsageReservation).count() == 1
     assert counter(model_usage_db, "family_cost").reserved_value == first.reserved_cost_cny
+
+
+def test_existing_reservation_counters_are_locked_in_one_query(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    estimate = estimate_llm(input_tokens=100, cached_input_tokens=20, max_output_tokens=200)
+    reserve_usage_in_session(
+        model_usage_db,
+        reservation_context,
+        estimate,
+        fingerprint="fp-counter-seed",
+        at=NOW,
+    )
+    next_context = replace(
+        reservation_context,
+        attempt_key="attempt-counter-batch",
+        client_attempt_id="mua_counter_batch",
+    )
+    statements: list[str] = []
+    engine = model_usage_db.get_bind()
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        reserve_usage_in_session(
+            model_usage_db,
+            next_context,
+            estimate,
+            fingerprint="fp-counter-batch",
+            at=NOW,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    counter_selects = [
+        statement
+        for statement in statements
+        if statement.lstrip().startswith("select") and "from model_usage_period_counters" in statement
+    ]
+    assert len(counter_selects) == 1
 
 
 def test_reserve_usage_commits_only_its_own_transaction(

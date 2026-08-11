@@ -27,6 +27,15 @@ class KeywordSearchHit:
     match_modes: tuple[KeywordMatchMode, ...] = ()
 
 
+@dataclass(frozen=True)
+class _SearchTextProjection:
+    entity_type: str
+    entity_id: str
+    title_text: str
+    keyword_text: str
+    detail_text: str
+
+
 def search_keyword_documents(
     db: Session,
     *,
@@ -261,7 +270,13 @@ def _search_compact_documents(
         return []
     scan_limit = max(limit * 10, 300)
     statement = (
-        select(SearchDocument)
+        select(
+            SearchDocument.entity_type,
+            SearchDocument.entity_id,
+            SearchDocument.title_text,
+            SearchDocument.keyword_text,
+            SearchDocument.detail_text,
+        )
         .where(
             SearchDocument.family_id == family_id,
             SearchDocument.entity_type.in_(scopes),
@@ -271,7 +286,8 @@ def _search_compact_documents(
         .limit(scan_limit)
     )
     hits: list[KeywordSearchHit] = []
-    for document in db.scalars(statement):
+    for row in db.execute(statement):
+        document = _SearchTextProjection(*row)
         matched_fields = _compact_matched_fields(document, compact_query)
         if not matched_fields:
             continue
@@ -418,7 +434,7 @@ def _matched_fields(document: SearchDocument, query: str) -> list[str]:
     return matches
 
 
-def _compact_matched_fields(document: SearchDocument, query: str) -> list[str]:
+def _compact_matched_fields(document: SearchDocument | _SearchTextProjection, query: str) -> list[str]:
     matches: list[str] = []
     compact_query = compact_search_text(query)
     if compact_query and compact_query in compact_search_text(document.title_text):

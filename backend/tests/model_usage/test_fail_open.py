@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError, TimeoutError
 from sqlalchemy.orm import Session
 
@@ -147,6 +148,48 @@ def test_facade_hard_limit_without_price_is_blocked_by_admission(
     assert decision.decision == "blocked"
     assert decision.error_code == "model_usage_price_unavailable"
     assert decision.fail_open_permit is None
+
+
+def test_facade_monitoring_reservation_reuses_preloaded_admission_rows(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    statements: list[str] = []
+    engine = model_usage_db.get_bind()
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    facade = ModelUsageFacade(
+        session_factory=lambda: model_usage_db,
+        registry=FailOpenPermitRegistry(),
+        outage_latch=ModelUsageOutageLatch(),
+        source_instance="api-test",
+        clock=lambda: NOW,
+    )
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        decision = facade.reserve(
+            reservation_context,
+            estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+            fingerprint="fp-preloaded-admission",
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert decision.decision == "allowed"
+    policy_pointer_selects = [
+        statement
+        for statement in statements
+        if statement.lstrip().startswith("select") and "from model_usage_family_policies" in statement
+    ]
+    price_version_selects = [
+        statement
+        for statement in statements
+        if statement.lstrip().startswith("select") and "from model_usage_price_versions" in statement
+    ]
+    assert len(policy_pointer_selects) == 1
+    assert len(price_version_selects) == 1
 
 
 def test_facade_hard_limit_uses_normal_reservation_when_ledger_is_healthy(

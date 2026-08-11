@@ -301,14 +301,17 @@ def prepare_usage_dispatch_in_session(
             .order_by(ModelUsageReservationMeter.meter_key)
         )
     )
-    counters = _lock_counters(db, reservation, meters)
-    limits = tuple(
-        db.scalars(
-            select(ModelUsageCapabilityLimit).where(
-                ModelUsageCapabilityLimit.policy_version_id == policy.id
+    counters: tuple[ModelUsagePeriodCounter, ...] = ()
+    limits: tuple[ModelUsageCapabilityLimit, ...] = ()
+    if policy.hard_limit_enabled:
+        counters = _lock_counters(db, reservation, meters)
+        limits = tuple(
+            db.scalars(
+                select(ModelUsageCapabilityLimit).where(
+                    ModelUsageCapabilityLimit.policy_version_id == policy.id
+                )
             )
         )
-    )
     error = _current_policy_error(policy, reservation, meters, counters, limits)
     if error:
         _remove_reserved(reservation, meters, counters)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import bindparam, create_engine
+from sqlalchemy import bindparam, create_engine, event
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -16,6 +16,7 @@ from app.services.search.keyword_store import (
     _compact_matched_fields,
     _merge_keyword_hits,
     _mysql_fulltext_statement,
+    _search_compact_documents,
     _should_use_substring_fallback,
     search_exact_name_documents,
     search_keyword_documents,
@@ -405,6 +406,56 @@ def test_single_cjk_compact_fallback_does_not_match_inside_multi_char_keyword() 
     )
 
     assert _compact_matched_fields(document, "料") == []
+
+
+def test_compact_fallback_selects_only_matching_fields() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    now = datetime.now(timezone.utc)
+    statements: list[str] = []
+
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
+        db.add(
+            _private_search_document(
+                entity_type="ingredient",
+                entity_id="ingredient-chicken",
+                user_id=None,
+                title_text="鸡肉",
+                keyword_text="鸡 肉",
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        with SessionLocal() as db:
+            hits = _search_compact_documents(
+                db,
+                family_id="family-1",
+                user_id=None,
+                query="鸡肉",
+                scopes=["ingredient"],
+                limit=10,
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert [hit.entity_id for hit in hits] == ["ingredient-chicken"]
+    assert len(statements) == 1
+    statement = statements[0]
+    assert "search_documents.entity_type" in statement
+    assert "search_documents.entity_id" in statement
+    assert "search_documents.title_text" in statement
+    assert "search_documents.keyword_text" in statement
+    assert "search_documents.detail_text" in statement
+    assert "search_documents.semantic_text" not in statement
+    assert "search_documents.metadata_json" not in statement
 
 
 def test_exact_name_search_is_scoped_to_family_and_scope() -> None:

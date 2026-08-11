@@ -21,7 +21,11 @@ from app.services.model_usage.periods import BillingPeriod, shanghai_billing_per
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
 from app.services.model_usage.policies import lock_current_policy
 from app.services.model_usage.pricing import UsagePriceSnapshot, select_price_snapshot
-from app.services.model_usage.reservations import reserve_usage_in_session
+from app.services.model_usage.reservations import (
+    PreparedReservationAdmission,
+    prepare_reservation_admission,
+    reserve_usage_in_session,
+)
 from app.services.model_usage.subjects import resolve_subject
 from app.services.model_usage.types import (
     DispatchPermit,
@@ -96,7 +100,7 @@ process_fail_open_permit_registry = FailOpenPermitRegistry()
 process_model_usage_outage_latch = ModelUsageOutageLatch()
 
 
-def _monitoring_dispatch_eligibility(
+def _prepare_monitoring_dispatch_eligibility(
     db: Session,
     *,
     context: UsageContext,
@@ -104,7 +108,7 @@ def _monitoring_dispatch_eligibility(
     fingerprint: str,
     at: datetime,
     proof_ttl: timedelta = PROOF_TTL,
-) -> DispatchEligibilityProof | None:
+) -> tuple[DispatchEligibilityProof | None, PreparedReservationAdmission | None]:
     try:
         _, policy = lock_current_policy(
             db,
@@ -113,11 +117,11 @@ def _monitoring_dispatch_eligibility(
     except ValueError:
         raise ModelUsageLedgerUnavailable()
     if policy.hard_limit_enabled:
-        return None
+        return None, None
     subject = resolve_subject(db, context.attribution)
     price = select_price_snapshot(db, context, estimate, at=at)
     period = shanghai_billing_period(at)
-    return DispatchEligibilityProof(
+    proof = DispatchEligibilityProof(
         proof_id=f"mup_{secrets.token_urlsafe(24)}",
         family_id=context.attribution.family_id,
         subject_key=subject.subject_key,
@@ -142,6 +146,35 @@ def _monitoring_dispatch_eligibility(
         recovery_policy=ProviderRecoveryPolicy.none(),
         required_meters=tuple(estimate.meters),
     )
+    admission = prepare_reservation_admission(
+        context=context,
+        estimate=estimate,
+        at=at,
+        policy=policy,
+        subject=subject,
+        price=price,
+    )
+    return proof, admission
+
+
+def _monitoring_dispatch_eligibility(
+    db: Session,
+    *,
+    context: UsageContext,
+    estimate: UsageEstimate,
+    fingerprint: str,
+    at: datetime,
+    proof_ttl: timedelta = PROOF_TTL,
+) -> DispatchEligibilityProof | None:
+    proof, _admission = _prepare_monitoring_dispatch_eligibility(
+        db,
+        context=context,
+        estimate=estimate,
+        fingerprint=fingerprint,
+        at=at,
+        proof_ttl=proof_ttl,
+    )
+    return proof
 
 
 def prove_monitoring_dispatch_eligibility(
@@ -272,10 +305,11 @@ class ModelUsageFacade:
         at: datetime | None = None,
     ) -> ReservationDecision:
         proof: DispatchEligibilityProof | None = None
+        prepared_admission: PreparedReservationAdmission | None = None
         reservation_at = at or self._clock()
         try:
             with self._session_factory() as db:
-                proof = _monitoring_dispatch_eligibility(
+                proof, prepared_admission = _prepare_monitoring_dispatch_eligibility(
                     db,
                     context=context,
                     estimate=estimate,
@@ -292,6 +326,7 @@ class ModelUsageFacade:
                     expected_policy_version_id=(
                         proof.policy_version_id if proof is not None else None
                     ),
+                    prepared_admission=prepared_admission,
                 )
                 db.commit()
                 return decision

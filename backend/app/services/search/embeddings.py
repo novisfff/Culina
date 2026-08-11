@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Protocol
 
 import httpx
@@ -12,6 +14,8 @@ from app.services.model_usage.errors import ModelUsageContractError, ModelUsageE
 from app.services.model_usage.facade import ModelUsageFacade
 from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 from app.services.model_usage.types import UsageAttribution
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingUnavailableError(RuntimeError):
@@ -147,21 +151,33 @@ class OpenAICompatibleEmbeddingClient:
         attempt = None
         permit = None
         settlement = None
+        reserve_duration_ms = 0.0
+        dispatch_duration_ms = 0.0
+        provider_duration_ms = 0.0
+        settlement_duration_ms = 0.0
+        parse_duration_ms = 0.0
         if adapter is not None:
+            reserve_started_at = perf_counter()
             attempt = adapter.begin_embedding_batch(
                 attribution=attribution,
                 attempt_key=attempt_key,
                 text_token_estimates=[estimate_embedding_tokens(text) for text in texts],
                 fingerprint=adapter.request_fingerprint(texts=texts),
             )
+            reserve_duration_ms = (perf_counter() - reserve_started_at) * 1000
+            dispatch_started_at = perf_counter()
             permit = attempt.prepare_dispatch()
+            dispatch_duration_ms = (perf_counter() - dispatch_started_at) * 1000
 
         try:
+            provider_started_at = perf_counter()
             response = self._post_embeddings(texts)
+            provider_duration_ms = (perf_counter() - provider_started_at) * 1000
             body = response.json()
             if not isinstance(body, dict):
                 raise EmbeddingUnavailableError("embedding response invalid")
             if adapter is not None and permit is not None:
+                settlement_started_at = perf_counter()
                 settlement = attempt.settle(
                     adapter.receipt_from_openai_response(
                         permit,
@@ -170,11 +186,14 @@ class OpenAICompatibleEmbeddingClient:
                         provider_request_id=_provider_request_id(response, body),
                     )
                 )
+                settlement_duration_ms = (perf_counter() - settlement_started_at) * 1000
+            parse_started_at = perf_counter()
             vectors = _parse_vectors(
                 body,
                 expected_count=len(texts),
                 dimensions=self.dimensions,
             )
+            parse_duration_ms = (perf_counter() - parse_started_at) * 1000
         except Exception as exc:
             # A request that reached dispatching but has no durable settlement
             # must never be automatically sent again.  This includes malformed
@@ -190,6 +209,21 @@ class OpenAICompatibleEmbeddingClient:
                 raise
             raise EmbeddingUnavailableError(str(exc) or "embedding request failed") from exc
 
+        logger.info(
+            "Search embedding request completed",
+            extra={
+                "embedding_timing": {
+                    "reserve_ms": round(reserve_duration_ms, 3),
+                    "dispatch_ms": round(dispatch_duration_ms, 3),
+                    "provider_ms": round(provider_duration_ms, 3),
+                    "settlement_ms": round(settlement_duration_ms, 3),
+                    "parse_ms": round(parse_duration_ms, 3),
+                    "batch_size": len(texts),
+                    "model": self.model,
+                    "metered": adapter is not None,
+                }
+            },
+        )
         return MeteredEmbeddingResult(
             vectors=vectors,
             usage_event_id=settlement.event_id if settlement is not None else None,

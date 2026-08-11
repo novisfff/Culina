@@ -135,5 +135,41 @@ def lock_or_create_counter(db: Session, key: CounterKey) -> ModelUsagePeriodCoun
     return winner
 
 
+def lock_or_create_counters(
+    db: Session,
+    keys: tuple[CounterKey, ...],
+) -> tuple[ModelUsagePeriodCounter, ...]:
+    if not keys:
+        return ()
+    first = keys[0]
+    if any(
+        key.family_id != first.family_id
+        or key.period.start_at != first.period.start_at
+        or key.period.end_at != first.period.end_at
+        for key in keys[1:]
+    ):
+        return tuple(lock_or_create_counter(db, key) for key in keys)
+
+    rows = tuple(
+        db.scalars(
+            select(ModelUsagePeriodCounter)
+            .where(
+                ModelUsagePeriodCounter.family_id == first.family_id,
+                ModelUsagePeriodCounter.period_start == first.period.start_at,
+                ModelUsagePeriodCounter.dimension_key.in_(
+                    [key.dimension_key for key in keys]
+                ),
+            )
+            .order_by(ModelUsagePeriodCounter.dimension_key)
+            .with_for_update()
+        )
+    )
+    by_dimension = {row.dimension_key: row for row in rows}
+    for key in keys:
+        if key.dimension_key not in by_dimension:
+            by_dimension[key.dimension_key] = lock_or_create_counter(db, key)
+    return tuple(by_dimension[key.dimension_key] for key in keys)
+
+
 def effective_counter_value(counter: ModelUsagePeriodCounter) -> Decimal:
     return counter.settled_value + counter.adjustment_value + counter.reserved_value

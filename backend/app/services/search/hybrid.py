@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from time import perf_counter
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -17,7 +18,18 @@ from app.core.enums import (
     ModelUsageOperationSource,
 )
 from app.core.utils import create_id
-from app.models.domain import Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
+from app.models.domain import (
+    Food,
+    FoodPlanItem,
+    Ingredient,
+    IngredientInventoryState,
+    InventoryItem,
+    MealLog,
+    MealLogFood,
+    Recipe,
+    RecipeCookLog,
+    SearchDocument,
+)
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.ingredient_inventory_state import state_is_usable
@@ -30,7 +42,6 @@ from app.services.inventory_usage import (
 )
 from app.services.model_usage.errors import ModelUsageError
 from app.services.model_usage.types import UsageAttribution
-from app.services.recipe_recommendations import recipe_recommendation_usage_maps
 from app.services.search.embeddings import (
     EmbeddingClient,
     EmbeddingUnavailableError,
@@ -51,6 +62,10 @@ DEFAULT_RERANK_MIN_SCORE = 0.58
 DEFAULT_LITERAL_FALLBACK_MIN_SCORE = 0.70
 DEFAULT_RERANK_CANDIDATE_LIMIT = 50
 MAX_RERANK_DOCUMENT_CHARS = 2048
+_SEMANTIC_RECALL_EXECUTOR = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="search-semantic",
+)
 
 
 @dataclass
@@ -121,6 +136,7 @@ def hybrid_search(
     vector_store: VectorStore | None = None,
     rerank_client: RerankClient | None = None,
 ) -> HybridSearchResponse:
+    search_started_at = perf_counter()
     response_query = query.strip()
     profile = analyze_search_query(response_query)
     if not profile.compact_text:
@@ -132,6 +148,8 @@ def hybrid_search(
     keyword_limit = max(80, requested_window * 4)
     semantic_limit = max(80, requested_window * 4)
     hybrid_enabled = settings.search_hybrid_enabled
+    search_request_id = create_id("search-request") if hybrid_enabled else None
+    exact_started_at = perf_counter()
     exact_name_hits = search_exact_name_documents(
         db,
         family_id=family_id,
@@ -140,6 +158,24 @@ def hybrid_search(
         scopes=scopes,
         limit=keyword_limit,
     )
+    exact_duration_ms = (perf_counter() - exact_started_at) * 1000
+    semantic_future: Future[list[VectorSearchHit]] | None = None
+    if hybrid_enabled:
+        assert search_request_id is not None
+        embedding_client = embedding_client or build_embedding_client()
+        vector_store = vector_store or build_vector_store()
+        semantic_future = _SEMANTIC_RECALL_EXECUTOR.submit(
+            _semantic_recall,
+            embedding_client=embedding_client,
+            vector_store=vector_store,
+            family_id=family_id,
+            user_id=user_id,
+            scopes=scopes,
+            recall_query=recall_query,
+            semantic_limit=semantic_limit,
+            search_request_id=search_request_id,
+        )
+    keyword_started_at = perf_counter()
     keyword_hits = search_keyword_documents(
         db,
         family_id=family_id,
@@ -148,33 +184,16 @@ def hybrid_search(
         scopes=scopes,
         limit=keyword_limit,
     )
+    keyword_duration_ms = (perf_counter() - keyword_started_at) * 1000
 
     degraded = False
     degradation_code: str | None = None
     semantic_hits: list[VectorSearchHit] = []
-    search_request_id = create_id("search-request") if hybrid_enabled else None
-    if hybrid_enabled:
-        embedding_client = embedding_client or build_embedding_client()
-        vector_store = vector_store or build_vector_store()
+    semantic_wait_duration_ms = 0.0
+    if semantic_future is not None:
+        semantic_wait_started_at = perf_counter()
         try:
-            query_embedding = embedding_client.embed_text(
-                recall_query,
-                attribution=_query_usage_attribution(
-                    family_id=family_id,
-                    user_id=user_id,
-                    logical_operation_id=search_request_id,
-                ),
-                attempt_key=f"{search_request_id}:embedding:query",
-            )
-            query_vector = _require_single_vector(query_embedding)
-            semantic_hits = _search_vectors(
-                vector_store=vector_store,
-                family_id=family_id,
-                user_id=user_id,
-                scopes=scopes,
-                vector=query_vector,
-                limit=semantic_limit,
-            )
+            semantic_hits = semantic_future.result()
         except ModelUsageError as exc:
             degraded = True
             degradation_code = exc.code
@@ -184,6 +203,8 @@ def hybrid_search(
         except VectorStoreUnavailableError:
             degraded = True
             degradation_code = "search_vector_unavailable"
+        finally:
+            semantic_wait_duration_ms = (perf_counter() - semantic_wait_started_at) * 1000
 
     rerank_client = (rerank_client or build_rerank_client()) if hybrid_enabled else None
     rerank_attribution = (
@@ -195,6 +216,7 @@ def hybrid_search(
         if search_request_id is not None
         else None
     )
+    merge_started_at = perf_counter()
     local_results, documents_by_key, diagnostics = _merge_and_rank_hits(
         db,
         family_id=family_id,
@@ -205,6 +227,8 @@ def hybrid_search(
         semantic_hits=semantic_hits,
         semantic_min_score=settings.search_semantic_min_score,
     )
+    merge_duration_ms = (perf_counter() - merge_started_at) * 1000
+    rerank_started_at = perf_counter()
     merged, rerank_degraded, rerank_degradation_code, rerank_used = _sort_with_rerank(
         query=recall_query,
         results=local_results,
@@ -216,6 +240,7 @@ def hybrid_search(
         rerank_attribution=rerank_attribution,
         rerank_attempt_key=f"{search_request_id}:rerank" if search_request_id is not None else None,
     )
+    rerank_duration_ms = (perf_counter() - rerank_started_at) * 1000
     degraded = degraded or rerank_degraded
     if degradation_code is None and rerank_degradation_code is not None:
         degradation_code = rerank_degradation_code
@@ -225,7 +250,15 @@ def hybrid_search(
             "search_diagnostics": diagnostics.as_log_fields(
                 rerank_used=rerank_used,
                 degradation_code=degradation_code,
-            )
+            ),
+            "search_timing": {
+                "exact_recall_ms": round(exact_duration_ms, 3),
+                "keyword_recall_ms": round(keyword_duration_ms, 3),
+                "semantic_wait_ms": round(semantic_wait_duration_ms, 3),
+                "merge_and_rank_ms": round(merge_duration_ms, 3),
+                "rerank_ms": round(rerank_duration_ms, 3),
+                "total_ms": round((perf_counter() - search_started_at) * 1000, 3),
+            },
         },
     )
     paged = merged[offset : offset + limit]
@@ -237,6 +270,47 @@ def hybrid_search(
         degraded=degraded,
         degradation_code=degradation_code,
     )
+
+
+def _semantic_recall(
+    *,
+    embedding_client: EmbeddingClient,
+    vector_store: VectorStore,
+    family_id: str,
+    user_id: str | None,
+    scopes: list[str],
+    recall_query: str,
+    semantic_limit: int,
+    search_request_id: str,
+) -> list[VectorSearchHit]:
+    started_at = perf_counter()
+    try:
+        query_embedding = embedding_client.embed_text(
+            recall_query,
+            attribution=_query_usage_attribution(
+                family_id=family_id,
+                user_id=user_id,
+                logical_operation_id=search_request_id,
+            ),
+            attempt_key=f"{search_request_id}:embedding:query",
+        )
+        return _search_vectors(
+            vector_store=vector_store,
+            family_id=family_id,
+            user_id=user_id,
+            scopes=scopes,
+            vector=_require_single_vector(query_embedding),
+            limit=semantic_limit,
+        )
+    finally:
+        logger.info(
+            "Hybrid search semantic recall completed",
+            extra={
+                "search_timing": {
+                    "semantic_recall_ms": round((perf_counter() - started_at) * 1000, 3),
+                }
+            },
+        )
 
 
 def _query_usage_attribution(
@@ -719,13 +793,17 @@ def _load_business_signals(
         db.scalars(
             select(Recipe)
             .where(Recipe.family_id == family_id, Recipe.id.in_(recipe_ids))
-            .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.cook_logs))
+            .options(selectinload(Recipe.ingredient_items))
         )
     )
     if not recipes:
         return signals
-    ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]
-    inventory_by_ingredient = load_available_inventory_by_ingredient(db, family_id=family_id, ingredient_ids=ingredient_ids, today=today)
+    ingredients_by_id, inventory_by_ingredient, presence_states = _load_recipe_inventory_context(
+        db,
+        family_id=family_id,
+        recipes=recipes,
+        today=today,
+    )
     availability_by_id: dict[str, dict] = {}
     for recipe in recipes:
         try:
@@ -735,22 +813,42 @@ def _load_business_signals(
                 recipe=recipe,
                 today=today,
                 inventory_by_ingredient=inventory_by_ingredient,
+                ingredients_by_id=ingredients_by_id,
+                presence_states_by_ingredient=presence_states,
             )
         except UnitConversionError:
             continue
-    foods = list(db.scalars(select(Food).where(Food.family_id == family_id)))
-    meal_logs = list(
-        db.scalars(
-            select(MealLog)
-            .where(MealLog.family_id == family_id)
-            .options(selectinload(MealLog.food_entries))
-            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
-        )
+    meal_log_last_used = dict(
+        db.execute(
+            select(Food.recipe_id, func.max(MealLog.date))
+            .join(MealLogFood, MealLogFood.food_id == Food.id)
+            .join(MealLog, MealLog.id == MealLogFood.meal_log_id)
+            .where(
+                Food.family_id == family_id,
+                MealLog.family_id == family_id,
+                Food.recipe_id.in_(recipe_ids),
+            )
+            .group_by(Food.recipe_id)
+        ).tuples().all()
     )
-    _, last_used_at = recipe_recommendation_usage_maps(recipes=recipes, meal_logs=meal_logs, foods=foods, today=today)
+    cook_log_last_used = dict(
+        db.execute(
+            select(RecipeCookLog.recipe_id, func.max(RecipeCookLog.cook_date))
+            .where(
+                RecipeCookLog.family_id == family_id,
+                RecipeCookLog.recipe_id.in_(recipe_ids),
+            )
+            .group_by(RecipeCookLog.recipe_id)
+        ).tuples().all()
+    )
     for recipe in recipes:
         availability = availability_by_id.get(recipe.id)
-        last_used = last_used_at.get(recipe.id)
+        usage_dates = [
+            value
+            for value in (meal_log_last_used.get(recipe.id), cook_log_last_used.get(recipe.id))
+            if value is not None
+        ]
+        last_used = max(usage_dates) if usage_dates else None
         signals[("recipe", recipe.id)] = SearchBusinessSignals(
             availability=str(availability.get("availability")) if availability else None,
             availability_score=float(availability.get("availability_score", 0)) if availability else None,
@@ -770,11 +868,13 @@ def _load_ingredient_business_signals(
     ingredients = list(db.scalars(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids))))
     if not ingredients:
         return {}
+    ingredients_by_id = {ingredient.id: ingredient for ingredient in ingredients}
     inventory_by_ingredient = load_available_inventory_by_ingredient(
         db,
         family_id=family_id,
         ingredient_ids=[ingredient.id for ingredient in ingredients],
         today=today,
+        ingredients_by_id=ingredients_by_id,
     )
     presence_states = load_presence_states_for_ingredients(
         db,
@@ -818,25 +918,40 @@ def _load_food_business_signals(
         db.scalars(
             select(Food)
             .where(Food.family_id == family_id, Food.id.in_(food_ids))
-            .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items), selectinload(Food.recipe).selectinload(Recipe.cook_logs))
+            .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items))
         )
     )
     if not foods:
         return {}
-    meal_logs = list(
-        db.scalars(
-            select(MealLog)
-            .where(MealLog.family_id == family_id)
-            .options(selectinload(MealLog.food_entries))
-            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
-        )
+    last_used_by_food_id = dict(
+        db.execute(
+            select(MealLogFood.food_id, func.max(MealLog.date))
+            .join(MealLog, MealLog.id == MealLogFood.meal_log_id)
+            .where(
+                MealLog.family_id == family_id,
+                MealLogFood.food_id.in_(food_ids),
+            )
+            .group_by(MealLogFood.food_id)
+        ).tuples().all()
     )
-    target_meal_type = _target_meal_type_from_recent_logs(meal_logs, today=today)
+    logged_today = {
+        str(meal_type.value if hasattr(meal_type, "value") else meal_type)
+        for meal_type in db.scalars(
+            select(MealLog.meal_type)
+            .where(MealLog.family_id == family_id, MealLog.date == today)
+            .distinct()
+        )
+    }
+    target_meal_type = _target_meal_type_from_logged_types(logged_today)
     recipe_availability_by_id: dict[str, dict] = {}
     recipes = [food.recipe for food in foods if food.recipe is not None]
     if recipes:
-        ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]
-        inventory_by_ingredient = load_available_inventory_by_ingredient(db, family_id=family_id, ingredient_ids=ingredient_ids, today=today)
+        ingredients_by_id, inventory_by_ingredient, presence_states = _load_recipe_inventory_context(
+            db,
+            family_id=family_id,
+            recipes=recipes,
+            today=today,
+        )
         for recipe in recipes:
             try:
                 recipe_availability_by_id[recipe.id] = recipe_availability_summary(
@@ -845,12 +960,15 @@ def _load_food_business_signals(
                     recipe=recipe,
                     today=today,
                     inventory_by_ingredient=inventory_by_ingredient,
+                    ingredients_by_id=ingredients_by_id,
+                    presence_states_by_ingredient=presence_states,
                 )
             except UnitConversionError:
                 continue
     signals = {}
     for food in foods:
-        days_since_used = _days_since_food_used(food.id, meal_logs, today=today)
+        last_used = last_used_by_food_id.get(food.id)
+        days_since_used = (today - last_used).days if last_used is not None else None
         availability = recipe_availability_by_id.get(food.recipe.id, {}).get("availability") if food.recipe is not None else None
         signals[("food", food.id)] = SearchBusinessSignals(
             availability=str(availability) if availability else None,
@@ -861,6 +979,53 @@ def _load_food_business_signals(
             days_until_expiry=(food.expiry_date - today).days if food.expiry_date is not None else None,
         )
     return signals
+
+
+def _load_recipe_inventory_context(
+    db: Session,
+    *,
+    family_id: str,
+    recipes: list[Recipe],
+    today,
+) -> tuple[
+    dict[str, Ingredient],
+    dict[str, list[InventoryItem]],
+    dict[str, IngredientInventoryState],
+]:
+    ingredient_ids = list(
+        dict.fromkeys(
+            item.ingredient_id
+            for recipe in recipes
+            for item in recipe.ingredient_items
+            if item.ingredient_id
+        )
+    )
+    ingredients_by_id = {
+        ingredient.id: ingredient
+        for ingredient in db.scalars(
+            select(Ingredient).where(
+                Ingredient.family_id == family_id,
+                Ingredient.id.in_(ingredient_ids),
+            )
+        )
+    } if ingredient_ids else {}
+    inventory_by_ingredient = load_available_inventory_by_ingredient(
+        db,
+        family_id=family_id,
+        ingredient_ids=ingredient_ids,
+        today=today,
+        ingredients_by_id=ingredients_by_id,
+    )
+    presence_states = load_presence_states_for_ingredients(
+        db,
+        family_id=family_id,
+        ingredient_ids=[
+            ingredient_id
+            for ingredient_id, ingredient in ingredients_by_id.items()
+            if not tracks_quantity(ingredient)
+        ],
+    )
+    return ingredients_by_id, inventory_by_ingredient, presence_states
 
 
 def _load_meal_plan_business_signals(
@@ -915,17 +1080,7 @@ def _food_inventory_available(food: Food) -> bool | None:
     return food.stock_quantity > 0
 
 
-def _days_since_food_used(food_id: str, meal_logs: list[MealLog], *, today) -> int | None:
-    last_used = None
-    for log in meal_logs:
-        if any(entry.food_id == food_id for entry in log.food_entries):
-            if last_used is None or log.date > last_used:
-                last_used = log.date
-    return (today - last_used).days if last_used is not None else None
-
-
-def _target_meal_type_from_recent_logs(meal_logs: list[MealLog], *, today) -> str:
-    logged_today = {str(log.meal_type.value if hasattr(log.meal_type, "value") else log.meal_type) for log in meal_logs if log.date == today}
+def _target_meal_type_from_logged_types(logged_today: set[str]) -> str:
     for meal_type in ("breakfast", "lunch", "dinner", "snack"):
         if meal_type not in logged_today:
             return meal_type

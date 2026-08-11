@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from time import perf_counter
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +18,7 @@ from app.services.search.jobs import get_search_index_job, list_active_search_in
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_recipe
 
 router = APIRouter(tags=["search"])
+logger = logging.getLogger(__name__)
 
 SEARCH_SCOPES = {
     "ingredients": "ingredient",
@@ -40,6 +44,7 @@ def search(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
+    request_started_at = perf_counter()
     user, membership = auth
     query = q.strip()
     normalized_scopes = _parse_scopes(scopes)
@@ -53,6 +58,7 @@ def search(
             "degradation_code": None,
         }
 
+    hybrid_started_at = perf_counter()
     search_result = hybrid_search(
         db,
         family_id=membership.family_id,
@@ -62,7 +68,11 @@ def search(
         limit=limit,
         offset=offset,
     )
+    hybrid_duration_ms = (perf_counter() - hybrid_started_at) * 1000
+    entity_load_started_at = perf_counter()
     entity_payloads = _load_entities(db, family_id=membership.family_id, user_id=user.id, hits=search_result.items)
+    entity_load_duration_ms = (perf_counter() - entity_load_started_at) * 1000
+    assembly_started_at = perf_counter()
     items = []
     for item in search_result.items:
         entity = entity_payloads.get((item.entity_type, item.entity_id))
@@ -80,6 +90,19 @@ def search(
                 "entity": entity,
             }
         )
+    assembly_duration_ms = (perf_counter() - assembly_started_at) * 1000
+    logger.info(
+        "Search API request completed",
+        extra={
+            "search_timing": {
+                "hybrid_search_ms": round(hybrid_duration_ms, 3),
+                "entity_load_ms": round(entity_load_duration_ms, 3),
+                "response_assembly_ms": round(assembly_duration_ms, 3),
+                "route_total_ms": round((perf_counter() - request_started_at) * 1000, 3),
+                "result_count": len(items),
+            }
+        },
+    )
     return {
         "items": items,
         "total": search_result.total,

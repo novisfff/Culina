@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.enums import ModelUsageReservationStatus
@@ -49,6 +50,39 @@ def test_first_dispatch_persists_intent_and_replay_requires_recovery(
     assert reservation is not None
     assert reservation.status is ModelUsageReservationStatus.DISPATCHING
     assert reservation.dispatch_policy_version_id is not None
+
+
+def test_monitoring_dispatch_skips_counter_and_limit_queries(
+    model_usage_db: Session,
+    reservation_context: UsageContext,
+) -> None:
+    decision = reserve_usage_in_session(
+        model_usage_db,
+        reservation_context,
+        estimate_llm(input_tokens=10, cached_input_tokens=0, max_output_tokens=10),
+        fingerprint="fp-monitoring-fast-path",
+        at=NOW,
+    )
+    statements: list[str] = []
+    engine = model_usage_db.get_bind()
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        outcome = prepare_usage_dispatch_in_session(
+            model_usage_db,
+            reservation_id=decision.reservation_id or "",
+            fingerprint="fp-monitoring-fast-path",
+            recovery_policy=ProviderRecoveryPolicy.none(),
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert outcome.decision == "allowed"
+    assert not any("model_usage_period_counters" in statement for statement in statements)
+    assert not any("model_usage_capability_limits" in statement for statement in statements)
 
 
 def test_new_hard_limit_releases_old_unpriced_reservation_before_send(
