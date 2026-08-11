@@ -7,11 +7,13 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import Difficulty, IngredientExpiryMode
-from app.models.domain import Base, Family, Ingredient, Recipe
+from app.models.domain import Base, Family, Ingredient, Recipe, SearchDocument
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search.indexing import upsert_search_document
 from app.services.search.keyword_store import (
+    KeywordMatchMode,
     KeywordSearchHit,
+    _compact_matched_fields,
     _merge_keyword_hits,
     _mysql_fulltext_statement,
     _should_use_substring_fallback,
@@ -126,6 +128,7 @@ def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chines
                 entity_id="ingredient-oil",
                 keyword_score=0.72,
                 matched_fields=("title_text",),
+                match_modes=(KeywordMatchMode.MYSQL_FULLTEXT,),
             )
         ],
         [
@@ -134,12 +137,14 @@ def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chines
                 entity_id="ingredient-oil",
                 keyword_score=1.0,
                 matched_fields=("title_text",),
+                match_modes=(KeywordMatchMode.SUBSTRING,),
             ),
             KeywordSearchHit(
                 entity_type="ingredient",
                 entity_id="ingredient-soy-sauce",
                 keyword_score=1.0,
                 matched_fields=("title_text",),
+                match_modes=(KeywordMatchMode.SAFE_COMPACT,),
             ),
         ],
         limit=10,
@@ -147,6 +152,50 @@ def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chines
 
     assert [hit.entity_id for hit in hits] == ["ingredient-oil", "ingredient-soy-sauce"]
     assert all(hit.keyword_score == 1.0 for hit in hits)
+
+
+def test_merge_keyword_hits_preserves_fields_and_all_match_modes() -> None:
+    hits = _merge_keyword_hits(
+        [KeywordSearchHit("ingredient", "chicken", 0.6, ("keyword_text",), (KeywordMatchMode.MYSQL_FULLTEXT,))],
+        [KeywordSearchHit("ingredient", "chicken", 0.8, ("title_text",), (KeywordMatchMode.SAFE_COMPACT,))],
+        limit=10,
+    )
+
+    assert hits == [
+        KeywordSearchHit(
+            "ingredient",
+            "chicken",
+            0.8,
+            ("title_text", "keyword_text"),
+            (KeywordMatchMode.MYSQL_FULLTEXT, KeywordMatchMode.SAFE_COMPACT),
+        )
+    ]
+
+
+def test_compact_matcher_joins_only_single_cjk_keyword_tokens() -> None:
+    safe = SearchDocument(
+        id="doc-safe", family_id="family-1", entity_type="ingredient", entity_id="safe",
+        title_text="冷冻肉块", keyword_text="鸡 肉 肉类", detail_text="", semantic_text="食材", metadata_json={},
+        content_hash="safe", document_builder_version="v1",
+    )
+    unsafe = SearchDocument(
+        id="doc-unsafe", family_id="family-1", entity_type="ingredient", entity_id="unsafe",
+        title_text="三黄鸡", keyword_text="三黄鸡 肉类", detail_text="", semantic_text="食材", metadata_json={},
+        content_hash="unsafe", document_builder_version="v1",
+    )
+
+    assert _compact_matched_fields(safe, "鸡肉") == ["keyword_text"]
+    assert _compact_matched_fields(unsafe, "鸡肉") == []
+
+
+def test_single_cjk_compact_fallback_does_not_match_inside_multi_char_keyword() -> None:
+    document = SearchDocument(
+        id="doc-seasoning", family_id="family-1", entity_type="ingredient", entity_id="seasoning",
+        title_text="盐", keyword_text="调味料", detail_text="常温放置", semantic_text="食材", metadata_json={},
+        content_hash="seasoning", document_builder_version="v1",
+    )
+
+    assert _compact_matched_fields(document, "料") == []
 
 
 def test_exact_name_search_is_scoped_to_family_and_scope() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,6 +9,13 @@ from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.orm import Session
 
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
+from app.services.search.query_analysis import compact_search_text, normalize_search_text, safe_token_contains
+
+
+class KeywordMatchMode(str, Enum):
+    MYSQL_FULLTEXT = "mysql_fulltext"
+    SUBSTRING = "substring"
+    SAFE_COMPACT = "safe_compact"
 
 
 @dataclass(frozen=True)
@@ -16,6 +24,7 @@ class KeywordSearchHit:
     entity_id: str
     keyword_score: float
     matched_fields: tuple[str, ...]
+    match_modes: tuple[KeywordMatchMode, ...] = ()
 
 
 def search_keyword_documents(
@@ -109,6 +118,7 @@ def search_exact_name_documents(
                     entity_id=ingredient_id,
                     keyword_score=1.0,
                     matched_fields=("title_text",),
+                    match_modes=(KeywordMatchMode.SUBSTRING,),
                 )
                 for ingredient_id in rows
             )
@@ -128,6 +138,7 @@ def search_exact_name_documents(
                     entity_id=food_id,
                     keyword_score=1.0,
                     matched_fields=("title_text",),
+                    match_modes=(KeywordMatchMode.SUBSTRING,),
                 )
                 for food_id in rows
             )
@@ -147,6 +158,7 @@ def search_exact_name_documents(
                     entity_id=recipe_id,
                     keyword_score=1.0,
                     matched_fields=("title_text",),
+                    match_modes=(KeywordMatchMode.SUBSTRING,),
                 )
                 for recipe_id in rows
             )
@@ -171,6 +183,7 @@ def search_exact_name_documents(
                     entity_id=item_id,
                     keyword_score=1.0,
                     matched_fields=("title_text",),
+                    match_modes=(KeywordMatchMode.SUBSTRING,),
                 )
                 for item_id in rows
             )
@@ -209,6 +222,7 @@ def _search_like_documents(
                 entity_id=document.entity_id,
                 keyword_score=_keyword_score(document.title_text, query, matched_fields),
                 matched_fields=tuple(matched_fields),
+                match_modes=(KeywordMatchMode.SUBSTRING,),
             )
         )
     hits.sort(key=lambda item: (-item.keyword_score, item.entity_id))
@@ -247,6 +261,7 @@ def _search_compact_documents(
                 entity_id=document.entity_id,
                 keyword_score=_keyword_score(document.title_text, query, matched_fields),
                 matched_fields=tuple(matched_fields),
+                match_modes=(KeywordMatchMode.SAFE_COMPACT,),
             )
         )
         if len(hits) >= limit:
@@ -295,6 +310,7 @@ def _search_mysql_fulltext_documents(
                     detail_score=row.get("detail_score"),
                 ),
                 matched_fields=tuple(matched_fields),
+                match_modes=(KeywordMatchMode.MYSQL_FULLTEXT,),
             )
         )
     return hits
@@ -327,6 +343,7 @@ def _merge_keyword_hits(
             entity_id=hit.entity_id,
             keyword_score=max(existing.keyword_score, hit.keyword_score),
             matched_fields=matched_fields,
+            match_modes=_merged_modes(existing, hit),
         )
     return sorted(by_key.values(), key=lambda item: (-item.keyword_score, item.entity_type, item.entity_id))[:limit]
 
@@ -360,7 +377,7 @@ def _mysql_fulltext_statement() -> TextClause:
 
 
 def _normalize_query(value: str) -> str:
-    return " ".join(value.strip().lower().split())
+    return normalize_search_text(value)
 
 
 def _matched_fields(document: SearchDocument, query: str) -> list[str]:
@@ -372,17 +389,29 @@ def _matched_fields(document: SearchDocument, query: str) -> list[str]:
     return matches
 
 
-def _compact_matched_fields(document: SearchDocument, compact_query: str) -> list[str]:
-    matches = []
-    for field in ("title_text", "keyword_text", "detail_text"):
-        value = _compact_query(getattr(document, field) or "")
-        if compact_query in value:
-            matches.append(field)
+def _compact_matched_fields(document: SearchDocument, query: str) -> list[str]:
+    matches: list[str] = []
+    compact_query = compact_search_text(query)
+    if compact_query and compact_query in compact_search_text(document.title_text):
+        matches.append("title_text")
+    if safe_token_contains(query, document.keyword_text):
+        matches.append("keyword_text")
+    if safe_token_contains(query, document.detail_text, merge_single_cjk=False):
+        matches.append("detail_text")
     return matches
 
 
 def _compact_query(value: object) -> str:
-    return "".join(char for char in _normalize_query(str(value or "")) if char.isalnum() or "\u4e00" <= char <= "\u9fff")
+    return compact_search_text(value)
+
+
+def _merged_modes(*hits: KeywordSearchHit) -> tuple[KeywordMatchMode, ...]:
+    ordered = (
+        KeywordMatchMode.MYSQL_FULLTEXT,
+        KeywordMatchMode.SUBSTRING,
+        KeywordMatchMode.SAFE_COMPACT,
+    )
+    return tuple(mode for mode in ordered if any(mode in hit.match_modes for hit in hits))
 
 
 def _fulltext_matched_fields(*, title_score: object, keyword_score: object, detail_score: object) -> list[str]:
