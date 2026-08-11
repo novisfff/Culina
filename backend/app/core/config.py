@@ -120,7 +120,7 @@ class Settings(BaseSettings):
         "语义相关但未字面命中 > 无关、测试或占位数据。不要因为分类、详情或语义描述泛泛相关，"
         "就把未字面命中的记录排到字面命中记录前面。"
     )
-    search_rerank_semantic_min_score: float = 0.48
+    search_semantic_min_score: float = 0.48
     search_rerank_min_score: float = 0.58
     search_literal_fallback_min_score: float = 0.70
     search_rerank_candidate_limit: int = 50

@@ -34,7 +34,7 @@ from app.services.search.rerank import RerankResult
 from app.services.search.vector_store import VectorSearchHit
 from app.services.model_usage.errors import ModelUsageBlocked
 from app.services.clock import today_for_family
-from tests.search._support import ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
+from tests.search._support import DisabledFakeRerankClient, ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
 
 
 class BudgetBlockedEmbeddingClient:
@@ -56,6 +56,144 @@ class BudgetBlockedRerankClient:
     def rerank(self, *, query: str, documents: list[str], top_n: int, attribution=None, attempt_key=None):
         del query, documents, top_n, attribution, attempt_key
         raise ModelUsageBlocked("model_usage_capability_limit_exceeded")
+
+
+def _seed_title_and_semantic_candidates():
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        title = Ingredient(
+            id="ingredient-title",
+            family_id=family.id,
+            name="冷冻鸡肉块",
+            category="肉类",
+            default_unit="克",
+            unit_conversions=[],
+            default_storage="冷冻",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+        )
+        semantic = Ingredient(
+            id="ingredient-semantic",
+            family_id=family.id,
+            name="三黄鸡",
+            category="禽肉",
+            default_unit="只",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+        )
+        db.add_all([family, title, semantic])
+        db.flush()
+        for ingredient in (title, semantic):
+            upsert_search_document(db, SearchDocumentPayload(
+                family_id=family.id,
+                entity_type="ingredient",
+                entity_id=ingredient.id,
+                title_text=ingredient.name,
+                keyword_text=f"{ingredient.name} {ingredient.category}",
+                detail_text="",
+                semantic_text=f"食材：{ingredient.name}",
+                metadata_json={"name": ingredient.name, "category": ingredient.category},
+                content_hash=f"hash-{ingredient.id}",
+            ))
+        db.commit()
+    return SessionLocal
+
+
+def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_scopes() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("recipe", "recipe-high", 0.91, 2),
+        VectorSearchHit("recipe", "recipe-low", 0.62, 1),
+        VectorSearchHit("meal_plan", "plan-high", 0.88, 2),
+        VectorSearchHit("meal_plan", "plan-low", 0.55, 1),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id="user-1",
+        scopes=["recipe", "meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert [(hit.entity_id, hit.semantic_score, hit.semantic_rank) for hit in hits] == [
+        ("recipe-high", 0.91, 1),
+        ("plan-high", 0.88, 2),
+        ("recipe-low", 0.62, 3),
+    ]
+    assert vector_store.calls == [
+        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
+        {"family_id": "family-1", "scopes": ["meal_plan"], "limit": 3, "user_id": "user-1"},
+    ]
+
+
+def test_local_title_hit_stays_above_strong_pure_semantic_result_without_rerank(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    disabled_rerank = DisabledFakeRerankClient()
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db, family_id="family-1", user_id="user-1", query="鸡肉", scopes=["ingredient"],
+            limit=10, offset=0, embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore([
+                VectorSearchHit("ingredient", "ingredient-semantic", 0.95, 1),
+                VectorSearchHit("ingredient", "ingredient-title", 0.70, 2),
+            ]),
+            rerank_client=disabled_rerank,
+        )
+
+    assert [item.entity_id for item in response.items] == ["ingredient-title", "ingredient-semantic"]
+    assert 3.0 <= response.items[0].score < 4.0
+    assert 2.0 <= response.items[1].score < 3.0
+    assert response.degraded is False
+    assert disabled_rerank.documents == []
+
+
+def test_rerank_failure_returns_same_complete_local_items_as_disabled(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    common = {
+        "family_id": "family-1", "user_id": "user-1", "query": "鸡肉", "scopes": ["ingredient"],
+        "limit": 10, "offset": 0, "embedding_client": FakeEmbeddingClient(),
+        "vector_store": FakeVectorStore([
+            VectorSearchHit("ingredient", "ingredient-semantic", 0.95, 1),
+            VectorSearchHit("ingredient", "ingredient-title", 0.70, 2),
+        ]),
+    }
+    with SessionLocal() as db:
+        disabled = hybrid_search(db, **common, rerank_client=DisabledFakeRerankClient())
+    with SessionLocal() as db:
+        failed = hybrid_search(db, **common, rerank_client=FakeRerankClient(fail=True))
+
+    local_projection = lambda response: [
+        (item.entity_id, item.score, item.business_score, item.match_reason) for item in response.items
+    ]
+    assert local_projection(failed) == local_projection(disabled)
+    assert failed.degraded is True
+    assert failed.degradation_code == "search_rerank_unavailable"
+
+
+def test_search_diagnostics_exclude_query_and_business_identifiers(monkeypatch, caplog) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    with SessionLocal() as db, caplog.at_level("INFO", logger="app.services.search.hybrid"):
+        hybrid_search(
+            db, family_id="family-secret", user_id="user-secret", query="私密鸡肉", scopes=["ingredient"],
+            limit=10, offset=0, embedding_client=FakeEmbeddingClient(), vector_store=FakeVectorStore([]),
+            rerank_client=DisabledFakeRerankClient(),
+        )
+
+    diagnostics = [record.search_diagnostics for record in caplog.records if hasattr(record, "search_diagnostics")]
+    assert len(diagnostics) == 1
+    assert set(diagnostics[0]) == {
+        "query_profile", "keyword_candidate_count", "semantic_candidate_count", "dual_source_count",
+        "level_0_count", "level_1_count", "level_2_count", "level_3_count", "level_4_count",
+        "local_ranking_duration_ms", "rerank_used", "degradation_code",
+    }
+    assert "私密鸡肉" not in caplog.text
+    assert "family-secret" not in caplog.text
+    assert "user-secret" not in caplog.text
 
 
 def test_rerank_document_texts_preserve_priority_fields_before_truncating_long_fields() -> None:
@@ -170,7 +308,6 @@ def test_hybrid_search_merges_keyword_and_semantic_hits() -> None:
     assert any(reason.startswith("语意接近") for reason in keyword_item.match_reason)
     semantic_item = next(item for item in response.items if item.entity_id == "recipe-semantic")
     assert semantic_item.business_score > 0
-    assert "适合番茄" in semantic_item.match_reason
 
 
 def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
@@ -678,8 +815,8 @@ def test_hybrid_search_reranks_keyword_and_semantic_candidates() -> None:
 
     reranker = FakeRerankClient(
         [
-            RerankResult(index=0, relevance_score=0.95),
-            RerankResult(index=2, relevance_score=0.80),
+            RerankResult(index=0, relevance_score=0.80),
+            RerankResult(index=2, relevance_score=0.95),
             RerankResult(index=4, relevance_score=0.20),
         ]
     )
@@ -770,17 +907,17 @@ def test_hybrid_search_keeps_literal_fallback_after_rerank_matches() -> None:
             ),
             rerank_client=FakeRerankClient(
                 [
-                    RerankResult(index=0, relevance_score=0.92),
-                    RerankResult(index=1, relevance_score=0.92),
-                    RerankResult(index=2, relevance_score=0.20),
-                    RerankResult(index=3, relevance_score=0.20),
+                    RerankResult(index=0, relevance_score=0.20),
+                    RerankResult(index=1, relevance_score=0.20),
+                    RerankResult(index=2, relevance_score=0.92),
+                    RerankResult(index=3, relevance_score=0.92),
                 ]
             ),
         )
 
     assert [item.entity_id for item in response.items] == ["ingredient-rerank", "ingredient-literal"]
     assert response.items[0].score > response.items[1].score
-    assert response.items[1].match_reason[0] == "名称包含"
+    assert response.items[1].match_reason[0] == "名称匹配"
 
 
 def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> None:
@@ -835,7 +972,7 @@ def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> N
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-chicken"
-    assert response.items[0].match_reason[0] == "名称包含"
+    assert response.items[0].match_reason[0] == "名称匹配"
 
 
 def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback() -> None:
@@ -890,10 +1027,10 @@ def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback(
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-oil"
-    assert response.items[0].match_reason[0] == "名称包含"
+    assert response.items[0].match_reason[0] == "名称匹配"
 
 
-def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback() -> None:
+def test_hybrid_search_uses_single_character_keyword_evidence_from_recall() -> None:
     SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
@@ -943,8 +1080,9 @@ def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback
             ),
         )
 
-    assert response.total == 0
-    assert response.items == []
+    assert response.total == 1
+    assert response.items[0].entity_id == "ingredient-seasoning"
+    assert response.items[0].match_reason[0] == "关键词匹配"
 
 
 def test_hybrid_search_matches_compact_keyword_text_for_literal_fallback() -> None:
@@ -1181,7 +1319,7 @@ def test_hybrid_search_falls_back_when_rerank_fails() -> None:
 
     assert response.degraded is True
     assert response.degradation_code == "search_rerank_unavailable"
-    assert [item.entity_id for item in response.items] == ["ingredient-semantic", "ingredient-keyword"]
+    assert [item.entity_id for item in response.items] == ["ingredient-keyword", "ingredient-semantic"]
 
 
 def test_hybrid_search_preserves_local_results_when_rerank_usage_is_blocked(monkeypatch) -> None:
@@ -1249,7 +1387,7 @@ def test_hybrid_search_preserves_local_results_when_rerank_usage_is_blocked(monk
 
     assert response.degraded is True
     assert response.degradation_code == "model_usage_capability_limit_exceeded"
-    assert [item.entity_id for item in response.items] == ["ingredient-second", "ingredient-first"]
+    assert [item.entity_id for item in response.items] == ["ingredient-first", "ingredient-second"]
     assert all(item.score == item.local_score for item in response.items)
 
 

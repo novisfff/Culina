@@ -72,15 +72,33 @@ class ExplodingEmbeddingClient:
 class FakeVectorStore:
     def __init__(self, hits: list[VectorSearchHit]) -> None:
         self.hits = hits
+        self.calls: list[dict[str, object]] = []
 
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, vector
+    def search(
+        self,
+        *,
+        family_id: str,
+        scopes: list[str],
+        vector: list[float],
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[VectorSearchHit]:
+        del vector
+        self.calls.append({"family_id": family_id, "scopes": scopes, "limit": limit, "user_id": user_id})
         return [hit for hit in self.hits if hit.entity_type in scopes][:limit]
 
 
 class ExplodingVectorStore:
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, scopes, vector, limit
+    def search(
+        self,
+        *,
+        family_id: str,
+        scopes: list[str],
+        vector: list[float],
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[VectorSearchHit]:
+        del family_id, scopes, vector, limit, user_id
         raise AssertionError("vector store should not be called")
 
 
@@ -112,6 +130,14 @@ class FakeRerankClient:
         return self.results
 
 
+class DisabledFakeRerankClient(FakeRerankClient):
+    enabled = False
+
+    def rerank(self, **kwargs):
+        del kwargs
+        raise AssertionError("disabled rerank client should not be called")
+
+
 def session_factory():
     engine = create_engine(
         "sqlite:///:memory:",
@@ -126,7 +152,7 @@ def session_factory():
 def search_settings(**overrides: object) -> SimpleNamespace:
     values: dict[str, object] = {
         "search_hybrid_enabled": True,
-        "search_rerank_semantic_min_score": 0.48,
+        "search_semantic_min_score": 0.48,
         "search_rerank_min_score": 0.58,
         "search_literal_fallback_min_score": 0.70,
         "search_rerank_candidate_limit": 50,
