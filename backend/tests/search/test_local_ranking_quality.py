@@ -5,8 +5,15 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
+from app.services.search.local_ranking import SearchConfidenceLevel, rank_local_candidates
+from app.services.search.query_analysis import analyze_search_query
 from tests.search import ranking_quality
-from tests.search.ranking_quality import evaluate_quality_cases, load_baseline, load_quality_cases
+from tests.search.ranking_quality import (
+    candidate_from_payload,
+    evaluate_quality_cases,
+    load_baseline,
+    load_quality_cases,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -83,3 +90,48 @@ def test_l4_top5_gate_requires_at_least_five_ranked_candidates() -> None:
 
     assert four_candidate_metrics.l4_top5_violations == 0
     assert five_candidate_metrics.l4_top5_violations == 1
+
+
+def test_l4_top5_gate_ignores_weak_results_without_high_confidence_candidates() -> None:
+    no_high_confidence_case = deepcopy(load_quality_cases()[0])
+    no_high_confidence_case["case_id"] = "synthetic-l3-l4-only"
+    candidates = no_high_confidence_case["candidates"]
+    for index, candidate in enumerate(candidates[:3]):
+        candidate.update({
+            "entity_id": f"synthetic-relevant-{index}",
+            "keyword_score": 0.7,
+            "semantic_score": 0.0,
+            "keyword_rank": index + 1,
+            "semantic_rank": None,
+            "literal_match": "compact_keyword",
+            "literal_confidence": 0.7,
+            "trusted_keyword_match": True,
+            "detail_only_match": False,
+            "dual_source_match": False,
+        })
+    for index, candidate in enumerate(candidates[3:]):
+        candidate.update({
+            "entity_id": f"synthetic-weak-{index}",
+            "keyword_score": 1.0,
+            "semantic_score": 0.0,
+            "keyword_rank": index + 4,
+            "semantic_rank": None,
+            "literal_match": "detail",
+            "literal_confidence": 0.35,
+            "trusted_keyword_match": False,
+            "detail_only_match": True,
+            "dual_source_match": False,
+        })
+    candidates.append(deepcopy(candidates[-1]))
+    candidates[-1]["entity_id"] = "synthetic-weak-2"
+
+    ranked = rank_local_candidates(
+        analyze_search_query(str(no_high_confidence_case["query"])),
+        [candidate_from_payload(candidate) for candidate in candidates],
+    )
+    metrics = evaluate_quality_cases([no_high_confidence_case])
+
+    assert len(ranked) >= 5
+    assert all(score.confidence_level >= SearchConfidenceLevel.RELEVANT for _candidate, score in ranked)
+    assert any(score.confidence_level is SearchConfidenceLevel.WEAK for _candidate, score in ranked[:5])
+    assert metrics.l4_top5_violations == 0
