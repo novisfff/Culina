@@ -276,6 +276,58 @@ def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_l
     assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "family-recipe")]
 
 
+def test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scope_limit() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
+        db.add_all(
+            [
+                _private_search_document(
+                    entity_type="recipe",
+                    entity_id="family-recipe",
+                    user_id=None,
+                    title_text="family dinner recipe",
+                    keyword_text="family dinner",
+                    updated_at=now,
+                ),
+                _private_search_document(
+                    entity_type="meal_plan",
+                    entity_id="empty-user-plan",
+                    user_id="",
+                    title_text="family dinner private plan",
+                    keyword_text="family dinner",
+                    updated_at=now + timedelta(minutes=1),
+                ),
+            ]
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        mixed_scope_hits = search_keyword_documents(
+            db,
+            family_id="family-1",
+            user_id="",
+            query="family dinner",
+            scopes=["recipe", "meal_plan"],
+            limit=1,
+        )
+        meal_plan_hits = search_keyword_documents(
+            db,
+            family_id="family-1",
+            user_id="",
+            query="family dinner",
+            scopes=["meal_plan"],
+            limit=1,
+        )
+
+    assert [(hit.entity_type, hit.entity_id) for hit in mixed_scope_hits] == [("recipe", "family-recipe")]
+    assert meal_plan_hits == []
+
+
 def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chinese_query() -> None:
     assert _should_use_substring_fallback("油") is True
     hits = _merge_keyword_hits(

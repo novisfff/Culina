@@ -37,6 +37,7 @@ def search_keyword_documents(
     limit: int = 80,
 ) -> list[KeywordSearchHit]:
     normalized_query = _normalize_query(query)
+    normalized_user_id = user_id or None
     if not normalized_query or not scopes or limit <= 0:
         return []
     if db.get_bind().dialect.name == "mysql":
@@ -44,7 +45,7 @@ def search_keyword_documents(
             fulltext_hits = _search_mysql_fulltext_documents(
                 db,
                 family_id=family_id,
-                user_id=user_id,
+                user_id=normalized_user_id,
                 query=normalized_query,
                 scopes=scopes,
                 limit=limit,
@@ -53,7 +54,7 @@ def search_keyword_documents(
                 substring_hits = _search_like_documents(
                     db,
                     family_id=family_id,
-                    user_id=user_id,
+                    user_id=normalized_user_id,
                     query=normalized_query,
                     scopes=scopes,
                     limit=limit,
@@ -61,7 +62,7 @@ def search_keyword_documents(
                 compact_hits = _search_compact_documents(
                     db,
                     family_id=family_id,
-                    user_id=user_id,
+                    user_id=normalized_user_id,
                     query=normalized_query,
                     scopes=scopes,
                     limit=limit,
@@ -73,7 +74,7 @@ def search_keyword_documents(
     like_hits = _search_like_documents(
         db,
         family_id=family_id,
-        user_id=user_id,
+        user_id=normalized_user_id,
         query=normalized_query,
         scopes=scopes,
         limit=limit,
@@ -83,7 +84,7 @@ def search_keyword_documents(
     compact_hits = _search_compact_documents(
         db,
         family_id=family_id,
-        user_id=user_id,
+        user_id=normalized_user_id,
         query=normalized_query,
         scopes=scopes,
         limit=limit,
