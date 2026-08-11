@@ -5,7 +5,7 @@ from enum import Enum
 
 from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.elements import ColumnElement, TextClause
 from sqlalchemy.orm import Session
 
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
@@ -31,6 +31,7 @@ def search_keyword_documents(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None = None,
     query: str,
     scopes: list[str],
     limit: int = 80,
@@ -43,6 +44,7 @@ def search_keyword_documents(
             fulltext_hits = _search_mysql_fulltext_documents(
                 db,
                 family_id=family_id,
+                user_id=user_id,
                 query=normalized_query,
                 scopes=scopes,
                 limit=limit,
@@ -51,6 +53,7 @@ def search_keyword_documents(
                 substring_hits = _search_like_documents(
                     db,
                     family_id=family_id,
+                    user_id=user_id,
                     query=normalized_query,
                     scopes=scopes,
                     limit=limit,
@@ -58,6 +61,7 @@ def search_keyword_documents(
                 compact_hits = _search_compact_documents(
                     db,
                     family_id=family_id,
+                    user_id=user_id,
                     query=normalized_query,
                     scopes=scopes,
                     limit=limit,
@@ -69,6 +73,7 @@ def search_keyword_documents(
     like_hits = _search_like_documents(
         db,
         family_id=family_id,
+        user_id=user_id,
         query=normalized_query,
         scopes=scopes,
         limit=limit,
@@ -78,6 +83,7 @@ def search_keyword_documents(
     compact_hits = _search_compact_documents(
         db,
         family_id=family_id,
+        user_id=user_id,
         query=normalized_query,
         scopes=scopes,
         limit=limit,
@@ -190,10 +196,20 @@ def search_exact_name_documents(
     return hits
 
 
+def _search_document_visibility_predicate(user_id: str | None) -> ColumnElement[bool]:
+    if user_id is None:
+        return SearchDocument.entity_type != "meal_plan"
+    return or_(
+        SearchDocument.entity_type != "meal_plan",
+        SearchDocument.metadata_json["user_id"].as_string() == user_id,
+    )
+
+
 def _search_like_documents(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     query: str,
     scopes: list[str],
     limit: int,
@@ -204,6 +220,7 @@ def _search_like_documents(
         .where(
             SearchDocument.family_id == family_id,
             SearchDocument.entity_type.in_(scopes),
+            _search_document_visibility_predicate(user_id),
             or_(
                 SearchDocument.title_text.ilike(like_pattern),
                 SearchDocument.keyword_text.ilike(like_pattern),
@@ -233,6 +250,7 @@ def _search_compact_documents(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     query: str,
     scopes: list[str],
     limit: int,
@@ -246,6 +264,7 @@ def _search_compact_documents(
         .where(
             SearchDocument.family_id == family_id,
             SearchDocument.entity_type.in_(scopes),
+            _search_document_visibility_predicate(user_id),
         )
         .order_by(SearchDocument.updated_at.desc(), SearchDocument.entity_id.asc())
         .limit(scan_limit)
@@ -274,6 +293,7 @@ def _search_mysql_fulltext_documents(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     query: str,
     scopes: list[str],
     limit: int,
@@ -283,6 +303,7 @@ def _search_mysql_fulltext_documents(
         statement,
         {
             "family_id": family_id,
+            "user_id": user_id,
             "scopes": scopes,
             "query": query,
             "limit": limit,
@@ -361,6 +382,13 @@ def _mysql_fulltext_statement() -> TextClause:
         FROM search_documents
         WHERE family_id = :family_id
           AND entity_type IN :scopes
+          AND (
+            entity_type <> 'meal_plan'
+            OR (
+              :user_id IS NOT NULL
+              AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.user_id')) = :user_id
+            )
+          )
           AND (
             MATCH(title_text) AGAINST (:query IN NATURAL LANGUAGE MODE) > 0
             OR MATCH(keyword_text) AGAINST (:query IN NATURAL LANGUAGE MODE) > 0

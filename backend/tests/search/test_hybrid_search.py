@@ -128,6 +128,36 @@ def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_
     ]
 
 
+def test_hybrid_search_passes_user_identity_to_keyword_recall(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    observed_user_ids: list[str | None] = []
+    search_keyword_documents = hybrid_module.search_keyword_documents
+
+    def tracked_keyword_search(*args, **kwargs):
+        observed_user_ids.append(kwargs.get("user_id"))
+        return search_keyword_documents(*args, **kwargs)
+
+    monkeypatch.setattr(hybrid_module, "search_keyword_documents", tracked_keyword_search)
+    monkeypatch.setattr(
+        hybrid_module,
+        "get_settings",
+        lambda: search_settings(search_hybrid_enabled=False),
+    )
+
+    with SessionLocal() as db:
+        hybrid_search(
+            db,
+            family_id="family-1",
+            user_id="user-current",
+            query="鸡肉",
+            scopes=["ingredient"],
+            limit=10,
+            offset=0,
+        )
+
+    assert observed_user_ids == ["user-current"]
+
+
 def test_local_title_hit_stays_above_strong_pure_semantic_result_without_rerank(monkeypatch) -> None:
     SessionLocal = _seed_title_and_semantic_candidates()
     monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())

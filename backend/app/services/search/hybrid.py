@@ -143,6 +143,7 @@ def hybrid_search(
     keyword_hits = search_keyword_documents(
         db,
         family_id=family_id,
+        user_id=user_id,
         query=recall_query,
         scopes=scopes,
         limit=keyword_limit,
@@ -482,6 +483,10 @@ def _sort_with_rerank(
     rerank_attempt_key: str | None,
 ) -> tuple[list[HybridSearchResult], bool, str | None, bool]:
     local_sorted = list(results)
+    local_position_by_key = {
+        (item.entity_type, item.entity_id): position
+        for position, item in enumerate(local_sorted)
+    }
     if rerank_client is None or not rerank_client.enabled or not local_sorted:
         return _local_rerank_fallback(local_sorted), False, None, False
 
@@ -548,9 +553,10 @@ def _sort_with_rerank(
         bucket_by_key[(item.entity_type, item.entity_id)] = bucket
         filtered_results.append(item)
 
-    def sort_key(item: HybridSearchResult) -> tuple[int, float, float, str, str]:
-        bucket = bucket_by_key[(item.entity_type, item.entity_id)]
-        return (bucket, -item.score, -item.local_score, item.entity_type, item.entity_id)
+    def sort_key(item: HybridSearchResult) -> tuple[int, float, float, int]:
+        key = (item.entity_type, item.entity_id)
+        bucket = bucket_by_key[key]
+        return (bucket, -item.score, -item.local_score, local_position_by_key[key])
 
     return sorted(filtered_results, key=sort_key), False, None, True
 

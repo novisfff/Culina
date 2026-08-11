@@ -142,3 +142,34 @@ def test_sort_with_rerank_returns_identical_local_order_when_disabled_or_blocked
     assert [(item.entity_id, item.score) for item in blocked] == [(item.entity_id, item.score) for item in disabled]
     assert (disabled_degraded, disabled_code, disabled_used) == (False, None, False)
     assert (blocked_degraded, blocked_code, blocked_used) == (True, "model_usage_capability_limit_exceeded", True)
+
+
+def test_sort_with_rerank_uses_original_local_position_as_final_success_tiebreak() -> None:
+    local = [
+        HybridSearchResult("ingredient", "z-local-first", 2.4, local_score=2.4),
+        HybridSearchResult("ingredient", "a-local-second", 2.4, local_score=2.4),
+    ]
+    client = FakeRerankClient(
+        [
+            RerankResult(index=0, relevance_score=0.9),
+            RerankResult(index=2, relevance_score=0.9),
+        ]
+    )
+
+    ranked, degraded, degradation_code, rerank_used = _sort_with_rerank(
+        query="鸡肉",
+        results=local,
+        documents_by_key={
+            ("ingredient", item.entity_id): _document(entity_id=item.entity_id, title_text=item.entity_id)
+            for item in local
+        },
+        rerank_client=client,
+        rerank_min_score=0.58,
+        literal_fallback_min_score=0.70,
+        rerank_candidate_limit=50,
+        rerank_attribution=_attribution(),
+        rerank_attempt_key="search-1:rerank",
+    )
+
+    assert [item.entity_id for item in ranked] == ["z-local-first", "a-local-second"]
+    assert (degraded, degradation_code, rerank_used) == (False, None, True)

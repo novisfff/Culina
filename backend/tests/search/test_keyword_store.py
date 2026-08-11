@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import bindparam, create_engine
 from sqlalchemy.dialects import mysql
@@ -117,6 +117,163 @@ def test_keyword_search_treats_title_contains_as_strong_match() -> None:
     assert [hit.entity_id for hit in hits] == ["ingredient-oil", "ingredient-category"]
     assert hits[0].keyword_score == 1.0
     assert hits[1].keyword_score < hits[0].keyword_score
+
+
+def _private_search_document(
+    *,
+    entity_type: str,
+    entity_id: str,
+    user_id: str | None,
+    title_text: str,
+    keyword_text: str,
+    updated_at: datetime,
+) -> SearchDocument:
+    metadata_json = {"user_id": user_id} if user_id is not None else {}
+    return SearchDocument(
+        id=f"doc-{entity_id}",
+        family_id="family-1",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        title_text=title_text,
+        keyword_text=keyword_text,
+        detail_text="",
+        semantic_text=title_text,
+        metadata_json=metadata_json,
+        content_hash=f"hash-{entity_id}",
+        document_builder_version="v1",
+        created_at=updated_at,
+        updated_at=updated_at,
+    )
+
+
+def test_keyword_search_filters_private_meal_plans_before_like_limit() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
+        db.add(
+            _private_search_document(
+                entity_type="meal_plan",
+                entity_id="current-user-plan",
+                user_id="user-current",
+                title_text="private dinner current",
+                keyword_text="private dinner",
+                updated_at=now,
+            )
+        )
+        db.add_all(
+            _private_search_document(
+                entity_type="meal_plan",
+                entity_id=f"other-user-plan-{index}",
+                user_id="user-other",
+                title_text=f"private dinner other {index}",
+                keyword_text="private dinner",
+                updated_at=now + timedelta(minutes=index + 1),
+            )
+            for index in range(3)
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        hits = search_keyword_documents(
+            db,
+            family_id="family-1",
+            user_id="user-current",
+            query="private dinner",
+            scopes=["meal_plan"],
+            limit=3,
+        )
+
+    assert [hit.entity_id for hit in hits] == ["current-user-plan"]
+
+
+def test_keyword_search_filters_private_meal_plans_before_compact_scan_limit() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
+        db.add(
+            _private_search_document(
+                entity_type="meal_plan",
+                entity_id="current-user-plan",
+                user_id="user-current",
+                title_text="当前计划",
+                keyword_text="鸡 肉",
+                updated_at=now,
+            )
+        )
+        db.add_all(
+            _private_search_document(
+                entity_type="meal_plan",
+                entity_id=f"other-user-plan-{index}",
+                user_id="user-other",
+                title_text=f"其他计划 {index}",
+                keyword_text="鸡 肉",
+                updated_at=now + timedelta(minutes=index + 1),
+            )
+            for index in range(300)
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        hits = search_keyword_documents(
+            db,
+            family_id="family-1",
+            user_id="user-current",
+            query="鸡肉",
+            scopes=["meal_plan"],
+            limit=1,
+        )
+
+    assert [hit.entity_id for hit in hits] == ["current-user-plan"]
+
+
+def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_limit() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
+        db.add_all(
+            [
+                _private_search_document(
+                    entity_type="recipe",
+                    entity_id="family-recipe",
+                    user_id=None,
+                    title_text="family dinner recipe",
+                    keyword_text="family dinner",
+                    updated_at=now,
+                ),
+                _private_search_document(
+                    entity_type="meal_plan",
+                    entity_id="private-plan",
+                    user_id="user-other",
+                    title_text="family dinner private plan",
+                    keyword_text="family dinner",
+                    updated_at=now + timedelta(minutes=1),
+                ),
+            ]
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        hits = search_keyword_documents(
+            db,
+            family_id="family-1",
+            query="family dinner",
+            scopes=["recipe", "meal_plan"],
+            limit=1,
+        )
+
+    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "family-recipe")]
 
 
 def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chinese_query() -> None:
@@ -287,7 +444,7 @@ def test_mysql_keyword_search_statement_uses_fulltext_indexes() -> None:
     statement = (
         _mysql_fulltext_statement()
         .bindparams(bindparam("scopes", expanding=True))
-        .params(family_id="family-1", scopes=["recipe", "food"], query="番茄", limit=10)
+        .params(family_id="family-1", user_id="user-1", scopes=["recipe", "meal_plan"], query="番茄", limit=10)
     )
     compiled = str(statement.compile(dialect=mysql.dialect(), compile_kwargs={"render_postcompile": True}))
 
@@ -295,6 +452,8 @@ def test_mysql_keyword_search_statement_uses_fulltext_indexes() -> None:
     assert "MATCH(keyword_text) AGAINST" in compiled
     assert "MATCH(detail_text) AGAINST" in compiled
     assert "entity_type IN" in compiled
+    assert "%s IS NOT NULL" in compiled
+    assert "JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.user_id')) = %s" in compiled
     assert "* 0.55" in compiled
     assert "* 0.35" in compiled
     assert "* 0.10" in compiled
