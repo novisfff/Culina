@@ -38,6 +38,13 @@ def test_normalization_preserves_boundaries_instead_of_joining_tokens() -> None:
     assert compact_search_text("鸡 肉") == "鸡肉"
 
 
+@pytest.mark.parametrize("query", ("本周", "这周", "这星期"))
+def test_weekly_date_forms_map_to_the_shared_week_intent(query: str) -> None:
+    profile = analyze_search_query(query)
+
+    assert profile.intent_keys == ("week",)
+
+
 @pytest.mark.parametrize(
     ("query", "value", "merge_single_cjk", "expected"),
     [

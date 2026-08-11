@@ -207,9 +207,7 @@ def _meal_plan_business_candidates(
             reasons.append(SearchReason(key="meal_plan_today", label="今天计划", weight=0.28, source="business"))
         elif signals.plan_date_delta == 1 and _has_intent(profile, "date") and "明天" in profile.normalized_text:
             reasons.append(SearchReason(key="meal_plan_tomorrow", label="明天计划", weight=0.24, source="business"))
-        elif 0 <= signals.plan_date_delta <= 6 and _has_intent(profile, "date") and any(
-            label in profile.normalized_text for label in ("本周", "这周", "这星期")
-        ):
+        elif 0 <= signals.plan_date_delta <= 6 and _has_intent(profile, "week"):
             reasons.append(SearchReason(key="meal_plan_this_week", label="本周计划", weight=0.18, source="business"))
     return reasons
 

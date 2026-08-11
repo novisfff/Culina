@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.services.search.keyword_store import KeywordSearchHit
-from app.services.search.query_analysis import analyze_search_query
+from app.services.search.query_analysis import SearchQueryKind, SearchQueryProfile, analyze_search_query
 from app.services.search.scoring import (
     SearchBusinessSignals,
     SearchReason,
@@ -120,6 +120,33 @@ def test_business_score_candidates_use_meal_plan_status_and_dates() -> None:
     )
 
     assert [reason.key for reason in reasons] == ["meal_plan_breakfast", "meal_plan_planned", "meal_plan_tomorrow"]
+
+
+def test_meal_plan_week_signal_requires_shared_week_intent() -> None:
+    weekly_profile = analyze_search_query("本周")
+    date_only_profile = SearchQueryProfile(
+        original_text="本周",
+        normalized_text="本周",
+        compact_text="本周",
+        kind=SearchQueryKind.INTENT,
+        effective_length=2,
+        intent_keys=("date",),
+    )
+    weekly_reasons = business_score_candidates(
+        entity_type="meal_plan",
+        profile=weekly_profile,
+        metadata={},
+        signals=SearchBusinessSignals(plan_date_delta=6),
+    )
+    date_only_reasons = business_score_candidates(
+        entity_type="meal_plan",
+        profile=date_only_profile,
+        metadata={},
+        signals=SearchBusinessSignals(plan_date_delta=6),
+    )
+
+    assert [reason.key for reason in weekly_reasons] == ["meal_plan_this_week"]
+    assert date_only_reasons == []
 
 
 def test_signed_business_score_preserves_negative_signals() -> None:
