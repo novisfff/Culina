@@ -120,7 +120,7 @@ class Settings(BaseSettings):
         "语义相关但未字面命中 > 无关、测试或占位数据。不要因为分类、详情或语义描述泛泛相关，"
         "就把未字面命中的记录排到字面命中记录前面。"
     )
-    search_rerank_semantic_min_score: float = 0.48
+    search_semantic_min_score: float = 0.48
     search_rerank_min_score: float = 0.58
     search_literal_fallback_min_score: float = 0.70
     search_rerank_candidate_limit: int = 50
@@ -188,6 +188,9 @@ class Settings(BaseSettings):
             raise ValueError("AI_REALTIME_TTS_MAX_CHARACTERS must be positive")
         if not self.model_usage_source_instance.strip():
             raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
+
+        if not 0 <= self.search_semantic_min_score < 1:
+            raise ValueError("SEARCH_SEMANTIC_MIN_SCORE must be in [0, 1)")
 
         search_vector_backend = self.search_vector_backend.strip().lower()
         search_embedding_provider = self.search_embedding_provider.strip().lower()

@@ -19,16 +19,11 @@ class _FakeHybridSearch:
         self.calls.append({"family_id": family_id, "user_id": user_id, "query": query, "scopes": scopes})
         return HybridSearchResponse(
             items=[
-                HybridSearchResult(
-                    entity_type="ingredient",
-                    entity_id="ingredient-tomato",
-                    score=0.9,
-                    semantic_score=0.9,
-                    match_reason=["语意接近：西红柿"],
-                )
+                HybridSearchResult("ingredient", "ingredient-egg", 3.8),
+                HybridSearchResult("ingredient", "ingredient-tomato", 2.7),
             ],
-            total=1,
-            query=query,
+            total=2,
+            query="排序",
             degraded=False,
         )
 
@@ -78,13 +73,13 @@ class InventorySearchTestCase(RecipeApiTestCase):
         original_hybrid_search = inventory_api.hybrid_search
         inventory_api.hybrid_search = fake_search
         try:
-            response = self.client.get("/api/inventory?q=%E8%A5%BF%E7%BA%A2%E6%9F%BF")
+            response = self.client.get("/api/inventory?q=%E6%8E%92%E5%BA%8F")
         finally:
             inventory_api.hybrid_search = original_hybrid_search
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual([item["id"] for item in response.json()], ["inventory-tomato"])
+        self.assertEqual([item["id"] for item in response.json()], ["inventory-egg", "inventory-tomato"])
         self.assertEqual(
             fake_search.calls,
-            [{"family_id": self.family.id, "user_id": self.user.id, "query": "西红柿", "scopes": ["ingredient"]}],
+            [{"family_id": self.family.id, "user_id": self.user.id, "query": "排序", "scopes": ["ingredient"]}],
         )

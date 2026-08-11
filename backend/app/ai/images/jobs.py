@@ -597,6 +597,8 @@ def _sync_recipe_image_to_food(db: Session, *, job: AIImageGenerationJob, genera
 
 def _image_usage_adapter_for_request(
     request: ImageGenerationRequest,
+    *,
+    session_factory: Callable[[], Session] = SessionLocal,
 ) -> ImageGenerationUsageAdapter | None:
     """Build the required-mode adapter for the exact image variant.
 
@@ -635,8 +637,8 @@ def _image_usage_adapter_for_request(
         provider=provider,
         model=model,
         include_request_fee_by_default=ModelUsageMeter.REQUEST_UNITS in variant.billable_meters,
-        usage_facade=ModelUsageFacade(session_factory=SessionLocal),
-        session_factory=SessionLocal,
+        usage_facade=ModelUsageFacade(session_factory=session_factory),
+        session_factory=session_factory,
         signer=decode_receipt_integrity_keyring(settings).signer(),
     )
 
@@ -940,7 +942,7 @@ def process_image_generation_job(
     *,
     session_factory: Callable[[], Session] = SessionLocal,
     client_factory: Callable[[], ImageGenerationClient] = ImageGenerationClient,
-    usage_adapter_factory: Callable[[ImageGenerationRequest], ImageGenerationUsageAdapter | None] = _image_usage_adapter_for_request,
+    usage_adapter_factory: Callable[[ImageGenerationRequest], ImageGenerationUsageAdapter | None] | None = None,
     claimed: bool = False,
 ) -> None:
     if not _claim_image_generation_job(
@@ -986,7 +988,14 @@ def process_image_generation_job(
     assert fingerprint_payload is not None
     usage_attempt: MeteredProviderAttempt | None = None
     try:
-        usage_adapter = usage_adapter_factory(request)
+        usage_adapter = (
+            _image_usage_adapter_for_request(
+                request,
+                session_factory=session_factory,
+            )
+            if usage_adapter_factory is None
+            else usage_adapter_factory(request)
+        )
         if usage_adapter is not None:
             usage_attempt = usage_adapter.begin(
                 attribution=attribution,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -24,26 +25,77 @@ from app.models.model_usage import (
     ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
+    ModelUsageSubject,
 )
 from app.repos.model_usage.ledger import lock_event_by_attempt, lock_reservation_by_attempt
 from app.services.model_usage.counters import (
     contract_counter_keys,
     effective_counter_value,
-    lock_or_create_counter,
+    lock_or_create_counters,
 )
 from app.services.model_usage.decimal_math import reservation_line_cost, would_exceed_limit
 from app.services.model_usage.errors import ModelUsageAttemptConflict, ModelUsageContractError
-from app.services.model_usage.periods import shanghai_billing_period
+from app.services.model_usage.periods import BillingPeriod, shanghai_billing_period
 from app.services.model_usage.policies import lock_current_policy, lock_family_policy
-from app.services.model_usage.pricing import UsagePriceRateSnapshot, select_price_snapshot
+from app.services.model_usage.pricing import (
+    UsagePriceRateSnapshot,
+    UsagePriceSnapshot,
+    select_price_snapshot,
+)
 from app.services.model_usage.state_machine import transition_reservation
 from app.services.model_usage.subjects import resolve_subject
 from app.services.model_usage.types import (
     ReservationDecision,
     UsageContext,
     UsageEstimate,
+    UsageMeterQuantity,
     validate_usage_meter_quantities,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedReservationAdmission:
+    context_identity: tuple[object, ...]
+    meters: tuple[UsageMeterQuantity, ...]
+    at: datetime
+    period: BillingPeriod
+    policy: ModelUsagePolicyVersion
+    subject: ModelUsageSubject
+    price: UsagePriceSnapshot
+
+
+def _reservation_context_identity(context: UsageContext) -> tuple[object, ...]:
+    attribution = context.attribution
+    return (
+        attribution.family_id,
+        attribution.attribution_kind,
+        attribution.actor_user_id,
+        context.capability,
+        context.provider,
+        context.requested_model,
+        context.billing_model,
+        context.variant_key,
+    )
+
+
+def prepare_reservation_admission(
+    *,
+    context: UsageContext,
+    estimate: UsageEstimate,
+    at: datetime,
+    policy: ModelUsagePolicyVersion,
+    subject: ModelUsageSubject,
+    price: UsagePriceSnapshot,
+) -> PreparedReservationAdmission:
+    return PreparedReservationAdmission(
+        context_identity=_reservation_context_identity(context),
+        meters=tuple(estimate.meters),
+        at=at,
+        period=shanghai_billing_period(at),
+        policy=policy,
+        subject=subject,
+        price=price,
+    )
 
 
 def _replay_reservation(
@@ -156,6 +208,7 @@ def reserve_usage_in_session(
     fingerprint: str,
     at: datetime,
     expected_policy_version_id: str | None = None,
+    prepared_admission: PreparedReservationAdmission | None = None,
 ) -> ReservationDecision:
     if not fingerprint:
         raise ModelUsageContractError("reservation_fingerprint_required")
@@ -165,11 +218,23 @@ def reserve_usage_in_session(
         meters=validate_usage_meter_quantities(context.capability, estimate.meters)
     )
     family_id = context.attribution.family_id
-    period = shanghai_billing_period(at)
-    try:
-        _, policy = lock_current_policy(db, family_id=family_id)
-    except ValueError as exc:
-        raise ModelUsageContractError("current_policy_missing") from exc
+    if prepared_admission is not None:
+        if (
+            prepared_admission.context_identity != _reservation_context_identity(context)
+            or prepared_admission.meters != tuple(estimate.meters)
+            or prepared_admission.at != at
+            or prepared_admission.policy.family_id != family_id
+            or prepared_admission.subject.family_id != family_id
+        ):
+            raise ModelUsageContractError("prepared_reservation_admission_mismatch")
+        period = prepared_admission.period
+        policy = prepared_admission.policy
+    else:
+        period = shanghai_billing_period(at)
+        try:
+            _, policy = lock_current_policy(db, family_id=family_id)
+        except ValueError as exc:
+            raise ModelUsageContractError("current_policy_missing") from exc
     if expected_policy_version_id is not None and policy.id != expected_policy_version_id:
         return ReservationDecision.blocked(
             "model_usage_policy_conflict",
@@ -190,8 +255,12 @@ def reserve_usage_in_session(
     if existing is not None:
         return _replay_reservation(existing, fingerprint=fingerprint)
 
-    subject = resolve_subject(db, context.attribution)
-    price = select_price_snapshot(db, context, estimate, at=at)
+    if prepared_admission is not None:
+        subject = prepared_admission.subject
+        price = prepared_admission.price
+    else:
+        subject = resolve_subject(db, context.attribution)
+        price = select_price_snapshot(db, context, estimate, at=at)
     reservation_id = create_id("usage-reservation")
     meter_rows = _reservation_meter_rows(
         reservation_id,
@@ -271,9 +340,9 @@ def reserve_usage_in_session(
     else:
         savepoint.commit()
 
-    counters = tuple(
-        lock_or_create_counter(db, key)
-        for key in contract_counter_keys(context, estimate, period)
+    counters = lock_or_create_counters(
+        db,
+        contract_counter_keys(context, estimate, period),
     )
     limits = tuple(
         db.scalars(

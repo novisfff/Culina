@@ -115,6 +115,7 @@ def load_available_inventory_by_ingredient(
     family_id: str,
     ingredient_ids: Iterable[str],
     today: date,
+    ingredients_by_id: dict[str, Ingredient] | None = None,
 ) -> dict[str, list[InventoryItem]]:
     """Return usable precise InventoryItem batches only.
 
@@ -126,22 +127,32 @@ def load_available_inventory_by_ingredient(
     if not ids:
         return {}
 
-    ingredients = {
-        ingredient.id: ingredient
-        for ingredient in db.scalars(
-            select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ids))
-        )
-    }
+    owns_ingredient_load = ingredients_by_id is None
+    if ingredients_by_id is None:
+        ingredients = {
+            ingredient.id: ingredient
+            for ingredient in db.scalars(
+                select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ids))
+            )
+        }
+    else:
+        ingredients = {
+            ingredient_id: ingredient
+            for ingredient_id, ingredient in ingredients_by_id.items()
+            if ingredient_id in ids and ingredient.family_id == family_id
+        }
     tracked_ids = [ingredient_id for ingredient_id, ingredient in ingredients.items() if tracks_quantity(ingredient)]
     if not tracked_ids:
         return {}
 
+    inventory_statement = select(InventoryItem).where(
+        InventoryItem.family_id == family_id,
+        InventoryItem.ingredient_id.in_(tracked_ids),
+    )
+    if owns_ingredient_load:
+        inventory_statement = inventory_statement.options(selectinload(InventoryItem.ingredient))
     items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(InventoryItem.family_id == family_id, InventoryItem.ingredient_id.in_(tracked_ids))
-            .options(selectinload(InventoryItem.ingredient))
-        )
+        db.scalars(inventory_statement)
     )
     items_by_ingredient: dict[str, list[InventoryItem]] = {}
     for item in items:
@@ -184,6 +195,7 @@ def build_cook_inventory_plan(
     inventory_by_ingredient: dict[str, list[InventoryItem]] | None = None,
     allow_partial_deduction: bool = False,
     presence_states_by_ingredient: dict[str, IngredientInventoryState] | None = None,
+    ingredients_by_id: dict[str, Ingredient] | None = None,
 ) -> tuple[list[CookInventoryPlanItem], list[dict]]:
     from app.services.ingredient_inventory_state import state_is_usable
 
@@ -192,12 +204,19 @@ def build_cook_inventory_plan(
     shortages: list[dict] = []
     reserved_quantities_by_inventory_item: dict[str, Decimal] = {}
     ingredient_ids = [item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id]
-    ingredients_by_id = {
-        ingredient.id: ingredient
-        for ingredient in db.scalars(
-            select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids))
-        )
-    } if ingredient_ids else {}
+    if ingredients_by_id is None:
+        ingredients_by_id = {
+            ingredient.id: ingredient
+            for ingredient in db.scalars(
+                select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids))
+            )
+        } if ingredient_ids else {}
+    else:
+        ingredients_by_id = {
+            ingredient_id: ingredient
+            for ingredient_id, ingredient in ingredients_by_id.items()
+            if ingredient_id in ingredient_ids and ingredient.family_id == family_id
+        }
     if presence_states_by_ingredient is None:
         presence_ids = [
             ingredient_id
@@ -377,6 +396,8 @@ def recipe_availability_summary(
     recipe: Recipe,
     today: date,
     inventory_by_ingredient: dict[str, list[InventoryItem]] | None = None,
+    ingredients_by_id: dict[str, Ingredient] | None = None,
+    presence_states_by_ingredient: dict[str, IngredientInventoryState] | None = None,
 ) -> dict:
     plan, shortages = build_cook_inventory_plan(
         db,
@@ -385,6 +406,8 @@ def recipe_availability_summary(
         servings=recipe.servings or 1,
         today=today,
         inventory_by_ingredient=inventory_by_ingredient,
+        ingredients_by_id=ingredients_by_id,
+        presence_states_by_ingredient=presence_states_by_ingredient,
     )
     total_count = len(recipe.ingredient_items)
     ready_count = max(total_count - len(shortages), 0)

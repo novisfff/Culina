@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from threading import Event
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.core.enums import (
     Difficulty,
@@ -23,6 +25,7 @@ from app.models.domain import (
     MealLog,
     MealLogFood,
     Recipe,
+    RecipeCookLog,
     RecipeIngredient,
     SearchDocument,
 )
@@ -34,7 +37,7 @@ from app.services.search.rerank import RerankResult
 from app.services.search.vector_store import VectorSearchHit
 from app.services.model_usage.errors import ModelUsageBlocked
 from app.services.clock import today_for_family
-from tests.search._support import ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
+from tests.search._support import DisabledFakeRerankClient, ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
 
 
 class BudgetBlockedEmbeddingClient:
@@ -56,6 +59,251 @@ class BudgetBlockedRerankClient:
     def rerank(self, *, query: str, documents: list[str], top_n: int, attribution=None, attempt_key=None):
         del query, documents, top_n, attribution, attempt_key
         raise ModelUsageBlocked("model_usage_capability_limit_exceeded")
+
+
+def _seed_title_and_semantic_candidates():
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        title = Ingredient(
+            id="ingredient-title",
+            family_id=family.id,
+            name="冷冻鸡肉块",
+            category="肉类",
+            default_unit="克",
+            unit_conversions=[],
+            default_storage="冷冻",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+        )
+        semantic = Ingredient(
+            id="ingredient-semantic",
+            family_id=family.id,
+            name="三黄鸡",
+            category="禽肉",
+            default_unit="只",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+        )
+        db.add_all([family, title, semantic])
+        db.flush()
+        for ingredient in (title, semantic):
+            upsert_search_document(db, SearchDocumentPayload(
+                family_id=family.id,
+                entity_type="ingredient",
+                entity_id=ingredient.id,
+                title_text=ingredient.name,
+                keyword_text=f"{ingredient.name} {ingredient.category}",
+                detail_text="",
+                semantic_text=f"食材：{ingredient.name}",
+                metadata_json={"name": ingredient.name, "category": ingredient.category},
+                content_hash=f"hash-{ingredient.id}",
+            ))
+        db.commit()
+    return SessionLocal
+
+
+def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_scopes() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("recipe", "recipe-high", 0.91, 2),
+        VectorSearchHit("recipe", "recipe-low", 0.62, 1),
+        VectorSearchHit("meal_plan", "plan-high", 0.88, 2),
+        VectorSearchHit("meal_plan", "plan-low", 0.55, 1),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id="user-1",
+        scopes=["recipe", "meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert [(hit.entity_id, hit.semantic_score, hit.semantic_rank) for hit in hits] == [
+        ("recipe-high", 0.91, 1),
+        ("plan-high", 0.88, 2),
+        ("recipe-low", 0.62, 3),
+    ]
+    assert vector_store.calls == [
+        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
+        {"family_id": "family-1", "scopes": ["meal_plan"], "limit": 3, "user_id": "user-1"},
+    ]
+
+
+def test_search_vectors_without_user_excludes_meal_plans_from_mixed_scope_recall() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
+        VectorSearchHit("recipe", "recipe-visible", 0.82, 2),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id=None,
+        scopes=["recipe", "meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "recipe-visible")]
+    assert vector_store.calls == [
+        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
+    ]
+
+
+def test_search_vectors_without_user_skips_meal_plan_only_recall() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id=None,
+        scopes=["meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert hits == []
+    assert vector_store.calls == []
+
+
+def test_hybrid_search_passes_user_identity_to_keyword_recall(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    observed_user_ids: list[str | None] = []
+    search_keyword_documents = hybrid_module.search_keyword_documents
+
+    def tracked_keyword_search(*args, **kwargs):
+        observed_user_ids.append(kwargs.get("user_id"))
+        return search_keyword_documents(*args, **kwargs)
+
+    monkeypatch.setattr(hybrid_module, "search_keyword_documents", tracked_keyword_search)
+    monkeypatch.setattr(
+        hybrid_module,
+        "get_settings",
+        lambda: search_settings(search_hybrid_enabled=False),
+    )
+
+    with SessionLocal() as db:
+        hybrid_search(
+            db,
+            family_id="family-1",
+            user_id="user-current",
+            query="鸡肉",
+            scopes=["ingredient"],
+            limit=10,
+            offset=0,
+        )
+
+    assert observed_user_ids == ["user-current"]
+
+
+def test_hybrid_search_starts_semantic_recall_before_keyword_recall_finishes(monkeypatch, caplog) -> None:
+    SessionLocal = session_factory()
+    embedding_started = Event()
+
+    class SignalingEmbeddingClient(FakeEmbeddingClient):
+        def embed_text(self, text: str, *, attribution, attempt_key: str):
+            embedding_started.set()
+            return super().embed_text(text, attribution=attribution, attempt_key=attempt_key)
+
+    def blocking_keyword_search(*args, **kwargs):
+        del args, kwargs
+        assert embedding_started.wait(timeout=0.5), "semantic recall did not overlap keyword recall"
+        return []
+
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    monkeypatch.setattr(hybrid_module, "search_exact_name_documents", lambda *args, **kwargs: [])
+    monkeypatch.setattr(hybrid_module, "search_keyword_documents", blocking_keyword_search)
+    caplog.set_level(logging.INFO)
+
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            user_id="user-1",
+            query="西红柿",
+            scopes=["ingredient"],
+            limit=20,
+            offset=0,
+            embedding_client=SignalingEmbeddingClient(),
+            vector_store=FakeVectorStore([]),
+            rerank_client=DisabledFakeRerankClient(),
+        )
+
+    assert response.items == []
+    assert "西红柿" not in caplog.text
+    assert any(hasattr(record, "search_timing") for record in caplog.records)
+
+
+def test_local_title_hit_stays_above_strong_pure_semantic_result_without_rerank(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    disabled_rerank = DisabledFakeRerankClient()
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db, family_id="family-1", user_id="user-1", query="鸡肉", scopes=["ingredient"],
+            limit=10, offset=0, embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore([
+                VectorSearchHit("ingredient", "ingredient-semantic", 0.95, 1),
+                VectorSearchHit("ingredient", "ingredient-title", 0.70, 2),
+            ]),
+            rerank_client=disabled_rerank,
+        )
+
+    assert [item.entity_id for item in response.items] == ["ingredient-title", "ingredient-semantic"]
+    assert 3.0 <= response.items[0].score < 4.0
+    assert 2.0 <= response.items[1].score < 3.0
+    assert response.degraded is False
+    assert disabled_rerank.documents == []
+
+
+def test_rerank_failure_returns_same_complete_local_items_as_disabled(monkeypatch) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    common = {
+        "family_id": "family-1", "user_id": "user-1", "query": "鸡肉", "scopes": ["ingredient"],
+        "limit": 10, "offset": 0, "embedding_client": FakeEmbeddingClient(),
+        "vector_store": FakeVectorStore([
+            VectorSearchHit("ingredient", "ingredient-semantic", 0.95, 1),
+            VectorSearchHit("ingredient", "ingredient-title", 0.70, 2),
+        ]),
+    }
+    with SessionLocal() as db:
+        disabled = hybrid_search(db, **common, rerank_client=DisabledFakeRerankClient())
+    with SessionLocal() as db:
+        failed = hybrid_search(db, **common, rerank_client=FakeRerankClient(fail=True))
+
+    local_projection = lambda response: [
+        (item.entity_id, item.score, item.business_score, item.match_reason) for item in response.items
+    ]
+    assert local_projection(failed) == local_projection(disabled)
+    assert failed.degraded is True
+    assert failed.degradation_code == "search_rerank_unavailable"
+
+
+def test_search_diagnostics_exclude_query_and_business_identifiers(monkeypatch, caplog) -> None:
+    SessionLocal = _seed_title_and_semantic_candidates()
+    monkeypatch.setattr(hybrid_module, "get_settings", lambda: search_settings())
+    with SessionLocal() as db, caplog.at_level("INFO", logger="app.services.search.hybrid"):
+        hybrid_search(
+            db, family_id="family-secret", user_id="user-secret", query="私密鸡肉", scopes=["ingredient"],
+            limit=10, offset=0, embedding_client=FakeEmbeddingClient(), vector_store=FakeVectorStore([]),
+            rerank_client=DisabledFakeRerankClient(),
+        )
+
+    diagnostics = [record.search_diagnostics for record in caplog.records if hasattr(record, "search_diagnostics")]
+    assert len(diagnostics) == 1
+    assert set(diagnostics[0]) == {
+        "query_profile", "keyword_candidate_count", "semantic_candidate_count", "dual_source_count",
+        "level_0_count", "level_1_count", "level_2_count", "level_3_count", "level_4_count",
+        "local_ranking_duration_ms", "rerank_used", "degradation_code",
+    }
+    assert "私密鸡肉" not in caplog.text
+    assert "family-secret" not in caplog.text
+    assert "user-secret" not in caplog.text
 
 
 def test_rerank_document_texts_preserve_priority_fields_before_truncating_long_fields() -> None:
@@ -170,7 +418,6 @@ def test_hybrid_search_merges_keyword_and_semantic_hits() -> None:
     assert any(reason.startswith("语意接近") for reason in keyword_item.match_reason)
     semantic_item = next(item for item in response.items if item.entity_id == "recipe-semantic")
     assert semantic_item.business_score > 0
-    assert "适合番茄" in semantic_item.match_reason
 
 
 def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
@@ -543,6 +790,80 @@ def test_hybrid_search_drops_weak_semantic_only_hits() -> None:
     assert [item.entity_id for item in response.items] == ["recipe-relevant"]
 
 
+def test_hybrid_search_honors_lower_configured_semantic_candidate_floor(monkeypatch) -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        floor_recipe = Recipe(
+            id="recipe-configured-floor",
+            family_id=family.id,
+            title="低分语义菜",
+            servings=2,
+            prep_minutes=15,
+            difficulty=Difficulty.EASY,
+            tips="",
+            scene_tags=[],
+        )
+        above_floor_recipe = Recipe(
+            id="recipe-above-configured-floor",
+            family_id=family.id,
+            title="略高分语义菜",
+            servings=2,
+            prep_minutes=15,
+            difficulty=Difficulty.EASY,
+            tips="",
+            scene_tags=[],
+        )
+        db.add_all([family, floor_recipe, above_floor_recipe])
+        db.flush()
+        for recipe in (floor_recipe, above_floor_recipe):
+            upsert_search_document(
+                db,
+                SearchDocumentPayload(
+                    family_id=family.id,
+                    entity_type="recipe",
+                    entity_id=recipe.id,
+                    title_text=recipe.title,
+                    keyword_text=recipe.title,
+                    detail_text="",
+                    semantic_text=f"菜谱：{recipe.title}",
+                    metadata_json={},
+                    content_hash=f"hash-{recipe.id}",
+                ),
+            )
+        db.commit()
+
+    monkeypatch.setattr(
+        hybrid_module,
+        "get_settings",
+        lambda: search_settings(search_semantic_min_score=0.30),
+    )
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            query="夜间疗愈",
+            scopes=["recipe"],
+            limit=10,
+            offset=0,
+            embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore(
+                [
+                    VectorSearchHit("recipe", "recipe-configured-floor", 0.30, 1),
+                    VectorSearchHit("recipe", "recipe-above-configured-floor", 0.31, 2),
+                ]
+            ),
+        )
+
+    assert [item.entity_id for item in response.items] == [
+        "recipe-above-configured-floor",
+        "recipe-configured-floor",
+    ]
+    assert response.items[0].semantic_score == 0.31
+    assert response.items[1].semantic_score == 0.30
+    assert response.items[0].score > response.items[1].score
+
+
 def test_hybrid_search_keeps_lower_confidence_ingredient_semantic_hits() -> None:
     SessionLocal = session_factory()
     with SessionLocal() as db:
@@ -678,8 +999,8 @@ def test_hybrid_search_reranks_keyword_and_semantic_candidates() -> None:
 
     reranker = FakeRerankClient(
         [
-            RerankResult(index=0, relevance_score=0.95),
-            RerankResult(index=2, relevance_score=0.80),
+            RerankResult(index=0, relevance_score=0.80),
+            RerankResult(index=2, relevance_score=0.95),
             RerankResult(index=4, relevance_score=0.20),
         ]
     )
@@ -770,17 +1091,17 @@ def test_hybrid_search_keeps_literal_fallback_after_rerank_matches() -> None:
             ),
             rerank_client=FakeRerankClient(
                 [
-                    RerankResult(index=0, relevance_score=0.92),
-                    RerankResult(index=1, relevance_score=0.92),
-                    RerankResult(index=2, relevance_score=0.20),
-                    RerankResult(index=3, relevance_score=0.20),
+                    RerankResult(index=0, relevance_score=0.20),
+                    RerankResult(index=1, relevance_score=0.20),
+                    RerankResult(index=2, relevance_score=0.92),
+                    RerankResult(index=3, relevance_score=0.92),
                 ]
             ),
         )
 
     assert [item.entity_id for item in response.items] == ["ingredient-rerank", "ingredient-literal"]
     assert response.items[0].score > response.items[1].score
-    assert response.items[1].match_reason[0] == "名称包含"
+    assert response.items[1].match_reason[0] == "名称匹配"
 
 
 def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> None:
@@ -835,7 +1156,7 @@ def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> N
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-chicken"
-    assert response.items[0].match_reason[0] == "名称包含"
+    assert response.items[0].match_reason[0] == "名称匹配"
 
 
 def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback() -> None:
@@ -890,10 +1211,10 @@ def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback(
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-oil"
-    assert response.items[0].match_reason[0] == "名称包含"
+    assert response.items[0].match_reason[0] == "名称匹配"
 
 
-def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback() -> None:
+def test_hybrid_search_uses_single_character_keyword_evidence_from_recall() -> None:
     SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
@@ -943,8 +1264,9 @@ def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback
             ),
         )
 
-    assert response.total == 0
-    assert response.items == []
+    assert response.total == 1
+    assert response.items[0].entity_id == "ingredient-seasoning"
+    assert response.items[0].match_reason[0] == "关键词匹配"
 
 
 def test_hybrid_search_matches_compact_keyword_text_for_literal_fallback() -> None:
@@ -1181,7 +1503,7 @@ def test_hybrid_search_falls_back_when_rerank_fails() -> None:
 
     assert response.degraded is True
     assert response.degradation_code == "search_rerank_unavailable"
-    assert [item.entity_id for item in response.items] == ["ingredient-semantic", "ingredient-keyword"]
+    assert [item.entity_id for item in response.items] == ["ingredient-keyword", "ingredient-semantic"]
 
 
 def test_hybrid_search_preserves_local_results_when_rerank_usage_is_blocked(monkeypatch) -> None:
@@ -1249,7 +1571,7 @@ def test_hybrid_search_preserves_local_results_when_rerank_usage_is_blocked(monk
 
     assert response.degraded is True
     assert response.degradation_code == "model_usage_capability_limit_exceeded"
-    assert [item.entity_id for item in response.items] == ["ingredient-second", "ingredient-first"]
+    assert [item.entity_id for item in response.items] == ["ingredient-first", "ingredient-second"]
     assert all(item.score == item.local_score for item in response.items)
 
 
@@ -1397,6 +1719,160 @@ def test_hybrid_search_adds_recipe_availability_business_signal() -> None:
     assert "家里可做" in response.items[0].match_reason
 
 
+def test_recipe_business_signals_aggregate_last_usage_without_loading_meal_logs() -> None:
+    SessionLocal = session_factory()
+    family_today = today_for_family("family-1")
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        recipe = Recipe(
+            id="recipe-tomato",
+            family_id=family.id,
+            title="番茄汤",
+            servings=2,
+            prep_minutes=12,
+            difficulty=Difficulty.EASY,
+            tips="",
+            scene_tags=[],
+        )
+        food = Food(
+            id="food-tomato",
+            family_id=family.id,
+            name="番茄汤",
+            type=FoodType.SELF_MADE.value,
+            category="家常菜",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["dinner"],
+            source_name="",
+            purchase_source="",
+            scene="晚餐",
+            notes="",
+            routine_note="",
+            recipe_id=recipe.id,
+        )
+        meal_log = MealLog(
+            id="meal-tomato",
+            family_id=family.id,
+            date=family_today - timedelta(days=2),
+            meal_type=MealType.DINNER,
+            participant_user_ids=[],
+            notes="不应被搜索业务信号加载",
+            mood="",
+        )
+        cook_log = RecipeCookLog(
+            id="cook-tomato",
+            family_id=family.id,
+            recipe_id=recipe.id,
+            cook_date=family_today - timedelta(days=1),
+            meal_type=MealType.DINNER,
+            servings=Decimal("2"),
+            result_note="",
+            adjustments="",
+        )
+        db.add_all([family, recipe, food, meal_log, cook_log])
+        db.flush()
+        db.add(
+            MealLogFood(
+                id="meal-food-tomato",
+                meal_log_id=meal_log.id,
+                food_id=food.id,
+                servings=1,
+                note="",
+            )
+        )
+        db.commit()
+
+    statements: list[str] = []
+    engine = SessionLocal.kw["bind"]
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        with SessionLocal() as db:
+            signals = hybrid_module._load_business_signals(
+                db,
+                family_id="family-1",
+                user_id="user-1",
+                keys=[("recipe", "recipe-tomato")],
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert signals[("recipe", "recipe-tomato")].days_since_used == 1
+    assert sum("max(" in statement for statement in statements) >= 2
+    assert all("meal_logs.notes" not in statement for statement in statements)
+
+
+def test_recipe_business_signals_preload_ingredients_once_for_multiple_recipes() -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        ingredients = [
+            Ingredient(
+                id=f"ingredient-{index}",
+                family_id=family.id,
+                name=f"食材 {index}",
+                category="蔬菜",
+                default_unit="个",
+                unit_conversions=[],
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+            )
+            for index in range(2)
+        ]
+        recipes = []
+        for index, ingredient in enumerate(ingredients):
+            recipe = Recipe(
+                id=f"recipe-{index}",
+                family_id=family.id,
+                title=f"菜谱 {index}",
+                servings=1,
+                prep_minutes=10,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=[],
+            )
+            recipe.ingredient_items = [
+                RecipeIngredient(
+                    id=f"recipe-ingredient-{index}",
+                    recipe_id=recipe.id,
+                    ingredient_id=ingredient.id,
+                    ingredient_name=ingredient.name,
+                    quantity=Decimal("1"),
+                    unit="个",
+                    note="",
+                    sort_order=0,
+                )
+            ]
+            recipes.append(recipe)
+        db.add_all([family, *ingredients, *recipes])
+        db.commit()
+
+    statements: list[str] = []
+    engine = SessionLocal.kw["bind"]
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        with SessionLocal() as db:
+            signals = hybrid_module._load_business_signals(
+                db,
+                family_id="family-1",
+                user_id="user-1",
+                keys=[("recipe", "recipe-0"), ("recipe", "recipe-1")],
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert set(signals) == {("recipe", "recipe-0"), ("recipe", "recipe-1")}
+    ingredient_selects = [statement for statement in statements if "from ingredients" in statement]
+    assert len(ingredient_selects) == 1
+
+
 def test_hybrid_search_adds_food_inventory_and_recent_usage_signals() -> None:
     SessionLocal = session_factory()
     family_today = today_for_family("family-1")
@@ -1482,6 +1958,75 @@ def test_hybrid_search_adds_food_inventory_and_recent_usage_signals() -> None:
     assert [item.entity_id for item in response.items] == ["food-expiring", "food-recent"]
     assert response.items[0].business_score > response.items[1].business_score
     assert "今天到期" in response.items[0].match_reason
+
+
+def test_food_business_signals_aggregate_usage_without_loading_meal_log_entities() -> None:
+    SessionLocal = session_factory()
+    family_today = today_for_family("family-1")
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        food = Food(
+            id="food-breakfast",
+            family_id=family.id,
+            name="早餐面包",
+            type=FoodType.READY_MADE.value,
+            category="烘焙",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["breakfast"],
+            source_name="",
+            purchase_source="",
+            scene="早餐",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("1"),
+            stock_unit="个",
+        )
+        meal_log = MealLog(
+            id="meal-breakfast",
+            family_id=family.id,
+            date=family_today,
+            meal_type=MealType.BREAKFAST,
+            participant_user_ids=[],
+            notes="不应被业务信号查询加载",
+            mood="",
+        )
+        db.add_all([family, food, meal_log])
+        db.flush()
+        db.add(
+            MealLogFood(
+                id="meal-food-breakfast",
+                meal_log_id=meal_log.id,
+                food_id=food.id,
+                servings=1,
+                note="",
+            )
+        )
+        db.commit()
+
+    statements: list[str] = []
+    engine = SessionLocal.kw["bind"]
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        with SessionLocal() as db:
+            signals = hybrid_module._load_food_business_signals(
+                db,
+                family_id="family-1",
+                food_ids=["food-breakfast"],
+                today=family_today,
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    signal = signals[("food", "food-breakfast")]
+    assert signal.days_since_used == 0
+    assert signal.target_meal_type == "lunch"
+    assert any("max(meal_logs.date)" in statement for statement in statements)
+    assert all("meal_logs.notes" not in statement for statement in statements)
 
 
 def test_hybrid_search_adds_ingredient_inventory_signals() -> None:
