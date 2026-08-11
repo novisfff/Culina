@@ -193,6 +193,43 @@ def test_budget_block_does_not_increment_image_provider_attempt(
     assert client.calls == 0
 
 
+def test_default_image_usage_adapter_uses_job_session_factory(
+    model_usage_db: Session,
+    reservation_context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An isolated worker must meter against its own job database."""
+
+    job = _enqueue_job(model_usage_db, reservation_context)
+    session_factory = _session_factory(model_usage_db)
+    observed_session_factories: list[object] = []
+
+    def default_adapter(
+        _request: ImageGenerationRequest,
+        *,
+        session_factory: object,
+    ) -> BlockingImageUsageAdapter:
+        observed_session_factories.append(session_factory)
+        return BlockingImageUsageAdapter()
+
+    monkeypatch.setattr(
+        "app.ai.images.jobs._image_usage_adapter_for_request",
+        default_adapter,
+    )
+
+    process_image_generation_job(
+        job.id,
+        session_factory=session_factory,
+        usage_adapter_factory=None,
+    )
+
+    model_usage_db.expire_all()
+    refreshed = model_usage_db.get(AIImageGenerationJob, job.id)
+    assert observed_session_factories == [session_factory]
+    assert refreshed is not None
+    assert refreshed.error_code == "model_usage_budget_exceeded"
+
+
 def test_provider_success_followed_by_persistence_failure_never_regenerates(
     model_usage_db: Session,
     reservation_context,

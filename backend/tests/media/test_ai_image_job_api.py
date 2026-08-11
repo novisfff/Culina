@@ -119,6 +119,11 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
             return_value=SimpleNamespace(media_max_upload_bytes=128),
         )
         self.settings_patcher.start()
+        self.image_job_settings_patcher = patch(
+            "app.ai.images.jobs.get_settings",
+            return_value=SimpleNamespace(model_usage_required=False),
+        )
+        self.image_job_settings_patcher.start()
         self.put_object_patcher = patch("app.services.media._put_media_object")
         self.put_object_patcher.start()
         self.delete_object_patcher = patch("app.services.media.delete_media_file")
@@ -131,6 +136,7 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
         self.delete_object_patcher.stop()
         self.put_object_patcher.stop()
+        self.image_job_settings_patcher.stop()
         self.settings_patcher.stop()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
