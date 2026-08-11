@@ -74,7 +74,7 @@ def evaluate_quality_cases(cases: list[dict[str, object]]) -> RankingQualityMetr
         ranked_ids = [candidate.entity_id for candidate, _score in ranked]
         repeated_ids = [
             candidate.entity_id
-            for candidate, _score in rank_local_candidates(profile, list(reversed(candidates)))
+            for candidate, _score in rank_local_candidates(profile, candidates)
         ]
         deterministic += int(ranked_ids == repeated_ids)
         if case["category"] == "literal":
