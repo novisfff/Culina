@@ -429,7 +429,20 @@ def _search_vectors(
     vector: list[float],
     limit: int,
 ) -> list[VectorSearchHit]:
-    if not user_id or "meal_plan" not in scopes:
+    if not user_id:
+        family_visible_scopes = [scope for scope in scopes if scope != "meal_plan"]
+        if not family_visible_scopes:
+            return []
+        return _with_global_semantic_ranks(
+            vector_store.search(
+                family_id=family_id,
+                scopes=family_visible_scopes,
+                vector=vector,
+                limit=limit,
+            ),
+            limit=limit,
+        )
+    if "meal_plan" not in scopes:
         return _with_global_semantic_ranks(
             vector_store.search(family_id=family_id, scopes=scopes, vector=vector, limit=limit),
             limit=limit,

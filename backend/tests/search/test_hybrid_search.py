@@ -128,6 +128,45 @@ def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_
     ]
 
 
+def test_search_vectors_without_user_excludes_meal_plans_from_mixed_scope_recall() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
+        VectorSearchHit("recipe", "recipe-visible", 0.82, 2),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id=None,
+        scopes=["recipe", "meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "recipe-visible")]
+    assert vector_store.calls == [
+        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
+    ]
+
+
+def test_search_vectors_without_user_skips_meal_plan_only_recall() -> None:
+    vector_store = FakeVectorStore([
+        VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
+    ])
+
+    hits = hybrid_module._search_vectors(
+        vector_store=vector_store,
+        family_id="family-1",
+        user_id=None,
+        scopes=["meal_plan"],
+        vector=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert hits == []
+    assert vector_store.calls == []
+
+
 def test_hybrid_search_passes_user_identity_to_keyword_recall(monkeypatch) -> None:
     SessionLocal = _seed_title_and_semantic_candidates()
     observed_user_ids: list[str | None] = []
