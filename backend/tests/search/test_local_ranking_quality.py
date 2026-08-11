@@ -62,7 +62,7 @@ def test_local_ranking_meets_offline_quality_gates() -> None:
     assert metrics.deterministic_rate == 1.0
 
 
-def test_deterministic_rate_repeats_each_case_with_the_same_candidate_order(monkeypatch) -> None:
+def test_deterministic_rate_reverses_each_case_candidate_order(monkeypatch) -> None:
     ranker = ranking_quality.rank_local_candidates
     candidate_orders: list[list[str]] = []
 
@@ -75,7 +75,7 @@ def test_deterministic_rate_repeats_each_case_with_the_same_candidate_order(monk
     evaluate_quality_cases([load_quality_cases()[0]])
 
     assert len(candidate_orders) == 2
-    assert candidate_orders[0] == candidate_orders[1]
+    assert candidate_orders[0] == list(reversed(candidate_orders[1]))
 
 
 def test_l4_top5_gate_requires_at_least_five_ranked_candidates() -> None:
