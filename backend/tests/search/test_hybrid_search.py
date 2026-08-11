@@ -749,6 +749,80 @@ def test_hybrid_search_drops_weak_semantic_only_hits() -> None:
     assert [item.entity_id for item in response.items] == ["recipe-relevant"]
 
 
+def test_hybrid_search_honors_lower_configured_semantic_candidate_floor(monkeypatch) -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        family = Family(id="family-1", name="一号家庭")
+        floor_recipe = Recipe(
+            id="recipe-configured-floor",
+            family_id=family.id,
+            title="低分语义菜",
+            servings=2,
+            prep_minutes=15,
+            difficulty=Difficulty.EASY,
+            tips="",
+            scene_tags=[],
+        )
+        above_floor_recipe = Recipe(
+            id="recipe-above-configured-floor",
+            family_id=family.id,
+            title="略高分语义菜",
+            servings=2,
+            prep_minutes=15,
+            difficulty=Difficulty.EASY,
+            tips="",
+            scene_tags=[],
+        )
+        db.add_all([family, floor_recipe, above_floor_recipe])
+        db.flush()
+        for recipe in (floor_recipe, above_floor_recipe):
+            upsert_search_document(
+                db,
+                SearchDocumentPayload(
+                    family_id=family.id,
+                    entity_type="recipe",
+                    entity_id=recipe.id,
+                    title_text=recipe.title,
+                    keyword_text=recipe.title,
+                    detail_text="",
+                    semantic_text=f"菜谱：{recipe.title}",
+                    metadata_json={},
+                    content_hash=f"hash-{recipe.id}",
+                ),
+            )
+        db.commit()
+
+    monkeypatch.setattr(
+        hybrid_module,
+        "get_settings",
+        lambda: search_settings(search_semantic_min_score=0.30),
+    )
+    with SessionLocal() as db:
+        response = hybrid_search(
+            db,
+            family_id="family-1",
+            query="夜间疗愈",
+            scopes=["recipe"],
+            limit=10,
+            offset=0,
+            embedding_client=FakeEmbeddingClient(),
+            vector_store=FakeVectorStore(
+                [
+                    VectorSearchHit("recipe", "recipe-configured-floor", 0.30, 1),
+                    VectorSearchHit("recipe", "recipe-above-configured-floor", 0.31, 2),
+                ]
+            ),
+        )
+
+    assert [item.entity_id for item in response.items] == [
+        "recipe-above-configured-floor",
+        "recipe-configured-floor",
+    ]
+    assert response.items[0].semantic_score == 0.31
+    assert response.items[1].semantic_score == 0.30
+    assert response.items[0].score > response.items[1].score
+
+
 def test_hybrid_search_keeps_lower_confidence_ingredient_semantic_hits() -> None:
     SessionLocal = session_factory()
     with SessionLocal() as db:

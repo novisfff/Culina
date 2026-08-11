@@ -6,7 +6,7 @@ from enum import IntEnum
 from app.services.search.query_analysis import SearchQueryKind, SearchQueryProfile
 from app.services.search.ranking_features import LiteralMatchKind, SearchRankingCandidate
 
-SEMANTIC_MIN_SCORE = 0.48
+DEFAULT_SEMANTIC_MIN_SCORE = 0.48
 SEMANTIC_RELEVANT_SCORE = 0.74
 SEMANTIC_STRONG_SCORE = 0.82
 DUAL_STRONG_SCORE = 0.60
@@ -33,7 +33,11 @@ class LocalRankingScore:
     final_score: float
 
 
-def _confidence_level(candidate: SearchRankingCandidate) -> SearchConfidenceLevel | None:
+def _confidence_level(
+    candidate: SearchRankingCandidate,
+    *,
+    semantic_min_score: float,
+) -> SearchConfidenceLevel | None:
     if candidate.literal_match is LiteralMatchKind.EXACT_NAME:
         return SearchConfidenceLevel.EXACT
     if candidate.literal_match in {LiteralMatchKind.TITLE_PREFIX, LiteralMatchKind.TITLE_CONTAINS}:
@@ -48,9 +52,9 @@ def _confidence_level(candidate: SearchRankingCandidate) -> SearchConfidenceLeve
         return SearchConfidenceLevel.RELEVANT
     if not candidate.detail_only_match and candidate.semantic_score >= SEMANTIC_RELEVANT_SCORE:
         return SearchConfidenceLevel.RELEVANT
-    if candidate.dual_source_match and candidate.semantic_score >= SEMANTIC_MIN_SCORE:
+    if candidate.dual_source_match and candidate.semantic_score >= semantic_min_score:
         return SearchConfidenceLevel.RELEVANT
-    if candidate.detail_only_match or candidate.semantic_score >= SEMANTIC_MIN_SCORE:
+    if candidate.detail_only_match or candidate.semantic_score >= semantic_min_score:
         return SearchConfidenceLevel.WEAK
     return None
 
@@ -68,8 +72,18 @@ def _keyword_confidence(candidate: SearchRankingCandidate) -> float:
     return max(candidate.literal_confidence, candidate.keyword_score * field_cap)
 
 
-def _semantic_confidence(candidate: SearchRankingCandidate) -> float:
-    return max(0.0, min((candidate.semantic_score - SEMANTIC_MIN_SCORE) / (1.0 - SEMANTIC_MIN_SCORE), 1.0))
+def _semantic_confidence(
+    candidate: SearchRankingCandidate,
+    *,
+    semantic_min_score: float,
+) -> float:
+    return max(
+        0.0,
+        min(
+            (candidate.semantic_score - semantic_min_score) / (1.0 - semantic_min_score),
+            1.0,
+        ),
+    )
 
 
 def _weights(kind: SearchQueryKind) -> tuple[float, float, float]:
@@ -88,15 +102,23 @@ def _source_rank(candidate: SearchRankingCandidate) -> int:
 def rank_local_candidates(
     profile: SearchQueryProfile,
     candidates: list[SearchRankingCandidate],
+    *,
+    semantic_min_score: float = DEFAULT_SEMANTIC_MIN_SCORE,
 ) -> list[tuple[SearchRankingCandidate, LocalRankingScore]]:
     keyword_weight, semantic_weight, agreement_cap = _weights(profile.kind)
     ranked: list[tuple[SearchRankingCandidate, LocalRankingScore]] = []
     for candidate in candidates:
-        confidence_level = _confidence_level(candidate)
+        confidence_level = _confidence_level(
+            candidate,
+            semantic_min_score=semantic_min_score,
+        )
         if confidence_level is None:
             continue
         keyword_confidence = _keyword_confidence(candidate)
-        semantic_confidence = _semantic_confidence(candidate)
+        semantic_confidence = _semantic_confidence(
+            candidate,
+            semantic_min_score=semantic_min_score,
+        )
         agreement_bonus = agreement_cap if candidate.dual_source_match else 0.0
         base_relevance = min(
             keyword_confidence * keyword_weight + semantic_confidence * semantic_weight + agreement_bonus,

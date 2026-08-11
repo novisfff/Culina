@@ -363,7 +363,11 @@ def _merge_and_rank_hits(
             business_reasons=reasons,
         ))
     ranking_started_at = perf_counter()
-    ranked = rank_local_candidates(profile, candidates)
+    ranked = rank_local_candidates(
+        profile,
+        candidates,
+        semantic_min_score=semantic_min_score,
+    )
     ranking_duration_ms = (perf_counter() - ranking_started_at) * 1000
     level_counts = Counter(score.confidence_level for _candidate, score in ranked)
     results = [
