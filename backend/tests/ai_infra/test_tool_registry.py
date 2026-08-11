@@ -3,7 +3,13 @@ from ._support import *
 from app.ai.errors import AIExecutionCancelled
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.registry import ToolRegistry
-from app.services.search.documents import build_food_search_document, build_ingredient_search_document, build_recipe_search_document
+from app.services.search.documents import (
+    build_food_search_document,
+    build_ingredient_search_document,
+    build_meal_plan_search_document,
+    build_recipe_search_document,
+)
+from app.services.search.hybrid import HybridSearchResponse, HybridSearchResult
 from app.services.search.indexing import upsert_search_document
 
 
@@ -34,7 +40,11 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                             SimpleNamespace(
                                 entity_type="ingredient",
                                 entity_id=entity_id,
-                                match_reason=["语义召回"],
+                                score=4.999999,
+                                keyword_score=1.0,
+                                semantic_score=1.0,
+                                business_score=1.0,
+                                match_reason=["名称匹配"],
                             )
                             for entity_id in ids
                         ]
@@ -67,6 +77,78 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertEqual(output["results"][0]["status"], "candidate")
             self.assertEqual(output["results"][0]["candidates"][0]["matchType"], "semantic")
             self.assertEqual(output["results"][1]["status"], "ambiguous")
+
+        def test_ingredient_search_preserves_hybrid_order_and_signed_business_score(self) -> None:
+            with self.SessionLocal() as db:
+                first = Ingredient(
+                    id="ingredient-search-first",
+                    family_id=self.family.id,
+                    name="排序一",
+                    category="测试",
+                    default_unit="个",
+                    unit_conversions=[],
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                second = Ingredient(
+                    id="ingredient-search-second",
+                    family_id=self.family.id,
+                    name="排序二",
+                    category="测试",
+                    default_unit="个",
+                    unit_conversions=[],
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([first, second])
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-hybrid-ingredient-order",
+                        run_id="run-hybrid-ingredient-order",
+                    ),
+                )
+                with patch(
+                    "app.ai.tools.catalog.ingredient.hybrid_search",
+                    return_value=HybridSearchResponse(
+                        items=[
+                            HybridSearchResult(
+                                "ingredient",
+                                second.id,
+                                3.8,
+                                business_score=-0.4,
+                                match_reason=["名称匹配"],
+                            ),
+                            HybridSearchResult(
+                                "ingredient",
+                                first.id,
+                                2.7,
+                                business_score=0.2,
+                                match_reason=["关键词匹配"],
+                            ),
+                        ],
+                        total=2,
+                        query="排序",
+                        degraded=False,
+                    ),
+                ):
+                    output = executor.call("ingredient.search", {"query": "排序", "limit": 5})
+
+            self.assertEqual([item["id"] for item in output["items"]], [second.id, first.id])
+            self.assertEqual(output["items"][0]["businessScore"], -0.4)
+            self.assertEqual(output["items"][0]["matchReason"], ["名称匹配"])
+            self.assertNotIn("最近刚吃过", output["items"][0]["matchReason"])
+            self.assertNotIn("库存不足", output["items"][0]["matchReason"])
 
         def test_batch_candidate_resolution_is_read_only_bounded_and_family_scoped(self) -> None:
             with self.SessionLocal() as db:
@@ -235,11 +317,25 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                         sort_order=0,
                     )
                 ]
-                db.add_all([ingredient, food, recipe])
+                meal_plan = FoodPlanItem(
+                    id="meal-plan-hybrid-note",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    food_id=food.id,
+                    food=food,
+                    plan_date=today_for_family(self.family.id) + timedelta(days=1),
+                    meal_type=MealType.DINNER,
+                    note="周末恢复餐",
+                    status="planned",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ingredient, food, recipe, meal_plan])
                 db.flush()
                 upsert_search_document(db, build_ingredient_search_document(ingredient))
                 upsert_search_document(db, build_food_search_document(food))
                 upsert_search_document(db, build_recipe_search_document(recipe))
+                upsert_search_document(db, build_meal_plan_search_document(meal_plan))
                 db.flush()
                 executor = ToolExecutor(
                     build_workspace_tool_registry(),
@@ -255,6 +351,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 ingredient_result = executor.call("ingredient.search", {"query": "清润汤水", "limit": 5})
                 food_result = executor.call("food.search", {"query": "运动后", "limit": 5})
                 recipe_result = executor.call("recipe.search", {"query": "紫苏叶", "limit": 5})
+                meal_plan_result = executor.call("meal_plan.read_existing", {"query": "周末恢复餐", "limit": 5})
 
             self.assertEqual([item["id"] for item in ingredient_result["items"]], [ingredient.id])
             self.assertIn("score", ingredient_result["items"][0])
@@ -262,6 +359,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertIn("degraded", ingredient_result)
             self.assertEqual([item["id"] for item in food_result["items"]], [food.id])
             self.assertEqual([item["id"] for item in recipe_result["items"]], [recipe.id])
+            self.assertEqual([item["id"] for item in meal_plan_result["items"]], [meal_plan.id])
 
         def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
             with self.SessionLocal() as db:

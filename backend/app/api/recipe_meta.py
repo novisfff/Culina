@@ -338,7 +338,8 @@ def list_food_plan(
 ) -> list[dict]:
     user, membership = auth
     query = q.strip()
-    matching_ids: set[str] | None = None
+    matching_ids: list[str] | None = None
+    rank_by_id: dict[str, int] = {}
     if query:
         search_result = hybrid_search(
             db,
@@ -349,7 +350,8 @@ def list_food_plan(
             limit=200,
             offset=0,
         )
-        matching_ids = {item.entity_id for item in search_result.items if item.entity_type == "meal_plan"}
+        matching_ids = [item.entity_id for item in search_result.items if item.entity_type == "meal_plan"]
+        rank_by_id = {item_id: index for index, item_id in enumerate(matching_ids)}
         if not matching_ids:
             return []
     items = list(
@@ -366,6 +368,8 @@ def list_food_plan(
             .order_by(FoodPlanItem.plan_date.asc(), FoodPlanItem.meal_type.asc(), FoodPlanItem.created_at.asc())
         )
     )
+    if matching_ids is not None:
+        items.sort(key=lambda item: rank_by_id.get(item.id, len(rank_by_id)))
     return [serialize_food_plan_item(item) for item in items]
 
 
