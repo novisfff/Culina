@@ -91,3 +91,48 @@ cd backend && .venv/bin/python -m py_compile app/services/search/hybrid.py tests
 ```
 
 Result: exit code 0 with no output.
+
+## Empty keyword identity remediation
+
+### RED
+
+Added a SQLite regression where a newer private `meal_plan` document has
+`metadata_json={"user_id": ""}` and a matching family recipe is older. With
+`user_id=""` and a mixed-scope `limit=1`, the private document previously
+consumed the keyword recall slot; the same call scoped only to `meal_plan`
+also exposed it.
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/search/test_keyword_store.py::test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scope_limit -q
+```
+
+Result: `1 failed in 0.25s`. The mixed-scope result was
+`('meal_plan', 'empty-user-plan')` instead of the family recipe.
+
+### GREEN
+
+`search_keyword_documents` now normalizes `user_id` once at its public entry
+with `user_id or None`, and passes that normalized value to its MySQL
+FULLTEXT, SQLite LIKE, and compact helpers. Consequently both the shared
+SQLite visibility predicate and MySQL bound `:user_id IS NOT NULL` condition
+observe absent identity before their limits or scans.
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/search/test_keyword_store.py::test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scope_limit -q
+```
+
+Result: `1 passed in 0.21s`.
+
+### Final verification
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/search/test_keyword_store.py -q
+cd backend && .venv/bin/python -m pytest tests/search -q
+cd backend && .venv/bin/python -m py_compile app/services/search/keyword_store.py tests/search/test_keyword_store.py
+git diff --check
+```
+
+Results: `13 passed in 0.36s`; `172 passed in 3.40s`; compilation and
+`git diff --check` both exited 0 with no output.
+
+Source/test commit: `6e49e974` (`fix(search): normalize empty keyword identity`).
