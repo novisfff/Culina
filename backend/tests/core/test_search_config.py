@@ -28,9 +28,22 @@ def test_disabled_search_embedding_allows_hybrid_keyword_degradation_defaults() 
     assert settings.search_embedding_provider == "disabled"
     assert settings.search_embedding_dimensions == 0
     assert settings.search_rerank_provider == "disabled"
-    assert settings.search_rerank_semantic_min_score == 0.48
+    assert settings.search_semantic_min_score == 0.48
     assert settings.search_rerank_min_score == 0.58
     assert settings.search_literal_fallback_min_score == 0.70
+
+
+def test_search_semantic_threshold_defaults_to_local_candidate_floor() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.search_semantic_min_score == 0.48
+    assert not hasattr(settings, "search_rerank_semantic_min_score")
+
+
+@pytest.mark.parametrize("value", [-0.01, 1.0, 1.01])
+def test_search_semantic_threshold_rejects_values_outside_half_open_unit_interval(value: float) -> None:
+    with pytest.raises(ValidationError, match=r"SEARCH_SEMANTIC_MIN_SCORE must be in \[0, 1\)"):
+        Settings(_env_file=None, search_semantic_min_score=value)
 
 
 def test_disabled_hybrid_search_does_not_require_embedding_or_rerank_settings() -> None:

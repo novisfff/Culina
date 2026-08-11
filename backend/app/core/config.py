@@ -189,6 +189,9 @@ class Settings(BaseSettings):
         if not self.model_usage_source_instance.strip():
             raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
 
+        if not 0 <= self.search_semantic_min_score < 1:
+            raise ValueError("SEARCH_SEMANTIC_MIN_SCORE must be in [0, 1)")
+
         search_vector_backend = self.search_vector_backend.strip().lower()
         search_embedding_provider = self.search_embedding_provider.strip().lower()
         if self.search_hybrid_enabled and search_vector_backend == "qdrant" and search_embedding_provider not in DISABLED_SEARCH_PROVIDERS:
