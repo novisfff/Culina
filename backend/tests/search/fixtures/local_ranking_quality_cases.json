@@ -75,6 +75,402 @@
         "positive_reasons": [
           "合成质量证据"
         ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-recall-target",
+        "relevance": 1,
+        "keyword_score": 0.7,
+        "semantic_score": 0.0,
+        "keyword_rank": 1,
+        "semantic_rank": null,
+        "literal_match": "compact_keyword",
+        "literal_confidence": 0.7,
+        "trusted_keyword_match": true,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 0.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-recall-l3-noise",
+        "relevance": 0,
+        "keyword_score": 0.35,
+        "semantic_score": 0.0,
+        "keyword_rank": 1,
+        "semantic_rank": null,
+        "literal_match": "compact_keyword",
+        "literal_confidence": 0.7,
+        "trusted_keyword_match": true,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 0.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "recipe",
+        "entity_id": "literal-0-legacy-decoy-00",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "meal_plan",
+        "entity_id": "literal-0-legacy-decoy-01",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-legacy-decoy-02",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-legacy-decoy-03",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "recipe",
+        "entity_id": "literal-0-legacy-decoy-04",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "meal_plan",
+        "entity_id": "literal-0-legacy-decoy-05",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-legacy-decoy-06",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-legacy-decoy-07",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "recipe",
+        "entity_id": "literal-0-legacy-decoy-08",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "meal_plan",
+        "entity_id": "literal-0-legacy-decoy-09",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-legacy-decoy-10",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-legacy-decoy-11",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "recipe",
+        "entity_id": "literal-0-legacy-decoy-12",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "meal_plan",
+        "entity_id": "literal-0-legacy-decoy-13",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-legacy-decoy-14",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-legacy-decoy-15",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "recipe",
+        "entity_id": "literal-0-legacy-decoy-16",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "meal_plan",
+        "entity_id": "literal-0-legacy-decoy-17",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "ingredient",
+        "entity_id": "literal-0-legacy-decoy-18",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
+      },
+      {
+        "entity_type": "food",
+        "entity_id": "literal-0-legacy-decoy-19",
+        "relevance": 0,
+        "keyword_score": 0.0,
+        "semantic_score": 0.6,
+        "keyword_rank": null,
+        "semantic_rank": 1,
+        "literal_match": "none",
+        "literal_confidence": 0.0,
+        "trusted_keyword_match": false,
+        "detail_only_match": false,
+        "dual_source_match": false,
+        "signed_business_score": 1.0,
+        "positive_reasons": [
+          "合成质量证据"
+        ]
       }
     ],
     "scope_context": {

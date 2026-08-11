@@ -50,16 +50,48 @@ def build_cases() -> list[dict[str, object]]:
             if primary_kind == "exact_name"
             else ("structured_keyword", 0.80)
         )
+        literal_candidates = [
+            candidate(f"literal-{index}-best", 3, literal_match=primary_kind, literal_confidence=primary_confidence, keyword_score=1.0, trusted_keyword_match=True),
+            candidate(f"literal-{index}-secondary", 2, literal_match=secondary_kind, literal_confidence=secondary_confidence, keyword_score=0.9, trusted_keyword_match=True),
+            candidate(f"literal-{index}-semantic", 1, semantic_score=0.84),
+            candidate(f"literal-{index}-noise", 0, literal_match="detail", literal_confidence=0.35, keyword_score=1.0, detail_only_match=True),
+        ]
+        if index == 0:
+            # Keep one deterministic long-tail case so Recall@20 exercises an
+            # actual cutoff: the legacy score buries the relevant compact
+            # keyword candidate below twenty business-boosted semantic decoys.
+            literal_candidates.extend([
+                candidate(
+                    "literal-0-recall-target",
+                    1,
+                    literal_match="compact_keyword",
+                    literal_confidence=0.70,
+                    keyword_score=0.70,
+                    trusted_keyword_match=True,
+                ),
+                candidate(
+                    "literal-0-recall-l3-noise",
+                    0,
+                    literal_match="compact_keyword",
+                    literal_confidence=0.70,
+                    keyword_score=0.35,
+                    trusted_keyword_match=True,
+                ),
+            ])
+            literal_candidates.extend(
+                candidate(
+                    f"literal-0-legacy-decoy-{decoy_index:02d}",
+                    0,
+                    semantic_score=0.60,
+                    business_score=1.0,
+                )
+                for decoy_index in range(20)
+            )
         cases.append({
             "case_id": f"literal-{index + 1:02d}",
             "category": "literal",
             "query": f"家常菜{index + 1}",
-            "candidates": [
-                candidate(f"literal-{index}-best", 3, literal_match=primary_kind, literal_confidence=primary_confidence, keyword_score=1.0, trusted_keyword_match=True),
-                candidate(f"literal-{index}-secondary", 2, literal_match=secondary_kind, literal_confidence=secondary_confidence, keyword_score=0.9, trusted_keyword_match=True),
-                candidate(f"literal-{index}-semantic", 1, semantic_score=0.84),
-                candidate(f"literal-{index}-noise", 0, literal_match="detail", literal_confidence=0.35, keyword_score=1.0, detail_only_match=True),
-            ],
+            "candidates": literal_candidates,
         })
     semantic_queries = ["清淡暖胃", "适合老人", "孩子爱吃", "雨天热汤", "运动后补充", "夏天开胃", "不油腻", "软烂好嚼", "一锅完成", "下班很累", "周末慢炖", "便于带饭", "高温天凉菜", "深夜少负担", "早起有精神"]
     for index, query in enumerate(semantic_queries):

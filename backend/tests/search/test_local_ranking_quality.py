@@ -35,7 +35,7 @@ def test_local_ranking_quality_fixture_has_fixed_coverage() -> None:
     assert baseline == {
         "case_count": 80,
         "case_ids": [case["case_id"] for case in cases],
-        "recall_at_20": 1.0,
+        "recall_at_20": 0.996169,
     }
     assert all(0 <= candidate["relevance"] <= 3 for case in cases for candidate in case["candidates"])
     assert all(len(case["candidates"]) >= 4 for case in cases)
@@ -62,6 +62,16 @@ def test_local_ranking_meets_offline_quality_gates() -> None:
     assert metrics.deterministic_rate == 1.0
 
 
+def test_quality_fixture_has_a_discriminating_legacy_recall_cutoff() -> None:
+    cases = load_quality_cases()
+    baseline = load_baseline()
+    metrics = evaluate_quality_cases(cases)
+
+    assert any(len(case["candidates"]) > 20 for case in cases)
+    assert float(baseline["recall_at_20"]) < 1.0
+    assert metrics.recall_at_20 > float(baseline["recall_at_20"])
+
+
 def test_deterministic_rate_reverses_each_case_candidate_order(monkeypatch) -> None:
     ranker = ranking_quality.rank_local_candidates
     candidate_orders: list[list[str]] = []
@@ -79,7 +89,9 @@ def test_deterministic_rate_reverses_each_case_candidate_order(monkeypatch) -> N
 
 
 def test_l4_top5_gate_requires_at_least_five_ranked_candidates() -> None:
-    four_candidate_case = load_quality_cases()[0]
+    four_candidate_case = next(
+        case for case in load_quality_cases() if len(case["candidates"]) == 4
+    )
     five_candidate_case = deepcopy(four_candidate_case)
     extra_candidate = deepcopy(five_candidate_case["candidates"][1])
     extra_candidate["entity_id"] = "literal-extra-strong"
@@ -93,7 +105,9 @@ def test_l4_top5_gate_requires_at_least_five_ranked_candidates() -> None:
 
 
 def test_l4_top5_gate_ignores_weak_results_without_high_confidence_candidates() -> None:
-    no_high_confidence_case = deepcopy(load_quality_cases()[0])
+    no_high_confidence_case = deepcopy(
+        next(case for case in load_quality_cases() if len(case["candidates"]) == 4)
+    )
     no_high_confidence_case["case_id"] = "synthetic-l3-l4-only"
     candidates = no_high_confidence_case["candidates"]
     for index, candidate in enumerate(candidates[:3]):
