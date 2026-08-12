@@ -113,5 +113,4 @@ describe('MediaWithPlaceholder', () => {
 
     act(() => root.unmount());
   });
-
 });

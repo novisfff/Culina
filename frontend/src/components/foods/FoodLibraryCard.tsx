@@ -213,29 +213,27 @@ export function FoodCardLibrary({
   const visibleModels = models.slice(0, pager.visibleCount);
 
   return (
-    <div className="food-card-library">
-      <section className="food-card-grid" aria-label="食物卡片分页">
-        {visibleModels.map((model) => (
-          <FoodLibraryCard
-            key={model.food.id}
-            model={model}
-            actionsRef={actionsRef}
-            isUpdatingFavorite={isUpdatingFavorite}
-            isQuickAdding={isQuickAdding}
-          />
-        ))}
-        <div className="paged-list-status" ref={pager.sentinelRef}>
-          {pager.isLoadingMore ? (
-            <span role="status">正在加载更多食物…</span>
-          ) : pager.hasMore ? (
-            <button className="paged-list-load-more" type="button" onClick={pager.loadMore}>
-              继续加载食物
-            </button>
-          ) : (
-            <span>已加载全部食物</span>
-          )}
-        </div>
-      </section>
-    </div>
+    <section className="food-card-grid" aria-label="食物卡片分页">
+      {visibleModels.map((model) => (
+        <FoodLibraryCard
+          key={model.food.id}
+          model={model}
+          actionsRef={actionsRef}
+          isUpdatingFavorite={isUpdatingFavorite}
+          isQuickAdding={isQuickAdding}
+        />
+      ))}
+      <div className="paged-list-status" ref={pager.sentinelRef}>
+        {pager.isLoadingMore ? (
+          <span role="status">正在加载更多食物…</span>
+        ) : pager.hasMore ? (
+          <button className="paged-list-load-more" type="button" onClick={pager.loadMore}>
+            继续加载食物
+          </button>
+        ) : (
+          <span>已加载全部食物</span>
+        )}
+      </div>
+    </section>
   );
 }
