@@ -5,14 +5,16 @@ import { describe, expect, it } from 'vitest';
 describe('EatWorkspace desktop layout', () => {
   const repoRoot = resolve(__dirname, '../../..');
 
-  it('keeps the embedded discovery surface in the document scroll flow', () => {
+  it('keeps both embedded discovery panes independently scrollable on wide desktop', () => {
     const styles = readFileSync(resolve(repoRoot, 'src/styles/12-eat-workspace.css'), 'utf8');
 
-    expect(styles).toContain('.app-frame:has(.eat-workspace .food-content-layout)');
-    expect(styles).toContain('.app-content:has(.eat-workspace .food-content-layout)');
-    expect(styles).toContain('.eat-workspace .food-content-layout');
-    expect(styles).toContain('height: auto;');
-    expect(styles).toContain('overflow: visible;');
+    expect(styles).toContain('@media (min-width: 1281px)');
+    expect(styles).toMatch(
+      /\.eat-workspace:has\(\.food-content-layout\)\s*\{[^}]*height:\s*100%;[^}]*overflow:\s*hidden;/s,
+    );
+    expect(styles).toMatch(
+      /\.eat-workspace \.food-content-main,\s*\.eat-workspace \.food-task-sidebar\s*\{[^}]*overflow-y:\s*auto;/s,
+    );
   });
 
   it('keeps focused task overlays above discovery card media', () => {
