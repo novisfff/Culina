@@ -106,6 +106,7 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
           srcSet={buildMediaSrcSet(model.coverAsset)}
           sizes={buildMediaSizes('card')}
           alt={food.name}
+          decodeBeforeReveal
         />
         <span className="food-type-overlay">{FOOD_TYPE_LABELS[model.normalizedType]}</span>
         <button
@@ -205,7 +206,7 @@ export function FoodCardLibrary({
   isUpdatingFavorite: boolean;
   isQuickAdding: boolean;
 }) {
-  const pager = usePagedList({ itemCount: models.length, resetKey });
+  const pager = usePagedList({ itemCount: models.length, resetKey, pageSize: 6 });
   const pages = chunkFoodCardPages(models.slice(0, pager.visibleCount));
 
   return (

@@ -96,6 +96,7 @@ export function MediaWithPlaceholder(props: {
   fallbackSrc?: string | null;
   loading?: 'eager' | 'lazy';
   decoding?: 'async' | 'auto' | 'sync';
+  decodeBeforeReveal?: boolean;
   showLabel?: boolean;
   emptyLabel?: string;
   loadingLabel?: string;
@@ -125,6 +126,7 @@ export function MediaWithPlaceholder(props: {
   const wrapperClassName = [
     'media-with-placeholder',
     `is-${state}`,
+    props.decodeBeforeReveal && 'reveal-decoded',
     props.className,
   ]
     .filter(Boolean)
@@ -143,7 +145,30 @@ export function MediaWithPlaceholder(props: {
           loading={props.loading}
           decoding={props.decoding}
           aria-hidden={props.ariaHidden}
-          onLoad={() => setLoaded(true)}
+          onLoad={(event) => {
+            const image = event.currentTarget;
+            if (!props.decodeBeforeReveal || typeof image.decode !== 'function') {
+              setLoaded(true);
+              return;
+            }
+
+            const loadedSrc = image.currentSrc || image.src;
+            let decodeResult: Promise<void>;
+            try {
+              decodeResult = image.decode();
+            } catch {
+              setLoaded(true);
+              return;
+            }
+
+            void decodeResult
+              .catch(() => undefined)
+              .then(() => {
+                if (image.isConnected && (image.currentSrc || image.src) === loadedSrc) {
+                  setLoaded(true);
+                }
+              });
+          }}
           onError={() => {
             if (props.fallbackSrc && activeSrc !== props.fallbackSrc) {
               setActiveSrc(props.fallbackSrc);

@@ -2,7 +2,7 @@
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MediaWithPlaceholder } from './MediaPlaceholder';
 
 describe('MediaWithPlaceholder', () => {
@@ -109,6 +109,49 @@ describe('MediaWithPlaceholder', () => {
 
     expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('loaded');
     expect(container.querySelector('img')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it('keeps the placeholder until a decode-before-reveal image is ready', async () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    let resolveDecode: (() => void) | undefined;
+
+    act(() => {
+      root.render(
+        <MediaWithPlaceholder
+          src="/decoded-image.jpg"
+          alt="测试菜品"
+          decodeBeforeReveal
+        />,
+      );
+    });
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    const decode = vi.fn(() => new Promise<void>((resolve) => {
+      resolveDecode = resolve;
+    }));
+    Object.defineProperty(image, 'decode', { configurable: true, value: decode });
+
+    act(() => {
+      image?.dispatchEvent(new Event('load'));
+    });
+
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('loading');
+    expect(container.querySelector('.media-placeholder.state-loading')).not.toBeNull();
+
+    await act(async () => {
+      resolveDecode?.();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('loaded');
+    expect(container.querySelector('.media-with-placeholder')?.classList.contains('reveal-decoded')).toBe(true);
     expect(container.querySelector('.media-placeholder')).toBeNull();
 
     act(() => root.unmount());

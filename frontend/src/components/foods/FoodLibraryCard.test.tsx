@@ -120,11 +120,11 @@ describe('FoodLibraryCard pagination rendering', () => {
     expect(mediaRenderState.count).toBe(2);
   });
 
-  it('renders only the newly appended food cards when the workspace loads another page', async () => {
+  it('appends complete three-column rows without backfilling the previous row', async () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    const foods = Array.from({ length: 20 }, (_, index): Food => ({
+    const foods = Array.from({ length: 24 }, (_, index): Food => ({
       ...baseFood,
       id: `food-${index + 1}`,
       name: `食物 ${index + 1}`,
@@ -181,7 +181,7 @@ describe('FoodLibraryCard pagination rendering', () => {
       container?.querySelector<HTMLButtonElement>('.paged-list-load-more')?.click();
     });
 
-    expect(container.querySelectorAll('.food-work-card')).toHaveLength(20);
-    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(8);
+    expect(container.querySelectorAll('.food-work-card')).toHaveLength(18);
+    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(6);
   });
 });
