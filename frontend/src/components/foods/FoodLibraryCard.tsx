@@ -15,7 +15,6 @@ import {
   getPrimaryFoodActionLabel,
   isReadyLikeFood,
   normalizeFoodType,
-  chunkFoodCardPages,
 } from './FoodWorkspaceHelpers';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
@@ -106,7 +105,6 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
           srcSet={buildMediaSrcSet(model.coverAsset)}
           sizes={buildMediaSizes('card')}
           alt={food.name}
-          decodeBeforeReveal
         />
         <span className="food-type-overlay">{FOOD_TYPE_LABELS[model.normalizedType]}</span>
         <button
@@ -206,37 +204,33 @@ export function FoodCardLibrary({
   isUpdatingFavorite: boolean;
   isQuickAdding: boolean;
 }) {
-  const pager = usePagedList({ itemCount: models.length, resetKey, pageSize: 6 });
-  const pages = chunkFoodCardPages(models.slice(0, pager.visibleCount));
+  const pager = usePagedList({ itemCount: models.length, resetKey });
+  const visibleModels = models.slice(0, pager.visibleCount);
 
   return (
     <div className="food-card-library">
       <section className="food-card-grid" aria-label="食物卡片分页">
-        {pages.map((page, pageIndex) => (
-          <div className="food-card-page" key={page[0]?.food.id ?? `food-card-page-${pageIndex}`}>
-            {page.map((model) => (
-              <FoodLibraryCard
-                key={model.food.id}
-                model={model}
-                actionsRef={actionsRef}
-                isUpdatingFavorite={isUpdatingFavorite}
-                isQuickAdding={isQuickAdding}
-              />
-            ))}
-          </div>
+        {visibleModels.map((model) => (
+          <FoodLibraryCard
+            key={model.food.id}
+            model={model}
+            actionsRef={actionsRef}
+            isUpdatingFavorite={isUpdatingFavorite}
+            isQuickAdding={isQuickAdding}
+          />
         ))}
+        <div className="paged-list-status" ref={pager.sentinelRef}>
+          {pager.isLoadingMore ? (
+            <span role="status">正在加载更多食物…</span>
+          ) : pager.hasMore ? (
+            <button className="paged-list-load-more" type="button" onClick={pager.loadMore}>
+              继续加载食物
+            </button>
+          ) : (
+            <span>已加载全部食物</span>
+          )}
+        </div>
       </section>
-      <div className="paged-list-status" ref={pager.sentinelRef}>
-        {pager.isLoadingMore ? (
-          <span role="status">正在加载更多食物…</span>
-        ) : pager.hasMore ? (
-          <button className="paged-list-load-more" type="button" onClick={pager.loadMore}>
-            继续加载食物
-          </button>
-        ) : (
-          <span>已加载全部食物</span>
-        )}
-      </div>
     </div>
   );
 }

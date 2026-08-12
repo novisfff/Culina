@@ -120,7 +120,7 @@ describe('FoodLibraryCard pagination rendering', () => {
     expect(mediaRenderState.count).toBe(2);
   });
 
-  it('appends complete three-column rows without backfilling the previous row', async () => {
+  it('appends cards directly inside one stable grid like the ingredient library', async () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -175,13 +175,19 @@ describe('FoodLibraryCard pagination rendering', () => {
     });
 
     expect(container.querySelectorAll('.food-work-card')).toHaveLength(12);
+    const grid = container.querySelector('.food-card-grid');
+    expect(grid?.querySelector(':scope > .food-card-page')).toBeNull();
+    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(12);
+    expect(grid?.lastElementChild?.classList.contains('paged-list-status')).toBe(true);
     const mediaRenderCountBeforeLoad = mediaRenderState.count;
 
     await act(async () => {
       container?.querySelector<HTMLButtonElement>('.paged-list-load-more')?.click();
     });
 
-    expect(container.querySelectorAll('.food-work-card')).toHaveLength(18);
-    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(6);
+    expect(container.querySelectorAll('.food-work-card')).toHaveLength(20);
+    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(20);
+    expect(grid?.lastElementChild?.classList.contains('paged-list-status')).toBe(true);
+    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(8);
   });
 });

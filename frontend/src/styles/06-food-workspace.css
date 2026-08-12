@@ -1044,10 +1044,6 @@
   display: contents;
 }
 
-.food-card-page {
-  display: contents;
-}
-
 .food-work-card {
   display: grid;
   gap: 0;
@@ -3978,50 +3974,6 @@
 }
 
 @media (min-width: 901px) and (max-width: 1180px) {
-  .food-card-library {
-    display: grid;
-    min-width: 0;
-    gap: 12px;
-  }
-
-  .food-card-grid {
-    display: flex;
-    min-width: 0;
-    gap: 16px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0 0 4px;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-    overscroll-behavior-x: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .food-card-grid::-webkit-scrollbar {
-    display: none;
-  }
-
-  .food-card-page {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    flex: 0 0 calc((100% - 64px) / 3);
-    min-width: 0;
-    gap: 16px;
-    align-content: start;
-    align-items: stretch;
-    scroll-snap-align: start;
-  }
-
-  .food-card-library > .paged-list-status {
-    min-height: 1px;
-    height: 1px;
-    overflow: hidden;
-  }
-
-  .food-card-library > .paged-list-status > :is(.paged-list-load-more, span) {
-    display: none;
-  }
-
   .food-work-card,
   .food-work-card-body,
   .food-card-title-row,

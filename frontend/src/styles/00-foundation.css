@@ -1799,10 +1799,6 @@ a[href]:focus-visible,
   transition: opacity 180ms ease;
 }
 
-.media-with-placeholder.reveal-decoded > img {
-  transition: none;
-}
-
 .media-with-placeholder.is-loading > img {
   opacity: 0;
 }
