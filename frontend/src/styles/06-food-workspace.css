@@ -1051,6 +1051,7 @@
 .food-work-card {
   display: grid;
   gap: 0;
+  contain: layout paint style;
   overflow: hidden;
   border: 1px solid rgba(92, 67, 48, 0.09);
   border-radius: 14px;

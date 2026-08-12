@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 
 export const PAGED_LIST_INITIAL_COUNT = 12;
 export const PAGED_LIST_PAGE_SIZE = 8;
@@ -15,6 +15,25 @@ export function getNextPagedListVisibleCount(
   return getPagedListVisibleCount(itemCount, Math.max(0, requestedCount) + Math.max(1, pageSize));
 }
 
+export function createPagedListAutoLoadGate() {
+  let armed = true;
+
+  return {
+    shouldLoad(isIntersecting: boolean) {
+      if (!isIntersecting) {
+        armed = true;
+        return false;
+      }
+      if (!armed) return false;
+      armed = false;
+      return true;
+    },
+    reset() {
+      armed = true;
+    },
+  };
+}
+
 export function usePagedList(args: {
   itemCount: number;
   resetKey: string;
@@ -25,16 +44,21 @@ export function usePagedList(args: {
   const initialCount = args.initialCount ?? PAGED_LIST_INITIAL_COUNT;
   const pageSize = args.pageSize ?? PAGED_LIST_PAGE_SIZE;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const autoLoadGateRef = useRef(createPagedListAutoLoadGate());
   const [requestedCount, setRequestedCount] = useState(initialCount);
+  const [isLoadingMore, startLoadingMoreTransition] = useTransition();
   const visibleCount = getPagedListVisibleCount(args.itemCount, requestedCount);
   const hasMore = visibleCount < args.itemCount;
 
   useEffect(() => {
+    autoLoadGateRef.current.reset();
     setRequestedCount(initialCount);
   }, [args.resetKey, initialCount]);
 
   const loadMore = useCallback(() => {
-    setRequestedCount((current) => getNextPagedListVisibleCount(args.itemCount, current, pageSize));
+    startLoadingMoreTransition(() => {
+      setRequestedCount((current) => getNextPagedListVisibleCount(args.itemCount, current, pageSize));
+    });
   }, [args.itemCount, pageSize]);
 
   useEffect(() => {
@@ -44,7 +68,8 @@ export function usePagedList(args: {
     }
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
+        const latestEntry = entries.at(-1);
+        if (latestEntry && autoLoadGateRef.current.shouldLoad(latestEntry.isIntersecting)) {
           loadMore();
         }
       },
@@ -57,6 +82,7 @@ export function usePagedList(args: {
   return {
     visibleCount,
     hasMore,
+    isLoadingMore,
     loadMore,
     sentinelRef,
   };

@@ -164,6 +164,7 @@ type IngredientHubPageProps = {
   filteredSummaries: IngredientSummaryViewModel[];
   visibleFilteredSummaries: IngredientSummaryViewModel[];
   hasMoreCatalogSummaries: boolean;
+  isLoadingMoreCatalogSummaries: boolean;
   onLoadMoreCatalogSummaries: () => void;
   catalogLoadMoreRef: RefObject<HTMLDivElement>;
   expandedCatalogIngredientId: string | null;
@@ -249,6 +250,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         filteredSummaries={props.filteredSummaries}
         visibleFilteredSummaries={props.visibleFilteredSummaries}
         hasMoreCatalogSummaries={props.hasMoreCatalogSummaries}
+        isLoadingMoreCatalogSummaries={props.isLoadingMoreCatalogSummaries}
         onLoadMoreCatalogSummaries={props.onLoadMoreCatalogSummaries}
         catalogLoadMoreRef={props.catalogLoadMoreRef}
         expandedCatalogIngredientId={props.expandedCatalogIngredientId}

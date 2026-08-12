@@ -8405,6 +8405,10 @@
   padding: 10px;
 }
 
+.ingredient-visual-card-catalog {
+  contain: layout paint style;
+}
+
 .ingredient-visual-card-catalog .ingredient-visual-media,
 .ingredient-visual-card-inventory .ingredient-visual-media {
   aspect-ratio: 1.16 / 1;

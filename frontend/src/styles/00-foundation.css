@@ -164,6 +164,7 @@ a[href]:focus-visible,
 .paged-list-status {
   grid-column: 1 / -1;
   min-height: 44px;
+  overflow-anchor: none;
   display: grid;
   place-items: center;
   color: var(--text-faint);

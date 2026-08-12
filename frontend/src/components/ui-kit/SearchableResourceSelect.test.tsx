@@ -281,4 +281,51 @@ describe('SearchableResourceSelect', () => {
 
     expect(onLoadMore).toHaveBeenCalledTimes(1);
   });
+
+  it('does not repeat a load request while the same bottom edge remains active', () => {
+    const onLoadMore = vi.fn();
+    const render = (options: Array<{ id: string; label: string }>) => (
+      <SearchableResourceSelect
+        ariaLabel="选择食材"
+        placeholder="搜索已有食材"
+        value=""
+        query=""
+        hasMore
+        onLoadMore={onLoadMore}
+        onQueryChange={vi.fn()}
+        onChange={vi.fn()}
+        options={options}
+      />
+    );
+    const view = renderSelect(render([{ id: 'ingredient-1', label: '番茄' }]));
+    const list = view.querySelector<HTMLDivElement>('.ui-searchable-resource-select-list');
+    expect(list).not.toBeNull();
+    Object.defineProperty(list, 'scrollHeight', { value: 100, configurable: true });
+    Object.defineProperty(list, 'clientHeight', { value: 50, configurable: true });
+    Object.defineProperty(list, 'scrollTop', { value: 46, configurable: true, writable: true });
+
+    act(() => {
+      list?.dispatchEvent(new Event('scroll', { bubbles: true }));
+      list?.dispatchEvent(new Event('scroll', { bubbles: true }));
+      list?.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root?.render(render([
+        { id: 'ingredient-1', label: '番茄' },
+        { id: 'ingredient-2', label: '土豆' },
+      ]));
+    });
+    expect(list?.scrollTop).toBe(46);
+
+    Object.defineProperty(list, 'scrollHeight', { value: 180, configurable: true });
+    if (list) list.scrollTop = 20;
+    act(() => list?.dispatchEvent(new Event('scroll', { bubbles: true })));
+    if (list) list.scrollTop = 126;
+    act(() => list?.dispatchEvent(new Event('scroll', { bubbles: true })));
+
+    expect(onLoadMore).toHaveBeenCalledTimes(2);
+  });
 });

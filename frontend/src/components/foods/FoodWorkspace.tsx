@@ -1940,7 +1940,9 @@ export function FoodWorkspace(props: Props) {
             ))}
             </section>
             <div className="paged-list-status" ref={foodCardPager.sentinelRef}>
-              {foodCardPager.hasMore ? (
+              {foodCardPager.isLoadingMore ? (
+                <span role="status">正在加载更多食物…</span>
+              ) : foodCardPager.hasMore ? (
                 <button className="paged-list-load-more" type="button" onClick={foodCardPager.loadMore}>
                   继续加载食物
                 </button>
