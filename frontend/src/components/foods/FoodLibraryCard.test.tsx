@@ -174,10 +174,10 @@ describe('FoodLibraryCard pagination rendering', () => {
       );
     });
 
-    expect(container.querySelectorAll('.food-work-card')).toHaveLength(12);
+    expect(container.querySelectorAll('.food-work-card')).toHaveLength(9);
     const grid = container.querySelector('.food-card-grid');
     expect(grid?.querySelector(':scope > .food-card-page')).toBeNull();
-    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(12);
+    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(9);
     expect(grid?.lastElementChild?.classList.contains('paged-list-status')).toBe(true);
     const mediaRenderCountBeforeLoad = mediaRenderState.count;
 
@@ -185,9 +185,9 @@ describe('FoodLibraryCard pagination rendering', () => {
       container?.querySelector<HTMLButtonElement>('.paged-list-load-more')?.click();
     });
 
-    expect(container.querySelectorAll('.food-work-card')).toHaveLength(20);
-    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(20);
+    expect(container.querySelectorAll('.food-work-card')).toHaveLength(15);
+    expect(grid?.querySelectorAll(':scope > .food-work-card')).toHaveLength(15);
     expect(grid?.lastElementChild?.classList.contains('paged-list-status')).toBe(true);
-    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(8);
+    expect(mediaRenderState.count - mediaRenderCountBeforeLoad).toBe(6);
   });
 });

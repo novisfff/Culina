@@ -204,7 +204,12 @@ export function FoodCardLibrary({
   isUpdatingFavorite: boolean;
   isQuickAdding: boolean;
 }) {
-  const pager = usePagedList({ itemCount: models.length, resetKey });
+  const pager = usePagedList({
+    itemCount: models.length,
+    resetKey,
+    initialCount: 9,
+    pageSize: 6,
+  });
   const visibleModels = models.slice(0, pager.visibleCount);
 
   return (
