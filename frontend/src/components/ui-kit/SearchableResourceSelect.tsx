@@ -82,7 +82,34 @@ export function SearchableResourceSelect<T extends string>({
 }: SearchableResourceSelectProps<T>) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dismissedByPointerRef = useRef(false);
+  const loadMoreArmedRef = useRef(true);
+  const loadMoreRequestLockedRef = useRef(false);
+  const previousOptionsLengthRef = useRef(options.length);
+  const wasLoadingMoreRef = useRef(loadingMore);
   const inlineLoadingOnly = presentation === 'inline' && loading && options.length === 0;
+
+  useEffect(() => {
+    if (options.length !== previousOptionsLengthRef.current) {
+      previousOptionsLengthRef.current = options.length;
+      loadMoreRequestLockedRef.current = false;
+    }
+  }, [options.length]);
+
+  useEffect(() => {
+    if (loadingMore) {
+      wasLoadingMoreRef.current = true;
+      return;
+    }
+    if (wasLoadingMoreRef.current) {
+      wasLoadingMoreRef.current = false;
+      loadMoreRequestLockedRef.current = false;
+    }
+  }, [loadingMore]);
+
+  useEffect(() => {
+    loadMoreArmedRef.current = true;
+    loadMoreRequestLockedRef.current = false;
+  }, [listOpen, query]);
 
   useEffect(() => {
     if (!listOpen || !onSearchBlur) return undefined;
@@ -104,12 +131,22 @@ export function SearchableResourceSelect<T extends string>({
   }
 
   function handleListScroll(event: UIEvent<HTMLDivElement>) {
-    if (!hasMore || loadingMore || !onLoadMore) return;
     const list = event.currentTarget;
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-    if (distanceToBottom <= 48) {
-      onLoadMore();
+    if (distanceToBottom > 48) {
+      loadMoreArmedRef.current = true;
+      return;
     }
+    if (!hasMore || loadingMore || !onLoadMore || !loadMoreArmedRef.current || loadMoreRequestLockedRef.current) return;
+    loadMoreArmedRef.current = false;
+    loadMoreRequestLockedRef.current = true;
+    onLoadMore();
+  }
+
+  function handleLoadMoreClick() {
+    if (!hasMore || loadingMore || !onLoadMore || loadMoreRequestLockedRef.current) return;
+    loadMoreRequestLockedRef.current = true;
+    onLoadMore();
   }
 
   function handleSearchBlur(event: FocusEvent<HTMLDivElement>) {
@@ -198,7 +235,7 @@ export function SearchableResourceSelect<T extends string>({
               {loadingMore ? (
                 <span role="status">{loadingMoreText}</span>
               ) : (
-                <button type="button" onClick={onLoadMore} disabled={disabled || !onLoadMore}>
+                <button type="button" onClick={handleLoadMoreClick} disabled={disabled || !onLoadMore}>
                   {loadMoreText}
                 </button>
               )}

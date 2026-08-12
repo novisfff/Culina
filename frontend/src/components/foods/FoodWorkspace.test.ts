@@ -35,7 +35,6 @@ import {
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
-  chunkFoodCardPages,
   formatFoodStockQuantity,
   getFoodGovernanceIssueLabels,
   getFoodGovernanceIssues,
@@ -560,17 +559,6 @@ describe('food workspace helpers', () => {
     foodTypes.forEach((type) => {
       expect(getSecondaryFoodActionLabel({ ...baseFood, type })).toBe('编辑档案');
     });
-  });
-
-  it('chunks tablet food cards into two-item swipe columns', () => {
-    const items = Array.from({ length: 7 }, (_, index) => index + 1);
-
-    expect(chunkFoodCardPages(items)).toEqual([
-      [1, 2],
-      [3, 4],
-      [5, 6],
-      [7],
-    ]);
   });
 
   it('formats food stock display with at most one decimal place', () => {

@@ -161,9 +161,39 @@ a[href]:focus-visible,
   outline-offset: 2px;
 }
 
+@media (pointer: fine) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-faint) 18%, transparent) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: var(--space-3);
+    height: var(--space-3);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    min-width: 44px;
+    min-height: 44px;
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background-color: color-mix(in srgb, var(--text-faint) 18%, transparent);
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--text-faint) 30%, transparent);
+  }
+}
+
 .paged-list-status {
   grid-column: 1 / -1;
   min-height: 44px;
+  overflow-anchor: none;
   display: grid;
   place-items: center;
   color: var(--text-faint);

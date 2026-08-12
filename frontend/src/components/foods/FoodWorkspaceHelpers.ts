@@ -31,13 +31,6 @@ export type FoodCookingSummary = {
   isReady: boolean;
 };
 
-export function chunkFoodCardPages<T>(items: T[], pageSize = 2) {
-  const normalizedPageSize = Math.max(1, pageSize);
-  return Array.from({ length: Math.ceil(items.length / normalizedPageSize) }, (_, index) =>
-    items.slice(index * normalizedPageSize, index * normalizedPageSize + normalizedPageSize)
-  );
-}
-
 export function getDaysUntil(dateValue?: string | null) {
   if (!dateValue) return null;
   const target = new Date(`${dateValue}T00:00:00`).getTime();

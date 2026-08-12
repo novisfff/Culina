@@ -115,6 +115,7 @@ type CatalogPanelProps = {
   filteredSummaries: IngredientSummaryViewModel[];
   visibleFilteredSummaries: IngredientSummaryViewModel[];
   hasMoreCatalogSummaries: boolean;
+  isLoadingMoreCatalogSummaries: boolean;
   onLoadMoreCatalogSummaries: () => void;
   catalogLoadMoreRef: RefObject<HTMLDivElement>;
   expandedCatalogIngredientId: string | null;
@@ -232,7 +233,9 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
             />
           ))}
           <div className="paged-list-status" ref={props.catalogLoadMoreRef}>
-            {props.hasMoreCatalogSummaries ? (
+            {props.isLoadingMoreCatalogSummaries ? (
+              <span role="status">正在加载更多食材…</span>
+            ) : props.hasMoreCatalogSummaries ? (
               <button className="paged-list-load-more" type="button" onClick={props.onLoadMoreCatalogSummaries}>
                 继续加载食材
               </button>

@@ -2967,6 +2967,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         filteredSummaries={filteredSummaries}
         visibleFilteredSummaries={visibleFilteredSummaries}
         hasMoreCatalogSummaries={catalogCardPager.hasMore}
+        isLoadingMoreCatalogSummaries={catalogCardPager.isLoadingMore}
         onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
         catalogLoadMoreRef={catalogCardPager.sentinelRef}
         expandedCatalogIngredientId={expandedCatalogIngredientId}

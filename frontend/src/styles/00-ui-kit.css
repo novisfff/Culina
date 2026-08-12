@@ -2267,6 +2267,8 @@
   gap: 6px;
   max-height: min(320px, 60vh);
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line-soft);
   border-radius: 14px;
   background: var(--surface, #fff);
@@ -2378,6 +2380,8 @@
 .ui-searchable-resource-select .ui-searchable-resource-select-more {
   display: grid;
   place-items: center;
+  min-height: 42px;
+  overflow-anchor: none;
   padding: 4px 0 2px;
 }
 

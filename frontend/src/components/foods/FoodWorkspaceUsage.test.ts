@@ -72,4 +72,12 @@ describe('FoodWorkspace navigation usage', () => {
     // Discover surface must not break the food-desktop-view height chain.
     expect(foodCss).toMatch(/\.eat-discover-surface\s*\{\s*display:\s*contents;/);
   });
+
+  it('keeps the independently scrolling food list out of browser scroll anchoring', () => {
+    const foodCss = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+
+    expect(foodCss).toMatch(
+      /@media \(min-width: 1024px\)[\s\S]*?\.food-content-main\s*\{[^}]*overflow-anchor:\s*none;/,
+    );
+  });
 });

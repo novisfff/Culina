@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const repoRoot = resolve(__dirname, '../../..');
 const srcRoot = resolve(repoRoot, 'src');
+const foundationStyles = readFileSync(resolve(srcRoot, 'styles/00-foundation.css'), 'utf8');
 
 const staleFoundationClasses = [
   'badge-inline-icon',
@@ -68,6 +69,19 @@ function collectNonTestSourceFiles(dir: string): string[] {
 }
 
 describe('Foundation legacy style cleanup', () => {
+  it('provides a quiet scrollbar baseline for fine-pointer layouts', () => {
+    expect(foundationStyles).toMatch(
+      /@media \(pointer: fine\)[\s\S]*?\*\s*\{[^}]*scrollbar-width:\s*thin;[^}]*scrollbar-color:\s*color-mix\(in srgb, var\(--text-faint\) 18%, transparent\) transparent;/,
+    );
+    expect(foundationStyles).toMatch(
+      /\*::-webkit-scrollbar\s*\{[^}]*width:\s*var\(--space-3\);[^}]*height:\s*var\(--space-3\);/,
+    );
+    expect(foundationStyles).toContain('background-clip: padding-box;');
+    expect(foundationStyles).toMatch(
+      /\*::-webkit-scrollbar-thumb:hover\s*\{[^}]*color-mix\(in srgb, var\(--text-faint\) 30%, transparent\)/,
+    );
+  });
+
   it('keeps shared foundation styles free of stale helper classes', () => {
     const sourceByFile = collectNonTestSourceFiles(srcRoot).map((path) => ({
       label: relative(repoRoot, path),
