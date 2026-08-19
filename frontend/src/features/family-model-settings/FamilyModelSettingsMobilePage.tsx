@@ -70,6 +70,7 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
           selectedProfileId={props.state.selectedProfileId}
           busy={props.busyAction !== null}
           onSelectProfile={props.onSelectProfile}
+          onRebindCreatedProfile={props.onRebindCreatedProfile}
           onCreate={(input) => props.actions.createProviderProfile({ ...input, idempotency_key: '' })}
           onPatch={(profileId, input) => props.actions.patchProviderProfile(profileId, { ...input, idempotency_key: '' })}
           onRotate={props.actions.rotateProviderProfileKey}

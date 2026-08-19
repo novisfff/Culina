@@ -17,7 +17,10 @@ def mysql_alembic_database() -> Iterator[MySqlAlembicDatabase]:
     try:
         yield database
     finally:
-        database.dispose()
+        # The complete family-model-settings CI suite shares this database.
+        # Reset it after migration coverage without deleting it out from under
+        # the MySQL concurrency fixtures collected later in the same run.
+        database.recreate()
 
 
 def test_family_model_migration_keeps_families_unconfigured(

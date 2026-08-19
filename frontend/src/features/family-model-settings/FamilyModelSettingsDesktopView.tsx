@@ -81,6 +81,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             selectedProfileId={selectedProfileId}
             busy={busy}
             onSelectProfile={props.onSelectProfile}
+            onRebindCreatedProfile={props.onRebindCreatedProfile}
             onCreate={(input) => props.actions.createProviderProfile({ ...input, idempotency_key: '' })}
             onPatch={(profileId, input) => props.actions.patchProviderProfile(profileId, { ...input, idempotency_key: '' })}
             onRotate={(profileId, input) => props.actions.rotateProviderProfileKey(profileId, input)}

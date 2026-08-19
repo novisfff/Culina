@@ -9,8 +9,10 @@ responses, traces, and logs cannot accidentally expose them.
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from threading import RLock
@@ -53,7 +55,7 @@ class _FakeWebSocket:
         self._authorization = authorization
         self._model = model
         self.closed = False
-        self._received_session_frame = False
+        self._receive_index = 0
 
     def send(self, payload: str | bytes) -> None:
         if self.closed:
@@ -80,16 +82,20 @@ class _FakeWebSocket:
         del timeout
         if self.closed:
             raise RuntimeError("fake_provider_websocket_closed")
-        if not self._received_session_frame:
-            self._received_session_frame = True
-            return json.dumps(
-                {
-                    "type": "session.created",
-                    "session": {"model": self._model or "fake-realtime-model"},
-                },
-                ensure_ascii=False,
-            )
-        return json.dumps({"type": "response.done"}, ensure_ascii=False)
+        events = (
+            {
+                "type": "session.created",
+                "session": {"model": self._model or "fake-realtime-model"},
+            },
+            {
+                "type": "response.audio.delta",
+                "delta": base64.b64encode(b"\x00\x00" * 2400).decode("ascii"),
+            },
+            {"type": "session.finished"},
+        )
+        event = events[min(self._receive_index, len(events) - 1)]
+        self._receive_index += 1
+        return json.dumps(event, ensure_ascii=False)
 
     def close(self) -> None:
         self.closed = True
@@ -228,8 +234,11 @@ def _authorization(headers: Mapping[str, str]) -> str | None:
 
 
 def _model_from_payload(payload: dict[str, object] | bytes) -> str | None:
-    model = payload.get("model") if isinstance(payload, dict) else None
-    return model if isinstance(model, str) else None
+    if isinstance(payload, dict):
+        model = payload.get("model")
+        return model if isinstance(model, str) else None
+    match = re.search(rb'name="model"\r\n\r\n([^\r\n]+)', payload)
+    return match.group(1).decode("utf-8") if match is not None else None
 
 
 def _success_response(path: str, model: str | None) -> ProviderResponse:

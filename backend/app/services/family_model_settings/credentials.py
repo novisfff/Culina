@@ -214,7 +214,7 @@ def operation_request_fingerprint(
 def validate_credential_keyring_references(
     db: Session,
     *,
-    keyring: FamilyModelCredentialKeyring,
+    keyring: FamilyModelCredentialKeyring | None,
 ) -> None:
     """Reject removing encryption/HMAC keys still needed by retained records.
 
@@ -233,7 +233,8 @@ def validate_credential_keyring_references(
     receipt_key_ids = set(
         db.scalars(select(FamilyModelOperationReceipt.request_fingerprint_key_id))
     )
-    if (secret_key_ids | receipt_key_ids) - set(keyring.keys):
+    available_key_ids = set(keyring.keys) if keyring is not None else set()
+    if (secret_key_ids | receipt_key_ids) - available_key_ids:
         raise FamilyModelCredentialConfigurationError(
             "family_model_credential_referenced_key_missing"
         )

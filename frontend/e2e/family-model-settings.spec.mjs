@@ -77,6 +77,77 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract', () => {
+  test.use({ familyModelScenario: 'configured' });
+
+  test('browser back returns a clean workspace to the family profile', async ({ app }) => {
+    const { page } = app;
+    await openFamilyModelSettings(page);
+    await expect.poll(() => page.evaluate(() => window.history.state?.culinaWorkspaceGuard ?? null))
+      .toBe('family-model-settings:family-smoke');
+
+    await page.goBack();
+
+    await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: '我的家庭', exact: true })).toBeVisible();
+  });
+
+  test('browser back asks before discarding an unsaved draft', async ({ app }) => {
+    const { page } = app;
+    await openFamilyModelSettings(page);
+    await page.locator('.family-model-settings-section-rail')
+      .getByRole('button', { name: /^能力配置/ }).click();
+    const llmCard = page.locator('.family-model-settings-binding-card')
+      .filter({ hasText: '对话与视觉理解 · 主用' });
+    await llmCard.getByLabel('模型名称').fill('unsaved-browser-back-model');
+
+    await page.goBack();
+
+    await expect(page.getByRole('heading', { name: '放弃未保存的配置修改？' })).toBeVisible();
+    await page.locator('.ui-form-actions-secondary').click();
+    await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
+    await expect(llmCard.getByLabel('模型名称')).toHaveValue('unsaved-browser-back-model');
+  });
+
+  test('Escape and backdrop stay inert while a draft mutation is pending', async ({ app }) => {
+    const { page } = app;
+    let releaseDraftRequest;
+    const draftRequestGate = new Promise((resolve) => {
+      releaseDraftRequest = resolve;
+    });
+    await page.route('**/api/family/model-settings/draft', async (route) => {
+      if (route.request().method() === 'PUT') await draftRequestGate;
+      await route.fallback();
+    });
+
+    await openFamilyModelSettings(page);
+    await page.locator('.family-model-settings-section-rail')
+      .getByRole('button', { name: /^能力配置/ }).click();
+    await page.locator('.family-model-settings-binding-card')
+      .filter({ hasText: '对话与视觉理解 · 主用' })
+      .getByLabel('模型名称')
+      .fill('busy-overlay-model');
+    await page.goBack();
+    const discardDialog = page.getByRole('heading', { name: '放弃未保存的配置修改？' });
+    await expect(discardDialog).toBeVisible();
+
+    const draftRequest = page.waitForRequest((request) => (
+      request.method() === 'PUT'
+      && new URL(request.url()).pathname === '/api/family/model-settings/draft'
+    ));
+    await page.getByRole('button', { name: '保存草稿' }).evaluate((button) => button.click());
+    await draftRequest;
+    await expect(page.locator('.family-model-settings-workspace')).toHaveAttribute('aria-busy', 'true');
+
+    await page.keyboard.press('Escape');
+    await page.locator('.workspace-overlay-backdrop').click({ position: { x: 8, y: 8 } });
+    await expect(discardDialog).toBeVisible();
+
+    releaseDraftRequest();
+    await expect(page.locator('.family-model-settings-workspace')).not.toHaveAttribute('aria-busy', 'true');
+  });
+});
+
 test.describe('@p0 @family-model-settings-1440x900 Owner provider credential boundaries', () => {
   test.use({ familyModelScenario: 'configured' });
 
@@ -132,12 +203,22 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
       request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/family/model-settings/provider-profiles'
     ));
+    const rebindDraftRequestPromise = page.waitForRequest((request) => (
+      request.method() === 'PUT'
+      && new URL(request.url()).pathname === '/api/family/model-settings/draft'
+    ));
     await page.getByRole('button', { name: '创建档案' }).click();
     const createRequest = await createRequestPromise;
+    const rebindDraftRequest = await rebindDraftRequestPromise;
     expect(createRequest.postDataJSON()).toMatchObject({
       api_base_url: 'https://replacement.example/v1',
       api_key: createMarker,
     });
+    expect(rebindDraftRequest.postDataJSON().bindings
+      .filter((binding) => binding.enabled && binding.capability !== 'embedding')
+      .every((binding) => binding.provider_profile_id !== 'family-model-profile-http')).toBe(true);
+    expect(rebindDraftRequest.postDataJSON().bindings
+      .find((binding) => binding.capability === 'embedding')?.provider_profile_id).toBe('family-model-profile-http');
 
     await expect(createApiKeyInput).toHaveCount(0);
     expect(hasSecretMarker(familyModelRequests, createMarker)).toBe(false);

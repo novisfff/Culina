@@ -24,6 +24,7 @@ export type ProviderProfileEditorProps = {
     new_api_key: string;
     base_settings_version_number: number;
   }) => Promise<unknown>;
+  onRebindCreatedProfile?: (fromProfileId: string, toProfileId: string) => Promise<void>;
   onCheck: (profileId: string) => Promise<unknown>;
 };
 
@@ -77,6 +78,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   const [rotationPassword, setRotationPassword] = useState('');
   const [rotationKey, setRotationKey] = useState('');
   const [showRotation, setShowRotation] = useState(false);
+  const [rebindFromProfileId, setRebindFromProfileId] = useState<string | null>(null);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     setRotationPassword('');
     setRotationKey('');
     setConnectionMessage(null);
+    if (selectedProfile?.id) setCreateForm(INITIAL_CREATE_FORM);
   }, [selectedProfile?.id]);
 
   const isRealtime = createForm.adapterKind === 'openai_realtime' || createForm.adapterKind === 'dashscope_realtime';
@@ -110,6 +113,10 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       // The write-only key is cleared before invalidating/refreshing any query.
       setCreateForm(INITIAL_CREATE_FORM);
       if (result && typeof result === 'object' && 'id' in result && typeof result.id === 'string') {
+        if (rebindFromProfileId && props.onRebindCreatedProfile) {
+          await props.onRebindCreatedProfile(rebindFromProfileId, result.id);
+        }
+        setRebindFromProfileId(null);
         props.onSelectProfile(result.id);
       }
     } catch {
@@ -162,6 +169,23 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     }
   }
 
+  function beginCreate() {
+    setCreateForm(INITIAL_CREATE_FORM);
+    setRebindFromProfileId(selectedProfile?.id ?? null);
+    props.onSelectProfile(null);
+  }
+
+  function selectProfile(profileId: string | null) {
+    setRebindFromProfileId(null);
+    props.onSelectProfile(profileId);
+  }
+
+  function cancelRotation() {
+    setRotationPassword('');
+    setRotationKey('');
+    setShowRotation(false);
+  }
+
   return (
     <section className="family-model-settings-editor" aria-labelledby="family-model-provider-editor-title">
       <div className="family-model-settings-section-head">
@@ -169,7 +193,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           <h2 id="family-model-provider-editor-title">Provider 档案</h2>
           <p>一个档案固定一个服务地址、认证方式和账号范围；API Key 只在提交时使用。</p>
         </div>
-        <button type="button" className="ghost-button" disabled={props.busy} onClick={() => props.onSelectProfile(null)}>新建档案</button>
+        <button type="button" className="ghost-button" disabled={props.busy} onClick={beginCreate}>新建档案</button>
       </div>
 
       {props.profiles.length > 0 ? (
@@ -178,7 +202,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           <select
             value={selectedProfile?.id ?? ''}
             disabled={props.busy}
-            onChange={(event) => props.onSelectProfile(event.target.value || null)}
+            onChange={(event) => selectProfile(event.target.value || null)}
           >
             <option value="">新建 Provider 档案</option>
             {props.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
@@ -215,7 +239,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               <strong>轮换 API Key</strong>
               <p>仅适用于当前服务范围，不会更换地址、账号或模型绑定。</p>
             </div>
-            <button className="tertiary-button" type="button" disabled={props.busy} onClick={() => setShowRotation((value) => !value)}>
+            <button className="tertiary-button" type="button" disabled={props.busy} onClick={() => { if (showRotation) cancelRotation(); else setShowRotation(true); }}>
               {showRotation ? '收起轮换' : '轮换 Key'}
             </button>
           </div>
@@ -230,7 +254,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                 <input type="password" autoComplete="new-password" placeholder="输入同一服务范围的新 API Key" value={rotationKey} disabled={props.busy} onChange={(event) => setRotationKey(event.target.value)} required />
               </label>
               <div className="family-model-settings-editor-actions">
-                <button className="ghost-button" type="button" disabled={props.busy} onClick={() => setShowRotation(false)}>取消</button>
+                <button className="ghost-button" type="button" disabled={props.busy} onClick={cancelRotation}>取消</button>
                 <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在轮换' : '确认轮换'}</button>
               </div>
             </form>

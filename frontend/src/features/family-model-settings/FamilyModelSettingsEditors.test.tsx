@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   FamilyModelConfigDraft,
@@ -90,6 +91,48 @@ describe('Family model settings editors', () => {
       api_key: 'new-api-key',
     });
     expect(screen.getByLabelText('API Key')).toHaveValue('');
+  });
+
+  it('clears rotation credentials when the Owner cancels the rotation form', async () => {
+    const user = userEvent.setup();
+    render(<ProviderProfileEditor {...providerProps()} />);
+
+    await user.click(screen.getByRole('button', { name: '轮换 Key' }));
+    await user.type(screen.getByLabelText('当前密码'), 'owner-password');
+    await user.type(screen.getByLabelText('新的 API Key'), 'rotate-secret');
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    await user.click(screen.getByRole('button', { name: '轮换 Key' }));
+
+    expect(screen.getByLabelText('当前密码')).toHaveValue('');
+    expect(screen.getByLabelText('新的 API Key')).toHaveValue('');
+  });
+
+  it('rebinds the old profile capabilities after creating a replacement profile', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue({ id: 'profile-new' });
+    const onRebindCreatedProfile = vi.fn().mockResolvedValue(undefined);
+    function Harness() {
+      const [selectedProfileId, setSelectedProfileId] = useState<string | null>(profile.id);
+      return (
+        <ProviderProfileEditor
+          {...providerProps({
+            onCreate,
+            onRebindCreatedProfile,
+            selectedProfileId,
+            onSelectProfile: setSelectedProfileId,
+          })}
+        />
+      );
+    }
+    render(<Harness />);
+
+    await user.click(screen.getByRole('button', { name: '新建档案' }));
+    await user.type(screen.getByLabelText('档案名称'), '替换服务');
+    await user.type(screen.getByLabelText('API 服务地址'), 'https://replacement.example/v1');
+    await user.type(screen.getByLabelText('API Key'), 'replacement-key');
+    await user.click(screen.getByRole('button', { name: '创建档案' }));
+
+    await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledWith('profile-a', 'profile-new'));
   });
 
   it('locks the active Embedding identity in the normal capability editor', () => {

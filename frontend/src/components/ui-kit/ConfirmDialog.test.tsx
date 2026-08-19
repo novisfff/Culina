@@ -126,4 +126,31 @@ describe('ConfirmDialog', () => {
     expect(view.querySelector('.ui-confirm-dialog')).toBeNull();
     expect(view.querySelector('.workspace-modal')?.className).not.toContain('is-danger');
   });
+
+  it('keeps backdrop, close and Escape inert while submitting', () => {
+    const onClose = vi.fn();
+    const onCancel = vi.fn();
+    const view = renderDialog(
+      <ConfirmDialog
+        open
+        title="发布配置"
+        description="正在提交。"
+        confirmLabel="发布"
+        cancelLabel="取消"
+        isSubmitting
+        onConfirm={vi.fn()}
+        onCancel={onCancel}
+        onClose={onClose}
+      />,
+    );
+
+    act(() => {
+      view.querySelector<HTMLElement>('.workspace-overlay-backdrop')?.click();
+      view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });

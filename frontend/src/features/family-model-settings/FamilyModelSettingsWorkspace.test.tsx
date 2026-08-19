@@ -111,6 +111,36 @@ describe('FamilyModelSettingsWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Provider 档案' })).toBeVisible();
   });
 
+  it('routes a browser-back event through the workspace back contract', async () => {
+    const onBack = vi.fn();
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={onBack} />,
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Escape through the same back contract when no overlay is open', async () => {
+    const onBack = vi.fn();
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={onBack} />,
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a recoverable error when an Owner setting read fails before a safe workspace can render', async () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockRejectedValueOnce(new Error('network unavailable'));
     render(

@@ -31,6 +31,10 @@ from app.services.model_usage.preflight import run_model_usage_preflight
 from app.services.family_model_settings.maintenance import (
     FamilyModelSettingsMaintenanceWorker,
 )
+from app.services.family_model_settings.credentials import (
+    FamilyModelCredentialCipher,
+    validate_credential_keyring_references,
+)
 from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
@@ -50,6 +54,30 @@ def cors_allowed_origins(current_settings: Settings) -> list[str]:
     if current_settings.environment.strip().lower() in LOCAL_ENVIRONMENTS:
         origins.append("http://127.0.0.1:5173")
     return list(dict.fromkeys(origins))
+
+
+def validate_family_model_credential_keyring_references(
+    db,
+    *,
+    current_settings: Settings,
+) -> None:
+    """Fail startup before workers/API traffic can use an incomplete keyring.
+
+    Local development intentionally permits an empty keyring until a family
+    Provider profile is configured. Once a deployment keyring is configured,
+    or for every non-local environment, retained encrypted secrets and
+    idempotency receipts must be decryptable before the process starts.
+    """
+
+    environment = str(getattr(current_settings, "environment", "local")).strip().lower()
+    active_key_id = str(getattr(current_settings, "family_model_credential_active_key_id", ""))
+    keys_json = getattr(current_settings, "family_model_credential_keys_json", None)
+    raw_keys_json = keys_json.get_secret_value() if hasattr(keys_json, "get_secret_value") else str(keys_json or "")
+    if environment in LOCAL_ENVIRONMENTS and not active_key_id and not raw_keys_json.strip():
+        validate_credential_keyring_references(db, keyring=None)
+        return
+    cipher = FamilyModelCredentialCipher.from_settings(current_settings)
+    validate_credential_keyring_references(db, keyring=cipher.keyring)
 
 
 class UnhandledApiExceptionMiddleware:
@@ -93,6 +121,10 @@ async def lifespan(app: FastAPI):
             initialize_configured_admin(db, commit=False)
             if settings.model_usage_required:
                 run_model_usage_preflight(settings, session_factory=SessionLocal, db=db)
+            validate_family_model_credential_keyring_references(
+                db,
+                current_settings=settings,
+            )
     image_worker = ImageGenerationWorker()
     search_index_worker = SearchIndexWorker()
     model_usage_worker = ModelUsageMaintenanceWorker()

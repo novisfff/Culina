@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { ConfirmDialog, StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
@@ -8,6 +8,7 @@ import type {
 import {
   createEmptyFamilyModelDraft,
   createFamilyModelSettingsDraft,
+  rebindDraftProviderProfile,
   type FamilyModelSettingsDraft,
 } from './familyModelSettingsModel';
 import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
@@ -79,6 +80,21 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const [validation, setValidation] = useState<FamilyModelDraftValidation | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
+  useLayoutEffect(() => {
+    const previousState = window.history.state;
+    const marker = `family-model-settings:${props.familyId}`;
+    window.history.pushState(
+      { ...(previousState && typeof previousState === 'object' ? previousState : {}), culinaWorkspaceGuard: marker },
+      '',
+      window.location.href,
+    );
+    return () => {
+      if (window.history.state?.culinaWorkspaceGuard === marker) {
+        window.history.replaceState(previousState, '', window.location.href);
+      }
+    };
+  }, [props.familyId]);
+
   useEffect(() => {
     if (!queries.draft) return;
     setServerDraft((current) => isAtLeastAsRecent(queries.draft as FamilyModelConfigDraft, current)
@@ -107,14 +123,25 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     state.actions.markDirty(true);
   }, [state.actions]);
 
-  const persistDraft = useCallback(async (): Promise<FamilyModelConfigDraft> => {
-    const saved = await mutationState.actions.saveDraft(draft);
+  const persistDraftValue = useCallback(async (nextDraft: FamilyModelSettingsDraft): Promise<FamilyModelConfigDraft> => {
+    const saved = await mutationState.actions.saveDraft(nextDraft);
     setServerDraft(saved);
     setDraft(localDraftFromServerDraft(saved));
     setValidation(null);
     state.actions.markDirty(false);
     return saved;
-  }, [draft, mutationState.actions, state.actions]);
+  }, [mutationState.actions, state.actions]);
+
+  const persistDraft = useCallback(
+    () => persistDraftValue(draft),
+    [draft, persistDraftValue],
+  );
+
+  const rebindCreatedProfile = useCallback(async (fromProfileId: string, toProfileId: string) => {
+    const nextDraft = rebindDraftProviderProfile(draft, fromProfileId, toProfileId);
+    setDraft(nextDraft);
+    await persistDraftValue(nextDraft);
+  }, [draft, persistDraftValue]);
 
   const validate = useCallback(async () => {
     const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
@@ -143,6 +170,30 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     }
     props.onBack();
   }, [busy, props, state.state.dirty]);
+
+  useEffect(() => {
+    const preserveWorkspaceHistory = () => {
+      window.history.pushState({ familyModelSettings: true }, '', window.location.href);
+    };
+    const handlePopState = () => {
+      if (busy || state.state.dirty) preserveWorkspaceHistory();
+      requestBack();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (confirmDiscard) return;
+      event.preventDefault();
+      event.stopPropagation();
+      requestBack();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [busy, confirmDiscard, requestBack, state.state.dirty]);
 
   if (!queries.isOwner) {
     return (
@@ -205,6 +256,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     onBack: requestBack,
     onSelectSection: state.actions.selectSection,
     onSelectProfile: state.actions.selectProfile,
+    onRebindCreatedProfile: rebindCreatedProfile,
     onPushMobileTask: state.actions.pushMobileTask,
     onPopMobileTask: state.actions.popMobileTask,
     onDraftChange: setLocalDraft,
@@ -227,6 +279,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
         : <FamilyModelSettingsDesktopView {...surfaceProps} />}
       <ConfirmDialog
         open={confirmDiscard}
+        isSubmitting={busy}
         title="放弃未保存的配置修改？"
         description="返回家庭后，本次尚未保存的服务、能力和价格修改将被放弃。"
         confirmLabel="放弃修改并返回"

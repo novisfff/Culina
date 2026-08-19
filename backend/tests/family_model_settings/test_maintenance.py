@@ -5,6 +5,8 @@ from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
+import pytest
+from pydantic import SecretStr
 from sqlalchemy import select
 
 from app.core.enums import (
@@ -27,6 +29,7 @@ from app.services.family_model_settings.maintenance import (
     process_family_model_resource_operations,
     queue_expired_search_profile_cleanup_tombstones,
 )
+from app.services.family_model_settings.errors import FamilyModelCredentialConfigurationError
 import app.main as main
 
 from tests.family_model_settings._support import FamilyModelApiContext, family_model_api
@@ -200,6 +203,11 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
 
     monkeypatch.setattr(main, "SessionLocal", lambda: nullcontext(FakeDb()))
     monkeypatch.setattr(main, "initialize_configured_admin", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "validate_family_model_credential_keyring_references",
+        lambda *_args, **_kwargs: events.append("credentials:validate"),
+    )
     monkeypatch.setattr(main, "ImageGenerationWorker", lambda: RecordingWorker("image"))
     monkeypatch.setattr(main, "SearchIndexWorker", lambda: RecordingWorker("search"))
     monkeypatch.setattr(main, "ModelUsageMaintenanceWorker", lambda: RecordingWorker("usage"))
@@ -220,10 +228,16 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
 
     async def exercise_lifespan() -> None:
         async with main.lifespan(object()):
-            assert events == ["image:start", "search:start", "family-model:start"]
+            assert events == [
+                "credentials:validate",
+                "image:start",
+                "search:start",
+                "family-model:start",
+            ]
 
     asyncio.run(exercise_lifespan())
     assert events == [
+        "credentials:validate",
         "image:start",
         "search:start",
         "family-model:start",
@@ -231,3 +245,40 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
         "search:stop",
         "image:stop",
     ]
+
+
+def test_startup_rejects_an_empty_local_keyring_when_the_database_retains_references(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    family_model_api.create_profile()
+    empty_local_settings = SimpleNamespace(
+        environment="local",
+        family_model_credential_active_key_id="",
+        family_model_credential_keys_json=SecretStr(""),
+    )
+
+    with family_model_api.session_factory() as db:
+        with pytest.raises(
+            FamilyModelCredentialConfigurationError,
+            match="family_model_credential_referenced_key_missing",
+        ):
+            main.validate_family_model_credential_keyring_references(
+                db,
+                current_settings=empty_local_settings,
+            )
+
+
+def test_startup_allows_an_empty_local_keyring_before_any_credentials_exist(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    empty_local_settings = SimpleNamespace(
+        environment="local",
+        family_model_credential_active_key_id="",
+        family_model_credential_keys_json=SecretStr(""),
+    )
+
+    with family_model_api.session_factory() as db:
+        main.validate_family_model_credential_keyring_references(
+            db,
+            current_settings=empty_local_settings,
+        )

@@ -31,6 +31,7 @@ export type FamilyModelSettingsSurfaceProps = {
   onBack: () => void;
   onSelectSection: (section: FamilyModelSettingsSection) => void;
   onSelectProfile: (profileId: string | null) => void;
+  onRebindCreatedProfile: (fromProfileId: string, toProfileId: string) => Promise<void>;
   onPushMobileTask: (section: FamilyModelSettingsSection) => void;
   onPopMobileTask: () => void;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;

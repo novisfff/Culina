@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FamilyModelBindingDraft, FamilyModelConfigDraftPayload, FamilyModelPriceRate } from '../../api/types';
 import {
   createEmptyFamilyModelDraft,
+  rebindDraftProviderProfile,
   safeFamilyModelSettingsError,
   toSaveDraftPayload,
   validateFamilyModelPriceRates,
@@ -85,6 +86,28 @@ describe('familyModelSettingsModel', () => {
     expect(payload.search_profile_id).toBe('active-search-1');
     expect(payload.bindings).toEqual([embeddingBinding]);
     expect(JSON.stringify(payload)).not.toContain('api_key');
+  });
+
+  it('rebinds ordinary capabilities but preserves the active Embedding identity', () => {
+    const draft = createEmptyFamilyModelDraft();
+    const source = {
+      ...draft,
+      search_profile_id: 'active-search-1',
+      active_embedding_binding: embeddingBinding,
+      bindings: draft.bindings.map((binding) => ({
+        ...binding,
+        enabled: binding.capability === 'llm' || binding.capability === 'embedding',
+        provider_profile_id: binding.capability === 'llm' || binding.capability === 'embedding'
+          ? 'profile-1'
+          : binding.provider_profile_id,
+      })) as FamilyModelBindingDraft[],
+    };
+
+    const rebound = rebindDraftProviderProfile(source, 'profile-1', 'profile-2');
+
+    expect(rebound.bindings.find((binding) => binding.capability === 'llm')?.provider_profile_id).toBe('profile-2');
+    expect(rebound.bindings.find((binding) => binding.capability === 'embedding')?.provider_profile_id).toBe('profile-1');
+    expect(rebound.active_embedding_binding).toBe(embeddingBinding);
   });
 
   it('projects unknown server failures to a safe recovery message', () => {

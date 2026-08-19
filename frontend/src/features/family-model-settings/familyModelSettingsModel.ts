@@ -168,6 +168,24 @@ export function createFamilyModelSettingsDraft(
   };
 }
 
+export function rebindDraftProviderProfile(
+  draft: FamilyModelSettingsDraft,
+  fromProfileId: string,
+  toProfileId: string,
+): FamilyModelSettingsDraft {
+  return {
+    ...draft,
+    bindings: draft.bindings.map((binding) => {
+      const isActiveEmbedding = binding.capability === 'embedding'
+        && binding.variant_key === 'search'
+        && Boolean(draft.active_embedding_binding);
+      return binding.provider_profile_id === fromProfileId && !isActiveEmbedding
+        ? { ...binding, provider_profile_id: toProfileId }
+        : binding;
+    }),
+  };
+}
+
 export function validateMoneyInput(value: string): string | undefined {
   if (!CANONICAL_MONEY.test(value)) return '金额请使用最多 12 位小数的非负数字。';
   return undefined;
