@@ -117,6 +117,25 @@ class RealtimeProviderOperation:
             raise ModelUsageContractError("realtime_tts_character_cap_exceeded")
         scope.tts_character_clock.add(character_count)
 
+    def abort_before_provider_send(self) -> RealtimeLeaseOutcome:
+        """Release a permit whose credential could not be obtained.
+
+        ``provider_audio_operation`` holds the per-session lease lock while
+        user code executes, so this is safe only from inside that context.  It
+        records the known no-send outcome instead of incorrectly marking a
+        dispatch-pinned credential lookup failure as an uncertain provider
+        request.
+        """
+
+        lease = self.lease
+        if lease is None or not self.outcome.may_send_audio:
+            raise ModelUsageContractError("realtime_provider_send_not_authorized")
+        self.outcome = self.scope._abort_lease_before_provider_send_locked(
+            lease,
+            completed_at=utcnow(),
+        )
+        return self.outcome
+
     def _require_active(self) -> RealtimeProviderScope:
         if not self.outcome.may_send_audio:
             raise ModelUsageContractError("realtime_provider_send_not_authorized")
@@ -128,7 +147,14 @@ class RealtimeVoiceSessionState:
     session_id: str
     family_id: str
     user_id: str
-    provider: str
+    # A realtime session is pinned to one immutable family configuration
+    # revision.  It does not remember a provider label selected by a client.
+    config_revision_id: str
+    provider_profile_id: str
+    provider_profile_version_id: str
+    requested_model: str
+    binding_identity_checksum: str
+    adapter_kind: str
     recipe_id: str
     cook_session_id: str
     session_revision: int
@@ -136,6 +162,7 @@ class RealtimeVoiceSessionState:
     created_at: datetime
     expires_at: datetime
     status: str = "listening"
+    current_provider_attempt_key: str | None = None
     last_user_transcript: str = ""
     last_ai_run_id: str = ""
     next_lease_sequence: int = 1
@@ -342,6 +369,7 @@ class RealtimeProviderScope:
             return RealtimeLeaseOutcome(decision="ended", error_code=exc.code)
 
         self.session.active_usage_lease = lease
+        self.session.current_provider_attempt_key = lease.attempt_key
         self.session.next_lease_sequence += 1
         self._schedule_deadline(lease)
         return RealtimeLeaseOutcome(
@@ -392,6 +420,8 @@ class RealtimeProviderScope:
                 }
             )
         self.session.active_usage_lease = None
+        if self.session.current_provider_attempt_key == lease.attempt_key:
+            self.session.current_provider_attempt_key = None
         self._cancel_deadline_task()
         return RealtimeLeaseOutcome(
             decision="ended",
@@ -421,6 +451,8 @@ class RealtimeProviderScope:
                 error_code=exc.code,
             )
         self.session.active_usage_lease = None
+        if self.session.current_provider_attempt_key == lease.attempt_key:
+            self.session.current_provider_attempt_key = None
         self.session.remote_voice_ended = True
         self._cancel_deadline_task()
         return RealtimeLeaseOutcome(
@@ -438,6 +470,8 @@ class RealtimeProviderScope:
             lease.attempt.mark_uncertain("realtime_provider_result_unavailable")
         finally:
             lease.terminal_state = "settlement_pending"
+            if self.session.current_provider_attempt_key == lease.attempt_key:
+                self.session.current_provider_attempt_key = None
             self.session.remote_voice_ended = True
             self._cancel_deadline_task()
 

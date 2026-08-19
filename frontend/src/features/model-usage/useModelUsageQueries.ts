@@ -4,8 +4,10 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   ModelUsageBreakdown,
+  ModelUsageFamilyGroupBy,
   ModelUsageFamilyOverview,
   ModelUsageGroupBy,
+  ModelUsagePersonalGroupBy,
   ModelUsagePersonalOverview,
   ModelUsageScope,
   UserRole,
@@ -25,6 +27,10 @@ export interface UseModelUsageQueriesArgs {
   initialGroupBy?: ModelUsageGroupBy;
 }
 
+function isPersonalGroupBy(groupBy: ModelUsageGroupBy): groupBy is ModelUsagePersonalGroupBy {
+  return groupBy === 'capability' || groupBy === 'meter' || groupBy === 'daily_capability_cost';
+}
+
 export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
   const queryClient = useQueryClient();
   const isOwner = args.role === 'Owner';
@@ -34,6 +40,8 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
   const [period, setPeriod] = useState(() => args.initialPeriod ?? currentModelUsagePeriod());
   const [groupBy, setGroupBy] = useState<ModelUsageGroupBy>(() => args.initialGroupBy ?? 'capability');
   const scope: ModelUsageScope = isOwner ? requestedScope : 'me';
+  const personalGroupBy: ModelUsagePersonalGroupBy = isPersonalGroupBy(groupBy) ? groupBy : 'capability';
+  const effectiveGroupBy: ModelUsageGroupBy = scope === 'me' ? personalGroupBy : groupBy;
   const enabled = Boolean(args.familyId);
   const previousFamilyIdRef = useRef(args.familyId || null);
 
@@ -49,6 +57,12 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
     previousFamilyIdRef.current = args.familyId || null;
   }, [args.familyId, queryClient]);
 
+  useEffect(() => {
+    if (scope === 'me' && !isPersonalGroupBy(groupBy)) {
+      setGroupBy('capability');
+    }
+  }, [groupBy, scope]);
+
   // Do not carry placeholder data across query identities. React Query keeps
   // data for the exact key in its cache, while a family/scope/period change
   // starts empty so the previous household can never flash on screen.
@@ -60,10 +74,10 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
     enabled,
   });
   const breakdownQuery = useQuery<ModelUsageBreakdown>({
-    queryKey: queryKeys.modelUsageBreakdown(args.familyId, scope, period, groupBy),
+    queryKey: queryKeys.modelUsageBreakdown(args.familyId, scope, period, effectiveGroupBy),
     queryFn: () => scope === 'family'
-      ? api.getFamilyModelUsageBreakdown(period, groupBy)
-      : api.getMyModelUsageBreakdown(period, groupBy),
+      ? api.getFamilyModelUsageBreakdown(period, groupBy as ModelUsageFamilyGroupBy)
+      : api.getMyModelUsageBreakdown(period, personalGroupBy),
     enabled,
   });
   const dailyTrendQuery = useQuery<ModelUsageBreakdown>({
@@ -73,7 +87,7 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
       : api.getMyModelUsageBreakdown(period, 'daily_capability_cost'),
     enabled,
   });
-  const activeBreakdownQuery = groupBy === 'daily_capability_cost'
+  const activeBreakdownQuery = effectiveGroupBy === 'daily_capability_cost'
     ? dailyTrendQuery
     : breakdownQuery;
   const policyQuery = useQuery({
@@ -112,14 +126,16 @@ export function useModelUsageQueries(args: UseModelUsageQueriesArgs) {
   );
 
   const setScope = useCallback((nextScope: ModelUsageScope) => {
-    if (isOwner) setRequestedScope(nextScope);
-  }, [isOwner]);
+    if (!isOwner) return;
+    if (nextScope === 'me' && !isPersonalGroupBy(groupBy)) setGroupBy('capability');
+    setRequestedScope(nextScope);
+  }, [groupBy, isOwner]);
 
   return {
     isOwner,
     scope,
     period,
-    groupBy,
+    groupBy: effectiveGroupBy,
     overview: overviewQuery.data ?? null,
     breakdown: activeBreakdownQuery.data ?? null,
     dailyTrend: dailyTrendQuery.data ?? null,

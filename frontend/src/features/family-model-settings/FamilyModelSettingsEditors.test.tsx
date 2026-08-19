@@ -1,0 +1,172 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import type {
+  FamilyModelConfigDraft,
+  FamilyModelDraftValidation,
+  FamilyModelEmbeddingBindingDraft,
+  FamilyModelProviderProfile,
+  FamilyModelSettings,
+} from '../../api/types';
+import { CapabilityBindingEditor } from './CapabilityBindingEditor';
+import { createEmptyFamilyModelDraft } from './familyModelSettingsModel';
+import { ProviderProfileEditor } from './ProviderProfileEditor';
+import { PublishReview } from './PublishReview';
+
+const profile: FamilyModelProviderProfile = {
+  id: 'profile-a',
+  display_name: '家庭主服务',
+  adapter_kind: 'openai_compatible_http',
+  auth_mode: 'api_key',
+  api_base_url: 'https://provider.example/v1',
+  websocket_base_url: null,
+  options: { workspace_id: 'kitchen', region: null, project_id: null },
+  status: 'active',
+  archived: false,
+  version_number: 4,
+  profile_version_number: 7,
+  credential: { configured: true, version_number: 3, updated_at: '2026-08-19T10:00:00Z' },
+  created_at: '2026-08-19T10:00:00Z',
+  updated_at: '2026-08-19T10:00:00Z',
+};
+
+const settings: FamilyModelSettings = {
+  version_number: 8,
+  active_config_revision_id: null,
+  active_price_version_id: null,
+  active_search_profile_id: null,
+  provider_profiles: [profile],
+  updated_at: '2026-08-19T10:00:00Z',
+};
+
+function providerProps(overrides: Partial<React.ComponentProps<typeof ProviderProfileEditor>> = {}) {
+  return {
+    profiles: [profile],
+    settingsVersionNumber: settings.version_number,
+    selectedProfileId: profile.id,
+    busy: false,
+    onSelectProfile: vi.fn(),
+    onCreate: vi.fn().mockResolvedValue(profile),
+    onPatch: vi.fn().mockResolvedValue(profile),
+    onRotate: vi.fn().mockResolvedValue({ configured: true }),
+    onCheck: vi.fn().mockResolvedValue({ status: 'reachable' }),
+    ...overrides,
+  };
+}
+
+describe('Family model settings editors', () => {
+  it('PATCHes an existing Provider with display metadata only', async () => {
+    const user = userEvent.setup();
+    const props = providerProps();
+    render(<ProviderProfileEditor {...props} />);
+
+    await user.clear(screen.getByLabelText('显示名称'));
+    await user.type(screen.getByLabelText('显示名称'), '家庭备用服务');
+    await user.selectOptions(screen.getByLabelText('状态'), 'disabled');
+    await user.click(screen.getByRole('button', { name: '保存档案' }));
+
+    await waitFor(() => expect(props.onPatch).toHaveBeenCalledWith('profile-a', {
+      display_name: '家庭备用服务',
+      status: 'disabled',
+      base_profile_version_number: 7,
+    }));
+    expect(JSON.stringify(vi.mocked(props.onPatch).mock.calls)).not.toContain('provider.example');
+    expect(JSON.stringify(vi.mocked(props.onPatch).mock.calls)).not.toContain('API Key');
+  });
+
+  it('sends a new API Key only in the immediate create payload and clears the controlled input', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(profile);
+    render(<ProviderProfileEditor {...providerProps({ profiles: [], selectedProfileId: null, onCreate })} />);
+
+    await user.type(screen.getByLabelText('档案名称'), '新的服务');
+    await user.type(screen.getByLabelText('API 服务地址'), 'https://new-provider.example/v1');
+    await user.type(screen.getByLabelText('API Key'), 'new-api-key');
+    await user.click(screen.getByRole('button', { name: '创建档案' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0]?.[0]).toMatchObject({
+      api_base_url: 'https://new-provider.example/v1',
+      api_key: 'new-api-key',
+    });
+    expect(screen.getByLabelText('API Key')).toHaveValue('');
+  });
+
+  it('locks the active Embedding identity in the normal capability editor', () => {
+    const base = createEmptyFamilyModelDraft();
+    const embedding = base.bindings.find(
+      (binding): binding is FamilyModelEmbeddingBindingDraft =>
+        binding.capability === 'embedding' && binding.variant_key === 'search',
+    );
+    if (!embedding) throw new Error('Expected empty draft to contain the search Embedding binding.');
+    const activeEmbedding: FamilyModelEmbeddingBindingDraft = {
+      ...embedding,
+      enabled: true,
+      provider_profile_id: profile.id,
+      requested_model: 'text-embedding-3-small',
+      dimensions: 1536,
+    };
+    const draft = {
+      ...base,
+      search_profile_id: 'search-profile-a',
+      active_embedding_binding: activeEmbedding,
+      bindings: base.bindings.map((binding) => (
+        binding.capability === 'embedding' && binding.variant_key === 'search' ? activeEmbedding : binding
+      )),
+    };
+
+    render(
+      <CapabilityBindingEditor
+        draft={draft}
+        profiles={[profile]}
+        busy={false}
+        onDraftChange={vi.fn()}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    const heading = screen.getByRole('heading', { name: '搜索向量 · 默认' });
+    const card = heading.closest('article');
+    if (!card) throw new Error('Expected the Embedding editor card.');
+    expect(within(card).getByText('更换这些设置需要完整重建搜索索引。')).toBeVisible();
+    expect(within(card).getByRole('checkbox', { name: '已启用' })).toBeDisabled();
+    expect(within(card).getByLabelText('Provider 档案')).toBeDisabled();
+    expect(within(card).getByLabelText('模型名称')).toBeDisabled();
+    expect(within(card).getByLabelText('向量维度')).toBeDisabled();
+  });
+
+  it('requires a current password and checksum-bound confirmation before publishing', async () => {
+    const user = userEvent.setup();
+    const onPublish = vi.fn().mockResolvedValue(undefined);
+    const validation: FamilyModelDraftValidation = {
+      valid: true,
+      draft_version_number: 2,
+      errors: [],
+      config_checksum: 'config-checksum',
+      price_checksum: 'price-checksum',
+    };
+    render(
+      <PublishReview
+        settings={settings}
+        draft={createEmptyFamilyModelDraft()}
+        validation={validation}
+        busyAction={null}
+        errorMessage={null}
+        onValidate={vi.fn().mockResolvedValue(undefined)}
+        onPublish={onPublish}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '发布配置' })).toBeDisabled();
+    await user.type(screen.getByLabelText('当前密码'), 'owner-password');
+    await user.click(screen.getByLabelText('我已核对能力、价格和搜索影响'));
+    expect(screen.getByRole('button', { name: '发布配置' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '发布配置' }));
+
+    await waitFor(() => expect(onPublish).toHaveBeenCalledWith({
+      currentPassword: 'owner-password',
+      configChecksum: 'config-checksum',
+      priceChecksum: 'price-checksum',
+    }));
+  });
+});

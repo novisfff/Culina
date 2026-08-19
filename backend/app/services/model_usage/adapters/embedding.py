@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -16,6 +17,12 @@ from app.core.enums import (
     ModelUsageProviderOutcome,
     ModelUsageQuantitySource,
 )
+from sqlalchemy.orm import Session
+
+from app.services.family_model_settings.types import (
+    EmbeddingUsageSnapshot,
+    ResolvedSearchProfile,
+)
 from app.services.model_usage.adapters.base import MeteredProviderAdapter, MeteredProviderAttempt
 from app.services.model_usage.estimators import estimate_embedding
 from app.services.model_usage.errors import ModelUsageContractError
@@ -25,7 +32,18 @@ from app.services.model_usage.types import (
     UsageAttribution,
     UsageContext,
     UsageMeterQuantity,
+    receipt_identity_from_permit,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingUsageDependencies:
+    """Runtime-owned dependencies for a family-bound embedding adapter."""
+
+    usage_facade: object
+    session_factory: Callable[[], Session]
+    signer: object
+    clock: Callable[[], datetime] | None = None
 
 
 def _integer(value: object, *, field: str) -> int:
@@ -101,6 +119,32 @@ class EmbeddingUsageAdapter(MeteredProviderAdapter):
     model: str = ""
     dimensions: int = 0
     operation_kind: str = "embedding_batch"
+    binding: ResolvedSearchProfile | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is None:
+            return
+        if self.binding.adapter_kind != "openai_compatible_http":
+            raise ModelUsageContractError("embedding_binding_adapter_unsupported")
+        self.provider = self.binding.provider_profile_id
+        self.model = self.binding.embedding_model
+        self.dimensions = self.binding.dimensions
+
+    @classmethod
+    def for_search_profile(
+        cls,
+        profile: ResolvedSearchProfile,
+        dependencies: EmbeddingUsageDependencies,
+    ) -> "EmbeddingUsageAdapter":
+        kwargs = {
+            "usage_facade": dependencies.usage_facade,
+            "session_factory": dependencies.session_factory,
+            "signer": dependencies.signer,
+            "binding": profile,
+        }
+        if dependencies.clock is not None:
+            kwargs["clock"] = dependencies.clock
+        return cls(**kwargs)  # type: ignore[arg-type]
 
     @staticmethod
     def validate_batch_family(attributions: Sequence[UsageAttribution]) -> str:
@@ -133,6 +177,7 @@ class EmbeddingUsageAdapter(MeteredProviderAdapter):
         attempt_key: str,
         text_token_estimates: Sequence[int],
         fingerprint: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredProviderAttempt:
         if not self.provider.strip() or not self.model.strip() or self.dimensions <= 0:
             raise ModelUsageContractError("embedding_adapter_configuration_invalid")
@@ -145,18 +190,45 @@ class EmbeddingUsageAdapter(MeteredProviderAdapter):
             if isinstance(estimate, bool) or not isinstance(estimate, int) or estimate <= 0:
                 raise ModelUsageContractError("embedding_token_estimate_invalid")
             total_tokens += estimate
+        if self.binding is not None:
+            if usage_snapshot is None:
+                raise ModelUsageContractError("embedding_usage_snapshot_required")
+            if usage_snapshot.candidate != (usage_snapshot.config_revision_id is None):
+                raise ModelUsageContractError("embedding_usage_snapshot_invalid")
+            provider = self.binding.provider_profile_id
+            model = self.binding.embedding_model
+            variant_key = "search"
+            config_revision_id = usage_snapshot.config_revision_id
+            provider_profile_id = self.binding.provider_profile_id
+            provider_profile_version_id = self.binding.provider_profile_version_id
+            search_profile_id = self.binding.search_profile_id
+            explicit_price_version_id = usage_snapshot.price_version_id
+        else:
+            provider = self.provider
+            model = self.model
+            variant_key = f"dimensions={self.dimensions}"
+            config_revision_id = None
+            provider_profile_id = None
+            provider_profile_version_id = None
+            search_profile_id = None
+            explicit_price_version_id = None
         context = UsageContext(
             attribution=attribution,
             capability=ModelUsageCapability.EMBEDDING,
-            provider=self.provider,
-            requested_model=self.model,
-            billing_model=self.model,
-            variant_key=f"dimensions={self.dimensions}",
+            provider=provider,
+            requested_model=model,
+            billing_model=model,
+            variant_key=variant_key,
             operation_kind=self.operation_kind,
             attempt_key=attempt_key,
             client_attempt_id=(
                 f"mua_embedding_{_stable_digest(attribution.family_id, attempt_key, fingerprint)[:32]}"
             ),
+            config_revision_id=config_revision_id,
+            provider_profile_id=provider_profile_id,
+            provider_profile_version_id=provider_profile_version_id,
+            search_profile_id=search_profile_id,
+            explicit_price_version_id=explicit_price_version_id,
         )
         return self.start_attempt(
             context,
@@ -226,5 +298,62 @@ class EmbeddingUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
+            )
+        )
+
+    def confirmed_not_executed_receipt(
+        self,
+        permit: DispatchPermit,
+        *,
+        stable_provider_request_id: str | None = None,
+        completed_at: datetime | None = None,
+    ) -> ProviderUsageReceipt:
+        if permit.capability is not ModelUsageCapability.EMBEDDING:
+            raise ModelUsageContractError("embedding_receipt_capability_mismatch")
+        meters = tuple(
+            UsageMeterQuantity(
+                meter=line.meter,
+                quantity=Decimal("0"),
+                meter_role=line.meter_role,
+                quantity_source=ModelUsageQuantitySource.PROVIDER,
+            )
+            for line in permit.required_meters
+        )
+        return self.signer.sign(
+            ProviderUsageReceipt(
+                reservation_id=permit.reservation_id,
+                family_id=permit.family_id,
+                subject_key=permit.subject_key,
+                capability=permit.capability,
+                provider=permit.provider,
+                requested_model=permit.requested_model,
+                reported_model=None,
+                billing_model=permit.billing_model,
+                variant_key=permit.variant_key,
+                billing_scheme_key=permit.billing_scheme_key,
+                attempt_key=permit.attempt_key,
+                fingerprint=permit.fingerprint,
+                client_attempt_id=permit.client_attempt_id,
+                policy_version_id=permit.policy_version_id,
+                dispatch_policy_version_id=permit.dispatch_policy_version_id,
+                provider_request_id=stable_provider_request_id,
+                provider_outcome=ModelUsageProviderOutcome.NOT_BILLED,
+                execution_certainty=ModelUsageExecutionCertainty.CONFIRMED_NOT_EXECUTED,
+                measurement_status=ModelUsageMeasurementStatus.EXACT,
+                pricing_status=permit.pricing_status,
+                period=permit.period,
+                meters=meters,
+                meter_watermarks=(),
+                dispatched_at=permit.dispatched_at,
+                completed_at=completed_at or self.clock(),
+                price_version_id=permit.price_version_id,
+                price_snapshot=permit.price_snapshot,
+                price_snapshot_checksum=permit.price_snapshot_checksum,
+                fail_open_proof_id=permit.fail_open_proof_id,
+                integrity_key_id="",
+                integrity_hmac="",
+                required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )

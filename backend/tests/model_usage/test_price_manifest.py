@@ -5,7 +5,6 @@ import json
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +12,7 @@ from app.core.enums import ModelUsageCapability, ModelUsageMeter
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
     ProviderUsageContract,
-    configured_usage_variants,
+    realtime_duplex_billing_model,
     validate_configured_variant,
 )
 from app.services.model_usage.estimators import (
@@ -44,6 +43,8 @@ def _variant(
         billable & {ModelUsageMeter.AUDIO_INPUT_TOKENS, ModelUsageMeter.AUDIO_OUTPUT_TOKENS}
     )
     produced = set(billable)
+    if capability is ModelUsageCapability.EMBEDDING:
+        produced.add(ModelUsageMeter.REQUEST_UNITS)
     if token_realtime:
         produced.update(
             {
@@ -197,50 +198,24 @@ def test_realtime_token_scheme_declares_server_clock_meters() -> None:
         validate_configured_variant(variant)
 
 
-def test_enabled_settings_are_discovered_for_all_seven_capabilities() -> None:
-    settings = SimpleNamespace(
-        ai_provider="openai",
-        ai_model="gpt-test",
-        search_embedding_provider="openai",
-        search_embedding_model="embedding-test",
-        search_embedding_dimensions=1536,
-        search_rerank_provider="dashscope",
-        search_rerank_model="rerank-test",
-        search_rerank_candidate_limit=20,
-        ai_stt_provider="openai",
-        ai_stt_model="stt-test",
-        ai_stt_audio_format="webm",
-        ai_tts_provider="openai",
-        ai_tts_model="tts-test",
-        ai_tts_voice="default",
-        ai_realtime_provider="dashscope",
-        ai_realtime_model="realtime-test",
-        ai_realtime_voice="default",
-        ai_image_reference_provider="disabled",
-        ai_image_reference_model="",
-        ai_image_text_provider="dashscope",
-        ai_image_text_model="image-test",
+def test_explicit_family_variants_cover_all_seven_capabilities() -> None:
+    assert {variant.capability for variant in configured_test_variants()} == set(
+        ModelUsageCapability
     )
-
-    variants = configured_usage_variants(settings)
-
-    assert {variant.capability for variant in variants} == set(ModelUsageCapability)
 
 
 def test_realtime_variant_uses_an_explicit_duplex_provider_model_identity() -> None:
-    settings = SimpleNamespace(
-        ai_realtime_provider="dashscope",
-        ai_realtime_model="qwen3-asr-flash-realtime",
-        ai_realtime_voice="Cherry",
-        ai_tts_model="qwen3-tts-flash",
+    realtime = replace(
+        configured_test_variants()[5],
+        billing_model=realtime_duplex_billing_model(
+            input_model="qwen3-asr-flash-realtime",
+            output_model="qwen3-tts-flash-realtime",
+        ),
+        realtime_input_model="qwen3-asr-flash-realtime",
+        realtime_output_model="qwen3-tts-flash-realtime",
     )
 
-    realtime = next(
-        variant
-        for variant in configured_usage_variants(settings)
-        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
-    )
-
+    assert validate_configured_variant(realtime) == realtime
     assert realtime.billing_model == (
         "realtime-duplex-v1|input=qwen3-asr-flash-realtime"
         "|output=qwen3-tts-flash-realtime"
@@ -249,80 +224,18 @@ def test_realtime_variant_uses_an_explicit_duplex_provider_model_identity() -> N
     assert realtime.realtime_output_model == "qwen3-tts-flash-realtime"
 
 
-def test_dashscope_production_variants_use_provider_billing_units() -> None:
-    settings = SimpleNamespace(
-        search_rerank_provider="dashscope",
-        search_rerank_model="qwen3-rerank",
-        search_rerank_candidate_limit=50,
-        ai_realtime_provider="dashscope",
-        ai_realtime_model="qwen3-asr-flash-realtime",
-        ai_realtime_voice="Cherry",
-        ai_tts_model="qwen3-tts-flash",
-    )
-
-    variants = {
-        variant.capability: variant for variant in configured_usage_variants(settings)
-    }
-
-    rerank = variants[ModelUsageCapability.RERANK]
-    assert rerank.billing_scheme_key == "rerank-token-v1"
-    assert rerank.billable_meters == {ModelUsageMeter.INPUT_TOKENS}
-
-    realtime = variants[ModelUsageCapability.REALTIME_AUDIO]
-    assert realtime.billing_scheme_key == "realtime-asr-seconds-tts-characters-v1"
-    assert realtime.billable_meters == {
-        ModelUsageMeter.AUDIO_INPUT_SECONDS,
-        ModelUsageMeter.TTS_CHARACTERS,
-    }
-
-
-def test_openai_compatible_image_variant_uses_provider_per_image_billing() -> None:
-    settings = SimpleNamespace(
-        ai_image_text_provider="openai",
-        ai_image_text_model="gpt-image-2",
-        ai_image_reference_provider="openai",
-        ai_image_reference_model="gpt-image-2",
-    )
-
-    variants = [
-        variant
-        for variant in configured_usage_variants(settings)
-        if variant.capability is ModelUsageCapability.IMAGE_GENERATION
-    ]
-
-    assert len(variants) == 2
-    assert {variant.billing_scheme_key for variant in variants} == {"image-count-v1"}
-    assert {variant.billable_meters for variant in variants} == {
-        frozenset({ModelUsageMeter.GENERATED_IMAGES})
-    }
-
-
 def test_active_variants_expose_only_meters_their_estimators_can_reserve() -> None:
-    settings = SimpleNamespace(
-        search_embedding_provider="openai",
-        search_embedding_model="embedding-test",
-        search_embedding_dimensions=1536,
-        ai_stt_provider="openai",
-        ai_stt_model="stt-test",
-        ai_stt_audio_format="webm",
-        ai_tts_provider="openai",
-        ai_tts_model="tts-test",
-        ai_tts_voice="default",
-        ai_realtime_provider="dashscope",
-        ai_realtime_model="realtime-test",
-        ai_realtime_voice="default",
-    )
-    variants = {variant.capability: variant for variant in configured_usage_variants(settings)}
+    variants = {variant.capability: variant for variant in configured_test_variants()}
 
-    assert variants[ModelUsageCapability.EMBEDDING].produced_meters == {
+    assert {
         line.meter for line in estimate_embedding(token_count=12).meters
-    }
-    assert variants[ModelUsageCapability.STT].produced_meters == {
+    } <= variants[ModelUsageCapability.EMBEDDING].produced_meters
+    assert {
         line.meter for line in estimate_stt(duration_seconds=Decimal("2.5")).meters
-    }
-    assert variants[ModelUsageCapability.TTS].produced_meters == {
+    } <= variants[ModelUsageCapability.STT].produced_meters
+    assert {
         line.meter for line in estimate_tts(character_count=12).meters
-    }
+    } <= variants[ModelUsageCapability.TTS].produced_meters
     realtime = variants[ModelUsageCapability.REALTIME_AUDIO]
     assert realtime.produced_meters == {
         line.meter

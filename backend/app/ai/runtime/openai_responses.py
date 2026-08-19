@@ -4,12 +4,11 @@ import hashlib
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any
-
-from openai import OpenAI
+from typing import Any, Callable
 
 from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
 from app.ai.runtime.messages import dump_value, field_value, responses_input, responses_system_message, responses_text_message
+from app.ai.runtime.family_transport import DeferredBindingTransport
 from app.ai.runtime.prompt_cache import (
     UnsupportedOptionalProviderParameter,
     canonical_json,
@@ -46,6 +45,11 @@ from app.ai.runtime.types import (
 from app.services.model_usage.adapters.llm import LLMUsageAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageContractError, ModelUsageError
 from app.services.model_usage.types import DispatchPermit, UsageAttribution
+from app.services.family_model_settings.transport import ProviderTransport
+from app.services.family_model_settings.types import (
+    DispatchCredential,
+    ResolvedCapabilityBinding,
+)
 
 logger = logging.getLogger(__name__)
 MAX_COMPATIBILITY_ATTEMPTS = 3
@@ -55,34 +59,94 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
     def __init__(
         self,
         *,
-        api_base: str,
-        api_key: str,
-        model_name: str,
-        timeout_seconds: float = 20.0,
-        supports_vision: bool = False,
+        binding: ResolvedCapabilityBinding | None = None,
+        transport: ProviderTransport | None = None,
+        resolve_dispatch_credential: Callable[
+            [ResolvedCapabilityBinding, str | None], DispatchCredential
+        ]
+        | None = None,
+        # Retained only for fake-client test compatibility while the old suite
+        # is migrated.  They do not create or retain an SDK client/key.
+        api_base: str | None = None,
+        api_key: str | None = None,
+        model_name: str | None = None,
+        timeout_seconds: float | None = None,
+        supports_vision: bool | None = None,
         prompt_cache_enabled: bool | None = None,
-        max_output_tokens: int = 1024,
+        max_output_tokens: int | None = None,
         usage_adapter: LLMUsageAdapter | None = None,
         model_usage_required: bool = False,
         fallback_model: str = "",
         fallback_max_output_tokens: int = 0,
+        fallback_provider: OpenAIResponsesChatProvider | None = None,
     ) -> None:
-        if max_output_tokens <= 0 or fallback_max_output_tokens < 0:
+        del api_base, api_key, timeout_seconds
+        options = binding.options if binding is not None else {}
+        resolved_model_name = binding.requested_model if binding is not None else (model_name or "")
+        resolved_supports_vision = (
+            bool(options.get("supports_vision", False))
+            if binding is not None and supports_vision is None
+            else bool(supports_vision)
+        )
+        resolved_prompt_cache_enabled = (
+            bool(options.get("prompt_cache_enabled", True))
+            if binding is not None and prompt_cache_enabled is None
+            else (True if prompt_cache_enabled is None else prompt_cache_enabled)
+        )
+        configured_output_cap = options.get("max_output_tokens") if binding is not None else None
+        resolved_output_cap = (
+            configured_output_cap
+            if max_output_tokens is None and isinstance(configured_output_cap, int)
+            else (max_output_tokens if max_output_tokens is not None else 1024)
+        )
+        if not resolved_model_name:
+            raise ValueError("family_model_llm_model_required")
+        if isinstance(resolved_output_cap, bool) or not isinstance(resolved_output_cap, int):
             raise ValueError("max_output_tokens must be positive")
-        self.model_name = model_name
-        self.supports_vision = supports_vision
-        self.prompt_cache_enabled = True if prompt_cache_enabled is None else prompt_cache_enabled
-        self.max_output_tokens = max_output_tokens
+        if resolved_output_cap <= 0 or fallback_max_output_tokens < 0:
+            raise ValueError("max_output_tokens must be positive")
+        if binding is not None and (transport is None or resolve_dispatch_credential is None):
+            raise ValueError("family_model_llm_transport_required")
+        self.binding = binding
+        self.model_name = resolved_model_name
+        self.supports_vision = resolved_supports_vision
+        self.prompt_cache_enabled = resolved_prompt_cache_enabled
+        self.max_output_tokens = resolved_output_cap
         self.usage_adapter = usage_adapter
         self.model_usage_required = model_usage_required
         self.fallback_model = fallback_model.strip()
         self.fallback_max_output_tokens = fallback_max_output_tokens
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=api_base.rstrip("/"),
-            timeout=timeout_seconds,
-            max_retries=0,
+        self.fallback_provider = fallback_provider
+        self._deferred_transport = (
+            DeferredBindingTransport(
+                binding=binding,
+                transport=transport,
+                resolve_credential=resolve_dispatch_credential,
+            )
+            if binding is not None and transport is not None and resolve_dispatch_credential is not None
+            else None
         )
+        self.client: Any | None = None
+
+    def _dispatch_responses_request(
+        self,
+        request: dict[str, Any],
+        *,
+        permit: DispatchPermit | None,
+    ) -> Any:
+        deferred_transport = getattr(self, "_deferred_transport", None)
+        if deferred_transport is not None:
+            return deferred_transport.request_json(
+                suffix="responses",
+                payload=request,
+                permit=permit,
+                stream=bool(request.get("stream")),
+            )
+        client = getattr(self, "client", None)
+        create = getattr(getattr(client, "responses", None), "create", None)
+        if not callable(create):
+            raise ModelUsageContractError("family_model_llm_runtime_binding_required")
+        return create(**request)
 
     def generate(
         self,
@@ -533,7 +597,10 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         adapter = getattr(self, "usage_adapter", None)
         if adapter is None and not bool(getattr(self, "model_usage_required", False)):
             return (
-                create_stream_with_unsupported_param_fallback(self.client.responses.create, request),
+                create_stream_with_unsupported_param_fallback(
+                    lambda **payload: self._dispatch_responses_request(payload, permit=None),
+                    request,
+                ),
                 None,
                 None,
             )
@@ -553,7 +620,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             if metered_attempt is None:
                 return (
                     create_stream_with_unsupported_param_fallback(
-                        self.client.responses.create,
+                        lambda **payload: self._dispatch_responses_request(payload, permit=None),
                         current_request,
                     ),
                     None,
@@ -561,7 +628,10 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 )
             permit = metered_attempt.prepare_dispatch()
             try:
-                stream = create_stream_once(self.client.responses.create, current_request)
+                stream = create_stream_once(
+                    lambda **payload: self._dispatch_responses_request(payload, permit=permit),
+                    current_request,
+                )
             except UnsupportedOptionalProviderParameter as exc:
                 metered_attempt.settle(
                     adapter.confirmed_not_executed_receipt(
@@ -605,6 +675,29 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
             )
             return stream, metered_attempt, permit, self.model_name, False, None
         except ModelUsageBlocked as exc:
+            fallback_provider = getattr(self, "fallback_provider", None)
+            if fallback_provider is not None:
+                fallback_request = dict(request)
+                fallback_request["model"] = fallback_provider.model_name
+                fallback_request["max_output_tokens"] = fallback_provider._output_cap()
+                stream, metered_attempt, permit = fallback_provider._send_responses_request(
+                    request=fallback_request,
+                    request_input=request_input,
+                    usage_attribution=usage_attribution,
+                    provider_round=provider_round,
+                    attempt_index=attempt_index,
+                    mode=f"{mode}_fallback",
+                    selected_model=fallback_provider.model_name,
+                    output_cap=fallback_provider._output_cap(),
+                )
+                return (
+                    stream,
+                    metered_attempt,
+                    permit,
+                    fallback_provider.model_name,
+                    True,
+                    exc.code,
+                )
             fallback = self._fallback_target()
             if fallback is None:
                 raise
@@ -745,7 +838,10 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         return dedupe_responses_tool_calls(calls)
 
     def _create_responses_stream(self, request: dict[str, Any]) -> Any:
-        return create_stream_with_unsupported_param_fallback(self.client.responses.create, request)
+        return create_stream_with_unsupported_param_fallback(
+            lambda **payload: self._dispatch_responses_request(payload, permit=None),
+            request,
+        )
 
     def _responses_function_call_input_item(
         self,

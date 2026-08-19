@@ -13,6 +13,8 @@ import {
   invalidateAfterMealRecorded,
   invalidateAfterMealRecordReverted,
   invalidateAfterMemberChanged,
+  invalidateAfterFamilyModelSettingsChanged,
+  invalidateAfterFamilySearchReplacementChanged,
   invalidateAfterModelUsagePolicyChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterSearchIndexJobChanged,
@@ -376,5 +378,33 @@ describe('cacheInvalidation', () => {
     expect(invalidatedKeys(queryClient)).toEqual([queryKeys.modelUsageRoot('family-a')]);
     expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.modelUsageRoot('family-b'));
     expect(invalidatedKeys(queryClient)).not.toContainEqual(['model-usage']);
+  });
+
+  it('invalidates settings, usage and safe AI status only for the changed family', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterFamilyModelSettingsChanged(queryClient, 'family-a');
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      queryKeys.familyModelSettingsRoot('family-a'),
+      queryKeys.modelUsageRoot('family-a'),
+      queryKeys.aiStatus,
+    ]);
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.familyModelSettingsRoot('family-b'));
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.foods);
+  });
+
+  it('keeps search replacement invalidation within the current family settings cache', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterFamilySearchReplacementChanged(queryClient, 'family-a');
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      queryKeys.familySearchProfile('family-a'),
+      queryKeys.familyModelSettings('family-a'),
+      queryKeys.searchRoot,
+      queryKeys.aiStatus,
+    ]);
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.familyModelSettings('family-b'));
   });
 });

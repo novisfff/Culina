@@ -4,6 +4,9 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from collections.abc import Callable
+
+from sqlalchemy.orm import Session
 
 from app.core.enums import (
     ModelUsageCapability,
@@ -17,17 +20,30 @@ from app.core.enums import (
 from app.services.model_usage.adapters.base import MeteredProviderAdapter, MeteredProviderAttempt
 from app.services.model_usage.estimators import estimate_rerank
 from app.services.model_usage.errors import ModelUsageContractError
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 from app.services.model_usage.types import (
     DispatchPermit,
     ProviderUsageReceipt,
     UsageAttribution,
     UsageContext,
     UsageMeterQuantity,
+    receipt_identity_from_permit,
 )
 
 
 def _stable_digest(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class RerankUsageDependencies:
+    """Runtime-owned dependencies for one resolved family Rerank binding."""
+
+    usage_facade: object
+    session_factory: Callable[[], Session]
+    signer: object
+    price_version_id: str
+    clock: Callable[[], datetime] | None = None
 
 
 @dataclass(slots=True)
@@ -38,6 +54,42 @@ class RerankUsageAdapter(MeteredProviderAdapter):
     model: str = ""
     candidate_limit: int = 50
     operation_kind: str = "search_rerank"
+    binding: ResolvedCapabilityBinding | None = None
+    explicit_price_version_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is None:
+            return
+        if self.binding.capability != "rerank":
+            raise ModelUsageContractError("rerank_binding_required")
+        if not self.explicit_price_version_id:
+            raise ModelUsageContractError("rerank_price_snapshot_required")
+        self.provider = self.binding.provider_profile_id
+        self.model = self.binding.requested_model
+        configured_limit = self.binding.options.get("top_n", self.candidate_limit)
+        if isinstance(configured_limit, bool):
+            raise ModelUsageContractError("rerank_candidate_limit_invalid")
+        try:
+            self.candidate_limit = int(configured_limit)
+        except (TypeError, ValueError) as exc:
+            raise ModelUsageContractError("rerank_candidate_limit_invalid") from exc
+
+    @classmethod
+    def for_binding(
+        cls,
+        binding: ResolvedCapabilityBinding,
+        dependencies: RerankUsageDependencies,
+    ) -> "RerankUsageAdapter":
+        kwargs = {
+            "usage_facade": dependencies.usage_facade,
+            "session_factory": dependencies.session_factory,
+            "signer": dependencies.signer,
+            "binding": binding,
+            "explicit_price_version_id": dependencies.price_version_id,
+        }
+        if dependencies.clock is not None:
+            kwargs["clock"] = dependencies.clock
+        return cls(**kwargs)  # type: ignore[arg-type]
 
     def begin(
         self,
@@ -64,17 +116,26 @@ class RerankUsageAdapter(MeteredProviderAdapter):
         ):
             raise ModelUsageContractError("rerank_input_tokens_invalid")
 
+        binding = self.binding
         context = UsageContext(
             attribution=attribution,
             capability=ModelUsageCapability.RERANK,
-            provider=self.provider,
-            requested_model=self.model,
-            billing_model=self.model,
-            variant_key=f"top_n={self.candidate_limit}",
+            provider=(binding.provider_profile_id if binding is not None else self.provider),
+            requested_model=(binding.requested_model if binding is not None else self.model),
+            billing_model=(binding.billing_model if binding is not None else self.model),
+            variant_key=(binding.variant_key if binding is not None else f"top_n={self.candidate_limit}"),
             operation_kind=self.operation_kind,
             attempt_key=attempt_key,
             client_attempt_id=(
                 f"mua_rerank_{_stable_digest(attribution.family_id, attempt_key, fingerprint)[:32]}"
+            ),
+            config_revision_id=(binding.config_revision_id if binding is not None else None),
+            provider_profile_id=(binding.provider_profile_id if binding is not None else None),
+            provider_profile_version_id=(
+                binding.provider_profile_version_id if binding is not None else None
+            ),
+            explicit_price_version_id=(
+                self.explicit_price_version_id if binding is not None else None
             ),
         )
         return self.start_attempt(
@@ -146,6 +207,7 @@ class RerankUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )
 
@@ -201,5 +263,6 @@ class RerankUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )

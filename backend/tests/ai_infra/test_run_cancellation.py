@@ -211,7 +211,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
         cancel_response = self.client.post(f"/api/ai/runs/{run_id}/cancel")
         self.assertEqual(cancel_response.status_code, 202, cancel_response.text)
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=ProviderMustNotRun()):
+        with patch_ai_workspace_provider(ProviderMustNotRun()):
             response = self.client.post(
                 "/api/ai/chat",
                 json={"message": "安排晚餐", "client_run_id": run_id},
@@ -341,7 +341,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
             self.assertEqual(cancel_events[0].status, "cancelled")
 
     def test_waiting_input_cancellation_clears_parts_context_checkpoints_and_events(self) -> None:
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+        with patch_ai_workspace_provider(WaitingInputProvider()):
             response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
@@ -440,7 +440,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
         self.assertEqual(cancel_events[0].status, "cancelled")
 
     def test_stale_human_input_checkpoint_cannot_resume_cancelled_run(self) -> None:
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+        with patch_ai_workspace_provider(WaitingInputProvider()):
             response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
@@ -484,7 +484,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
             db.add_all(AIGraphWrite(**values) for values in write_fixture)
             db.commit()
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()):
+        with patch_ai_workspace_provider(WaitingInputProvider()):
             resume_response = self.client.post(
                 f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response",
                 json={"selected_option_ids": ["three-days"]},
@@ -506,7 +506,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
         )
 
         with (
-            patch("app.ai.workspace_service.get_chat_provider", return_value=WaitingInputProvider()),
+            patch_ai_workspace_provider(WaitingInputProvider()),
             self.client.stream(
                 "POST",
                 f"/api/ai/conversations/{data['conversation_id']}/human-input/{request_id}/response/stream",

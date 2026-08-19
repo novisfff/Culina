@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import httpx
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 
 
 class VectorStoreUnavailableError(RuntimeError):
@@ -43,6 +43,9 @@ class VectorStore(Protocol):
     def delete_point(self, *, point_id: str) -> None:
         ...
 
+    def delete_collection(self) -> None:
+        ...
+
     def scroll_points(
         self,
         *,
@@ -50,6 +53,7 @@ class VectorStore(Protocol):
         scopes: list[str],
         limit: int,
         offset: object | None = None,
+        search_profile_id: str | None = None,
     ) -> VectorPointPage:
         ...
 
@@ -61,6 +65,7 @@ class VectorStore(Protocol):
         vector: list[float],
         limit: int,
         user_id: str | None = None,
+        search_profile_id: str | None = None,
     ) -> list[VectorSearchHit]:
         ...
 
@@ -78,6 +83,9 @@ class DisabledVectorStore:
         del point_id
         raise VectorStoreUnavailableError("search vector store disabled")
 
+    def delete_collection(self) -> None:
+        raise VectorStoreUnavailableError("search vector store disabled")
+
     def scroll_points(
         self,
         *,
@@ -85,8 +93,9 @@ class DisabledVectorStore:
         scopes: list[str],
         limit: int,
         offset: object | None = None,
+        search_profile_id: str | None = None,
     ) -> VectorPointPage:
-        del family_id, scopes, limit, offset
+        del family_id, scopes, limit, offset, search_profile_id
         raise VectorStoreUnavailableError("search vector store disabled")
 
     def search(
@@ -97,8 +106,9 @@ class DisabledVectorStore:
         vector: list[float],
         limit: int,
         user_id: str | None = None,
+        search_profile_id: str | None = None,
     ) -> list[VectorSearchHit]:
-        del family_id, scopes, vector, limit, user_id
+        del family_id, scopes, vector, limit, user_id, search_profile_id
         raise VectorStoreUnavailableError("search vector store disabled")
 
 
@@ -168,6 +178,20 @@ class QdrantVectorStore:
         except httpx.HTTPError as exc:  # pragma: no cover - network failure
             raise VectorStoreUnavailableError(str(exc)) from exc
 
+    def delete_collection(self) -> None:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.delete(
+                    f"{self.url}/collections/{self.collection}",
+                    headers=self._headers(),
+                )
+                # Qdrant treats a missing collection as already deleted for
+                # our idempotent cleanup contract.
+                if response.status_code != 404:
+                    response.raise_for_status()
+        except httpx.HTTPError as exc:  # pragma: no cover - network failure
+            raise VectorStoreUnavailableError(str(exc)) from exc
+
     def scroll_points(
         self,
         *,
@@ -175,6 +199,7 @@ class QdrantVectorStore:
         scopes: list[str],
         limit: int,
         offset: object | None = None,
+        search_profile_id: str | None = None,
     ) -> VectorPointPage:
         if not scopes or limit <= 0:
             return VectorPointPage(points=[])
@@ -191,6 +216,10 @@ class QdrantVectorStore:
         }
         if offset is not None:
             payload["offset"] = offset
+        if search_profile_id:
+            payload["filter"]["must"].append(
+                {"key": "search_profile_id", "match": {"value": search_profile_id}}
+            )
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(f"{self.url}/collections/{self.collection}/points/scroll", headers=self._headers(), json=payload)
@@ -224,6 +253,7 @@ class QdrantVectorStore:
         vector: list[float],
         limit: int,
         user_id: str | None = None,
+        search_profile_id: str | None = None,
     ) -> list[VectorSearchHit]:
         if not vector or not scopes or limit <= 0:
             return []
@@ -234,6 +264,10 @@ class QdrantVectorStore:
         ]
         if user_id:
             must_filters.append({"key": "user_id", "match": {"value": user_id}})
+        if search_profile_id:
+            must_filters.append(
+                {"key": "search_profile_id", "match": {"value": search_profile_id}}
+            )
         payload = {
             "vector": vector,
             "limit": limit,
@@ -277,7 +311,7 @@ class QdrantVectorStore:
         return {"api-key": self.api_key} if self.api_key else {}
 
     def _ensure_payload_indexes(self, client: httpx.Client, *, headers: dict[str, str]) -> None:
-        for field_name in ("family_id", "entity_type", "user_id"):
+        for field_name in ("family_id", "search_profile_id", "entity_type", "user_id"):
             client.put(
                 f"{self.url}/collections/{self.collection}/index",
                 headers=headers,
@@ -327,15 +361,29 @@ def _collection_vector_size(body: object) -> int | None:
     return None
 
 
-def build_vector_store() -> VectorStore:
-    settings = get_settings()
-    if settings.search_vector_backend.strip().lower() != "qdrant":
+def build_vector_store(
+    settings: Settings | object | None = None,
+    *,
+    qdrant_collection: str,
+) -> VectorStore:
+    """Build a store for one immutable family search profile collection.
+
+    Qdrant URL/API key remain platform deployment settings.  The collection is
+    intentionally never read from Settings: it is a profile identity and must
+    be explicit at every call site so mixed dimensions can coexist.
+    """
+
+    resolved_settings = settings or get_settings()
+    if str(getattr(resolved_settings, "search_vector_backend", "")).strip().lower() != "qdrant":
         return DisabledVectorStore()
-    if not settings.qdrant_url or not settings.qdrant_collection:
+    if not qdrant_collection.strip():
+        raise VectorStoreUnavailableError("search profile collection required")
+    qdrant_url = str(getattr(resolved_settings, "qdrant_url", "") or "").strip()
+    if not qdrant_url:
         return DisabledVectorStore()
     return QdrantVectorStore(
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection=settings.qdrant_collection,
-        timeout_seconds=settings.qdrant_timeout_seconds,
+        url=qdrant_url,
+        api_key=str(getattr(resolved_settings, "qdrant_api_key", "") or ""),
+        collection=qdrant_collection,
+        timeout_seconds=float(getattr(resolved_settings, "qdrant_timeout_seconds", 10.0)),
     )

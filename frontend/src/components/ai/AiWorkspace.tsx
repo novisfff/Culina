@@ -567,9 +567,12 @@ export function AiWorkspace({
       ? runEventsById[activeVisibleRunId] ?? []
       : [];
   const isAiUnavailable = aiStatusQuery.data?.enabled === false;
+  const llmCapabilityUnavailable = aiStatusQuery.data?.capabilities.llm !== 'available';
   const isComposerPaused = hasPendingApproval || hasPendingHumanInput || isAiUnavailable;
   const composerPauseMessage = isAiUnavailable
-    ? aiStatusQuery.data?.detail || 'AI 模型未配置，暂时不能发送消息。'
+    ? llmCapabilityUnavailable
+      ? '该能力尚未由家庭主理人配置'
+      : aiStatusQuery.data?.detail || '家庭 AI 服务暂时不可用。'
     : hasPendingApproval
       ? '请先确认上面的草稿，确认后可以继续对话。'
       : hasPendingHumanInput

@@ -55,6 +55,24 @@ describe('modelUsageApi transport', () => {
     expect(url).not.toContain('period=');
   });
 
+  it('never serializes provider or model filters into a personal request-log query', async () => {
+    mockRequest.mockResolvedValue({});
+
+    await (modelUsageApi.getMyModelUsageRequests as unknown as (filters: Record<string, string | number>) => Promise<unknown>)({
+      date_from: '2026-07-28',
+      date_to: '2026-08-03',
+      provider: 'family-provider',
+      model: 'family-model',
+      limit: 20,
+      offset: 0,
+    });
+
+    const url = String(mockRequest.mock.calls.at(-1)?.[0]);
+    expect(url).toContain('/api/model-usage/me/requests?');
+    expect(url).not.toContain('provider=');
+    expect(url).not.toContain('model=');
+  });
+
   it('gets and updates the family policy while preserving decimal strings for OCC', async () => {
     mockRequest.mockResolvedValue({ version_number: 3, monthly_budget_cny: '80.000000000000' });
 

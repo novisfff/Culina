@@ -82,7 +82,7 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             self.assertEqual(document.title_text, "紫皮洋葱头")
             self.assertIn("适合快手炒菜", document.semantic_text)
             self.assertNotEqual(document.content_hash, old_hash)
-            self.assertEqual(document.vector_status, "disabled")
+            self.assertEqual(document.vector_status, "pending")
 
     def test_food_create_and_update_refresh_search_document(self) -> None:
         response = self.client.post(
@@ -137,7 +137,7 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             assert document is not None
             self.assertEqual(document.title_text, "冷冻牛肉饭 Pro")
             self.assertNotEqual(document.content_hash, old_hash)
-            self.assertEqual(document.vector_status, "disabled")
+            self.assertEqual(document.vector_status, "pending")
 
     def test_food_favorite_change_does_not_enqueue_search_index_job(self) -> None:
         response = self.client.post(

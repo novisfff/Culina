@@ -14,13 +14,14 @@ from unittest.mock import MagicMock, patch
 import httpx
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.base import empty_checkpoint
+from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
 
 from app.ai.kitchen.recipe_drafts import _extract_json, build_recipe_image_render_payload
-from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider, ProviderUserInput
+from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, FixedChatProviderFactory, OpenAICompatibleChatProvider, ProviderUserInput
 from app.ai.skills import (
     BaseSkill,
     CatalogSkill,
@@ -43,7 +44,7 @@ from app.ai.workflows.orchestrator import SkillInjectionManager, WorkspaceOrches
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.deps import get_current_auth
-from app.core.enums import AiMode, AIConversationVisibility, Difficulty, FoodType, ImageGenerationMode, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
+from app.core.enums import AiMode, AIConversationVisibility, Difficulty, FamilyModelConfigRevisionStatus, FamilyModelProviderStatus, FoodType, ImageGenerationMode, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType, MediaEntityType, MediaSource, MembershipStatus, ModelUsageCapability, UserRole
 from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app
@@ -81,7 +82,14 @@ from app.models.domain import (
     ShoppingListItem,
     User,
 )
-from app.ai.images.generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
+from app.models.family_model_settings import (
+    FamilyModelCapabilityBinding,
+    FamilyModelConfigRevision,
+    FamilyModelProviderProfile,
+    FamilyModelProviderProfileVersion,
+    FamilyModelSettings,
+)
+from app.ai.images.generation import ImageGenerationRequest, build_ai_image_prompt
 from app.services.inventory_operations import dispose_inventory_quantity
 from app.services.inventory_usage import remaining_quantity
 from app.services.clock import today_for_family
@@ -93,6 +101,141 @@ from app.services.ai_operations.composite import (
     validate_composite_operation_plan,
 )
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.family_model_settings.credentials import (
+    FamilyModelCredentialCipher,
+    create_secret_version,
+    decode_family_model_credential_keyring,
+)
+
+
+def patch_ai_workspace_provider(provider: BaseChatProvider):
+    """Inject a deterministic chat provider at the API composition boundary.
+
+    Family runtime resolution is intentionally the production default.  Tests
+    that exercise legacy workspace fixtures opt into a fixed factory instead
+    of restoring the removed global ``get_chat_provider`` fallback.
+    """
+
+    factory = FixedChatProviderFactory(provider)
+
+    def build_service(db: Session, *args, **kwargs) -> AIApplicationService:
+        if "provider" in kwargs or "provider_factory" in kwargs:
+            return AIApplicationService(db, *args, **kwargs)
+        return AIApplicationService(db, *args, provider_factory=factory, **kwargs)
+
+    return patch("app.api.ai.AIApplicationService", side_effect=build_service)
+
+
+def configure_family_image_generation(
+    db: Session,
+    *,
+    family_id: str,
+    owner_user_id: str,
+) -> None:
+    """Create an active family image-binding snapshot for queueing tests.
+
+    The AI approval tests exercise job creation rather than provider dispatch,
+    so the snapshot deliberately stops before usage-price setup.  It still
+    contains the family-owned profile, immutable version, encrypted secret and
+    both image variants required by the resolver; worker/price behavior is
+    covered in the dedicated family-model runtime tests.
+    """
+
+    settings = db.get(FamilyModelSettings, family_id)
+    if settings is None:
+        settings = FamilyModelSettings(
+            family_id=family_id,
+            created_by=owner_user_id,
+            updated_by=owner_user_id,
+        )
+        db.add(settings)
+        db.flush()
+    if settings.active_config_revision_id is not None:
+        return
+
+    profile_id = f"family-image-profile-{family_id}"
+    profile_version_id = f"family-image-profile-version-{family_id}"
+    revision_id = f"family-image-revision-{family_id}"
+    profile = FamilyModelProviderProfile(
+        id=profile_id,
+        family_id=family_id,
+        display_name="测试图片服务",
+        credential_scope_checksum="a" * 64,
+        status=FamilyModelProviderStatus.ACTIVE,
+        created_by=owner_user_id,
+        updated_by=owner_user_id,
+    )
+    db.add(profile)
+    db.flush()
+    profile_version = FamilyModelProviderProfileVersion(
+        id=profile_version_id,
+        family_id=family_id,
+        profile_id=profile.id,
+        version_number=1,
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        api_base_url="https://93.184.216.34/v1",
+        options_json={},
+        credential_scope_checksum=profile.credential_scope_checksum,
+        endpoint_fingerprint="b" * 64,
+        created_by=owner_user_id,
+    )
+    db.add(profile_version)
+    db.flush()
+    profile.current_profile_version_id = profile_version.id
+
+    keyring = decode_family_model_credential_keyring(
+        active_key_id="test-image-key",
+        keys_json=SecretStr(
+            json.dumps(
+                {
+                    "test-image-key": base64.b64encode(b"i" * 32).decode("ascii"),
+                }
+            )
+        ),
+    )
+    secret = create_secret_version(
+        db,
+        profile=profile,
+        plaintext="test-family-image-secret",
+        cipher=FamilyModelCredentialCipher(keyring),
+        actor_user_id=owner_user_id,
+    )
+    profile.current_secret_version_id = secret.id
+
+    revision = FamilyModelConfigRevision(
+        id=revision_id,
+        family_id=family_id,
+        version_number=1,
+        config_checksum="c" * 64,
+        status=FamilyModelConfigRevisionStatus.PUBLISHED,
+        change_note="AI approval image queue test",
+        published_by=owner_user_id,
+    )
+    db.add(revision)
+    db.flush()
+    db.add_all(
+        [
+            FamilyModelCapabilityBinding(
+                id=f"family-image-{variant}-binding-{family_id}",
+                family_id=family_id,
+                config_revision_id=revision.id,
+                capability=ModelUsageCapability.IMAGE_GENERATION,
+                variant_key=variant,
+                enabled=True,
+                provider_profile_id=profile.id,
+                provider_profile_version_id=profile_version.id,
+                requested_model="test-image-model",
+                options_json={"image_size": "1536x1024", "response_format": "url"},
+                billing_scheme_key="image-count-v1",
+                identity_checksum="d" * 64,
+            )
+            for variant in ("text", "reference")
+        ]
+    )
+    settings.active_config_revision_id = revision.id
+    settings.updated_by = owner_user_id
+    db.flush()
 
 
 def prompt_contract_metadata(system_prompt: str) -> dict[str, Any]:
@@ -1235,7 +1378,7 @@ class SequenceChatProvider(BaseChatProvider):
 
 class AIAgentInfraTestCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.workspace_provider_patcher = patch("app.ai.workspace_service.get_chat_provider", return_value=FakeChatProvider())
+        self.workspace_provider_patcher = patch_ai_workspace_provider(FakeChatProvider())
         self.workspace_provider_patcher.start()
         self.engine = create_engine(
             "sqlite+pysqlite:///:memory:",
@@ -2671,7 +2814,7 @@ class AIEvalContext:
                 egg_inventory.consumed_quantity = egg_inventory.quantity
                 db.commit()
         with ExitStack() as stack:
-            stack.enter_context(patch("app.ai.workspace_service.get_chat_provider", return_value=provider))
+            stack.enter_context(patch_ai_workspace_provider(provider))
             stack.enter_context(
                 patch(
                     "app.ai.workflows.runner_support.orchestrator_context.read_media_object_for_ai",

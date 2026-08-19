@@ -1,37 +1,43 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from typing import Callable
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
-from app.core.utils import create_id
-from app.models.domain import SearchDocument
-from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageError
+from app.db.session import SessionLocal
+from app.models.domain import SearchDocument, SearchIndexJob
+from app.models.family_model_settings import FamilySearchProfile, FamilySearchProfileDocument
 from app.services.model_usage.types import UsageAttribution
-from app.services.search.embeddings import EmbeddingClient, EmbeddingUnavailableError, build_embedding_client
-from app.services.search.vector_store import VectorStore, VectorStoreUnavailableError, build_vector_store
-
-VECTOR_RETRY_BASE_SECONDS = 60
-VECTOR_RETRY_MAX_SECONDS = 3600
+from app.services.search.embeddings import EmbeddingClient, EmbeddingUnavailableError
+from app.services.search.vector_store import VectorStore
 
 
 @dataclass(frozen=True, slots=True)
-class SearchDocumentIndexSnapshot:
-    document_id: str
+class SearchProfileDocumentSnapshot:
+    """Immutable text/index identity used for exactly one profile send."""
+
+    profile_document_id: str
+    family_id: str
+    search_profile_id: str
+    search_document_id: str
+    entity_type: str
+    entity_id: str
+    semantic_text: str
     content_hash: str
     document_builder_version: str
-    semantic_text: str
     embedding_model: str
     embedding_dimensions: int
+    user_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
-class PendingVectorHandoff:
-    document_id: str
+class ProfilePendingVectorHandoff:
+    """A durable, Qdrant-only handoff for one profile document."""
+
+    profile_document_id: str
     point_id: str
     vector: list[float]
     payload: dict[str, object]
@@ -51,97 +57,144 @@ def system_embedding_attribution(*, family_id: str, logical_operation_id: str) -
     )
 
 
-def snapshot_search_document(document: SearchDocument) -> SearchDocumentIndexSnapshot:
-    return SearchDocumentIndexSnapshot(
-        document_id=document.id,
-        content_hash=document.content_hash,
-        document_builder_version=document.document_builder_version,
-        semantic_text=document.semantic_text,
-        embedding_model=document.embedding_model,
-        embedding_dimensions=document.embedding_dimensions,
-    )
-
-
-def pending_vector_is_current(document: SearchDocument) -> bool:
-    return (
-        document.pending_vector is not None
-        and document.pending_vector_content_hash == document.content_hash
-        and document.pending_vector_model == document.embedding_model
-        and document.pending_vector_dimensions == document.embedding_dimensions
-        and bool(document.pending_vector_model)
-        and (document.pending_vector_dimensions or 0) > 0
-    )
-
-
-def clear_pending_vector(document: SearchDocument) -> None:
-    document.pending_vector = None
-    document.pending_vector_content_hash = None
-    document.pending_vector_model = None
-    document.pending_vector_dimensions = None
-
-
-def persist_pending_vector(
+def snapshot_profile_document(
+    profile_document: FamilySearchProfileDocument,
+    *,
     document: SearchDocument,
+    search_profile: FamilySearchProfile,
+) -> SearchProfileDocumentSnapshot:
+    """Capture canonical text together with an immutable profile identity."""
+
+    if (
+        profile_document.family_id != search_profile.family_id
+        or profile_document.search_profile_id != search_profile.id
+        or profile_document.search_document_id != document.id
+        or document.family_id != search_profile.family_id
+    ):
+        raise ValueError("search profile document identity mismatch")
+    if profile_document.content_hash != document.content_hash:
+        raise ValueError("search profile document content is stale")
+    if search_profile.dimensions <= 0 or not search_profile.embedding_model:
+        raise EmbeddingUnavailableError("search profile embedding identity invalid")
+    metadata = document.metadata_json if isinstance(document.metadata_json, dict) else {}
+    raw_user_id = metadata.get("user_id")
+    return SearchProfileDocumentSnapshot(
+        profile_document_id=profile_document.id,
+        family_id=search_profile.family_id,
+        search_profile_id=search_profile.id,
+        search_document_id=document.id,
+        entity_type=document.entity_type,
+        entity_id=document.entity_id,
+        semantic_text=document.semantic_text,
+        content_hash=document.content_hash,
+        document_builder_version=search_profile.document_builder_version,
+        embedding_model=search_profile.embedding_model,
+        embedding_dimensions=search_profile.dimensions,
+        user_id=str(raw_user_id) if raw_user_id else None,
+    )
+
+
+def profile_pending_vector_is_current(
+    row: FamilySearchProfileDocument,
+    snapshot: SearchProfileDocumentSnapshot,
+) -> bool:
+    return (
+        row.id == snapshot.profile_document_id
+        and row.family_id == snapshot.family_id
+        and row.search_profile_id == snapshot.search_profile_id
+        and row.search_document_id == snapshot.search_document_id
+        and row.content_hash == snapshot.content_hash
+        and row.vector_json is not None
+        and row.vector_dimensions == snapshot.embedding_dimensions
+        and row.status == "pending_handoff"
+    )
+
+
+def profile_pending_vector_is_current_without_vector(
+    row: FamilySearchProfileDocument,
+    snapshot: SearchProfileDocumentSnapshot,
+) -> bool:
+    return (
+        row.id == snapshot.profile_document_id
+        and row.family_id == snapshot.family_id
+        and row.search_profile_id == snapshot.search_profile_id
+        and row.search_document_id == snapshot.search_document_id
+        and row.content_hash == snapshot.content_hash
+        and row.status in {"pending", "indexing", "pending_handoff"}
+    )
+
+
+def clear_profile_pending_vector(row: FamilySearchProfileDocument) -> None:
+    row.vector_json = None
+    row.vector_dimensions = None
+
+
+def persist_profile_pending_vector(
+    row: FamilySearchProfileDocument,
     *,
     vector: list[float],
-    snapshot: SearchDocumentIndexSnapshot,
+    snapshot: SearchProfileDocumentSnapshot,
     now: datetime,
 ) -> None:
-    """Persist provider output before any Qdrant write is attempted.
+    """Durably store a Provider result before its Qdrant handoff.
 
-    The snapshot intentionally travels with the vector.  If the document was
-    edited while the provider request was in flight, the handoff phase detects
-    that mismatch, discards the stale vector, and lets the new content create
-    a separate attempt rather than replaying the old provider send.
+    The canonical ``SearchDocument`` is intentionally absent from this API:
+    active and candidate profiles may hold vectors with different dimensions
+    for the same document at the same time.
     """
 
+    if not profile_pending_vector_is_current_without_vector(row, snapshot):
+        raise ValueError("search profile document snapshot is stale")
     if len(vector) != snapshot.embedding_dimensions:
         raise EmbeddingUnavailableError("embedding vector dimension mismatch")
-    document.pending_vector = list(vector)
-    document.pending_vector_content_hash = snapshot.content_hash
-    document.pending_vector_model = snapshot.embedding_model
-    document.pending_vector_dimensions = snapshot.embedding_dimensions
-    document.vector_status = "pending"
-    document.vector_error = None
-    document.vector_attempt_count = (document.vector_attempt_count or 0) + 1
-    document.last_vector_attempt_at = now
+    row.vector_json = list(vector)
+    row.vector_dimensions = snapshot.embedding_dimensions
+    row.status = "pending_handoff"
+    row.error_code = None
+    row.attempt_count = (row.attempt_count or 0) + 1
+    row.last_attempt_at = now
 
 
-def pending_vector_payload(document: SearchDocument) -> dict[str, object]:
-    if document.pending_vector is None:
-        raise ValueError("search document has no pending vector")
-    return {
-        "family_id": document.family_id,
-        "entity_type": document.entity_type,
-        "entity_id": document.entity_id,
-        "user_id": str((document.metadata_json or {}).get("user_id") or ""),
-        "embedding_model": document.pending_vector_model,
-        "embedding_dimensions": document.pending_vector_dimensions,
-        "content_hash": document.pending_vector_content_hash,
-        "document_builder_version": document.document_builder_version,
-        "updated_at": document.updated_at.isoformat() if document.updated_at else "",
-    }
-
-
-def prepare_pending_vector_handoff(document: SearchDocument) -> PendingVectorHandoff | None:
-    if document.pending_vector is None or not pending_vector_is_current(document):
+def prepare_profile_vector_handoff(
+    profile_document: FamilySearchProfileDocument,
+    *,
+    snapshot: SearchProfileDocumentSnapshot,
+    search_profile: FamilySearchProfile,
+) -> ProfilePendingVectorHandoff | None:
+    if (
+        search_profile.id != snapshot.search_profile_id
+        or search_profile.family_id != snapshot.family_id
+        or profile_document.search_profile_id != search_profile.id
+        or not profile_pending_vector_is_current(profile_document, snapshot)
+    ):
         return None
-    return PendingVectorHandoff(
-        document_id=document.id,
-        point_id=search_point_id(document.entity_type, document.entity_id),
-        vector=list(document.pending_vector),
-        payload=pending_vector_payload(document),
+    assert profile_document.vector_json is not None
+    return ProfilePendingVectorHandoff(
+        profile_document_id=profile_document.id,
+        point_id=search_point_id(snapshot.entity_type, snapshot.entity_id),
+        vector=list(profile_document.vector_json),
+        payload={
+            "family_id": snapshot.family_id,
+            "search_profile_id": snapshot.search_profile_id,
+            "entity_type": snapshot.entity_type,
+            "entity_id": snapshot.entity_id,
+            "user_id": snapshot.user_id or "",
+            "content_hash": snapshot.content_hash,
+            "document_builder_version": snapshot.document_builder_version,
+            "embedding_model": snapshot.embedding_model,
+            "embedding_dimensions": snapshot.embedding_dimensions,
+        },
     )
 
 
-def write_pending_vector_handoff(
-    handoff: PendingVectorHandoff,
+def write_profile_vector_handoff(
+    handoff: ProfilePendingVectorHandoff,
     *,
     vector_store: VectorStore,
 ) -> None:
     dimensions = handoff.payload.get("embedding_dimensions")
     if isinstance(dimensions, bool) or not isinstance(dimensions, int) or dimensions <= 0:
-        raise ValueError("pending vector dimensions invalid")
+        raise ValueError("profile vector dimensions invalid")
     vector_store.ensure_collection(vector_size=dimensions)
     vector_store.upsert_point(
         point_id=handoff.point_id,
@@ -150,296 +203,44 @@ def write_pending_vector_handoff(
     )
 
 
-def handoff_pending_vector(
-    document: SearchDocument,
-    *,
-    vector_store: VectorStore,
-    now: datetime,
-) -> str:
-    """Write only an already-persisted vector to Qdrant.
-
-    This function performs only the external call and does not mutate or
-    commit.  Its caller commits before entering it, re-loads the pending
-    identity after it returns, then clears that exact identity.  That prevents
-    an in-flight Qdrant write from deleting a newer vector.
-    """
-
-    handoff = prepare_pending_vector_handoff(document)
-    if handoff is None:
-        return "skipped"
-    write_pending_vector_handoff(handoff, vector_store=vector_store)
-    del now
-    return "indexed"
-
-
 def index_pending_search_documents(
     db: Session,
     *,
     batch_size: int = 20,
     embedding_client: EmbeddingClient | None = None,
     vector_store: VectorStore | None = None,
+    session_factory: Callable[[], Session] = SessionLocal,
 ) -> dict[str, int]:
-    """Run durable vector handoff in two short phases.
+    """Synchronously run profile-aware work for the rebuild command.
 
-    Phase A sends one provider batch per family and commits returned vectors to
-    ``search_documents``.  Phase B only writes those persisted vectors to
-    Qdrant.  A Qdrant retry therefore never sends another embedding request.
+    The historical function name is retained for callers, but this function
+    only claims jobs and delegates to the profile worker.  It never reads or
+    writes legacy vector lifecycle fields on ``SearchDocument``.
     """
 
     if batch_size <= 0:
         return {"indexed": 0, "failed": 0, "skipped": 0}
-    embedding_client = embedding_client or build_embedding_client()
-    vector_store = vector_store or build_vector_store()
-    now = datetime.now(timezone.utc)
+    # Avoid a module cycle: jobs imports the profile handoff helpers above.
+    from app.services.search.jobs import claim_pending_search_index_jobs, process_search_index_job
+
+    job_ids = claim_pending_search_index_jobs(db, limit=batch_size)
     stats = {"indexed": 0, "failed": 0, "skipped": 0}
-
-    # Finish any durable Qdrant handoffs before allocating another embedding
-    # send.  They are retry-safe and do not consume provider budget again.
-    pending = _select_pending_handoffs(db, batch_size=batch_size)
-    if pending:
-        db.commit()
-        _handoff_documents(db, pending, vector_store=vector_store, now=now, stats=stats)
-        remaining = batch_size - len(pending)
-        if remaining <= 0:
-            return stats
-    else:
-        remaining = batch_size
-
-    documents = _select_indexable_documents(db, batch_size=remaining, now=now)
-    if not documents:
-        return stats
-    for document in documents:
-        # Historical rows should have a database default, but normalize before
-        # the phase boundary so an old nullable value cannot make the short
-        # commit fail before it is repaired.
-        if document.vector_attempt_count is None:  # type: ignore[comparison-overlap]
-            document.vector_attempt_count = 0
-    documents = _compatible_documents(
-        documents,
-        embedding_client=embedding_client,
-        stats=stats,
-        now=now,
-    )
-    if not documents:
-        db.commit()
-        return stats
-    snapshots = {document.id: snapshot_search_document(document) for document in documents}
-    # Release row locks before the external provider call.  The snapshot makes
-    # a concurrent document edit observable in the handoff phase.
-    db.commit()
-
-    by_family: dict[str, list[SearchDocument]] = defaultdict(list)
-    for document in documents:
-        by_family[document.family_id].append(document)
-    for family_id, family_documents in sorted(by_family.items()):
-        attempt_key = create_id("search-vector-batch")
-        try:
-            result = embedding_client.embed_batch(
-                [snapshots[document.id].semantic_text for document in family_documents],
-                attribution=system_embedding_attribution(
-                    family_id=family_id,
-                    logical_operation_id=attempt_key,
-                ),
-                attempt_key=attempt_key,
-            )
-            if len(result.vectors) != len(family_documents):
-                raise EmbeddingUnavailableError("embedding response count mismatch")
-        except ModelUsageBlocked as exc:
-            for document in family_documents:
-                _mark_failed(document, exc.code, now=now)
-                stats["failed"] += 1
-            db.commit()
-            continue
-        except (EmbeddingUnavailableError, ModelUsageError) as exc:
-            for document in family_documents:
-                _mark_failed(document, str(exc), now=now)
-                stats["failed"] += 1
-            db.commit()
-            continue
-
-        for document, vector in zip(family_documents, result.vectors, strict=True):
-            current = db.get(SearchDocument, document.id)
-            if current is None:
-                stats["skipped"] += 1
-                continue
-            persist_pending_vector(
-                current,
-                vector=vector,
-                snapshot=snapshots[document.id],
-                now=now,
-            )
-        # Provider success is durable before Qdrant sees even one vector.
-        db.commit()
-        persisted = [db.get(SearchDocument, document.id) for document in family_documents]
-        _handoff_documents(
-            db,
-            [document for document in persisted if document is not None],
+    for job_id in job_ids:
+        process_search_index_job(
+            job_id,
+            session_factory=session_factory,
+            claimed=True,
+            embedding_client=embedding_client,
             vector_store=vector_store,
-            now=now,
-            stats=stats,
         )
-    return stats
-
-
-def _handoff_documents(
-    db: Session,
-    documents: list[SearchDocument],
-    *,
-    vector_store: VectorStore,
-    now: datetime,
-    stats: dict[str, int],
-) -> None:
-    for document in documents:
-        # No transaction is held while calling Qdrant.  Capture the current
-        # pending identity, commit, then re-load before clearing it.
-        document_id = document.id
-        db.refresh(document)
-        if document.pending_vector is None:
-            continue
-        pending_identity = _pending_vector_identity(document)
-        handoff = prepare_pending_vector_handoff(document)
-        if handoff is None:
-            clear_pending_vector(document)
-            document.vector_status = "pending"
-            document.vector_error = None
-            db.commit()
-            stats["skipped"] += 1
-            continue
-        db.commit()
-        try:
-            write_pending_vector_handoff(handoff, vector_store=vector_store)
-            status = "indexed"
-        except VectorStoreUnavailableError as exc:
-            db.expire_all()
-            current = db.get(SearchDocument, document_id)
-            if current is not None and _pending_vector_identity(current) == pending_identity:
-                _mark_qdrant_failure(current, str(exc), now=now)
-                db.commit()
-            stats["failed"] += 1
-            continue
         db.expire_all()
-        current = db.get(SearchDocument, document_id)
-        if current is None:
+        job = db.get(SearchIndexJob, job_id)
+        if job is None:
             stats["skipped"] += 1
-            continue
-        if status == "indexed" and _pending_vector_identity(current) == pending_identity:
-            clear_pending_vector(current)
-            current.vector_status = "indexed"
-            current.vector_error = None
-            current.last_vector_attempt_at = now
-            current.indexed_at = now
-            db.commit()
+        elif job.status == "succeeded" and job.vector_status == "indexed":
             stats["indexed"] += 1
+        elif job.status == "failed":
+            stats["failed"] += 1
         else:
-            db.commit()
             stats["skipped"] += 1
-
-
-def _pending_vector_identity(document: SearchDocument) -> tuple[object, ...] | None:
-    if document.pending_vector is None:
-        return None
-    return (
-        tuple(document.pending_vector),
-        document.pending_vector_content_hash,
-        document.pending_vector_model,
-        document.pending_vector_dimensions,
-    )
-
-
-def _select_pending_handoffs(db: Session, *, batch_size: int) -> list[SearchDocument]:
-    return list(
-        db.scalars(
-            select(SearchDocument)
-            .where(SearchDocument.pending_vector.is_not(None))
-            .order_by(SearchDocument.updated_at.asc(), SearchDocument.id.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        )
-    )
-
-
-def _select_indexable_documents(db: Session, *, batch_size: int, now: datetime) -> list[SearchDocument]:
-    if batch_size <= 0:
-        return []
-    documents: list[SearchDocument] = []
-    pending_statement = (
-        select(SearchDocument)
-        .where(
-            SearchDocument.vector_status.in_(["pending", "stale"]),
-            SearchDocument.pending_vector.is_(None),
-        )
-        .order_by(SearchDocument.updated_at.asc(), SearchDocument.id.asc())
-        .limit(batch_size)
-        .with_for_update(skip_locked=True)
-    )
-    documents.extend(db.scalars(pending_statement))
-    remaining = batch_size - len(documents)
-    if remaining <= 0:
-        return documents
-
-    failed_statement = (
-        select(SearchDocument)
-        .where(
-            SearchDocument.vector_status == "failed",
-            SearchDocument.pending_vector.is_(None),
-        )
-        .order_by(SearchDocument.last_vector_attempt_at.asc(), SearchDocument.updated_at.asc(), SearchDocument.id.asc())
-        .limit(max(remaining * 5, remaining))
-        .with_for_update(skip_locked=True)
-    )
-    for document in db.scalars(failed_statement):
-        if _failed_document_ready(document, now=now):
-            documents.append(document)
-        if len(documents) >= batch_size:
-            break
-    return documents
-
-
-def _failed_document_ready(document: SearchDocument, *, now: datetime) -> bool:
-    if document.last_vector_attempt_at is None:
-        return True
-    last_attempt_at = document.last_vector_attempt_at
-    if last_attempt_at.tzinfo is None:
-        last_attempt_at = last_attempt_at.replace(tzinfo=timezone.utc)
-    return last_attempt_at <= now - timedelta(seconds=_retry_delay_seconds(document.vector_attempt_count or 0))
-
-
-def _retry_delay_seconds(attempt_count: int) -> int:
-    attempts = max(attempt_count, 1)
-    return min(VECTOR_RETRY_BASE_SECONDS * (2 ** (attempts - 1)), VECTOR_RETRY_MAX_SECONDS)
-
-
-def _compatible_documents(
-    documents: list[SearchDocument],
-    *,
-    embedding_client: EmbeddingClient,
-    stats: dict[str, int],
-    now: datetime,
-) -> list[SearchDocument]:
-    compatible = []
-    for document in documents:
-        if document.embedding_model == embedding_client.model and document.embedding_dimensions == embedding_client.dimensions:
-            compatible.append(document)
-            continue
-        _mark_failed(
-            document,
-            "search document embedding config is stale; rebuild search documents before vector indexing",
-            now=now,
-        )
-        stats["failed"] += 1
-    return compatible
-
-
-def _mark_failed(document: SearchDocument, message: str, *, now: datetime) -> None:
-    document.vector_status = "failed"
-    document.vector_error = message[:2000]
-    document.vector_attempt_count = (document.vector_attempt_count or 0) + 1
-    document.last_vector_attempt_at = now
-
-
-def _mark_qdrant_failure(document: SearchDocument, message: str, *, now: datetime) -> None:
-    # The vector is already durable, so this must not consume another provider
-    # attempt or discard data needed by the next Qdrant-only retry.
-    document.vector_status = "failed"
-    document.vector_error = message[:2000]
-    document.last_vector_attempt_at = now
+    return stats

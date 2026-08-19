@@ -2,7 +2,12 @@ import type { MealType } from '../api/types';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
 export type EatBaseView = 'discover' | 'plan' | 'history';
-export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests';
+export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests' | 'aiServices';
+
+/** Keeps persisted Owner-only navigation from mounting a privileged workspace for Members. */
+export function canRenderFamilyAiServices(view: FamilyView, isOwner: boolean): boolean {
+  return view === 'aiServices' && isOwner;
+}
 
 export type CookLaunchContext = {
   date: string;
@@ -96,7 +101,12 @@ export const initialNavigationState: AppNavigationState = {
 const PRIMARY_TABS: ReadonlySet<PrimaryTabKey> = new Set(['home', 'eat', 'ingredients', 'ai', 'family']);
 const EAT_BASE_VIEWS: ReadonlySet<EatBaseView> = new Set(['discover', 'plan', 'history']);
 const DISCOVER_SECTIONS: ReadonlySet<'all' | 'selfMade'> = new Set(['all', 'selfMade']);
-const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set(['profile', 'modelUsage', 'modelUsageRequests']);
+const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set([
+  'profile',
+  'modelUsage',
+  'modelUsageRequests',
+  'aiServices',
+]);
 
 const EMPTY_QUERY_SCOPE: AppQueryScope = {
   needsMembers: false,

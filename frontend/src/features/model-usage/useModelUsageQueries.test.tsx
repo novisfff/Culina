@@ -195,6 +195,28 @@ describe('useModelUsageQueries', () => {
     expect(queryClient.getQueryState(queryKeys.modelUsageBreakdown('family-a', 'me', '2026-06', 'meter'))).toBeDefined();
   });
 
+  it('resets owner-only grouping before enabling a personal query', async () => {
+    const queryClient = makeQueryClient();
+    resolveOwnerQueries();
+    modelUsageApi.getMyModelUsageOverview.mockResolvedValue(personalOverview());
+    modelUsageApi.getMyModelUsageBreakdown.mockResolvedValue(breakdown('me'));
+    const { result } = renderHook(
+      () => useModelUsageQueries({ familyId: 'family-a', role: 'Owner', initialPeriod: '2026-07' }),
+      { wrapper: wrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.scope).toBe('family'));
+
+    act(() => {
+      result.current.actions.setGroupBy('provider_model');
+      result.current.actions.setScope('me');
+    });
+
+    await waitFor(() => expect(result.current.scope).toBe('me'));
+    await waitFor(() => expect(result.current.groupBy).toBe('capability'));
+    expect(modelUsageApi.getMyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'capability');
+    expect(modelUsageApi.getMyModelUsageBreakdown).not.toHaveBeenCalledWith('2026-07', 'provider_model');
+  });
+
   it('cancels the previous family and never flashes its data while the next family is loading', async () => {
     const queryClient = makeQueryClient();
     const cancelQueries = vi.spyOn(queryClient, 'cancelQueries');

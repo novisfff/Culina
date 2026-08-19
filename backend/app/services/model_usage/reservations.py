@@ -75,6 +75,11 @@ def _reservation_context_identity(context: UsageContext) -> tuple[object, ...]:
         context.requested_model,
         context.billing_model,
         context.variant_key,
+        context.config_revision_id,
+        context.provider_profile_id,
+        context.provider_profile_version_id,
+        context.search_profile_id,
+        context.explicit_price_version_id,
     )
 
 
@@ -101,9 +106,29 @@ def prepare_reservation_admission(
 def _replay_reservation(
     reservation: ModelUsageReservation,
     *,
+    context: UsageContext,
     fingerprint: str,
 ) -> ReservationDecision:
     if reservation.fingerprint != fingerprint:
+        raise ModelUsageAttemptConflict()
+    expected_identity = (
+        context.config_revision_id,
+        context.provider_profile_id,
+        context.provider_profile_version_id,
+        context.search_profile_id,
+    )
+    actual_identity = (
+        reservation.config_revision_id,
+        reservation.provider_profile_id,
+        reservation.provider_profile_version_id,
+        reservation.search_profile_id,
+    )
+    if expected_identity != actual_identity:
+        raise ModelUsageAttemptConflict()
+    if (
+        context.explicit_price_version_id is not None
+        and reservation.price_version_id != context.explicit_price_version_id
+    ):
         raise ModelUsageAttemptConflict()
     return ReservationDecision(
         decision="allowed",
@@ -113,6 +138,11 @@ def _replay_reservation(
         price_version_id=reservation.price_version_id,
         pricing_status=reservation.pricing_status,
         reserved_cost_cny=reservation.reserved_cost_cny,
+        config_revision_id=reservation.config_revision_id,
+        provider_profile_id=reservation.provider_profile_id,
+        provider_profile_version_id=reservation.provider_profile_version_id,
+        credential_secret_version_id=reservation.credential_secret_version_id,
+        search_profile_id=reservation.search_profile_id,
     )
 
 
@@ -253,7 +283,7 @@ def reserve_usage_in_session(
         attempt_key=context.attempt_key,
     )
     if existing is not None:
-        return _replay_reservation(existing, fingerprint=fingerprint)
+        return _replay_reservation(existing, context=context, fingerprint=fingerprint)
 
     if prepared_admission is not None:
         subject = prepared_admission.subject
@@ -310,6 +340,11 @@ def reserve_usage_in_session(
         dispatch_policy_version_id=None,
         pre_dispatch_denial_policy_version_id=None,
         pricing_status=price.pricing_status,
+        config_revision_id=context.config_revision_id,
+        provider_profile_id=context.provider_profile_id,
+        provider_profile_version_id=context.provider_profile_version_id,
+        credential_secret_version_id=None,
+        search_profile_id=context.search_profile_id,
         price_version_id=price.price_version_id,
         price_snapshot_checksum=price.checksum,
         period_start=period.start_at,
@@ -336,7 +371,7 @@ def reserve_usage_in_session(
         )
         if winner is None:
             raise
-        return _replay_reservation(winner, fingerprint=fingerprint)
+        return _replay_reservation(winner, context=context, fingerprint=fingerprint)
     else:
         savepoint.commit()
 
@@ -381,7 +416,7 @@ def reserve_usage_in_session(
             counter.reserved_value += delta
             counter.version += 1
     db.flush()
-    return _replay_reservation(reservation, fingerprint=fingerprint)
+    return _replay_reservation(reservation, context=context, fingerprint=fingerprint)
 
 
 def reserve_usage(

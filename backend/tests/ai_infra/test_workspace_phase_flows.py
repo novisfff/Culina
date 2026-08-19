@@ -163,7 +163,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
         def test_food_profile_source_owned_handoff_resumes_meal_plan(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "新增盒装牛奶并安排为今天晚餐"},
@@ -229,7 +229,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
         def test_food_profile_continuation_rejection_never_advances(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "新增盒装牛奶并安排为今天晚餐"},
@@ -282,7 +282,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     "shopping_list",
                 ]
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "新增盒装牛奶并安排为今天晚餐"},
@@ -334,7 +334,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
         def test_food_profile_continuation_replay_is_exactly_once(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "新增盒装牛奶并安排为今天晚餐"},
@@ -428,7 +428,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     },
                 }
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "更新番茄资料后安排为今天晚餐"},
@@ -807,14 +807,14 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_approval_rejection_stream_returns_result_to_model(self) -> None:
             provider = FakeChatProvider("模型看到 HumanInLoop 结果后继续回复。")
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
             approval = data["included"]["approvals"][0]
             original_message_id = data["message"]["id"]
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",

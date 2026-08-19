@@ -9,17 +9,30 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 
 
-SENSITIVE_KEYS = {
-    "api_key",
-    "authorization",
-    "cookie",
-    "token",
-    "secret",
-    "password",
-    "access_token",
-    "refresh_token",
-    "credential",
-}
+# Keys are normalized before matching so a provider cannot bypass redaction by
+# changing wire spelling (for example ``X-API-Key`` vs ``x_api_key``).  Keep
+# this list at the tracing boundary rather than relying on each caller to
+# remember every secret-bearing field introduced by family-owned providers.
+SENSITIVE_KEYS = frozenset(
+    {
+        "authorization",
+        "proxy_authorization",
+        "api_key",
+        "x_api_key",
+        "cookie",
+        "token",
+        "secret",
+        "secret_value",
+        "password",
+        "access_token",
+        "refresh_token",
+        "credential",
+        "credential_secret_version_id",
+        "ciphertext",
+        "nonce",
+        "auth_tag",
+    }
+)
 
 DATA_URL_RE = re.compile(r"^data:(?P<content_type>[^;,]+)(?:;[^,]+)?,(?P<payload>.*)$", re.DOTALL)
 MESSAGE_CONTENT_KEYS = {"content", "text", "args", "arguments"}
@@ -34,6 +47,11 @@ def redact_for_trace(
     capture_message_content: bool = False,
 ) -> Any:
     encoded = _safe_jsonable(value)
+    # Trace mode controls how much ordinary diagnostic payload is retained; it
+    # must never turn off credential redaction.  In particular, ``full`` is a
+    # debugging aid, not permission to persist an Authorization header or an
+    # encrypted secret envelope.
+    encoded = _redact_sensitive_keys(encoded)
     normalized_mode = payload_mode.strip().lower()
     if normalized_mode == "summary":
         encoded = _summarize(encoded)
@@ -63,12 +81,28 @@ def _safe_jsonable(value: Any) -> Any:
         return str(value)
 
 
+def _redact_sensitive_keys(value: Any) -> Any:
+    """Redact credential-bearing fields independently of the trace mode."""
+
+    if isinstance(value, dict):
+        result: dict[Any, Any] = {}
+        for key, item in value.items():
+            if _normalized_key(key) in SENSITIVE_KEYS:
+                result[key] = "[REDACTED]"
+            else:
+                result[key] = _redact_sensitive_keys(item)
+        return result
+    if isinstance(value, list):
+        return [_redact_sensitive_keys(item) for item in value]
+    return value
+
+
 def _redact(value: Any, *, capture_image_bytes: bool, capture_message_content: bool) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, item in value.items():
-            normalized_key = str(key).lower()
-            if any(sensitive in normalized_key for sensitive in SENSITIVE_KEYS):
+            normalized_key = _normalized_key(key)
+            if normalized_key in SENSITIVE_KEYS:
                 result[key] = "[REDACTED]"
                 continue
             if not capture_message_content and normalized_key in MESSAGE_CONTENT_KEYS:
@@ -101,6 +135,12 @@ def _redact(value: Any, *, capture_image_bytes: bool, capture_message_content: b
             "sha256": hashlib.sha256(value).hexdigest(),
         }
     return value
+
+
+def _normalized_key(value: object) -> str:
+    """Normalize only documented wire variants; never inspect secret values."""
+
+    return str(value).strip().lower().replace("-", "_")
 
 
 def _redact_data_url(value: str) -> dict[str, Any]:

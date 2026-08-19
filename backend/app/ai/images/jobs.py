@@ -16,10 +16,10 @@ from app.ai.images.generation import (
     ImageGenerationClient,
     ImageGenerationProviderOutcomeUncertain,
     ImageGenerationProviderRejected,
+    ImageProviderDependencies,
     ImageGenerationRequest,
     ImageGenerationResult,
     MeteredImageGenerationResult,
-    image_provider_config_for_mode,
     normalize_image_generation_request,
 )
 from app.core.config import get_settings
@@ -30,8 +30,6 @@ from app.core.enums import (
     MediaSource,
     MembershipStatus,
     ModelUsageAttributionKind,
-    ModelUsageCapability,
-    ModelUsageMeter,
     ModelUsageOperationSource,
 )
 from app.core.utils import create_id, utcnow
@@ -55,9 +53,12 @@ from app.services.meal_log_versions import (
     lock_meal_log_write_targets,
 )
 from app.services.media import delete_media_file, get_media_asset, read_media_object, save_generated_asset, save_svg_asset
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
+from app.services.family_model_settings.transport import ProviderTransport
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 from app.services.model_usage.adapters.base import MeteredProviderAttempt
 from app.services.model_usage.adapters.image_generation import ImageGenerationUsageAdapter
-from app.services.model_usage.configured_variants import configured_usage_variants
 from app.services.model_usage.errors import (
     ModelUsageAttemptAlreadyAccounted,
     ModelUsageBlocked,
@@ -97,6 +98,11 @@ _IMAGE_JOB_ERROR_MESSAGES: dict[str, str] = {
     "image_post_provider_persistence_failed": "图片已生成，但保存生成图时失败；为避免重复生成，本次不能直接重试。",
     "image_bind_failed": "图片已生成，但暂时无法绑定到目标资料；可以重试绑定。",
     "image_request_unavailable": "图片生成所需的资料暂时不可用，请检查后重新发起生成。",
+    "family_model_settings_not_configured": "该图片生成能力尚未由家庭主理人配置。",
+    "family_model_capability_disabled": "该图片生成能力当前未启用，请联系家庭主理人检查设置。",
+    "family_model_provider_disabled": "家庭图片生成服务当前不可用，请联系家庭主理人检查设置。",
+    "family_model_configuration_not_found": "该图片任务使用的家庭服务配置已不可用，请重新发起生成。",
+    "family_model_secret_unavailable": "家庭图片生成服务凭据暂不可用，请联系家庭主理人检查设置。",
     "model_usage_budget_exceeded": "当前家庭的模型使用预算已达到上限，暂不能生成图片。",
     "model_usage_capability_limit_exceeded": "当前图片生成额度已达到上限，暂不能生成图片。",
     "model_usage_image_variant_not_configured": "图片生成的计量配置暂不可用，请稍后再试。",
@@ -201,11 +207,18 @@ def enqueue_image_generation(
     target_entity_type: str | None = None,
     target_entity_id: str | None = None,
     replace_anchor_media_id: str | None = None,
+    resolver: FamilyModelConfigurationResolver | None = None,
 ) -> AIImageGenerationJob:
+    binding = (resolver or FamilyModelConfigurationResolver(db)).resolve_active(
+        family_id,
+        "image_generation",
+        request.mode.value,
+    )
     now = utcnow()
     job = AIImageGenerationJob(
         id=create_id("image-job"),
         family_id=family_id,
+        config_revision_id=binding.config_revision_id,
         user_id=user_id,
         status="queued",
         request_payload=_request_to_payload(request),
@@ -220,6 +233,30 @@ def enqueue_image_generation(
     db.add(job)
     db.flush()
     return job
+
+
+def image_binding_for_job(
+    db: Session,
+    *,
+    job: AIImageGenerationJob,
+    resolver: FamilyModelConfigurationResolver | None = None,
+) -> ResolvedCapabilityBinding:
+    """Resolve the immutable image binding persisted with a queued job."""
+
+    if not job.config_revision_id:
+        # Historical jobs predate family-managed configuration.  They must not
+        # silently acquire today's global/default image provider.
+        raise FamilyModelSettingsError("family_model_configuration_not_found")
+    try:
+        mode = ImageGenerationMode(str((job.request_payload or {}).get("mode") or ""))
+    except ValueError as exc:
+        raise FamilyModelSettingsError("family_model_capability_disabled") from exc
+    return (resolver or FamilyModelConfigurationResolver(db)).resolve_revision(
+        job.family_id,
+        job.config_revision_id,
+        "image_generation",
+        mode.value,
+    )
 
 
 def get_image_generation_job(db: Session, *, family_id: str, job_id: str) -> AIImageGenerationJob | None:
@@ -595,51 +632,72 @@ def _sync_recipe_image_to_food(db: Session, *, job: AIImageGenerationJob, genera
     )
 
 
-def _image_usage_adapter_for_request(
+def _image_usage_adapter_for_binding(
+    binding: ResolvedCapabilityBinding,
     request: ImageGenerationRequest,
     *,
     session_factory: Callable[[], Session] = SessionLocal,
-) -> ImageGenerationUsageAdapter | None:
-    """Build the required-mode adapter for the exact image variant.
-
-    A configured catalog variant is the authority for whether a separate
-    request unit is billable.  Required mode must fail closed before a provider
-    call instead of silently generating an unmetered image.
-    """
+) -> ImageGenerationUsageAdapter:
+    """Build the usage adapter from the persisted family binding identity."""
 
     settings = get_settings()
-    if not bool(getattr(settings, "model_usage_required", False)):
-        return None
     normalized = normalize_image_generation_request(request)
-    config = image_provider_config_for_mode(normalized.mode)
-    provider = config.provider.strip()
-    model = config.model.strip()
-    if provider.lower() in {"", "disabled", "mock"} or not model:
+    if (
+        binding.capability != "image_generation"
+        or binding.variant_key != normalized.mode.value
+        or not binding.requested_model
+    ):
         raise ModelUsageContractError("model_usage_image_variant_not_configured")
-    variant_key = (
-        f"mode={normalized.mode.value}|size={normalized.size}|quality={normalized.quality.strip().lower()}"
-    )
-    try:
-        matches = [
-            variant
-            for variant in configured_usage_variants(settings)
-            if variant.capability is ModelUsageCapability.IMAGE_GENERATION
-            and variant.provider == provider
-            and variant.billing_model == model
-            and variant.variant_key == variant_key
-        ]
-    except Exception as exc:
-        raise ModelUsageContractError("model_usage_image_variant_not_configured") from exc
-    if len(matches) != 1:
-        raise ModelUsageContractError("model_usage_image_variant_not_configured")
-    variant = matches[0]
     return ImageGenerationUsageAdapter(
-        provider=provider,
-        model=model,
-        include_request_fee_by_default=ModelUsageMeter.REQUEST_UNITS in variant.billable_meters,
         usage_facade=ModelUsageFacade(session_factory=session_factory),
         session_factory=session_factory,
         signer=decode_receipt_integrity_keyring(settings).signer(),
+        binding=binding,
+    )
+
+
+def _image_client_for_binding(
+    binding: ResolvedCapabilityBinding,
+    *,
+    session_factory: Callable[[], Session],
+    resolver_factory: Callable[[Session], FamilyModelConfigurationResolver] | None = None,
+    transport_factory: Callable[[FamilyModelConfigurationResolver], ProviderTransport] | None = None,
+) -> ImageGenerationClient:
+    """Build a worker-local client without retaining a session or plaintext key.
+
+    A worker process can outlive the request that queued the job.  The returned
+    credential callback therefore opens a fresh session only after the usage
+    permit has fixed the secret version, then immediately drops that session.
+    """
+
+    resolver_builder = resolver_factory or (lambda db: FamilyModelConfigurationResolver(db))
+    with session_factory() as db:
+        resolver = resolver_builder(db)
+        transport = (
+            transport_factory(resolver)
+            if transport_factory is not None
+            else ProviderTransport.from_settings(
+                get_settings(),
+                policy=resolver.network_policy,
+            )
+        )
+
+    def resolve_dispatch_credential(
+        resolved_binding: ResolvedCapabilityBinding,
+        secret_version_id: str | None,
+    ):
+        with session_factory() as credential_db:
+            return resolver_builder(credential_db).resolve_dispatch_credential(
+                resolved_binding,
+                secret_version_id,
+            )
+
+    return ImageGenerationClient.for_binding(
+        binding,
+        dependencies=ImageProviderDependencies(
+            transport=transport,
+            resolve_dispatch_credential=resolve_dispatch_credential,
+        ),
     )
 
 
@@ -677,12 +735,14 @@ def _prepare_image_job_request(
     job_id: str,
     *,
     session_factory: Callable[[], Session],
+    resolver_factory: Callable[[Session], FamilyModelConfigurationResolver] | None = None,
 ) -> tuple[
     Literal["bind_only", "provider"],
     ImageGenerationRequest | None,
     UsageAttribution | None,
     str | None,
     dict[str, object] | None,
+    ResolvedCapabilityBinding | None,
 ] | None:
     """Load sensitive request material and durable attempt identity before reserve."""
 
@@ -699,7 +759,7 @@ def _prepare_image_job_request(
             and job.provider_execution_status == "confirmed"
             and job.bind_status != "bound"
         ):
-            return ("bind_only", None, None, None, None)
+            return ("bind_only", None, None, None, None, None)
 
         request = normalize_image_generation_request(
             _request_from_payload(
@@ -708,6 +768,11 @@ def _prepare_image_job_request(
                 payload=job.request_payload,
                 reference_media_id=job.reference_media_id,
             )
+        )
+        binding = image_binding_for_job(
+            db,
+            job=job,
+            resolver=(resolver_factory(db) if resolver_factory is not None else None),
         )
         attempt_key = f"image-job:{job.id}:attempt:{(job.attempt_count or 0) + 1}"
         # Persist this before reservation so a process crash can replay the
@@ -739,7 +804,7 @@ def _prepare_image_job_request(
             ),
         }
         db.commit()
-    return ("provider", request, attribution, attempt_key, fingerprint_payload)
+    return ("provider", request, attribution, attempt_key, fingerprint_payload, binding)
 
 
 def _mark_image_job_budget_blocked(
@@ -941,8 +1006,10 @@ def process_image_generation_job(
     job_id: str,
     *,
     session_factory: Callable[[], Session] = SessionLocal,
-    client_factory: Callable[[], ImageGenerationClient] = ImageGenerationClient,
+    client_factory: Callable[[], ImageGenerationClient] | None = None,
     usage_adapter_factory: Callable[[ImageGenerationRequest], ImageGenerationUsageAdapter | None] | None = None,
+    resolver_factory: Callable[[Session], FamilyModelConfigurationResolver] | None = None,
+    transport_factory: Callable[[FamilyModelConfigurationResolver], ProviderTransport] | None = None,
     claimed: bool = False,
 ) -> None:
     if not _claim_image_generation_job(
@@ -953,7 +1020,23 @@ def process_image_generation_job(
         return
 
     try:
-        prepared = _prepare_image_job_request(job_id, session_factory=session_factory)
+        prepared = _prepare_image_job_request(
+            job_id,
+            session_factory=session_factory,
+            resolver_factory=resolver_factory,
+        )
+    except FamilyModelSettingsError as exc:
+        # The job snapshot can become unusable after a profile is disabled or
+        # retained history is removed. No provider boundary has been crossed,
+        # so the user may safely create a fresh job after the Owner repairs the
+        # family setting.
+        _mark_image_job_failure(
+            job_id,
+            error_code=exc.code,
+            provider_execution_status="confirmed_not_executed",
+            session_factory=session_factory,
+        )
+        return
     except Exception:
         # Loading a reference asset is entirely local, so no provider attempt
         # has occurred.  It is safe for a user to correct the input and retry.
@@ -967,7 +1050,7 @@ def process_image_generation_job(
         return
     if prepared is None:
         return
-    mode, request, attribution, attempt_key, fingerprint_payload = prepared
+    mode, request, attribution, attempt_key, fingerprint_payload, binding = prepared
     if mode == "bind_only":
         try:
             if not _bind_persisted_generated_image(job_id, session_factory=session_factory):
@@ -986,10 +1069,12 @@ def process_image_generation_job(
     assert attribution is not None
     assert attempt_key is not None
     assert fingerprint_payload is not None
+    assert binding is not None
     usage_attempt: MeteredProviderAttempt | None = None
     try:
         usage_adapter = (
-            _image_usage_adapter_for_request(
+            _image_usage_adapter_for_binding(
+                binding,
                 request,
                 session_factory=session_factory,
             )
@@ -997,15 +1082,30 @@ def process_image_generation_job(
             else usage_adapter_factory(request)
         )
         if usage_adapter is not None:
-            usage_attempt = usage_adapter.begin(
-                attribution=attribution,
-                attempt_key=attempt_key,
-                mode=request.mode.value,
-                image_count=1,
-                size=request.size,
-                quality=request.quality,
-                fingerprint=usage_adapter.request_fingerprint(fingerprint_payload),
-            )
+            fingerprint = usage_adapter.request_fingerprint(fingerprint_payload)
+            if usage_adapter_factory is None and hasattr(usage_adapter, "begin_image"):
+                usage_attempt = usage_adapter.begin_image(
+                    attribution=attribution,
+                    binding=binding,
+                    attempt_key=attempt_key,
+                    request=request,
+                    image_count=1,
+                    fingerprint=fingerprint,
+                )
+            else:
+                # Explicit focused-test adapters predate the family binding
+                # interface. They never enter production construction, but
+                # retaining this narrow injection seam keeps recovery tests
+                # able to exercise the worker state machine in isolation.
+                usage_attempt = usage_adapter.begin(
+                    attribution=attribution,
+                    attempt_key=attempt_key,
+                    mode=request.mode.value,
+                    image_count=1,
+                    size=request.size,
+                    quality=request.quality,
+                    fingerprint=fingerprint,
+                )
     except ModelUsageBlocked as exc:
         _mark_image_job_budget_blocked(
             job_id,
@@ -1080,7 +1180,16 @@ def process_image_generation_job(
         return
 
     try:
-        client = client_factory()
+        client = (
+            client_factory()
+            if client_factory is not None
+            else _image_client_for_binding(
+                binding,
+                session_factory=session_factory,
+                resolver_factory=resolver_factory,
+                transport_factory=transport_factory,
+            )
+        )
         if usage_attempt is not None:
             provider_result = client.generate(
                 request,

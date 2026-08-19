@@ -136,9 +136,11 @@ def test_search_api_returns_family_scoped_keyword_results() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["search_mode"] == "hybrid"
+    # A family without an active Embedding profile remains local-only; the
+    # route must not revive the removed process-wide Provider fallback.
+    assert payload["search_mode"] == "keyword"
     assert payload["degraded"] is True
-    assert "degradation_code" in payload
+    assert payload["degradation_code"] == "search_embedding_not_configured"
     assert payload["total"] == 1
     assert payload["items"][0]["entity_type"] == "ingredient"
     assert payload["items"][0]["entity_id"] == "ingredient-tomato"

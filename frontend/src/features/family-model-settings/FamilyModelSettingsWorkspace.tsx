@@ -1,0 +1,253 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog, StateBlock } from '../../components/ui-kit';
+import type {
+  FamilyModelConfigDraft,
+  FamilyModelDraftValidation,
+  UserRole,
+} from '../../api/types';
+import {
+  createEmptyFamilyModelDraft,
+  createFamilyModelSettingsDraft,
+  type FamilyModelSettingsDraft,
+} from './familyModelSettingsModel';
+import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
+import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
+import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
+import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
+import { useFamilyModelSettingsState } from './useFamilyModelSettingsState';
+
+export type FamilyModelSettingsWorkspaceProps = {
+  familyId: string;
+  role: UserRole;
+  isPhoneViewport: boolean;
+  onBack: () => void;
+};
+
+function localDraftFromServerDraft(source: FamilyModelConfigDraft | null): FamilyModelSettingsDraft {
+  if (!source) return createEmptyFamilyModelDraft();
+  if (source.payload.bindings.length > 0) {
+    return createFamilyModelSettingsDraft(source.payload, source.draft_version_number);
+  }
+
+  // A newly bootstrapped family has a persisted empty server draft. The local
+  // form still needs all controlled capability rows before its first save.
+  const empty = createEmptyFamilyModelDraft();
+  return {
+    ...empty,
+    base_config_revision_id: source.payload.base_config_revision_id,
+    search_profile_id: source.payload.search_profile_id,
+    price_rates: source.payload.price_rates.map((rate) => ({
+      ...rate,
+      reported_model_aliases: [...rate.reported_model_aliases],
+    })),
+    price_draft: source.payload.price_draft
+      ? {
+        ...source.payload.price_draft,
+        rates: source.payload.price_draft.rates.map((rate) => ({
+          ...rate,
+          reported_model_aliases: [...rate.reported_model_aliases],
+        })),
+      }
+      : null,
+    change_note: source.payload.change_note,
+    base_draft_version_number: source.draft_version_number,
+  };
+}
+
+function isAtLeastAsRecent(
+  candidate: FamilyModelConfigDraft,
+  current: FamilyModelConfigDraft | null,
+): boolean {
+  return !current || candidate.draft_version_number >= current.draft_version_number;
+}
+
+/**
+ * Connects family-scoped Owner queries and mutations to an independent
+ * desktop/phone surface. It deliberately owns no editor JSX or API payload
+ * construction; those responsibilities stay in view and model modules.
+ */
+function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspaceProps) {
+  const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
+  const queries = useFamilyModelSettingsQueries({
+    familyId: props.familyId,
+    role: props.role,
+    replacementProfileId,
+  });
+  const state = useFamilyModelSettingsState();
+  const [serverDraft, setServerDraft] = useState<FamilyModelConfigDraft | null>(null);
+  const [draft, setDraft] = useState<FamilyModelSettingsDraft>(() => createEmptyFamilyModelDraft());
+  const [validation, setValidation] = useState<FamilyModelDraftValidation | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  useEffect(() => {
+    if (!queries.draft) return;
+    setServerDraft((current) => isAtLeastAsRecent(queries.draft as FamilyModelConfigDraft, current)
+      ? queries.draft
+      : current);
+  }, [queries.draft]);
+
+  useEffect(() => {
+    if (!serverDraft || state.state.dirty) return;
+    setDraft(localDraftFromServerDraft(serverDraft));
+  }, [serverDraft, state.state.dirty]);
+
+  const mutationState = useFamilyModelSettingsActions({
+    familyId: props.familyId,
+    settings: queries.settings,
+    draft: serverDraft,
+    onBusy: state.actions.begin,
+    onSettled: state.actions.settle,
+  });
+  const busyAction = mutationState.busyAction ?? state.state.busyAction;
+  const busy = busyAction !== null;
+
+  const setLocalDraft = useCallback((next: FamilyModelSettingsDraft) => {
+    setDraft(next);
+    setValidation(null);
+    state.actions.markDirty(true);
+  }, [state.actions]);
+
+  const persistDraft = useCallback(async (): Promise<FamilyModelConfigDraft> => {
+    const saved = await mutationState.actions.saveDraft(draft);
+    setServerDraft(saved);
+    setDraft(localDraftFromServerDraft(saved));
+    setValidation(null);
+    state.actions.markDirty(false);
+    return saved;
+  }, [draft, mutationState.actions, state.actions]);
+
+  const validate = useCallback(async () => {
+    const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
+    if (!currentDraft) return;
+    const result = await mutationState.actions.validateDraft(currentDraft.draft_version_number);
+    setValidation(result);
+  }, [mutationState.actions, persistDraft, serverDraft, state.state.dirty]);
+
+  const publish = useCallback(async (input: {
+    currentPassword: string;
+    configChecksum: string;
+    priceChecksum: string;
+  }) => {
+    const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
+    if (!currentDraft) return;
+    await mutationState.actions.publish(input, currentDraft.draft_version_number);
+    setValidation(null);
+    state.actions.markDirty(false);
+  }, [mutationState.actions, persistDraft, serverDraft, state.actions, state.state.dirty]);
+
+  const requestBack = useCallback(() => {
+    if (busy) return;
+    if (state.state.dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    props.onBack();
+  }, [busy, props, state.state.dirty]);
+
+  if (!queries.isOwner) {
+    return (
+      <main className="family-model-settings-fallback" aria-labelledby="family-model-settings-fallback-title">
+        <h1 id="family-model-settings-fallback-title">家庭 AI 服务</h1>
+        <StateBlock
+          status="empty"
+          title="仅家庭主理人可以管理 AI 服务"
+          description="如需调整服务、凭据、模型或价格，请联系家庭主理人。"
+          actionLabel="返回家庭"
+          onAction={props.onBack}
+        />
+      </main>
+    );
+  }
+
+  if (queries.error && (!queries.settings || !serverDraft)) {
+    return (
+      <main className="family-model-settings-fallback" aria-labelledby="family-model-settings-error-title">
+        <h1 id="family-model-settings-error-title">家庭 AI 服务</h1>
+        <StateBlock
+          status="error"
+          title="暂时无法加载家庭 AI 服务"
+          description="请稍后重试，已有草稿不会因此丢失。"
+          actionLabel="重新加载"
+          onAction={() => {
+            void Promise.all([
+              queries.settingsQuery.refetch(),
+              queries.draftQuery.refetch(),
+              queries.pricesQuery.refetch(),
+            ]);
+          }}
+        />
+      </main>
+    );
+  }
+
+  if (queries.isInitialLoading || !queries.settings || !serverDraft) {
+    return (
+      <main className="family-model-settings-fallback" aria-labelledby="family-model-settings-loading-title">
+        <h1 id="family-model-settings-loading-title">家庭 AI 服务</h1>
+        <StateBlock status="loading" title="正在加载家庭 AI 服务" description="正在读取当前家庭的非敏感配置。" />
+      </main>
+    );
+  }
+
+  const surfaceProps = {
+    settings: queries.settings,
+    serverDraft,
+    draft,
+    prices: queries.prices,
+    validation,
+    searchReplacement: queries.searchReplacement,
+    state: state.state,
+    actions: mutationState.actions,
+    busyAction,
+    errorMessage: mutationState.errorMessage,
+    stale: queries.stale,
+    replacementProfileId,
+    onBack: requestBack,
+    onSelectSection: state.actions.selectSection,
+    onSelectProfile: state.actions.selectProfile,
+    onPushMobileTask: state.actions.pushMobileTask,
+    onPopMobileTask: state.actions.popMobileTask,
+    onDraftChange: setLocalDraft,
+    onSaveDraft: async () => {
+      try {
+        await persistDraft();
+      } catch {
+        // Mutation state already exposes a safe, recoverable error message.
+      }
+    },
+    onValidate: validate,
+    onPublish: publish,
+    onReplacementProfileIdChange: setReplacementProfileId,
+  };
+
+  return (
+    <>
+      {props.isPhoneViewport
+        ? <FamilyModelSettingsMobilePage {...surfaceProps} />
+        : <FamilyModelSettingsDesktopView {...surfaceProps} />}
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="放弃未保存的配置修改？"
+        description="返回家庭后，本次尚未保存的服务、能力和价格修改将被放弃。"
+        confirmLabel="放弃修改并返回"
+        cancelLabel="继续编辑"
+        tone="danger"
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          state.actions.markDirty(false);
+          props.onBack();
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * A family change is a hard local-state boundary. Remounting the scoped
+ * content prevents a previous family's draft, validation or retry secrets
+ * from surviving long enough to combine with the next family's query data.
+ */
+export function FamilyModelSettingsWorkspace(props: FamilyModelSettingsWorkspaceProps) {
+  return <FamilyModelSettingsWorkspaceContent key={props.familyId} {...props} />;
+}

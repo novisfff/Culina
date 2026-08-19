@@ -2,16 +2,22 @@ from app.ai.runtime.provider import (
     BaseChatProvider,
     ChatProviderResult,
     DisabledChatProvider,
+    FamilyChatProviderFactory,
+    FamilyChatProviderSelection,
+    FixedChatProviderFactory,
     OpenAICompatibleChatProvider,
     OpenAIResponsesChatProvider,
-    get_chat_provider,
+    RevisionBoundFamilyChatProviderFactory,
 )
 
 __all__ = [
     "BaseChatProvider",
     "ChatProviderResult",
     "DisabledChatProvider",
+    "FamilyChatProviderFactory",
+    "FamilyChatProviderSelection",
+    "FixedChatProviderFactory",
     "OpenAICompatibleChatProvider",
     "OpenAIResponsesChatProvider",
-    "get_chat_provider",
+    "RevisionBoundFamilyChatProviderFactory",
 ]

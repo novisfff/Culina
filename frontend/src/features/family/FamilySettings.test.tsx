@@ -371,4 +371,39 @@ describe('FamilySettings activity overlay control', () => {
     act(() => mobileEntry?.click());
     expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
   });
+
+  it('shows AI 服务 beside 模型用量 only to the Owner', () => {
+    const onNavigate = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: false,
+      isOwner: true,
+      onNavigate,
+    });
+
+    const desktopEntry = view.querySelector<HTMLButtonElement>('.family-ai-services-entry');
+    expect(desktopEntry?.textContent).toContain('AI 服务');
+    act(() => desktopEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'aiServices' });
+
+    rerenderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      isOwner: true,
+      onNavigate,
+    });
+    const mobileEntry = view.querySelector<HTMLButtonElement>('.mobile-family-ai-services-entry');
+    expect(mobileEntry?.textContent).toContain('AI 服务');
+    act(() => mobileEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'aiServices' });
+
+    rerenderSettings({
+      overlayMode: null,
+      isPhoneViewport: false,
+      isOwner: false,
+      onNavigate,
+    });
+    expect(view.querySelector('.family-ai-services-entry')).toBeNull();
+    expect(view.querySelector('.mobile-family-ai-services-entry')).toBeNull();
+  });
 });

@@ -6,7 +6,6 @@ from decimal import Decimal
 
 from fastapi import HTTPException, UploadFile, status
 
-from app.core.config import Settings
 from app.services.model_usage.decimal_math import quantize_quantity
 
 ALLOWED_AUDIO_TYPES = {
@@ -36,12 +35,13 @@ class AudioDurationError(ValueError):
         super().__init__(code)
 
 
-async def read_audio_upload(file: UploadFile, settings: Settings) -> tuple[bytes, str]:
+async def read_audio_upload(file: UploadFile, *, max_bytes: int) -> tuple[bytes, str]:
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     if content_type not in ALLOWED_AUDIO_TYPES:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="不支持的音频格式")
 
-    max_bytes = settings.ai_stt_max_upload_bytes
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ValueError("audio upload limit must be a positive integer")
     payload = await file.read(max_bytes + 1)
     if not payload:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="音频文件为空")

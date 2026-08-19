@@ -1,8 +1,11 @@
 import type {
   ModelUsageCapability,
   ModelUsageErrorCode,
+  ModelUsageFamilyGroupBy,
   ModelUsageMemberBudgetState,
   ModelUsageMeter,
+  ModelUsagePersonalGroupBy,
+  ModelUsageScope,
 } from '../../api/types';
 
 export const MODEL_USAGE_CAPABILITY_OPTIONS: Record<
@@ -71,6 +74,30 @@ export const MODEL_USAGE_HEALTH_OPTIONS = {
   known_unmeasured: { title: '用量明细待恢复' },
   measurement_gap: { title: '部分时段记录不完整' },
 } as const;
+
+export const MODEL_USAGE_PERSONAL_GROUP_OPTIONS: ReadonlyArray<{
+  value: ModelUsagePersonalGroupBy;
+  label: string;
+}> = [
+  { value: 'capability', label: '按能力' },
+  { value: 'meter', label: '按计量项' },
+  { value: 'daily_capability_cost', label: '按日期与能力' },
+];
+
+export const MODEL_USAGE_FAMILY_GROUP_OPTIONS: ReadonlyArray<{
+  value: ModelUsageFamilyGroupBy;
+  label: string;
+}> = [
+  { value: 'capability', label: '按能力' },
+  { value: 'provider_model', label: '按服务商 / 模型' },
+  { value: 'meter', label: '按计量项' },
+  { value: 'subject', label: '按家庭成员' },
+  { value: 'daily_capability_cost', label: '按日期与能力' },
+];
+
+export function modelUsageGroupOptions(scope: ModelUsageScope) {
+  return scope === 'family' ? MODEL_USAGE_FAMILY_GROUP_OPTIONS : MODEL_USAGE_PERSONAL_GROUP_OPTIONS;
+}
 
 export const MODEL_USAGE_ERROR_OPTIONS: Record<ModelUsageErrorCode, { title: string; message: string }> = {
   model_usage_adjustment_window_closed: { title: '这个账期已归档', message: '历史统计不能再按单次调用修正。' },

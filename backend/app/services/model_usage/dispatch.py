@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
+    FamilyModelProviderStatus,
+    FamilyModelSecretStatus,
     ModelUsageCounterKind,
     ModelUsageLimitKind,
     ModelUsagePricingStatus,
@@ -23,6 +25,12 @@ from app.models.model_usage import (
     ModelUsagePolicyVersion,
     ModelUsageReservation,
     ModelUsageReservationMeter,
+)
+from app.repos.family_model_settings.configurations import get_capability_binding
+from app.repos.family_model_settings.profiles import (
+    get_current_provider_profile_version,
+    get_current_provider_secret_version,
+    lock_provider_profile,
 )
 from app.services.model_usage.counters import (
     capability_cost_dimension_key,
@@ -195,6 +203,95 @@ def _price_snapshot(
     )
 
 
+def _require_reservation_binding_identity(
+    db: Session,
+    reservation: ModelUsageReservation,
+) -> None:
+    """Fail closed if a durable family reservation no longer names its binding."""
+
+    if reservation.config_revision_id is None:
+        # Legacy reservations predate family-managed model settings.  They are
+        # retained for replay/settlement and have no provider profile secret.
+        return
+    if (
+        reservation.provider_profile_id is None
+        or reservation.provider_profile_version_id is None
+    ):
+        raise ModelUsageStateError("reservation_binding_identity_missing")
+    binding = get_capability_binding(
+        db,
+        family_id=reservation.family_id,
+        config_revision_id=reservation.config_revision_id,
+        capability=reservation.capability.value,
+        variant_key=reservation.variant_key,
+    )
+    if (
+        binding is None
+        or not binding.enabled
+        or binding.provider_profile_id != reservation.provider_profile_id
+        or binding.provider_profile_version_id != reservation.provider_profile_version_id
+        or binding.requested_model != reservation.requested_model
+        or binding.billing_scheme_key != reservation.billing_scheme_key
+        or reservation.provider != reservation.provider_profile_id
+    ):
+        raise ModelUsageStateError("reservation_binding_identity_mismatch")
+
+
+def authorize_reservation_credential(
+    db: Session,
+    reservation: ModelUsageReservation,
+) -> str | None:
+    """Pin the current secret immediately before the first provider dispatch.
+
+    This is intentionally called after the policy/counter locks have admitted
+    the request.  A committed key rotation that wins first is therefore used
+    by a new dispatch, while an already-dispatching reservation keeps the
+    exact secret ID needed for audit and safe destruction.
+    """
+
+    _require_reservation_binding_identity(db, reservation)
+    if reservation.config_revision_id is None:
+        return None
+    assert reservation.provider_profile_id is not None
+    assert reservation.provider_profile_version_id is not None
+    profile = lock_provider_profile(
+        db,
+        family_id=reservation.family_id,
+        profile_id=reservation.provider_profile_id,
+    )
+    if profile.status is not FamilyModelProviderStatus.ACTIVE:
+        raise ModelUsageStateError("family_model_provider_disabled")
+    profile_version = get_current_provider_profile_version(
+        db,
+        family_id=reservation.family_id,
+        profile=profile,
+        for_update=True,
+    )
+    if profile_version is None or profile_version.id != reservation.provider_profile_version_id:
+        raise ModelUsageStateError("reservation_binding_identity_mismatch")
+    if profile_version.auth_mode == "no_auth":
+        reservation.credential_secret_version_id = None
+        return None
+    if profile_version.auth_mode != "api_key":
+        raise ModelUsageStateError("reservation_provider_auth_mode_invalid")
+    secret = get_current_provider_secret_version(
+        db,
+        family_id=reservation.family_id,
+        profile=profile,
+        for_update=True,
+    )
+    if (
+        secret is None
+        or secret.status is not FamilyModelSecretStatus.ACTIVE
+        or secret.nonce is None
+        or secret.ciphertext is None
+        or secret.auth_tag is None
+    ):
+        raise ModelUsageStateError("family_model_secret_unavailable")
+    reservation.credential_secret_version_id = secret.id
+    return secret.id
+
+
 def _permit(
     reservation: ModelUsageReservation,
     meters: tuple[ModelUsageReservationMeter, ...],
@@ -250,6 +347,11 @@ def _permit(
             )
             for row in meters
         ),
+        config_revision_id=reservation.config_revision_id,
+        provider_profile_id=reservation.provider_profile_id,
+        provider_profile_version_id=reservation.provider_profile_version_id,
+        credential_secret_version_id=reservation.credential_secret_version_id,
+        search_profile_id=reservation.search_profile_id,
     )
 
 
@@ -328,6 +430,7 @@ def prepare_usage_dispatch_in_session(
             period_start=reservation.period_start,
             policy_version_id=policy.id,
         )
+    authorize_reservation_credential(db, reservation)
     reservation.status = transition_reservation(
         reservation.status,
         ModelUsageReservationStatus.DISPATCHING,

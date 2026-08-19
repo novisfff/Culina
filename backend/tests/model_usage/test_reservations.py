@@ -21,6 +21,7 @@ from app.core.enums import (
 from app.models.domain import Family, User
 from app.models.model_usage import ModelUsageEvent, ModelUsagePeriodCounter, ModelUsageReservation
 from app.services.model_usage.errors import ModelUsageAttemptConflict, ModelUsageContractError
+from app.services.model_usage.configured_variants import ConfiguredUsageVariant
 from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.policies import (
     CapabilityLimitCommand,
@@ -88,6 +89,7 @@ def set_policy(
     budget: Decimal | None,
     hard: bool,
     limits: tuple[CapabilityLimitCommand, ...] = (),
+    active_variants: tuple[ConfiguredUsageVariant, ...] = (),
 ) -> None:
     policy = current_policy(db, family_id=context.attribution.family_id)
     subject = ensure_user_subject(
@@ -105,7 +107,7 @@ def set_policy(
             hard_limit_enabled=hard,
             capability_limits=limits,
             actor_subject_id=subject.id,
-            active_variants=(),
+            active_variants=active_variants,
         ),
     )
 
@@ -344,6 +346,31 @@ def test_capability_meter_guardrail_uses_informational_quantity(
         budget=Decimal("100"),
         hard=True,
         limits=(limit,),
+        active_variants=(
+            ConfiguredUsageVariant(
+                provider="openai",
+                billing_model="gpt-test",
+                capability=ModelUsageCapability.LLM,
+                variant_key="default",
+                billing_scheme_key="llm-split-v1",
+                billable_meters=frozenset(
+                    {
+                        ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                        ModelUsageMeter.CACHED_INPUT_TOKENS,
+                        ModelUsageMeter.OUTPUT_TOKENS,
+                    }
+                ),
+                produced_meters=frozenset(
+                    {
+                        ModelUsageMeter.INPUT_TOKENS,
+                        ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                        ModelUsageMeter.CACHED_INPUT_TOKENS,
+                        ModelUsageMeter.OUTPUT_TOKENS,
+                        ModelUsageMeter.TOTAL_TOKENS,
+                    }
+                ),
+            ),
+        ),
     )
     result = reserve_usage_in_session(
         model_usage_db,

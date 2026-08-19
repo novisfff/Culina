@@ -1,5 +1,10 @@
 from ._support import *
-from ._support import _build_provider_config
+from app.ai.images.generation import (
+    ImageGenerationClient,
+    MockImageGenerationProvider,
+    normalize_image_generation_request,
+)
+from app.services.model_usage.errors import ModelUsageContractError
 
 
 class RecipeDraftSearchThenCreateProvider(BaseChatProvider):
@@ -528,119 +533,45 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertNotIn("美食静物摄影师", user_prompt)
 
         def test_image_generation_normalizes_all_modes_to_standard_card_size(self) -> None:
-            calls: list[dict] = []
-
-            class FakeHttpxClient:
-                def __init__(self, *args, **kwargs) -> None:
-                    pass
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, exc_type, exc, traceback) -> None:
-                    return None
-
-                def post(self, url: str, **kwargs):
-                    calls.append({"url": url, **kwargs})
-                    return httpx.Response(
-                        200,
-                        json={"data": [{"b64_json": base64.b64encode(b"fake-image").decode("ascii")}]},
-                    )
-
-            provider = OpenAIImageGenerationProvider(
-                ImageProviderConfig(
-                    provider="openai",
-                    api_base="https://example.test/v1",
-                    api_key="test-key",
-                    model="gpt-image-2",
+            text = normalize_image_generation_request(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.RECIPE,
+                    mode=ImageGenerationMode.TEXT,
+                    title="番茄炒蛋",
+                    size="1792*1008",
                 )
             )
-            with patch("app.ai.images.generation.httpx.Client", FakeHttpxClient):
-                provider.generate_from_text(
-                    ImageGenerationRequest(
-                        entity_type=MediaEntityType.RECIPE,
-                        mode=ImageGenerationMode.TEXT,
-                        title="番茄炒蛋",
-                        size="1792*1008",
-                    )
-                )
-                provider.generate_from_reference(
-                    ImageGenerationRequest(
-                        entity_type=MediaEntityType.INGREDIENT,
-                        mode=ImageGenerationMode.REFERENCE,
-                        title="番茄",
-                        size="960*1280",
-                        reference_image_bytes=b"fake",
-                        reference_filename="tomato.jpg",
-                    )
-                )
-
-            self.assertEqual(calls[0]["json"]["size"], "1536x1024")
-            self.assertEqual(calls[1]["data"]["size"], "1536x1024")
-
-        def test_openai_image_provider_uses_configured_endpoint_and_key(self) -> None:
-            calls: list[dict] = []
-
-            class FakeHttpxClient:
-                def __init__(self, *args, **kwargs) -> None:
-                    pass
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, exc_type, exc, traceback) -> None:
-                    return None
-
-                def post(self, url: str, **kwargs):
-                    calls.append({"url": url, **kwargs})
-                    return httpx.Response(
-                        200,
-                        json={"data": [{"b64_json": base64.b64encode(b"fake-image").decode("ascii")}]},
-                    )
-
-            provider = OpenAIImageGenerationProvider(
-                ImageProviderConfig(
-                    provider="openai",
-                    api_base="https://example.test/v1",
-                    api_key="test-key",
-                    model="gpt-image-2",
+            reference = normalize_image_generation_request(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.INGREDIENT,
+                    mode=ImageGenerationMode.REFERENCE,
+                    title="番茄",
+                    size="960*1280",
+                    reference_image_bytes=b"fake",
+                    reference_filename="tomato.jpg",
                 )
             )
-            with patch("app.ai.images.generation.httpx.Client", FakeHttpxClient):
-                result = provider.generate_from_text(
+
+            self.assertEqual(text.size, "1536*1152")
+            self.assertEqual(reference.size, "1536*1152")
+
+        def test_image_client_has_no_environment_provider_fallback(self) -> None:
+            with self.assertRaisesRegex(ModelUsageContractError, "image_text_provider_not_selected"):
+                ImageGenerationClient().generate_from_text(
                     ImageGenerationRequest(
                         entity_type=MediaEntityType.FOOD,
                         mode=ImageGenerationMode.TEXT,
                         title="番茄炒蛋",
-                        size="1664*1040",
                     )
                 )
 
-            self.assertEqual(result.binary_content, b"fake-image")
-            self.assertEqual(result.file_extension, ".png")
-            self.assertEqual(result.mime_type, "image/png")
-            self.assertEqual(calls[0]["url"], "https://example.test/v1/images/generations")
-            self.assertEqual(calls[0]["headers"]["Authorization"], "Bearer test-key")
-            self.assertEqual(calls[0]["json"]["model"], "gpt-image-2")
-            self.assertEqual(calls[0]["json"]["size"], "1536x1024")
-            self.assertEqual(calls[0]["json"]["output_format"], "png")
-
-        def test_openai_image_provider_config_defaults_to_openai_base(self) -> None:
-            class FakeSettings:
-                ai_image_reference_provider = "openai"
-                ai_image_reference_api_base = ""
-                ai_image_reference_api_key = "reference-key"
-                ai_image_reference_model = ""
-                ai_image_text_provider = "openai"
-                ai_image_text_api_base = ""
-                ai_image_text_api_key = "text-key"
-                ai_image_text_model = ""
-
-            with patch("app.ai.images.generation.get_settings", return_value=FakeSettings()):
-                text_config = _build_provider_config(ImageGenerationMode.TEXT)
-                reference_config = _build_provider_config(ImageGenerationMode.REFERENCE)
-
-            self.assertEqual(text_config.api_base, "https://api.openai.com/v1")
-            self.assertEqual(text_config.model, "gpt-image-2")
-            self.assertEqual(reference_config.api_base, "https://api.openai.com/v1")
-            self.assertEqual(reference_config.model, "gpt-image-2")
+            result = ImageGenerationClient(
+                text_provider=MockImageGenerationProvider()
+            ).generate_from_text(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.FOOD,
+                    mode=ImageGenerationMode.TEXT,
+                    title="番茄炒蛋",
+                )
+            )
+            self.assertEqual(result.mime_type, "image/svg+xml")

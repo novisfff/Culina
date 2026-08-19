@@ -10,6 +10,7 @@ import { DropdownSelect, StateBlock } from '../../components/ui-kit';
 import {
   MODEL_USAGE_CAPABILITY_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
+  modelUsageGroupOptions,
 } from './modelUsageOptions';
 import {
   capabilityMeterFallback,
@@ -24,12 +25,6 @@ import {
 import { ModelUsageTrend } from './ModelUsageTrend';
 import { ModelUsageBreakdownTable } from './ModelUsageBreakdownTable';
 import type { ModelUsageWorkspaceViewProps } from './modelUsageWorkspaceViewModel';
-
-const MOBILE_GROUP_OPTIONS: Array<{ value: ModelUsageGroupBy; label: string }> = [
-  { value: 'capability', label: '按能力' },
-  { value: 'provider_model', label: '按模型' },
-  { value: 'meter', label: '按计量' },
-];
 
 type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;
 
@@ -200,9 +195,7 @@ function MobileTrend(props: MobileTrendProps) {
 function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | 'scope' | 'isOwner' | 'actions' | 'isBreakdownLoading'> & {
   items: ModelUsageBreakdownItem[] | null;
 }) {
-  const options = props.isOwner && props.scope === 'family'
-    ? [...MOBILE_GROUP_OPTIONS, { value: 'subject' as const, label: '成员' }]
-    : MOBILE_GROUP_OPTIONS;
+  const options = modelUsageGroupOptions(props.scope);
   return (
     <section className="model-usage-mobile-breakdown model-usage-breakdown-ledger" aria-labelledby="model-usage-mobile-breakdown-heading">
         <div className="model-usage-mobile-section-head">
@@ -241,7 +234,19 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
         {props.isBreakdownLoading && !props.items ? <p role="status">正在加载细分数据。</p> : null}
         {!props.isBreakdownLoading && !props.items?.length ? <p>这个账期暂无可展示的细分数据。</p> : null}
         {props.items?.length ? (
-          <ModelUsageBreakdownTable items={props.items} groupBy={props.groupBy} />
+          props.scope === 'family' ? (
+            <ModelUsageBreakdownTable
+              scope="family"
+              items={props.items as import('../../api/types').ModelUsageFamilyBreakdownItem[]}
+              groupBy={props.groupBy as import('../../api/types').ModelUsageFamilyGroupBy}
+            />
+          ) : (
+            <ModelUsageBreakdownTable
+              scope="me"
+              items={props.items as import('../../api/types').ModelUsagePersonalBreakdownItem[]}
+              groupBy={props.groupBy as import('../../api/types').ModelUsagePersonalGroupBy}
+            />
+          )
         ) : null}
     </section>
   );

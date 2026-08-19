@@ -86,6 +86,7 @@ from app.services.ai_operations.run_cancellation import (
     lock_run_for_transition,
 )
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
+from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -141,7 +142,7 @@ class WorkspaceGraphRunner:
         self.graph_run_initializer = GraphRunInitializer(db=self.db)
         self.user_message_preparer = UserMessagePreparer(
             db=self.db,
-            provider=self.provider,
+            provider_factory=self.service.provider_factory,
             json_record=self._json_record,
         )
         self.runtime_failure_persister = RuntimeFailurePersister(
@@ -245,6 +246,7 @@ class WorkspaceGraphRunner:
         )
         if prepared["existing"]:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
+        self._bind_provider_for_run(family_id=family_id, run_id=str(prepared["run_id"]))
         conversation_id = prepared["conversation_id"]
         config = self._config(conversation_id)
         orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
@@ -631,6 +633,39 @@ class WorkspaceGraphRunner:
             attachments=attachments,
         ).to_dict()
 
+    def _bind_provider_for_run(self, *, family_id: str, run_id: str) -> None:
+        """Resolve the provider from the run's durable family revision."""
+
+        run = self.db.scalar(
+            select(AIAgentRun).where(
+                AIAgentRun.id == run_id,
+                AIAgentRun.family_id == family_id,
+            )
+        )
+        if run is None:
+            raise FamilyModelSettingsError("family_model_run_not_found")
+        if run.config_revision_id is None:
+            # Only the explicit fixed test factory can produce a run without a
+            # family revision. New production runs receive one before graph
+            # execution in UserMessagePreparer.
+            selection = self.service.provider_factory.for_active_family(
+                self.db,
+                family_id=family_id,
+            )
+        else:
+            selection = self.service.provider_factory.for_run_revision(
+                self.db,
+                family_id=family_id,
+                config_revision_id=run.config_revision_id,
+            )
+            if (
+                selection.config_revision_id is not None
+                and selection.config_revision_id != run.config_revision_id
+            ):
+                raise FamilyModelSettingsError("family_model_run_revision_mismatch")
+        self.provider = selection.primary
+        self.approval_followup_streamer.provider = self.provider
+
     def _cancel_requested(self, run_id: str) -> bool:
         bind = self.db.get_bind()
         if bind.dialect.name == "sqlite":
@@ -686,6 +721,7 @@ class WorkspaceGraphRunner:
             comment=comment,
             stream=False,
         )
+        self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
         logger.info(
             "AI graph approval resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s has_snapshot=%s next=%s",
             family_id,
@@ -830,6 +866,7 @@ class WorkspaceGraphRunner:
             text=text,
             stream=False,
         )
+        self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
         output = self.graph.invoke(
             self._resume_command(
                 resume_payload=prepared.resume_payload,
@@ -1371,7 +1408,15 @@ class WorkspaceGraphRunner:
             daemon=True,
             kwargs={
                 "db_bind": db_bind,
-                "provider": getattr(self, "provider", None),
+                # A worker must rebuild its provider from the persisted run
+                # snapshot. Passing a request-thread provider here would turn
+                # it into a fixed test provider and silently bypass that
+                # boundary after a family publishes a new revision.
+                "provider_factory": getattr(
+                    getattr(self, "service", None),
+                    "provider_factory",
+                    None,
+                ),
                 "event_queue": event_queue,
                 "graph_stream": graph_stream,
                 "handle_update": handle_update,

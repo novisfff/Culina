@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import SessionLocal
 from app.models.domain import Food, Ingredient, Recipe
 from app.services.search.indexing import upsert_food_search_document, upsert_ingredient_search_document, upsert_recipe_search_document
+from app.services.search.jobs import enqueue_document_for_family_profiles
 from app.services.search.vector_cleanup import cleanup_stale_vector_points
 from app.services.search.vector_indexing import index_pending_search_documents
 
@@ -25,7 +26,8 @@ def rebuild_search_index(*, scopes: Iterable[str], family_id: str | None = None)
             if family_id:
                 statement = statement.where(Ingredient.family_id == family_id)
             for ingredient in db.scalars(statement):
-                upsert_ingredient_search_document(db, ingredient)
+                document = upsert_ingredient_search_document(db, ingredient)
+                enqueue_document_for_family_profiles(db, document, user_id="search-rebuild")
                 stats["ingredients"] += 1
 
         if "foods" in selected_scopes:
@@ -33,7 +35,8 @@ def rebuild_search_index(*, scopes: Iterable[str], family_id: str | None = None)
             if family_id:
                 statement = statement.where(Food.family_id == family_id)
             for food in db.scalars(statement):
-                upsert_food_search_document(db, food)
+                document = upsert_food_search_document(db, food)
+                enqueue_document_for_family_profiles(db, document, user_id="search-rebuild")
                 stats["foods"] += 1
 
         if "recipes" in selected_scopes:
@@ -41,7 +44,8 @@ def rebuild_search_index(*, scopes: Iterable[str], family_id: str | None = None)
             if family_id:
                 statement = statement.where(Recipe.family_id == family_id)
             for recipe in db.scalars(statement):
-                upsert_recipe_search_document(db, recipe)
+                document = upsert_recipe_search_document(db, recipe)
+                enqueue_document_for_family_profiles(db, document, user_id="search-rebuild")
                 stats["recipes"] += 1
 
         db.commit()

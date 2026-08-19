@@ -99,12 +99,20 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+    configured: true,
     enabled: true,
-    provider: 'openai-compatible',
-    model: 'fake-model',
     supports_vision: true,
     status: 'ready',
     detail: 'AI 已就绪。',
+    capabilities: {
+      llm: 'available',
+      image_generation: 'available',
+      stt: 'available',
+      tts: 'available',
+      realtime_audio: 'available',
+      embedding: 'available',
+      rerank: 'available',
+    },
   });
   vi.spyOn(api, 'getAiQualityMetrics').mockResolvedValue(qualityMetrics());
   vi.spyOn(api, 'getFoods').mockResolvedValue([]);
@@ -291,12 +299,20 @@ describe('AiWorkspace pending approval restore', () => {
 
   it('pauses both composers and blocks sending when AI is not configured', async () => {
     vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+      configured: false,
       enabled: false,
-      provider: 'disabled',
-      model: 'gpt-4o-mini',
       supports_vision: false,
-      status: 'disabled',
-      detail: 'AI 模型未配置。',
+      status: 'not_configured',
+      detail: '家庭 AI 服务尚未配置。',
+      capabilities: {
+        llm: 'unavailable',
+        image_generation: 'unavailable',
+        stt: 'unavailable',
+        tts: 'unavailable',
+        realtime_audio: 'unavailable',
+        embedding: 'unavailable',
+        rerank: 'unavailable',
+      },
     });
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
@@ -305,10 +321,10 @@ describe('AiWorkspace pending approval restore', () => {
     await flushAsync();
 
     expect(rendered.container.textContent).toContain('AI 未配置');
-    expect(rendered.container.textContent).not.toContain('AI 模型未配置。');
+    expect(rendered.container.textContent).not.toContain('家庭 AI 服务尚未配置。');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
-        .every((textarea) => textarea.placeholder === 'AI 模型未配置。'),
+        .every((textarea) => textarea.placeholder === '该能力尚未由家庭主理人配置'),
     ).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     await act(async () => {

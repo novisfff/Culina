@@ -10,6 +10,7 @@ import { DashboardIcon } from '../../app/shellIcons';
 import {
   MODEL_USAGE_CAPABILITY_OPTIONS,
   MODEL_USAGE_METER_OPTIONS,
+  modelUsageGroupOptions,
 } from './modelUsageOptions';
 import {
   capabilityMeterFallback,
@@ -24,12 +25,6 @@ import {
 import { ModelUsageTrend } from './ModelUsageTrend';
 import { ModelUsageBreakdownTable } from './ModelUsageBreakdownTable';
 import type { ModelUsageWorkspaceViewProps } from './modelUsageWorkspaceViewModel';
-
-const GROUP_OPTIONS: Array<{ value: ModelUsageGroupBy; label: string }> = [
-  { value: 'capability', label: '按能力' },
-  { value: 'provider_model', label: '按服务商 / 模型' },
-  { value: 'meter', label: '按计量项' },
-];
 
 type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;
 
@@ -213,9 +208,7 @@ function DailyTrend(props: UsageDataProps) {
 function Breakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | 'scope' | 'isOwner' | 'actions' | 'isBreakdownLoading'> & {
   items: ModelUsageBreakdownItem[] | null;
 }) {
-  const options = props.isOwner && props.scope === 'family'
-    ? [...GROUP_OPTIONS, { value: 'subject' as const, label: '按家庭成员' }]
-    : GROUP_OPTIONS;
+  const options = modelUsageGroupOptions(props.scope);
   return (
     <section className="model-usage-breakdown model-usage-breakdown-ledger" aria-labelledby="model-usage-breakdown-heading">
         <div className="model-usage-section-head model-usage-breakdown-head">
@@ -254,7 +247,19 @@ function Breakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | 'scope'
       {props.isBreakdownLoading && !props.items ? (
         <div className="model-usage-breakdown-loading" role="status">正在加载细分数据。</div>
       ) : props.items?.length ? (
-        <ModelUsageBreakdownTable items={props.items} groupBy={props.groupBy} />
+        props.scope === 'family' ? (
+          <ModelUsageBreakdownTable
+            scope="family"
+            items={props.items as import('../../api/types').ModelUsageFamilyBreakdownItem[]}
+            groupBy={props.groupBy as import('../../api/types').ModelUsageFamilyGroupBy}
+          />
+        ) : (
+          <ModelUsageBreakdownTable
+            scope="me"
+            items={props.items as import('../../api/types').ModelUsagePersonalBreakdownItem[]}
+            groupBy={props.groupBy as import('../../api/types').ModelUsagePersonalGroupBy}
+          />
+        )
       ) : (
         <p className="model-usage-breakdown-empty">这个账期暂无可展示的细分数据。</p>
       )}

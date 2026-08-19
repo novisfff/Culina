@@ -110,8 +110,17 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Run family model settings MySQL concurrency tests
+        run: |
+          cd backend
+          .venv/bin/python -m pytest \
+            tests/family_model_settings/test_draft_mysql_concurrency.py \
+            tests/family_model_settings/test_publishing_mysql_concurrency.py \
+            tests/family_model_settings/test_search_activation_mysql_concurrency.py -q
       - name: Run focused model-usage tests with MySQL 8.4
         run: npm run backend:test:model-usage
+      - name: Validate family model settings migration on MySQL
+        run: cd backend && .venv/bin/python -m pytest tests/family_model_settings/test_migration_mysql.py -q
 
   frontend-vitest:
     name: Frontend Vitest

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -10,7 +10,6 @@ from types import MappingProxyType
 from app.core.enums import ModelUsageCapability, ModelUsageMeter
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
-    configured_usage_variants,
 )
 from app.services.model_usage.errors import ModelUsageContractError
 from app.services.model_usage.types import (
@@ -54,52 +53,48 @@ class ProviderUsageRegistryError(ModelUsageContractError):
 
 _LLM_SEND_POINTS = frozenset(
     {
-        "app/ai/runtime/openai_chat.py:_create_chat_completion:self.openai_client.chat.completions.create",
-        "app/ai/runtime/openai_chat.py:_create_chat_completion_stream:self.openai_client.chat.completions.create",
-        "app/ai/runtime/openai_chat.py:_send_chat_request:self.openai_client.chat.completions.create",
-        "app/ai/runtime/openai_responses.py:_create_responses_stream:self.client.responses.create",
-        "app/ai/runtime/openai_responses.py:_send_responses_request:self.client.responses.create",
+        "app/ai/runtime/family_transport.py:request_json:self.transport.request",
     }
 )
 _EMBEDDING_SEND_POINTS = frozenset(
-    {"app/services/search/embeddings.py:_post_embeddings:client.post"}
+    {
+        "app/services/search/embeddings.py:_post_embeddings:client.post",
+        "app/services/search/embeddings.py:embed_batch:self.transport.request",
+    }
 )
 _RERANK_SEND_POINTS = frozenset(
     {"app/services/search/rerank.py:_post_rerank:client.post"}
 )
 _OPENAI_STT_SEND_POINTS = frozenset(
-    {"app/services/ai_audio/openai_audio.py:_post_transcription:client.post"}
+    {"app/services/ai_audio/openai_audio.py:_request:self.dependencies.transport.request"}
 )
 _OPENAI_TTS_SEND_POINTS = frozenset(
-    {"app/services/ai_audio/openai_audio.py:_post_speech:client.post"}
+    {"app/services/ai_audio/openai_audio.py:_request:self.dependencies.transport.request"}
 )
 _DASHSCOPE_STT_SEND_POINTS = frozenset(
-    {"app/services/ai_audio/dashscope_audio.py:_post_json:client.post"}
+    {"app/services/ai_audio/dashscope_audio.py:_request_json:self.dependencies.transport.request"}
 )
 _DASHSCOPE_TTS_SEND_POINTS = frozenset(
     {
-        "app/services/ai_audio/dashscope_audio.py:_post_json:client.post",
-        "app/services/ai_audio/dashscope_audio.py:_download_provider_audio:client.get",
+        "app/services/ai_audio/dashscope_audio.py:_request_json:self.dependencies.transport.request",
+        "app/services/ai_audio/dashscope_audio.py:synthesize:self.dependencies.transport.download_media",
     }
 )
 _DASHSCOPE_REALTIME_SEND_POINTS = frozenset(
     {
-        "app/services/ai_audio/dashscope_audio.py:_qwen_asr_realtime_transcribe:websockets.connect",
-        "app/services/ai_audio/dashscope_audio.py:_qwen_tts_realtime_stream:websockets.connect",
-        "app/services/ai_audio/dashscope_audio.py:_qwen_tts_realtime_synthesize:websockets.connect",
+        "app/services/ai_audio/dashscope_audio.py:_websocket:self.dependencies.transport.connect_websocket",
     }
 )
 _DASHSCOPE_IMAGE_SEND_POINTS = frozenset(
     {
-        "app/ai/images/generation.py:_generate:client.get",
-        "app/ai/images/generation.py:_generate:client.post",
+        "app/ai/images/generation.py:_download_media:self.dependencies.transport.download_media",
+        "app/ai/images/generation.py:_post_json:self.dependencies.transport.request",
     }
 )
 _OPENAI_IMAGE_SEND_POINTS = frozenset(
     {
-        "app/ai/images/generation.py:_post_json_image:client.post",
-        "app/ai/images/generation.py:_post_multipart_image:client.post",
-        "app/ai/images/generation.py:_result_from_payload:client.get",
+        "app/ai/images/generation.py:_download_media:self.dependencies.transport.download_media",
+        "app/ai/images/generation.py:_post_json:self.dependencies.transport.request",
     }
 )
 
@@ -107,6 +102,7 @@ _NON_MODEL_REMOTE_SEND_POINT_REASONS: Mapping[str, str] = MappingProxyType(
     {
         "app/services/search/vector_store.py:_ensure_payload_indexes:client.put": "Qdrant infrastructure",
         "app/services/search/vector_store.py:delete_point:client.post": "Qdrant infrastructure",
+        "app/services/search/vector_store.py:delete_collection:client.delete": "Qdrant infrastructure",
         "app/services/search/vector_store.py:ensure_collection:client.get": "Qdrant infrastructure",
         "app/services/search/vector_store.py:ensure_collection:client.put": "Qdrant infrastructure",
         "app/services/search/vector_store.py:scroll_points:client.post": "Qdrant infrastructure",
@@ -158,10 +154,15 @@ def non_model_remote_send_point_reasons() -> Mapping[str, str]:
     return _NON_MODEL_REMOTE_SEND_POINT_REASONS
 
 
-def provider_usage_registrations(settings: object) -> tuple[ProviderUsageRegistration, ...]:
-    """Materialize one static ownership contract for each enabled configuration."""
+def provider_usage_registrations(
+    variants: Sequence[ConfiguredUsageVariant],
+) -> tuple[ProviderUsageRegistration, ...]:
+    """Materialize static ownership contracts for explicit family revisions."""
 
-    return tuple(_registration_for_variant(variant) for variant in configured_usage_variants(settings))
+    return tuple(
+        _registration_for_variant(variant)
+        for variant in variants
+    )
 
 
 def _registration_for_variant(variant: ConfiguredUsageVariant) -> ProviderUsageRegistration:
@@ -242,6 +243,18 @@ class _RemoteSendPointVisitor(ast.NodeVisitor):
             rendered.endswith(".chat.completions.create")
             or rendered.endswith(".responses.create")
         ):
+            self._add(rendered)
+        elif rendered.endswith(
+            (
+                ".transport.request",
+                ".transport.download_media",
+                ".transport.connect_websocket",
+            )
+        ):
+            # Family-bound adapters deliberately route all remote effects
+            # through the shared policy-enforced transport.  The Attribute
+            # visitor also catches ``connect_websocket`` passed into
+            # ``asyncio.to_thread`` rather than invoked directly.
             self._add(rendered)
         self.generic_visit(node)
 

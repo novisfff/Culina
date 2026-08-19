@@ -1,50 +1,49 @@
 from __future__ import annotations
 
-"""Real-provider smoke driver using Culina's production accounting adapters."""
+"""Real-family smoke driver using the published capability-test protocol.
 
-import asyncio
+The former implementation reconstructed the removed process-wide Provider
+configuration directly. This driver deliberately goes through the same family
+revision resolver, reservation, dispatch, and settlement path as the
+Owner-initiated billable capability tests. It therefore cannot turn legacy
+environment variables into a provider send.
+"""
+
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import select
 
-from app.ai.images.generation import (
-    ImageGenerationClient,
-    ImageGenerationRequest,
-    MeteredImageGenerationResult,
-    normalize_image_generation_request,
-)
-from app.ai.images.jobs import _image_usage_adapter_for_request
-from app.ai.runtime.factory import build_chat_provider
 from app.core.config import get_settings
-from app.core.enums import (
-    ImageGenerationMode,
-    MediaEntityType,
-    MembershipStatus,
-    ModelUsageAttributionKind,
-    ModelUsageCapability,
-    ModelUsageOperationSource,
-)
+from app.core.enums import MembershipStatus, ModelUsageCapability
 from app.core.utils import create_id
 from app.db.session import SessionLocal
 from app.models.domain import Family, Membership, User
-from app.models.model_usage import ModelUsageEvent, ModelUsageReservation
-from app.services.ai_audio.dashscope_audio import DashScopeAudioProvider
-from app.services.ai_audio.realtime import realtime_voice_session_store
-from app.services.ai_audio.schemas import (
-    CookingRealtimeSessionRequest,
-    SpeechRequest,
-    SpeechResult,
-    TranscriptionRequest,
+from app.repos.family_model_settings.idempotency import get_operation_receipt
+from app.services.family_model_settings.capability_tests import (
+    CapabilityTestCommand,
+    CapabilityTestDependencies,
+    run_family_capability_test,
 )
-from app.services.ai_audio.service import AIAudioService, SpeechResultCache
-from app.services.model_usage.preflight import run_first_launch_preflight
-from app.services.model_usage.provider_registry import provider_usage_registrations
-from app.services.model_usage.types import UsageAttribution
-from app.services.search.embeddings import build_embedding_client
-from app.services.search.rerank import build_rerank_client
+from app.services.family_model_settings.credentials import FamilyModelCredentialCipher
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
+from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
+from app.services.family_model_settings.transport import ProviderTransport
+from app.services.model_usage.facade import ModelUsageFacade
+from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 
 
 _EXPECTED_CAPABILITIES = frozenset(ModelUsageCapability)
+_SMOKE_VARIANTS: dict[ModelUsageCapability, str] = {
+    ModelUsageCapability.LLM: "primary",
+    ModelUsageCapability.EMBEDDING: "search",
+    ModelUsageCapability.RERANK: "search",
+    ModelUsageCapability.STT: "default",
+    ModelUsageCapability.TTS: "default",
+    ModelUsageCapability.REALTIME_AUDIO: "default",
+    ModelUsageCapability.IMAGE_GENERATION: "text",
+}
 
 
 class ProviderSmokeDriverError(RuntimeError):
@@ -60,10 +59,10 @@ class ProviderSmokeResult:
 
 
 class CulinaProviderSmokeDriver:
-    """Send one minimal call per capability through the configured adapters.
+    """Send one minimal metered probe for every published family capability.
 
     No prompt, transcript, audio, image, URL, provider response, family ID, or
-    user ID is returned to the CLI artifact.  The only result is the settled
+    user ID is returned to the CLI artifact. The only result is the settled
     model-usage event ID for each capability.
     """
 
@@ -72,25 +71,17 @@ class CulinaProviderSmokeDriver:
         self.user_id = user_id
         self.settings = get_settings()
         self.run_id = create_id("provider-smoke")
-        self._tts_result: SpeechResult | None = None
-        self._tts_event_id: str | None = None
+        self._dependencies: CapabilityTestDependencies | None = None
         self._validated = False
 
     def run(self, capability: ModelUsageCapability) -> ProviderSmokeResult:
+        if capability not in _EXPECTED_CAPABILITIES:
+            raise ProviderSmokeDriverError("provider_smoke_capability_invalid")
         if not self._validated:
             self._validate_before_provider_send()
             self._validated = True
-        handlers = {
-            ModelUsageCapability.LLM: self._run_llm,
-            ModelUsageCapability.EMBEDDING: self._run_embedding,
-            ModelUsageCapability.RERANK: self._run_rerank,
-            ModelUsageCapability.STT: self._run_stt,
-            ModelUsageCapability.TTS: self._run_tts,
-            ModelUsageCapability.REALTIME_AUDIO: self._run_realtime_audio,
-            ModelUsageCapability.IMAGE_GENERATION: self._run_image_generation,
-        }
         try:
-            event_id = handlers[capability]()
+            event_id = self._run_capability(capability)
         except ProviderSmokeDriverError:
             raise
         except Exception as exc:
@@ -103,23 +94,25 @@ class CulinaProviderSmokeDriver:
             )
         return ProviderSmokeResult(capability=capability, event_id=event_id)
 
+    def _capability_test_dependencies(self) -> CapabilityTestDependencies:
+        dependencies = self._dependencies
+        if dependencies is None:
+            settings = self.settings
+            cipher = FamilyModelCredentialCipher.from_settings(settings)
+            policy = ProviderNetworkPolicy.from_settings(settings)
+            dependencies = CapabilityTestDependencies(
+                cipher=cipher,
+                network_policy=policy,
+                transport=ProviderTransport.from_settings(settings, policy=policy),
+                usage_facade=ModelUsageFacade(),
+                signer=decode_receipt_integrity_keyring(settings).signer(),
+            )
+            self._dependencies = dependencies
+        return dependencies
+
     def _validate_before_provider_send(self) -> None:
         if not bool(getattr(self.settings, "model_usage_required", False)):
             raise ProviderSmokeDriverError("provider_smoke_model_usage_required")
-        try:
-            registrations = provider_usage_registrations(self.settings)
-        except Exception as exc:
-            raise ProviderSmokeDriverError("provider_smoke_registry_invalid") from exc
-        registered = {item.capability for item in registrations}
-        if registered != _EXPECTED_CAPABILITIES:
-            raise ProviderSmokeDriverError("provider_smoke_registry_incomplete")
-
-        try:
-            preflight = run_first_launch_preflight(self.settings)
-        except Exception as exc:
-            raise ProviderSmokeDriverError("provider_smoke_preflight_unavailable") from exc
-        if not preflight.ready:
-            raise ProviderSmokeDriverError("provider_smoke_preflight_not_ready")
 
         with SessionLocal() as db:
             family_exists = db.get(Family, self.family_id) is not None
@@ -131,235 +124,63 @@ class CulinaProviderSmokeDriver:
                     Membership.status == MembershipStatus.ACTIVE,
                 )
             )
-        if not family_exists or user is None or not user.is_active or membership is None:
-            raise ProviderSmokeDriverError("provider_smoke_membership_required")
+            if not family_exists or user is None or not user.is_active or membership is None:
+                raise ProviderSmokeDriverError("provider_smoke_membership_required")
 
-    def _attribution(
-        self,
-        *,
-        operation_id: str,
-        source: ModelUsageOperationSource = ModelUsageOperationSource.INTERACTIVE,
-    ) -> UsageAttribution:
-        return UsageAttribution(
-            family_id=self.family_id,
-            attribution_kind=ModelUsageAttributionKind.USER,
-            actor_user_id=self.user_id,
-            operation_source=source,
-            logical_operation_id=operation_id,
-        )
+            try:
+                dependencies = self._capability_test_dependencies()
+                resolver = FamilyModelConfigurationResolver(
+                    db,
+                    cipher=dependencies.cipher,
+                    network_policy=dependencies.network_policy,
+                )
+                for capability, variant_key in _SMOKE_VARIANTS.items():
+                    resolver.resolve_active(
+                        self.family_id,
+                        cast(str, capability.value),
+                        variant_key,
+                    )
+            except FamilyModelSettingsError as exc:
+                raise ProviderSmokeDriverError(
+                    "provider_smoke_family_configuration_required"
+                ) from exc
+            except Exception as exc:
+                raise ProviderSmokeDriverError(
+                    "provider_smoke_family_configuration_invalid"
+                ) from exc
 
-    def _event_for_operation(
-        self,
-        *,
-        capability: ModelUsageCapability,
-        operation_id: str,
-    ) -> str:
+    def _idempotency_key(self, capability: ModelUsageCapability) -> str:
+        return f"provider-smoke-{self.run_id}-{capability.value}"
+
+    def _run_capability(self, capability: ModelUsageCapability) -> str:
+        variant_key = _SMOKE_VARIANTS[capability]
+        idempotency_key = self._idempotency_key(capability)
         with SessionLocal() as db:
-            event_id = db.scalar(
-                select(ModelUsageEvent.id)
-                .join(
-                    ModelUsageReservation,
-                    ModelUsageReservation.id == ModelUsageEvent.reservation_id,
-                )
-                .where(
-                    ModelUsageEvent.family_id == self.family_id,
-                    ModelUsageEvent.capability == capability,
-                    ModelUsageReservation.logical_operation_id == operation_id,
-                )
-                .order_by(ModelUsageEvent.created_at.desc())
-                .limit(1)
+            result = run_family_capability_test(
+                db,
+                CapabilityTestCommand(
+                    family_id=self.family_id,
+                    actor_user_id=self.user_id,
+                    capability=cast(str, capability.value),
+                    variant_key=variant_key,
+                    confirm_billable=True,
+                    idempotency_key=idempotency_key,
+                ),
+                dependencies=self._capability_test_dependencies(),
             )
-        if not event_id:
+            if result.status != "succeeded":
+                raise ProviderSmokeDriverError(
+                    f"provider_smoke_{capability.value}_{result.status}"
+                )
+            receipt = get_operation_receipt(
+                db,
+                family_id=self.family_id,
+                operation="family_model_capability_test",
+                idempotency_key=idempotency_key,
+            )
+        event_id = receipt.result_id if receipt is not None else None
+        if not isinstance(event_id, str) or not event_id:
             raise ProviderSmokeDriverError(
                 f"provider_smoke_{capability.value}_event_missing"
             )
         return event_id
-
-    def _operation_id(self, capability: ModelUsageCapability) -> str:
-        return f"{self.run_id}:{capability.value}"
-
-    def _run_llm(self) -> str:
-        operation_id = self._operation_id(ModelUsageCapability.LLM)
-        result = build_chat_provider(self.settings).generate(
-            system="Return one short acknowledgement.",
-            user="smoke",
-            usage_attribution=self._attribution(operation_id=operation_id),
-        )
-        if result.status != "completed" or not result.text:
-            raise ProviderSmokeDriverError("provider_smoke_llm_result_invalid")
-        return self._event_for_operation(
-            capability=ModelUsageCapability.LLM,
-            operation_id=operation_id,
-        )
-
-    def _run_embedding(self) -> str:
-        operation_id = self._operation_id(ModelUsageCapability.EMBEDDING)
-        result = build_embedding_client().embed_text(
-            "smoke",
-            attribution=self._attribution(operation_id=operation_id),
-            attempt_key=f"{operation_id}:attempt:1",
-        )
-        if len(result.vectors) != 1 or not result.usage_event_id:
-            raise ProviderSmokeDriverError("provider_smoke_embedding_result_invalid")
-        return result.usage_event_id
-
-    def _run_rerank(self) -> str:
-        operation_id = self._operation_id(ModelUsageCapability.RERANK)
-        results = build_rerank_client().rerank(
-            query="smoke",
-            documents=["smoke", "control"],
-            top_n=1,
-            attribution=self._attribution(operation_id=operation_id),
-            attempt_key=f"{operation_id}:attempt:1",
-        )
-        if not results:
-            raise ProviderSmokeDriverError("provider_smoke_rerank_result_invalid")
-        return self._event_for_operation(
-            capability=ModelUsageCapability.RERANK,
-            operation_id=operation_id,
-        )
-
-    def _run_tts(self) -> str:
-        if self._tts_result is not None and self._tts_event_id is not None:
-            return self._tts_event_id
-        operation_id = self._operation_id(ModelUsageCapability.TTS)
-        service = AIAudioService(self.settings, cache=SpeechResultCache())
-        self._tts_result = service.synthesize(
-            SpeechRequest(
-                text=f"测试 {self.run_id[-6:]}",
-                surface="main_ai",
-                family_id=self.family_id,
-                user_id=self.user_id,
-                operation_id=operation_id,
-            )
-        )
-        if not self._tts_result.audio_bytes:
-            raise ProviderSmokeDriverError("provider_smoke_tts_audio_missing")
-        self._tts_event_id = self._event_for_operation(
-            capability=ModelUsageCapability.TTS,
-            operation_id=operation_id,
-        )
-        return self._tts_event_id
-
-    def _run_stt(self) -> str:
-        self._run_tts()
-        assert self._tts_result is not None
-        assert self._tts_result.audio_bytes is not None
-        operation_id = self._operation_id(ModelUsageCapability.STT)
-        result = AIAudioService(self.settings).transcribe(
-            TranscriptionRequest(
-                audio_bytes=self._tts_result.audio_bytes,
-                filename="smoke-audio",
-                content_type=self._tts_result.content_type,
-                surface="main_ai",
-                family_id=self.family_id,
-                user_id=self.user_id,
-                operation_id=operation_id,
-            )
-        )
-        if not result.text:
-            raise ProviderSmokeDriverError("provider_smoke_stt_result_invalid")
-        return self._event_for_operation(
-            capability=ModelUsageCapability.STT,
-            operation_id=operation_id,
-        )
-
-    def _run_realtime_audio(self) -> str:
-        provider = str(getattr(self.settings, "ai_realtime_provider", "") or "").strip().lower()
-        if provider != "dashscope":
-            raise ProviderSmokeDriverError("provider_smoke_realtime_driver_unsupported")
-        # Realtime lease attempt keys use ':' as their structural delimiter,
-        # so every identity component must remain delimiter-free.
-        operation_id = f"{self.run_id}-realtime-audio"
-        session = AIAudioService(self.settings).create_cooking_session(
-            CookingRealtimeSessionRequest(
-                provider=provider,
-                family_id=self.family_id,
-                user_id=self.user_id,
-                recipe_id="provider-smoke-recipe",
-                cook_session_id=self.run_id,
-                session_revision=1,
-                subject={"source": "recipe_cook_page"},
-            )
-        )
-
-        async def synthesize_and_terminalize() -> tuple[SpeechResult, str]:
-            state = realtime_voice_session_store.require_owner(
-                session.session_id,
-                family_id=self.family_id,
-                user_id=self.user_id,
-            )
-            scope = state.realtime_usage_scope
-            if scope is None:
-                raise ProviderSmokeDriverError("provider_smoke_realtime_adapter_missing")
-            result = await DashScopeAudioProvider(
-                self.settings,
-                capability="tts",
-            ).synthesize_realtime_text(
-                SpeechRequest(
-                    text="测试",
-                    surface="recipe_cook_page",
-                    family_id=self.family_id,
-                    user_id=self.user_id,
-                    operation_id=operation_id,
-                ),
-                realtime_usage_scope=scope,
-                realtime_turn_id=operation_id,
-            )
-            terminal = await scope.finish_current_lease_once(
-                completion_reason="provider_smoke",
-            )
-            if terminal.decision == "settlement_pending":
-                raise ProviderSmokeDriverError(
-                    "provider_smoke_realtime_settlement_pending"
-                )
-            settlement = terminal.settlement
-            event_id = str(getattr(settlement, "event_id", "") or "")
-            if terminal.decision != "ended" or not event_id:
-                raise ProviderSmokeDriverError(
-                    "provider_smoke_realtime_audio_event_missing"
-                )
-            return result, event_id
-
-        try:
-            result, event_id = asyncio.run(synthesize_and_terminalize())
-        finally:
-            realtime_voice_session_store.close(session.session_id)
-        if not result.audio_bytes:
-            raise ProviderSmokeDriverError("provider_smoke_realtime_result_invalid")
-        return event_id
-
-    def _run_image_generation(self) -> str:
-        operation_id = self._operation_id(ModelUsageCapability.IMAGE_GENERATION)
-        request = normalize_image_generation_request(
-            ImageGenerationRequest(
-                entity_type=MediaEntityType.FOOD,
-                mode=ImageGenerationMode.TEXT,
-                title="测试",
-            )
-        )
-        adapter = _image_usage_adapter_for_request(request)
-        if adapter is None:
-            raise ProviderSmokeDriverError("provider_smoke_image_adapter_missing")
-        attempt = adapter.begin(
-            attribution=self._attribution(
-                operation_id=operation_id,
-                source=ModelUsageOperationSource.IMAGE_JOB,
-            ),
-            attempt_key=f"{operation_id}:attempt:1",
-            mode=request.mode.value,
-            image_count=1,
-            size=request.size,
-            quality=request.quality,
-            fingerprint=adapter.request_fingerprint(
-                {"runId": self.run_id, "capability": "image_generation"}
-            ),
-        )
-        result = ImageGenerationClient().generate(
-            request,
-            usage_attempt=attempt,
-            usage_adapter=adapter,
-        )
-        if not isinstance(result, MeteredImageGenerationResult):
-            raise ProviderSmokeDriverError("provider_smoke_image_result_invalid")
-        return result.usage_event_id

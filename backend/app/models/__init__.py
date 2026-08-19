@@ -47,6 +47,19 @@ from app.models.model_usage import (
     ModelUsageRealtimeWatermark,
     ModelUsageSubject,
 )
+from app.models.family_model_settings import (
+    FamilyModelCapabilityBinding,
+    FamilyModelConfigDraft,
+    FamilyModelConfigRevision,
+    FamilyModelOperationReceipt,
+    FamilyModelProviderProfile,
+    FamilyModelProviderProfileVersion,
+    FamilyModelResourceOperation,
+    FamilyModelSecretVersion,
+    FamilyModelSettings,
+    FamilySearchProfile,
+    FamilySearchProfileDocument,
+)
 
 __all__ = [
     "ActivityLog",
@@ -58,6 +71,17 @@ __all__ = [
     "AIRunCancelRequest",
     "Base",
     "Family",
+    "FamilyModelCapabilityBinding",
+    "FamilyModelConfigDraft",
+    "FamilyModelConfigRevision",
+    "FamilyModelOperationReceipt",
+    "FamilyModelProviderProfile",
+    "FamilyModelProviderProfileVersion",
+    "FamilyModelResourceOperation",
+    "FamilyModelSecretVersion",
+    "FamilyModelSettings",
+    "FamilySearchProfile",
+    "FamilySearchProfileDocument",
     "Food",
     "FoodPlanItem",
     "Ingredient",

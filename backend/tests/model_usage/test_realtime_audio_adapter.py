@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
@@ -27,7 +28,7 @@ from app.models.model_usage import (
 )
 from app.services.ai_audio.realtime import RealtimeProviderScope, RealtimeVoiceSessionState
 from app.services.model_usage.adapters.realtime_audio import RealtimeAudioUsageAdapter
-from app.services.model_usage.configured_variants import configured_usage_variants
+from app.services.model_usage.configured_variants import realtime_duplex_billing_model
 from app.services.model_usage.errors import (
     ModelUsageContractError,
     ModelUsageSettlementPending,
@@ -96,23 +97,41 @@ def _adapter(
     )
 
 
+def _dashscope_realtime_variant():
+    return replace(
+        configured_test_variants()[5],
+        billing_model=realtime_duplex_billing_model(
+            input_model="qwen3-asr-flash-realtime",
+            output_model="qwen3-tts-flash-realtime",
+        ),
+        billing_scheme_key="realtime-asr-seconds-tts-characters-v1",
+        billable_meters=frozenset(
+            {
+                ModelUsageMeter.AUDIO_INPUT_SECONDS,
+                ModelUsageMeter.TTS_CHARACTERS,
+            }
+        ),
+        produced_meters=frozenset(
+            {
+                ModelUsageMeter.AUDIO_INPUT_SECONDS,
+                ModelUsageMeter.TTS_CHARACTERS,
+            }
+        ),
+        lease_boundary_cumulative_meters=frozenset(),
+        input_tokens_per_second_cap=None,
+        output_tokens_per_second_cap=None,
+        realtime_input_model="qwen3-asr-flash-realtime",
+        realtime_output_model="qwen3-tts-flash-realtime",
+        tts_characters_per_lease_cap=4096,
+    )
+
+
 def test_realtime_adapter_rejects_a_provider_model_outside_the_duplex_mapping(
     model_usage_db: Session,
     realtime_signer: ProviderUsageReceiptSigner,
 ) -> None:
     adapter = _adapter(model_usage_db, realtime_signer)
-    adapter.billing_variant = next(
-        variant
-        for variant in configured_usage_variants(
-            SimpleNamespace(
-                ai_realtime_provider="dashscope",
-                ai_realtime_model="qwen3-asr-flash-realtime",
-                ai_realtime_voice="Cherry",
-                ai_tts_model="qwen3-tts-flash",
-            )
-        )
-        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
-    )
+    adapter.billing_variant = _dashscope_realtime_variant()
 
     adapter.validate_provider_model(
         direction="input",
@@ -138,24 +157,17 @@ def test_dashscope_realtime_scope_settles_asr_seconds_and_tts_characters(
     realtime_signer: ProviderUsageReceiptSigner,
 ) -> None:
     adapter = _adapter(model_usage_db, realtime_signer)
-    adapter.billing_variant = next(
-        variant
-        for variant in configured_usage_variants(
-            SimpleNamespace(
-                ai_realtime_provider="dashscope",
-                ai_realtime_model="qwen3-asr-flash-realtime",
-                ai_realtime_voice="Cherry",
-                ai_tts_model="qwen3-tts-flash",
-                ai_realtime_tts_max_characters=4096,
-            )
-        )
-        if variant.capability is ModelUsageCapability.REALTIME_AUDIO
-    )
+    adapter.billing_variant = _dashscope_realtime_variant()
     session = RealtimeVoiceSessionState(
         session_id="voice-session-provider-units",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-provider-units",
         cook_session_id="cook-provider-units",
         session_revision=1,
@@ -595,7 +607,12 @@ def test_realtime_scope_connection_without_provider_audio_creates_no_usage_rows(
         session_id="voice-session-no-provider-audio",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-no-provider-audio",
         cook_session_id="cook-no-provider-audio",
         session_revision=1,
@@ -631,7 +648,12 @@ def test_realtime_scope_terminalizes_a_lease_before_renewing(
         session_id="voice-session-scope",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-scope",
         cook_session_id="cook-scope",
         session_revision=1,
@@ -710,7 +732,12 @@ def test_realtime_scope_terminalizes_three_non_overlapping_leases_for_sixty_five
         session_id="voice-session-sixty-five-seconds",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-sixty-five-seconds",
         cook_session_id="cook-sixty-five-seconds",
         session_revision=1,
@@ -815,7 +842,12 @@ def test_realtime_scope_concurrent_terminal_callbacks_settle_one_lease_once(
         session_id="voice-session-concurrent-terminal",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-concurrent-terminal",
         cook_session_id="cook-concurrent-terminal",
         session_revision=1,
@@ -900,13 +932,19 @@ def test_realtime_scope_budget_blocked_renewal_never_authorizes_a_second_provide
                 limit_value=Decimal("3000"),
             ),
         ),
+        active_variants=(configured_test_variants()[5],),
     )
     adapter = _adapter(model_usage_db, realtime_signer)
     session = RealtimeVoiceSessionState(
         session_id="voice-session-budget-blocked-renewal",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-budget-blocked-renewal",
         cook_session_id="cook-budget-blocked-renewal",
         session_revision=1,
@@ -979,7 +1017,12 @@ def test_realtime_scope_missing_terminal_boundary_data_never_opens_a_new_lease(
         session_id="voice-session-pending-renewal",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-pending-renewal",
         cook_session_id="cook-pending-renewal",
         session_revision=1,
@@ -1038,7 +1081,12 @@ def test_realtime_scope_late_pre_send_cumulative_growth_blocks_renewal(
         session_id="voice-session-late-cumulative",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-late-cumulative",
         cook_session_id="cook-late-cumulative",
         session_revision=1,
@@ -1233,7 +1281,12 @@ def test_realtime_scope_deadline_ends_a_quiet_lease_when_boundary_usage_is_missi
         session_id="voice-session-deadline",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-deadline",
         cook_session_id="cook-deadline",
         session_revision=1,
@@ -1281,7 +1334,12 @@ def test_realtime_scope_marks_an_ambiguous_provider_failure_uncertain(
         session_id="voice-session-uncertain",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-uncertain",
         cook_session_id="cook-uncertain",
         session_revision=1,
@@ -1328,7 +1386,12 @@ def test_realtime_scope_can_clear_a_completed_deadline_after_its_event_loop_clos
         session_id="voice-session-sync-deadline-cleanup",
         family_id="family-test",
         user_id="user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-test",
         cook_session_id="cook-test",
         session_revision=1,
@@ -1364,7 +1427,12 @@ def test_realtime_session_expiry_terminalizes_a_quiet_lease_before_the_lease_dea
         session_id="voice-session-expiry-deadline",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-expiry-deadline",
         cook_session_id="cook-expiry-deadline",
         session_revision=1,
@@ -1428,7 +1496,12 @@ def test_realtime_scope_interrupts_an_inflight_provider_operation_at_the_deadlin
         session_id="voice-session-inflight-deadline",
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-inflight-deadline",
         cook_session_id="cook-inflight-deadline",
         session_revision=1,
@@ -1518,7 +1591,12 @@ def test_realtime_scope_uses_the_physical_send_clock_after_dispatch_setup(
         session_id="voice-session-physical-clock",
         family_id="family-test",
         user_id="user-test",
-        provider="dashscope",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        requested_model="realtime-test",
+        binding_identity_checksum="checksum-test",
+        adapter_kind="dashscope_realtime",
         recipe_id="recipe-test",
         cook_session_id="cook-test",
         session_revision=1,

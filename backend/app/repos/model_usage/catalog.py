@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.core.enums import ModelUsageCapability
+from app.core.enums import FamilyModelPricePurpose, ModelUsageCapability
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
 
 
@@ -26,6 +26,106 @@ def current_published_version(
         )
         .limit(1)
     )
+
+
+def get_family_price_version(
+    db: Session,
+    *,
+    family_id: str,
+    price_version_id: str,
+    for_update: bool = False,
+) -> ModelUsagePriceVersion | None:
+    statement = select(ModelUsagePriceVersion).where(
+        ModelUsagePriceVersion.family_id == family_id,
+        ModelUsagePriceVersion.id == price_version_id,
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return db.scalar(statement)
+
+
+def get_complete_active_family_price_version(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str,
+    price_version_id: str,
+) -> ModelUsagePriceVersion | None:
+    return db.scalar(
+        select(ModelUsagePriceVersion).where(
+            ModelUsagePriceVersion.id == price_version_id,
+            ModelUsagePriceVersion.family_id == family_id,
+            ModelUsagePriceVersion.config_revision_id == config_revision_id,
+            ModelUsagePriceVersion.search_profile_id.is_(None),
+            ModelUsagePriceVersion.purpose == FamilyModelPricePurpose.ACTIVE,
+            ModelUsagePriceVersion.status == "published",
+        )
+    )
+
+
+def list_active_family_price_versions(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str,
+) -> tuple[ModelUsagePriceVersion, ...]:
+    """Newest immutable active prices for a particular config revision first."""
+
+    return tuple(
+        db.scalars(
+            select(ModelUsagePriceVersion)
+            .where(
+                ModelUsagePriceVersion.family_id == family_id,
+                ModelUsagePriceVersion.config_revision_id == config_revision_id,
+                ModelUsagePriceVersion.search_profile_id.is_(None),
+                ModelUsagePriceVersion.purpose == FamilyModelPricePurpose.ACTIVE,
+                ModelUsagePriceVersion.status == "published",
+            )
+            .order_by(
+                ModelUsagePriceVersion.version_number.desc(),
+                ModelUsagePriceVersion.id.desc(),
+            )
+        )
+    )
+
+
+def get_candidate_search_price_version(
+    db: Session,
+    *,
+    family_id: str,
+    search_profile_id: str,
+    price_version_id: str,
+) -> ModelUsagePriceVersion | None:
+    return db.scalar(
+        select(ModelUsagePriceVersion).where(
+            ModelUsagePriceVersion.id == price_version_id,
+            ModelUsagePriceVersion.family_id == family_id,
+            ModelUsagePriceVersion.config_revision_id.is_(None),
+            ModelUsagePriceVersion.search_profile_id == search_profile_id,
+            ModelUsagePriceVersion.purpose
+            == FamilyModelPricePurpose.SEARCH_REBUILD_CANDIDATE,
+            ModelUsagePriceVersion.status == "published",
+        )
+    )
+
+
+def list_family_price_versions(
+    db: Session,
+    *,
+    family_id: str,
+    limit: int | None = None,
+) -> tuple[ModelUsagePriceVersion, ...]:
+    statement = (
+        select(ModelUsagePriceVersion)
+        .where(ModelUsagePriceVersion.family_id == family_id)
+        .order_by(
+            ModelUsagePriceVersion.version_number.desc(),
+            ModelUsagePriceVersion.id.desc(),
+        )
+    )
+    if limit is not None:
+        statement = statement.limit(limit)
+    return tuple(db.scalars(statement))
 
 
 def price_rates_for_variant(

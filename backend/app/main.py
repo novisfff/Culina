@@ -13,6 +13,10 @@ from app.api.inventory_reconciliation import (
     RECONCILIATION_SUBMIT_PATH,
     reconciliation_request_validation_detail,
 )
+from app.api.family_model_settings import (
+    FAMILY_MODEL_SETTINGS_API_PREFIX,
+    family_model_settings_request_validation_detail,
+)
 from app.api.router import api_router
 from app.api.shopping_intake import (
     SHOPPING_INTAKE_SUBMIT_PATH,
@@ -24,6 +28,9 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.services.model_usage.maintenance import ModelUsageMaintenanceWorker
 from app.services.model_usage.preflight import run_model_usage_preflight
+from app.services.family_model_settings.maintenance import (
+    FamilyModelSettingsMaintenanceWorker,
+)
 from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
@@ -89,15 +96,23 @@ async def lifespan(app: FastAPI):
     image_worker = ImageGenerationWorker()
     search_index_worker = SearchIndexWorker()
     model_usage_worker = ModelUsageMaintenanceWorker()
+    family_model_settings_worker = FamilyModelSettingsMaintenanceWorker()
     image_worker.start()
     search_index_worker.start()
     if settings.model_usage_maintenance_enabled:
         model_usage_worker.start()
+    if settings.family_model_maintenance_enabled:
+        family_model_settings_worker.start()
     logger.info("AI image generation worker started")
     logger.info("Search index worker started")
     if settings.model_usage_maintenance_enabled:
         logger.info("Model usage maintenance worker started")
+    if settings.family_model_maintenance_enabled:
+        logger.info("Family model settings maintenance worker started")
     yield
+    if settings.family_model_maintenance_enabled:
+        family_model_settings_worker.stop()
+        logger.info("Family model settings maintenance worker stopped")
     if settings.model_usage_maintenance_enabled:
         model_usage_worker.stop()
         logger.info("Model usage maintenance worker stopped")
@@ -112,6 +127,11 @@ app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)
 
 @app.exception_handler(RequestValidationError)
 async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith(FAMILY_MODEL_SETTINGS_API_PREFIX):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": family_model_settings_request_validation_detail(exc.errors())},
+        )
     if request.method == "POST" and request.url.path == RECONCILIATION_SUBMIT_PATH:
         return JSONResponse(
             status_code=422,

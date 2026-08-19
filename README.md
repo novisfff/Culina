@@ -59,9 +59,10 @@ VITE_API_BASE_URL=http://127.0.0.1:8010
 - `MINIO_*`
 - `INITIAL_ADMIN_*`
 - `INITIAL_FAMILY_*`
-- `AI_PROVIDER`
+- `FAMILY_MODEL_CREDENTIAL_*`（部署密钥；使用独立 base64 编码的 32-byte keyring）
+- `QDRANT_*`、`SEARCH_*`（基础设施与安全限制）
 
-AI provider 默认可保持 disabled；未配置真实模型时，后端按降级逻辑运行。
+初始化数据库后，以 Owner 身份登录，进入“家庭 → AI 服务”，创建 Provider profile、配置所需能力与价格、验证后发布。旧版 Provider `.env` 值会被忽略，且不会被导入。
 
 ### 3. 启动 MySQL 和 MinIO
 

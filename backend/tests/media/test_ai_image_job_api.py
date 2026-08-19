@@ -18,6 +18,10 @@ from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIImageGenerationJob, Base, Family, Food, MealLog, MealLogFood, MediaAsset, Membership, User
+from app.services.family_model_settings.types import (
+    ResolvedCapabilityBinding,
+    ResolvedProviderEndpoint,
+)
 
 
 class FakeImageGenerationClient:
@@ -33,6 +37,60 @@ class FakeImageGenerationClient:
 
     def generate_from_reference(self, request):
         return self.generate_from_text(request)
+
+
+def _image_binding(*, family_id: str, variant_key: str) -> ResolvedCapabilityBinding:
+    endpoint = ResolvedProviderEndpoint(
+        normalized_url="https://image-test-provider.example/v1",
+        scheme="https",
+        host="image-test-provider.example",
+        port=443,
+        base_path="/v1",
+        resolved_addresses=("93.184.216.34",),
+        private_target=False,
+    )
+    return ResolvedCapabilityBinding(
+        family_id=family_id,
+        config_revision_id="image-test-revision",
+        provider_profile_id="image-test-profile",
+        provider_profile_version_id="image-test-profile-version",
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        endpoint=endpoint,
+        websocket_endpoint=None,
+        requested_model="image-test-model",
+        billing_model="image-test-model",
+        capability="image_generation",
+        variant_key=variant_key,
+        billing_scheme_key="image-count-v1",
+        options={},
+    )
+
+
+class FakeFamilyImageResolver:
+    """Explicit worker seam for legacy job-state tests.
+
+    Family binding/ledger behavior is covered by family-model-settings tests;
+    these API tests intentionally isolate media job timestamps and target
+    binding without reviving a process-wide Provider configuration.
+    """
+
+    def __init__(self, _db) -> None:
+        pass
+
+    def resolve_active(self, family_id: str, capability: str, variant_key: str):
+        assert capability == "image_generation"
+        return _image_binding(family_id=family_id, variant_key=variant_key)
+
+    def resolve_revision(
+        self,
+        family_id: str,
+        _config_revision_id: str,
+        capability: str,
+        variant_key: str,
+    ):
+        assert capability == "image_generation"
+        return _image_binding(family_id=family_id, variant_key=variant_key)
 
 
 class AiImageJobApiTimestampTestCase(unittest.TestCase):
@@ -124,6 +182,16 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
             return_value=SimpleNamespace(model_usage_required=False),
         )
         self.image_job_settings_patcher.start()
+        self.family_model_resolver_patcher = patch(
+            "app.ai.images.jobs.FamilyModelConfigurationResolver",
+            FakeFamilyImageResolver,
+        )
+        self.family_model_resolver_patcher.start()
+        self.image_usage_adapter_patcher = patch(
+            "app.ai.images.jobs._image_usage_adapter_for_binding",
+            return_value=None,
+        )
+        self.image_usage_adapter_patcher.start()
         self.put_object_patcher = patch("app.services.media._put_media_object")
         self.put_object_patcher.start()
         self.delete_object_patcher = patch("app.services.media.delete_media_file")
@@ -136,6 +204,8 @@ class AiImageJobApiTimestampTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
         self.delete_object_patcher.stop()
         self.put_object_patcher.stop()
+        self.image_usage_adapter_patcher.stop()
+        self.family_model_resolver_patcher.stop()
         self.image_job_settings_patcher.stop()
         self.settings_patcher.stop()
         Base.metadata.drop_all(self.engine)

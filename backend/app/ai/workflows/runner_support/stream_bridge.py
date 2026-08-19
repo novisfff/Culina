@@ -21,7 +21,7 @@ def _elapsed_ms(started_at: float) -> int:
 def make_stream_worker_runner(
     *,
     db_bind: Any,
-    provider: Any,
+    provider_factory: Any,
     runner_factory: Callable[[], "WorkspaceGraphRunner"] | None,
 ) -> tuple["WorkspaceGraphRunner", Callable[[], None]]:
     if runner_factory is not None:
@@ -31,7 +31,7 @@ def make_stream_worker_runner(
     from app.ai.workflows.runner import WorkspaceGraphRunner
 
     worker_db = Session(bind=db_bind, autoflush=False, autocommit=False, future=True)
-    service = AIApplicationService(worker_db, provider=provider)
+    service = AIApplicationService(worker_db, provider_factory=provider_factory)
     return WorkspaceGraphRunner(service), worker_db.close
 
 
@@ -147,7 +147,7 @@ def handle_stream_worker_exception(
 def consume_stream_graph_worker(
     *,
     db_bind: Any,
-    provider: Any,
+    provider_factory: Any,
     event_queue: Queue[Any],
     graph_stream: Callable[["WorkspaceGraphRunner"], Iterator[Any]],
     handle_update: Callable[["WorkspaceGraphRunner", Any], Iterator[tuple[str, dict[str, Any]]]],
@@ -162,9 +162,16 @@ def consume_stream_graph_worker(
 ) -> None:
     worker_runner, close_worker_runner = make_stream_worker_runner(
         db_bind=db_bind,
-        provider=provider,
+        provider_factory=provider_factory,
         runner_factory=runner_factory,
     )
+    context = perf_context or {}
+    family_id = context.get("family_id")
+    run_id = context.get("run_id")
+    if isinstance(family_id, str) and family_id and isinstance(run_id, str) and run_id:
+        # Never carry a request-thread provider into a worker. The worker has
+        # its own Session and reconstructs from the immutable run snapshot.
+        worker_runner._bind_provider_for_run(family_id=family_id, run_id=run_id)
     previous_sink = worker_runner._direct_stream_sink
     worker_runner._direct_stream_sink = enqueue
     try:

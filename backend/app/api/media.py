@@ -26,6 +26,7 @@ from app.services.media import (
     read_media_object_by_key,
     save_upload,
 )
+from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import serialize_media
 from app.models.domain import AIImageGenerationJob, Family, Food, FoodScene, Ingredient, MealLog, Membership, Recipe, User
 
@@ -164,16 +165,25 @@ def render_ai_image(
     if (payload.target_entity_type and not payload.target_entity_id) or (payload.target_entity_id and not payload.target_entity_type):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image render target is incomplete")
     request, _reference_asset = _build_image_generation_request(payload=payload, family_id=membership.family_id, db=db)
-    job = enqueue_image_generation(
-        db,
-        family_id=membership.family_id,
-        user_id=user.id,
-        request=request,
-        reference_media_id=payload.reference_media_id,
-        target_entity_type=payload.target_entity_type,
-        target_entity_id=payload.target_entity_id,
-        replace_anchor_media_id=payload.replace_anchor_media_id,
-    )
+    try:
+        job = enqueue_image_generation(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            request=request,
+            reference_media_id=payload.reference_media_id,
+            target_entity_type=payload.target_entity_type,
+            target_entity_id=payload.target_entity_id,
+            replace_anchor_media_id=payload.replace_anchor_media_id,
+        )
+    except FamilyModelSettingsError as exc:
+        # Image rendering is available to members, but configuration is owned
+        # by the household. Keep the stable reason code so the client can show
+        # a non-diagnostic unavailable state without exposing a provider.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     if payload.target_entity_type and payload.target_entity_id:
         try:
             attach_image_generation_job_to_entity(

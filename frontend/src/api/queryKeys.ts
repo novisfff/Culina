@@ -4,6 +4,7 @@ const inventoryOverviewRoot = ['inventory', 'overview'] as const;
 const foodPlanRoot = ['food-plan'] as const;
 const mealCandidatesRoot = ['meal-logs', 'candidates'] as const;
 const modelUsageRoot = (familyId: string) => ['model-usage', familyId] as const;
+const familyModelSettingsRoot = (familyId: string) => ['family-model-settings', familyId] as const;
 
 export const queryKeys = {
   authMe: ['auth', 'me'] as const,
@@ -82,6 +83,13 @@ export const queryKeys = {
   aiRunLlmExchange: (runId: string | null, exchangeId: string | null) => ['ai-run-llm-exchange', runId, exchangeId] as const,
   aiPendingApprovals: (conversationId: string | null) => ['ai-pending-approvals', conversationId] as const,
   modelUsageRoot,
+  familyModelSettingsRoot,
+  familyModelSettings: (familyId: string) => [...familyModelSettingsRoot(familyId), 'settings'] as const,
+  familyModelSettingsDraft: (familyId: string) => [...familyModelSettingsRoot(familyId), 'draft'] as const,
+  familyModelPriceVersions: (familyId: string) => [...familyModelSettingsRoot(familyId), 'prices'] as const,
+  familySearchProfile: (familyId: string) => [...familyModelSettingsRoot(familyId), 'search'] as const,
+  familySearchReplacement: (familyId: string, profileId: string) =>
+    [...familyModelSettingsRoot(familyId), 'search', 'replacement', profileId] as const,
   modelUsageOverview: (familyId: string, scope: ModelUsageScope, period: string) =>
     [...modelUsageRoot(familyId), 'overview', scope, period] as const,
   modelUsageBreakdown: (familyId: string, scope: ModelUsageScope, period: string, groupBy: ModelUsageGroupBy) =>

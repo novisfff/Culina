@@ -3,16 +3,27 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from app.core.config import get_settings
-from app.db.session import SessionLocal
-from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
+from app.services.family_model_settings.errors import (
+    FamilyModelSecretUnavailable,
+    FamilyModelSettingsError,
+    FamilyModelProviderTransportError,
+)
+from app.services.family_model_settings.transport import ProviderResponse, ProviderTransport
+from app.services.family_model_settings.types import (
+    DispatchCredential,
+    EmbeddingUsageSnapshot,
+    ResolvedSearchProfile,
+)
+from app.services.model_usage.adapters.embedding import (
+    EmbeddingUsageAdapter,
+    EmbeddingUsageDependencies,
+)
 from app.services.model_usage.errors import ModelUsageContractError, ModelUsageError
-from app.services.model_usage.facade import ModelUsageFacade
-from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 from app.services.model_usage.types import UsageAttribution
 
 logger = logging.getLogger(__name__)
@@ -20,6 +31,18 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingUnavailableError(RuntimeError):
     pass
+
+
+class _KnownNoSendEmbeddingFailure(RuntimeError):
+    """Credential resolution failed after admission but before any transport call."""
+
+    pass
+
+
+class _ConfirmedEmbeddingProviderFailure(RuntimeError):
+    def __init__(self, *, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__("embedding provider rejected request")
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +65,7 @@ class EmbeddingClient(Protocol):
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
         ...
 
@@ -51,6 +75,7 @@ class EmbeddingClient(Protocol):
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
         ...
 
@@ -66,8 +91,9 @@ class DisabledEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
-        del text, attribution, attempt_key
+        del text, attribution, attempt_key, usage_snapshot
         raise EmbeddingUnavailableError("search embedding provider disabled")
 
     def embed_batch(
@@ -76,8 +102,9 @@ class DisabledEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
-        del texts, attribution, attempt_key
+        del texts, attribution, attempt_key, usage_snapshot
         raise EmbeddingUnavailableError("search embedding provider disabled")
 
 
@@ -120,11 +147,13 @@ class OpenAICompatibleEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
         result = self.embed_batch(
             [text],
             attribution=attribution,
             attempt_key=attempt_key,
+            usage_snapshot=usage_snapshot,
         )
         if len(result.vectors) != 1:
             raise EmbeddingUnavailableError("embedding response count mismatch")
@@ -136,6 +165,7 @@ class OpenAICompatibleEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
     ) -> MeteredEmbeddingResult:
         if not texts:
             return MeteredEmbeddingResult(vectors=[], usage_event_id=None)
@@ -163,6 +193,7 @@ class OpenAICompatibleEmbeddingClient:
                 attempt_key=attempt_key,
                 text_token_estimates=[estimate_embedding_tokens(text) for text in texts],
                 fingerprint=adapter.request_fingerprint(texts=texts),
+                usage_snapshot=usage_snapshot,
             )
             reserve_duration_ms = (perf_counter() - reserve_started_at) * 1000
             dispatch_started_at = perf_counter()
@@ -243,6 +274,171 @@ class OpenAICompatibleEmbeddingClient:
             raise EmbeddingUnavailableError(str(exc)) from exc
 
 
+class FamilyOpenAICompatibleEmbeddingClient:
+    """Embedding client reconstructed from an immutable family search profile.
+
+    The profile owns endpoint/model/dimensions/collection identity, while the
+    caller supplies one persisted usage snapshot for every send.  Credential
+    plaintext is resolved only after the usage permit is durably dispatching.
+    """
+
+    def __init__(
+        self,
+        *,
+        binding: ResolvedSearchProfile,
+        transport: ProviderTransport,
+        resolve_dispatch_credential: Callable[
+            [ResolvedSearchProfile, str | None], DispatchCredential
+        ],
+        usage_adapter: EmbeddingUsageAdapter,
+        model_usage_required: bool = True,
+    ) -> None:
+        if binding.adapter_kind != "openai_compatible_http":
+            raise ModelUsageContractError("embedding_binding_adapter_unsupported")
+        if usage_adapter.binding is not binding and usage_adapter.binding != binding:
+            raise ModelUsageContractError("embedding_binding_required")
+        self.binding = binding
+        self.transport = transport
+        self.resolve_dispatch_credential = resolve_dispatch_credential
+        self.usage_adapter = usage_adapter
+        self.model_usage_required = model_usage_required
+        self.model = binding.embedding_model
+        self.dimensions = binding.dimensions
+
+    def embed_text(
+        self,
+        text: str,
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
+    ) -> MeteredEmbeddingResult:
+        result = self.embed_batch(
+            [text],
+            attribution=attribution,
+            attempt_key=attempt_key,
+            usage_snapshot=usage_snapshot,
+        )
+        if len(result.vectors) != 1:
+            raise EmbeddingUnavailableError("embedding response count mismatch")
+        return result
+
+    def embed_batch(
+        self,
+        texts: list[str],
+        *,
+        attribution: UsageAttribution,
+        attempt_key: str,
+        usage_snapshot: EmbeddingUsageSnapshot | None = None,
+    ) -> MeteredEmbeddingResult:
+        if not texts:
+            return MeteredEmbeddingResult(vectors=[], usage_event_id=None)
+        if any(not isinstance(text, str) for text in texts):
+            raise ModelUsageContractError("embedding_text_invalid")
+        if attribution is None:
+            raise ModelUsageContractError("model_usage_attribution_required")
+        if usage_snapshot is None:
+            raise ModelUsageContractError("embedding_usage_snapshot_required")
+        if not self.model_usage_required:
+            raise ModelUsageContractError("family_embedding_usage_required")
+
+        adapter = self.usage_adapter
+        attempt = adapter.begin_embedding_batch(
+            attribution=attribution,
+            attempt_key=attempt_key,
+            text_token_estimates=[estimate_embedding_tokens(text) for text in texts],
+            fingerprint=adapter.request_fingerprint(texts=texts),
+            usage_snapshot=usage_snapshot,
+        )
+        permit = attempt.prepare_dispatch()
+        settlement = None
+        credential: DispatchCredential | None = None
+        response: ProviderResponse | None = None
+        try:
+            try:
+                credential = self.resolve_dispatch_credential(
+                    self.binding,
+                    permit.credential_secret_version_id,
+                )
+            except (FamilyModelSecretUnavailable, FamilyModelSettingsError) as exc:
+                raise _KnownNoSendEmbeddingFailure() from exc
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            if self.binding.auth_mode == "api_key":
+                if not credential.api_key:
+                    raise _KnownNoSendEmbeddingFailure()
+                headers["Authorization"] = f"Bearer {credential.api_key}"
+            if permit.provider_idempotency_key:
+                headers["Idempotency-Key"] = permit.provider_idempotency_key
+            response = self.transport.request(
+                "POST",
+                _embedding_endpoint_url(self.binding),
+                headers=headers,
+                json=_embedding_payload(self.binding, texts),
+            )
+            if not 200 <= response.status_code < 300:
+                if response.status_code in {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}:
+                    raise _ConfirmedEmbeddingProviderFailure(status_code=response.status_code)
+                raise EmbeddingUnavailableError("embedding provider response unavailable")
+            body = response.json()
+            if not isinstance(body, dict):
+                raise EmbeddingUnavailableError("embedding response invalid")
+            settlement = attempt.settle(
+                adapter.receipt_from_openai_response(
+                    permit,
+                    raw_usage=body.get("usage"),
+                    reported_model=_optional_string(body.get("model")) or self.model,
+                    provider_request_id=_provider_request_id(response, body),
+                )
+            )
+            vectors = _parse_vectors(
+                body,
+                expected_count=len(texts),
+                dimensions=self.dimensions,
+            )
+        except _KnownNoSendEmbeddingFailure as exc:
+            # The permit exists but credential decrypt/auth header assembly did
+            # not reach ProviderTransport, so settle a zero, confirmed-no-send
+            # receipt instead of leaving an unnecessary uncertain reservation.
+            settlement = attempt.settle(adapter.confirmed_not_executed_receipt(permit))
+            raise EmbeddingUnavailableError("family_model_secret_unavailable") from exc
+        except _ConfirmedEmbeddingProviderFailure as exc:
+            settlement = attempt.settle(adapter.confirmed_not_executed_receipt(permit))
+            raise EmbeddingUnavailableError("embedding provider rejected request") from exc
+        except Exception as exc:
+            if settlement is None:
+                try:
+                    attempt.mark_uncertain("embedding_provider_result_unavailable")
+                except Exception:
+                    pass
+            if isinstance(exc, (EmbeddingUnavailableError, ModelUsageError, ModelUsageContractError)):
+                raise
+            if isinstance(exc, FamilyModelProviderTransportError):
+                raise EmbeddingUnavailableError("embedding provider transport unavailable") from exc
+            raise EmbeddingUnavailableError("embedding request failed") from exc
+        finally:
+            credential = None
+
+        return MeteredEmbeddingResult(
+            vectors=vectors,
+            usage_event_id=settlement.event_id if settlement is not None else None,
+        )
+
+def _embedding_endpoint_url(binding: ResolvedSearchProfile) -> str:
+    parsed = urlsplit(binding.endpoint.normalized_url)
+    path = f"{parsed.path.rstrip('/')}/embeddings"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _embedding_payload(
+    binding: ResolvedSearchProfile,
+    texts: list[str],
+) -> dict[str, object]:
+    payload: dict[str, object] = {"model": binding.embedding_model, "input": texts}
+    if binding.dimensions > 0:
+        payload["dimensions"] = binding.dimensions
+    return payload
+
+
 def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -289,35 +485,31 @@ def _parse_vectors(
     return [vector for _, vector in vectors]
 
 
-def _embedding_usage_adapter(settings: object, *, provider: str) -> EmbeddingUsageAdapter | None:
-    if not bool(getattr(settings, "model_usage_required", False)):
-        return None
-    signer = decode_receipt_integrity_keyring(settings).signer()
-    return EmbeddingUsageAdapter(
-        provider=provider,
-        model=str(getattr(settings, "search_embedding_model", "") or ""),
-        dimensions=int(getattr(settings, "search_embedding_dimensions", 0) or 0),
-        usage_facade=ModelUsageFacade(session_factory=SessionLocal),
-        session_factory=SessionLocal,
-        signer=signer,
-    )
+def build_embedding_client(
+    profile: ResolvedSearchProfile | None = None,
+    *,
+    transport: ProviderTransport | None = None,
+    usage_dependencies: EmbeddingUsageDependencies | None = None,
+    resolve_dispatch_credential: Callable[
+        [ResolvedSearchProfile, str | None], DispatchCredential
+    ]
+    | None = None,
+) -> EmbeddingClient:
+    """Build a family-bound client or fail closed without a resolved profile."""
 
-
-def build_embedding_client() -> EmbeddingClient:
-    settings = get_settings()
-    provider = settings.search_embedding_provider.strip().lower()
-    if provider in {"", "disabled", "mock"}:
-        return DisabledEmbeddingClient()
-    if provider in {"openai", "openai-compatible", "compatible", "custom"}:
-        if not settings.search_embedding_api_base or not settings.search_embedding_api_key or not settings.search_embedding_model:
-            return DisabledEmbeddingClient()
-        return OpenAICompatibleEmbeddingClient(
-            api_base=settings.search_embedding_api_base,
-            api_key=settings.search_embedding_api_key,
-            model=settings.search_embedding_model,
-            dimensions=settings.search_embedding_dimensions,
-            timeout_seconds=settings.search_embedding_timeout_seconds,
-            usage_adapter=_embedding_usage_adapter(settings, provider=provider),
-            model_usage_required=bool(getattr(settings, "model_usage_required", False)),
+    if profile is not None:
+        if profile.adapter_kind != "openai_compatible_http":
+            raise ModelUsageContractError("embedding_binding_adapter_unsupported")
+        if usage_dependencies is None or resolve_dispatch_credential is None or transport is None:
+            raise ModelUsageContractError("family_embedding_dependencies_required")
+        return FamilyOpenAICompatibleEmbeddingClient(
+            binding=profile,
+            transport=transport,
+            resolve_dispatch_credential=resolve_dispatch_credential,
+            usage_adapter=EmbeddingUsageAdapter.for_search_profile(
+                profile,
+                usage_dependencies,
+            ),
+            model_usage_required=True,
         )
     return DisabledEmbeddingClient()

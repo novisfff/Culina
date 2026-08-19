@@ -21,8 +21,10 @@ from app.core.enums import (
 from app.services.model_usage.adapters.base import MeteredProviderAdapter, MeteredProviderAttempt
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
+    configured_variant_from_resolved_binding,
     validate_configured_variant,
 )
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 from app.services.model_usage.decimal_math import quantize_quantity
 from app.services.model_usage.estimators import estimate_realtime_audio
 from app.services.model_usage.errors import (
@@ -38,6 +40,7 @@ from app.services.model_usage.types import (
     UsageContext,
     UsageMeterQuantity,
     UsageSettlement,
+    receipt_identity_from_permit,
 )
 
 
@@ -130,6 +133,17 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
 
     billing_variant: ConfiguredUsageVariant | None = None
     operation_kind: str = "realtime_audio_lease"
+    binding: ResolvedCapabilityBinding | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is None:
+            return
+        if self.binding.capability != "realtime_audio":
+            raise ModelUsageContractError("realtime_binding_required")
+        resolved_variant = configured_variant_from_resolved_binding(self.binding)
+        if self.billing_variant is not None and self.billing_variant.identity != resolved_variant.identity:
+            raise ModelUsageContractError("realtime_binding_variant_mismatch")
+        self.billing_variant = resolved_variant
 
     def validate_provider_model(self, *, direction: str, provider_model: str) -> None:
         variant = self._variant()
@@ -159,6 +173,9 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
         server_tts_character_total: Decimal = Decimal("0"),
     ) -> ActiveRealtimeUsageLease:
         variant = self._variant()
+        binding = self.binding
+        if binding is not None and binding.family_id != family_id:
+            raise ModelUsageContractError("realtime_binding_required")
         input_baseline = _quantity(
             server_input_total,
             code="realtime_server_input_clock_invalid",
@@ -196,6 +213,11 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
             attempt_key=attempt_key,
             client_attempt_id=(
                 f"mua_realtime_{_stable_digest(family_id, attempt_key)[:32]}"
+            ),
+            config_revision_id=(binding.config_revision_id if binding is not None else None),
+            provider_profile_id=(binding.provider_profile_id if binding is not None else None),
+            provider_profile_version_id=(
+                binding.provider_profile_version_id if binding is not None else None
             ),
         )
         attempt = self.start_attempt(
@@ -326,6 +348,7 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                         integrity_key_id="",
                         integrity_hmac="",
                         required_meters=permit.required_meters,
+                        **receipt_identity_from_permit(permit),
                     )
                 )
             settlement = lease.attempt.settle(lease.terminal_receipt)
@@ -469,5 +492,6 @@ class RealtimeAudioUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.enums import (
+    FamilyModelSearchProfileStatus,
     FoodType,
     InventoryAvailabilityLevel,
     ModelUsageAttributionKind,
@@ -30,6 +31,21 @@ from app.models.domain import (
     RecipeCookLog,
     SearchDocument,
 )
+from app.db.session import SessionLocal
+from app.models.family_model_settings import FamilySearchProfile
+from app.repos.family_model_settings.configurations import (
+    get_config_revision,
+    get_search_profile,
+)
+from app.repos.family_model_settings.profiles import get_family_model_settings
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
+from app.services.family_model_settings.transport import ProviderTransport
+from app.services.family_model_settings.types import (
+    EmbeddingUsageSnapshot,
+    ResolvedCapabilityBinding,
+    ResolvedSearchProfile,
+)
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.ingredient_inventory_state import state_is_usable
@@ -40,7 +56,12 @@ from app.services.inventory_usage import (
     remaining_quantity,
     tracks_quantity,
 )
-from app.services.model_usage.errors import ModelUsageError
+from app.services.model_usage.errors import ModelUsageContractError, ModelUsageError
+from app.services.model_usage.facade import ModelUsageFacade
+from app.services.model_usage.preflight import decode_receipt_integrity_keyring
+from app.services.model_usage.pricing import lock_active_model_price_snapshot
+from app.services.model_usage.adapters.embedding import EmbeddingUsageDependencies
+from app.services.model_usage.adapters.rerank import RerankUsageDependencies
 from app.services.model_usage.types import UsageAttribution
 from app.services.search.embeddings import (
     EmbeddingClient,
@@ -48,24 +69,279 @@ from app.services.search.embeddings import (
     MeteredEmbeddingResult,
     build_embedding_client,
 )
+from app.services.search.constants import (
+    SEARCH_LITERAL_FALLBACK_MIN_SCORE,
+    SEARCH_RERANK_CANDIDATE_LIMIT,
+    SEARCH_RERANK_MIN_SCORE,
+    SEARCH_SEMANTIC_MIN_SCORE,
+)
 from app.services.search.keyword_store import KeywordMatchMode, KeywordSearchHit, search_exact_name_documents, search_keyword_documents
 from app.services.search.local_ranking import SearchConfidenceLevel, rank_local_candidates
 from app.services.search.query_analysis import SearchQueryProfile, analyze_search_query
 from app.services.search.ranking_features import SearchRankingCandidate, build_ranking_candidate
-from app.services.search.rerank import RerankClient, RerankUnavailableError, build_rerank_client
+from app.services.search.rerank import (
+    RerankClient,
+    RerankDependencies,
+    RerankUnavailableError,
+    build_rerank_client,
+)
 from app.services.search.scoring import SearchBusinessSignals, business_score_candidates
 from app.services.search.vector_store import VectorSearchHit, VectorStore, VectorStoreUnavailableError, build_vector_store
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RERANK_MIN_SCORE = 0.58
-DEFAULT_LITERAL_FALLBACK_MIN_SCORE = 0.70
-DEFAULT_RERANK_CANDIDATE_LIMIT = 50
 MAX_RERANK_DOCUMENT_CHARS = 2048
 _SEMANTIC_RECALL_EXECUTOR = ThreadPoolExecutor(
     max_workers=8,
     thread_name_prefix="search-semantic",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class FamilySearchRuntime:
+    """One immutable query-time view of a family's search capabilities.
+
+    The active configuration, active price and active search-profile pointers
+    are captured together while the settings row is locked.  The object itself
+    never includes credential plaintext and remains valid if an Owner changes
+    settings while the request is already running.
+    """
+
+    family_managed: bool
+    embedding: ResolvedSearchProfile | None
+    embedding_usage_snapshot: EmbeddingUsageSnapshot | None
+    rerank: ResolvedCapabilityBinding | None
+    rerank_price_version_id: str | None
+    embedding_degradation_code: str | None = None
+
+
+def _profile_degradation_code(profile: FamilySearchProfile | None) -> str:
+    if profile is None:
+        return "search_embedding_unavailable"
+    if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
+        return "search_embedding_provisioning"
+    if profile.status is FamilyModelSearchProfileStatus.FAILED:
+        return "search_embedding_failed"
+    if profile.status is FamilyModelSearchProfileStatus.CANCELLED:
+        return "search_embedding_cancelled"
+    return "search_embedding_unavailable"
+
+
+def _unconfigured_family_search_runtime() -> FamilySearchRuntime:
+    """Represent a family with no published model search configuration.
+
+    This is deliberately keyword-only.  In particular, it must not revive the
+    removed process-wide provider branch when an older caller creates a family
+    row and immediately asks the AI tools to search it.
+    """
+
+    return FamilySearchRuntime(
+        family_managed=True,
+        embedding=None,
+        embedding_usage_snapshot=None,
+        rerank=None,
+        rerank_price_version_id=None,
+        embedding_degradation_code="search_embedding_not_configured",
+    )
+
+
+def resolve_family_search_runtime(
+    db: Session,
+    *,
+    family_id: str,
+    resolver: FamilyModelConfigurationResolver | None = None,
+) -> FamilySearchRuntime:
+    """Capture the active family search identities before any provider I/O.
+
+    A missing settings row or an unpublished configuration is deliberately
+    keyword-only: no global Provider configuration is consulted for a family.
+    """
+
+    settings = get_family_model_settings(db, family_id=family_id)
+    if settings is None:
+        return _unconfigured_family_search_runtime()
+
+    try:
+        active = lock_active_model_price_snapshot(db, family_id=family_id)
+    except ModelUsageError:
+        # A family that has not published all seven capability prices must
+        # retain reliable local search rather than falling back to legacy env.
+        return FamilySearchRuntime(
+            family_managed=True,
+            embedding=None,
+            embedding_usage_snapshot=None,
+            rerank=None,
+            rerank_price_version_id=None,
+            embedding_degradation_code="search_embedding_not_configured",
+        )
+
+    resolved = resolver or FamilyModelConfigurationResolver(db)
+    rerank: ResolvedCapabilityBinding | None
+    try:
+        rerank = resolved.optional_revision_variant(
+            family_id,
+            active.config_revision_id,
+            "rerank",
+            "search",
+        )
+    except FamilyModelSettingsError:
+        rerank = None
+
+    profile_id = active.search_profile_id
+    profile: FamilySearchProfile | None = None
+    if profile_id is None:
+        revision = get_config_revision(
+            db,
+            family_id=family_id,
+            config_revision_id=active.config_revision_id,
+        )
+        profile_id = revision.search_profile_id if revision is not None else None
+    if profile_id is not None:
+        profile = get_search_profile(
+            db,
+            family_id=family_id,
+            search_profile_id=profile_id,
+        )
+
+    embedding: ResolvedSearchProfile | None = None
+    degradation_code: str | None = None
+    if profile is not None and profile.status is FamilyModelSearchProfileStatus.ACTIVE:
+        try:
+            embedding = resolved.resolve_search_profile(family_id, profile.id)
+        except FamilyModelSettingsError:
+            degradation_code = "search_embedding_unavailable"
+    else:
+        degradation_code = (
+            _profile_degradation_code(profile)
+            if profile_id is not None
+            else "search_embedding_not_configured"
+        )
+
+    return FamilySearchRuntime(
+        family_managed=True,
+        embedding=embedding,
+        embedding_usage_snapshot=(
+            EmbeddingUsageSnapshot(
+                config_revision_id=active.config_revision_id,
+                price_version_id=active.price_version_id,
+                candidate=False,
+            )
+            if embedding is not None
+            else None
+        ),
+        rerank=rerank,
+        rerank_price_version_id=active.price_version_id if rerank is not None else None,
+        embedding_degradation_code=degradation_code,
+    )
+
+
+def _family_search_client_dependencies(
+    resolver: FamilyModelConfigurationResolver,
+    *,
+    price_version_id: str,
+) -> tuple[
+    ProviderTransport,
+    EmbeddingUsageDependencies,
+    RerankUsageDependencies,
+    object,
+]:
+    """Build fresh-session provider dependencies for the threaded query path."""
+
+    settings = get_settings()
+    transport = ProviderTransport.from_settings(settings, policy=resolver.network_policy)
+    usage_facade = ModelUsageFacade(session_factory=SessionLocal)
+    signer = decode_receipt_integrity_keyring(settings).signer()
+
+    def resolve_credential(binding, secret_version_id):
+        with SessionLocal() as credential_db:
+            return FamilyModelConfigurationResolver(
+                credential_db,
+                network_policy=resolver.network_policy,
+                cipher=resolver.cipher,
+            ).resolve_dispatch_credential(binding, secret_version_id)
+
+    return (
+        transport,
+        EmbeddingUsageDependencies(
+            usage_facade=usage_facade,
+            session_factory=SessionLocal,
+            signer=signer,
+        ),
+        RerankUsageDependencies(
+            usage_facade=usage_facade,
+            session_factory=SessionLocal,
+            signer=signer,
+            price_version_id=price_version_id,
+        ),
+        resolve_credential,
+    )
+
+
+def _pending_write_search_runtime() -> FamilySearchRuntime:
+    """Fail closed when a caller holds uncommitted work in this Session.
+
+    A request-scoped Session with pending ORM writes cannot safely be committed
+    just to release the settings-row lock.  Search is read-only, so the safe
+    outcome is local keyword ranking rather than holding a DB transaction over
+    provider or Qdrant I/O.
+    """
+
+    return FamilySearchRuntime(
+        family_managed=True,
+        embedding=None,
+        embedding_usage_snapshot=None,
+        rerank=None,
+        rerank_price_version_id=None,
+        embedding_degradation_code="search_embedding_unavailable",
+    )
+
+
+def _resolve_hybrid_search_runtime(
+    db: Session,
+    *,
+    family_id: str,
+    resolver: FamilyModelConfigurationResolver | None,
+) -> tuple[FamilySearchRuntime, FamilyModelConfigurationResolver | None]:
+    """Capture and release the family settings lock before remote search I/O.
+
+    ``lock_active_model_price_snapshot()`` intentionally takes a row lock so
+    a query gets one coherent config/price view.  Leaving that lock open while
+    a provider request or Qdrant query is in flight would serialize unrelated
+    Owner changes, so a clean request session is committed immediately after
+    the immutable runtime object is built.  We never commit a caller's pending
+    work merely to make search semantic.
+    """
+
+    if db.new or db.dirty or db.deleted:
+        with db.no_autoflush:
+            settings = get_family_model_settings(db, family_id=family_id)
+        if settings is not None:
+            return _pending_write_search_runtime(), None
+        return _unconfigured_family_search_runtime(), None
+
+    with db.no_autoflush:
+        settings = get_family_model_settings(db, family_id=family_id)
+    if settings is None:
+        # Release the harmless read transaction before local-only ranking.
+        if db.in_transaction():
+            db.commit()
+        return _unconfigured_family_search_runtime(), None
+
+    resolved = resolver or FamilyModelConfigurationResolver(db)
+    try:
+        runtime = resolve_family_search_runtime(
+            db,
+            family_id=family_id,
+            resolver=resolved,
+        )
+    except Exception:
+        # The precondition above guarantees there is no caller-owned write to
+        # discard.  Roll back so a failed snapshot cannot retain a DB lock.
+        db.rollback()
+        raise
+    if db.in_transaction():
+        db.commit()
+    return runtime, resolved
 
 
 @dataclass
@@ -135,6 +411,7 @@ def hybrid_search(
     embedding_client: EmbeddingClient | None = None,
     vector_store: VectorStore | None = None,
     rerank_client: RerankClient | None = None,
+    family_resolver: FamilyModelConfigurationResolver | None = None,
 ) -> HybridSearchResponse:
     search_started_at = perf_counter()
     response_query = query.strip()
@@ -147,8 +424,68 @@ def hybrid_search(
     requested_window = offset + limit
     keyword_limit = max(80, requested_window * 4)
     semantic_limit = max(80, requested_window * 4)
-    hybrid_enabled = settings.search_hybrid_enabled
-    search_request_id = create_id("search-request") if hybrid_enabled else None
+    platform_hybrid_enabled = bool(settings.search_hybrid_enabled)
+    family_runtime = FamilySearchRuntime(
+        family_managed=True,
+        embedding=None,
+        embedding_usage_snapshot=None,
+        rerank=None,
+        rerank_price_version_id=None,
+    )
+    resolved_family: FamilyModelConfigurationResolver | None = None
+    if platform_hybrid_enabled:
+        family_runtime, resolved_family = _resolve_hybrid_search_runtime(
+            db,
+            family_id=family_id,
+            resolver=family_resolver,
+        )
+
+    semantic_enabled = (
+        platform_hybrid_enabled
+        and str(getattr(settings, "search_vector_backend", "qdrant")).strip().lower()
+        == "qdrant"
+        and family_runtime.embedding is not None
+    )
+    rerank_enabled = platform_hybrid_enabled and family_runtime.rerank is not None
+    search_request_id = (
+        create_id("search-request") if semantic_enabled or rerank_enabled else None
+    )
+    degraded = bool(
+        platform_hybrid_enabled
+        and family_runtime.embedding_degradation_code is not None
+    )
+    degradation_code: str | None = family_runtime.embedding_degradation_code
+
+    family_dependencies: tuple[
+        ProviderTransport,
+        EmbeddingUsageDependencies,
+        RerankUsageDependencies,
+        object,
+    ] | None = None
+
+    def get_family_dependencies() -> tuple[
+        ProviderTransport,
+        EmbeddingUsageDependencies,
+        RerankUsageDependencies,
+        object,
+    ]:
+        nonlocal family_dependencies
+        if family_dependencies is not None:
+            return family_dependencies
+        price_version_id = family_runtime.rerank_price_version_id
+        if (
+            price_version_id is None
+            and family_runtime.embedding_usage_snapshot is not None
+        ):
+            price_version_id = family_runtime.embedding_usage_snapshot.price_version_id
+        if resolved_family is None or price_version_id is None:
+            raise ModelUsageContractError("family_search_runtime_snapshot_invalid")
+        family_dependencies = _family_search_client_dependencies(
+            resolved_family,
+            price_version_id=price_version_id,
+        )
+        return family_dependencies
+
     exact_started_at = perf_counter()
     exact_name_hits = search_exact_name_documents(
         db,
@@ -160,21 +497,49 @@ def hybrid_search(
     )
     exact_duration_ms = (perf_counter() - exact_started_at) * 1000
     semantic_future: Future[list[VectorSearchHit]] | None = None
-    if hybrid_enabled:
+    if semantic_enabled:
         assert search_request_id is not None
-        embedding_client = embedding_client or build_embedding_client()
-        vector_store = vector_store or build_vector_store()
-        semantic_future = _SEMANTIC_RECALL_EXECUTOR.submit(
-            _semantic_recall,
-            embedding_client=embedding_client,
-            vector_store=vector_store,
-            family_id=family_id,
-            user_id=user_id,
-            scopes=scopes,
-            recall_query=recall_query,
-            semantic_limit=semantic_limit,
-            search_request_id=search_request_id,
-        )
+        try:
+            if (
+                family_runtime.embedding is None
+                or family_runtime.embedding_usage_snapshot is None
+            ):
+                raise ModelUsageContractError("family_search_runtime_snapshot_invalid")
+            transport, embedding_usage, _rerank_usage, resolve_credential = (
+                get_family_dependencies()
+            )
+            embedding_client = embedding_client or build_embedding_client(
+                family_runtime.embedding,
+                transport=transport,
+                usage_dependencies=embedding_usage,
+                resolve_dispatch_credential=resolve_credential,  # type: ignore[arg-type]
+            )
+            vector_store = vector_store or build_vector_store(
+                settings,
+                qdrant_collection=family_runtime.embedding.qdrant_collection,
+            )
+            semantic_future = _SEMANTIC_RECALL_EXECUTOR.submit(
+                _semantic_recall,
+                embedding_client=embedding_client,
+                vector_store=vector_store,
+                family_id=family_id,
+                user_id=user_id,
+                scopes=scopes,
+                recall_query=recall_query,
+                semantic_limit=semantic_limit,
+                search_request_id=search_request_id,
+                usage_snapshot=family_runtime.embedding_usage_snapshot,
+            )
+        except (
+            EmbeddingUnavailableError,
+            FamilyModelSettingsError,
+            ModelUsageError,
+            ValueError,
+            VectorStoreUnavailableError,
+        ) as exc:
+            degraded = True
+            if degradation_code is None:
+                degradation_code = getattr(exc, "code", "search_embedding_unavailable")
     keyword_started_at = perf_counter()
     keyword_hits = search_keyword_documents(
         db,
@@ -186,27 +551,61 @@ def hybrid_search(
     )
     keyword_duration_ms = (perf_counter() - keyword_started_at) * 1000
 
-    degraded = False
-    degradation_code: str | None = None
     semantic_hits: list[VectorSearchHit] = []
     semantic_wait_duration_ms = 0.0
+    semantic_used = False
     if semantic_future is not None:
         semantic_wait_started_at = perf_counter()
         try:
             semantic_hits = semantic_future.result()
+            semantic_used = True
         except ModelUsageError as exc:
             degraded = True
-            degradation_code = exc.code
+            if degradation_code is None:
+                degradation_code = exc.code
         except EmbeddingUnavailableError:
             degraded = True
-            degradation_code = "search_embedding_unavailable"
+            if degradation_code is None:
+                degradation_code = "search_embedding_unavailable"
         except VectorStoreUnavailableError:
             degraded = True
-            degradation_code = "search_vector_unavailable"
+            if degradation_code is None:
+                degradation_code = "search_vector_unavailable"
         finally:
             semantic_wait_duration_ms = (perf_counter() - semantic_wait_started_at) * 1000
 
-    rerank_client = (rerank_client or build_rerank_client()) if hybrid_enabled else None
+    rerank_setup_degraded = False
+    rerank_setup_degradation_code: str | None = None
+    if platform_hybrid_enabled:
+        if family_runtime.rerank is None:
+            rerank_client = None
+        elif rerank_client is None:
+            try:
+                transport, _embedding_usage, rerank_usage, resolve_credential = (
+                    get_family_dependencies()
+                )
+                rerank_client = build_rerank_client(
+                    family_runtime.rerank,
+                    dependencies=RerankDependencies(
+                        transport=transport,
+                        usage=rerank_usage,
+                        resolve_dispatch_credential=resolve_credential,  # type: ignore[arg-type]
+                    ),
+                )
+            except (
+                FamilyModelSettingsError,
+                ModelUsageError,
+                ValueError,
+            ) as exc:
+                rerank_client = None
+                rerank_setup_degraded = True
+                rerank_setup_degradation_code = getattr(
+                    exc,
+                    "code",
+                    "search_rerank_unavailable",
+                )
+    else:
+        rerank_client = None
     rerank_attribution = (
         _query_usage_attribution(
             family_id=family_id,
@@ -225,7 +624,7 @@ def hybrid_search(
         exact_name_hits=exact_name_hits,
         keyword_hits=keyword_hits,
         semantic_hits=semantic_hits,
-        semantic_min_score=settings.search_semantic_min_score,
+        semantic_min_score=SEARCH_SEMANTIC_MIN_SCORE,
     )
     merge_duration_ms = (perf_counter() - merge_started_at) * 1000
     rerank_started_at = perf_counter()
@@ -234,16 +633,16 @@ def hybrid_search(
         results=local_results,
         documents_by_key=documents_by_key,
         rerank_client=rerank_client,
-        rerank_min_score=settings.search_rerank_min_score or DEFAULT_RERANK_MIN_SCORE,
-        literal_fallback_min_score=settings.search_literal_fallback_min_score or DEFAULT_LITERAL_FALLBACK_MIN_SCORE,
-        rerank_candidate_limit=settings.search_rerank_candidate_limit or DEFAULT_RERANK_CANDIDATE_LIMIT,
+        rerank_min_score=SEARCH_RERANK_MIN_SCORE,
+        literal_fallback_min_score=SEARCH_LITERAL_FALLBACK_MIN_SCORE,
+        rerank_candidate_limit=SEARCH_RERANK_CANDIDATE_LIMIT,
         rerank_attribution=rerank_attribution,
         rerank_attempt_key=f"{search_request_id}:rerank" if search_request_id is not None else None,
     )
     rerank_duration_ms = (perf_counter() - rerank_started_at) * 1000
-    degraded = degraded or rerank_degraded
-    if degradation_code is None and rerank_degradation_code is not None:
-        degradation_code = rerank_degradation_code
+    degraded = degraded or rerank_setup_degraded or rerank_degraded
+    if degradation_code is None:
+        degradation_code = rerank_setup_degradation_code or rerank_degradation_code
     logger.info(
         "Hybrid search local ranking completed",
         extra={
@@ -266,7 +665,7 @@ def hybrid_search(
         items=paged,
         total=len(merged),
         query=response_query,
-        search_mode="hybrid" if hybrid_enabled else "keyword",
+        search_mode="hybrid" if semantic_used else "keyword",
         degraded=degraded,
         degradation_code=degradation_code,
     )
@@ -282,18 +681,21 @@ def _semantic_recall(
     recall_query: str,
     semantic_limit: int,
     search_request_id: str,
+    usage_snapshot: EmbeddingUsageSnapshot | None = None,
 ) -> list[VectorSearchHit]:
     started_at = perf_counter()
     try:
-        query_embedding = embedding_client.embed_text(
-            recall_query,
-            attribution=_query_usage_attribution(
+        embedding_kwargs: dict[str, object] = {
+            "attribution": _query_usage_attribution(
                 family_id=family_id,
                 user_id=user_id,
                 logical_operation_id=search_request_id,
             ),
-            attempt_key=f"{search_request_id}:embedding:query",
-        )
+            "attempt_key": f"{search_request_id}:embedding:query",
+        }
+        if usage_snapshot is not None:
+            embedding_kwargs["usage_snapshot"] = usage_snapshot
+        query_embedding = embedding_client.embed_text(recall_query, **embedding_kwargs)  # type: ignore[arg-type]
         return _search_vectors(
             vector_store=vector_store,
             family_id=family_id,

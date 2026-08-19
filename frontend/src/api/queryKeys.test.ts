@@ -98,4 +98,31 @@ describe('queryKeys', () => {
     expect(queryKeys.modelUsagePolicy('family-a')).toEqual(['model-usage', 'family-a', 'policy']);
     expect(queryKeys.modelUsageAlerts('family-a')).toEqual(['model-usage', 'family-a', 'alerts']);
   });
+
+  it('scopes every family model settings key by family', () => {
+    expect(queryKeys.familyModelSettingsRoot('family-a')).toEqual(['family-model-settings', 'family-a']);
+    expect(queryKeys.familyModelSettings('family-a')).toEqual([
+      'family-model-settings',
+      'family-a',
+      'settings',
+    ]);
+    expect(queryKeys.familyModelSettingsDraft('family-a')).toEqual([
+      'family-model-settings',
+      'family-a',
+      'draft',
+    ]);
+    expect(queryKeys.familyModelPriceVersions('family-a')).toEqual([
+      'family-model-settings',
+      'family-a',
+      'prices',
+    ]);
+    expect(queryKeys.familySearchProfile('family-a')).toEqual([
+      'family-model-settings',
+      'family-a',
+      'search',
+    ]);
+    expect(queryKeys.familyModelSettingsRoot('family-a')).not.toEqual(
+      queryKeys.familyModelSettingsRoot('family-b'),
+    );
+  });
 });

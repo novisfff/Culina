@@ -8,8 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelUsageBreakdown,
   ModelUsageAlert,
+  ModelUsageFamilyBreakdown,
+  ModelUsageFamilyBreakdownItem,
   ModelUsageFamilyOverview,
   ModelUsageMeasurementHealth,
+  ModelUsagePersonalBreakdown,
+  ModelUsagePersonalBreakdownItem,
   ModelUsagePersonalOverview,
   ModelUsagePolicy,
 } from '../../api/types';
@@ -74,7 +78,32 @@ function familyOverview(overrides: Partial<ModelUsageFamilyOverview> = {}): Mode
   };
 }
 
+function breakdown(scope: 'me'): ModelUsagePersonalBreakdown;
+function breakdown(scope: 'family'): ModelUsageFamilyBreakdown;
 function breakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
+  const item = {
+    label: 'llm',
+    capability: 'llm' as const,
+    meter: null,
+    meter_total: null,
+    local_day: null,
+    known_priced_cost_cny: '1.500000000000',
+    pricing_complete: true,
+    unpriced_event_count: 0,
+    total_cost_cny: '1.500000000000',
+    measurement_health: health(),
+  } satisfies ModelUsagePersonalBreakdownItem;
+  if (scope === 'me') {
+    return {
+      family_id: 'family-1',
+      scope,
+      period: '2026-07',
+      source: 'raw',
+      is_partial_period: false,
+      group_by: 'capability',
+      items: [item],
+    };
+  }
   return {
     family_id: 'family-1',
     scope,
@@ -83,40 +112,51 @@ function breakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
     is_partial_period: false,
     group_by: 'capability',
     items: [{
-      label: 'llm',
-      capability: 'llm',
+      ...item,
       provider: null,
       billing_model: null,
-      meter: null,
-      meter_total: null,
-      local_day: null,
-      known_priced_cost_cny: '1.500000000000',
-      pricing_complete: true,
-      unpriced_event_count: 0,
-      total_cost_cny: '1.500000000000',
-      measurement_health: health(),
-    }],
+    } satisfies ModelUsageFamilyBreakdownItem],
   };
 }
 
+function dailyBreakdown(scope: 'me'): ModelUsagePersonalBreakdown;
+function dailyBreakdown(scope: 'family'): ModelUsageFamilyBreakdown;
 function dailyBreakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
+  const item = {
+    label: '2026-07-18 / llm',
+    capability: 'llm' as const,
+    meter: null,
+    meter_total: null,
+    local_day: '2026-07-18',
+    known_priced_cost_cny: '1.500000000000',
+    pricing_complete: true,
+    unpriced_event_count: 0,
+    total_cost_cny: '1.500000000000',
+    measurement_health: health(),
+  } satisfies ModelUsagePersonalBreakdownItem;
+  if (scope === 'me') {
+    return {
+      family_id: 'family-1',
+      scope,
+      period: '2026-07',
+      source: 'raw',
+      is_partial_period: false,
+      group_by: 'daily_capability_cost',
+      items: [item],
+    };
+  }
   return {
-    ...breakdown(scope),
+    family_id: 'family-1',
+    scope,
+    period: '2026-07',
+    source: 'raw',
+    is_partial_period: false,
     group_by: 'daily_capability_cost',
     items: [{
-      label: '2026-07-18 / llm',
-      capability: 'llm',
+      ...item,
       provider: null,
       billing_model: null,
-      meter: null,
-      meter_total: null,
-      local_day: '2026-07-18',
-      known_priced_cost_cny: '1.500000000000',
-      pricing_complete: true,
-      unpriced_event_count: 0,
-      total_cost_cny: '1.500000000000',
-      measurement_health: health(),
-    }],
+    } satisfies ModelUsageFamilyBreakdownItem],
   };
 }
 

@@ -4,13 +4,20 @@ import { installApiMocks } from './apiMocks.mjs';
 export const test = base.extend({
   authenticated: [true, { option: true }],
   modelUsageScenario: ['owner', { option: true }],
-  app: async ({ authenticated, context, modelUsageScenario, page }, use) => {
+  familyModelScenario: ['configured', { option: true }],
+  app: async ({ authenticated, context, familyModelScenario, modelUsageScenario, page }, use) => {
     const consoleErrors = [];
     const pageErrors = [];
     const requestedApiPaths = [];
+    const familyModelRequests = [];
     const unexpectedRequests = [];
 
-    await installApiMocks(context, unexpectedRequests, { modelUsageScenario, requestedApiPaths });
+    await installApiMocks(context, unexpectedRequests, {
+      modelUsageScenario,
+      familyModelScenario,
+      requestedApiPaths,
+      familyModelRequests,
+    });
 
     if (authenticated) {
       await context.addInitScript(() => {
@@ -36,7 +43,7 @@ export const test = base.extend({
       }
     });
 
-    await use({ page, requestedApiPaths });
+    await use({ page, requestedApiPaths, familyModelRequests });
 
     const relevantConsoleErrors = consoleErrors.filter(
       (message) => !message.includes('Failed to load resource'),

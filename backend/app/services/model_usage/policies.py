@@ -10,13 +10,13 @@ from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.enums import (
     ModelUsageCapability,
     ModelUsageCounterKind,
     ModelUsageLimitKind,
     ModelUsageMeter,
 )
-from app.core.config import get_settings
 from app.core.utils import create_id, utcnow
 from app.models.model_usage import (
     ModelUsageCapabilityLimit,
@@ -27,7 +27,6 @@ from app.models.model_usage import (
 from app.services.model_usage.alerts import repair_new_budget_revision
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
-    configured_usage_variants,
 )
 from app.services.model_usage.counters import family_cost_dimension_key
 from app.services.model_usage.errors import (
@@ -90,7 +89,7 @@ def validate_policy_command(command: PolicyUpdateCommand) -> tuple[CapabilityLim
     active_variants = (
         tuple(command.active_variants)
         if command.active_variants is not None
-        else configured_usage_variants(get_settings())
+        else ()
     )
     seen_capabilities: set[ModelUsageCapability] = set()
     for limit in limits:
@@ -99,6 +98,13 @@ def validate_policy_command(command: PolicyUpdateCommand) -> tuple[CapabilityLim
         seen_capabilities.add(limit.capability)
         if limit.limit_value <= 0:
             raise _validation_error("positive_capability_limit_required")
+        variants = tuple(
+            variant
+            for variant in active_variants
+            if variant.capability is limit.capability
+        )
+        if limit.enabled and not variants:
+            raise _validation_error("model_usage_capability_not_configured")
         if limit.limit_kind is ModelUsageLimitKind.COST:
             if limit.meter is not None:
                 raise _validation_error("cost_guardrail_forbids_meter")
@@ -115,11 +121,6 @@ def validate_policy_command(command: PolicyUpdateCommand) -> tuple[CapabilityLim
             or not contract.requires_settlement_quantity
         ):
             raise _validation_error("guardrail_meter_not_supported")
-        variants = tuple(
-            variant
-            for variant in active_variants
-            if variant.capability is limit.capability
-        )
         if any(limit.meter not in variant.produced_meters for variant in variants):
             raise _validation_error("guardrail_meter_not_supported")
     return limits
