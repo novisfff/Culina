@@ -18,6 +18,21 @@ export type CapabilityBindingEditorProps = {
   onTestCapability: (capability: FamilyModelCapability, variantKey: string, confirmBillable: boolean) => Promise<unknown>;
 };
 
+const CAPABILITY_GROUPS: ReadonlyArray<{
+  id: string;
+  label: string;
+  description: string;
+  capabilities: readonly FamilyModelCapability[];
+}> = [
+  { id: 'generation', label: '对话与生成', description: '对话理解、图片理解与图片生成。', capabilities: ['llm', 'image_generation'] },
+  { id: 'voice', label: '语音', description: '语音识别、播报与实时语音。', capabilities: ['stt', 'tts', 'realtime_audio'] },
+  { id: 'search', label: '搜索', description: '家庭内容的向量检索与结果重排。', capabilities: ['embedding', 'rerank'] },
+];
+
+function bindingKey(binding: FamilyModelBindingDraft): string {
+  return `${binding.capability}:${binding.variant_key}`;
+}
+
 function bindingTitle(binding: FamilyModelBindingDraft): string {
   const suffix = binding.variant_key === 'primary'
     ? '主用'
@@ -40,6 +55,12 @@ function isActiveEmbedding(draft: FamilyModelSettingsDraft, binding: FamilyModel
 export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
   const [confirmedTests, setConfirmedTests] = useState<Record<string, boolean>>({});
   const [testMessage, setTestMessage] = useState<Record<string, string>>({});
+  const [selectedBindingKey, setSelectedBindingKey] = useState(() => {
+    const first = props.draft.active_embedding_binding
+      ? props.draft.bindings.find((binding) => binding.capability === 'embedding')
+      : props.draft.bindings.find((binding) => binding.enabled) ?? props.draft.bindings[0];
+    return first ? bindingKey(first) : '';
+  });
 
   function replaceBinding(index: number, next: FamilyModelBindingDraft) {
     const bindings = props.draft.bindings.map((binding, candidateIndex) => candidateIndex === index ? next : binding);
@@ -73,18 +94,29 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
           <p>为七类能力选择已创建的兼容服务档案和模型；启用后需要补全对应价格。</p>
         </div>
       </div>
-      <div className="family-model-settings-binding-list">
-        {props.draft.bindings.map((binding, index) => {
-          const key = `${binding.capability}:${binding.variant_key}`;
+      <div className="family-model-settings-binding-groups">
+        {CAPABILITY_GROUPS.map((group) => (
+          <section key={group.id} className="family-model-settings-binding-group" aria-labelledby={`family-model-settings-binding-group-${group.id}`}>
+            <div className="family-model-settings-group-head">
+              <div>
+                <h3 id={`family-model-settings-binding-group-${group.id}`}>{group.label}</h3>
+                <p>{group.description}</p>
+              </div>
+              <span>{props.draft.bindings.filter((binding) => group.capabilities.includes(binding.capability) && binding.enabled).length} 项启用</span>
+            </div>
+            <div className="family-model-settings-binding-list">
+              {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability)).map(({ binding, index }) => {
+          const key = bindingKey(binding);
           const embeddingLocked = isActiveEmbedding(props.draft, binding);
           const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
+          const expanded = selectedBindingKey === key;
           return (
-            <article key={key} className="family-model-settings-binding-card">
+            <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
               <div className="family-model-settings-binding-head">
-                <div>
+                <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => setSelectedBindingKey(key)}>
                   <h3>{bindingTitle(binding)}</h3>
                   <p>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].description}</p>
-                </div>
+                </button>
                 <label className="family-model-settings-switch">
                   <input
                     type="checkbox"
@@ -95,6 +127,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                   <span>{binding.enabled ? '已启用' : '未启用'}</span>
                 </label>
               </div>
+              {expanded ? <div id={`family-model-settings-binding-panel-${key}`} className="family-model-settings-binding-panel">
               {embeddingLocked ? <p className="family-model-settings-readonly-note">更换这些设置需要完整重建搜索索引。</p> : null}
               <div className="family-model-settings-form-grid">
                 <label className="family-model-settings-field">
@@ -174,9 +207,13 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                 <button className="ghost-button" type="button" disabled={props.busy || !binding.enabled || !confirmedTests[key]} onClick={() => { void runCapabilityTest(binding); }}>测试能力</button>
                 {testMessage[key] ? <span role="status">{testMessage[key]}</span> : null}
               </div>
+              </div> : null}
             </article>
           );
-        })}
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </section>
   );

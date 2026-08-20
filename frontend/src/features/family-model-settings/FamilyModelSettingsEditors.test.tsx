@@ -13,6 +13,7 @@ import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { createEmptyFamilyModelDraft } from './familyModelSettingsModel';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
 import { PublishReview } from './PublishReview';
+import { ModelPriceEditor } from './ModelPriceEditor';
 
 const profile: FamilyModelProviderProfile = {
   id: 'profile-a',
@@ -73,6 +74,19 @@ describe('Family model settings editors', () => {
     }));
     expect(JSON.stringify(vi.mocked(props.onPatch).mock.calls)).not.toContain('provider.example');
     expect(JSON.stringify(vi.mocked(props.onPatch).mock.calls)).not.toContain('API Key');
+  });
+
+  it('offers a desktop profile list that selects a service before editing it', async () => {
+    const user = userEvent.setup();
+    const onSelectProfile = vi.fn();
+    const backupProfile = { ...profile, id: 'profile-b', display_name: '家庭备用服务', status: 'disabled' as const };
+    render(<ProviderProfileEditor {...providerProps({ profiles: [profile, backupProfile], onSelectProfile })} />);
+
+    const profileList = screen.getByRole('navigation', { name: 'Provider 档案列表' });
+    expect(within(profileList).getByRole('button', { name: /家庭主服务/ })).toHaveAttribute('aria-current', 'true');
+    await user.click(within(profileList).getByRole('button', { name: /家庭备用服务/ }));
+
+    expect(onSelectProfile).toHaveBeenCalledWith('profile-b');
   });
 
   it('sends a new API Key only in the immediate create payload and clears the controlled input', async () => {
@@ -221,6 +235,46 @@ describe('Family model settings editors', () => {
     expect(within(card).getByLabelText('向量维度')).toBeDisabled();
   });
 
+  it('groups capabilities by task and expands one configuration at a time', async () => {
+    const user = userEvent.setup();
+    render(
+      <CapabilityBindingEditor
+        draft={createEmptyFamilyModelDraft()}
+        profiles={[profile]}
+        busy={false}
+        onDraftChange={vi.fn()}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '语音' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '搜索' })).toBeVisible();
+    expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: /搜索向量 · 默认/ }));
+    expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /搜索向量 · 默认/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('groups price rules and keeps only the selected rule expanded', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'chat-model' };
+    draft.price_rates = [
+      { capability: 'llm', variant_key: 'primary', meter: 'uncached_input_tokens', unit_quantity: '1000000', unit_price: '1', source_currency: 'CNY', fx_to_cny: '1', reported_model_aliases: [] },
+      { capability: 'llm', variant_key: 'primary', meter: 'cached_input_tokens', unit_quantity: '1000000', unit_price: '0.5', source_currency: 'CNY', fx_to_cny: '1', reported_model_aliases: [] },
+      { capability: 'llm', variant_key: 'primary', meter: 'output_tokens', unit_quantity: '1000000', unit_price: '2', source_currency: 'CNY', fx_to_cny: '1', reported_model_aliases: [] },
+    ];
+    render(<ModelPriceEditor draft={draft} busy={false} onDraftChange={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
+    expect(screen.getAllByLabelText('单价')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: /对话与视觉理解 缓存输入 Token/ }));
+    expect(screen.getAllByLabelText('单价')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /对话与视觉理解 缓存输入 Token/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('requires a current password and checksum-bound confirmation before publishing', async () => {
     const user = userEvent.setup();
     const onPublish = vi.fn().mockResolvedValue(undefined);
@@ -242,6 +296,10 @@ describe('Family model settings editors', () => {
         onPublish={onPublish}
       />,
     );
+
+    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '能力与价格' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '搜索索引' })).toBeVisible();
 
     expect(screen.getByRole('button', { name: '发布配置' })).toBeDisabled();
     await user.type(screen.getByLabelText('当前密码'), 'owner-password');

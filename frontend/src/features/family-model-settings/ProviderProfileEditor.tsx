@@ -239,17 +239,38 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       </div>
 
       {props.profiles.length > 0 ? (
-        <label className="family-model-settings-field">
-          <span>当前档案</span>
-          <select
-            value={selectedProfile?.id ?? ''}
-            disabled={props.busy || retryingRebind}
-            onChange={(event) => selectProfile(event.target.value || null)}
-          >
-            <option value="">新建 Provider 档案</option>
-            {props.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
-          </select>
-        </label>
+        <>
+          <nav className="family-model-settings-provider-list" aria-label="Provider 档案列表">
+            {props.profiles.map((profile) => (
+              <button
+                key={profile.id}
+                type="button"
+                aria-current={selectedProfile?.id === profile.id ? 'true' : undefined}
+                disabled={props.busy || retryingRebind}
+                onClick={() => selectProfile(profile.id)}
+              >
+                <span>
+                  <strong>{profile.display_name}</strong>
+                  <small>{FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label ?? profile.adapter_kind}</small>
+                </span>
+                <span className={`family-model-settings-provider-status is-${profile.status}`}>
+                  {profile.status === 'active' ? '启用' : profile.status === 'disabled' ? '停用' : '归档'}
+                </span>
+              </button>
+            ))}
+          </nav>
+          <label className="family-model-settings-field family-model-settings-provider-select">
+            <span>当前档案</span>
+            <select
+              value={selectedProfile?.id ?? ''}
+              disabled={props.busy || retryingRebind}
+              onChange={(event) => selectProfile(event.target.value || null)}
+            >
+              <option value="">新建 Provider 档案</option>
+              {props.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
+            </select>
+          </label>
+        </>
       ) : null}
 
       {pendingRebind ? (

@@ -58,25 +58,51 @@ export function PublishReview(props: PublishReviewProps) {
         </div>
         <button className="ghost-button" type="button" disabled={busy} onClick={() => { void props.onValidate(); }}>{busy ? '正在检查' : '检查配置'}</button>
       </div>
-      <div className="family-model-settings-review-list">
-        {props.draft.bindings.map((binding) => {
-          const profile = props.settings.provider_profiles.find((candidate) => candidate.id === binding.provider_profile_id);
-          return (
-            <article key={`${binding.capability}:${binding.variant_key}`}>
-              <div>
-                <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].label}</strong>
-                <span>{binding.variant_key}</span>
-              </div>
-              <p>{binding.enabled
-                ? `${profile?.display_name ?? '未选择 Provider'} · ${binding.requested_model || '未填写模型'}`
-                : '未启用'}</p>
-            </article>
-          );
-        })}
-      </div>
-      <div className={`family-model-settings-review-coverage ${priceValidation.valid ? 'is-ready' : 'is-warning'}`}>
-        <strong>{priceValidation.valid ? '已覆盖所有启用能力价格' : '价格覆盖尚不完整'}</strong>
-        <span>{priceValidation.valid ? `当前有 ${props.draft.price_rates.length} 条计价规则。` : '请返回价格分区补齐启用能力的所有计量项。'}</span>
+      <div className="family-model-settings-review-groups">
+        <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-providers">
+          <div className="family-model-settings-group-head">
+            <h3 id="family-model-settings-review-providers">Provider 服务</h3>
+            <span>{props.settings.provider_profiles.filter((profile) => !profile.archived).length} 个可用档案</span>
+          </div>
+          <p>{props.settings.provider_profiles.some((profile) => !profile.archived && profile.credential.configured)
+            ? '至少一个服务档案已配置凭据。'
+            : '尚无已配置凭据的服务档案。'}</p>
+        </section>
+        <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-capabilities">
+          <div className="family-model-settings-group-head">
+            <h3 id="family-model-settings-review-capabilities">能力与价格</h3>
+            <span>{props.draft.bindings.filter((binding) => binding.enabled).length} 项启用</span>
+          </div>
+          <div className="family-model-settings-review-list">
+            {props.draft.bindings.map((binding) => {
+              const profile = props.settings.provider_profiles.find((candidate) => candidate.id === binding.provider_profile_id);
+              return (
+                <article key={`${binding.capability}:${binding.variant_key}`}>
+                  <div>
+                    <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].label}</strong>
+                    <span>{binding.variant_key}</span>
+                  </div>
+                  <p>{binding.enabled
+                    ? `${profile?.display_name ?? '未选择 Provider'} · ${binding.requested_model || '未填写模型'}`
+                    : '未启用'}</p>
+                </article>
+              );
+            })}
+          </div>
+          <div className={`family-model-settings-review-coverage ${priceValidation.valid ? 'is-ready' : 'is-warning'}`}>
+            <strong>{priceValidation.valid ? '已覆盖所有启用能力价格' : '价格覆盖尚不完整'}</strong>
+            <span>{priceValidation.valid ? `当前有 ${props.draft.price_rates.length} 条计价规则。` : '请返回价格分区补齐启用能力的所有计量项。'}</span>
+          </div>
+        </section>
+        <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-search">
+          <div className="family-model-settings-group-head">
+            <h3 id="family-model-settings-review-search">搜索索引</h3>
+            <span>{props.settings.active_search_profile_id ? '已启用' : '未启用'}</span>
+          </div>
+          <p>{props.settings.active_search_profile_id
+            ? '当前搜索索引会继续服务，普通发布不会直接替换向量身份。'
+            : '当前没有生效的家庭搜索索引。'}</p>
+        </section>
       </div>
       {props.validation ? (
         <div className={`family-model-settings-review-validation ${props.validation.valid ? 'is-ready' : 'is-error'}`}>

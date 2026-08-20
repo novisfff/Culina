@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { FamilyModelBindingDraft, FamilyModelPriceRate, ModelUsageMeter } from '../../api/types';
 import {
   validateFamilyModelPriceRates,
@@ -17,6 +18,16 @@ const REQUIRED_METERS: Record<FamilyModelBindingDraft['capability'], readonly Mo
   embedding: ['embedding_tokens'],
   rerank: ['input_tokens'],
 };
+
+const PRICE_GROUPS: ReadonlyArray<{
+  id: string;
+  label: string;
+  capabilities: readonly FamilyModelBindingDraft['capability'][];
+}> = [
+  { id: 'generation', label: '对话与生成', capabilities: ['llm', 'image_generation'] },
+  { id: 'voice', label: '语音', capabilities: ['stt', 'tts', 'realtime_audio'] },
+  { id: 'search', label: '搜索', capabilities: ['embedding', 'rerank'] },
+];
 
 function rateId(rate: Pick<FamilyModelPriceRate, 'capability' | 'variant_key' | 'meter'>): string {
   return `${rate.capability}:${rate.variant_key}:${rate.meter}`;
@@ -58,6 +69,7 @@ export type ModelPriceEditorProps = {
 export function ModelPriceEditor(props: ModelPriceEditorProps) {
   const validation = validateFamilyModelPriceRates(props.draft.bindings, props.draft.price_rates);
   const enabledBindings = props.draft.bindings.filter((binding) => binding.enabled);
+  const [selectedRateId, setSelectedRateId] = useState(() => props.draft.price_rates[0] ? rateId(props.draft.price_rates[0]) : '');
 
   function ensureCompleteRates() {
     const known = new Set(props.draft.price_rates.map(rateId));
@@ -88,22 +100,36 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
       {enabledBindings.length === 0 ? (
         <p className="family-model-settings-empty-inline">请先在“能力配置”中启用至少一项能力。</p>
       ) : null}
-      <div className="family-model-settings-price-list">
-        {props.draft.price_rates.map((rate, index) => {
+      <div className="family-model-settings-price-groups">
+        {PRICE_GROUPS.map((group) => {
+          const groupedRates = props.draft.price_rates.map((rate, index) => ({ rate, index }))
+            .filter(({ rate }) => group.capabilities.includes(rate.capability));
+          if (groupedRates.length === 0) return null;
+          return (
+            <section key={group.id} className="family-model-settings-price-group" aria-labelledby={`family-model-settings-price-group-${group.id}`}>
+              <div className="family-model-settings-group-head">
+                <h3 id={`family-model-settings-price-group-${group.id}`}>{group.label}</h3>
+                <span>{groupedRates.length} 条计价规则</span>
+              </div>
+              <div className="family-model-settings-price-list">
+                {groupedRates.map(({ rate, index }) => {
           const errorPrefix = `price_rates.${index}`;
           const error = validation.errors[errorPrefix]
             ?? validation.errors[`${errorPrefix}.unit_quantity`]
             ?? validation.errors[`${errorPrefix}.unit_price`]
             ?? validation.errors[`${errorPrefix}.fx_to_cny`];
+          const id = rateId(rate);
+          const expanded = selectedRateId === id;
           return (
-            <article className="family-model-settings-price-card" key={rateId(rate)}>
+            <article className={`family-model-settings-price-card ${expanded ? 'is-expanded' : ''}`} key={id}>
               <div className="family-model-settings-price-head">
-                <div>
+                <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-price-panel-${id}`} onClick={() => setSelectedRateId(id)}>
                   <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[rate.capability].label}</strong>
                   <span>{FAMILY_MODEL_METER_LABELS[rate.meter] ?? rate.meter} · {unitDescription(rate.meter)}</span>
-                </div>
+                </button>
                 <span>{rate.variant_key}</span>
               </div>
+              {expanded ? <div id={`family-model-settings-price-panel-${id}`} className="family-model-settings-price-panel">
               <div className="family-model-settings-form-grid">
                 <label className="family-model-settings-field">
                   <span>计价数量</span>
@@ -124,7 +150,12 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
               </div>
               {rate.unit_price === '0' || /^0\.0+$/.test(rate.unit_price) ? <p className="family-model-settings-zero-price-note">零价格不会消耗成本预算，请同时设置用量上限。</p> : null}
               {error ? <p className="family-model-settings-field-error" role="alert">{error}</p> : null}
+              </div> : null}
             </article>
+          );
+                })}
+              </div>
+            </section>
           );
         })}
       </div>

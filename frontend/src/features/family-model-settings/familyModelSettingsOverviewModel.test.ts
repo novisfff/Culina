@@ -7,7 +7,7 @@ function provider(id = 'provider-1'): FamilyModelProviderProfile {
   return {
     id,
     display_name: '家庭主服务',
-    adapter_kind: 'openai_compatible',
+    adapter_kind: 'openai_compatible_http',
     auth_mode: 'api_key',
     api_base_url: 'https://provider.example/v1',
     websocket_base_url: null,
