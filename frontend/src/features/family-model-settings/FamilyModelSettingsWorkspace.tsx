@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ConfirmDialog, StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
@@ -68,6 +68,8 @@ function isAtLeastAsRecent(
  * construction; those responsibilities stay in view and model modules.
  */
 function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspaceProps) {
+  const historyMarker = `family-model-settings:${props.familyId}`;
+  const pendingHistoryExitRef = useRef(false);
   const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
   const queries = useFamilyModelSettingsQueries({
     familyId: props.familyId,
@@ -82,18 +84,17 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
 
   useLayoutEffect(() => {
     const previousState = window.history.state;
-    const marker = `family-model-settings:${props.familyId}`;
     window.history.pushState(
-      { ...(previousState && typeof previousState === 'object' ? previousState : {}), culinaWorkspaceGuard: marker },
+      { ...(previousState && typeof previousState === 'object' ? previousState : {}), culinaWorkspaceGuard: historyMarker },
       '',
       window.location.href,
     );
     return () => {
-      if (window.history.state?.culinaWorkspaceGuard === marker) {
+      if (window.history.state?.culinaWorkspaceGuard === historyMarker) {
         window.history.replaceState(previousState, '', window.location.href);
       }
     };
-  }, [props.familyId]);
+  }, [historyMarker]);
 
   useEffect(() => {
     if (!queries.draft) return;
@@ -162,20 +163,40 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     state.actions.markDirty(false);
   }, [mutationState.actions, persistDraft, serverDraft, state.actions, state.state.dirty]);
 
+  const exitWorkspace = useCallback(() => {
+    if (pendingHistoryExitRef.current) return;
+    if (window.history.state?.culinaWorkspaceGuard === historyMarker) {
+      pendingHistoryExitRef.current = true;
+      window.history.back();
+      return;
+    }
+    props.onBack();
+  }, [historyMarker, props.onBack]);
+
   const requestBack = useCallback(() => {
     if (busy) return;
     if (state.state.dirty) {
       setConfirmDiscard(true);
       return;
     }
-    props.onBack();
-  }, [busy, props, state.state.dirty]);
+    exitWorkspace();
+  }, [busy, exitWorkspace, state.state.dirty]);
 
   useEffect(() => {
     const preserveWorkspaceHistory = () => {
-      window.history.pushState({ familyModelSettings: true }, '', window.location.href);
+      const currentState = window.history.state;
+      window.history.pushState(
+        { ...(currentState && typeof currentState === 'object' ? currentState : {}), culinaWorkspaceGuard: historyMarker },
+        '',
+        window.location.href,
+      );
     };
     const handlePopState = () => {
+      if (pendingHistoryExitRef.current) {
+        pendingHistoryExitRef.current = false;
+        props.onBack();
+        return;
+      }
       if (busy || state.state.dirty) preserveWorkspaceHistory();
       requestBack();
     };
@@ -193,7 +214,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [busy, confirmDiscard, requestBack, state.state.dirty]);
+  }, [busy, confirmDiscard, historyMarker, props.onBack, requestBack, state.state.dirty]);
 
   if (!queries.isOwner) {
     return (
@@ -204,7 +225,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
           title="仅家庭主理人可以管理 AI 服务"
           description="如需调整服务、凭据、模型或价格，请联系家庭主理人。"
           actionLabel="返回家庭"
-          onAction={props.onBack}
+          onAction={requestBack}
         />
       </main>
     );
@@ -289,7 +310,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
         onConfirm={() => {
           setConfirmDiscard(false);
           state.actions.markDirty(false);
-          props.onBack();
+          exitWorkspace();
         }}
       />
     </>

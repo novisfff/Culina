@@ -6,10 +6,16 @@ import type {
   FamilyModelProviderProfileCreate,
   FamilyModelProviderProfilePatch,
 } from '../../api/types';
+import { StateBlock } from '../../components/ui-kit';
 import { FAMILY_MODEL_ADAPTER_OPTIONS } from './familyModelSettingsOptions';
 
 type CreateInput = Omit<FamilyModelProviderProfileCreate, 'idempotency_key'>;
 type PatchInput = Omit<FamilyModelProviderProfilePatch, 'idempotency_key'>;
+
+type PendingRebind = {
+  fromProfileId: string;
+  toProfileId: string;
+};
 
 export type ProviderProfileEditorProps = {
   profiles: FamilyModelProviderProfile[];
@@ -79,6 +85,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   const [rotationKey, setRotationKey] = useState('');
   const [showRotation, setShowRotation] = useState(false);
   const [rebindFromProfileId, setRebindFromProfileId] = useState<string | null>(null);
+  const [pendingRebind, setPendingRebind] = useState<PendingRebind | null>(null);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -114,13 +121,33 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       setCreateForm(INITIAL_CREATE_FORM);
       if (result && typeof result === 'object' && 'id' in result && typeof result.id === 'string') {
         if (rebindFromProfileId && props.onRebindCreatedProfile) {
-          await props.onRebindCreatedProfile(rebindFromProfileId, result.id);
+          const rebind = { fromProfileId: rebindFromProfileId, toProfileId: result.id };
+          setPendingRebind(rebind);
+          setRebindFromProfileId(null);
+          props.onSelectProfile(result.id);
+          try {
+            await props.onRebindCreatedProfile(rebind.fromProfileId, rebind.toProfileId);
+            setPendingRebind(null);
+          } catch {
+            // The new profile already exists. Keep only the failed rebind available for retry.
+          }
+          return;
         }
         setRebindFromProfileId(null);
         props.onSelectProfile(result.id);
       }
     } catch {
       // The workspace holds a safe, non-provider error message for recovery.
+    }
+  }
+
+  async function retryPendingRebind() {
+    if (!pendingRebind || !props.onRebindCreatedProfile) return;
+    try {
+      await props.onRebindCreatedProfile(pendingRebind.fromProfileId, pendingRebind.toProfileId);
+      setPendingRebind(null);
+    } catch {
+      // Keep the existing profile IDs so another retry never recreates the profile.
     }
   }
 
@@ -171,11 +198,13 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
 
   function beginCreate() {
     setCreateForm(INITIAL_CREATE_FORM);
+    setPendingRebind(null);
     setRebindFromProfileId(selectedProfile?.id ?? null);
     props.onSelectProfile(null);
   }
 
   function selectProfile(profileId: string | null) {
+    setPendingRebind(null);
     setRebindFromProfileId(null);
     props.onSelectProfile(profileId);
   }
@@ -210,7 +239,25 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
         </label>
       ) : null}
 
-      {selectedProfile ? (
+      {pendingRebind ? (
+        <div className="family-model-settings-provider-existing">
+          <StateBlock
+            status="error"
+            title="新档案已创建，能力改绑未完成"
+            description="再次尝试只会更新能力绑定，不会重复创建 Provider 档案。"
+          />
+          <div className="family-model-settings-editor-actions">
+            <button
+              className="solid-button"
+              type="button"
+              disabled={props.busy}
+              onClick={() => { void retryPendingRebind(); }}
+            >
+              {props.busy ? '正在改绑' : '重试改绑'}
+            </button>
+          </div>
+        </div>
+      ) : selectedProfile ? (
         <div className="family-model-settings-provider-existing">
           <ProfileScopeSummary profile={selectedProfile} />
           <p className="family-model-settings-readonly-note">更换服务地址或账号需要创建新档案，再重新绑定能力。</p>

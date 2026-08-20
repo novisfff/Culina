@@ -119,11 +119,13 @@ describe('FamilyModelSettingsWorkspace', () => {
     );
 
     await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
-    act(() => {
-      window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(window.history.state?.culinaWorkspaceGuard).toBe('family-model-settings:family-a');
+    await act(async () => {
+      window.history.back();
     });
 
-    expect(onBack).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
+    expect(window.history.state?.culinaWorkspaceGuard).not.toBe('family-model-settings:family-a');
   });
 
   it('routes Escape through the same back contract when no overlay is open', async () => {
@@ -138,7 +140,26 @@ describe('FamilyModelSettingsWorkspace', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
 
-    expect(onBack).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
+    expect(window.history.state?.culinaWorkspaceGuard).not.toBe('family-model-settings:family-a');
+  });
+
+  it('starts only one history exit while repeated Escape events await popstate', async () => {
+    const historyBack = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    const historyBackCalls = historyBack.mock.calls.length;
+    historyBack.mockRestore();
+    expect(historyBackCalls).toBe(1);
   });
 
   it('shows a recoverable error when an Owner setting read fails before a safe workspace can render', async () => {

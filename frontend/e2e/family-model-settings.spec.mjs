@@ -92,6 +92,18 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     await expect(page.getByRole('heading', { name: '我的家庭', exact: true })).toBeVisible();
   });
 
+  test('page back consumes its workspace history guard before returning to the family profile', async ({ app }) => {
+    const { page } = app;
+    await page.goto('/?history-origin=family-model-settings', { waitUntil: 'domcontentloaded' });
+    await openFamilyModelSettings(page);
+
+    await page.getByRole('button', { name: '返回家庭', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '我的家庭', exact: true })).toBeVisible();
+
+    await page.goBack();
+    await expect(page).toHaveURL(/history-origin=family-model-settings/);
+  });
+
   test('browser back asks before discarding an unsaved draft', async ({ app }) => {
     const { page } = app;
     await openFamilyModelSettings(page);
@@ -230,6 +242,41 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     );
     expect(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).not.toContain(createMarker);
     expect(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).not.toContain(rotateMarker);
+  });
+});
+
+test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', () => {
+  test.use({ familyModelScenario: 'conflict' });
+
+  test('retries the draft rebind without creating a duplicate Provider profile', async ({ app }) => {
+    const { familyModelRequests, page } = app;
+    await openFamilyModelSettings(page);
+    await page.locator('.family-model-settings-section-rail')
+      .getByRole('button', { name: /^Provider 档案/ }).click();
+    await page.getByLabel('当前档案').selectOption('family-model-profile-http');
+    await page.getByRole('button', { name: '新建档案' }).click();
+    await page.getByLabel('档案名称').fill('替换服务');
+    await page.getByLabel('API 服务地址').fill('https://replacement.example/v1');
+    await page.locator('input[type="password"][autocomplete="new-password"]').fill('replacement-recovery-key');
+    await page.getByRole('button', { name: '创建档案' }).click();
+
+    await expect(page.getByRole('button', { name: '重试改绑' })).toBeVisible();
+    expect(familyModelRequests.filter((request) => (
+      request.method === 'POST'
+      && request.pathname === '/api/family/model-settings/provider-profiles'
+    ))).toHaveLength(1);
+
+    await page.getByRole('button', { name: '重试改绑' }).click();
+    await expect(page.getByRole('button', { name: '重试改绑' })).toHaveCount(0);
+
+    expect(familyModelRequests.filter((request) => (
+      request.method === 'POST'
+      && request.pathname === '/api/family/model-settings/provider-profiles'
+    ))).toHaveLength(1);
+    expect(familyModelRequests.filter((request) => (
+      request.method === 'PUT'
+      && request.pathname === '/api/family/model-settings/draft'
+    ))).toHaveLength(2);
   });
 });
 

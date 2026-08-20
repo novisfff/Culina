@@ -135,6 +135,43 @@ describe('Family model settings editors', () => {
     await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledWith('profile-a', 'profile-new'));
   });
 
+  it('retries only the failed rebind after the replacement profile already exists', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue({ id: 'profile-new' });
+    const onRebindCreatedProfile = vi.fn()
+      .mockRejectedValueOnce(new Error('draft conflict'))
+      .mockResolvedValueOnce(undefined);
+    function Harness() {
+      const [selectedProfileId, setSelectedProfileId] = useState<string | null>(profile.id);
+      return (
+        <ProviderProfileEditor
+          {...providerProps({
+            onCreate,
+            onRebindCreatedProfile,
+            selectedProfileId,
+            onSelectProfile: setSelectedProfileId,
+          })}
+        />
+      );
+    }
+    render(<Harness />);
+
+    await user.click(screen.getByRole('button', { name: '新建档案' }));
+    await user.type(screen.getByLabelText('档案名称'), '替换服务');
+    await user.type(screen.getByLabelText('API 服务地址'), 'https://replacement.example/v1');
+    await user.type(screen.getByLabelText('API Key'), 'replacement-key');
+    await user.click(screen.getByRole('button', { name: '创建档案' }));
+
+    await screen.findByRole('button', { name: '重试改绑' });
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onRebindCreatedProfile).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: '重试改绑' }));
+
+    await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledTimes(2));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('locks the active Embedding identity in the normal capability editor', () => {
     const base = createEmptyFamilyModelDraft();
     const embedding = base.bindings.find(
