@@ -51,6 +51,18 @@ function hasSecretMarker(value, marker) {
   return JSON.stringify(value).includes(marker);
 }
 
+async function expandBinding(card) {
+  const trigger = card.locator('.family-model-settings-binding-head > button');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+}
+
+async function expandPrice(card) {
+  const trigger = card.locator('.family-model-settings-price-head > button');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+}
+
 for (const viewport of VIEWPORTS) {
   test(`@p0 @family-model-settings-${viewport.width}x${viewport.height} Owner can reach the AI services workspace at ${viewport.width}×${viewport.height}`, async ({ app }) => {
     const { page } = app;
@@ -63,9 +75,12 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator('.family-model-settings-mobile-page')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-scroll')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-footer')).toBeVisible();
+      await expect(page.locator('.family-model-settings-mobile-footer .solid-button')).toBeVisible();
     } else {
       await expect(page.locator('.family-model-settings-desktop')).toBeVisible();
       await expect(page.getByRole('navigation', { name: '家庭 AI 服务设置分区' })).toBeVisible();
+      await expect(page.getByRole('list', { name: '家庭 AI 服务配置进度' })).toBeVisible();
+      await expect(page.locator('.family-model-settings-overview-primary .solid-button')).toBeVisible();
       if (viewport.width >= 768 && viewport.width < 1024) {
         const mainPanelBox = await page.locator('.family-model-settings-main-panel').boundingBox();
         expect(mainPanelBox, '平板端主内容面板应完成布局').not.toBeNull();
@@ -111,6 +126,7 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
       .getByRole('button', { name: /^能力配置/ }).click();
     const llmCard = page.locator('.family-model-settings-binding-card')
       .filter({ hasText: '对话与视觉理解 · 主用' });
+    await expandBinding(llmCard);
     await llmCard.getByLabel('模型名称').fill('unsaved-browser-back-model');
 
     await page.goBack();
@@ -135,10 +151,10 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^能力配置/ }).click();
-    await page.locator('.family-model-settings-binding-card')
-      .filter({ hasText: '对话与视觉理解 · 主用' })
-      .getByLabel('模型名称')
-      .fill('busy-overlay-model');
+    const llmCard = page.locator('.family-model-settings-binding-card')
+      .filter({ hasText: '对话与视觉理解 · 主用' });
+    await expandBinding(llmCard);
+    await llmCard.getByLabel('模型名称').fill('busy-overlay-model');
     await page.goBack();
     const discardDialog = page.getByRole('heading', { name: '放弃未保存的配置修改？' });
     await expect(discardDialog).toBeVisible();
@@ -171,7 +187,8 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^Provider 档案/ }).click();
-    await page.getByLabel('当前档案').selectOption('family-model-profile-http');
+    await page.getByRole('navigation', { name: 'Provider 档案列表' })
+      .getByRole('button', { name: /家庭主服务/ }).click();
 
     await expect(page.getByText('更换服务地址或账号需要创建新档案，再重新绑定能力。')).toBeVisible();
     await expect(page.getByLabel('API 服务地址')).toHaveCount(0);
@@ -253,7 +270,8 @@ test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^Provider 档案/ }).click();
-    await page.getByLabel('当前档案').selectOption('family-model-profile-http');
+    await page.getByRole('navigation', { name: 'Provider 档案列表' })
+      .getByRole('button', { name: /家庭主服务/ }).click();
     await page.getByRole('button', { name: '新建档案' }).click();
     await page.getByLabel('档案名称').fill('替换服务');
     await page.getByLabel('API 服务地址').fill('https://replacement.example/v1');
@@ -300,6 +318,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
     }
 
     const llmCard = bindingCards.filter({ hasText: '对话与视觉理解 · 主用' });
+    await expandBinding(llmCard);
     await llmCard.getByLabel('我确认本次测试可能产生费用').check();
     const testCapabilityRequest = page.waitForRequest((request) => (
       request.method() === 'POST'
@@ -313,6 +332,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^模型价格/ }).click();
     const firstPriceCard = page.locator('.family-model-settings-price-card').first();
+    await expandPrice(firstPriceCard);
     await firstPriceCard.getByLabel('单价').fill('0.120000');
     const saveDraftRequest = page.waitForRequest((request) => (
       request.method() === 'PUT' && new URL(request.url()).pathname === '/api/family/model-settings/draft'
@@ -409,6 +429,7 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
       await page.locator('.family-model-settings-section-rail')
         .getByRole('button', { name: /^能力配置/ }).click();
       const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
+      await expandBinding(llmCard);
       await llmCard.getByLabel('我确认本次测试可能产生费用').check();
       const failedRefresh = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/api/family/model-settings'
@@ -431,6 +452,7 @@ test.describe('@family-model-settings-1440x900 capability hard limit and search 
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^能力配置/ }).click();
     const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
+    await expandBinding(llmCard);
     await llmCard.getByLabel('我确认本次测试可能产生费用').check();
     await llmCard.getByRole('button', { name: '测试能力' }).click();
     await expect(llmCard.getByText('测试没有完成，请检查配置。')).toBeVisible();

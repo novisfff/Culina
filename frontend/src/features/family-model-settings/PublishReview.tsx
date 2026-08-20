@@ -62,7 +62,7 @@ export function PublishReview(props: PublishReviewProps) {
         <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-providers">
           <div className="family-model-settings-group-head">
             <h3 id="family-model-settings-review-providers">Provider 服务</h3>
-            <span>{props.settings.provider_profiles.filter((profile) => !profile.archived).length} 个可用档案</span>
+            <span>{props.settings.provider_profiles.filter((profile) => !profile.archived && profile.status === 'active').length} 个可用档案</span>
           </div>
           <p>{props.settings.provider_profiles.some((profile) => !profile.archived && profile.credential.configured)
             ? '至少一个服务档案已配置凭据。'

@@ -69,7 +69,10 @@ export type ModelPriceEditorProps = {
 export function ModelPriceEditor(props: ModelPriceEditorProps) {
   const validation = validateFamilyModelPriceRates(props.draft.bindings, props.draft.price_rates);
   const enabledBindings = props.draft.bindings.filter((binding) => binding.enabled);
-  const [selectedRateId, setSelectedRateId] = useState(() => props.draft.price_rates[0] ? rateId(props.draft.price_rates[0]) : '');
+  const [preferredRateId, setPreferredRateId] = useState(() => props.draft.price_rates[0] ? rateId(props.draft.price_rates[0]) : '');
+  const selectedRateId = props.draft.price_rates.some((rate) => rateId(rate) === preferredRateId)
+    ? preferredRateId
+    : props.draft.price_rates[0] ? rateId(props.draft.price_rates[0]) : '';
 
   function ensureCompleteRates() {
     const known = new Set(props.draft.price_rates.map(rateId));
@@ -117,17 +120,20 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
           const error = validation.errors[errorPrefix]
             ?? validation.errors[`${errorPrefix}.unit_quantity`]
             ?? validation.errors[`${errorPrefix}.unit_price`]
-            ?? validation.errors[`${errorPrefix}.fx_to_cny`];
+            ?? validation.errors[`${errorPrefix}.fx_to_cny`]
+            ?? validation.errors[`${errorPrefix}.source_currency`];
           const id = rateId(rate);
           const expanded = selectedRateId === id;
           return (
             <article className={`family-model-settings-price-card ${expanded ? 'is-expanded' : ''}`} key={id}>
               <div className="family-model-settings-price-head">
-                <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-price-panel-${id}`} onClick={() => setSelectedRateId(id)}>
+                <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-price-panel-${id}`} onClick={() => setPreferredRateId(id)}>
                   <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[rate.capability].label}</strong>
                   <span>{FAMILY_MODEL_METER_LABELS[rate.meter] ?? rate.meter} · {unitDescription(rate.meter)}</span>
                 </button>
-                <span>{rate.variant_key}</span>
+                <span className={`family-model-settings-price-status ${error ? 'is-error' : ''}`}>
+                  {error ? '待修正' : rate.variant_key}
+                </span>
               </div>
               {expanded ? <div id={`family-model-settings-price-panel-${id}`} className="family-model-settings-price-panel">
               <div className="family-model-settings-form-grid">

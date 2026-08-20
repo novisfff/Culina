@@ -1,6 +1,7 @@
 import type { FamilyModelCapability, FamilyModelSettings } from '../../api/types';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import { validateFamilyModelPriceRates } from './familyModelSettingsModel';
+import { profileSupportsCapability } from './familyModelSettingsOptions';
 import type { FamilyModelSettingsSection } from './useFamilyModelSettingsState';
 
 export type FamilyModelSetupStepStatus = 'complete' | 'current' | 'upcoming';
@@ -83,20 +84,33 @@ export function deriveFamilyModelSettingsOverview(
   input: DeriveFamilyModelSettingsOverviewInput,
 ): FamilyModelSettingsOverview {
   const providerCount = input.settings.provider_profiles.filter((profile) => !profile.archived).length;
+  const usableProviderCount = input.settings.provider_profiles.filter(
+    (profile) => !profile.archived && profile.status === 'active',
+  ).length;
+  const enabledBindings = input.draft.bindings.filter((binding) => binding.enabled);
   const enabled = enabledCapabilitySet(input.draft);
   const enabledCapabilityCount = enabled.size;
   const pricedCount = pricedCapabilityCount(input.draft, enabled);
-  const pricingReady = enabledCapabilityCount > 0 && pricedCount === enabledCapabilityCount;
+  const capabilitiesReady = enabledBindings.length > 0 && enabledBindings.every((binding) => {
+    const profile = input.settings.provider_profiles.find((candidate) => candidate.id === binding.provider_profile_id);
+    return Boolean(
+      binding.requested_model.trim()
+      && profile
+      && profileSupportsCapability(profile, binding.capability),
+    );
+  });
+  const pricingReady = capabilitiesReady
+    && validateFamilyModelPriceRates(input.draft.bindings, input.draft.price_rates).valid;
 
   let primarySection: FamilyModelSettingsSection = 'providers';
-  let primaryLabel = '连接第一个 AI 服务';
-  if (providerCount > 0 && enabledCapabilityCount === 0) {
+  let primaryLabel = providerCount > 0 ? '启用可用的 AI 服务' : '连接第一个 AI 服务';
+  if (usableProviderCount > 0 && !capabilitiesReady) {
     primarySection = 'capabilities';
     primaryLabel = '绑定需要的能力';
-  } else if (providerCount > 0 && !pricingReady) {
+  } else if (usableProviderCount > 0 && !pricingReady) {
     primarySection = 'prices';
     primaryLabel = '补齐模型价格';
-  } else if (providerCount > 0 && pricingReady) {
+  } else if (usableProviderCount > 0 && pricingReady) {
     primarySection = 'review';
     primaryLabel = input.settings.active_config_revision_id && input.settings.active_price_version_id && !input.dirty
       ? '检查发布状态'
@@ -104,8 +118,8 @@ export function deriveFamilyModelSettingsOverview(
   }
 
   const completed = {
-    providers: providerCount > 0,
-    capabilities: enabledCapabilityCount > 0,
+    providers: usableProviderCount > 0,
+    capabilities: capabilitiesReady,
     prices: pricingReady,
     review: Boolean(input.settings.active_config_revision_id && input.settings.active_price_version_id) && !input.dirty,
   } satisfies Record<FamilyModelSetupStep['id'], boolean>;

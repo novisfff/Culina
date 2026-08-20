@@ -89,6 +89,14 @@ describe('Family model settings editors', () => {
     expect(onSelectProfile).toHaveBeenCalledWith('profile-b');
   });
 
+  it('opens the first existing Provider instead of an unrelated create form', () => {
+    render(<ProviderProfileEditor {...providerProps({ selectedProfileId: null })} />);
+
+    expect(screen.getByLabelText('显示名称')).toHaveValue('家庭主服务');
+    expect(screen.queryByLabelText('档案名称')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /家庭主服务/ })).toHaveAttribute('aria-current', 'true');
+  });
+
   it('sends a new API Key only in the immediate create payload and clears the controlled input', async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn().mockResolvedValue(profile);
@@ -273,6 +281,41 @@ describe('Family model settings editors', () => {
     await user.click(screen.getByRole('button', { name: /对话与视觉理解 缓存输入 Token/ }));
     expect(screen.getAllByLabelText('单价')).toHaveLength(1);
     expect(screen.getByRole('button', { name: /对话与视觉理解 缓存输入 Token/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('keeps a validation marker visible on a collapsed price rule', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'chat-model' };
+    draft.price_rates = [
+      { capability: 'llm', variant_key: 'primary', meter: 'uncached_input_tokens', unit_quantity: '1000000', unit_price: '1', source_currency: 'CNY', fx_to_cny: '1', reported_model_aliases: [] },
+      { capability: 'llm', variant_key: 'primary', meter: 'cached_input_tokens', unit_quantity: '1000000', unit_price: '0.5', source_currency: 'C', fx_to_cny: '1', reported_model_aliases: [] },
+      { capability: 'llm', variant_key: 'primary', meter: 'output_tokens', unit_quantity: '1000000', unit_price: '2', source_currency: 'CNY', fx_to_cny: '1', reported_model_aliases: [] },
+    ];
+    render(<ModelPriceEditor draft={draft} busy={false} onDraftChange={vi.fn()} />);
+
+    const collapsedTrigger = screen.getByRole('button', { name: /对话与视觉理解 缓存输入 Token/ });
+    const collapsedCard = collapsedTrigger.closest('article');
+    if (!collapsedCard) throw new Error('Expected the invalid price rule card.');
+    expect(collapsedTrigger).toHaveAttribute('aria-expanded', 'false');
+    expect(within(collapsedCard).getByText('待修正')).toBeVisible();
+  });
+
+  it('expands the first generated price after filling an empty rate list', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [draft, setDraft] = useState(() => {
+        const empty = createEmptyFamilyModelDraft();
+        empty.bindings[0] = { ...empty.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'chat-model' };
+        return empty;
+      });
+      return <ModelPriceEditor draft={draft} busy={false} onDraftChange={setDraft} />;
+    }
+    render(<Harness />);
+
+    await user.click(screen.getByRole('button', { name: '补齐启用能力价格' }));
+
+    expect(screen.getAllByLabelText('单价')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /未缓存输入 Token/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('requires a current password and checksum-bound confirmation before publishing', async () => {

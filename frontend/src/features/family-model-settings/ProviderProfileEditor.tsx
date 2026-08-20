@@ -82,7 +82,13 @@ function ProfileScopeSummary(props: { profile: FamilyModelProviderProfile }) {
 }
 
 export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
-  const selectedProfile = props.profiles.find((profile) => profile.id === props.selectedProfileId) ?? null;
+  const [creating, setCreating] = useState(false);
+  const selectedProfile = creating
+    ? null
+    : props.profiles.find((profile) => profile.id === props.selectedProfileId)
+      ?? props.profiles.find((profile) => profile.status !== 'archived')
+      ?? props.profiles[0]
+      ?? null;
   const [createForm, setCreateForm] = useState<CreateForm>(INITIAL_CREATE_FORM);
   const [displayName, setDisplayName] = useState('');
   const [status, setStatus] = useState<FamilyModelProviderProfile['status']>('active');
@@ -130,6 +136,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           const rebind = { fromProfileId: rebindFromProfileId, toProfileId: result.id };
           setPendingRebind(rebind);
           setRebindFromProfileId(null);
+          setCreating(false);
           props.onSelectProfile(result.id);
           try {
             await props.onRebindCreatedProfile(rebind.fromProfileId, rebind.toProfileId);
@@ -140,6 +147,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           return;
         }
         setRebindFromProfileId(null);
+        setCreating(false);
         props.onSelectProfile(result.id);
       }
     } catch {
@@ -213,12 +221,14 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     setCreateForm(INITIAL_CREATE_FORM);
     setPendingRebind(null);
     setRebindFromProfileId(selectedProfile?.id ?? null);
+    setCreating(true);
     props.onSelectProfile(null);
   }
 
   function selectProfile(profileId: string | null) {
     setPendingRebind(null);
     setRebindFromProfileId(null);
+    setCreating(profileId === null);
     props.onSelectProfile(profileId);
   }
 
@@ -229,7 +239,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   }
 
   return (
-    <section className="family-model-settings-editor" aria-labelledby="family-model-provider-editor-title">
+    <section className="family-model-settings-editor family-model-settings-provider-editor" aria-labelledby="family-model-provider-editor-title">
       <div className="family-model-settings-section-head">
         <div>
           <h2 id="family-model-provider-editor-title">Provider 档案</h2>

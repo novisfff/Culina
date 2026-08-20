@@ -73,6 +73,32 @@ describe('deriveFamilyModelSettingsOverview', () => {
     expect(overview.steps.map((step) => step.status)).toEqual(['complete', 'current', 'upcoming', 'upcoming']);
   });
 
+  it('keeps the service step current when every saved Provider is disabled', () => {
+    const disabledProvider = { ...provider(), status: 'disabled' as const };
+    const overview = deriveFamilyModelSettingsOverview({
+      settings: settings([disabledProvider]),
+      draft: createEmptyFamilyModelDraft(),
+      dirty: false,
+    });
+
+    expect(overview.providerCount).toBe(1);
+    expect(overview.primarySection).toBe('providers');
+    expect(overview.primaryLabel).toBe('启用可用的 AI 服务');
+    expect(overview.steps[0]?.status).toBe('current');
+  });
+
+  it('keeps capability binding current until every enabled binding has a usable Provider and model', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true };
+
+    const overview = deriveFamilyModelSettingsOverview({ settings: settings([provider()]), draft, dirty: true });
+
+    expect(overview.enabledCapabilityCount).toBe(1);
+    expect(overview.primarySection).toBe('capabilities');
+    expect(overview.steps[1]?.status).toBe('current');
+    expect(overview.steps[2]?.status).toBe('upcoming');
+  });
+
   it('counts enabled capability types once and guides incomplete pricing', () => {
     const draft = createEmptyFamilyModelDraft();
     draft.bindings = draft.bindings.map((binding) => ({
@@ -110,6 +136,29 @@ describe('deriveFamilyModelSettingsOverview', () => {
     expect(overview.primarySection).toBe('review');
     expect(overview.primaryLabel).toBe('检查并发布');
     expect(overview.publication.kind).toBe('local_changes');
+  });
+
+  it('returns to pricing when a stale rule makes the complete draft invalid', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = {
+      ...draft.bindings[0],
+      enabled: true,
+      provider_profile_id: 'provider-1',
+      requested_model: 'chat-model',
+    };
+    draft.price_rates = [
+      rate('llm', 'primary', 'uncached_input_tokens'),
+      rate('llm', 'primary', 'cached_input_tokens'),
+      rate('llm', 'primary', 'output_tokens'),
+      rate('image_generation', 'text', 'generated_images'),
+    ];
+
+    const overview = deriveFamilyModelSettingsOverview({ settings: settings([provider()]), draft, dirty: true });
+
+    expect(overview.pricedCapabilityCount).toBe(1);
+    expect(overview.primarySection).toBe('prices');
+    expect(overview.steps[2]?.status).toBe('current');
+    expect(overview.steps[3]?.status).toBe('upcoming');
   });
 
   it('describes an active clean revision without claiming the server draft is identical', () => {
