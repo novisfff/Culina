@@ -6,6 +6,7 @@ import type {
   FamilyModelSettings,
 } from '../../api/types';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
+import type { FamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
 import type { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 import type {
   FamilyModelSettingsBusyAction,
@@ -20,6 +21,7 @@ export type FamilyModelProfileRebindOptions = {
 };
 
 export type FamilyModelSettingsSurfaceProps = {
+  overview: FamilyModelSettingsOverview;
   settings: FamilyModelSettings;
   serverDraft: FamilyModelConfigDraft;
   draft: FamilyModelSettingsDraft;

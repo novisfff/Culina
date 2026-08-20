@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
@@ -86,6 +86,49 @@ describe('FamilyModelSettingsWorkspace', () => {
     await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
     expect(screen.getByRole('heading', { name: '家庭 AI 服务' })).toBeVisible();
     expect(screen.queryByText('API Key：')).not.toBeInTheDocument();
+  });
+
+  it('offers one state-derived next step and routes it to Provider setup', async () => {
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
+    expect(screen.getByText('1. 连接服务')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '配置能力' })).not.toBeInTheDocument();
+
+    fireEvent.click(nextStep);
+    expect(screen.getByRole('heading', { name: 'Provider 档案' })).toBeVisible();
+  });
+
+  it('uses the same state-derived next step in the phone action bar', async () => {
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
+    const footer = document.querySelector('.family-model-settings-mobile-footer');
+    expect(footer).not.toBeNull();
+    expect(within(footer as HTMLElement).queryByRole('button', { name: '发布复核' })).not.toBeInTheDocument();
+    fireEvent.click(nextStep);
+    expect(screen.getByRole('heading', { name: 'Provider 档案' })).toBeVisible();
+  });
+
+  it('describes an active clean configuration without claiming draft parity', async () => {
+    vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValueOnce({
+      ...settings,
+      active_config_revision_id: 'revision-1',
+      active_price_version_id: 'price-1',
+    });
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    expect(await screen.findByText('已有发布版本')).toBeVisible();
+    expect(screen.getByText(/如需确认服务端草稿是否有变化/)).toBeVisible();
   });
 
   it('fails safely without mounting Owner settings queries for a Member', () => {

@@ -24,20 +24,15 @@ function taskTitle(section: FamilyModelSettingsSection): string {
 }
 
 function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
-  const enabledCount = props.draft.bindings.filter((binding) => binding.enabled).length;
   return (
     <>
       <section className="family-model-settings-mobile-summary" aria-labelledby="family-model-settings-mobile-summary-title">
-        <p>家庭工作区</p>
+        <span className={`family-model-settings-publication is-${props.overview.publication.kind}`}>{props.overview.publication.label}</span>
         <h1 id="family-model-settings-mobile-summary-title">家庭 AI 服务</h1>
-        <span>{props.settings.active_config_revision_id
-          ? '当前配置已发布，您可以继续维护服务与价格。'
-          : '尚未配置服务。先创建档案，再绑定能力、价格并发布。'}</span>
-        <div className="family-model-settings-mobile-summary-grid">
-          <article><strong>{props.settings.provider_profiles.length}</strong><span>档案</span></article>
-          <article><strong>{enabledCount}</strong><span>能力</span></article>
-          <article><strong>{props.draft.price_rates.length}</strong><span>价格</span></article>
-        </div>
+        <span>{props.overview.publication.description}</span>
+        <p className="family-model-settings-overview-summary">
+          {props.overview.providerCount} 个服务档案 · {props.overview.enabledCapabilityCount} 类能力 · {props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount} 类价格就绪
+        </p>
       </section>
       <nav className="family-model-settings-mobile-task-list" aria-label="家庭 AI 服务任务">
         {MOBILE_TASKS.map((task) => (
@@ -52,7 +47,13 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
               <strong>{task.label}</strong>
               <small>{task.description}</small>
             </span>
-            <span aria-hidden="true">›</span>
+            <span className="family-model-settings-mobile-task-state">
+              {task.id === 'search'
+                ? '按需'
+                : props.overview.steps.find((step) => step.id === task.id)?.status === 'complete'
+                  ? '已完成'
+                  : props.overview.primarySection === task.id ? '下一步' : '待完成'}
+            </span>
           </button>
         ))}
       </nav>
@@ -111,8 +112,8 @@ function MobileFooter(props: FamilyModelSettingsSurfaceProps) {
       {props.errorMessage ? <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p> : null}
       <div>
         {props.state.section === 'overview' ? (
-          <button className="solid-button" type="button" disabled={busy} onClick={() => props.onPushMobileTask('review')}>
-            发布复核
+          <button className="solid-button" type="button" disabled={busy} onClick={() => props.onPushMobileTask(props.overview.primarySection)}>
+            {props.overview.primaryLabel}
           </button>
         ) : (
           <>

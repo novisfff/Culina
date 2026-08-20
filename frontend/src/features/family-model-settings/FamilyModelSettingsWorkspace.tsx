@@ -11,6 +11,7 @@ import {
   rebindDraftProviderProfile,
   type FamilyModelSettingsDraft,
 } from './familyModelSettingsModel';
+import { deriveFamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
 import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
 import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
@@ -275,6 +276,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   }
 
   const surfaceProps = {
+    overview: deriveFamilyModelSettingsOverview({ settings: queries.settings, draft, dirty: state.state.dirty }),
     settings: queries.settings,
     serverDraft,
     draft,

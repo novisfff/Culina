@@ -15,25 +15,35 @@ const SECTIONS: ReadonlyArray<{ id: FamilyModelSettingsSection; label: string; d
   { id: 'review', label: '发布复核', description: '检查并发布配置' },
 ];
 
-function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'settings' | 'draft' | 'onSelectSection'>) {
-  const enabledCount = props.draft.bindings.filter((binding) => binding.enabled).length;
+function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onSelectSection'>) {
+  const { overview } = props;
   return (
     <section className="family-model-settings-overview" aria-labelledby="family-model-settings-overview-title">
-      <div className="family-model-settings-overview-head">
+      <div className="family-model-settings-overview-primary">
         <div>
-          <h2 id="family-model-settings-overview-title">{props.settings.active_config_revision_id ? '当前家庭 AI 服务' : '尚未配置服务'}</h2>
-          <p>{props.settings.active_config_revision_id ? '当前发布配置正在为家庭提供服务。' : '先创建 Provider 档案，绑定需要的能力和价格，再检查并发布。'}</p>
+          <span className={`family-model-settings-publication is-${overview.publication.kind}`}>{overview.publication.label}</span>
+          <h2 id="family-model-settings-overview-title">{overview.providerCount > 0 ? '继续完成家庭 AI 服务' : '尚未配置服务'}</h2>
+          <p>{overview.publication.description}</p>
         </div>
+        <button className="solid-button" type="button" onClick={() => props.onSelectSection(overview.primarySection)}>{overview.primaryLabel}</button>
       </div>
-      <div className="family-model-settings-overview-grid">
-        <article><strong>{props.settings.provider_profiles.length}</strong><span>Provider 档案</span></article>
-        <article><strong>{enabledCount}</strong><span>已启用能力</span></article>
-        <article><strong>{props.draft.price_rates.length}</strong><span>草稿价格规则</span></article>
-      </div>
-      <div className="family-model-settings-overview-actions">
-        <button className="solid-button" type="button" onClick={() => props.onSelectSection('providers')}>创建 Provider 档案</button>
-        <button className="ghost-button" type="button" onClick={() => props.onSelectSection('capabilities')}>配置能力</button>
-      </div>
+      <ol className="family-model-settings-setup-steps" aria-label="家庭 AI 服务配置进度">
+        {overview.steps.map((step) => (
+          <li key={step.id} className={`is-${step.status}`}>
+            <button type="button" onClick={() => props.onSelectSection(step.id)}>
+              <span className="family-model-settings-step-index" aria-hidden="true">{step.status === 'complete' ? '✓' : step.number}</span>
+              <span>
+                <strong>{step.number}. {step.label}</strong>
+                <small>{step.description}</small>
+              </span>
+              <span className="family-model-settings-step-state">{step.status === 'complete' ? '已完成' : step.status === 'current' ? '下一步' : '待完成'}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <p className="family-model-settings-overview-summary">
+        {overview.providerCount} 个服务档案 · {overview.enabledCapabilityCount} 类已启用能力 · {overview.pricedCapabilityCount}/{overview.enabledCapabilityCount} 类价格就绪
+      </p>
     </section>
   );
 }
@@ -73,7 +83,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
           {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
         </header>
 
-        {props.state.section === 'overview' ? <Overview settings={props.settings} draft={props.draft} onSelectSection={props.onSelectSection} /> : null}
+        {props.state.section === 'overview' ? <Overview overview={props.overview} onSelectSection={props.onSelectSection} /> : null}
         {props.state.section === 'providers' ? (
           <ProviderProfileEditor
             profiles={props.settings.provider_profiles}
