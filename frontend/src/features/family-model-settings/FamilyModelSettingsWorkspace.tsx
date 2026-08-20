@@ -13,6 +13,7 @@ import {
 } from './familyModelSettingsModel';
 import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
 import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
+import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
 import { useFamilyModelSettingsState } from './useFamilyModelSettingsState';
@@ -138,11 +139,23 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     [draft, persistDraftValue],
   );
 
-  const rebindCreatedProfile = useCallback(async (fromProfileId: string, toProfileId: string) => {
-    const nextDraft = rebindDraftProviderProfile(draft, fromProfileId, toProfileId);
+  const rebindCreatedProfile = useCallback(async (
+    fromProfileId: string,
+    toProfileId: string,
+    options?: FamilyModelProfileRebindOptions,
+  ) => {
+    let sourceDraft = draft;
+    if (options?.refreshServerDraft) {
+      const refreshed = await queries.draftQuery.refetch();
+      if (refreshed.isError) throw refreshed.error;
+      if (!refreshed.data) throw new Error('家庭模型草稿刷新后仍不可用。');
+      setServerDraft((current) => isAtLeastAsRecent(refreshed.data, current) ? refreshed.data : current);
+      sourceDraft = localDraftFromServerDraft(refreshed.data);
+    }
+    const nextDraft = rebindDraftProviderProfile(sourceDraft, fromProfileId, toProfileId);
     setDraft(nextDraft);
     await persistDraftValue(nextDraft);
-  }, [draft, persistDraftValue]);
+  }, [draft, persistDraftValue, queries.draftQuery]);
 
   const validate = useCallback(async () => {
     const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;

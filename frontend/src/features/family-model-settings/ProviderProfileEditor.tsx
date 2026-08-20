@@ -7,6 +7,7 @@ import type {
   FamilyModelProviderProfilePatch,
 } from '../../api/types';
 import { StateBlock } from '../../components/ui-kit';
+import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import { FAMILY_MODEL_ADAPTER_OPTIONS } from './familyModelSettingsOptions';
 
 type CreateInput = Omit<FamilyModelProviderProfileCreate, 'idempotency_key'>;
@@ -30,7 +31,11 @@ export type ProviderProfileEditorProps = {
     new_api_key: string;
     base_settings_version_number: number;
   }) => Promise<unknown>;
-  onRebindCreatedProfile?: (fromProfileId: string, toProfileId: string) => Promise<void>;
+  onRebindCreatedProfile?: (
+    fromProfileId: string,
+    toProfileId: string,
+    options?: FamilyModelProfileRebindOptions,
+  ) => Promise<void>;
   onCheck: (profileId: string) => Promise<unknown>;
 };
 
@@ -86,6 +91,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   const [showRotation, setShowRotation] = useState(false);
   const [rebindFromProfileId, setRebindFromProfileId] = useState<string | null>(null);
   const [pendingRebind, setPendingRebind] = useState<PendingRebind | null>(null);
+  const [retryingRebind, setRetryingRebind] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -142,12 +148,19 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   }
 
   async function retryPendingRebind() {
-    if (!pendingRebind || !props.onRebindCreatedProfile) return;
+    if (!pendingRebind || !props.onRebindCreatedProfile || retryingRebind) return;
+    setRetryingRebind(true);
     try {
-      await props.onRebindCreatedProfile(pendingRebind.fromProfileId, pendingRebind.toProfileId);
+      await props.onRebindCreatedProfile(
+        pendingRebind.fromProfileId,
+        pendingRebind.toProfileId,
+        { refreshServerDraft: true },
+      );
       setPendingRebind(null);
     } catch {
       // Keep the existing profile IDs so another retry never recreates the profile.
+    } finally {
+      setRetryingRebind(false);
     }
   }
 
@@ -222,7 +235,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           <h2 id="family-model-provider-editor-title">Provider 档案</h2>
           <p>一个档案固定一个服务地址、认证方式和账号范围；API Key 只在提交时使用。</p>
         </div>
-        <button type="button" className="ghost-button" disabled={props.busy} onClick={beginCreate}>新建档案</button>
+        <button type="button" className="ghost-button" disabled={props.busy || retryingRebind} onClick={beginCreate}>新建档案</button>
       </div>
 
       {props.profiles.length > 0 ? (
@@ -230,7 +243,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           <span>当前档案</span>
           <select
             value={selectedProfile?.id ?? ''}
-            disabled={props.busy}
+            disabled={props.busy || retryingRebind}
             onChange={(event) => selectProfile(event.target.value || null)}
           >
             <option value="">新建 Provider 档案</option>
@@ -250,10 +263,10 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
             <button
               className="solid-button"
               type="button"
-              disabled={props.busy}
+              disabled={props.busy || retryingRebind}
               onClick={() => { void retryPendingRebind(); }}
             >
-              {props.busy ? '正在改绑' : '重试改绑'}
+              {props.busy || retryingRebind ? '正在改绑' : '重试改绑'}
             </button>
           </div>
         </div>

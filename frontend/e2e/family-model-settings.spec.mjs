@@ -260,23 +260,27 @@ test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', 
     await page.locator('input[type="password"][autocomplete="new-password"]').fill('replacement-recovery-key');
     await page.getByRole('button', { name: '创建档案' }).click();
 
-    await expect(page.getByRole('button', { name: '重试改绑' })).toBeVisible();
+    const pendingRebindState = page.getByText('新档案已创建，能力改绑未完成', { exact: true });
+    await expect(pendingRebindState).toBeVisible();
     expect(familyModelRequests.filter((request) => (
       request.method === 'POST'
       && request.pathname === '/api/family/model-settings/provider-profiles'
     ))).toHaveLength(1);
 
     await page.getByRole('button', { name: '重试改绑' }).click();
-    await expect(page.getByRole('button', { name: '重试改绑' })).toHaveCount(0);
+    await expect(pendingRebindState).toHaveCount(0);
 
     expect(familyModelRequests.filter((request) => (
       request.method === 'POST'
       && request.pathname === '/api/family/model-settings/provider-profiles'
     ))).toHaveLength(1);
-    expect(familyModelRequests.filter((request) => (
+    const rebindRequests = familyModelRequests.filter((request) => (
       request.method === 'PUT'
       && request.pathname === '/api/family/model-settings/draft'
-    ))).toHaveLength(2);
+    ));
+    expect(rebindRequests).toHaveLength(2);
+    expect(rebindRequests.map((request) => request.body.base_draft_version_number)).toEqual([4, 5]);
+    expect(rebindRequests[1]?.body.change_note).toBe('另一位主理人的并发更新');
   });
 });
 

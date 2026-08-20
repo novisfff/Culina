@@ -1303,6 +1303,24 @@ async function fulfillFamilyModelSettingsMock({
   if (request.method() === 'PUT' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/draft`) {
     if (scenario === 'conflict' && !state.conflictIssued) {
       state.conflictIssued = true;
+      state.draft = {
+        ...state.draft,
+        draft_version_number: state.draft.draft_version_number + 1,
+        payload: {
+          ...state.draft.payload,
+          change_note: '另一位主理人的并发更新',
+        },
+        updated_at: now,
+      };
+      await fulfillJson(route, {
+        detail: {
+          code: 'family_model_settings_version_conflict',
+          current_draft_version_number: state.draft.draft_version_number,
+        },
+      }, 409);
+      return true;
+    }
+    if (body.base_draft_version_number !== state.draft.draft_version_number) {
       await fulfillJson(route, {
         detail: {
           code: 'family_model_settings_version_conflict',

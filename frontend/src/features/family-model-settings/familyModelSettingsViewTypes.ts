@@ -15,6 +15,10 @@ import type {
 
 export type FamilyModelSettingsMutationActions = ReturnType<typeof useFamilyModelSettingsActions>['actions'];
 
+export type FamilyModelProfileRebindOptions = {
+  refreshServerDraft?: boolean;
+};
+
 export type FamilyModelSettingsSurfaceProps = {
   settings: FamilyModelSettings;
   serverDraft: FamilyModelConfigDraft;
@@ -31,7 +35,11 @@ export type FamilyModelSettingsSurfaceProps = {
   onBack: () => void;
   onSelectSection: (section: FamilyModelSettingsSection) => void;
   onSelectProfile: (profileId: string | null) => void;
-  onRebindCreatedProfile: (fromProfileId: string, toProfileId: string) => Promise<void>;
+  onRebindCreatedProfile: (
+    fromProfileId: string,
+    toProfileId: string,
+    options?: FamilyModelProfileRebindOptions,
+  ) => Promise<void>;
   onPushMobileTask: (section: FamilyModelSettingsSection) => void;
   onPopMobileTask: () => void;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;

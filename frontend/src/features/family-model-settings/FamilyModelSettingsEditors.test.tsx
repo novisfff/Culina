@@ -169,6 +169,12 @@ describe('Family model settings editors', () => {
     await user.click(screen.getByRole('button', { name: '重试改绑' }));
 
     await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledTimes(2));
+    expect(onRebindCreatedProfile).toHaveBeenNthCalledWith(
+      2,
+      'profile-a',
+      'profile-new',
+      { refreshServerDraft: true },
+    );
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 
