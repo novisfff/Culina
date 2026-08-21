@@ -1304,6 +1304,26 @@
   border-top: 0;
 }
 
+@media (min-width: 1024px) {
+  .app-content:has(> .family-model-settings-workspace) {
+    align-content: stretch;
+  }
+
+  .family-model-settings-section-rail {
+    top: 0;
+  }
+
+  .family-model-settings-main-panel {
+    min-height: 100%;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .family-model-settings-main-panel > .family-model-settings-overview,
+  .family-model-settings-main-panel > .family-model-settings-editor {
+    align-content: start;
+  }
+}
+
 @media (min-width: 768px) and (max-width: 1023px) {
   .family-model-settings-workspace {
     grid-template-columns: minmax(0, 1fr);

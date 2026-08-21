@@ -95,6 +95,34 @@ for (const viewport of VIEWPORTS) {
 test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract', () => {
   test.use({ familyModelScenario: 'configured' });
 
+  test('fills the desktop content height and keeps the section rail anchored while content scrolls', async ({ app }) => {
+    const { page } = app;
+    await openFamilyModelSettings(page);
+
+    const appContent = page.locator('.app-content');
+    const workspace = page.locator('.family-model-settings-workspace');
+    const sectionRail = page.getByRole('navigation', { name: '家庭 AI 服务设置分区' });
+    const [contentBox, workspaceBox, initialRailBox] = await Promise.all([
+      appContent.boundingBox(),
+      workspace.boundingBox(),
+      sectionRail.boundingBox(),
+    ]);
+    expect(contentBox, '桌面应用内容区应完成布局').not.toBeNull();
+    expect(workspaceBox, '家庭 AI 服务工作区应完成布局').not.toBeNull();
+    expect(initialRailBox, 'AI 服务分区导航应完成布局').not.toBeNull();
+    expect(workspaceBox?.height ?? 0, '短内容分区也应铺满桌面可用高度')
+      .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - 1);
+
+    await sectionRail.getByRole('button', { name: /^能力配置/ }).click();
+    await expect(page.getByRole('heading', { name: '能力配置', exact: true })).toBeVisible();
+    await appContent.evaluate((element) => { element.scrollTop = 240; });
+    await expect.poll(() => appContent.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    const scrolledRailBox = await sectionRail.boundingBox();
+    expect(Math.abs((scrolledRailBox?.y ?? 0) - (initialRailBox?.y ?? 0)), '滚动内容时分区导航不应跳动')
+      .toBeLessThanOrEqual(1);
+  });
+
   test('browser back returns a clean workspace to the family profile', async ({ app }) => {
     const { page } = app;
     await openFamilyModelSettings(page);
