@@ -8,7 +8,10 @@ import type {
 } from '../../api/types';
 import { StateBlock } from '../../components/ui-kit';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
-import { FAMILY_MODEL_ADAPTER_OPTIONS } from './familyModelSettingsOptions';
+import {
+  FAMILY_MODEL_ADAPTER_OPTIONS,
+  isFamilyModelRealtimeAdapter,
+} from './familyModelSettingsOptions';
 
 type CreateInput = Omit<FamilyModelProviderProfileCreate, 'idempotency_key'>;
 type PatchInput = Omit<FamilyModelProviderProfilePatch, 'idempotency_key'>;
@@ -44,11 +47,7 @@ type CreateForm = {
   adapterKind: FamilyModelAdapterKind;
   authMode: FamilyModelAuthMode;
   apiBaseUrl: string;
-  websocketBaseUrl: string;
   apiKey: string;
-  workspaceId: string;
-  region: string;
-  projectId: string;
 };
 
 const INITIAL_CREATE_FORM: CreateForm = {
@@ -56,26 +55,14 @@ const INITIAL_CREATE_FORM: CreateForm = {
   adapterKind: 'openai_compatible_http',
   authMode: 'api_key',
   apiBaseUrl: '',
-  websocketBaseUrl: '',
   apiKey: '',
-  workspaceId: '',
-  region: '',
-  projectId: '',
 };
 
-function safeOptional(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
 function ProfileScopeSummary(props: { profile: FamilyModelProviderProfile }) {
-  const options = props.profile.options;
-  const scope = [options.workspace_id, options.region, options.project_id].filter(Boolean).join(' · ');
+  const isRealtime = isFamilyModelRealtimeAdapter(props.profile.adapter_kind);
   return (
     <dl className="family-model-settings-provider-scope">
-      <div><dt>服务地址</dt><dd>{props.profile.api_base_url}</dd></div>
-      {props.profile.websocket_base_url ? <div><dt>实时地址</dt><dd>{props.profile.websocket_base_url}</dd></div> : null}
-      <div><dt>服务范围</dt><dd>{scope || '未额外指定'}</dd></div>
+      <div><dt>{isRealtime ? '实时地址' : 'API 地址'}</dt><dd>{props.profile.api_base_url}</dd></div>
       <div><dt>凭据状态</dt><dd>{props.profile.credential.configured ? '已配置' : '未配置'}</dd></div>
     </dl>
   );
@@ -110,7 +97,28 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     if (selectedProfile?.id) setCreateForm(INITIAL_CREATE_FORM);
   }, [selectedProfile?.id]);
 
-  const isRealtime = createForm.adapterKind === 'openai_realtime' || createForm.adapterKind === 'dashscope_realtime';
+  const isRealtime = isFamilyModelRealtimeAdapter(createForm.adapterKind);
+
+  function beginCreate() {
+    setCreateForm(INITIAL_CREATE_FORM);
+    setPendingRebind(null);
+    setRebindFromProfileId(selectedProfile?.id ?? null);
+    setCreating(true);
+    props.onSelectProfile(null);
+  }
+
+  function selectProfile(profileId: string | null) {
+    setPendingRebind(null);
+    setRebindFromProfileId(null);
+    setCreating(profileId === null);
+    props.onSelectProfile(profileId);
+  }
+
+  function cancelRotation() {
+    setRotationPassword('');
+    setRotationKey('');
+    setShowRotation(false);
+  }
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -119,12 +127,8 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       adapter_kind: createForm.adapterKind,
       auth_mode: createForm.authMode,
       api_base_url: createForm.apiBaseUrl.trim(),
-      websocket_base_url: safeOptional(createForm.websocketBaseUrl),
-      options: {
-        workspace_id: safeOptional(createForm.workspaceId),
-        region: safeOptional(createForm.region),
-        project_id: safeOptional(createForm.projectId),
-      },
+      websocket_base_url: null,
+      options: {},
       ...(createForm.authMode === 'api_key' ? { api_key: createForm.apiKey } : {}),
     };
     try {
@@ -205,52 +209,36 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
 
   async function checkConnection() {
     if (!selectedProfile) return;
+    setConnectionMessage(null);
     try {
       const result = await props.onCheck(selectedProfile.id);
-      setConnectionMessage(
-        result && typeof result === 'object' && 'status' in result && result.status === 'reachable'
-          ? '安全检查已通过，尚未执行真实调用。'
-          : '当前服务不支持安全检查。',
-      );
+      setConnectionMessage(result && typeof result === 'object' && 'status' in result && result.status === 'succeeded'
+        ? '服务连接检查通过。'
+        : '连接检查未通过，请检查服务地址与凭据。');
     } catch {
-      setConnectionMessage(null);
+      setConnectionMessage('连接检查失败，请稍后重试。');
     }
-  }
-
-  function beginCreate() {
-    setCreateForm(INITIAL_CREATE_FORM);
-    setPendingRebind(null);
-    setRebindFromProfileId(selectedProfile?.id ?? null);
-    setCreating(true);
-    props.onSelectProfile(null);
-  }
-
-  function selectProfile(profileId: string | null) {
-    setPendingRebind(null);
-    setRebindFromProfileId(null);
-    setCreating(profileId === null);
-    props.onSelectProfile(profileId);
-  }
-
-  function cancelRotation() {
-    setRotationPassword('');
-    setRotationKey('');
-    setShowRotation(false);
   }
 
   return (
     <section className="family-model-settings-editor family-model-settings-provider-editor" aria-labelledby="family-model-provider-editor-title">
       <div className="family-model-settings-section-head">
         <div>
-          <h2 id="family-model-provider-editor-title">Provider 档案</h2>
-          <p>一个档案固定一个服务地址、认证方式和账号范围；API Key 只在提交时使用。</p>
+          <h2 id="family-model-provider-editor-title">Provider 服务</h2>
+          <p>每个服务对应一种连接方式、认证方式和账号范围；API Key 只在提交时使用。</p>
         </div>
-        <button type="button" className="ghost-button" disabled={props.busy || retryingRebind} onClick={beginCreate}>新建档案</button>
+        <button type="button" className="ghost-button" disabled={props.busy || retryingRebind} onClick={beginCreate}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16, marginRight: 6 }} aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          新建服务
+        </button>
       </div>
 
       {props.profiles.length > 0 ? (
         <>
-          <nav className="family-model-settings-provider-list" aria-label="Provider 档案列表">
+          <nav className="family-model-settings-provider-list" aria-label="Provider 服务列表">
             {props.profiles.map((profile) => (
               <button
                 key={profile.id}
@@ -270,13 +258,13 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
             ))}
           </nav>
           <label className="family-model-settings-field family-model-settings-provider-select">
-            <span>当前档案</span>
+            <span>当前服务</span>
             <select
               value={selectedProfile?.id ?? ''}
               disabled={props.busy || retryingRebind}
               onChange={(event) => selectProfile(event.target.value || null)}
             >
-              <option value="">新建 Provider 档案</option>
+              <option value="">新建 Provider 服务</option>
               {props.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
             </select>
           </label>
@@ -287,8 +275,8 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
         <div className="family-model-settings-provider-existing">
           <StateBlock
             status="error"
-            title="新档案已创建，能力改绑未完成"
-            description="再次尝试只会更新能力绑定，不会重复创建 Provider 档案。"
+            title="新服务已创建，能力改绑未完成"
+            description="再次尝试只会更新能力绑定，不会重复创建 Provider 服务。"
           />
           <div className="family-model-settings-editor-actions">
             <button
@@ -304,23 +292,25 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       ) : selectedProfile ? (
         <div className="family-model-settings-provider-existing">
           <ProfileScopeSummary profile={selectedProfile} />
-          <p className="family-model-settings-readonly-note">更换服务地址或账号需要创建新档案，再重新绑定能力。</p>
+          <p className="family-model-settings-readonly-note">更换连接地址或账号需要创建新服务，再重新绑定能力。</p>
           <form className="family-model-settings-form" onSubmit={submitPatch}>
-            <label className="family-model-settings-field">
-              <span>显示名称</span>
-              <input value={displayName} disabled={props.busy} onChange={(event) => setDisplayName(event.target.value)} required />
-            </label>
-            <label className="family-model-settings-field">
-              <span>状态</span>
-              <select value={status} disabled={props.busy} onChange={(event) => setStatus(event.target.value as FamilyModelProviderProfile['status'])}>
-                <option value="active">启用</option>
-                <option value="disabled">停用</option>
-                <option value="archived">归档</option>
-              </select>
-            </label>
+            <div className="family-model-settings-form-grid">
+              <label className="family-model-settings-field">
+                <span>显示名称</span>
+                <input value={displayName} disabled={props.busy} onChange={(event) => setDisplayName(event.target.value)} required />
+              </label>
+              <label className="family-model-settings-field">
+                <span>状态</span>
+                <select value={status} disabled={props.busy} onChange={(event) => setStatus(event.target.value as FamilyModelProviderProfile['status'])}>
+                  <option value="active">启用</option>
+                  <option value="disabled">停用</option>
+                  <option value="archived">归档</option>
+                </select>
+              </label>
+            </div>
             <div className="family-model-settings-editor-actions">
               <button className="ghost-button" type="button" disabled={props.busy} onClick={() => { void checkConnection(); }}>检查连接</button>
-              <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在保存' : '保存档案'}</button>
+              <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在保存' : '保存服务'}</button>
             </div>
             {connectionMessage ? <p className="family-model-settings-inline-status" role="status">{connectionMessage}</p> : null}
           </form>
@@ -336,14 +326,16 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           </div>
           {showRotation ? (
             <form className="family-model-settings-form family-model-settings-key-rotation-form" onSubmit={submitRotation}>
-              <label className="family-model-settings-field">
-                <span>当前密码</span>
-                <input type="password" autoComplete="current-password" value={rotationPassword} disabled={props.busy} onChange={(event) => setRotationPassword(event.target.value)} required />
-              </label>
-              <label className="family-model-settings-field">
-                <span>新的 API Key</span>
-                <input type="password" autoComplete="new-password" placeholder="输入同一服务范围的新 API Key" value={rotationKey} disabled={props.busy} onChange={(event) => setRotationKey(event.target.value)} required />
-              </label>
+              <div className="family-model-settings-form-grid">
+                <label className="family-model-settings-field">
+                  <span>当前密码</span>
+                  <input type="password" autoComplete="current-password" value={rotationPassword} disabled={props.busy} onChange={(event) => setRotationPassword(event.target.value)} required />
+                </label>
+                <label className="family-model-settings-field">
+                  <span>新的 API Key</span>
+                  <input type="password" autoComplete="new-password" placeholder="输入同一服务范围的新 API Key" value={rotationKey} disabled={props.busy} onChange={(event) => setRotationKey(event.target.value)} required />
+                </label>
+              </div>
               <div className="family-model-settings-editor-actions">
                 <button className="ghost-button" type="button" disabled={props.busy} onClick={cancelRotation}>取消</button>
                 <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在轮换' : '确认轮换'}</button>
@@ -353,56 +345,68 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
         </div>
       ) : (
         <form className="family-model-settings-form" onSubmit={submitCreate}>
-          <div className="family-model-settings-form-grid">
-            <label className="family-model-settings-field">
-              <span>档案名称</span>
-              <input value={createForm.displayName} disabled={props.busy} placeholder="例如：家庭主服务" onChange={(event) => setCreateForm((current) => ({ ...current, displayName: event.target.value }))} required />
-            </label>
-            <label className="family-model-settings-field">
-              <span>协议适配器</span>
-              <select value={createForm.adapterKind} disabled={props.busy} onChange={(event) => setCreateForm((current) => ({ ...current, adapterKind: event.target.value as FamilyModelAdapterKind }))}>
-                {FAMILY_MODEL_ADAPTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className="family-model-settings-field">
-              <span>{isRealtime ? 'WebSocket 服务地址' : 'API 服务地址'}</span>
-              <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
-            </label>
-            {!isRealtime ? (
+          <div className="family-model-settings-form-section">
+            <h3 className="family-model-settings-form-section-title">基本信息</h3>
+            <div className="family-model-settings-form-grid">
               <label className="family-model-settings-field">
-                <span>可选实时地址</span>
-                <input type="url" value={createForm.websocketBaseUrl} disabled={props.busy} placeholder="wss://provider.example/realtime" onChange={(event) => setCreateForm((current) => ({ ...current, websocketBaseUrl: event.target.value }))} />
+                <span>服务名称</span>
+                <input value={createForm.displayName} disabled={props.busy} placeholder="例如：家庭主服务" onChange={(event) => setCreateForm((current) => ({ ...current, displayName: event.target.value }))} required />
               </label>
-            ) : null}
-            <label className="family-model-settings-field">
-              <span>认证方式</span>
-              <select value={createForm.authMode} disabled={props.busy || isRealtime} onChange={(event) => setCreateForm((current) => ({ ...current, authMode: event.target.value as FamilyModelAuthMode, apiKey: event.target.value === 'no_auth' ? '' : current.apiKey }))}>
-                <option value="api_key">API Key</option>
-                {!isRealtime ? <option value="no_auth">无认证（仅受控内网）</option> : null}
-              </select>
-            </label>
-            {createForm.authMode === 'api_key' ? (
               <label className="family-model-settings-field">
-                <span>API Key</span>
-                <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API Key" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
+                <span>协议适配器</span>
+                <select
+                  value={createForm.adapterKind}
+                  disabled={props.busy}
+                  onChange={(event) => {
+                    const adapterKind = event.target.value as FamilyModelAdapterKind;
+                    setCreateForm((current) => ({
+                      ...current,
+                      adapterKind,
+                      apiBaseUrl: isFamilyModelRealtimeAdapter(current.adapterKind) === isFamilyModelRealtimeAdapter(adapterKind)
+                        ? current.apiBaseUrl
+                        : '',
+                      authMode: isFamilyModelRealtimeAdapter(adapterKind) ? 'api_key' : current.authMode,
+                    }));
+                  }}
+                >
+                  {FAMILY_MODEL_ADAPTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
               </label>
-            ) : null}
-            <label className="family-model-settings-field">
-              <span>工作区（可选）</span>
-              <input value={createForm.workspaceId} disabled={props.busy} onChange={(event) => setCreateForm((current) => ({ ...current, workspaceId: event.target.value }))} />
-            </label>
-            <label className="family-model-settings-field">
-              <span>区域（可选）</span>
-              <input value={createForm.region} disabled={props.busy} onChange={(event) => setCreateForm((current) => ({ ...current, region: event.target.value }))} />
-            </label>
-            <label className="family-model-settings-field">
-              <span>项目（可选）</span>
-              <input value={createForm.projectId} disabled={props.busy} onChange={(event) => setCreateForm((current) => ({ ...current, projectId: event.target.value }))} />
-            </label>
+            </div>
           </div>
-          <p className="family-model-settings-write-only-note">API Key 不会再次显示、复制或保存到浏览器。</p>
+
+          <div className="family-model-settings-form-section">
+            <h3 className="family-model-settings-form-section-title">连接与认证</h3>
+            <div className="family-model-settings-form-grid">
+              <label className="family-model-settings-field">
+                <span>{isRealtime ? '实时地址' : 'API 地址'}</span>
+                <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
+              </label>
+              <label className="family-model-settings-field">
+                <span>认证方式</span>
+                <select value={createForm.authMode} disabled={props.busy || isRealtime} onChange={(event) => setCreateForm((current) => ({ ...current, authMode: event.target.value as FamilyModelAuthMode, apiKey: event.target.value === 'no_auth' ? '' : current.apiKey }))}>
+                  <option value="api_key">API Key</option>
+                  {!isRealtime ? <option value="no_auth">无认证（仅受控内网）</option> : null}
+                </select>
+              </label>
+              {createForm.authMode === 'api_key' ? (
+                <label className="family-model-settings-field">
+                  <span>API Key</span>
+                  <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API Key" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
+                </label>
+              ) : null}
+            </div>
+          </div>
+
+          <p className="family-model-settings-write-only-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14, marginRight: 6, verticalAlign: -2 }} aria-hidden="true">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            API Key 不会再次显示、复制或保存到浏览器。
+          </p>
           <div className="family-model-settings-editor-actions">
-            <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在创建' : '创建档案'}</button>
+            <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在创建' : '创建服务'}</button>
           </div>
         </form>
       )}

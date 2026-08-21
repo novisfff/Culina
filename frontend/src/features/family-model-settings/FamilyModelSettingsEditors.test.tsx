@@ -65,7 +65,7 @@ describe('Family model settings editors', () => {
     await user.clear(screen.getByLabelText('显示名称'));
     await user.type(screen.getByLabelText('显示名称'), '家庭备用服务');
     await user.selectOptions(screen.getByLabelText('状态'), 'disabled');
-    await user.click(screen.getByRole('button', { name: '保存档案' }));
+    await user.click(screen.getByRole('button', { name: '保存服务' }));
 
     await waitFor(() => expect(props.onPatch).toHaveBeenCalledWith('profile-a', {
       display_name: '家庭备用服务',
@@ -82,7 +82,7 @@ describe('Family model settings editors', () => {
     const backupProfile = { ...profile, id: 'profile-b', display_name: '家庭备用服务', status: 'disabled' as const };
     render(<ProviderProfileEditor {...providerProps({ profiles: [profile, backupProfile], onSelectProfile })} />);
 
-    const profileList = screen.getByRole('navigation', { name: 'Provider 档案列表' });
+    const profileList = screen.getByRole('navigation', { name: 'Provider 服务列表' });
     expect(within(profileList).getByRole('button', { name: /家庭主服务/ })).toHaveAttribute('aria-current', 'true');
     await user.click(within(profileList).getByRole('button', { name: /家庭备用服务/ }));
 
@@ -93,7 +93,8 @@ describe('Family model settings editors', () => {
     render(<ProviderProfileEditor {...providerProps({ selectedProfileId: null })} />);
 
     expect(screen.getByLabelText('显示名称')).toHaveValue('家庭主服务');
-    expect(screen.queryByLabelText('档案名称')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('服务名称')).not.toBeInTheDocument();
+    expect(screen.queryByText('服务范围')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /家庭主服务/ })).toHaveAttribute('aria-current', 'true');
   });
 
@@ -102,17 +103,39 @@ describe('Family model settings editors', () => {
     const onCreate = vi.fn().mockResolvedValue(profile);
     render(<ProviderProfileEditor {...providerProps({ profiles: [], selectedProfileId: null, onCreate })} />);
 
-    await user.type(screen.getByLabelText('档案名称'), '新的服务');
-    await user.type(screen.getByLabelText('API 服务地址'), 'https://new-provider.example/v1');
+    await user.type(screen.getByLabelText('服务名称'), '新的服务');
+    await user.type(screen.getByLabelText('API 地址'), 'https://new-provider.example/v1');
     await user.type(screen.getByLabelText('API Key'), 'new-api-key');
-    await user.click(screen.getByRole('button', { name: '创建档案' }));
+    await user.click(screen.getByRole('button', { name: '创建服务' }));
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
     expect(onCreate.mock.calls[0]?.[0]).toMatchObject({
       api_base_url: 'https://new-provider.example/v1',
       api_key: 'new-api-key',
     });
+    expect(onCreate.mock.calls[0]?.[0].options).toEqual({});
     expect(screen.getByLabelText('API Key')).toHaveValue('');
+  });
+
+  it('根据协议适配器只显示对应的连接地址', async () => {
+    const user = userEvent.setup();
+    render(<ProviderProfileEditor {...providerProps({ profiles: [], selectedProfileId: null })} />);
+
+    expect(screen.queryByRole('heading', { name: '作用域（可选）' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('工作区（可选）')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('区域（可选）')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('项目（可选）')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('API 地址')).toBeVisible();
+    expect(screen.queryByLabelText('实时地址')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('API 地址'), 'https://http-provider.example/v1');
+    await user.selectOptions(screen.getByLabelText('认证方式'), 'no_auth');
+
+    await user.selectOptions(screen.getByLabelText('协议适配器'), 'openai_realtime');
+
+    expect(screen.queryByLabelText('API 地址')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('实时地址')).toHaveValue('');
+    expect(screen.getByLabelText('认证方式')).toHaveValue('api_key');
+    expect(screen.getByLabelText('API Key')).toBeVisible();
   });
 
   it('clears rotation credentials when the Owner cancels the rotation form', async () => {
@@ -148,11 +171,11 @@ describe('Family model settings editors', () => {
     }
     render(<Harness />);
 
-    await user.click(screen.getByRole('button', { name: '新建档案' }));
-    await user.type(screen.getByLabelText('档案名称'), '替换服务');
-    await user.type(screen.getByLabelText('API 服务地址'), 'https://replacement.example/v1');
+    await user.click(screen.getByRole('button', { name: '新建服务' }));
+    await user.type(screen.getByLabelText('服务名称'), '替换服务');
+    await user.type(screen.getByLabelText('API 地址'), 'https://replacement.example/v1');
     await user.type(screen.getByLabelText('API Key'), 'replacement-key');
-    await user.click(screen.getByRole('button', { name: '创建档案' }));
+    await user.click(screen.getByRole('button', { name: '创建服务' }));
 
     await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledWith('profile-a', 'profile-new'));
   });
@@ -178,11 +201,11 @@ describe('Family model settings editors', () => {
     }
     render(<Harness />);
 
-    await user.click(screen.getByRole('button', { name: '新建档案' }));
-    await user.type(screen.getByLabelText('档案名称'), '替换服务');
-    await user.type(screen.getByLabelText('API 服务地址'), 'https://replacement.example/v1');
+    await user.click(screen.getByRole('button', { name: '新建服务' }));
+    await user.type(screen.getByLabelText('服务名称'), '替换服务');
+    await user.type(screen.getByLabelText('API 地址'), 'https://replacement.example/v1');
     await user.type(screen.getByLabelText('API Key'), 'replacement-key');
-    await user.click(screen.getByRole('button', { name: '创建档案' }));
+    await user.click(screen.getByRole('button', { name: '创建服务' }));
 
     await screen.findByRole('button', { name: '重试改绑' });
     expect(onCreate).toHaveBeenCalledTimes(1);
@@ -238,7 +261,7 @@ describe('Family model settings editors', () => {
     if (!card) throw new Error('Expected the Embedding editor card.');
     expect(within(card).getByText('更换这些设置需要完整重建搜索索引。')).toBeVisible();
     expect(within(card).getByRole('checkbox', { name: '已启用' })).toBeDisabled();
-    expect(within(card).getByLabelText('Provider 档案')).toBeDisabled();
+    expect(within(card).getByLabelText('Provider 服务')).toBeDisabled();
     expect(within(card).getByLabelText('模型名称')).toBeDisabled();
     expect(within(card).getByLabelText('向量维度')).toBeDisabled();
   });

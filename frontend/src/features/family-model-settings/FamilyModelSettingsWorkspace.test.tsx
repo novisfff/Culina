@@ -99,7 +99,7 @@ describe('FamilyModelSettingsWorkspace', () => {
     expect(screen.queryByRole('button', { name: '配置能力' })).not.toBeInTheDocument();
 
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 档案' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
   });
 
   it('uses the same state-derived next step in the phone action bar', async () => {
@@ -113,7 +113,7 @@ describe('FamilyModelSettingsWorkspace', () => {
     expect(footer).not.toBeNull();
     expect(within(footer as HTMLElement).queryByRole('button', { name: '发布复核' })).not.toBeInTheDocument();
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 档案' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
   });
 
   it('describes an active clean configuration without claiming draft parity', async () => {
@@ -151,7 +151,7 @@ describe('FamilyModelSettingsWorkspace', () => {
 
     await waitFor(() => expect(screen.getByRole('main', { name: '手机家庭 AI 服务' })).toBeVisible());
     expect(container.querySelector('.family-model-settings-desktop')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Provider 档案' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Provider 服务' })).toBeVisible();
   });
 
   it('routes a browser-back event through the workspace back contract', async () => {

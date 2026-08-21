@@ -61,16 +61,29 @@ export function PublishReview(props: PublishReviewProps) {
       <div className="family-model-settings-review-groups">
         <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-providers">
           <div className="family-model-settings-group-head">
-            <h3 id="family-model-settings-review-providers">Provider 服务</h3>
-            <span>{props.settings.provider_profiles.filter((profile) => !profile.archived && profile.status === 'active').length} 个可用档案</span>
+            <div className="family-model-settings-group-head-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18, color: 'var(--accent-strong)' }} aria-hidden="true">
+                <rect x="3" y="4" width="18" height="6" rx="2" />
+                <rect x="3" y="14" width="18" height="6" rx="2" />
+                <circle cx="7" cy="7" r="1" fill="currentColor" />
+                <circle cx="7" cy="17" r="1" fill="currentColor" />
+              </svg>
+              <h3 id="family-model-settings-review-providers">Provider 服务</h3>
+            </div>
+            <span>{props.settings.provider_profiles.filter((profile) => !profile.archived && profile.status === 'active').length} 个可用服务</span>
           </div>
           <p>{props.settings.provider_profiles.some((profile) => !profile.archived && profile.credential.configured)
-            ? '至少一个服务档案已配置凭据。'
-            : '尚无已配置凭据的服务档案。'}</p>
+            ? '至少一个服务已配置凭据。'
+            : '尚无已配置凭据的服务。'}</p>
         </section>
         <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-capabilities">
           <div className="family-model-settings-group-head">
-            <h3 id="family-model-settings-review-capabilities">能力与价格</h3>
+            <div className="family-model-settings-group-head-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18, color: 'var(--plan)' }} aria-hidden="true">
+                <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9L12 3Z" />
+              </svg>
+              <h3 id="family-model-settings-review-capabilities">能力与价格</h3>
+            </div>
             <span>{props.draft.bindings.filter((binding) => binding.enabled).length} 项启用</span>
           </div>
           <div className="family-model-settings-review-list">
@@ -96,7 +109,13 @@ export function PublishReview(props: PublishReviewProps) {
         </section>
         <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-search">
           <div className="family-model-settings-group-head">
-            <h3 id="family-model-settings-review-search">搜索索引</h3>
+            <div className="family-model-settings-group-head-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18, color: 'var(--success)' }} aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <h3 id="family-model-settings-review-search">搜索索引</h3>
+            </div>
             <span>{props.settings.active_search_profile_id ? '已启用' : '未启用'}</span>
           </div>
           <p>{props.settings.active_search_profile_id

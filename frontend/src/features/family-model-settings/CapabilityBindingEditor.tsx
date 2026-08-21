@@ -52,6 +52,61 @@ function isActiveEmbedding(draft: FamilyModelSettingsDraft, binding: FamilyModel
     && Boolean(draft.active_embedding_binding);
 }
 
+function getCapabilityIcon(capability: FamilyModelCapability) {
+  switch (capability) {
+    case 'llm':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9L12 3Z" />
+        </svg>
+      );
+    case 'image_generation':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <path d="m21 15-5-5L5 21" />
+        </svg>
+      );
+    case 'stt':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8" />
+        </svg>
+      );
+    case 'tts':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      );
+    case 'realtime_audio':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4" />
+        </svg>
+      );
+    case 'embedding':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m16.5 16.5 4.5 4.5" />
+          <path d="M8 11h6" />
+        </svg>
+      );
+    case 'rerank':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="4" y1="6" x2="20" y2="6" />
+          <line x1="4" y1="12" x2="14" y2="12" />
+          <line x1="4" y1="18" x2="8" y2="18" />
+        </svg>
+      );
+  }
+}
+
 export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
   const [confirmedTests, setConfirmedTests] = useState<Record<string, boolean>>({});
   const [testMessage, setTestMessage] = useState<Record<string, string>>({});
@@ -91,7 +146,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
       <div className="family-model-settings-section-head">
         <div>
           <h2 id="family-model-capability-editor-title">能力配置</h2>
-          <p>为七类能力选择已创建的兼容服务档案和模型；启用后需要补全对应价格。</p>
+          <p>为七类能力选择已创建的兼容服务和模型；启用后需要补全对应价格。</p>
         </div>
       </div>
       <div className="family-model-settings-binding-groups">
@@ -114,8 +169,20 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
             <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
               <div className="family-model-settings-binding-head">
                 <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => setSelectedBindingKey(key)}>
-                  <h3>{bindingTitle(binding)}</h3>
-                  <p>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].description}</p>
+                  <div className="family-model-settings-binding-head-info">
+                    <span className={`family-model-settings-binding-icon tone-${binding.capability}`} aria-hidden="true">
+                      {getCapabilityIcon(binding.capability)}
+                    </span>
+                    <div>
+                      <h3>{bindingTitle(binding)}</h3>
+                      <p>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].description}</p>
+                    </div>
+                  </div>
+                  <span className={`family-model-settings-binding-chevron ${expanded ? 'is-expanded' : ''}`} aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </span>
                 </button>
                 <label className="family-model-settings-switch">
                   <input
@@ -124,6 +191,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                     disabled={props.busy || embeddingLocked}
                     onChange={(event) => patchBinding(index, binding, { enabled: event.target.checked })}
                   />
+                  <span className="family-model-settings-switch-track" aria-hidden="true" />
                   <span>{binding.enabled ? '已启用' : '未启用'}</span>
                 </label>
               </div>
@@ -131,13 +199,13 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
               {embeddingLocked ? <p className="family-model-settings-readonly-note">更换这些设置需要完整重建搜索索引。</p> : null}
               <div className="family-model-settings-form-grid">
                 <label className="family-model-settings-field">
-                  <span>Provider 档案</span>
+                  <span>Provider 服务</span>
                   <select
                     value={binding.provider_profile_id ?? ''}
                     disabled={props.busy || embeddingLocked}
                     onChange={(event) => patchBinding(index, binding, { provider_profile_id: event.target.value || null })}
                   >
-                    <option value="">选择兼容档案</option>
+                    <option value="">选择兼容服务</option>
                     {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
                   </select>
                 </label>
@@ -156,10 +224,17 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                       <span>最大输出 Token</span>
                       <input type="number" min="1" value={binding.max_output_tokens} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { max_output_tokens: Number(event.target.value) || 1 })} />
                     </label>
-                    <label className="family-model-settings-checkbox-field">
-                      <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
-                      <span>支持图片理解</span>
-                    </label>
+                    <div className="family-model-settings-field">
+                      <span>视觉多模态</span>
+                      <label className="family-model-settings-toggle-card">
+                        <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
+                        <span className="family-model-settings-switch-track" aria-hidden="true" />
+                        <span className="family-model-settings-toggle-card-copy">
+                          <strong>支持图片理解</strong>
+                          <small>允许识别菜谱照片与食材图片</small>
+                        </span>
+                      </label>
+                    </div>
                   </>
                 ) : null}
                 {binding.capability === 'image_generation' ? (

@@ -29,6 +29,10 @@ export const FAMILY_MODEL_ADAPTER_OPTIONS: ReadonlyArray<{
   { value: 'dashscope_realtime', label: 'DashScope Realtime', description: '仅用于实时语音。' },
 ];
 
+export function isFamilyModelRealtimeAdapter(adapterKind: FamilyModelAdapterKind): boolean {
+  return adapterKind === 'openai_realtime' || adapterKind === 'dashscope_realtime';
+}
+
 export const FAMILY_MODEL_METER_LABELS: Partial<Record<ModelUsageMeter, string>> = {
   uncached_input_tokens: '未缓存输入 Token',
   cached_input_tokens: '缓存输入 Token',
@@ -49,6 +53,6 @@ export function profileSupportsCapability(
   capability: FamilyModelCapability,
 ): boolean {
   if (profile.archived || profile.status !== 'active') return false;
-  const isRealtime = profile.adapter_kind === 'openai_realtime' || profile.adapter_kind === 'dashscope_realtime';
+  const isRealtime = isFamilyModelRealtimeAdapter(profile.adapter_kind);
   return capability === 'realtime_audio' ? isRealtime : !isRealtime;
 }

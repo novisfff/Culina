@@ -126,9 +126,9 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
           <h3>创建替换索引</h3>
           <div className="family-model-settings-form-grid">
             <label className="family-model-settings-field">
-              <span>新的 Provider 档案</span>
+              <span>新的 Provider 服务</span>
               <select value={providerProfileId} disabled={busy} onChange={(event) => { setProviderProfileId(event.target.value); setPreview(null); }}>
-                <option value="">选择兼容档案</option>
+                <option value="">选择兼容服务</option>
                 {embeddingProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
               </select>
             </label>

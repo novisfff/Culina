@@ -214,12 +214,12 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^Provider 档案/ }).click();
-    await page.getByRole('navigation', { name: 'Provider 档案列表' })
+      .getByRole('button', { name: /^Provider 服务/ }).click();
+    await page.getByRole('navigation', { name: 'Provider 服务列表' })
       .getByRole('button', { name: /家庭主服务/ }).click();
 
-    await expect(page.getByText('更换服务地址或账号需要创建新档案，再重新绑定能力。')).toBeVisible();
-    await expect(page.getByLabel('API 服务地址')).toHaveCount(0);
+    await expect(page.getByText('更换连接地址或账号需要创建新服务，再重新绑定能力。')).toBeVisible();
+    await expect(page.getByLabel('API 地址')).toHaveCount(0);
 
     const connectionRequest = page.waitForRequest((request) => (
       request.method() === 'POST'
@@ -246,14 +246,14 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
       request.method() === 'PATCH'
       && new URL(request.url()).pathname === '/api/family/model-settings/provider-profiles/family-model-profile-http'
     ));
-    await page.getByRole('button', { name: '保存档案' }).click();
+    await page.getByRole('button', { name: '保存服务' }).click();
     const patchRequest = await patchRequestPromise;
     expect(patchRequest.postDataJSON()).not.toHaveProperty('api_base_url');
     expect(patchRequest.postDataJSON()).not.toHaveProperty('auth_mode');
 
-    await page.getByRole('button', { name: '新建档案' }).click();
-    await page.getByLabel('档案名称').fill('替换服务');
-    await page.getByLabel('API 服务地址').fill('https://replacement.example/v1');
+    await page.getByRole('button', { name: '新建服务' }).click();
+    await page.getByLabel('服务名称').fill('替换服务');
+    await page.getByLabel('API 地址').fill('https://replacement.example/v1');
     const createApiKeyInput = page.locator('input[type="password"][autocomplete="new-password"]');
     await createApiKeyInput.fill(createMarker);
     const createRequestPromise = page.waitForRequest((request) => (
@@ -264,7 +264,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
       request.method() === 'PUT'
       && new URL(request.url()).pathname === '/api/family/model-settings/draft'
     ));
-    await page.getByRole('button', { name: '创建档案' }).click();
+    await page.getByRole('button', { name: '创建服务' }).click();
     const createRequest = await createRequestPromise;
     const rebindDraftRequest = await rebindDraftRequestPromise;
     expect(createRequest.postDataJSON()).toMatchObject({
@@ -297,16 +297,16 @@ test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', 
     const { familyModelRequests, page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^Provider 档案/ }).click();
-    await page.getByRole('navigation', { name: 'Provider 档案列表' })
+      .getByRole('button', { name: /^Provider 服务/ }).click();
+    await page.getByRole('navigation', { name: 'Provider 服务列表' })
       .getByRole('button', { name: /家庭主服务/ }).click();
-    await page.getByRole('button', { name: '新建档案' }).click();
-    await page.getByLabel('档案名称').fill('替换服务');
-    await page.getByLabel('API 服务地址').fill('https://replacement.example/v1');
+    await page.getByRole('button', { name: '新建服务' }).click();
+    await page.getByLabel('服务名称').fill('替换服务');
+    await page.getByLabel('API 地址').fill('https://replacement.example/v1');
     await page.locator('input[type="password"][autocomplete="new-password"]').fill('replacement-recovery-key');
-    await page.getByRole('button', { name: '创建档案' }).click();
+    await page.getByRole('button', { name: '创建服务' }).click();
 
-    const pendingRebindState = page.getByText('新档案已创建，能力改绑未完成', { exact: true });
+    const pendingRebindState = page.getByText('新服务已创建，能力改绑未完成', { exact: true });
     await expect(pendingRebindState).toBeVisible();
     expect(familyModelRequests.filter((request) => (
       request.method === 'POST'
@@ -495,7 +495,7 @@ test.describe('@family-model-settings-1440x900 search replacement recovery', () 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^搜索索引/ }).click();
-    await page.getByLabel('新的 Provider 档案').selectOption('family-model-profile-http');
+    await page.getByLabel('新的 Provider 服务').selectOption('family-model-profile-http');
     await page.getByLabel('新的向量模型').fill('culina-embedding-v2');
     await page.getByLabel('向量维度').fill('2048');
     await page.getByRole('button', { name: '评估完整重建' }).click();
@@ -518,7 +518,7 @@ test.describe('@family-model-settings-390x844 search cancellation and Member pri
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-mobile-task-list')
       .getByRole('button', { name: '搜索索引', exact: true }).click();
-    await page.getByLabel('新的 Provider 档案').selectOption('family-model-profile-http');
+    await page.getByLabel('新的 Provider 服务').selectOption('family-model-profile-http');
     await page.getByLabel('新的向量模型').fill('culina-embedding-v2');
     await page.getByLabel('向量维度').fill('2048');
     await page.getByRole('button', { name: '评估完整重建' }).click();

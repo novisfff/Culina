@@ -128,8 +128,15 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
             <article className={`family-model-settings-price-card ${expanded ? 'is-expanded' : ''}`} key={id}>
               <div className="family-model-settings-price-head">
                 <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-price-panel-${id}`} onClick={() => setPreferredRateId(id)}>
-                  <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[rate.capability].label}</strong>
-                  <span>{FAMILY_MODEL_METER_LABELS[rate.meter] ?? rate.meter} · {unitDescription(rate.meter)}</span>
+                  <div className="family-model-settings-price-head-info">
+                    <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[rate.capability].label}</strong>
+                    <span>{FAMILY_MODEL_METER_LABELS[rate.meter] ?? rate.meter} · {unitDescription(rate.meter)}</span>
+                  </div>
+                  <span className={`family-model-settings-binding-chevron ${expanded ? 'is-expanded' : ''}`} aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </span>
                 </button>
                 <span className={`family-model-settings-price-status ${error ? 'is-error' : ''}`}>
                   {error ? '待修正' : rate.variant_key}
