@@ -902,7 +902,7 @@ function modelUsageFamilyBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: modelUsageBreakdownItems(groupBy),
+    items: modelUsageBreakdownItems(groupBy, period),
   };
 }
 
@@ -914,14 +914,20 @@ function modelUsagePersonalBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: modelUsageBreakdownItems(groupBy),
+    items: modelUsageBreakdownItems(groupBy, period),
   };
 }
 
-function modelUsageBreakdownItems(groupBy) {
+function modelUsageBreakdownItems(groupBy, period) {
   if (groupBy === 'provider_model') return modelUsageProviderModelBreakdown;
   if (groupBy === 'meter') return modelUsageMeterBreakdown;
-  if (groupBy === 'daily_capability_cost') return modelUsageDailyBreakdown;
+  if (groupBy === 'daily_capability_cost') {
+    return modelUsageDailyBreakdown.map((item) => ({
+      ...item,
+      label: item.label.replace(/^\d{4}-\d{2}/, period),
+      local_day: item.local_day?.replace(/^\d{4}-\d{2}/, period) ?? null,
+    }));
+  }
   return modelUsageCapabilityBreakdown;
 }
 

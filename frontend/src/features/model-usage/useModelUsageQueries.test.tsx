@@ -195,6 +195,55 @@ describe('useModelUsageQueries', () => {
     expect(queryClient.getQueryState(queryKeys.modelUsageBreakdown('family-a', 'me', '2026-06', 'meter'))).toBeDefined();
   });
 
+  it('loads capability costs for the distribution even when another detail grouping is selected', async () => {
+    const queryClient = makeQueryClient();
+    resolveOwnerQueries();
+
+    const { result } = renderHook(
+      () => useModelUsageQueries({
+        familyId: 'family-a',
+        role: 'Owner',
+        initialPeriod: '2026-07',
+        initialGroupBy: 'provider_model',
+      }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.viewModel.state).toBe('ready'));
+
+    expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'provider_model');
+    expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'capability');
+    expect(result.current.viewModel).toMatchObject({
+      capabilityBreakdown: { group_by: 'capability' },
+    });
+  });
+
+  it('loads both months needed for a rolling 30-day trend at the start of a current month', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-08-05T03:00:00.000Z'));
+    try {
+      const queryClient = makeQueryClient();
+      resolveOwnerQueries(familyOverview({ period: '2026-08' }));
+
+      const { result } = renderHook(
+        () => useModelUsageQueries({ familyId: 'family-a', role: 'Owner', initialPeriod: '2026-08' }),
+        { wrapper: wrapper(queryClient) },
+      );
+
+      await waitFor(() => expect(result.current.viewModel.state).toBe('ready'));
+
+      expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'daily_capability_cost');
+      expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-08', 'daily_capability_cost');
+      expect(result.current.trendWindow).toEqual({
+        startDate: '2026-07-07',
+        endDate: '2026-08-05',
+        periods: ['2026-07', '2026-08'],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resets owner-only grouping before enabling a personal query', async () => {
     const queryClient = makeQueryClient();
     resolveOwnerQueries();
