@@ -209,39 +209,7 @@ def test_openai_compatible_embedding_client_rejects_dimension_mismatch() -> None
         )
 
 
-def test_build_embedding_client_uses_search_embedding_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "app.services.search.embeddings.get_settings",
-        lambda: SimpleNamespace(
-            search_embedding_provider="openai",
-            search_embedding_api_base="https://embedding.example/v1",
-            search_embedding_api_key="secret",
-            search_embedding_model="embedding-model",
-            search_embedding_dimensions=2,
-            search_embedding_timeout_seconds=1,
-        ),
-    )
-
-    client = build_embedding_client()
-
-    assert isinstance(client, OpenAICompatibleEmbeddingClient)
-    assert client.model == "embedding-model"
-    assert client.dimensions == 2
-
-
-def test_build_embedding_client_returns_disabled_for_incomplete_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "app.services.search.embeddings.get_settings",
-        lambda: SimpleNamespace(
-            search_embedding_provider="openai",
-            search_embedding_api_base="",
-            search_embedding_api_key="",
-            search_embedding_model="",
-            search_embedding_dimensions=0,
-            search_embedding_timeout_seconds=1,
-        ),
-    )
-
+def test_build_embedding_client_fails_closed_without_a_resolved_family_profile() -> None:
     assert isinstance(build_embedding_client(), DisabledEmbeddingClient)
 
 

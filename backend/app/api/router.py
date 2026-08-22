@@ -7,6 +7,7 @@ from app.api.ai import router as ai_router
 from app.api.ai_audio import router as ai_audio_router
 from app.api.auth import router as auth_router
 from app.api.family import router as family_router
+from app.api.family_model_settings import router as family_model_settings_router
 from app.api.foods import router as foods_router
 from app.api.ingredients import router as ingredients_router
 from app.api.inventory import router as inventory_router
@@ -27,6 +28,7 @@ from app.api.shopping_intake import router as shopping_intake_router
 api_router = APIRouter()
 api_router.include_router(auth_router)
 api_router.include_router(family_router)
+api_router.include_router(family_model_settings_router)
 api_router.include_router(ingredients_router)
 api_router.include_router(inventory_router)
 api_router.include_router(inventory_states_router)

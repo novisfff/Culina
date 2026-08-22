@@ -9,6 +9,7 @@ from app.core.security import get_password_hash
 from app.core.utils import create_id
 from app.db.transactions import commit_session
 from app.models.domain import Family, Membership, User, UserCredential
+from app.models.family_model_settings import FamilyModelSettings
 from app.services.model_usage.policies import ensure_family_model_usage_defaults
 from app.services.model_usage.subjects import ensure_user_subject
 
@@ -40,6 +41,13 @@ def initialize_configured_admin(db: Session, *, commit: bool = True) -> bool:
     )
     db.add(family)
     db.flush()
+    db.add(
+        FamilyModelSettings(
+            family_id=family.id,
+            created_by=system_actor,
+            updated_by=system_actor,
+        )
+    )
 
     user = User(
         id=create_id("user"),

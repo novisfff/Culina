@@ -46,6 +46,29 @@ export async function invalidateAfterModelUsagePolicyChanged(queryClient: QueryC
   await invalidateMany(queryClient, [queryKeys.modelUsageRoot(familyId)]);
 }
 
+export async function invalidateAfterFamilyModelSettingsChanged(
+  queryClient: QueryClient,
+  familyId: string,
+) {
+  await invalidateMany(queryClient, [
+    queryKeys.familyModelSettingsRoot(familyId),
+    queryKeys.modelUsageRoot(familyId),
+    queryKeys.aiStatus(familyId),
+  ]);
+}
+
+export async function invalidateAfterFamilySearchReplacementChanged(
+  queryClient: QueryClient,
+  familyId: string,
+) {
+  await invalidateMany(queryClient, [
+    queryKeys.familySearchProfile(familyId),
+    queryKeys.familyModelSettings(familyId),
+    queryKeys.searchRoot,
+    queryKeys.aiStatus(familyId),
+  ]);
+}
+
 export async function invalidateAfterIngredientChanged(queryClient: QueryClient) {
   await invalidateMany(queryClient, [queryKeys.ingredients, queryKeys.activityLogs]);
 }

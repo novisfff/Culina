@@ -32,7 +32,9 @@ from app.services.model_usage.types import (
     UsageAttribution,
     UsageContext,
     UsageMeterQuantity,
+    receipt_identity_from_permit,
 )
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 
 
 def _integer(value: object, *, field: str) -> int:
@@ -139,6 +141,15 @@ class LLMUsageAdapter(MeteredProviderAdapter):
     provider: str = "openai"
     variant_key: str = "default"
     operation_kind: str = "chat_provider_round"
+    binding: ResolvedCapabilityBinding | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is None:
+            return
+        if self.binding.capability != "llm":
+            raise ModelUsageContractError("llm_binding_required")
+        self.provider = self.binding.provider_profile_id
+        self.variant_key = self.binding.variant_key
 
     def request_fingerprint(self, payload: object) -> str:
         encoded = json.dumps(
@@ -166,6 +177,8 @@ class LLMUsageAdapter(MeteredProviderAdapter):
             raise ModelUsageContractError("provider_round_and_attempt_index_must_be_positive")
         if not model:
             raise ModelUsageContractError("llm_model_required")
+        if self.binding is not None and model != self.binding.requested_model:
+            raise ModelUsageContractError("llm_binding_model_mismatch")
         logical_digest = _stable_digest(
             attribution.family_id,
             attribution.logical_operation_id,
@@ -186,6 +199,15 @@ class LLMUsageAdapter(MeteredProviderAdapter):
             operation_kind=self.operation_kind,
             attempt_key=attempt_key,
             client_attempt_id=client_attempt_id,
+            config_revision_id=(
+                self.binding.config_revision_id if self.binding is not None else None
+            ),
+            provider_profile_id=(
+                self.binding.provider_profile_id if self.binding is not None else None
+            ),
+            provider_profile_version_id=(
+                self.binding.provider_profile_version_id if self.binding is not None else None
+            ),
         )
         estimate = estimate_llm(
             input_tokens=input_estimate,
@@ -254,6 +276,7 @@ class LLMUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )
 
@@ -307,5 +330,6 @@ class LLMUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )

@@ -5,7 +5,7 @@ import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
-import type { AppNavigationTarget, PrimaryTabKey } from './app/appNavigationModel';
+import { canRenderFamilyAiServices, type AppNavigationTarget, type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
@@ -102,6 +102,11 @@ const ModelUsageWorkspace = lazy(() =>
 );
 const ModelUsageRequestLogsPage = lazy(() =>
   import('./features/model-usage/ModelUsageRequestLogsPage').then((module) => ({ default: module.ModelUsageRequestLogsPage }))
+);
+const FamilyModelSettingsWorkspace = lazy(() =>
+  import('./features/family-model-settings/FamilyModelSettingsWorkspace').then((module) => ({
+    default: module.FamilyModelSettingsWorkspace,
+  }))
 );
 
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
@@ -1541,6 +1546,7 @@ function App() {
         {navigation.state.primaryTab === 'ai' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <AiWorkspace
+              familyId={family?.id ?? ''}
               conversations={aiConversations}
               isLoading={aiConversationsQuery.isLoading}
               currentUser={user}
@@ -1553,7 +1559,16 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'family' && (
-          navigation.state.family.view === 'modelUsageRequests' ? (
+          canRenderFamilyAiServices(navigation.state.family.view, isOwner) ? (
+            <Suspense fallback={<WorkspaceLoadingFallback />}>
+              <FamilyModelSettingsWorkspace
+                familyId={family?.id ?? ''}
+                role={membership?.role ?? 'Member'}
+                isPhoneViewport={isPhoneViewport}
+                onBack={() => navigation.navigate({ workspace: 'family', view: 'profile' })}
+              />
+            </Suspense>
+          ) : navigation.state.family.view === 'modelUsageRequests' ? (
             <Suspense fallback={<WorkspaceLoadingFallback />}>
               <ModelUsageRequestLogsPage
                 familyId={family?.id ?? ''}

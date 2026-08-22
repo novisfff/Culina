@@ -72,6 +72,9 @@ ALLOWED_BREAKDOWN_GROUP_BY = frozenset(
         "daily_capability_cost",
     }
 )
+PERSONAL_BREAKDOWN_GROUP_BY = frozenset(
+    {"capability", "meter", "daily_capability_cost"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -836,6 +839,8 @@ def get_personal_usage_breakdown(
     group_by: str,
     at: datetime | None = None,
 ) -> UsageBreakdown:
+    if group_by not in PERSONAL_BREAKDOWN_GROUP_BY:
+        raise ValueError("model_usage_personal_group_by_not_allowed")
     return _usage_breakdown(
         db,
         family_id=family_id,

@@ -183,6 +183,16 @@ class UsageContext:
     operation_kind: str
     attempt_key: str
     client_attempt_id: str
+    config_revision_id: str | None = None
+    provider_profile_id: str | None = None
+    provider_profile_version_id: str | None = None
+    search_profile_id: str | None = None
+    explicit_price_version_id: str | None = None
+
+    def for_capability(self, capability: ModelUsageCapability) -> UsageContext:
+        """Return an otherwise-identical context for a guarded capability check."""
+
+        return replace(self, capability=capability)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +276,11 @@ class ProviderUsageReceipt:
     integrity_key_id: str
     integrity_hmac: str
     required_meters: Sequence[UsageMeterQuantity] = ()
+    config_revision_id: str | None = None
+    provider_profile_id: str | None = None
+    provider_profile_version_id: str | None = None
+    credential_secret_version_id: str | None = None
+    search_profile_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "meters", tuple(self.meters))
@@ -301,9 +316,26 @@ class DispatchPermit:
     fail_open_proof_id: str | None = None
     expires_at: datetime | None = None
     required_meters: Sequence[UsageMeterQuantity] = ()
+    config_revision_id: str | None = None
+    provider_profile_id: str | None = None
+    provider_profile_version_id: str | None = None
+    credential_secret_version_id: str | None = None
+    search_profile_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "required_meters", tuple(self.required_meters))
+
+
+def receipt_identity_from_permit(permit: DispatchPermit) -> dict[str, str | None]:
+    """Copy durable dispatch identities into a signed provider receipt."""
+
+    return {
+        "config_revision_id": permit.config_revision_id,
+        "provider_profile_id": permit.provider_profile_id,
+        "provider_profile_version_id": permit.provider_profile_version_id,
+        "credential_secret_version_id": permit.credential_secret_version_id,
+        "search_profile_id": permit.search_profile_id,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +351,11 @@ class ReservationDecision:
     fail_open_permit: DispatchPermit | None = None
     error_code: str | None = None
     period_start: datetime | None = None
+    config_revision_id: str | None = None
+    provider_profile_id: str | None = None
+    provider_profile_version_id: str | None = None
+    credential_secret_version_id: str | None = None
+    search_profile_id: str | None = None
 
     @classmethod
     def blocked(

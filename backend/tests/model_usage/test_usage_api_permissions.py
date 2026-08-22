@@ -125,7 +125,7 @@ def test_owner_scope_is_derived_from_membership_and_cannot_select_another_family
     assert usage_api_context.family_a_id not in response.text
 
 
-def test_personal_subject_breakdown_uses_a_public_self_label_not_an_internal_key(
+def test_personal_breakdown_rejects_owner_only_subject_grouping(
     usage_api_context,
 ) -> None:
     usage_api_context.use_auth(
@@ -138,9 +138,48 @@ def test_personal_subject_breakdown_uses_a_public_self_label_not_an_internal_key
         params={"period": usage_api_context.period, "group_by": "subject"},
     )
 
-    assert response.status_code == 200, response.text
-    assert [item["label"] for item in response.json()["items"]] == ["我"]
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "model_usage_personal_group_by_not_allowed"
     assert usage_api_context.secret_subject_key not in response.text
+
+
+def test_personal_request_log_rejects_provider_model_filters_and_omits_diagnostics(
+    usage_api_context,
+) -> None:
+    usage_api_context.use_auth(
+        usage_api_context.member_a_id,
+        usage_api_context.member_a_membership_id,
+    )
+    params = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "provider": "provider-secret",
+        "model": "model-secret",
+    }
+
+    rejected = usage_api_context.client.get("/api/model-usage/me/requests", params=params)
+
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["detail"]["code"] == "model_usage_personal_filter_not_allowed"
+    assert "provider-secret" not in rejected.text
+    assert "model-secret" not in rejected.text
+
+    response = usage_api_context.client.get(
+        "/api/model-usage/me/requests",
+        params={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+
+    assert response.status_code == 200, response.text
+    forbidden = {
+        "provider",
+        "requested_model",
+        "billing_model",
+        "provider_request_id",
+        "subject_label",
+        "cost_cny",
+    }
+    for item in response.json()["items"]:
+        assert forbidden.isdisjoint(item)
 
 
 def test_owner_subject_breakdown_hides_a_former_members_profile_name(

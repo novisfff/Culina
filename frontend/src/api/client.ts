@@ -1,6 +1,7 @@
 import { aiApi } from './aiApi';
 import { authApi } from './authApi';
 import { familyApi } from './familyApi';
+import { familyModelSettingsApi } from './familyModelSettingsApi';
 import { foodsApi } from './foodsApi';
 import { ingredientsApi } from './ingredientsApi';
 import { inventoryOperationsApi } from './inventoryOperationsApi';
@@ -16,6 +17,7 @@ export { API_BASE_URL, ApiError, getAccessToken, isApiError, setAccessToken } fr
 export const api = {
   ...authApi,
   ...familyApi,
+  ...familyModelSettingsApi,
   ...ingredientsApi,
   ...inventoryStatesApi,
   ...inventoryOperationsApi,

@@ -4,33 +4,56 @@ import type {
   ModelUsageAlertReceipt,
   ModelUsageFamilyBreakdown,
   ModelUsageFamilyOverview,
-  ModelUsageGroupBy,
+  ModelUsageFamilyGroupBy,
+  ModelUsageFamilyRequestFilters,
+  ModelUsageFamilyRequestLogPage,
+  ModelUsagePersonalGroupBy,
   ModelUsagePersonalBreakdown,
   ModelUsagePersonalOverview,
-  ModelUsageRequestLogPage,
+  ModelUsagePersonalRequestFilters,
+  ModelUsagePersonalRequestLogPage,
   ModelUsagePolicy,
   UpdateModelUsagePolicyPayload,
 } from './types';
 
-function periodParams(period: string, groupBy?: ModelUsageGroupBy) {
+function periodParams(period: string, groupBy?: ModelUsagePersonalGroupBy | ModelUsageFamilyGroupBy) {
   const params = new URLSearchParams({ period });
   if (groupBy) params.set('group_by', groupBy);
+  return params.toString();
+}
+
+function requestLogParams(
+  filters: object,
+  allowedKeys: readonly string[],
+): string {
+  const params = new URLSearchParams({ limit: '20' });
+  const values = filters as Record<string, string | number | undefined>;
+  for (const key of allowedKeys) {
+    const value = values[key];
+    if (value !== '' && value !== undefined) params.set(key, String(value));
+  }
   return params.toString();
 }
 
 export const modelUsageApi = {
   getMyModelUsageOverview: (period: string) =>
     request<ModelUsagePersonalOverview>(`/api/model-usage/me/overview?${periodParams(period)}`),
-  getMyModelUsageBreakdown: (period: string, groupBy: ModelUsageGroupBy) =>
+  getMyModelUsageBreakdown: (period: string, groupBy: ModelUsagePersonalGroupBy) =>
     request<ModelUsagePersonalBreakdown>(`/api/model-usage/me/breakdown?${periodParams(period, groupBy)}`),
   getFamilyModelUsageOverview: (period: string) =>
     request<ModelUsageFamilyOverview>(`/api/model-usage/family/overview?${periodParams(period)}`),
-  getFamilyModelUsageBreakdown: (period: string, groupBy: ModelUsageGroupBy) =>
+  getFamilyModelUsageBreakdown: (period: string, groupBy: ModelUsageFamilyGroupBy) =>
     request<ModelUsageFamilyBreakdown>(`/api/model-usage/family/breakdown?${periodParams(period, groupBy)}`),
-  getMyModelUsageRequests: (filters: Record<string, string | number>) =>
-    request<ModelUsageRequestLogPage>(`/api/model-usage/me/requests?${new URLSearchParams({ limit: '20', ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== undefined).map(([key, value]) => [key, String(value)])) })}`),
-  getFamilyModelUsageRequests: (filters: Record<string, string | number>) =>
-    request<ModelUsageRequestLogPage>(`/api/model-usage/family/requests?${new URLSearchParams({ limit: '20', ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== undefined).map(([key, value]) => [key, String(value)])) })}`),
+  getMyModelUsageRequests: (filters: ModelUsagePersonalRequestFilters) =>
+    request<ModelUsagePersonalRequestLogPage>(`/api/model-usage/me/requests?${requestLogParams(
+      filters,
+      ['date_from', 'date_to', 'capability', 'status', 'limit', 'offset'],
+    )}`),
+  getFamilyModelUsageRequests: (filters: ModelUsageFamilyRequestFilters) =>
+    request<ModelUsageFamilyRequestLogPage>(`/api/model-usage/family/requests?${requestLogParams(
+      filters,
+      ['date_from', 'date_to', 'capability', 'provider', 'model', 'status', 'limit', 'offset'],
+    )}`),
   getFamilyModelUsagePolicy: () => request<ModelUsagePolicy>('/api/model-usage/family/policy'),
   updateFamilyModelUsagePolicy: (payload: UpdateModelUsagePolicyPayload) =>
     request<ModelUsagePolicy>('/api/model-usage/family/policy', {

@@ -8,9 +8,9 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.deps import get_current_auth, require_owner
 from app.core.enums import ActivityAction
+from app.core.utils import utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.schemas.model_usage import (
@@ -22,7 +22,8 @@ from app.schemas.model_usage import (
     ModelUsagePolicyUpdateRequest,
     ModelUsagePersonalBreakdownOut,
     ModelUsagePersonalOverviewOut,
-    ModelUsageRequestLogPageOut,
+    ModelUsagePersonalRequestLogPageOut,
+    ModelUsageFamilyRequestLogPageOut,
 )
 from app.models.model_usage import ModelUsageAlert, ModelUsageAlertReceipt, ModelUsageEvent, ModelUsageEventMeter, ModelUsageSubject
 from app.services.model_usage.queries import (
@@ -42,19 +43,20 @@ from app.services.model_usage.policies import (
     current_policy,
     update_family_policy,
 )
-from app.services.model_usage.pricing import price_coverage
+from app.services.model_usage.pricing import family_price_coverage
 from app.services.model_usage.serializers import (
     serialize_family_overview,
     serialize_alert,
     serialize_alert_receipt,
     serialize_personal_overview,
+    serialize_personal_usage_breakdown,
     serialize_policy,
     serialize_usage_breakdown,
 )
 from app.services.model_usage.subjects import ensure_user_subject
 from app.repos.model_usage.identity import find_user_subject
+from app.repos.family_model_settings.profiles import get_family_model_settings
 from app.services.activity import log_activity
-from app.core.utils import utcnow
 
 
 router = APIRouter(tags=["model-usage"])
@@ -136,31 +138,37 @@ def _request_log_page(
     if page_events and scope == "family":
         subjects = db.scalars(select(ModelUsageSubject).where(ModelUsageSubject.id.in_({event.subject_id for event in page_events})))
         subject_labels = {subject.id: subject.anonymized_label or subject.subject_key for subject in subjects}
+    def serialize_event(event: ModelUsageEvent) -> dict[str, object]:
+        safe: dict[str, object] = {
+            "id": event.id,
+            "occurred_at": event.completed_at,
+            "capability": event.capability.value,
+            "provider_outcome": event.provider_outcome.value,
+            "execution_certainty": event.execution_certainty.value,
+            "measurement_status": event.measurement_status.value,
+            "pricing_status": event.pricing_status.value,
+            "meters": meters_by_event.get(event.id, []),
+        }
+        if scope == "family":
+            safe.update(
+                {
+                    "provider": event.provider,
+                    "requested_model": event.requested_model,
+                    "billing_model": event.billing_model,
+                    "provider_request_id": event.provider_request_id,
+                    "subject_label": subject_labels.get(event.subject_id),
+                    "cost_cny": str(event.cost_cny) if event.cost_cny is not None else None,
+                }
+            )
+        return safe
+
     return {
         "family_id": family_id,
         "date_from": date_from,
         "date_to": date_to,
         "scope": scope,
         "source": "raw",
-        "items": [
-            {
-                "id": event.id,
-                "occurred_at": event.completed_at,
-                "capability": event.capability.value,
-                "provider": event.provider,
-                "requested_model": event.requested_model,
-                "billing_model": event.billing_model,
-                "provider_request_id": event.provider_request_id,
-                "subject_label": subject_labels.get(event.subject_id),
-                "provider_outcome": event.provider_outcome.value,
-                "execution_certainty": event.execution_certainty.value,
-                "measurement_status": event.measurement_status.value,
-                "pricing_status": event.pricing_status.value,
-                "cost_cny": str(event.cost_cny) if event.cost_cny is not None else None,
-                "meters": meters_by_event.get(event.id, []),
-            }
-            for event in page_events
-        ],
+        "items": [serialize_event(event) for event in page_events],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -173,6 +181,8 @@ def _query_error(exc: ValueError | LookupError) -> HTTPException:
         "model_usage_invalid_period",
         "model_usage_future_period_not_allowed",
         "model_usage_invalid_group_by",
+        "model_usage_personal_group_by_not_allowed",
+        "model_usage_personal_filter_not_allowed",
         "model_usage_invalid_date_range",
     }:
         return HTTPException(
@@ -224,6 +234,8 @@ def _require_missing_price_confirmation(
     payload: ModelUsagePolicyUpdateRequest,
     current,
     active_variants: tuple,
+    config_revision_id: str | None,
+    price_version_id: str | None,
 ) -> None:
     if (
         current.hard_limit_enabled
@@ -232,7 +244,15 @@ def _require_missing_price_confirmation(
         or payload.confirm_missing_price_impact
     ):
         return
-    coverage = price_coverage(db, configured_variants=active_variants, at=utcnow())
+    if config_revision_id is None:
+        return
+    coverage = family_price_coverage(
+        db,
+        family_id=current.family_id,
+        config_revision_id=config_revision_id,
+        price_version_id=price_version_id,
+        configured_variants=active_variants,
+    )
     if not coverage.healthy:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -285,7 +305,7 @@ def personal_breakdown(
         )
     except (ValueError, LookupError) as exc:
         raise _query_error(exc) from exc
-    return serialize_usage_breakdown(breakdown)
+    return serialize_personal_usage_breakdown(breakdown)
 
 
 @router.get(
@@ -336,7 +356,7 @@ def family_breakdown(
 
 @router.get(
     "/api/model-usage/me/requests",
-    response_model=ModelUsageRequestLogPageOut,
+    response_model=ModelUsagePersonalRequestLogPageOut,
     response_model_exclude_none=True,
 )
 def personal_request_logs(
@@ -353,6 +373,8 @@ def personal_request_logs(
 ) -> dict[str, object]:
     user, membership = auth
     try:
+        if provider is not None or model is not None:
+            raise ValueError("model_usage_personal_filter_not_allowed")
         return _request_log_page(
             db,
             family_id=membership.family_id,
@@ -373,7 +395,7 @@ def personal_request_logs(
 
 @router.get(
     "/api/model-usage/family/requests",
-    response_model=ModelUsageRequestLogPageOut,
+    response_model=ModelUsageFamilyRequestLogPageOut,
     response_model_exclude_none=True,
 )
 def family_request_logs(
@@ -435,12 +457,27 @@ def update_policy(
 ) -> dict[str, object]:
     user, membership = auth
     current = current_policy(db, family_id=membership.family_id)
-    active_variants = configured_usage_variants(get_settings())
+    settings = get_family_model_settings(db, family_id=membership.family_id)
+    config_revision_id = (
+        settings.active_config_revision_id if settings is not None else None
+    )
+    price_version_id = settings.active_price_version_id if settings is not None else None
+    active_variants = (
+        configured_usage_variants(
+            db,
+            family_id=membership.family_id,
+            config_revision_id=config_revision_id,
+        )
+        if config_revision_id is not None
+        else ()
+    )
     _require_missing_price_confirmation(
         db,
         payload=payload,
         current=current,
         active_variants=active_variants,
+        config_revision_id=config_revision_id,
+        price_version_id=price_version_id,
     )
     actor_subject = ensure_user_subject(
         db,

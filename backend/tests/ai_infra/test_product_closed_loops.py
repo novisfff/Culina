@@ -986,7 +986,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             db.commit()
             provider = RecipeShortageShoppingProvider(recipe_id=recipe.id)
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+        with patch_ai_workspace_provider(provider):
             preview_response = self.client.post(
                 "/api/ai/chat",
                 json={"message": "预览番茄香菜汤够不够做"},
@@ -1190,7 +1190,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                 base_updated_at=item.updated_at.isoformat(),
             )
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+        with patch_ai_workspace_provider(provider):
             response = self.client.post(
                 "/api/ai/chat",
                 json={"message": "番茄买到了，标记完成后准备入库"},
@@ -1244,7 +1244,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                 base_updated_at=item.updated_at.isoformat(),
             )
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+        with patch_ai_workspace_provider(provider):
             response = self.client.post(
                 "/api/ai/chat",
                 json={"message": "牛奶买到了，标记完成后准备入库"},

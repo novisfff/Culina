@@ -235,6 +235,7 @@ class ApprovalFollowupStreamer:
                 trace_id=tracer.trace_id,
                 user_id=state.get("user_id"),
                 span_id=span_id,
+                binding=getattr(self.provider, "binding", None),
             )
         user_id = state.get("user_id")
         if (

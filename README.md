@@ -59,9 +59,14 @@ VITE_API_BASE_URL=http://127.0.0.1:8010
 - `MINIO_*`
 - `INITIAL_ADMIN_*`
 - `INITIAL_FAMILY_*`
-- `AI_PROVIDER`
+- `FAMILY_MODEL_CREDENTIAL_*`（本地首次启动会自动生成并持久化；非本地部署使用独立 base64 编码的 32-byte keyring）
+- `QDRANT_*`、`SEARCH_*`（基础设施与安全限制）
 
-AI provider 默认可保持 disabled；未配置真实模型时，后端按降级逻辑运行。
+初始化数据库后，以 Owner 身份登录，进入“家庭 → AI 服务”，创建 Provider profile、配置所需能力与价格、验证后发布。旧版 Provider `.env` 值会被忽略，且不会被导入。
+
+本地直接启动后端时，家庭 Provider 凭据 keyring 会首次生成到 `backend/storage/secrets/`；Docker Compose 使用独立命名卷保存同一文件。已有加密记录但 keyring 文件丢失时，后端会拒绝启动，不会生成新密钥覆盖故障。非本地环境不会自动生成，必须从部署 Secret 注入 `FAMILY_MODEL_CREDENTIAL_ACTIVE_KEY_ID` 与 `FAMILY_MODEL_CREDENTIAL_KEYS_JSON`。
+
+Provider 地址默认要求公网 HTTPS/WSS。仅当受信服务无法提供 TLS 时，可通过 `FAMILY_MODEL_ALLOW_INSECURE_PUBLIC_TRANSPORTS=true` 允许公网 HTTP/WS；这会使 Provider 凭据和数据以明文经过公网，但不会放开回环、链路本地、云元数据、保留、CGNAT 或未列入私网白名单的地址。
 
 ### 3. 启动 MySQL 和 MinIO
 

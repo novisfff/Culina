@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 from urllib.parse import quote_plus
 
 from pydantic import SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
-DISABLED_SEARCH_PROVIDERS = {"", "disabled", "mock"}
 
 
 class Settings(BaseSettings):
@@ -27,16 +27,6 @@ class Settings(BaseSettings):
     minio_secret_key: str = "culina_local_minio_secret"
     minio_bucket: str = "culina-media"
     minio_secure: bool = False
-    ai_provider: str = "disabled"
-    ai_api_base: str = "https://api.openai.com/v1"
-    ai_api_key: str = ""
-    ai_model: str = ""
-    ai_max_output_tokens: int = 1024
-    ai_fallback_model: str = ""
-    ai_fallback_max_output_tokens: int = 0
-    ai_supports_vision: bool | None = True
-    ai_timeout_seconds: float = 180.0
-    ai_prompt_cache_enabled: bool = True
     ai_trace_enabled: bool = True
     ai_trace_capture_llm_exchanges: bool = False
     ai_trace_capture_message_content: bool = False
@@ -46,47 +36,6 @@ class Settings(BaseSettings):
     ai_trace_retention_days: int = 7
     ai_trace_max_request_bytes: int = 1024 * 1024
     ai_trace_max_response_bytes: int = 1024 * 1024
-    ai_image_reference_provider: str = "disabled"
-    ai_image_reference_api_base: str = ""
-    ai_image_reference_api_key: str = ""
-    ai_image_reference_model: str = "wan2.6-image"
-    ai_image_text_provider: str = "disabled"
-    ai_image_text_api_base: str = ""
-    ai_image_text_api_key: str = ""
-    ai_image_text_model: str = "wan2.6-t2i"
-    ai_audio_enabled: bool = False
-    ai_stt_provider: str = "disabled"
-    ai_stt_api_base: str = ""
-    ai_stt_api_key: str = ""
-    ai_stt_model: str = ""
-    ai_stt_language_hint: str = "zh"
-    ai_stt_audio_format: str = "auto"
-    ai_stt_sample_rate: int = 16000
-    ai_stt_hotwords: str = ""
-    ai_stt_timeout_seconds: float = 45.0
-    ai_stt_max_upload_bytes: int = 10 * 1024 * 1024
-    ai_stt_max_duration_seconds: int = 60
-    ai_tts_provider: str = "disabled"
-    ai_tts_api_base: str = ""
-    ai_tts_api_key: str = ""
-    ai_tts_model: str = ""
-    ai_tts_voice: str = ""
-    ai_tts_format: str = "mp3"
-    ai_tts_sample_rate: int = 24000
-    ai_tts_language_type: str = "Chinese"
-    ai_tts_streaming: bool = False
-    ai_tts_timeout_seconds: float = 45.0
-    ai_realtime_provider: str = "disabled"
-    ai_realtime_api_base: str = ""
-    ai_realtime_api_key: str = ""
-    ai_realtime_model: str = ""
-    ai_realtime_voice: str = ""
-    ai_realtime_audio_format: str = "pcm"
-    ai_realtime_input_sample_rate: int = 16000
-    ai_realtime_output_sample_rate: int = 24000
-    ai_realtime_vad_silence_ms: int = 400
-    ai_realtime_timeout_seconds: int = 300
-    ai_realtime_tts_max_characters: int = 4096
     model_usage_required: bool = False
     model_usage_maintenance_enabled: bool = True
     model_usage_default_hard_limit: bool = False
@@ -95,38 +44,40 @@ class Settings(BaseSettings):
     model_usage_receipt_integrity_keys_json: SecretStr = SecretStr("")
     model_usage_fail_open_proof_ttl_seconds: int = 5
     model_usage_source_instance: str = "culina-api"
-    dashscope_api_key: str = ""
-    dashscope_workspace_id: str = ""
-    dashscope_region: str = "cn-beijing"
-    dashscope_http_api_base: str = ""
-    dashscope_websocket_api_base: str = ""
+    family_model_credential_active_key_id: str = ""
+    family_model_credential_keys_json: SecretStr = SecretStr("")
+    family_model_credential_keyring_file: str = (
+        "storage/secrets/family-model-credential-keyring.json"
+    )
+    family_model_revoked_secret_retention_hours: int = 24
+    family_model_retired_collection_retention_days: int = 7
+    family_model_maintenance_enabled: bool = True
+    family_model_private_target_allowlist_json: SecretStr = SecretStr(
+        '{"http":[],"websocket":[]}'
+    )
+    family_model_allow_insecure_public_transports: bool = False
+    family_model_egress_proxy_url: str = ""
+    family_model_provider_connect_timeout_seconds: float = 10.0
+    family_model_provider_request_timeout_seconds: float = 180.0
+    family_model_provider_response_max_bytes: int = 8 * 1024 * 1024
+    family_model_provider_media_max_bytes: int = 30 * 1024 * 1024
+    family_model_provider_redirect_limit: int = 0
+    # Qdrant itself remains deployment infrastructure, but each immutable
+    # family search profile receives an opaque collection name under this
+    # deployment-owned prefix. Provider/model identity never appears here.
+    family_model_qdrant_collection_prefix: str = "culina_fsp"
+    # Platform safety limits for family-owned audio capabilities.  These are
+    # deployment limits, not provider/model/key configuration and therefore
+    # remain safe to read before resolving a family binding.
+    family_model_audio_upload_max_bytes: int = 10 * 1024 * 1024
+    family_model_stt_max_duration_seconds: int = 60
+    family_model_tts_max_characters: int = 4096
+    family_model_realtime_session_max_seconds: int = 300
     search_hybrid_enabled: bool = True
     search_keyword_backend: str = "mysql"
     search_vector_backend: str = "qdrant"
-    search_embedding_provider: str = "disabled"
-    search_embedding_api_base: str = ""
-    search_embedding_api_key: str = ""
-    search_embedding_model: str = ""
-    search_embedding_dimensions: int = 0
-    search_embedding_timeout_seconds: float = 30.0
-    search_rerank_provider: str = "disabled"
-    search_rerank_api_base: str = ""
-    search_rerank_api_key: str = ""
-    search_rerank_model: str = ""
-    search_rerank_timeout_seconds: float = 10.0
-    search_rerank_instruct: str = (
-        "你是中文厨房搜索结果重排器。目标是找出与查询词最直接匹配的食材、食物或菜谱。"
-        "短查询优先按字面匹配排序：名称完全相同 > 名称、别名或关键词包含查询词 > "
-        "语义相关但未字面命中 > 无关、测试或占位数据。不要因为分类、详情或语义描述泛泛相关，"
-        "就把未字面命中的记录排到字面命中记录前面。"
-    )
-    search_semantic_min_score: float = 0.48
-    search_rerank_min_score: float = 0.58
-    search_literal_fallback_min_score: float = 0.70
-    search_rerank_candidate_limit: int = 50
     qdrant_url: str = "http://qdrant:6333"
     qdrant_api_key: str = ""
-    qdrant_collection: str = "culina_search"
     qdrant_timeout_seconds: float = 10.0
     frontend_origin: str = "http://localhost:5173"
     log_level: str = "INFO"
@@ -139,29 +90,19 @@ class Settings(BaseSettings):
     initial_family_motto: str = ""
     initial_family_location: str = ""
 
-    @field_validator("ai_supports_vision", mode="before")
+    @field_validator("family_model_qdrant_collection_prefix", mode="before")
     @classmethod
-    def normalize_optional_bool(cls, value: object) -> object:
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
-
-    @field_validator("search_embedding_dimensions", mode="before")
-    @classmethod
-    def normalize_optional_int(cls, value: object) -> object:
-        if isinstance(value, str) and not value.strip():
-            return 0
-        return value
+    def normalize_family_model_qdrant_collection_prefix(cls, value: object) -> str:
+        prefix = str(value or "").strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,47}", prefix):
+            raise ValueError("FAMILY_MODEL_QDRANT_COLLECTION_PREFIX must be a lowercase Qdrant-safe identifier")
+        return prefix
 
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
         provider_timeouts = (
-            self.ai_timeout_seconds,
-            self.ai_stt_timeout_seconds,
-            self.ai_tts_timeout_seconds,
-            self.ai_realtime_timeout_seconds,
-            self.search_embedding_timeout_seconds,
-            self.search_rerank_timeout_seconds,
+            self.family_model_provider_connect_timeout_seconds,
+            self.family_model_provider_request_timeout_seconds,
             self.qdrant_timeout_seconds,
         )
         positive_provider_timeouts = tuple(
@@ -180,46 +121,44 @@ class Settings(BaseSettings):
             )
         if self.model_usage_receipt_queue_size <= 0:
             raise ValueError("MODEL_USAGE_RECEIPT_QUEUE_SIZE must be positive")
-        if self.ai_max_output_tokens <= 0:
-            raise ValueError("AI_MAX_OUTPUT_TOKENS must be positive")
-        if self.ai_fallback_max_output_tokens < 0:
-            raise ValueError("AI_FALLBACK_MAX_OUTPUT_TOKENS cannot be negative")
-        if self.ai_realtime_tts_max_characters <= 0:
-            raise ValueError("AI_REALTIME_TTS_MAX_CHARACTERS must be positive")
         if not self.model_usage_source_instance.strip():
             raise ValueError("MODEL_USAGE_SOURCE_INSTANCE is required")
-
-        if not 0 <= self.search_semantic_min_score < 1:
-            raise ValueError("SEARCH_SEMANTIC_MIN_SCORE must be in [0, 1)")
+        if self.family_model_revoked_secret_retention_hours <= 0:
+            raise ValueError("FAMILY_MODEL_REVOKED_SECRET_RETENTION_HOURS must be positive")
+        if self.family_model_retired_collection_retention_days <= 0:
+            raise ValueError("FAMILY_MODEL_RETIRED_COLLECTION_RETENTION_DAYS must be positive")
+        if self.family_model_provider_connect_timeout_seconds <= 0:
+            raise ValueError("FAMILY_MODEL_PROVIDER_CONNECT_TIMEOUT_SECONDS must be positive")
+        if self.family_model_provider_request_timeout_seconds <= 0:
+            raise ValueError("FAMILY_MODEL_PROVIDER_REQUEST_TIMEOUT_SECONDS must be positive")
+        if self.family_model_provider_response_max_bytes <= 0:
+            raise ValueError("FAMILY_MODEL_PROVIDER_RESPONSE_MAX_BYTES must be positive")
+        if self.family_model_provider_media_max_bytes <= 0:
+            raise ValueError("FAMILY_MODEL_PROVIDER_MEDIA_MAX_BYTES must be positive")
+        if self.family_model_provider_redirect_limit != 0:
+            raise ValueError("FAMILY_MODEL_PROVIDER_REDIRECT_LIMIT must be 0")
+        if self.family_model_audio_upload_max_bytes <= 0:
+            raise ValueError("FAMILY_MODEL_AUDIO_UPLOAD_MAX_BYTES must be positive")
+        if self.family_model_stt_max_duration_seconds <= 0:
+            raise ValueError("FAMILY_MODEL_STT_MAX_DURATION_SECONDS must be positive")
+        if self.family_model_tts_max_characters <= 0:
+            raise ValueError("FAMILY_MODEL_TTS_MAX_CHARACTERS must be positive")
+        if self.family_model_realtime_session_max_seconds <= 0:
+            raise ValueError("FAMILY_MODEL_REALTIME_SESSION_MAX_SECONDS must be positive")
 
         search_vector_backend = self.search_vector_backend.strip().lower()
-        search_embedding_provider = self.search_embedding_provider.strip().lower()
-        if self.search_hybrid_enabled and search_vector_backend == "qdrant" and search_embedding_provider not in DISABLED_SEARCH_PROVIDERS:
-            missing_search: list[str] = []
-            if not self.search_embedding_model.strip():
-                missing_search.append("SEARCH_EMBEDDING_MODEL")
-            if self.search_embedding_dimensions <= 0:
-                missing_search.append("SEARCH_EMBEDDING_DIMENSIONS")
-            if not self.qdrant_url.strip():
-                missing_search.append("QDRANT_URL")
-            if not self.qdrant_collection.strip():
-                missing_search.append("QDRANT_COLLECTION")
-            if missing_search:
-                unique_missing = ", ".join(dict.fromkeys(missing_search))
-                raise ValueError(f"Invalid search vector settings: set {unique_missing}")
-
-        search_rerank_provider = self.search_rerank_provider.strip().lower()
-        if self.search_hybrid_enabled and search_rerank_provider not in DISABLED_SEARCH_PROVIDERS:
-            missing_rerank: list[str] = []
-            if not self.search_rerank_api_base.strip():
-                missing_rerank.append("SEARCH_RERANK_API_BASE")
-            if not self.search_rerank_api_key.strip():
-                missing_rerank.append("SEARCH_RERANK_API_KEY")
-            if not self.search_rerank_model.strip():
-                missing_rerank.append("SEARCH_RERANK_MODEL")
-            if missing_rerank:
-                unique_missing = ", ".join(dict.fromkeys(missing_rerank))
-                raise ValueError(f"Invalid search rerank settings: set {unique_missing}")
+        if self.search_keyword_backend.strip().lower() != "mysql":
+            raise ValueError("SEARCH_KEYWORD_BACKEND must be mysql")
+        if search_vector_backend not in {"qdrant", "disabled"}:
+            raise ValueError("SEARCH_VECTOR_BACKEND must be qdrant or disabled")
+        if (
+            self.search_hybrid_enabled
+            and search_vector_backend == "qdrant"
+            and not self.qdrant_url.strip()
+        ):
+            raise ValueError("QDRANT_URL is required when SEARCH_VECTOR_BACKEND=qdrant")
+        if self.qdrant_timeout_seconds <= 0:
+            raise ValueError("QDRANT_TIMEOUT_SECONDS must be positive")
 
         environment = self.environment.strip().lower()
         if self.ai_trace_payload_mode.strip().lower() == "full" and environment not in LOCAL_ENVIRONMENTS:
@@ -238,6 +177,27 @@ class Settings(BaseSettings):
             missing.append("JWT_SECRET")
         if not self.minio_secret_key or self.minio_secret_key == "culina_local_minio_secret":
             missing.append("MINIO_SECRET_KEY")
+        try:
+            from app.services.family_model_settings.credentials import (
+                decode_family_model_credential_keyring,
+            )
+
+            decode_family_model_credential_keyring(
+                active_key_id=self.family_model_credential_active_key_id,
+                keys_json=self.family_model_credential_keys_json,
+            )
+        except Exception:
+            missing.append(
+                "FAMILY_MODEL_CREDENTIAL_ACTIVE_KEY_ID and FAMILY_MODEL_CREDENTIAL_KEYS_JSON"
+            )
+        try:
+            from app.services.family_model_settings.network_policy import (
+                decode_private_target_allowlist,
+            )
+
+            decode_private_target_allowlist(self.family_model_private_target_allowlist_json)
+        except Exception:
+            missing.append("FAMILY_MODEL_PRIVATE_TARGET_ALLOWLIST_JSON")
         if missing:
             unique_missing = ", ".join(dict.fromkeys(missing))
             raise ValueError(f"Unsafe production settings: set {unique_missing}")

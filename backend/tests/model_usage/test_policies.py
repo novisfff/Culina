@@ -326,6 +326,27 @@ def test_capability_limits_are_copied_as_immutable_rows(
         meter=None,
         limit_value=Decimal("25"),
     )
+    active_llm = ConfiguredUsageVariant(
+        provider="profile-policy",
+        billing_model="model-policy",
+        capability=ModelUsageCapability.LLM,
+        variant_key="primary",
+        billing_scheme_key="llm-split-v1",
+        billable_meters=frozenset(
+            {
+                ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                ModelUsageMeter.CACHED_INPUT_TOKENS,
+                ModelUsageMeter.OUTPUT_TOKENS,
+            }
+        ),
+        produced_meters=frozenset(
+            {
+                ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                ModelUsageMeter.CACHED_INPUT_TOKENS,
+                ModelUsageMeter.OUTPUT_TOKENS,
+            }
+        ),
+    )
     v2 = update_family_policy(
         model_usage_db,
         command_for(
@@ -334,11 +355,17 @@ def test_capability_limits_are_copied_as_immutable_rows(
             subject_id,
             monthly_budget_cny=Decimal("100"),
             capability_limits=(limit,),
+            active_variants=(active_llm,),
         ),
     )
     v3 = update_family_policy(
         model_usage_db,
-        command_for(model_usage_db, family_id, subject_id),
+        command_for(
+            model_usage_db,
+            family_id,
+            subject_id,
+            active_variants=(active_llm,),
+        ),
     )
 
     rows = tuple(

@@ -14,10 +14,7 @@ from app.services.model_usage.estimators import estimate_llm
 from app.services.model_usage.reservations import reserve_usage_in_session
 from app.services.model_usage.types import ProviderRecoveryPolicy, UsageContext
 from app.services.model_usage.errors import ModelUsageContractError
-from tests.model_usage.test_reservations import NOW, set_policy
-
-
-pytest_plugins = ("tests.model_usage.test_reservations",)
+from tests.model_usage.test_reservations import NOW, reservation_context, set_policy
 
 
 def test_first_dispatch_persists_intent_and_replay_requires_recovery(

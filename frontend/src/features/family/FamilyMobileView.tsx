@@ -141,6 +141,17 @@ export function FamilyMobileView(props: {
               : '查看个人费用和当前家庭额度'}
           </small>
         </button>
+        {props.isOwner ? (
+          <button
+            className="mobile-family-model-usage-entry mobile-family-ai-services-entry"
+            type="button"
+            onClick={() => props.onNavigate({ workspace: 'family', view: 'aiServices' })}
+          >
+            <span aria-hidden="true"><DashboardIcon name="shield" /></span>
+            <strong>AI 服务</strong>
+            <small>管理家庭的模型服务、凭据、能力与价格</small>
+          </button>
+        ) : null}
       </section>
 
       {props.currentUser && (

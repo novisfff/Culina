@@ -110,6 +110,8 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Run complete family model settings suite with MySQL 8.4
+        run: cd backend && .venv/bin/python -m pytest tests/family_model_settings -q
       - name: Run focused model-usage tests with MySQL 8.4
         run: npm run backend:test:model-usage
 

@@ -162,6 +162,56 @@ class ModelUsageCapability(str, Enum):
     IMAGE_GENERATION = "image_generation"
 
 
+class FamilyModelProviderStatus(str, Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    ARCHIVED = "archived"
+
+
+class FamilyModelSecretStatus(str, Enum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    DESTROYED = "destroyed"
+
+
+class FamilyModelConfigRevisionStatus(str, Enum):
+    PUBLISHED = "published"
+    SUPERSEDED = "superseded"
+
+
+class FamilyModelSearchProfileStatus(str, Enum):
+    PROVISIONING = "provisioning"
+    ACTIVE = "active"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    SUPERSEDED = "superseded"
+    RETIRED = "retired"
+
+
+class FamilyModelOperationStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
+class FamilyModelResourceOperationType(str, Enum):
+    ENSURE_SEARCH_PROFILE_COLLECTION = "ensure_search_profile_collection"
+    DELETE_SEARCH_PROFILE_COLLECTION = "delete_search_profile_collection"
+
+
+class FamilyModelResourceOperationStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class FamilyModelPricePurpose(str, Enum):
+    ACTIVE = "active"
+    SEARCH_REBUILD_CANDIDATE = "search_rebuild_candidate"
+    LEGACY_GLOBAL = "legacy_global"
+
+
 class ModelUsageMeter(str, Enum):
     INPUT_TOKENS = "input_tokens"
     UNCACHED_INPUT_TOKENS = "uncached_input_tokens"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from sqlalchemy import select
 
 from app.core.enums import ActivityAction, ModelUsageCapability, ModelUsageMeter
@@ -52,7 +54,44 @@ def test_owner_gets_the_complete_current_immutable_policy(usage_api_context) -> 
 
 def test_owner_policy_put_preserves_decimal_strings_and_writes_amount_free_activity(
     usage_api_context,
+    monkeypatch,
 ) -> None:
+    import app.api.model_usage as model_usage_api
+
+    active_llm = ConfiguredUsageVariant(
+        provider="profile-test",
+        billing_model="model-test",
+        capability=ModelUsageCapability.LLM,
+        variant_key="primary",
+        billing_scheme_key="llm-split-v1",
+        billable_meters=frozenset(
+            {
+                ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                ModelUsageMeter.CACHED_INPUT_TOKENS,
+                ModelUsageMeter.OUTPUT_TOKENS,
+            }
+        ),
+        produced_meters=frozenset(
+            {
+                ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+                ModelUsageMeter.CACHED_INPUT_TOKENS,
+                ModelUsageMeter.OUTPUT_TOKENS,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        model_usage_api,
+        "get_family_model_settings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            active_config_revision_id="revision-test",
+            active_price_version_id="price-test",
+        ),
+    )
+    monkeypatch.setattr(
+        model_usage_api,
+        "configured_usage_variants",
+        lambda *_args, **_kwargs: (active_llm,),
+    )
     response = usage_api_context.client.put(
         "/api/model-usage/family/policy",
         json=policy_payload(
@@ -168,18 +207,24 @@ def test_policy_requires_explicit_confirmation_before_enabling_hard_limit_with_m
     )
     monkeypatch.setattr(
         model_usage_api,
-        "configured_usage_variants",
-        lambda _settings: (missing_variant,),
-        raising=False,
+        "get_family_model_settings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            active_config_revision_id="revision-test",
+            active_price_version_id="price-test",
+        ),
     )
     monkeypatch.setattr(
         model_usage_api,
-        "price_coverage",
+        "configured_usage_variants",
+        lambda *_args, **_kwargs: (missing_variant,),
+    )
+    monkeypatch.setattr(
+        model_usage_api,
+        "family_price_coverage",
         lambda *_args, **_kwargs: PriceCoverageReport(
             price_version_id=None,
             rows=(),
         ),
-        raising=False,
     )
     payload = policy_payload(hard_limit_enabled=True)
 

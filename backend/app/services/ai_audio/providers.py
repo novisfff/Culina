@@ -1,46 +1,62 @@
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 
-from app.core.config import Settings
-from app.services.ai_audio.schemas import (
-    CookingRealtimeSession,
-    CookingRealtimeSessionRequest,
-    SpeechRequest,
-    SpeechResult,
-    TranscriptionRequest,
-    TranscriptionResult,
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.transport import ProviderTransport
+from app.services.family_model_settings.types import (
+    DispatchCredential,
+    ResolvedCapabilityBinding,
 )
 
 
-DISABLED_PROVIDERS = {"", "disabled", "mock"}
+AUDIO_CAPABILITY_MESSAGES: dict[str, str] = {
+    "family_model_settings_not_configured": "该语音能力尚未由家庭主理人配置。",
+    "family_model_capability_disabled": "该语音能力当前未启用，可以继续使用文字。",
+    "family_model_secret_unavailable": "家庭语音服务凭据暂不可用，请联系家庭主理人检查设置。",
+}
 
 
-class TranscriptionProvider(Protocol):
-    def transcribe(self, request: TranscriptionRequest) -> TranscriptionResult: ...
+@dataclass(frozen=True, slots=True)
+class AudioProviderDependencies:
+    """The only infrastructure an audio adapter may use for provider sends.
+
+    The resolver callback receives the secret version persisted on a dispatch
+    permit.  It is deliberately invoked by provider methods only after the
+    usage adapter has crossed that durable dispatch boundary.
+    """
+
+    transport: ProviderTransport
+    resolve_dispatch_credential: Callable[
+        [ResolvedCapabilityBinding, str | None], DispatchCredential
+    ]
 
 
-class SpeechProvider(Protocol):
-    def synthesize(self, request: SpeechRequest) -> SpeechResult: ...
+def audio_capability_error(exc: FamilyModelSettingsError) -> HTTPException:
+    """Map family configuration failures to Member-safe voice errors."""
 
-
-class RealtimeVoiceProvider(Protocol):
-    def create_cooking_session(self, request: CookingRealtimeSessionRequest) -> CookingRealtimeSession: ...
-
-
-def normalize_provider(value: str | None) -> str:
-    return (value or "").strip().lower()
-
-
-def ensure_audio_enabled(settings: Settings) -> None:
-    if not settings.ai_audio_enabled:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI voice is not enabled")
-
-
-def provider_unavailable(provider: str, capability: str) -> HTTPException:
+    code = exc.code
+    message = AUDIO_CAPABILITY_MESSAGES.get(
+        code,
+        "当前语音服务暂不可用，请稍后重试或继续使用文字。",
+    )
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=f"AI voice {capability} provider is not configured: {provider or 'disabled'}",
+        detail={"code": code, "message": message},
+    )
+
+
+def audio_provider_error(*, code: str = "audio_provider_unavailable") -> HTTPException:
+    """Return a content-free provider error after a remote failure.
+
+    Provider/model/endpoint details are Owner-only configuration data and must
+    never leak through Member-facing audio routes or websocket events.
+    """
+
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail={"code": code, "message": "当前语音服务暂不可用，请稍后重试或继续使用文字。"},
     )

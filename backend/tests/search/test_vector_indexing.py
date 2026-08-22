@@ -1,326 +1,228 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.domain import Family, SearchDocument
-from app.services.model_usage.types import UsageAttribution
-from app.services.search.documents import SearchDocumentPayload
-from app.services.search.indexing import upsert_search_document
+from app.core.enums import FamilyModelSearchProfileStatus
+from app.models.domain import Family, SearchDocument, SearchIndexJob
+from app.models.family_model_settings import (
+    FamilyModelSettings,
+    FamilySearchProfile,
+    FamilySearchProfileDocument,
+)
+from app.services.search.embeddings import MeteredEmbeddingResult
 from app.services.search.vector_indexing import index_pending_search_documents
-from app.services.search.vector_store import VectorSearchHit, VectorStoreUnavailableError
-from tests.search._support import FakeEmbeddingClient, session_factory
+from app.services.search.vector_store import VectorStoreUnavailableError
+from tests.search._support import session_factory
 
 
-class MutatingEmbeddingClient(FakeEmbeddingClient):
-    def __init__(self, db: Session) -> None:
-        self.db = db
+class CountingEmbeddingClient:
+    model = "profile-embedding"
+    dimensions = 2
 
-    def embed_batch(
-        self,
-        texts: list[str],
-        *,
-        attribution: UsageAttribution,
-        attempt_key: str,
-    ):
-        document = self.db.scalar(select(SearchDocument))
-        assert document is not None
-        document.semantic_text = f"{document.semantic_text}\n已变更"
-        document.content_hash = "hash-changed-during-embedding"
-        self.db.flush()
-        return super().embed_batch(
-            texts,
-            attribution=attribution,
-            attempt_key=attempt_key,
-        )
-
-
-class CountingEmbeddingClient(FakeEmbeddingClient):
     def __init__(self) -> None:
         self.call_count = 0
-        self.batches: list[tuple[str, list[str]]] = []
 
-    def embed_batch(self, *args, **kwargs):
+    def embed_text(self, text, *, attribution, attempt_key, usage_snapshot=None):
+        del text, attribution, attempt_key
+        assert usage_snapshot is not None
         self.call_count += 1
-        self.batches.append((kwargs["attribution"].family_id, list(args[0])))
-        return super().embed_batch(*args, **kwargs)
+        return MeteredEmbeddingResult(vectors=[[0.1, 0.2]], usage_event_id="usage-event")
 
 
 class RecordingVectorStore:
-    def __init__(self, *, fail: bool = False, fail_times: int = 0) -> None:
-        self.fail = fail
+    def __init__(self, *, fail_times: int = 0) -> None:
         self.fail_times = fail_times
         self.call_count = 0
-        self.points: list[tuple[str, list[float], dict[str, object]]] = []
         self.vector_size = 0
+        self.points: list[tuple[str, list[float], dict[str, object]]] = []
 
     def ensure_collection(self, *, vector_size: int) -> None:
         self.vector_size = vector_size
 
     def upsert_point(self, *, point_id: str, vector: list[float], payload: dict[str, object]) -> None:
         self.call_count += 1
-        if self.fail or self.fail_times > 0:
+        if self.fail_times:
             self.fail_times -= 1
             raise VectorStoreUnavailableError("qdrant unavailable")
         self.points.append((point_id, vector, payload))
 
-    def delete_point(self, *, point_id: str) -> None:
-        del point_id
 
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, scopes, vector, limit
-        return []
-
-
-def _seed_document(db: Session, *, embedding_model: str = "fake-embedding", embedding_dimensions: int = 2) -> SearchDocument:
-    db.add(Family(id="family-1", name="一号家庭"))
-    document = upsert_search_document(
-        db,
-        SearchDocumentPayload(
-            family_id="family-1",
-            entity_type="ingredient",
-            entity_id="ingredient-tomato",
-            title_text="番茄",
-            keyword_text="番茄 蔬菜",
-            detail_text="",
-            semantic_text="食材：番茄",
-            metadata_json={},
-            content_hash="hash-1",
-            embedding_model=embedding_model,
-            embedding_dimensions=embedding_dimensions,
-        ),
+def _seed_profile_job(db: Session, *, suffix: str = "1") -> tuple[SearchDocument, SearchIndexJob]:
+    family_id = f"family-{suffix}"
+    profile_id = f"profile-{suffix}"
+    document = SearchDocument(
+        id=f"document-{suffix}",
+        family_id=family_id,
+        entity_type="ingredient",
+        entity_id=f"ingredient-{suffix}",
+        title_text="番茄",
+        keyword_text="番茄",
+        detail_text="",
+        semantic_text="食材：番茄",
+        metadata_json={},
+        content_hash=f"{suffix}" * 64,
+        document_builder_version="v1",
     )
-    db.commit()
-    return document
+    profile = FamilySearchProfile(
+        id=profile_id,
+        family_id=family_id,
+        provider_profile_id=f"provider-{suffix}",
+        provider_profile_version_id=f"provider-version-{suffix}",
+        adapter_kind="openai_compatible_http",
+        embedding_model="profile-embedding",
+        dimensions=2,
+        distance="Cosine",
+        document_builder_version="v1",
+        index_identity_checksum=f"identity-{suffix}",
+        qdrant_collection=f"culina_fsp_{suffix}",
+        status=FamilyModelSearchProfileStatus.ACTIVE,
+    )
+    profile_document = FamilySearchProfileDocument(
+        id=f"profile-document-{suffix}",
+        family_id=family_id,
+        search_profile_id=profile_id,
+        search_document_id=document.id,
+        content_hash=document.content_hash,
+        status="pending",
+    )
+    job = SearchIndexJob(
+        id=f"job-{suffix}",
+        family_id=family_id,
+        search_profile_id=profile_id,
+        config_revision_id=f"revision-{suffix}",
+        price_version_id=f"price-{suffix}",
+        user_id="owner",
+        status="queued",
+        entity_type=document.entity_type,
+        entity_id=document.entity_id,
+        vector_status="pending",
+    )
+    db.add_all(
+        (
+            Family(id=family_id, name="测试家庭"),
+            FamilyModelSettings(
+                family_id=family_id,
+                active_config_revision_id=job.config_revision_id,
+                active_price_version_id=job.price_version_id,
+                active_search_profile_id=profile_id,
+            ),
+            document,
+            profile,
+            profile_document,
+            job,
+        )
+    )
+    db.flush()
+    return document, job
 
 
-def test_index_pending_search_documents_upserts_vector_and_marks_indexed() -> None:
+def test_index_pending_search_documents_indexes_profile_job_without_mutating_canonical_vector_state() -> None:
     SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
-    with SessionLocal() as db:
-        _seed_document(db)
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=vector_store,
-        )
-        db.commit()
-
-    assert stats == {"indexed": 1, "failed": 0, "skipped": 0}
-    assert vector_store.vector_size == 2
-    assert vector_store.points[0][0] == "ingredient:ingredient-tomato"
-    assert vector_store.points[0][2]["family_id"] == "family-1"
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "indexed"
-        assert document.embedding_model == "fake-embedding"
-        assert document.embedding_dimensions == 2
-
-
-def test_index_pending_search_documents_treats_null_attempt_count_as_zero() -> None:
-    SessionLocal = session_factory()
-    vector_store = RecordingVectorStore()
-    with SessionLocal() as db:
-        document = _seed_document(db)
-        document.vector_attempt_count = None  # type: ignore[assignment]
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=vector_store,
-        )
-        db.commit()
-
-    assert stats == {"indexed": 1, "failed": 0, "skipped": 0}
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "indexed"
-        assert document.vector_attempt_count == 1
-
-
-def test_index_pending_search_documents_records_failure() -> None:
-    SessionLocal = session_factory()
-    with SessionLocal() as db:
-        _seed_document(db)
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=RecordingVectorStore(fail=True),
-        )
-        db.commit()
-
-    assert stats == {"indexed": 0, "failed": 1, "skipped": 0}
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "failed"
-        assert "qdrant unavailable" in (document.vector_error or "")
-
-
-def test_qdrant_failure_reuses_the_persisted_vector_without_another_embedding_call() -> None:
-    SessionLocal = session_factory()
     embedding = CountingEmbeddingClient()
-    vector_store = RecordingVectorStore(fail_times=1)
     with SessionLocal() as db:
-        _seed_document(db)
+        document, job = _seed_profile_job(db)
+        db.commit()
+        stats = index_pending_search_documents(
+            db,
+            embedding_client=embedding,
+            vector_store=vector_store,  # type: ignore[arg-type]
+            session_factory=SessionLocal,
+        )
+
+        db.expire_all()
+        persisted_job = db.get(SearchIndexJob, job.id)
+        profile_document = db.scalar(select(FamilySearchProfileDocument))
+        canonical = db.get(SearchDocument, document.id)
+
+    assert stats == {"indexed": 1, "failed": 0, "skipped": 0}
+    assert embedding.call_count == 1
+    assert vector_store.vector_size == 2
+    assert vector_store.points == [
+        (
+            "ingredient:ingredient-1",
+            [0.1, 0.2],
+            {
+                "family_id": "family-1",
+                "search_profile_id": "profile-1",
+                "entity_type": "ingredient",
+                "entity_id": "ingredient-1",
+                "user_id": "",
+                "content_hash": "1" * 64,
+                "document_builder_version": "v1",
+                "embedding_model": "profile-embedding",
+                "embedding_dimensions": 2,
+            },
+        )
+    ]
+    assert persisted_job is not None and persisted_job.status == "succeeded"
+    assert profile_document is not None and profile_document.status == "indexed"
+    assert profile_document.vector_json is None
+    assert canonical is not None
+    assert canonical.pending_vector is None
+    assert canonical.vector_status == "pending"
+    assert canonical.embedding_model == ""
+    assert canonical.embedding_dimensions == 0
+
+
+def test_qdrant_retry_reuses_profile_pending_vector_without_another_embedding_send() -> None:
+    SessionLocal = session_factory()
+    vector_store = RecordingVectorStore(fail_times=1)
+    embedding = CountingEmbeddingClient()
+    with SessionLocal() as db:
+        _document, job = _seed_profile_job(db)
+        db.commit()
         first = index_pending_search_documents(
             db,
             embedding_client=embedding,
-            vector_store=vector_store,
+            vector_store=vector_store,  # type: ignore[arg-type]
+            session_factory=SessionLocal,
         )
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.pending_vector == [0.1, 0.2]
-        assert embedding.call_count == 1
+        db.expire_all()
+        profile_document = db.scalar(select(FamilySearchProfileDocument))
+        failed_job = db.get(SearchIndexJob, job.id)
+        assert profile_document is not None and profile_document.vector_json == [0.1, 0.2]
+        assert failed_job is not None and failed_job.status == "failed"
 
         second = index_pending_search_documents(
             db,
             embedding_client=embedding,
-            vector_store=vector_store,
+            vector_store=vector_store,  # type: ignore[arg-type]
+            session_factory=SessionLocal,
         )
-        db.commit()
+        db.expire_all()
+        profile_document = db.scalar(select(FamilySearchProfileDocument))
+        succeeded_job = db.get(SearchIndexJob, job.id)
 
     assert first == {"indexed": 0, "failed": 1, "skipped": 0}
     assert second == {"indexed": 1, "failed": 0, "skipped": 0}
     assert embedding.call_count == 1
     assert vector_store.call_count == 2
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.pending_vector is None
-        assert document.vector_status == "indexed"
+    assert profile_document is not None and profile_document.vector_json is None
+    assert profile_document.status == "indexed"
+    assert succeeded_job is not None and succeeded_job.status == "succeeded"
 
 
-def test_index_pending_search_documents_splits_provider_batches_by_family() -> None:
+def test_index_pending_search_documents_keeps_family_profile_work_separate() -> None:
     SessionLocal = session_factory()
-    embedding = CountingEmbeddingClient()
     vector_store = RecordingVectorStore()
+    embedding = CountingEmbeddingClient()
     with SessionLocal() as db:
-        _seed_document(db)
-        db.add(Family(id="family-2", name="二号家庭"))
-        upsert_search_document(
-            db,
-            SearchDocumentPayload(
-                family_id="family-2",
-                entity_type="ingredient",
-                entity_id="ingredient-cucumber",
-                title_text="黄瓜",
-                keyword_text="黄瓜 蔬菜",
-                detail_text="",
-                semantic_text="食材：黄瓜",
-                metadata_json={},
-                content_hash="hash-2",
-                embedding_model="fake-embedding",
-                embedding_dimensions=2,
-            ),
-        )
+        _seed_profile_job(db, suffix="1")
+        _seed_profile_job(db, suffix="2")
         db.commit()
-
         stats = index_pending_search_documents(
             db,
             batch_size=2,
             embedding_client=embedding,
-            vector_store=vector_store,
+            vector_store=vector_store,  # type: ignore[arg-type]
+            session_factory=SessionLocal,
         )
 
     assert stats == {"indexed": 2, "failed": 0, "skipped": 0}
-    assert [family_id for family_id, _ in embedding.batches] == ["family-1", "family-2"]
-    assert all(len(texts) == 1 for _, texts in embedding.batches)
-
-
-def test_index_pending_search_documents_rejects_stale_embedding_config() -> None:
-    SessionLocal = session_factory()
-    vector_store = RecordingVectorStore()
-    with SessionLocal() as db:
-        _seed_document(db, embedding_model="", embedding_dimensions=0)
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=vector_store,
-        )
-        db.commit()
-
-    assert stats == {"indexed": 0, "failed": 1, "skipped": 0}
-    assert vector_store.points == []
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "failed"
-        assert "embedding config is stale" in (document.vector_error or "")
-
-
-def test_index_pending_search_documents_respects_failed_retry_backoff() -> None:
-    SessionLocal = session_factory()
-    vector_store = RecordingVectorStore()
-    with SessionLocal() as db:
-        document = _seed_document(db)
-        document.vector_status = "failed"
-        document.vector_attempt_count = 1
-        document.last_vector_attempt_at = datetime.now(timezone.utc)
-        db.commit()
-
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=vector_store,
-        )
-
-    assert stats == {"indexed": 0, "failed": 0, "skipped": 0}
-    assert vector_store.points == []
-
-
-def test_index_pending_search_documents_skips_stale_snapshot() -> None:
-    SessionLocal = session_factory()
-    vector_store = RecordingVectorStore()
-    with SessionLocal() as db:
-        _seed_document(db)
-        stats = index_pending_search_documents(
-            db,
-            embedding_client=MutatingEmbeddingClient(db),
-            vector_store=vector_store,
-        )
-        db.commit()
-
-    assert stats == {"indexed": 0, "failed": 0, "skipped": 1}
-    assert vector_store.points == []
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "pending"
-        assert document.content_hash == "hash-changed-during-embedding"
-
-
-def test_upsert_search_document_keeps_indexed_embedding_metadata_when_hash_unchanged() -> None:
-    SessionLocal = session_factory()
-    with SessionLocal() as db:
-        document = _seed_document(db)
-        document.vector_status = "indexed"
-        document.embedding_model = "fake-embedding"
-        document.embedding_dimensions = 2
-        db.commit()
-
-        upsert_search_document(
-            db,
-            SearchDocumentPayload(
-                family_id="family-1",
-                entity_type="ingredient",
-                entity_id="ingredient-tomato",
-                title_text="番茄",
-                keyword_text="番茄 蔬菜",
-                detail_text="",
-                semantic_text="食材：番茄",
-                metadata_json={},
-                content_hash="hash-1",
-            ),
-        )
-        db.commit()
-
-    with SessionLocal() as db:
-        document = db.scalar(select(SearchDocument))
-        assert document is not None
-        assert document.vector_status == "indexed"
-        assert document.embedding_model == "fake-embedding"
-        assert document.embedding_dimensions == 2
+    assert embedding.call_count == 2
+    assert {payload["family_id"] for _, _, payload in vector_store.points} == {
+        "family-1",
+        "family-2",
+    }

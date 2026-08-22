@@ -64,6 +64,7 @@ import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
+  familyId?: string;
   conversations: AiConversation[];
   isLoading: boolean;
   currentUser?: UserSummary | null;
@@ -165,6 +166,7 @@ function collectSettledApprovalIds(messages: AiMessage[]) {
 }
 
 export function AiWorkspace({
+  familyId = '',
   conversations,
   isLoading,
   currentUser = null,
@@ -452,7 +454,7 @@ export function AiWorkspace({
     refetchInterval: shouldRefreshActiveConversation ? 1200 : false,
   });
   const aiStatusQuery = useQuery({
-    queryKey: queryKeys.aiStatus,
+    queryKey: queryKeys.aiStatus(familyId),
     queryFn: api.getAiStatus,
   });
   const aiQualityMetricsQuery = useQuery({
@@ -567,15 +569,41 @@ export function AiWorkspace({
       ? runEventsById[activeVisibleRunId] ?? []
       : [];
   const isAiUnavailable = aiStatusQuery.data?.enabled === false;
-  const isComposerPaused = hasPendingApproval || hasPendingHumanInput || isAiUnavailable;
-  const composerPauseMessage = isAiUnavailable
-    ? aiStatusQuery.data?.detail || 'AI 模型未配置，暂时不能发送消息。'
+  const isAiStatusUnknown = aiStatusQuery.isError;
+  const llmCapabilityState = aiStatusQuery.data?.capabilities.llm;
+  const isComposerPaused = hasPendingApproval || hasPendingHumanInput || isAiUnavailable || isAiStatusUnknown;
+  const composerPauseMessage = isAiStatusUnknown
+    ? '暂时无法确认 AI 服务状态，请稍后重试'
+    : isAiUnavailable
+    ? aiStatusQuery.data?.configured === false
+      ? '该能力尚未由家庭主理人配置'
+      : llmCapabilityState === 'provisioning'
+        ? '主对话模型正在准备中'
+        : llmCapabilityState === 'budget_blocked'
+          ? '主对话模型已达到用量限制'
+          : llmCapabilityState === 'failed' || aiStatusQuery.data?.status === 'degraded'
+            ? aiStatusQuery.data?.detail || '主对话模型暂时不可用'
+            : '主对话模型尚未启用'
     : hasPendingApproval
       ? '请先确认上面的草稿，确认后可以继续对话。'
       : hasPendingHumanInput
         ? '请先回答上面的问题，AI 会接着处理当前任务。'
-      : undefined;
-  const aiStatusLabel = isAiUnavailable ? 'AI 未配置' : aiStatusQuery.isLoading ? 'AI 检查中' : 'AI 已就绪';
+        : undefined;
+  const aiStatusLabel = aiStatusQuery.isLoading
+    ? 'AI 检查中'
+    : isAiStatusUnknown
+      ? 'AI 状态未知'
+    : !isAiUnavailable
+      ? 'AI 已就绪'
+      : aiStatusQuery.data?.configured === false
+        ? 'AI 未配置'
+        : llmCapabilityState === 'provisioning'
+          ? 'AI 准备中'
+          : llmCapabilityState === 'budget_blocked'
+            ? 'AI 用量受限'
+            : llmCapabilityState === 'failed' || aiStatusQuery.data?.status === 'degraded'
+              ? 'AI 暂不可用'
+              : 'AI 未启用';
   const loadResourceOptions = useCallback<AiResourceOptionLoader>(async (kind, params) => {
     if (kind === 'food') {
       const items = await api.getFoods({ q: params.query, limit: params.limit, offset: params.offset });

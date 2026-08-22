@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canRenderFamilyAiServices,
   deriveAppQueryScope,
   initialNavigationState,
   migrateLegacyNavigation,
@@ -187,6 +188,29 @@ describe('appNavigationModel', () => {
     expect(JSON.stringify(persistedNavigationFromState(fromAlert))).not.toContain('2026-06');
     expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(fromAlert))))
       .toMatchObject({ family: { view: 'modelUsage', period: null } });
+  });
+
+  it('round-trips the AI services family view while keeping v2 snapshots compatible', () => {
+    const next = reduceNavigation(initialNavigationState, {
+      type: 'navigate',
+      target: { workspace: 'family', view: 'aiServices' },
+    });
+    expect(next).toMatchObject({ primaryTab: 'family', family: { view: 'aiServices', period: null } });
+    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(next))))
+      .toMatchObject({ family: { view: 'aiServices', period: null } });
+
+    expect(parsePersistedNavigation(JSON.stringify({
+      version: 2,
+      primaryTab: 'family',
+      eatBaseView: 'discover',
+      familyView: 'unexpected-view',
+    }))).toMatchObject({ family: { view: 'profile', period: null } });
+  });
+
+  it('only permits the Owner-only AI-services workspace for an Owner navigation state', () => {
+    expect(canRenderFamilyAiServices('aiServices', true)).toBe(true);
+    expect(canRenderFamilyAiServices('aiServices', false)).toBe(false);
+    expect(canRenderFamilyAiServices('profile', true)).toBe(false);
   });
 
   it('opens and closes a direct Cook task with its explicit launch context', () => {

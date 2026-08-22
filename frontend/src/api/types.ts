@@ -28,45 +28,427 @@ export type ModelUsageMeter =
   | 'request_units';
 
 export type ModelUsageScope = 'me' | 'family';
-export type ModelUsageGroupBy =
+export type ModelUsagePersonalGroupBy =
   | 'capability'
-  | 'provider_model'
-  | 'subject'
   | 'meter'
   | 'daily_capability_cost';
+export type ModelUsageFamilyGroupBy = ModelUsagePersonalGroupBy
+  | 'provider_model'
+  | 'subject';
+/** The current UI selection may be any Owner choice; personal calls narrow it first. */
+export type ModelUsageGroupBy = ModelUsageFamilyGroupBy;
 
 export interface ModelUsageRequestMeter {
   meter: ModelUsageMeter;
   quantity: string;
 }
 
-export interface ModelUsageRequestLog {
+export interface ModelUsagePersonalRequestLog {
   id: string;
   occurred_at: string;
   capability: ModelUsageCapability;
+  provider_outcome: string;
+  execution_certainty: string;
+  measurement_status: string;
+  pricing_status: string;
+  meters: ModelUsageRequestMeter[];
+}
+
+/** Owner-only diagnostic record. It deliberately extends the personal projection. */
+export interface ModelUsageFamilyRequestLog extends ModelUsagePersonalRequestLog {
   provider: string;
   requested_model: string;
   billing_model: string;
   provider_request_id?: string | null;
   subject_label?: string | null;
-  provider_outcome: string;
-  execution_certainty: string;
-  measurement_status: string;
-  pricing_status: string;
   cost_cny?: string | null;
-  meters: ModelUsageRequestMeter[];
 }
 
-export interface ModelUsageRequestLogPage {
+export interface ModelUsagePersonalRequestLogPage {
   family_id: string;
   date_from: string;
   date_to: string;
-  scope: ModelUsageScope;
+  scope: 'me';
   source: 'raw';
-  items: ModelUsageRequestLog[];
+  items: ModelUsagePersonalRequestLog[];
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface ModelUsageFamilyRequestLogPage {
+  family_id: string;
+  date_from: string;
+  date_to: string;
+  scope: 'family';
+  source: 'raw';
+  items: ModelUsageFamilyRequestLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type ModelUsageRequestLogPage =
+  | ModelUsagePersonalRequestLogPage
+  | ModelUsageFamilyRequestLogPage;
+
+export interface ModelUsagePersonalRequestFilters {
+  date_from: string;
+  date_to: string;
+  capability?: ModelUsageCapability;
+  status?: 'priced' | 'estimated' | 'unpriced' | 'needs_review';
+  limit?: number;
+  offset?: number;
+}
+
+export interface ModelUsageFamilyRequestFilters extends ModelUsagePersonalRequestFilters {
+  provider?: string;
+  model?: string;
+}
+
+export type FamilyModelCapability = ModelUsageCapability;
+
+export type FamilyModelAdapterKind =
+  | 'openai_compatible_http'
+  | 'openai_realtime'
+  | 'dashscope_http'
+  | 'dashscope_realtime';
+
+export type FamilyModelAuthMode = 'api_key' | 'no_auth';
+export type FamilyModelProviderStatus = 'active' | 'disabled' | 'archived';
+
+export interface FamilyModelProviderScopeOptions {
+  workspace_id?: string | null;
+  region?: string | null;
+  project_id?: string | null;
+}
+
+export interface FamilyModelCredentialMetadata {
+  configured: boolean;
+  version_number: number | null;
+  updated_at: string | null;
+}
+
+/** Safe provider metadata. Credentials are intentionally absent. */
+export interface FamilyModelProviderProfile {
+  id: string;
+  display_name: string;
+  adapter_kind: FamilyModelAdapterKind;
+  auth_mode: FamilyModelAuthMode;
+  api_base_url: string;
+  websocket_base_url: string | null;
+  options: FamilyModelProviderScopeOptions;
+  status: FamilyModelProviderStatus;
+  archived: boolean;
+  version_number: number;
+  profile_version_number: number;
+  credential: FamilyModelCredentialMetadata;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `api_key` only exists in an immediate write payload. */
+export interface FamilyModelProviderProfileCreate {
+  display_name: string;
+  adapter_kind: FamilyModelAdapterKind;
+  auth_mode: FamilyModelAuthMode;
+  api_base_url: string;
+  websocket_base_url?: string | null;
+  options?: FamilyModelProviderScopeOptions;
+  api_key?: string;
+  idempotency_key: string;
+}
+
+/** Endpoint, auth mode and credential scope are immutable after creation. */
+export interface FamilyModelProviderProfilePatch {
+  display_name?: string;
+  status?: FamilyModelProviderStatus;
+  base_profile_version_number: number;
+  idempotency_key: string;
+}
+
+export interface RotateFamilyModelProviderProfileKeyPayload {
+  new_api_key: string;
+  base_settings_version_number: number;
+  idempotency_key: string;
+}
+
+export interface RotateFamilyModelProviderProfileKeyResult {
+  configured: boolean;
+  secret_version_number: number;
+  updated_at: string;
+}
+
+export interface FamilyModelProviderConnectionCheckPayload {
+  idempotency_key: string;
+}
+
+export interface FamilyModelProviderConnectionCheckResult {
+  status: 'reachable' | 'not_supported';
+  detail: string | null;
+  checked_at: string;
+  latency_ms: number | null;
+  profile_version_number: number;
+  models: string[];
+}
+
+interface FamilyModelBindingDraftBase<C extends FamilyModelCapability, V extends string> {
+  capability: C;
+  variant_key: V;
+  enabled: boolean;
+  provider_profile_id: string | null;
+  requested_model: string;
+  billing_scheme_key: string;
+}
+
+export interface FamilyModelLlmBindingDraft
+  extends FamilyModelBindingDraftBase<'llm', 'primary' | 'fallback'> {
+  billing_scheme_key: 'llm-split-v1';
+  max_output_tokens: number;
+  supports_vision: boolean;
+  prompt_cache_enabled: boolean;
+}
+
+export interface FamilyModelImageGenerationBindingDraft
+  extends FamilyModelBindingDraftBase<'image_generation', 'text' | 'reference'> {
+  billing_scheme_key: 'image-count-v1';
+  image_size: '1024x1024' | '1024x1536' | '1536x1024';
+  response_format: 'b64_json' | 'url';
+}
+
+export interface FamilyModelSttBindingDraft
+  extends FamilyModelBindingDraftBase<'stt', 'default'> {
+  billing_scheme_key: 'stt-seconds-v1';
+  language_hint: string | null;
+  hotwords: string[];
+}
+
+export interface FamilyModelTtsBindingDraft
+  extends FamilyModelBindingDraftBase<'tts', 'default'> {
+  billing_scheme_key: 'tts-characters-v1';
+  voice: string | null;
+  output_format: 'mp3' | 'wav' | 'ogg' | 'flac' | 'mp4';
+}
+
+export interface FamilyModelRealtimeAudioBindingDraft
+  extends FamilyModelBindingDraftBase<'realtime_audio', 'default'> {
+  billing_scheme_key: 'realtime-asr-seconds-tts-characters-v1';
+  voice: string | null;
+  language_hint: string | null;
+}
+
+export interface FamilyModelEmbeddingBindingDraft
+  extends FamilyModelBindingDraftBase<'embedding', 'search'> {
+  billing_scheme_key: 'embedding-token-v1';
+  dimensions: number;
+}
+
+export interface FamilyModelRerankBindingDraft
+  extends FamilyModelBindingDraftBase<'rerank', 'search'> {
+  billing_scheme_key: 'rerank-token-v1';
+  top_n: number;
+  instruction: string | null;
+}
+
+export type FamilyModelBindingDraft =
+  | FamilyModelLlmBindingDraft
+  | FamilyModelImageGenerationBindingDraft
+  | FamilyModelSttBindingDraft
+  | FamilyModelTtsBindingDraft
+  | FamilyModelRealtimeAudioBindingDraft
+  | FamilyModelEmbeddingBindingDraft
+  | FamilyModelRerankBindingDraft;
+
+export interface FamilyModelPriceRate {
+  capability: FamilyModelCapability;
+  variant_key: string;
+  meter: ModelUsageMeter;
+  unit_quantity: string;
+  unit_price: string;
+  source_currency: string;
+  fx_to_cny: string;
+  reported_model_aliases: string[];
+}
+
+export interface FamilyModelPriceRateOut extends FamilyModelPriceRate {
+  provider_profile_id: string;
+  billing_model: string;
+  billing_scheme_key: string;
+  unit_price_cny: string;
+}
+
+export interface FamilyModelPriceDraftPayload {
+  base_price_version_id: string | null;
+  rates: FamilyModelPriceRate[];
+  change_note: string;
+}
+
+export interface SaveFamilyModelPricesDraftPayload extends FamilyModelPriceDraftPayload {
+  base_draft_version_number: number;
+  idempotency_key: string;
+}
+
+export interface FamilyModelPricesDraft extends FamilyModelPriceDraftPayload {
+  draft_version_number: number;
+  updated_at: string | null;
+}
+
+export interface FamilyModelConfigDraftPayload {
+  base_config_revision_id: string | null;
+  search_profile_id: string | null;
+  bindings: FamilyModelBindingDraft[];
+  price_rates: FamilyModelPriceRate[];
+  price_draft: FamilyModelPriceDraftPayload | null;
+  change_note: string;
+}
+
+export interface SaveFamilyModelConfigDraftPayload extends FamilyModelConfigDraftPayload {
+  base_draft_version_number: number;
+  idempotency_key: string;
+}
+
+export interface FamilyModelConfigDraft {
+  base_config_revision_id: string | null;
+  draft_version_number: number;
+  payload: FamilyModelConfigDraftPayload;
+  validation_status: string;
+  validation_errors: Array<{ code: string; field?: string | null }>;
+  updated_at: string | null;
+}
+
+export interface FamilyModelDraftValidationIssue {
+  code: string;
+  field: string | null;
+}
+
+export interface FamilyModelDraftValidation {
+  valid: boolean;
+  draft_version_number: number;
+  errors: FamilyModelDraftValidationIssue[];
+  config_checksum: string | null;
+  price_checksum: string | null;
+}
+
+export interface PublishFamilyModelSettingsPayload {
+  base_settings_version_number: number;
+  base_draft_version_number: number;
+  idempotency_key: string;
+  config_checksum: string;
+  price_checksum: string;
+  current_password?: string;
+}
+
+export interface PublishedFamilyModelConfiguration {
+  config_revision_id: string;
+  price_version_id: string;
+  settings_version_number: number;
+  config_checksum: string;
+  price_checksum: string;
+  search_profile_id: string | null;
+}
+
+export interface FamilyModelPriceVersionSummary {
+  id: string;
+  config_revision_id: string | null;
+  search_profile_id: string | null;
+  base_price_version_id: string | null;
+  purpose: string;
+  version_number: number;
+  checksum: string;
+  change_note: string;
+  published_by: string | null;
+  published_at: string;
+}
+
+export interface FamilyModelPrices {
+  active_config_revision_id: string | null;
+  active_price_version_id: string | null;
+  current_rates: FamilyModelPriceRateOut[];
+  history: FamilyModelPriceVersionSummary[];
+  draft: FamilyModelPricesDraft | null;
+}
+
+export interface PublishFamilyModelPricesPayload {
+  base_settings_version_number: number;
+  base_price_version_id: string;
+  idempotency_key: string;
+  confirm_checksum: string;
+  change_note: string;
+  rates: FamilyModelPriceRate[];
+}
+
+export interface PublishedFamilyModelPrices {
+  config_revision_id: string;
+  price_version_id: string;
+  settings_version_number: number;
+  price_checksum: string;
+}
+
+export interface FamilyModelSettings {
+  version_number: number;
+  active_config_revision_id: string | null;
+  active_price_version_id: string | null;
+  active_search_profile_id: string | null;
+  provider_profiles: FamilyModelProviderProfile[];
+  updated_at: string;
+}
+
+export interface FamilyModelCapabilityTestPayload {
+  variant_key: string;
+  confirm_billable: boolean;
+  base_draft_version_number: number;
+  idempotency_key: string;
+}
+
+export interface FamilyModelCapabilityTestResult {
+  capability: FamilyModelCapability;
+  variant_key: string;
+  status: 'succeeded' | 'failed' | 'blocked';
+  detail: string;
+  checked_at: string;
+}
+
+export interface FamilyModelSearchReplacementBasePayload {
+  base_settings_version_number: number;
+  base_search_profile_id: string;
+  provider_profile_id: string;
+  requested_model: string;
+  dimensions: number;
+  rates: FamilyModelPriceRate[];
+}
+
+export interface FamilyModelSearchReplacementPreview extends FamilyModelSearchReplacementBasePayload {}
+
+export interface FamilyModelSearchReplacementPreviewResult {
+  document_count: number;
+  minimum_estimated_tokens: number;
+  conservative_estimated_tokens: number;
+  minimum_estimated_cost_cny: string;
+  conservative_estimated_cost_cny: string;
+  confirmation_checksum: string;
+}
+
+export interface CreateFamilyModelSearchReplacementPayload extends FamilyModelSearchReplacementBasePayload {
+  confirm_checksum: string;
+  current_password: string;
+  idempotency_key: string;
+}
+
+export interface FamilyModelSearchReplacement {
+  profile_id: string;
+  status: 'provisioning' | 'failed' | 'active' | 'cancelled' | 'superseded' | 'retired';
+  total_documents: number;
+  indexed_documents: number;
+  failed_documents: number;
+  budget_blocked_documents: number;
+  retryable: boolean;
+  created_at: string;
+  activated_at: string | null;
+}
+
+export interface FamilyModelSearchReplacementMutationPayload {
+  base_settings_version_number: number;
+  idempotency_key: string;
 }
 export type ModelUsageLimitKind = 'cost' | 'meter';
 export type ModelUsageMemberBudgetState =
@@ -154,32 +536,42 @@ export interface ModelUsageFamilyOverview extends ModelUsageOverviewBase {
   hard_limit_enabled: boolean;
 }
 
-export interface ModelUsageBreakdownItem extends ModelUsageCostSummary {
+export interface ModelUsagePersonalBreakdownItem extends ModelUsageCostSummary {
   label: string;
   capability?: ModelUsageCapability | null;
-  provider?: string | null;
-  billing_model?: string | null;
   meter?: ModelUsageMeter | null;
   meter_total?: string | null;
   local_day?: string | null;
   measurement_health: ModelUsageMeasurementHealth;
 }
 
+/** Owner-only diagnostic aggregate. Provider/model identity is not optional in the personal branch. */
+export interface ModelUsageFamilyBreakdownItem extends ModelUsagePersonalBreakdownItem {
+  provider?: string | null;
+  billing_model?: string | null;
+}
+
+export type ModelUsageBreakdownItem =
+  | ModelUsagePersonalBreakdownItem
+  | ModelUsageFamilyBreakdownItem;
+
 export interface ModelUsageBreakdownBase {
   family_id: string;
   period: string;
   source: 'raw' | 'rollup';
   is_partial_period: boolean;
-  group_by: ModelUsageGroupBy;
-  items: ModelUsageBreakdownItem[];
 }
 
 export interface ModelUsagePersonalBreakdown extends ModelUsageBreakdownBase {
   scope: 'me';
+  group_by: ModelUsagePersonalGroupBy;
+  items: ModelUsagePersonalBreakdownItem[];
 }
 
 export interface ModelUsageFamilyBreakdown extends ModelUsageBreakdownBase {
   scope: 'family';
+  group_by: ModelUsageFamilyGroupBy;
+  items: ModelUsageFamilyBreakdownItem[];
 }
 
 export type ModelUsageBreakdown = ModelUsagePersonalBreakdown | ModelUsageFamilyBreakdown;
@@ -1909,12 +2301,12 @@ export interface AiRunLLMExchangeResponse {
 }
 
 export interface AiStatus {
+  configured: boolean;
   enabled: boolean;
-  provider: string;
-  model: string;
   supports_vision: boolean;
-  status: 'ready' | 'disabled' | 'missing_api_key' | 'unsupported_provider';
+  status: 'ready' | 'not_configured' | 'disabled' | 'degraded';
   detail: string;
+  capabilities: Record<FamilyModelCapability, 'available' | 'unavailable' | 'provisioning' | 'failed' | 'budget_blocked'>;
 }
 
 export interface AiQualityMetrics {

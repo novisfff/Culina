@@ -902,7 +902,7 @@ function modelUsageFamilyBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: modelUsageBreakdownItems(groupBy),
+    items: modelUsageBreakdownItems(groupBy, period),
   };
 }
 
@@ -914,14 +914,20 @@ function modelUsagePersonalBreakdown(period, groupBy) {
     source: 'raw',
     is_partial_period: true,
     group_by: groupBy,
-    items: modelUsageBreakdownItems(groupBy),
+    items: modelUsageBreakdownItems(groupBy, period),
   };
 }
 
-function modelUsageBreakdownItems(groupBy) {
+function modelUsageBreakdownItems(groupBy, period) {
   if (groupBy === 'provider_model') return modelUsageProviderModelBreakdown;
   if (groupBy === 'meter') return modelUsageMeterBreakdown;
-  if (groupBy === 'daily_capability_cost') return modelUsageDailyBreakdown;
+  if (groupBy === 'daily_capability_cost') {
+    return modelUsageDailyBreakdown.map((item) => ({
+      ...item,
+      label: item.label.replace(/^\d{4}-\d{2}/, period),
+      local_day: item.local_day?.replace(/^\d{4}-\d{2}/, period) ?? null,
+    }));
+  }
   return modelUsageCapabilityBreakdown;
 }
 
@@ -999,6 +1005,500 @@ function copyFixture(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const FAMILY_MODEL_SETTINGS_PREFIX = '/api/family/model-settings';
+const FAMILY_MODEL_WRITE_ONLY_FIELDS = new Set(['api_key', 'new_api_key', 'current_password']);
+
+function familyModelProfile({
+  id,
+  displayName,
+  adapterKind = 'openai_compatible_http',
+  apiBaseUrl,
+  websocketBaseUrl = null,
+  credentialVersion = 1,
+}) {
+  return {
+    id,
+    display_name: displayName,
+    adapter_kind: adapterKind,
+    auth_mode: 'api_key',
+    api_base_url: apiBaseUrl,
+    websocket_base_url: websocketBaseUrl,
+    options: { workspace_id: null, region: null, project_id: null },
+    status: 'active',
+    archived: false,
+    version_number: 1,
+    profile_version_number: 1,
+    credential: {
+      configured: true,
+      version_number: credentialVersion,
+      updated_at: now,
+    },
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function familyModelRate(capability, variantKey, meter, unitQuantity, unitPrice, profileId, model) {
+  return {
+    capability,
+    variant_key: variantKey,
+    meter,
+    unit_quantity: unitQuantity,
+    unit_price: unitPrice,
+    source_currency: 'CNY',
+    fx_to_cny: '1',
+    reported_model_aliases: [model],
+    provider_profile_id: profileId,
+    billing_model: model,
+    billing_scheme_key: `${capability}-fixture`,
+    unit_price_cny: unitPrice,
+  };
+}
+
+function configuredFamilyModelState() {
+  const httpProfile = familyModelProfile({
+    id: 'family-model-profile-http',
+    displayName: '家庭主服务',
+    apiBaseUrl: 'https://primary.example/v1',
+  });
+  const realtimeProfile = familyModelProfile({
+    id: 'family-model-profile-realtime',
+    displayName: '家庭实时服务',
+    adapterKind: 'openai_realtime',
+    apiBaseUrl: 'wss://realtime.example/v1',
+    websocketBaseUrl: 'wss://realtime.example/v1',
+  });
+  const bindings = [
+    {
+      capability: 'llm', variant_key: 'primary', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-chat-v1', billing_scheme_key: 'llm-split-v1', max_output_tokens: 4096,
+      supports_vision: true, prompt_cache_enabled: true,
+    },
+    {
+      capability: 'image_generation', variant_key: 'text', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-image-v1', billing_scheme_key: 'image-count-v1', image_size: '1024x1024', response_format: 'b64_json',
+    },
+    {
+      capability: 'stt', variant_key: 'default', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-stt-v1', billing_scheme_key: 'stt-seconds-v1', language_hint: 'zh', hotwords: [],
+    },
+    {
+      capability: 'tts', variant_key: 'default', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-tts-v1', billing_scheme_key: 'tts-characters-v1', voice: 'warm', output_format: 'mp3',
+    },
+    {
+      capability: 'realtime_audio', variant_key: 'default', enabled: true, provider_profile_id: realtimeProfile.id,
+      requested_model: 'culina-realtime-v1', billing_scheme_key: 'realtime-asr-seconds-tts-characters-v1', voice: 'warm', language_hint: 'zh',
+    },
+    {
+      capability: 'embedding', variant_key: 'search', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-embedding-v1', billing_scheme_key: 'embedding-token-v1', dimensions: 1536,
+    },
+    {
+      capability: 'rerank', variant_key: 'search', enabled: true, provider_profile_id: httpProfile.id,
+      requested_model: 'culina-rerank-v1', billing_scheme_key: 'rerank-token-v1', top_n: 20, instruction: null,
+    },
+  ];
+  const rates = [
+    familyModelRate('llm', 'primary', 'uncached_input_tokens', '1000000', '2.000000', httpProfile.id, 'culina-chat-v1'),
+    familyModelRate('llm', 'primary', 'cached_input_tokens', '1000000', '1.000000', httpProfile.id, 'culina-chat-v1'),
+    familyModelRate('llm', 'primary', 'output_tokens', '1000000', '6.000000', httpProfile.id, 'culina-chat-v1'),
+    familyModelRate('image_generation', 'text', 'generated_images', '1', '0.120000', httpProfile.id, 'culina-image-v1'),
+    familyModelRate('stt', 'default', 'audio_input_seconds', '60', '0.050000', httpProfile.id, 'culina-stt-v1'),
+    familyModelRate('tts', 'default', 'tts_characters', '1000', '0.080000', httpProfile.id, 'culina-tts-v1'),
+    familyModelRate('realtime_audio', 'default', 'audio_input_seconds', '60', '0.120000', realtimeProfile.id, 'culina-realtime-v1'),
+    familyModelRate('realtime_audio', 'default', 'tts_characters', '1000', '0.120000', realtimeProfile.id, 'culina-realtime-v1'),
+    familyModelRate('embedding', 'search', 'embedding_tokens', '1000000', '0.500000', httpProfile.id, 'culina-embedding-v1'),
+    familyModelRate('rerank', 'search', 'input_tokens', '1000000', '0.800000', httpProfile.id, 'culina-rerank-v1'),
+  ];
+  const payload = {
+    base_config_revision_id: 'family-model-config-v1',
+    search_profile_id: 'family-search-profile-active',
+    bindings,
+    price_rates: rates.map(({ provider_profile_id, billing_model, billing_scheme_key, unit_price_cny, ...rate }) => rate),
+    price_draft: null,
+    change_note: 'fixture configured family model settings',
+  };
+  return {
+    settings: {
+      version_number: 3,
+      active_config_revision_id: 'family-model-config-v1',
+      active_price_version_id: 'family-model-price-v1',
+      active_search_profile_id: 'family-search-profile-active',
+      provider_profiles: [httpProfile, realtimeProfile],
+      updated_at: now,
+    },
+    draft: {
+      base_config_revision_id: 'family-model-config-v1',
+      draft_version_number: 4,
+      payload,
+      validation_status: 'valid',
+      validation_errors: [],
+      updated_at: now,
+    },
+    prices: {
+      active_config_revision_id: 'family-model-config-v1',
+      active_price_version_id: 'family-model-price-v1',
+      current_rates: rates,
+      history: [{
+        id: 'family-model-price-v1',
+        config_revision_id: 'family-model-config-v1',
+        search_profile_id: 'family-search-profile-active',
+        base_price_version_id: null,
+        purpose: 'active',
+        version_number: 1,
+        checksum: 'fixture-price-checksum-v1',
+        change_note: 'fixture published price',
+        published_by: user.id,
+        published_at: now,
+      }],
+      draft: null,
+    },
+  };
+}
+
+function emptyFamilyModelState() {
+  return {
+    settings: {
+      version_number: 1,
+      active_config_revision_id: null,
+      active_price_version_id: null,
+      active_search_profile_id: null,
+      provider_profiles: [],
+      updated_at: now,
+    },
+    draft: {
+      base_config_revision_id: null,
+      draft_version_number: 0,
+      payload: {
+        base_config_revision_id: null,
+        search_profile_id: null,
+        bindings: [],
+        price_rates: [],
+        price_draft: null,
+        change_note: '',
+      },
+      validation_status: 'not_validated',
+      validation_errors: [],
+      updated_at: null,
+    },
+    prices: {
+      active_config_revision_id: null,
+      active_price_version_id: null,
+      current_rates: [],
+      history: [],
+      draft: null,
+    },
+  };
+}
+
+function createFamilyModelMockState(scenario) {
+  const baseline = scenario === 'empty' ? emptyFamilyModelState() : configuredFamilyModelState();
+  return {
+    ...baseline,
+    conflictIssued: false,
+    failSettingsRefresh: false,
+    replacement: null,
+    nextProfileNumber: baseline.settings.provider_profiles.length + 1,
+  };
+}
+
+function requestJson(request) {
+  try {
+    return request.postDataJSON() ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function redactFamilyModelRequest(value) {
+  if (Array.isArray(value)) return value.map(redactFamilyModelRequest);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    FAMILY_MODEL_WRITE_ONLY_FIELDS.has(key) ? '[write-only]' : redactFamilyModelRequest(item),
+  ]));
+}
+
+function recordFamilyModelRequest(records, request, url, body) {
+  if (!records) return;
+  records.push({
+    method: request.method(),
+    pathname: url.pathname,
+    body: redactFamilyModelRequest(body),
+  });
+}
+
+function bumpFamilyModelSettingsVersion(state) {
+  state.settings.version_number += 1;
+  state.settings.updated_at = now;
+}
+
+function createMockProviderProfile(state, body) {
+  const profile = familyModelProfile({
+    id: `family-model-profile-created-${state.nextProfileNumber++}`,
+    displayName: body.display_name || '未命名服务',
+    adapterKind: body.adapter_kind || 'openai_compatible_http',
+    apiBaseUrl: body.api_base_url || '',
+    websocketBaseUrl: body.websocket_base_url ?? null,
+  });
+  profile.auth_mode = body.auth_mode || 'api_key';
+  profile.options = {
+    workspace_id: body.options?.workspace_id ?? null,
+    region: body.options?.region ?? null,
+    project_id: body.options?.project_id ?? null,
+  };
+  profile.credential.configured = profile.auth_mode === 'no_auth' || Boolean(body.api_key);
+  state.settings.provider_profiles.push(profile);
+  bumpFamilyModelSettingsVersion(state);
+  return profile;
+}
+
+function familyModelReplacement(status) {
+  return {
+    profile_id: 'family-search-replacement-fixture',
+    status,
+    total_documents: 42,
+    indexed_documents: status === 'failed' ? 19 : status === 'active' ? 42 : 24,
+    failed_documents: status === 'failed' ? 2 : 0,
+    budget_blocked_documents: 0,
+    retryable: status === 'failed',
+    created_at: now,
+    activated_at: status === 'active' ? now : null,
+  };
+}
+
+async function fulfillFamilyModelSettingsMock({
+  route,
+  request,
+  url,
+  state,
+  scenario,
+  isMember,
+  familyModelRequests,
+}) {
+  if (url.pathname !== FAMILY_MODEL_SETTINGS_PREFIX && !url.pathname.startsWith(`${FAMILY_MODEL_SETTINGS_PREFIX}/`)) {
+    return false;
+  }
+
+  const body = request.method() === 'GET' ? {} : requestJson(request);
+  recordFamilyModelRequest(familyModelRequests, request, url, body);
+
+  if (isMember) {
+    await fulfillJson(route, { detail: { code: 'family_model_owner_required' } }, 403);
+    return true;
+  }
+
+  if (request.method() === 'GET' && url.pathname === FAMILY_MODEL_SETTINGS_PREFIX) {
+    if (state.failSettingsRefresh) {
+      await fulfillJson(route, { detail: { code: 'family_model_settings_unavailable' } }, 503);
+      return true;
+    }
+    await fulfillJson(route, copyFixture(state.settings));
+    return true;
+  }
+  if (request.method() === 'GET' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/draft`) {
+    await fulfillJson(route, copyFixture(state.draft));
+    return true;
+  }
+  if (request.method() === 'GET' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/prices`) {
+    await fulfillJson(route, copyFixture(state.prices));
+    return true;
+  }
+
+  if (request.method() === 'PUT' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/draft`) {
+    if (scenario === 'conflict' && !state.conflictIssued) {
+      state.conflictIssued = true;
+      state.draft = {
+        ...state.draft,
+        draft_version_number: state.draft.draft_version_number + 1,
+        payload: {
+          ...state.draft.payload,
+          change_note: '另一位主理人的并发更新',
+        },
+        updated_at: now,
+      };
+      await fulfillJson(route, {
+        detail: {
+          code: 'family_model_settings_version_conflict',
+          current_draft_version_number: state.draft.draft_version_number,
+        },
+      }, 409);
+      return true;
+    }
+    if (body.base_draft_version_number !== state.draft.draft_version_number) {
+      await fulfillJson(route, {
+        detail: {
+          code: 'family_model_settings_version_conflict',
+          current_draft_version_number: state.draft.draft_version_number,
+        },
+      }, 409);
+      return true;
+    }
+    const { base_draft_version_number: _baseDraftVersion, idempotency_key: _idempotencyKey, ...payload } = body;
+    const nextDraftVersion = state.draft.draft_version_number + 1;
+    const nextConfigRevisionId = `family-model-config-v${nextDraftVersion}`;
+    const nextPriceVersionId = `family-model-price-v${nextDraftVersion}`;
+    state.draft = {
+      ...state.draft,
+      base_config_revision_id: nextConfigRevisionId,
+      draft_version_number: nextDraftVersion,
+      payload: copyFixture({ ...payload, base_config_revision_id: nextConfigRevisionId }),
+      validation_status: 'valid',
+      validation_errors: [],
+      updated_at: now,
+    };
+    state.settings.active_config_revision_id = nextConfigRevisionId;
+    state.settings.active_price_version_id = nextPriceVersionId;
+    bumpFamilyModelSettingsVersion(state);
+    await fulfillJson(route, copyFixture(state.draft));
+    return true;
+  }
+  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/draft/validate`) {
+    await fulfillJson(route, {
+      valid: true,
+      draft_version_number: state.draft.draft_version_number,
+      errors: [],
+      config_checksum: 'fixture-config-checksum-v2',
+      price_checksum: 'fixture-price-checksum-v2',
+    });
+    return true;
+  }
+  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/publish`) {
+    state.settings.active_config_revision_id = 'family-model-config-v2';
+    state.settings.active_price_version_id = 'family-model-price-v2';
+    bumpFamilyModelSettingsVersion(state);
+    await fulfillJson(route, {
+      config_revision_id: state.settings.active_config_revision_id,
+      price_version_id: state.settings.active_price_version_id,
+      settings_version_number: state.settings.version_number,
+      config_checksum: body.config_checksum,
+      price_checksum: body.price_checksum,
+      search_profile_id: state.settings.active_search_profile_id,
+    });
+    return true;
+  }
+
+  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles`) {
+    await fulfillJson(route, copyFixture(createMockProviderProfile(state, body)));
+    return true;
+  }
+
+  const profileAction = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles/([^/]+)/(rotate-key|connection-check|models)$`).exec(url.pathname);
+  if (profileAction && (request.method() === 'POST' || (request.method() === 'GET' && profileAction[2] === 'models'))) {
+    const [, profileId, action] = profileAction;
+    const profile = state.settings.provider_profiles.find((item) => item.id === profileId);
+    if (!profile) {
+      await fulfillJson(route, { detail: { code: 'family_model_provider_not_found' } }, 404);
+      return true;
+    }
+    if (action === 'rotate-key') {
+      profile.credential.version_number = (profile.credential.version_number ?? 0) + 1;
+      profile.credential.updated_at = now;
+      bumpFamilyModelSettingsVersion(state);
+      await fulfillJson(route, {
+        configured: true,
+        secret_version_number: profile.credential.version_number,
+        updated_at: now,
+      });
+      return true;
+    }
+    await fulfillJson(route, {
+      status: 'reachable',
+      detail: null,
+      checked_at: now,
+      latency_ms: 18,
+      profile_version_number: profile.profile_version_number,
+      models: profile.adapter_kind === 'openai_compatible_http'
+        ? [
+          'culina-chat-v1',
+          'culina-chat-v2',
+          'culina-image-v1',
+          'culina-stt-v1',
+          'culina-tts-v1',
+          'culina-embedding-v1',
+          'culina-rerank-v1',
+        ]
+        : [],
+    });
+    return true;
+  }
+
+  const profilePath = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles/([^/]+)$`).exec(url.pathname);
+  if (request.method() === 'PATCH' && profilePath) {
+    const profile = state.settings.provider_profiles.find((item) => item.id === profilePath[1]);
+    if (!profile) {
+      await fulfillJson(route, { detail: { code: 'family_model_provider_not_found' } }, 404);
+      return true;
+    }
+    profile.display_name = body.display_name ?? profile.display_name;
+    profile.status = body.status ?? profile.status;
+    profile.version_number += 1;
+    profile.updated_at = now;
+    bumpFamilyModelSettingsVersion(state);
+    await fulfillJson(route, copyFixture(profile));
+    return true;
+  }
+
+  const capabilityTest = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/capabilities/([^/]+)/test$`).exec(url.pathname);
+  if (request.method() === 'POST' && capabilityTest) {
+    const capability = capabilityTest[1];
+    if (scenario === 'settings-refresh-failure') {
+      state.failSettingsRefresh = true;
+    }
+    await fulfillJson(route, {
+      capability,
+      variant_key: body.variant_key,
+      status: scenario === 'hard-limit' ? 'blocked' : 'succeeded',
+      detail: scenario === 'hard-limit' ? 'hard limit blocked this fixture call' : 'fixture call completed',
+      checked_at: now,
+    });
+    return true;
+  }
+
+  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/preview`) {
+    await fulfillJson(route, {
+      document_count: 42,
+      minimum_estimated_tokens: 4200,
+      conservative_estimated_tokens: 8400,
+      minimum_estimated_cost_cny: '0.210000',
+      conservative_estimated_cost_cny: '0.420000',
+      confirmation_checksum: 'fixture-search-confirmation',
+    });
+    return true;
+  }
+  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements`) {
+    state.replacement = familyModelReplacement(scenario === 'search-failed' ? 'failed' : 'provisioning');
+    await fulfillJson(route, copyFixture(state.replacement));
+    return true;
+  }
+  const replacementPath = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/([^/]+)(?:/(retry|cancel))?$`).exec(url.pathname);
+  if (replacementPath) {
+    const [, profileId, action] = replacementPath;
+    if (!state.replacement || state.replacement.profile_id !== profileId) {
+      await fulfillJson(route, { detail: { code: 'family_search_replacement_not_found' } }, 404);
+      return true;
+    }
+    if (request.method() === 'GET' && !action) {
+      await fulfillJson(route, copyFixture(state.replacement));
+      return true;
+    }
+    if (request.method() === 'POST' && action === 'retry') {
+      state.replacement = familyModelReplacement('active');
+      await fulfillJson(route, copyFixture(state.replacement));
+      return true;
+    }
+    if (request.method() === 'POST' && action === 'cancel') {
+      state.replacement = familyModelReplacement('cancelled');
+      await fulfillJson(route, copyFixture(state.replacement));
+      return true;
+    }
+  }
+
+  await fulfillJson(route, { detail: { code: 'family_model_fixture_route_not_found' } }, 404);
+  return true;
+}
+
 const p0Fixtures = {
   '/api/activity-highlights': activityHighlightsFixture,
   '/api/activity-logs': [],
@@ -1030,10 +1530,14 @@ const p0Fixtures = {
 
 export async function installApiMocks(context, unexpectedRequests, options = {}) {
   const modelUsageScenario = options.modelUsageScenario ?? 'owner';
+  const familyModelScenario = options.familyModelScenario ?? 'configured';
   const requestedApiPaths = options.requestedApiPaths ?? null;
+  const familyModelRequests = options.familyModelRequests ?? null;
   let currentModelUsagePolicy = copyFixture(modelUsagePolicyFixture);
   let currentModelUsageAlerts = copyFixture(modelUsageAlertsFixture);
   let policyConflictIssued = false;
+  const familyModelState = createFamilyModelMockState(familyModelScenario);
+  const isMemberScenario = modelUsageScenario === 'member' || familyModelScenario === 'member';
   const memberSession = {
     ...authResponse,
     membership: {
@@ -1070,17 +1574,29 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
     }
 
     if (request.method() === 'POST' && url.pathname === '/api/auth/login') {
-      await fulfillJson(route, modelUsageScenario === 'member' ? memberSession : authResponse);
+      await fulfillJson(route, isMemberScenario ? memberSession : authResponse);
       return;
     }
 
-    if (request.method() === 'GET' && url.pathname === '/api/auth/me' && modelUsageScenario === 'member') {
+    if (request.method() === 'GET' && url.pathname === '/api/auth/me' && isMemberScenario) {
       await fulfillJson(route, memberSession);
       return;
     }
 
-    if (request.method() === 'GET' && url.pathname === '/api/members' && modelUsageScenario === 'member') {
+    if (request.method() === 'GET' && url.pathname === '/api/members' && isMemberScenario) {
       await fulfillJson(route, [{ ...member, role: 'Member' }]);
+      return;
+    }
+
+    if (await fulfillFamilyModelSettingsMock({
+      route,
+      request,
+      url,
+      state: familyModelState,
+      scenario: familyModelScenario,
+      isMember: isMemberScenario,
+      familyModelRequests,
+    })) {
       return;
     }
 
@@ -1259,7 +1775,7 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
     await fulfillJson(route, { detail: 'Unhandled P0 API: ' + url.pathname }, 404);
   });
 
-  return { requestedApiPaths };
+  return { requestedApiPaths, familyModelRequests };
 }
 
 function corsHeaders() {

@@ -91,6 +91,12 @@ def test_ensure_collection_creates_collection_and_payload_indexes() -> None:
         (
             "PUT",
             "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "search_profile_id", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
             {"field_name": "entity_type", "field_schema": "keyword"},
             {"api-key": "secret"},
         ),
@@ -119,6 +125,12 @@ def test_ensure_collection_refreshes_payload_indexes_for_existing_collection() -
             "PUT",
             "http://qdrant:6333/collections/culina_search/index",
             {"field_name": "family_id", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "search_profile_id", "field_schema": "keyword"},
             {"api-key": "secret"},
         ),
         (

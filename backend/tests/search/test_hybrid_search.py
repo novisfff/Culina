@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from threading import Event
 
+import pytest
 from sqlalchemy import event, select
 
 from app.core.enums import (
@@ -31,7 +32,18 @@ from app.models.domain import (
 )
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search import hybrid as hybrid_module
-from app.services.search.hybrid import MAX_RERANK_DOCUMENT_CHARS, _rerank_document_texts, hybrid_search
+from app.services.family_model_settings.types import (
+    EmbeddingUsageSnapshot,
+    ResolvedCapabilityBinding,
+    ResolvedProviderEndpoint,
+    ResolvedSearchProfile,
+)
+from app.services.search.hybrid import (
+    MAX_RERANK_DOCUMENT_CHARS,
+    FamilySearchRuntime,
+    _rerank_document_texts,
+    hybrid_search,
+)
 from app.services.search.indexing import upsert_search_document
 from app.services.search.rerank import RerankResult
 from app.services.search.vector_store import VectorSearchHit
@@ -40,12 +52,89 @@ from app.services.clock import today_for_family
 from tests.search._support import DisabledFakeRerankClient, ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
 
 
+@pytest.fixture(autouse=True)
+def _family_runtime_for_hybrid_algorithm_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run ranking tests against a captured family-owned runtime snapshot.
+
+    These tests exercise ranking and degradation behavior with injected local
+    clients.  They must not treat an absent family configuration as permission
+    to use those clients; fail-closed coverage belongs to
+    ``test_family_search_resolution.py``.
+    """
+
+    endpoint = ResolvedProviderEndpoint(
+        normalized_url="https://provider.example/v1",
+        scheme="https",
+        host="provider.example",
+        port=443,
+        base_path="/v1",
+        resolved_addresses=("93.184.216.34",),
+        private_target=False,
+    )
+    embedding = ResolvedSearchProfile(
+        family_id="family-test",
+        search_profile_id="search-profile-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        endpoint=endpoint,
+        embedding_model="embedding-test",
+        dimensions=2,
+        distance="Cosine",
+        document_builder_version="v1",
+        qdrant_collection="culina_fsp_test",
+    )
+    rerank = ResolvedCapabilityBinding(
+        family_id="family-test",
+        config_revision_id="revision-test",
+        provider_profile_id="profile-test",
+        provider_profile_version_id="profile-version-test",
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        endpoint=endpoint,
+        websocket_endpoint=None,
+        requested_model="rerank-test",
+        billing_model="rerank-test",
+        capability="rerank",
+        variant_key="search",
+        billing_scheme_key="rerank-tokens-v1",
+        options={},
+    )
+    runtime = FamilySearchRuntime(
+        family_managed=True,
+        embedding=embedding,
+        embedding_usage_snapshot=EmbeddingUsageSnapshot(
+            config_revision_id="revision-test",
+            price_version_id="price-test",
+            candidate=False,
+        ),
+        rerank=rerank,
+        rerank_price_version_id="price-test",
+    )
+    monkeypatch.setattr(
+        hybrid_module,
+        "_resolve_hybrid_search_runtime",
+        lambda _db, *, family_id, resolver: (runtime, object()),
+    )
+    monkeypatch.setattr(
+        hybrid_module,
+        "_family_search_client_dependencies",
+        lambda _resolver, *, price_version_id: (object(), object(), object(), object()),
+    )
+    monkeypatch.setattr(
+        hybrid_module,
+        "build_rerank_client",
+        lambda *_args, **_kwargs: DisabledFakeRerankClient(),
+    )
+
+
 class BudgetBlockedEmbeddingClient:
     model = "fake-embedding"
     dimensions = 2
 
-    def embed_text(self, text: str, *, attribution, attempt_key: str):
-        del text, attribution, attempt_key
+    def embed_text(self, text: str, *, attribution, attempt_key: str, usage_snapshot=None):
+        del text, attribution, attempt_key, usage_snapshot
         raise ModelUsageBlocked(
             "model_usage_budget_exceeded",
             period_start=datetime(2026, 7, 1, tzinfo=timezone.utc),
@@ -205,9 +294,14 @@ def test_hybrid_search_starts_semantic_recall_before_keyword_recall_finishes(mon
     embedding_started = Event()
 
     class SignalingEmbeddingClient(FakeEmbeddingClient):
-        def embed_text(self, text: str, *, attribution, attempt_key: str):
+        def embed_text(self, text: str, *, attribution, attempt_key: str, usage_snapshot=None):
             embedding_started.set()
-            return super().embed_text(text, attribution=attribution, attempt_key=attempt_key)
+            return super().embed_text(
+                text,
+                attribution=attribution,
+                attempt_key=attempt_key,
+                usage_snapshot=usage_snapshot,
+            )
 
     def blocking_keyword_search(*args, **kwargs):
         del args, kwargs
@@ -788,80 +882,6 @@ def test_hybrid_search_drops_weak_semantic_only_hits() -> None:
 
     assert response.total == 1
     assert [item.entity_id for item in response.items] == ["recipe-relevant"]
-
-
-def test_hybrid_search_honors_lower_configured_semantic_candidate_floor(monkeypatch) -> None:
-    SessionLocal = session_factory()
-    with SessionLocal() as db:
-        family = Family(id="family-1", name="一号家庭")
-        floor_recipe = Recipe(
-            id="recipe-configured-floor",
-            family_id=family.id,
-            title="低分语义菜",
-            servings=2,
-            prep_minutes=15,
-            difficulty=Difficulty.EASY,
-            tips="",
-            scene_tags=[],
-        )
-        above_floor_recipe = Recipe(
-            id="recipe-above-configured-floor",
-            family_id=family.id,
-            title="略高分语义菜",
-            servings=2,
-            prep_minutes=15,
-            difficulty=Difficulty.EASY,
-            tips="",
-            scene_tags=[],
-        )
-        db.add_all([family, floor_recipe, above_floor_recipe])
-        db.flush()
-        for recipe in (floor_recipe, above_floor_recipe):
-            upsert_search_document(
-                db,
-                SearchDocumentPayload(
-                    family_id=family.id,
-                    entity_type="recipe",
-                    entity_id=recipe.id,
-                    title_text=recipe.title,
-                    keyword_text=recipe.title,
-                    detail_text="",
-                    semantic_text=f"菜谱：{recipe.title}",
-                    metadata_json={},
-                    content_hash=f"hash-{recipe.id}",
-                ),
-            )
-        db.commit()
-
-    monkeypatch.setattr(
-        hybrid_module,
-        "get_settings",
-        lambda: search_settings(search_semantic_min_score=0.30),
-    )
-    with SessionLocal() as db:
-        response = hybrid_search(
-            db,
-            family_id="family-1",
-            query="夜间疗愈",
-            scopes=["recipe"],
-            limit=10,
-            offset=0,
-            embedding_client=FakeEmbeddingClient(),
-            vector_store=FakeVectorStore(
-                [
-                    VectorSearchHit("recipe", "recipe-configured-floor", 0.30, 1),
-                    VectorSearchHit("recipe", "recipe-above-configured-floor", 0.31, 2),
-                ]
-            ),
-        )
-
-    assert [item.entity_id for item in response.items] == [
-        "recipe-above-configured-floor",
-        "recipe-configured-floor",
-    ]
-    assert response.items[0].semantic_score == 0.31
-    assert response.items[1].semantic_score == 0.30
-    assert response.items[0].score > response.items[1].score
 
 
 def test_hybrid_search_keeps_lower_confidence_ingredient_semantic_hits() -> None:

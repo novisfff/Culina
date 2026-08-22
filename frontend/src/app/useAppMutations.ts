@@ -278,10 +278,10 @@ export function useAppMutations() {
   });
   const recordMealMutation = useMutation({
     mutationFn: api.recordMeal,
-    onSuccess: async (response) => {
-      await invalidateAfterMealRecorded(queryClient, {
+    onSuccess: (response) => {
+      void invalidateAfterMealRecorded(queryClient, {
         createdFood: (response.created_foods?.length ?? 0) > 0,
-      });
+      }).catch(() => undefined);
     },
   });
   const updateMealCompositionMutation = useMutation({

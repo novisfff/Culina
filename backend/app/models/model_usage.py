@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import (
+    FamilyModelPricePurpose,
     ModelUsageAttributionKind,
     ModelUsageCapability,
     ModelUsageCorrectionStatus,
@@ -63,13 +64,30 @@ class ModelUsagePriceVersion(Base):
     __tablename__ = "model_usage_price_versions"
     __table_args__ = (
         UniqueConstraint("version_number", name="uq_model_usage_price_version_number"),
-        UniqueConstraint("manifest_checksum", name="uq_model_usage_price_manifest_checksum"),
         Index("ix_model_usage_price_version_status_effective", "status", "effective_from"),
     )
 
     id: Mapped[str] = mapped_column(
         String(64), primary_key=True, default=lambda: create_id("usage-price")
     )
+    family_id: Mapped[str | None] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"), nullable=True
+    )
+    config_revision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_config_revisions.id", ondelete="RESTRICT"), nullable=True
+    )
+    search_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_search_profiles.id", ondelete="RESTRICT"), nullable=True
+    )
+    base_price_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_usage_price_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    purpose: Mapped[FamilyModelPricePurpose] = mapped_column(
+        _enum_type(FamilyModelPricePurpose),
+        nullable=False,
+        default=FamilyModelPricePurpose.LEGACY_GLOBAL,
+    )
+    published_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -438,6 +456,21 @@ class ModelUsageReservation(Base):
     pricing_status: Mapped[ModelUsagePricingStatus] = mapped_column(
         _enum_type(ModelUsagePricingStatus), nullable=False
     )
+    config_revision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_config_revisions.id", ondelete="RESTRICT"), nullable=True
+    )
+    provider_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_provider_profiles.id", ondelete="RESTRICT"), nullable=True
+    )
+    provider_profile_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_provider_profile_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    credential_secret_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_secret_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    search_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_search_profiles.id", ondelete="RESTRICT"), nullable=True
+    )
     price_version_id: Mapped[str | None] = mapped_column(
         ForeignKey("model_usage_price_versions.id", ondelete="RESTRICT"), nullable=True
     )
@@ -529,6 +562,18 @@ class ModelUsageEvent(Base):
     billing_scheme_key: Mapped[str] = mapped_column(String(160), nullable=False)
     pricing_status: Mapped[ModelUsagePricingStatus] = mapped_column(
         _enum_type(ModelUsagePricingStatus), nullable=False
+    )
+    config_revision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_config_revisions.id", ondelete="RESTRICT"), nullable=True
+    )
+    provider_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_provider_profiles.id", ondelete="RESTRICT"), nullable=True
+    )
+    provider_profile_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_model_provider_profile_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    search_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("family_search_profiles.id", ondelete="RESTRICT"), nullable=True
     )
     price_version_id: Mapped[str | None] = mapped_column(
         ForeignKey("model_usage_price_versions.id", ondelete="RESTRICT"), nullable=True

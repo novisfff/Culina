@@ -211,7 +211,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             from app.ai.errors import AIConflictError
 
             with patch(
-                "app.api.ai.AIApplicationService.decide_approval",
+                "app.ai.workspace_service.AIApplicationService.decide_approval",
                 side_effect=AIConflictError("确认请求正在处理，请稍后刷新或重试"),
             ):
                 response = self.client.post(
@@ -224,6 +224,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_recipe_draft_approval_creates_recipe_after_decision(self) -> None:
             with self.SessionLocal() as db:
+                configure_family_image_generation(
+                    db,
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                )
                 self._add_egg_ingredient(db)
                 db.add(
                     Ingredient(
@@ -263,7 +268,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 }
                 """
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "帮我生成一份番茄鸡蛋面的菜谱，2 人份。", "quick_task": "recipe_draft"},
@@ -434,7 +439,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 }
                 """
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "帮我生成一份番茄小炒的菜谱", "quick_task": "recipe_draft"},
@@ -473,7 +478,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 }
                 """
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "帮我生成一份番茄汤的菜谱", "quick_task": "recipe_draft"},
@@ -526,7 +531,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 }
                 """
             )
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "帮我生成一份番茄汤的菜谱", "quick_task": "recipe_draft"},
@@ -1701,6 +1706,12 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             from app.ai.images.jobs import _bind_generated_asset_to_target
 
             with self.SessionLocal() as db:
+                configure_family_image_generation(
+                    db,
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                )
+
                 def add_upload_media(media_id: str, name: str) -> MediaAsset:
                     asset = MediaAsset(
                         id=media_id,

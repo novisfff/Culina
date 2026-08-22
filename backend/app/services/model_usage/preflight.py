@@ -24,7 +24,6 @@ from app.models.model_usage import (
 )
 from app.services.model_usage.configured_variants import (
     ConfiguredUsageVariant,
-    configured_usage_variants,
 )
 from app.services.model_usage.errors import ModelUsageError, ModelUsagePreflightError
 from app.services.model_usage.provider_registry import (
@@ -500,12 +499,8 @@ def _fail_open_proof_ttl_is_valid(settings: object) -> bool:
     if type(ttl) is not int or ttl <= 0:
         return False
     timeout_names = (
-        "ai_timeout_seconds",
-        "ai_stt_timeout_seconds",
-        "ai_tts_timeout_seconds",
-        "ai_realtime_timeout_seconds",
-        "search_embedding_timeout_seconds",
-        "search_rerank_timeout_seconds",
+        "family_model_provider_connect_timeout_seconds",
+        "family_model_provider_request_timeout_seconds",
         "qdrant_timeout_seconds",
     )
     timeouts: list[float] = []
@@ -543,27 +538,14 @@ def _first_launch_database_state(
     missing_tables, missing_uniques = schema_preflight_gaps(db)
     missing_policies, missing_subjects = family_default_preflight_gaps(db)
     database_heads = database_migration_heads(db)
-    try:
-        coverage = price_coverage(db, configured_variants=variants, at=at)
-    except Exception as exc:
-        return (
-            missing_tables,
-            missing_uniques,
-            missing_policies,
-            missing_subjects,
-            database_heads,
-            _empty_price_coverage(),
-            False,
-            _stable_error_code(exc, fallback="model_usage_price_coverage_unavailable"),
-        )
     return (
         missing_tables,
         missing_uniques,
         missing_policies,
         missing_subjects,
         database_heads,
-        coverage,
-        coverage.healthy,
+        _empty_price_coverage(),
+        True,
         None,
     )
 
@@ -584,12 +566,14 @@ def run_first_launch_preflight(
     codes and never echo a connection string, key, prompt, or provider payload.
     """
 
-    required_capabilities = frozenset(ModelUsageCapability)
+    # Provider capabilities are published per family.  An unconfigured family
+    # must never make an otherwise healthy deployment fail startup.
+    required_capabilities = frozenset()
     now = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
     root = app_root or Path(__file__).resolve().parents[2]
 
     try:
-        variants = configured_usage_variants(settings)
+        variants: tuple[ConfiguredUsageVariant, ...] = ()
     except Exception as exc:
         variants = ()
         registry_errors = {"configured_usage_variant_invalid"}
@@ -600,7 +584,7 @@ def run_first_launch_preflight(
     configured_capabilities = frozenset(variant.capability for variant in variants)
 
     try:
-        registrations = provider_usage_registrations(settings)
+        registrations = provider_usage_registrations(variants)
     except Exception as exc:
         registrations = ()
         registry_errors.add(_stable_error_code(exc, fallback="model_usage_provider_registry_unavailable"))
@@ -765,7 +749,7 @@ def run_model_usage_preflight(
     keyring = decode_receipt_integrity_keyring(settings, now=at)
     _require_capability_contract_coverage()
     try:
-        variants = configured_usage_variants(settings)
+        variants: tuple[ConfiguredUsageVariant, ...] = ()
     except Exception as exc:
         raise ModelUsagePreflightError("configured_usage_variant_invalid") from exc
     def check(session: Session) -> PriceCoverageReport:

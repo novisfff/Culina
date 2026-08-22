@@ -22,7 +22,7 @@ from app.core.enums import Difficulty, MealType, MediaSource
 from app.models.domain import AIMessage, AITaskDraft, Food, Ingredient, MealLog, MediaAsset, Recipe, RecipeIngredient, RecipeStep
 from app.services.ai_operations.registry import draft_operation_registry
 
-from ._support import AIAgentInfraTestCase, FakeChatProvider
+from ._support import AIAgentInfraTestCase, FakeChatProvider, patch_ai_workspace_provider
 
 
 class VisionFakeChatProvider(FakeChatProvider):
@@ -245,7 +245,7 @@ class AttachmentDraftFakeChatProvider(FakeChatProvider):
 class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
     def _replace_workspace_provider(self, provider: FakeChatProvider) -> None:
         self.workspace_provider_patcher.stop()
-        self.workspace_provider_patcher = patch("app.ai.workspace_service.get_chat_provider", return_value=provider)
+        self.workspace_provider_patcher = patch_ai_workspace_provider(provider)
         self.workspace_provider_patcher.start()
 
     def _add_unbound_upload(self, *, media_id: str, name: str, alt: str) -> None:

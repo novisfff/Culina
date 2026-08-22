@@ -359,6 +359,21 @@ export function FamilySettings(props: FamilySettingsProps) {
               </small>
             </span>
           </button>
+          {props.isOwner ? (
+            <button
+              className="family-model-usage-entry family-ai-services-entry"
+              type="button"
+              onClick={() => props.onNavigate({ workspace: 'family', view: 'aiServices' })}
+            >
+              <span className="family-model-usage-entry-icon" aria-hidden="true">
+                <DashboardIcon name="shield" />
+              </span>
+              <span className="family-model-usage-entry-copy">
+                <strong>AI 服务</strong>
+                <small>管理家庭的模型服务、凭据、能力与价格</small>
+              </span>
+            </button>
+          ) : null}
         </section>
 
         <section className="family-section">

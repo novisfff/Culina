@@ -23,7 +23,7 @@ from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
 from app.ai.workspace_service import AIApplicationService
 from app.services.ai_operations.trace_retention import prune_ai_trace_records
 
-from ._support import AIAgentInfraTestCase
+from ._support import AIAgentInfraTestCase, patch_ai_workspace_provider
 
 
 class AIObservabilityTestCase(AIAgentInfraTestCase):
@@ -61,9 +61,16 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertFalse(settings.ai_trace_capture_llm_exchanges)
         self.assertFalse(settings.ai_trace_capture_message_content)
 
-    def test_observability_tables_do_not_depend_on_business_foreign_keys(self) -> None:
+    def test_observability_trace_span_is_independent_but_exchange_keeps_family_config_snapshot(self) -> None:
         self.assertEqual(set(AIRunTraceSpan.__table__.foreign_keys), set())
-        self.assertEqual(set(AIRunLLMExchange.__table__.foreign_keys), set())
+        self.assertEqual(
+            {str(foreign_key.column) for foreign_key in AIRunLLMExchange.__table__.foreign_keys},
+            {
+                "family_model_config_revisions.id",
+                "family_model_provider_profiles.id",
+                "family_model_provider_profile_versions.id",
+            },
+        )
 
     def test_agent_loop_logs_phase_perf_summary(self) -> None:
         with self.assertLogs("app.ai.workflows.runner", level="INFO") as logs:
@@ -77,7 +84,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertIn("AI graph prepare completed", output)
         self.assertIn("AI graph finalize perf summary", output)
 
-    def test_openai_compatible_provider_uses_openai_sdk_client_only(self) -> None:
+    def test_openai_compatible_provider_defers_transport_until_a_family_binding_dispatches(self) -> None:
         provider = OpenAICompatibleChatProvider(
             api_base="https://example.invalid/v1",
             api_key="test-key",
@@ -85,7 +92,8 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         )
 
         self.assertFalse(hasattr(provider, "client"))
-        self.assertIsNotNone(provider.openai_client)
+        self.assertIsNone(provider.openai_client)
+        self.assertIsNone(provider._deferred_transport)
 
     def test_streaming_tool_usage_chunk_is_recorded_on_exchange(self) -> None:
         class FakeCompletions:
@@ -557,7 +565,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                     message_handler(text)
                 return ChatProviderResult(text=text, status="completed", model=self.model_name)
 
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=TraceableProvider()):
+        with patch_ai_workspace_provider(TraceableProvider()):
             response = self.client.post(
                 "/api/ai/chat",
                 json={"message": "随便聊聊", "client_run_id": "agent_run-observability-span-link"},

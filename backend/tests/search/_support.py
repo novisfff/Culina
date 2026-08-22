@@ -25,8 +25,9 @@ class FakeEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: object | None = None,
     ) -> MeteredEmbeddingResult:
-        del text, attribution, attempt_key
+        del text, attribution, attempt_key, usage_snapshot
         return MeteredEmbeddingResult(vectors=[[0.1, 0.2]], usage_event_id=None)
 
     def embed_batch(
@@ -54,8 +55,9 @@ class ExplodingEmbeddingClient:
         *,
         attribution: UsageAttribution,
         attempt_key: str,
+        usage_snapshot: object | None = None,
     ) -> MeteredEmbeddingResult:
-        del text, attribution, attempt_key
+        del text, attribution, attempt_key, usage_snapshot
         raise AssertionError("embedding client should not be called")
 
     def embed_batch(
@@ -152,10 +154,7 @@ def session_factory():
 def search_settings(**overrides: object) -> SimpleNamespace:
     values: dict[str, object] = {
         "search_hybrid_enabled": True,
-        "search_semantic_min_score": 0.48,
-        "search_rerank_min_score": 0.58,
-        "search_literal_fallback_min_score": 0.70,
-        "search_rerank_candidate_limit": 50,
+        "search_vector_backend": "qdrant",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
