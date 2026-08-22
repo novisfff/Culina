@@ -388,7 +388,7 @@ describe('cacheInvalidation', () => {
     expect(invalidatedKeys(queryClient)).toEqual([
       queryKeys.familyModelSettingsRoot('family-a'),
       queryKeys.modelUsageRoot('family-a'),
-      queryKeys.aiStatus,
+      queryKeys.aiStatus('family-a'),
     ]);
     expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.familyModelSettingsRoot('family-b'));
     expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.foods);
@@ -403,7 +403,7 @@ describe('cacheInvalidation', () => {
       queryKeys.familySearchProfile('family-a'),
       queryKeys.familyModelSettings('family-a'),
       queryKeys.searchRoot,
-      queryKeys.aiStatus,
+      queryKeys.aiStatus('family-a'),
     ]);
     expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.familyModelSettings('family-b'));
   });

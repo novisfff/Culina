@@ -16,6 +16,7 @@ from app.core.enums import (
 )
 from app.core.utils import utcnow
 from app.models.family_model_settings import (
+    FamilyModelSettings,
     FamilyModelProviderProfile,
     FamilyModelResourceOperation,
     FamilyModelSecretVersion,
@@ -52,6 +53,77 @@ class FakeQdrantAdmin:
     def delete_collection(self, *, collection: str) -> None:
         self.delete_calls.append(collection)
         self.collections.pop(collection, None)
+
+
+def test_maintenance_activates_a_valid_draft_left_by_the_legacy_publish_flow(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(
+        idempotency_key="maintenance-legacy-draft-profile-1"
+    )
+    saved = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "maintenance-legacy-model",
+                    "max_output_tokens": 256,
+                }
+            ],
+            "price_rates": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "meter": meter,
+                    "unit_quantity": "1000000",
+                    "unit_price": "0",
+                    "source_currency": "CNY",
+                    "fx_to_cny": "1",
+                }
+                for meter in (
+                    "uncached_input_tokens",
+                    "cached_input_tokens",
+                    "output_tokens",
+                )
+            ],
+            "change_note": "旧发布流程遗留草稿",
+            "base_draft_version_number": 0,
+            "idempotency_key": "maintenance-legacy-draft-save-1",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        assert settings is not None
+        assert settings.active_config_revision_id is not None
+        settings.active_config_revision_id = None
+        settings.active_price_version_id = None
+        db.commit()
+
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        assert settings is not None
+        assert settings.active_config_revision_id is None
+
+        stats = maintain_family_model_settings(
+            db,
+            network_policy=family_model_api.policy,
+        )
+        db.commit()
+
+        assert stats.applied_configurations == 1
+        db.refresh(settings)
+        assert settings.active_config_revision_id is not None
+
+    status = family_model_api.client.get("/api/ai/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["configured"] is True
+    assert status.json()["capabilities"]["llm"] == "available"
 
 
 def _search_profile(
@@ -247,14 +319,17 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
     ]
 
 
-def test_startup_rejects_an_empty_local_keyring_when_the_database_retains_references(
+def test_startup_rejects_a_missing_local_keyring_when_the_database_retains_references(
     family_model_api: FamilyModelApiContext,
+    tmp_path,
 ) -> None:
     family_model_api.create_profile()
+    keyring_path = tmp_path / "secrets" / "family-model-keyring.json"
     empty_local_settings = SimpleNamespace(
         environment="local",
         family_model_credential_active_key_id="",
         family_model_credential_keys_json=SecretStr(""),
+        family_model_credential_keyring_file=str(keyring_path),
     )
 
     with family_model_api.session_factory() as db:
@@ -266,15 +341,19 @@ def test_startup_rejects_an_empty_local_keyring_when_the_database_retains_refere
                 db,
                 current_settings=empty_local_settings,
             )
+    assert not keyring_path.exists()
 
 
-def test_startup_allows_an_empty_local_keyring_before_any_credentials_exist(
+def test_startup_generates_a_local_keyring_before_any_credentials_exist(
     family_model_api: FamilyModelApiContext,
+    tmp_path,
 ) -> None:
+    keyring_path = tmp_path / "secrets" / "family-model-keyring.json"
     empty_local_settings = SimpleNamespace(
         environment="local",
         family_model_credential_active_key_id="",
         family_model_credential_keys_json=SecretStr(""),
+        family_model_credential_keyring_file=str(keyring_path),
     )
 
     with family_model_api.session_factory() as db:
@@ -282,3 +361,4 @@ def test_startup_allows_an_empty_local_keyring_before_any_credentials_exist(
             db,
             current_settings=empty_local_settings,
         )
+    assert keyring_path.is_file()

@@ -43,7 +43,6 @@ from app.services.family_model_settings.credentials import (
     rotate_profile_secret,
 )
 from app.services.family_model_settings.errors import (
-    FamilyModelOwnerReauthenticationFailed,
     FamilyModelProviderProfileNotFound,
     FamilyModelProviderScopeChangeRequiresNewProfile,
 )
@@ -170,7 +169,6 @@ def _command(context: RotationContext, **overrides: object) -> RotateProfileSecr
         "family_id": context.family_id,
         "profile_id": context.profile_id,
         "actor_user_id": context.owner_id,
-        "current_password": "OwnerPass123",
         "base_settings_version": 1,
         "idempotency_key": "rotate-1",
         "credential_scope_checksum": context.scope_checksum,
@@ -233,23 +231,6 @@ def test_rotation_rejects_scope_changes(rotation_context: RotationContext) -> No
         )
 
 
-def test_rotation_requires_current_password_before_claiming_receipt(
-    rotation_context: RotationContext,
-) -> None:
-    with pytest.raises(FamilyModelOwnerReauthenticationFailed):
-        rotate_profile_secret(
-            rotation_context.db,
-            _command(rotation_context, current_password="wrong-password"),
-            cipher=rotation_context.cipher,
-        )
-    assert get_operation_receipt(
-        rotation_context.db,
-        family_id=rotation_context.family_id,
-        operation="rotate_profile_secret",
-        idempotency_key="rotate-1",
-    ) is None
-
-
 def test_rotation_hides_cross_family_profiles_as_not_found(rotation_context: RotationContext) -> None:
     _add_owner(
         rotation_context.db,
@@ -269,7 +250,6 @@ def test_rotation_hides_cross_family_profiles_as_not_found(rotation_context: Rot
                 family_id="family-2",
                 profile_id=rotation_context.profile_id,
                 actor_user_id="owner-2",
-                current_password="OwnerPass123",
                 base_settings_version=1,
                 idempotency_key="cross-family",
                 credential_scope_checksum=rotation_context.scope_checksum,

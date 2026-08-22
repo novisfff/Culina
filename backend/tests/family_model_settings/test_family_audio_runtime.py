@@ -176,7 +176,7 @@ def _audio_payload(
     }
 
 
-def _publish_audio_configuration(
+def _save_active_audio_configuration(
     context: FamilyModelApiContext,
     *,
     family_id: str,
@@ -212,27 +212,18 @@ def _publish_audio_configuration(
         },
     )
     assert saved.status_code == 200, saved.text
-    validated = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": saved.json()["draft_version_number"]},
-    )
-    assert validated.status_code == 200, validated.text
-    assert validated.json()["valid"] is True
     settings = context.client.get("/api/family/model-settings")
     assert settings.status_code == 200, settings.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": saved.json()["draft_version_number"],
-            "idempotency_key": f"audio-publish-{family_id}-{realtime_model}",
-            "config_checksum": validated.json()["config_checksum"],
-            "price_checksum": validated.json()["price_checksum"],
-            "current_password": "OwnerPass123",
+    active = settings.json()
+    assert active["active_config_revision_id"] is not None
+    assert active["active_price_version_id"] is not None
+    return {
+        "profiles": active_profiles,
+        "active": {
+            "config_revision_id": active["active_config_revision_id"],
+            "price_version_id": active["active_price_version_id"],
         },
-    )
-    assert published.status_code == 200, published.text
-    return {"profiles": active_profiles, "published": published.json()}
+    }
 
 
 def _enable_usage_defaults(context: FamilyModelApiContext, *, family_id: str) -> None:
@@ -351,14 +342,14 @@ def _run_audio_calls(
 def test_stt_and_tts_dispatch_with_each_family_binding_and_secret(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    family_a = _publish_audio_configuration(
+    family_a = _save_active_audio_configuration(
         family_model_api,
         family_id="family-a",
         stt_model="stt-a",
         tts_model="tts-a",
         realtime_model="realtime-a",
     )
-    family_b = _publish_audio_configuration(
+    family_b = _save_active_audio_configuration(
         family_model_api,
         family_id="family-b",
         stt_model="stt-b",
@@ -404,26 +395,26 @@ def test_stt_and_tts_dispatch_with_each_family_binding_and_secret(
         (
             "family-a",
             "stt-a",
-            family_a["published"]["config_revision_id"],
-            family_a["published"]["price_version_id"],
+            family_a["active"]["config_revision_id"],
+            family_a["active"]["price_version_id"],
         ),
         (
             "family-a",
             "tts-a",
-            family_a["published"]["config_revision_id"],
-            family_a["published"]["price_version_id"],
+            family_a["active"]["config_revision_id"],
+            family_a["active"]["price_version_id"],
         ),
         (
             "family-b",
             "stt-b",
-            family_b["published"]["config_revision_id"],
-            family_b["published"]["price_version_id"],
+            family_b["active"]["config_revision_id"],
+            family_b["active"]["price_version_id"],
         ),
         (
             "family-b",
             "tts-b",
-            family_b["published"]["config_revision_id"],
-            family_b["published"]["price_version_id"],
+            family_b["active"]["config_revision_id"],
+            family_b["active"]["price_version_id"],
         ),
     }
 
@@ -431,7 +422,7 @@ def test_stt_and_tts_dispatch_with_each_family_binding_and_secret(
 def test_new_audio_dispatch_uses_rotated_current_secret(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    configured = _publish_audio_configuration(
+    configured = _save_active_audio_configuration(
         family_model_api,
         family_id="family-a",
         stt_model="stt-rotation",
@@ -465,7 +456,6 @@ def test_new_audio_dispatch_uses_rotated_current_secret(
     rotated = family_model_api.client.post(
         f"/api/family/model-settings/provider-profiles/{profiles['http']['id']}/rotate-key",
         json={
-            "current_password": "OwnerPass123",
             "new_api_key": "key-family-a-http-rotated",
             "base_settings_version_number": settings.json()["version_number"],
             "idempotency_key": "audio-runtime-rotate-key-1",
@@ -503,7 +493,7 @@ def test_realtime_sessions_keep_their_creation_revision_after_a_new_publish(
 ) -> None:
     realtime_voice_session_store.clear()
     try:
-        configured = _publish_audio_configuration(
+        configured = _save_active_audio_configuration(
             family_model_api,
             family_id="family-a",
             stt_model="stt-session-old",
@@ -526,7 +516,7 @@ def test_realtime_sessions_keep_their_creation_revision_after_a_new_publish(
             user_id="owner-a",
         )
 
-        updated = _publish_audio_configuration(
+        updated = _save_active_audio_configuration(
             family_model_api,
             family_id="family-a",
             stt_model="stt-session-new",
@@ -550,8 +540,8 @@ def test_realtime_sessions_keep_their_creation_revision_after_a_new_publish(
             )
             new_provider = service.realtime_runtime_for_session(new_state)
 
-        assert old_state.config_revision_id == configured["published"]["config_revision_id"]
-        assert new_state.config_revision_id == updated["published"]["config_revision_id"]
+        assert old_state.config_revision_id == configured["active"]["config_revision_id"]
+        assert new_state.config_revision_id == updated["active"]["config_revision_id"]
         assert old_state.config_revision_id != new_state.config_revision_id
         assert old_provider.binding.requested_model == "realtime-session-old"
         assert new_provider.binding.requested_model == "realtime-session-new"

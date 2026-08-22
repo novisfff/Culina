@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import stat
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -148,3 +149,64 @@ def test_cipher_from_settings_uses_the_explicit_deployment_keyring() -> None:
     cipher = FamilyModelCredentialCipher.from_settings(settings)
 
     assert cipher.active_key_id == "k1"
+
+
+def test_local_settings_generate_and_reuse_a_private_persistent_keyring(tmp_path) -> None:
+    keyring_path = tmp_path / "secrets" / "family-model-keyring.json"
+    settings = Settings(
+        environment="local",
+        family_model_credential_active_key_id="",
+        family_model_credential_keys_json=SecretStr(""),
+        family_model_credential_keyring_file=str(keyring_path),
+    )
+
+    first = FamilyModelCredentialCipher.from_settings(
+        settings,
+        allow_local_keyring_creation=True,
+    )
+    first_contents = keyring_path.read_bytes()
+    second = FamilyModelCredentialCipher.from_settings(settings)
+
+    assert first.active_key_id == second.active_key_id
+    assert first.keyring.keys == second.keyring.keys
+    assert keyring_path.read_bytes() == first_contents
+    assert stat.S_IMODE(keyring_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(keyring_path.stat().st_mode) == 0o600
+
+
+def test_local_settings_do_not_silently_create_a_missing_keyring_by_default(tmp_path) -> None:
+    keyring_path = tmp_path / "secrets" / "family-model-keyring.json"
+    settings = Settings(
+        environment="local",
+        family_model_credential_active_key_id="",
+        family_model_credential_keys_json=SecretStr(""),
+        family_model_credential_keyring_file=str(keyring_path),
+    )
+
+    with pytest.raises(
+        FamilyModelCredentialConfigurationError,
+        match="family_model_credential_keyring_file_missing",
+    ):
+        FamilyModelCredentialCipher.from_settings(settings)
+
+    assert not keyring_path.exists()
+
+
+def test_local_keyring_storage_failures_use_a_stable_configuration_error(tmp_path) -> None:
+    invalid_parent = tmp_path / "not-a-directory"
+    invalid_parent.write_text("occupied", encoding="utf-8")
+    settings = Settings(
+        environment="local",
+        family_model_credential_active_key_id="",
+        family_model_credential_keys_json=SecretStr(""),
+        family_model_credential_keyring_file=str(invalid_parent / "keyring.json"),
+    )
+
+    with pytest.raises(
+        FamilyModelCredentialConfigurationError,
+        match="family_model_credential_keyring_file_invalid",
+    ):
+        FamilyModelCredentialCipher.from_settings(
+            settings,
+            allow_local_keyring_creation=True,
+        )

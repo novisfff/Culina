@@ -17,7 +17,7 @@ export type FamilyModelFormValidation = {
   errors: Record<string, string>;
 };
 
-const REQUIRED_METERS: Record<FamilyModelBindingDraft['capability'], readonly FamilyModelPriceRate['meter'][]> = {
+export const FAMILY_MODEL_REQUIRED_METERS: Record<FamilyModelBindingDraft['capability'], readonly FamilyModelPriceRate['meter'][]> = {
   llm: ['uncached_input_tokens', 'cached_input_tokens', 'output_tokens'],
   image_generation: ['generated_images'],
   stt: ['audio_input_seconds'],
@@ -153,10 +153,11 @@ export function createFamilyModelSettingsDraft(
         binding.capability === 'embedding' && binding.variant_key === 'search',
     )
     : undefined;
+  const bindings = source.bindings.map(cloneBinding);
   return {
     ...source,
-    bindings: source.bindings.map(cloneBinding),
-    price_rates: source.price_rates.map((rate) => ({ ...rate, reported_model_aliases: [...rate.reported_model_aliases] })),
+    bindings,
+    price_rates: normalizeFamilyModelPriceRates(bindings, source.price_rates),
     price_draft: source.price_draft
       ? {
         ...source.price_draft,
@@ -212,6 +213,41 @@ function bindingIdentity(binding: FamilyModelBindingDraft): string {
   return `${binding.capability}:${binding.variant_key}`;
 }
 
+function defaultUnitQuantity(meter: FamilyModelPriceRate['meter']): string {
+  if (meter === 'generated_images') return '1';
+  if (meter === 'audio_input_seconds') return '60';
+  if (meter === 'tts_characters') return '1000';
+  return '1000000';
+}
+
+export function normalizeFamilyModelPriceRates(
+  bindings: readonly FamilyModelBindingDraft[],
+  rates: readonly FamilyModelPriceRate[],
+): FamilyModelPriceRate[] {
+  const existing = new Map(rates.map((rate) => [rateIdentity(rate), rate]));
+  return bindings.flatMap((binding) => {
+    if (!binding.enabled) return [];
+    return FAMILY_MODEL_REQUIRED_METERS[binding.capability].map((meter) => {
+      const identity = `${bindingIdentity(binding)}:${meter}`;
+      const current = existing.get(identity);
+      if (current) {
+        return { ...current, reported_model_aliases: [...current.reported_model_aliases] };
+      }
+      const requestedModel = binding.requested_model.trim();
+      return {
+        capability: binding.capability,
+        variant_key: binding.variant_key,
+        meter,
+        unit_quantity: defaultUnitQuantity(meter),
+        unit_price: '0',
+        source_currency: 'CNY',
+        fx_to_cny: '1',
+        reported_model_aliases: requestedModel ? [requestedModel] : [],
+      };
+    });
+  });
+}
+
 /**
  * Checks only client-visible form facts. The server remains the authoritative
  * validator for adapter compatibility, credential state and price checksums.
@@ -224,7 +260,7 @@ export function validateFamilyModelPriceRates(
   const expected = new Set<string>();
   for (const binding of bindings) {
     if (!binding.enabled) continue;
-    for (const meter of REQUIRED_METERS[binding.capability]) {
+    for (const meter of FAMILY_MODEL_REQUIRED_METERS[binding.capability]) {
       expected.add(`${binding.capability}:${binding.variant_key}:${meter}`);
     }
   }
@@ -250,12 +286,6 @@ export function validateFamilyModelPriceRates(
     }
   });
 
-  for (const identity of expected) {
-    if (!seen.has(identity)) {
-      const [capability, variant, meter] = identity.split(':');
-      errors[`price_rates.${capability}.${variant}.${meter}`] = '请补充这项已启用能力的完整价格。';
-    }
-  }
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
@@ -273,14 +303,12 @@ export function toSaveDraftPayload(
   draft: FamilyModelSettingsDraft,
   idempotencyKey: string,
 ): SaveFamilyModelConfigDraftPayload {
+  const bindings = savedBindings(draft);
   return {
     base_config_revision_id: draft.base_config_revision_id,
     search_profile_id: draft.search_profile_id,
-    bindings: savedBindings(draft),
-    price_rates: draft.price_rates.map((rate) => ({
-      ...rate,
-      reported_model_aliases: [...rate.reported_model_aliases],
-    })),
+    bindings,
+    price_rates: normalizeFamilyModelPriceRates(bindings, draft.price_rates),
     price_draft: draft.price_draft
       ? {
         ...draft.price_draft,
@@ -307,12 +335,27 @@ function safeErrorCode(reason: unknown): string | null {
 }
 
 const SAFE_ERROR_MESSAGES: Record<string, string> = {
-  family_model_settings_version_conflict: '设置已更新，请刷新后重新应用草稿。',
-  family_model_publish_checksum_mismatch: '发布内容已变化，请刷新后重新确认。',
+  family_model_settings_version_conflict: '配置已在别处更新，请刷新后继续编辑。',
+  family_model_settings_not_configured: '当前家庭还没有可用的模型配置。请先启用能力，并补全 Provider 服务和模型名称。',
+  family_model_capability_disabled: '当前配置未启用此能力。请先在能力配置中启用并补全信息。',
+  family_model_provider_disabled: '当前配置绑定的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
+  family_model_secret_unavailable: '当前服务的 API Key 不可用。请修改 Key 后重试。',
+  family_model_operation_in_progress: '上一次能力测试仍在处理中。请稍候刷新结果，不要重复发起可能计费的请求。',
+  family_model_capability_test_ledger_failed: '暂时无法创建模型用量记录，因此没有调用模型。请稍后重试。',
+  family_model_capability_test_binding_incomplete: '当前能力信息不完整。请先启用能力，并补全 Provider 服务和模型名称后再测试。',
+  family_model_capability_test_transport_failed: '请求模型服务时连接中断，执行结果暂时无法确认。请先查看模型用量记录，不要立即重复测试。',
+  family_model_publish_checksum_mismatch: '配置内容已变化，请刷新后重试。',
   family_model_owner_reauthentication_failed: '当前密码不正确，请重新输入后继续。',
   family_model_provider_scope_change_requires_new_profile: '连接范围已变化，请新建服务并重新绑定。',
   family_model_operation_idempotency_conflict: '本次操作内容已变化，请重新提交。',
   family_model_endpoint_blocked: '服务地址无法使用，请检查后重试。',
+  family_model_endpoint_url_invalid: '服务地址格式不正确。请填写以 http://、https://、ws:// 或 wss:// 开头的完整地址。',
+  family_model_endpoint_protocol_mismatch: '地址协议与 Provider 类型不匹配。普通 API 请使用 HTTP(S)，实时服务请使用 WS(S)。',
+  family_model_endpoint_dns_resolution_failed: '无法解析服务地址的域名。请检查域名拼写或 DNS 配置。',
+  family_model_endpoint_address_forbidden: '服务地址指向系统禁止访问的本机、链路本地、云元数据或保留网络地址。',
+  family_model_endpoint_private_target_not_allowed: '服务地址指向未获许可的私网地址。请联系部署管理员加入私网白名单。',
+  family_model_endpoint_insecure_transport_not_allowed: '当前部署不允许公网明文 HTTP/WS。请改用 HTTPS/WSS，或由部署管理员开启不安全传输开关。',
+  family_model_provider_protocol_unsupported: '当前 Provider 类型不支持这个地址协议或认证方式。请检查服务类型、地址和认证方式。',
 };
 
 /** Never projects provider response bodies, endpoints, headers or stack details into the UI. */

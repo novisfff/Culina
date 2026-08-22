@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ComboboxField, DropdownSelect } from '../../components/ui-kit';
 import type {
   FamilyModelBindingDraft,
   FamilyModelCapability,
+  FamilyModelProviderConnectionCheckResult,
   FamilyModelProviderProfile,
 } from '../../api/types';
-import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
+import { safeFamilyModelSettingsError, type FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import {
   FAMILY_MODEL_CAPABILITY_OPTIONS,
+  FAMILY_MODEL_ADAPTER_OPTIONS,
   profileSupportsCapability,
 } from './familyModelSettingsOptions';
 
@@ -15,7 +18,19 @@ export type CapabilityBindingEditorProps = {
   profiles: FamilyModelProviderProfile[];
   busy: boolean;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;
+  onDiscoverModels: (profileId: string) => Promise<FamilyModelProviderConnectionCheckResult>;
   onTestCapability: (capability: FamilyModelCapability, variantKey: string, confirmBillable: boolean) => Promise<unknown>;
+};
+
+type ModelDiscoveryState =
+  | { status: 'loading'; models: string[] }
+  | { status: 'ready'; models: string[] }
+  | { status: 'not_supported'; models: string[] }
+  | { status: 'error'; models: string[] };
+
+type CapabilityTestState = {
+  status: 'running' | 'succeeded' | 'blocked' | 'failed' | 'request-error';
+  message: string;
 };
 
 const CAPABILITY_GROUPS: ReadonlyArray<{
@@ -28,6 +43,17 @@ const CAPABILITY_GROUPS: ReadonlyArray<{
   { id: 'voice', label: '语音', description: '语音识别、播报与实时语音。', capabilities: ['stt', 'tts', 'realtime_audio'] },
   { id: 'search', label: '搜索', description: '家庭内容的向量检索与结果重排。', capabilities: ['embedding', 'rerank'] },
 ];
+
+const IMAGE_SIZE_OPTIONS = [
+  { value: '1024x1024', label: '1024 × 1024', description: '方形图片' },
+  { value: '1024x1536', label: '1024 × 1536', description: '竖版图片' },
+  { value: '1536x1024', label: '1536 × 1024', description: '横版图片' },
+] as const;
+
+const RESPONSE_FORMAT_OPTIONS = [
+  { value: 'b64_json', label: '内联图片', description: '直接返回图片内容，适合安全存储。' },
+  { value: 'url', label: '服务地址', description: '由服务商返回临时图片链接。' },
+] as const;
 
 function bindingKey(binding: FamilyModelBindingDraft): string {
   return `${binding.capability}:${binding.variant_key}`;
@@ -44,6 +70,12 @@ function bindingTitle(binding: FamilyModelBindingDraft): string {
           ? '文字生成'
           : '默认';
   return `${FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].label} · ${suffix}`;
+}
+
+function bindingCanRunDraftTest(binding: FamilyModelBindingDraft): boolean {
+  return binding.enabled
+    && Boolean(binding.provider_profile_id)
+    && binding.requested_model.trim().length > 0;
 }
 
 function isActiveEmbedding(draft: FamilyModelSettingsDraft, binding: FamilyModelBindingDraft): boolean {
@@ -108,16 +140,61 @@ function getCapabilityIcon(capability: FamilyModelCapability) {
 }
 
 export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
-  const [confirmedTests, setConfirmedTests] = useState<Record<string, boolean>>({});
-  const [testMessage, setTestMessage] = useState<Record<string, string>>({});
+  const [capabilityTests, setCapabilityTests] = useState<Record<string, CapabilityTestState>>({});
   const [selectedBindingKey, setSelectedBindingKey] = useState(() => {
     const first = props.draft.active_embedding_binding
       ? props.draft.bindings.find((binding) => binding.capability === 'embedding')
       : props.draft.bindings.find((binding) => binding.enabled) ?? props.draft.bindings[0];
     return first ? bindingKey(first) : '';
   });
+  const [modelDiscovery, setModelDiscovery] = useState<Record<string, ModelDiscoveryState>>({});
+  const modelDiscoveryInFlight = useRef(new Set<string>());
+
+  const discoverModels = useCallback(async (profileId: string) => {
+    if (modelDiscoveryInFlight.current.has(profileId)) return;
+    modelDiscoveryInFlight.current.add(profileId);
+    setModelDiscovery((current) => ({
+      ...current,
+      [profileId]: { status: 'loading', models: current[profileId]?.models ?? [] },
+    }));
+    try {
+      const result = await props.onDiscoverModels(profileId);
+      setModelDiscovery((current) => ({
+        ...current,
+        [profileId]: {
+          status: result.status === 'not_supported' ? 'not_supported' : 'ready',
+          models: result.models,
+        },
+      }));
+    } catch {
+      setModelDiscovery((current) => ({
+        ...current,
+        [profileId]: { status: 'error', models: current[profileId]?.models ?? [] },
+      }));
+    } finally {
+      modelDiscoveryInFlight.current.delete(profileId);
+    }
+  }, [props.onDiscoverModels]);
+
+  const selectedBinding = props.draft.bindings.find((binding) => bindingKey(binding) === selectedBindingKey);
+  const selectedProfileId = selectedBinding?.provider_profile_id ?? null;
+
+  useEffect(() => {
+    if (!selectedProfileId || modelDiscovery[selectedProfileId]) return;
+    void discoverModels(selectedProfileId);
+  }, [discoverModels, modelDiscovery, selectedProfileId]);
 
   function replaceBinding(index: number, next: FamilyModelBindingDraft) {
+    const previous = props.draft.bindings[index];
+    if (previous) {
+      const previousKey = bindingKey(previous);
+      setCapabilityTests((current) => {
+        if (!current[previousKey]) return current;
+        const updated = { ...current };
+        delete updated[previousKey];
+        return updated;
+      });
+    }
     const bindings = props.draft.bindings.map((binding, candidateIndex) => candidateIndex === index ? next : binding);
     props.onDraftChange({ ...props.draft, bindings });
   }
@@ -128,16 +205,29 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
 
   async function runCapabilityTest(binding: FamilyModelBindingDraft) {
     const key = `${binding.capability}:${binding.variant_key}`;
+    setCapabilityTests((current) => ({
+      ...current,
+      [key]: { status: 'running', message: '正在等待模型响应。' },
+    }));
     try {
-      const result = await props.onTestCapability(binding.capability, binding.variant_key, confirmedTests[key] === true);
-      setTestMessage((current) => ({
+      const result = await props.onTestCapability(binding.capability, binding.variant_key, true);
+      const resultStatus = result && typeof result === 'object' && 'status' in result
+        ? result.status
+        : 'failed';
+      const nextState: CapabilityTestState = resultStatus === 'succeeded'
+        ? { status: 'succeeded', message: '测试成功，点击可再次测试。' }
+        : resultStatus === 'blocked'
+          ? { status: 'blocked', message: '测试被用量限制阻止，未调用模型。请检查模型用量限制后重试。' }
+          : { status: 'failed', message: '服务未通过能力测试，请检查 Provider、模型和价格配置后重试。' };
+      setCapabilityTests((current) => ({
         ...current,
-        [key]: result && typeof result === 'object' && 'status' in result && result.status === 'succeeded'
-          ? '真实能力测试已完成。'
-          : '测试没有完成，请检查配置。',
+        [key]: nextState,
       }));
-    } catch {
-      // A workspace-level safe error remains visible without echoing provider detail.
+    } catch (reason) {
+      setCapabilityTests((current) => ({
+        ...current,
+        [key]: { status: 'request-error', message: safeFamilyModelSettingsError(reason) },
+      }));
     }
   }
 
@@ -165,6 +255,8 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
           const embeddingLocked = isActiveEmbedding(props.draft, binding);
           const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
           const expanded = selectedBindingKey === key;
+          const capabilityTest = capabilityTests[key];
+          const canRunDraftTest = bindingCanRunDraftTest(binding);
           return (
             <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
               <div className="family-model-settings-binding-head">
@@ -198,26 +290,74 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
               {expanded ? <div id={`family-model-settings-binding-panel-${key}`} className="family-model-settings-binding-panel">
               {embeddingLocked ? <p className="family-model-settings-readonly-note">更换这些设置需要完整重建搜索索引。</p> : null}
               <div className="family-model-settings-form-grid">
-                <label className="family-model-settings-field">
+                <div className="family-model-settings-field">
                   <span>Provider 服务</span>
-                  <select
+                  <DropdownSelect
+                    ariaLabel="Provider 服务选项"
+                    triggerAriaLabel="Provider 服务"
+                    placeholder="选择兼容服务"
                     value={binding.provider_profile_id ?? ''}
+                    options={profiles.map((profile) => ({
+                      value: profile.id,
+                      label: profile.display_name,
+                      description: FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label
+                        ?? profile.adapter_kind,
+                    }))}
+                    clearOption={{
+                      value: '',
+                      label: '选择兼容服务',
+                      description: '先选择服务，再自动读取可用模型。',
+                    }}
                     disabled={props.busy || embeddingLocked}
-                    onChange={(event) => patchBinding(index, binding, { provider_profile_id: event.target.value || null })}
-                  >
-                    <option value="">选择兼容服务</option>
-                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
-                  </select>
-                </label>
-                <label className="family-model-settings-field">
-                  <span>模型名称</span>
-                  <input
-                    value={binding.requested_model}
-                    disabled={props.busy || embeddingLocked}
-                    placeholder="输入服务商模型标识"
-                    onChange={(event) => patchBinding(index, binding, { requested_model: event.target.value })}
+                    className="family-model-settings-dropdown"
+                    onChange={(value) => patchBinding(index, binding, { provider_profile_id: value || null })}
                   />
-                </label>
+                </div>
+                <div className="family-model-settings-field">
+                  <span>模型名称</span>
+                  <ComboboxField
+                    ariaLabel="模型名称"
+                    value={binding.requested_model}
+                    options={(binding.provider_profile_id ? modelDiscovery[binding.provider_profile_id]?.models ?? [] : [])
+                      .map((model) => ({ value: model, label: model }))}
+                    allowCustom
+                    disabled={props.busy || embeddingLocked}
+                    placeholder={binding.provider_profile_id ? '选择或输入模型标识' : '请先选择 Provider 服务'}
+                    onChange={(value) => patchBinding(index, binding, { requested_model: String(value) })}
+                  />
+                  {binding.provider_profile_id ? (
+                    <div
+                      className={`family-model-settings-model-discovery is-${modelDiscovery[binding.provider_profile_id]?.status ?? 'loading'}`}
+                      role="status"
+                    >
+                      <span>
+                        {modelDiscovery[binding.provider_profile_id]?.status === 'ready'
+                          ? modelDiscovery[binding.provider_profile_id].models.length > 0
+                            ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型标识。`
+                            : '服务连接正常，但未返回模型列表，请手动输入模型标识。'
+                          : modelDiscovery[binding.provider_profile_id]?.status === 'not_supported'
+                            ? '此服务不支持自动读取模型列表，请手动输入模型标识。'
+                            : modelDiscovery[binding.provider_profile_id]?.status === 'error'
+                              ? '自动读取模型列表失败，仍可手动输入。'
+                              : '正在自动读取模型列表…'}
+                      </span>
+                      {modelDiscovery[binding.provider_profile_id]?.status === 'error' ? (
+                        <button
+                          type="button"
+                          className="tertiary-button"
+                          disabled={props.busy}
+                          onClick={() => { void discoverModels(binding.provider_profile_id as string); }}
+                        >
+                          重新读取
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="family-model-settings-model-discovery" role="status">
+                      <span>选择服务后会自动读取模型列表，也可以直接手动输入。</span>
+                    </div>
+                  )}
+                </div>
                 {binding.capability === 'llm' ? (
                   <>
                     <label className="family-model-settings-field">
@@ -239,21 +379,32 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                 ) : null}
                 {binding.capability === 'image_generation' ? (
                   <>
-                    <label className="family-model-settings-field">
+                    <div className="family-model-settings-field">
                       <span>图片尺寸</span>
-                      <select value={binding.image_size} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { image_size: event.target.value as typeof binding.image_size })}>
-                        <option value="1024x1024">1024 × 1024</option>
-                        <option value="1024x1536">1024 × 1536</option>
-                        <option value="1536x1024">1536 × 1024</option>
-                      </select>
-                    </label>
-                    <label className="family-model-settings-field">
+                      <DropdownSelect
+                        ariaLabel="图片尺寸选项"
+                        triggerAriaLabel="图片尺寸"
+                        placeholder="选择图片尺寸"
+                        value={binding.image_size}
+                        options={IMAGE_SIZE_OPTIONS}
+                        disabled={props.busy}
+                        className="family-model-settings-dropdown"
+                        onChange={(value) => { if (value) patchBinding(index, binding, { image_size: value }); }}
+                      />
+                    </div>
+                    <div className="family-model-settings-field">
                       <span>返回格式</span>
-                      <select value={binding.response_format} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { response_format: event.target.value as typeof binding.response_format })}>
-                        <option value="b64_json">内联图片</option>
-                        <option value="url">服务地址</option>
-                      </select>
-                    </label>
+                      <DropdownSelect
+                        ariaLabel="返回格式选项"
+                        triggerAriaLabel="返回格式"
+                        placeholder="选择返回格式"
+                        value={binding.response_format}
+                        options={RESPONSE_FORMAT_OPTIONS}
+                        disabled={props.busy}
+                        className="family-model-settings-dropdown"
+                        onChange={(value) => { if (value) patchBinding(index, binding, { response_format: value }); }}
+                      />
+                    </div>
                   </>
                 ) : null}
                 {binding.capability === 'embedding' ? (
@@ -270,17 +421,34 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                 ) : null}
               </div>
               <div className="family-model-settings-binding-test">
-                <label className="family-model-settings-checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={confirmedTests[key] === true}
-                    disabled={props.busy || !binding.enabled}
-                    onChange={(event) => setConfirmedTests((current) => ({ ...current, [key]: event.target.checked }))}
-                  />
-                  <span>我确认本次测试可能产生费用</span>
-                </label>
-                <button className="ghost-button" type="button" disabled={props.busy || !binding.enabled || !confirmedTests[key]} onClick={() => { void runCapabilityTest(binding); }}>测试能力</button>
-                {testMessage[key] ? <span role="status">{testMessage[key]}</span> : null}
+                <button
+                  className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
+                  type="button"
+                  title={!canRunDraftTest
+                    ? '请先启用能力，并补全 Provider 服务和模型名称。'
+                    : capabilityTest?.message}
+                  aria-busy={capabilityTest?.status === 'running'}
+                  disabled={props.busy || !canRunDraftTest || capabilityTest?.status === 'running'}
+                  onClick={() => { void runCapabilityTest(binding); }}
+                >
+                  {capabilityTest?.status === 'running' ? (
+                    <span className="family-model-settings-test-spinner" aria-hidden="true" />
+                  ) : null}
+                  {capabilityTest?.status === 'succeeded' ? (
+                    <svg className="family-model-settings-test-result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m5 12 4 4 10-10" />
+                    </svg>
+                  ) : null}
+                  {capabilityTest?.status === 'running'
+                    ? '正在测试'
+                    : capabilityTest?.status === 'succeeded'
+                      ? '测试成功'
+                      : capabilityTest?.status === 'blocked'
+                        ? '用量受限，重试'
+                        : capabilityTest?.status === 'failed' || capabilityTest?.status === 'request-error'
+                          ? '测试失败，重试'
+                          : '测试能力'}
+                </button>
               </div>
               </div> : null}
             </article>

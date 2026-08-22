@@ -27,7 +27,12 @@ from app.core.enums import (
 from app.core.utils import utcnow
 from app.db.session import SessionLocal
 from app.models.domain import Family
-from app.models.family_model_settings import FamilySearchProfile
+from app.models.family_model_settings import (
+    FamilyModelConfigDraft,
+    FamilyModelSettings,
+    FamilySearchProfile,
+)
+from app.repos.family_model_settings.configurations import get_config_draft
 from app.repos.family_model_settings.resource_operations import (
     ClaimedResourceOperation,
     claim_next_resource_operation,
@@ -41,6 +46,14 @@ from app.repos.family_model_settings.resource_operations import (
 )
 from app.repos.family_model_settings.profiles import get_family_model_settings
 from app.services.family_model_settings.credentials import destroy_eligible_revoked_secrets
+from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
+from app.services.family_model_settings.publishing import (
+    apply_validated_family_model_configuration,
+)
+from app.services.family_model_settings.validation import (
+    ValidateDraftCommand,
+    validate_family_model_draft,
+)
 from app.services.family_model_settings.search_profiles import seed_search_profile_documents
 from app.services.search.vector_store import build_vector_store
 
@@ -72,6 +85,7 @@ class VectorStoreCollectionAdmin:
 class FamilyModelMaintenanceStats:
     destroyed_secrets: int
     queued_collection_deletes: int
+    applied_configurations: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,22 +201,80 @@ def maintain_family_model_settings(
     db: Session,
     *,
     now: datetime | None = None,
+    network_policy: ProviderNetworkPolicy | None = None,
 ) -> FamilyModelMaintenanceStats:
     current = now or utcnow()
-    settings = get_settings()
+    app_settings = get_settings()
+    applied = 0
+    legacy_family_ids = tuple(
+        db.scalars(
+            select(FamilyModelConfigDraft.family_id)
+            .join(
+                FamilyModelSettings,
+                FamilyModelSettings.family_id == FamilyModelConfigDraft.family_id,
+            )
+            .where(
+                FamilyModelSettings.active_config_revision_id.is_(None),
+                FamilyModelConfigDraft.validation_status == "valid",
+            )
+            .order_by(FamilyModelConfigDraft.family_id.asc())
+        )
+    )
+    policy = (
+        network_policy or ProviderNetworkPolicy.from_settings(app_settings)
+        if legacy_family_ids
+        else None
+    )
+    for family_id in legacy_family_ids:
+        assert policy is not None
+        draft = get_config_draft(db, family_id=family_id)
+        if draft is None:
+            continue
+        actor_user_id = draft.updated_by
+        if actor_user_id is None:
+            continue
+        validation = validate_family_model_draft(
+            db,
+            ValidateDraftCommand(
+                family_id=family_id,
+                actor_user_id=actor_user_id,
+                network_policy=policy,
+                base_draft_version_number=draft.draft_version_number,
+            ),
+        )
+        family_settings = get_family_model_settings(db, family_id=family_id, for_update=True)
+        current_draft = get_config_draft(db, family_id=family_id, for_update=True)
+        if (
+            not validation.valid
+            or family_settings is None
+            or family_settings.active_config_revision_id is not None
+            or current_draft is None
+        ):
+            continue
+        apply_validated_family_model_configuration(
+            db,
+            family_id=family_id,
+            actor_user_id=actor_user_id,
+            settings=family_settings,
+            draft=current_draft,
+            validation=validation,
+            network_policy=policy,
+        )
+        applied += 1
     destroyed = destroy_eligible_revoked_secrets(
         db,
         cutoff=current
-        - timedelta(hours=settings.family_model_revoked_secret_retention_hours),
+        - timedelta(hours=app_settings.family_model_revoked_secret_retention_hours),
     )
     queued = queue_expired_search_profile_cleanup_tombstones(
         db,
         cutoff=current
-        - timedelta(days=settings.family_model_retired_collection_retention_days),
+        - timedelta(days=app_settings.family_model_retired_collection_retention_days),
     )
     return FamilyModelMaintenanceStats(
         destroyed_secrets=len(destroyed),
         queued_collection_deletes=queued,
+        applied_configurations=applied,
     )
 
 
@@ -417,7 +489,7 @@ def process_family_model_resource_operations(
 
 
 class FamilyModelSettingsMaintenanceWorker:
-    """Short-transaction worker for secret retention and collection outbox."""
+    """Short-transaction worker for legacy activation, secret retention and collection outbox."""
 
     def __init__(
         self,

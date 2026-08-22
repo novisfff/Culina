@@ -1,6 +1,6 @@
 import type { FamilyModelCapability, FamilyModelSettings } from '../../api/types';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
-import { validateFamilyModelPriceRates } from './familyModelSettingsModel';
+import { FAMILY_MODEL_REQUIRED_METERS, validateFamilyModelPriceRates, validateMoneyInput } from './familyModelSettingsModel';
 import { profileSupportsCapability } from './familyModelSettingsOptions';
 import type { FamilyModelSettingsSection } from './useFamilyModelSettingsState';
 
@@ -21,6 +21,7 @@ export type FamilyModelPublication = {
 };
 
 export type FamilyModelSettingsOverview = {
+  title: string;
   providerCount: number;
   enabledCapabilityCount: number;
   pricedCapabilityCount: number;
@@ -39,8 +40,8 @@ export type DeriveFamilyModelSettingsOverviewInput = {
 const STEP_CONTENT: Array<Pick<FamilyModelSetupStep, 'id' | 'number' | 'label' | 'description'>> = [
   { id: 'providers', number: 1, label: '连接服务', description: '保存服务地址与凭据' },
   { id: 'capabilities', number: 2, label: '绑定能力', description: '选择每类任务使用的模型' },
-  { id: 'prices', number: 3, label: '设置价格', description: '补齐启用能力的计量价格' },
-  { id: 'review', number: 4, label: '检查发布', description: '验证配置并确认生效' },
+  { id: 'prices', number: 3, label: '设置价格（可选）', description: '未填写的计费项按 0 计算' },
+  { id: 'review', number: 4, label: '配置检查', description: '查看配置完善度与提醒' },
 ];
 
 function enabledCapabilitySet(draft: FamilyModelSettingsDraft): Set<FamilyModelCapability> {
@@ -51,8 +52,21 @@ function pricedCapabilityCount(draft: FamilyModelSettingsDraft, enabled: Set<Fam
   let count = 0;
   for (const capability of enabled) {
     const bindings = draft.bindings.filter((binding) => binding.enabled && binding.capability === capability);
-    const rates = draft.price_rates.filter((rate) => rate.capability === capability);
-    if (validateFamilyModelPriceRates(bindings, rates).valid) count += 1;
+    const allMetersPriced = bindings.every((binding) => (
+      FAMILY_MODEL_REQUIRED_METERS[binding.capability].every((meter) => {
+        const rate = draft.price_rates.find((candidate) => (
+          candidate.capability === binding.capability
+          && candidate.variant_key === binding.variant_key
+          && candidate.meter === meter
+        ));
+        return Boolean(
+          rate
+          && !validateMoneyInput(rate.unit_price)
+          && Number(rate.unit_price) > 0,
+        );
+      })
+    ));
+    if (bindings.length > 0 && allMetersPriced) count += 1;
   }
   return count;
 }
@@ -62,21 +76,21 @@ function publicationFor(settings: FamilyModelSettings, dirty: boolean): FamilyMo
   if (!hasPublishedRevision) {
     return {
       kind: dirty ? 'local_changes' : 'unpublished',
-      label: dirty ? '有本地修改' : '尚未发布',
-      description: dirty ? '修改只保存在当前页面，完成检查并发布后才会生效。' : '完成四步配置后，家庭成员才能使用这些 AI 能力。',
+      label: dirty ? '正在保存' : '等待配置',
+      description: dirty ? '修改会自动保存；信息完整后立即生效。' : '连接服务并绑定需要的能力后即可使用。',
     };
   }
   if (dirty) {
     return {
       kind: 'local_changes',
-      label: '有本地修改',
-      description: '当前发布版本仍在生效；本地修改尚未保存或发布。',
+      label: '正在保存',
+      description: '修改会自动保存；保存完成后立即切换到新配置。',
     };
   }
   return {
     kind: 'published',
-    label: '已有发布版本',
-    description: '当前家庭已有生效配置；如需确认服务端草稿是否有变化，请重新检查发布。',
+    label: '配置已生效',
+    description: '当前家庭正在使用这份配置，后续修改也会自动保存并生效。',
   };
 }
 
@@ -109,12 +123,12 @@ export function deriveFamilyModelSettingsOverview(
     primaryLabel = '绑定需要的能力';
   } else if (usableProviderCount > 0 && !pricingReady) {
     primarySection = 'prices';
-    primaryLabel = '补齐模型价格';
+    primaryLabel = '设置模型价格（可选）';
   } else if (usableProviderCount > 0 && pricingReady) {
     primarySection = 'review';
     primaryLabel = input.settings.active_config_revision_id && input.settings.active_price_version_id && !input.dirty
-      ? '检查发布状态'
-      : '检查并发布';
+      ? '查看配置完善度'
+      : '检查配置完善度';
   }
 
   const completed = {
@@ -125,6 +139,11 @@ export function deriveFamilyModelSettingsOverview(
   } satisfies Record<FamilyModelSetupStep['id'], boolean>;
 
   return {
+    title: input.settings.active_config_revision_id && enabledCapabilityCount > 0
+      ? '家庭 AI 服务已配置'
+      : providerCount > 0
+        ? '继续配置家庭 AI 服务'
+        : '尚未配置服务',
     providerCount,
     enabledCapabilityCount,
     pricedCapabilityCount: pricedCount,

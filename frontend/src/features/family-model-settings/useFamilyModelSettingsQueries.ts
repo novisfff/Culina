@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
 import { queryKeys } from '../../api/queryKeys';
 import type { UserRole } from '../../api/types';
@@ -15,6 +16,7 @@ export interface UseFamilyModelSettingsQueriesArgs {
  * household's settings surface.
  */
 export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQueriesArgs) {
+  const queryClient = useQueryClient();
   const isOwner = args.role === 'Owner';
   const enabled = Boolean(args.familyId) && isOwner;
   const settingsQuery = useQuery({
@@ -45,6 +47,16 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
   );
   const stale = hasSafeData && queries.some((query) => query.isError);
   const error = queries.find((query) => query.error)?.error ?? null;
+  const discoverProviderModels = useCallback((profileId: string) => {
+    if (!enabled || !profileId) {
+      return Promise.reject(new Error('家庭 AI 服务尚未加载完成。'));
+    }
+    return queryClient.fetchQuery({
+      queryKey: queryKeys.familyProviderModels(args.familyId, profileId),
+      queryFn: () => familyModelSettingsApi.discoverProviderModels(profileId),
+      staleTime: 5 * 60 * 1_000,
+    });
+  }, [args.familyId, enabled, queryClient]);
 
   return {
     isOwner,
@@ -56,6 +68,7 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
     stale,
     error,
     isInitialLoading: enabled && !hasSafeData && queries.some((query) => query.isLoading),
+    discoverProviderModels,
     settingsQuery,
     draftQuery,
     pricesQuery,

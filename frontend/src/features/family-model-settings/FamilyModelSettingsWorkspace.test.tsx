@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
@@ -19,6 +20,7 @@ vi.mock('../../api/familyModelSettingsApi', () => ({
     patchProviderProfile: vi.fn(),
     rotateProviderProfileKey: vi.fn(),
     checkProviderConnection: vi.fn(),
+    discoverProviderModels: vi.fn(),
     savePricesDraft: vi.fn(),
     publishPrices: vi.fn(),
     testCapability: vi.fn(),
@@ -72,9 +74,93 @@ describe('FamilyModelSettingsWorkspace', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockReset();
     vi.mocked(familyModelSettingsApi.getDraft).mockReset();
     vi.mocked(familyModelSettingsApi.getPrices).mockReset();
+    vi.mocked(familyModelSettingsApi.saveDraft).mockReset();
+    vi.mocked(familyModelSettingsApi.testCapability).mockReset();
+    vi.mocked(familyModelSettingsApi.discoverProviderModels).mockReset();
     vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings);
     vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft);
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices);
+  });
+
+  it('automatically saves capability changes without a publish action', async () => {
+    const user = userEvent.setup();
+    const profile = {
+      id: 'profile-draft-test',
+      display_name: '家庭主服务',
+      adapter_kind: 'openai_compatible_http' as const,
+      auth_mode: 'api_key' as const,
+      api_base_url: 'https://provider.example/v1',
+      websocket_base_url: null,
+      options: {},
+      status: 'active' as const,
+      archived: false,
+      version_number: 1,
+      profile_version_number: 1,
+      credential: { configured: true, version_number: 1, updated_at: '2026-08-19T10:00:00Z' },
+      created_at: '2026-08-19T10:00:00Z',
+      updated_at: '2026-08-19T10:00:00Z',
+    };
+    const configuredDraft: FamilyModelConfigDraft = {
+      ...draft,
+      draft_version_number: 4,
+      payload: {
+        ...draft.payload,
+        bindings: [{
+          capability: 'llm',
+          variant_key: 'primary',
+          enabled: true,
+          provider_profile_id: profile.id,
+          requested_model: 'draft-model-v1',
+          billing_scheme_key: 'llm-split-v1',
+          max_output_tokens: 1024,
+          supports_vision: false,
+          prompt_cache_enabled: false,
+        }],
+      },
+    };
+    const savedDraft: FamilyModelConfigDraft = {
+      ...configuredDraft,
+      draft_version_number: 5,
+      payload: {
+        ...configuredDraft.payload,
+        bindings: configuredDraft.payload.bindings.map((binding) => ({
+          ...binding,
+          requested_model: 'draft-model-v2',
+        })),
+      },
+    };
+    vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValueOnce({
+      ...settings,
+      provider_profiles: [profile],
+    });
+    vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValueOnce(configuredDraft);
+    vi.mocked(familyModelSettingsApi.discoverProviderModels).mockResolvedValue({
+      status: 'reachable',
+      detail: null,
+      checked_at: '2026-08-19T10:00:00Z',
+      latency_ms: 10,
+      profile_version_number: 1,
+      models: ['draft-model-v1', 'draft-model-v2'],
+    });
+    vi.mocked(familyModelSettingsApi.saveDraft).mockImplementation(async (payload) => {
+      expect(payload.bindings[0]?.requested_model).toBe('draft-model-v2');
+      return savedDraft;
+    });
+
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    await user.click(await screen.findByRole('button', { name: /能力配置/ }));
+    const modelField = await screen.findByRole('combobox', { name: '模型名称' });
+    await user.clear(modelField);
+    await user.type(modelField, 'draft-model-v2');
+
+    await waitFor(() => expect(familyModelSettingsApi.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2_000 });
+    expect(familyModelSettingsApi.publish).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '保存草稿' })).not.toBeInTheDocument();
+    expect(screen.queryByText('前往发布复核')).not.toBeInTheDocument();
   });
 
   it('shows the first-time Owner workspace without exposing a credential', async () => {
@@ -116,6 +202,17 @@ describe('FamilyModelSettingsWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
   });
 
+  it('exposes configuration checking instead of publication review', async () => {
+    render(
+      <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
+      { wrapper: wrapper() },
+    );
+
+    const sectionRail = await screen.findByRole('navigation', { name: '家庭 AI 服务设置分区' });
+    expect(within(sectionRail).getByRole('button', { name: /配置检查/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /发布复核/ })).not.toBeInTheDocument();
+  });
+
   it('describes an active clean configuration without claiming draft parity', async () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValueOnce({
       ...settings,
@@ -127,8 +224,8 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    expect(await screen.findByText('已有发布版本')).toBeVisible();
-    expect(screen.getByText(/如需确认服务端草稿是否有变化/)).toBeVisible();
+    expect(await screen.findByText('配置已生效')).toBeVisible();
+    expect(screen.getByText('当前家庭正在使用这份配置，后续修改也会自动保存并生效。')).toBeVisible();
   });
 
   it('fails safely without mounting Owner settings queries for a Member', () => {
@@ -255,7 +352,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
       { wrapper: wrapper() },
     );
-    await waitFor(() => expect(screen.getByText('1')).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/1 类已启用能力/)).toBeVisible());
 
     rendered.rerender(
       <FamilyModelSettingsWorkspace familyId="family-b" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
@@ -266,6 +363,6 @@ describe('FamilyModelSettingsWorkspace', () => {
     });
 
     await waitFor(() => expect(screen.getByText('正在加载家庭 AI 服务')).toBeVisible());
-    expect(screen.queryByText('1')).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 类已启用能力/)).not.toBeInTheDocument();
   });
 });

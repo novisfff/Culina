@@ -30,6 +30,7 @@ from app.services.family_model_settings.errors import (
     FamilyModelProviderProfileNotFound,
     FamilyModelSettingsVersionConflict,
 )
+from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
 
 
 _WRITE_ONLY_DRAFT_KEYS = frozenset(
@@ -204,6 +205,7 @@ def save_config_draft(
     command: SaveConfigDraftCommand,
     *,
     cipher: FamilyModelCredentialCipher,
+    network_policy: ProviderNetworkPolicy | None = None,
 ) -> ConfigDraftSnapshot:
     """Persist a non-secret draft under settings -> draft lock ordering.
 
@@ -242,7 +244,7 @@ def save_config_draft(
 
     # The stable settings row exists from migration/bootstrap and is always the
     # first lock, including the otherwise racy first draft INSERT path.
-    lock_family_model_settings(db, family_id=command.family_id)
+    settings = lock_family_model_settings(db, family_id=command.family_id)
     draft = get_config_draft(db, family_id=command.family_id, for_update=True)
     current_version = draft.draft_version_number if draft is not None else 0
     if command.base_draft_version_number != current_version:
@@ -272,6 +274,34 @@ def save_config_draft(
         draft.updated_at = changed_at
         draft.updated_by = command.actor_user_id
     db.flush()
+    if network_policy is not None:
+        from app.services.family_model_settings.publishing import (
+            apply_validated_family_model_configuration,
+        )
+        from app.services.family_model_settings.validation import (
+            ValidateDraftCommand,
+            validate_family_model_draft,
+        )
+
+        validation = validate_family_model_draft(
+            db,
+            ValidateDraftCommand(
+                family_id=command.family_id,
+                actor_user_id=command.actor_user_id,
+                network_policy=network_policy,
+                base_draft_version_number=draft.draft_version_number,
+            ),
+        )
+        if validation.valid:
+            apply_validated_family_model_configuration(
+                db,
+                family_id=command.family_id,
+                actor_user_id=command.actor_user_id,
+                settings=settings,
+                draft=draft,
+                validation=validation,
+                network_policy=network_policy,
+            )
     snapshot = _snapshot(draft)
     complete_operation(
         claim,

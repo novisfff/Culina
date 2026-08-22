@@ -26,6 +26,10 @@ from app.services.family_model_settings.errors import (
     FamilyModelOperationIdempotencyConflict,
     FamilyModelSettingsVersionConflict,
 )
+from app.services.family_model_settings.drafts import (
+    SaveConfigDraftCommand,
+    save_config_draft,
+)
 from app.services.family_model_settings.publishing import (
     PublishConfigurationCommand,
     publish_family_model_configuration,
@@ -104,16 +108,24 @@ def _save_draft(
     base_draft_version_number: int = 0,
     idempotency_key: str,
 ) -> dict[str, object]:
-    response = context.client.put(
-        "/api/family/model-settings/draft",
-        json=payload
-        | {
-            "base_draft_version_number": base_draft_version_number,
-            "idempotency_key": idempotency_key,
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+    # These tests exercise the retained low-level publication primitive in
+    # isolation. The public save endpoint now validates and applies complete
+    # configurations automatically, so the service fixture deliberately omits
+    # a network policy to leave a validated draft for this legacy boundary.
+    with context.session_factory() as db:
+        snapshot = save_config_draft(
+            db,
+            SaveConfigDraftCommand(
+                family_id="family-a",
+                actor_user_id="owner-a",
+                base_draft_version_number=base_draft_version_number,
+                idempotency_key=idempotency_key,
+                payload=payload,
+            ),
+            cipher=context.cipher,
+        )
+        db.commit()
+        return snapshot.response_record()
 
 
 def _validate_and_command(

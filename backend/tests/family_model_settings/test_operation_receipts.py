@@ -56,7 +56,7 @@ def _fingerprint_factory(
             "profile_id": "profile-1",
             "base_settings_version": 1,
         },
-        secret_fields={"current_password": "OwnerPass123", "new_api_key": new_api_key},
+        secret_fields={"new_api_key": new_api_key},
     )
 
 

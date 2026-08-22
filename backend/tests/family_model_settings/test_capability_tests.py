@@ -20,7 +20,7 @@ from app.services.model_usage.subjects import ensure_user_subject
 from tests.family_model_settings._support import FamilyModelApiContext, family_model_api
 
 
-def _publish_llm(context: FamilyModelApiContext) -> None:
+def _save_active_llm(context: FamilyModelApiContext) -> None:
     profile = context.create_profile(idempotency_key="capability-test-profile-1")
     payload = {
         "bindings": [
@@ -55,27 +55,11 @@ def _publish_llm(context: FamilyModelApiContext) -> None:
     }
     draft_response = context.client.put("/api/family/model-settings/draft", json=payload)
     assert draft_response.status_code == 200, draft_response.text
-    draft = draft_response.json()
-    validation_response = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": draft["draft_version_number"]},
-    )
-    assert validation_response.status_code == 200, validation_response.text
-    validation = validation_response.json()
+    assert draft_response.json()["validation_status"] == "valid"
     settings_response = context.client.get("/api/family/model-settings")
     assert settings_response.status_code == 200, settings_response.text
-    publish_response = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings_response.json()["version_number"],
-            "base_draft_version_number": draft["draft_version_number"],
-            "idempotency_key": "capability-test-publish-1",
-            "config_checksum": validation["config_checksum"],
-            "price_checksum": validation["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert publish_response.status_code == 200, publish_response.text
+    assert settings_response.json()["active_config_revision_id"] is not None
+    assert settings_response.json()["active_price_version_id"] is not None
 
     with context.session_factory() as db:
         subject = ensure_user_subject(db, family_id="family-a", user_id="owner-a")
@@ -115,7 +99,7 @@ def _usage_event_count_for_capability(
         )
 
 
-def _publish_all_capabilities(context: FamilyModelApiContext) -> None:
+def _save_all_active_capabilities(context: FamilyModelApiContext) -> None:
     http_profile = context.create_profile(
         display_name="能力测试 HTTP 服务",
         idempotency_key="capability-test-all-http-profile-1",
@@ -227,28 +211,10 @@ def _publish_all_capabilities(context: FamilyModelApiContext) -> None:
         },
     )
     assert saved.status_code == 200, saved.text
-    draft = saved.json()
-    validation_response = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": draft["draft_version_number"]},
-    )
-    assert validation_response.status_code == 200, validation_response.text
-    validation = validation_response.json()
-    assert validation["valid"] is True
     settings_response = context.client.get("/api/family/model-settings")
     assert settings_response.status_code == 200, settings_response.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings_response.json()["version_number"],
-            "base_draft_version_number": draft["draft_version_number"],
-            "idempotency_key": "capability-test-all-publish-1",
-            "config_checksum": validation["config_checksum"],
-            "price_checksum": validation["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert published.status_code == 200, published.text
+    assert settings_response.json()["active_config_revision_id"] is not None
+    assert settings_response.json()["active_price_version_id"] is not None
     with context.session_factory() as db:
         subject = ensure_user_subject(db, family_id="family-a", user_id="owner-a")
         ensure_family_model_usage_defaults(
@@ -274,7 +240,7 @@ def test_capability_test_registry_is_closed_and_covers_all_runtime_capabilities(
 def test_owner_capability_test_requires_billable_confirmation_before_reserve_or_send(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    _publish_llm(family_model_api)
+    _save_active_llm(family_model_api)
 
     response = family_model_api.client.post(
         "/api/family/model-settings/capabilities/llm/test",
@@ -291,10 +257,66 @@ def test_owner_capability_test_requires_billable_confirmation_before_reserve_or_
     assert family_model_api.transport.calls == []
 
 
+def test_owner_can_test_a_complete_saved_configuration_without_a_publish_step(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(
+        idempotency_key="capability-test-draft-profile-1"
+    )
+    saved = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "draft-only-model",
+                    "max_output_tokens": 64,
+                }
+            ],
+            "price_rates": [],
+            "change_note": "保存后能力测试",
+            "base_draft_version_number": 0,
+            "idempotency_key": "capability-test-draft-save-1",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    draft_version = saved.json()["draft_version_number"]
+    with family_model_api.session_factory() as db:
+        subject = ensure_user_subject(db, family_id="family-a", user_id="owner-a")
+        ensure_family_model_usage_defaults(
+            db,
+            family_id="family-a",
+            creator_subject_id=subject.id,
+        )
+        db.commit()
+
+    tested = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "primary",
+            "confirm_billable": True,
+            "base_draft_version_number": draft_version,
+            "idempotency_key": "capability-test-saved-draft-1",
+        },
+    )
+
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["status"] == "succeeded"
+    settings = family_model_api.client.get("/api/family/model-settings").json()
+    assert settings.get("active_config_revision_id") is not None
+    assert settings.get("active_price_version_id") is not None
+    assert _usage_event_count(family_model_api) == 1
+    assert len(family_model_api.transport.calls) == 1
+    assert family_model_api.transport.calls[0][3]["model"] == "draft-only-model"
+
+
 def test_owner_capability_test_uses_one_ledger_event_and_replays_safe_result(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    _publish_llm(family_model_api)
+    _save_active_llm(family_model_api)
     payload = {
         "variant_key": "primary",
         "confirm_billable": True,
@@ -339,7 +361,7 @@ def test_owner_real_capability_test_uses_normal_ledger_for_every_capability(
     variant: str,
     expected_path: str,
 ) -> None:
-    _publish_all_capabilities(family_model_api)
+    _save_all_active_capabilities(family_model_api)
 
     response = family_model_api.client.post(
         f"/api/family/model-settings/capabilities/{capability}/test",

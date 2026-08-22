@@ -74,6 +74,8 @@ export const familyModelSettingsApi = {
     post<RotateFamilyModelProviderProfileKeyResult>(`${profilePath(profileId)}/rotate-key`, payload),
   checkProviderConnection: (profileId: string, payload: FamilyModelProviderConnectionCheckPayload) =>
     post<FamilyModelProviderConnectionCheckResult>(`${profilePath(profileId)}/connection-check`, payload),
+  discoverProviderModels: (profileId: string) =>
+    request<FamilyModelProviderConnectionCheckResult>(`${profilePath(profileId)}/models`),
   testCapability: (capability: FamilyModelCapability, payload: FamilyModelCapabilityTestPayload) =>
     post<FamilyModelCapabilityTestResult>(
       `${FAMILY_MODEL_SETTINGS_PREFIX}/capabilities/${encodeURIComponent(capability)}/test`,

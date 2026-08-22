@@ -156,7 +156,6 @@ class ProviderProfileOut(BaseModel):
 
 
 class RotateProviderProfileSecretRequest(_StrictModel):
-    current_password: SecretStr = Field(min_length=1, max_length=1024)
     new_api_key: SecretStr = Field(min_length=1, max_length=4096)
     base_settings_version_number: int = Field(ge=1)
     idempotency_key: str = Field(min_length=8, max_length=160)
@@ -178,6 +177,7 @@ class ProviderConnectionCheckOut(BaseModel):
     checked_at: datetime
     latency_ms: int | None = Field(default=None, ge=0)
     profile_version_number: int
+    models: list[str] = Field(default_factory=list, max_length=200)
 
 
 class LlmBindingDraft(_StrictModel):
@@ -469,6 +469,7 @@ class SearchReplacementMutationRequest(_StrictModel):
 class CapabilityTestRequest(_StrictModel):
     variant_key: str = Field(min_length=1, max_length=120)
     confirm_billable: bool = False
+    base_draft_version_number: int | None = Field(default=None, ge=0)
     idempotency_key: str = Field(min_length=8, max_length=160)
 
     @field_validator("variant_key", "idempotency_key", mode="before")

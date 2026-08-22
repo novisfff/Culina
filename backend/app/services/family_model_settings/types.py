@@ -115,7 +115,6 @@ class RotateProfileSecretCommand:
     family_id: str
     profile_id: str
     actor_user_id: str
-    current_password: str = field(repr=False)
     base_settings_version: int = 0
     idempotency_key: str = ""
     credential_scope_checksum: str = ""

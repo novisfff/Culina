@@ -49,7 +49,7 @@ def _llm_payload(profile_id: str, *, model: str = "family-primary-model") -> dic
     }
 
 
-def _publish_llm(context: FamilyModelApiContext, *, model: str = "family-primary-model") -> dict[str, Any]:
+def _save_active_llm(context: FamilyModelApiContext, *, model: str = "family-primary-model") -> dict[str, Any]:
     profile = context.create_profile(
         display_name=f"家庭 OpenAI {model}",
         idempotency_key=f"resolver-profile-{model}",
@@ -76,27 +76,18 @@ def _publish_llm(context: FamilyModelApiContext, *, model: str = "family-primary
         },
     )
     assert saved.status_code == 200, saved.text
-    draft = saved.json()
-    validation = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": draft["draft_version_number"]},
-    )
-    assert validation.status_code == 200, validation.text
     settings = context.client.get("/api/family/model-settings")
     assert settings.status_code == 200, settings.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": draft["draft_version_number"],
-            "idempotency_key": f"resolver-publish-{model}",
-            "config_checksum": validation.json()["config_checksum"],
-            "price_checksum": validation.json()["price_checksum"],
-            "current_password": "OwnerPass123",
+    active = settings.json()
+    assert active["active_config_revision_id"] is not None
+    assert active["active_price_version_id"] is not None
+    return {
+        "profile": profile,
+        "active": {
+            "config_revision_id": active["active_config_revision_id"],
+            "price_version_id": active["active_price_version_id"],
         },
-    )
-    assert published.status_code == 200, published.text
-    return {"profile": profile, "published": published.json()}
+    }
 
 
 def _resolver(context: FamilyModelApiContext, db: Any) -> FamilyModelConfigurationResolver:
@@ -110,11 +101,11 @@ def _resolver(context: FamilyModelApiContext, db: Any) -> FamilyModelConfigurati
 def test_resolve_active_returns_immutable_binding_without_secret(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    prepared = _publish_llm(family_model_api)
+    prepared = _save_active_llm(family_model_api)
     with family_model_api.session_factory() as db:
         resolved = _resolver(family_model_api, db).resolve_active("family-a", "llm", "primary")
 
-    assert resolved.config_revision_id == prepared["published"]["config_revision_id"]
+    assert resolved.config_revision_id == prepared["active"]["config_revision_id"]
     assert resolved.requested_model == "family-primary-model"
     assert not hasattr(resolved, "api_key")
     assert resolved.provider_profile_id == prepared["profile"]["id"]
@@ -123,22 +114,22 @@ def test_resolve_active_returns_immutable_binding_without_secret(
 def test_resolve_historical_revision_keeps_its_model_binding(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    first = _publish_llm(family_model_api, model="family-old-model")
-    second = _publish_llm(family_model_api, model="family-new-model")
+    first = _save_active_llm(family_model_api, model="family-old-model")
+    second = _save_active_llm(family_model_api, model="family-new-model")
 
     with family_model_api.session_factory() as db:
         resolver = _resolver(family_model_api, db)
         active = resolver.resolve_active("family-a", "llm", "primary")
         historical = resolver.resolve_revision(
             "family-a",
-            str(first["published"]["config_revision_id"]),
+            str(first["active"]["config_revision_id"]),
             "llm",
             "primary",
         )
 
-    assert active.config_revision_id == second["published"]["config_revision_id"]
+    assert active.config_revision_id == second["active"]["config_revision_id"]
     assert active.requested_model == "family-new-model"
-    assert historical.config_revision_id == first["published"]["config_revision_id"]
+    assert historical.config_revision_id == first["active"]["config_revision_id"]
     assert historical.requested_model == "family-old-model"
 
 
@@ -155,7 +146,7 @@ def test_resolver_fails_closed_for_unavailable_bindings(
     state: str,
     code: str,
 ) -> None:
-    prepared = _publish_llm(family_model_api) if state != "unconfigured" else None
+    prepared = _save_active_llm(family_model_api) if state != "unconfigured" else None
     with family_model_api.session_factory() as db:
         resolver = _resolver(family_model_api, db)
         if state == "unconfigured":
@@ -166,7 +157,7 @@ def test_resolver_fails_closed_for_unavailable_bindings(
             with pytest.raises(FamilyModelSettingsError) as raised:
                 resolver.resolve_revision(
                     "family-a",
-                    str(prepared["published"]["config_revision_id"]),
+                    str(prepared["active"]["config_revision_id"]),
                     "llm",
                     "fallback",
                 )
@@ -175,7 +166,7 @@ def test_resolver_fails_closed_for_unavailable_bindings(
             with pytest.raises(FamilyModelSettingsError) as raised:
                 resolver.resolve_revision(
                     "family-b",
-                    str(prepared["published"]["config_revision_id"]),
+                    str(prepared["active"]["config_revision_id"]),
                     "llm",
                     "primary",
                 )
@@ -185,7 +176,7 @@ def test_resolver_fails_closed_for_unavailable_bindings(
 def test_resolve_dispatch_credential_uses_secret_fixed_by_dispatch_permit(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    prepared = _publish_llm(family_model_api)
+    prepared = _save_active_llm(family_model_api)
     profile_id = str(prepared["profile"]["id"])
     with family_model_api.session_factory() as db:
         settings = db.get(FamilyModelSettings, "family-a")
@@ -208,7 +199,6 @@ def test_resolve_dispatch_credential_uses_secret_fixed_by_dispatch_permit(
     rotated = family_model_api.client.post(
         f"/api/family/model-settings/provider-profiles/{profile_id}/rotate-key",
         json={
-            "current_password": "OwnerPass123",
             "new_api_key": "sk-family-model-rotated-marker",
             "base_settings_version_number": settings_version,
             "idempotency_key": "resolver-rotate-secret",
@@ -240,7 +230,7 @@ def test_resolve_dispatch_credential_uses_secret_fixed_by_dispatch_permit(
 def test_resolve_dispatch_credential_rejects_destroyed_secret(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    prepared = _publish_llm(family_model_api)
+    prepared = _save_active_llm(family_model_api)
     profile_id = str(prepared["profile"]["id"])
     with family_model_api.session_factory() as db:
         resolver = _resolver(family_model_api, db)

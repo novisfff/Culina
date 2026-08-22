@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from time import perf_counter
@@ -8,6 +9,10 @@ from urllib.parse import urlsplit, urlunsplit
 from sqlalchemy.orm import Session
 
 from app.core.utils import utcnow
+from app.models.family_model_settings import (
+    FamilyModelProviderProfile,
+    FamilyModelProviderProfileVersion,
+)
 from app.repos.family_model_settings.idempotency import claim_operation, complete_operation
 from app.repos.family_model_settings.profiles import (
     get_current_provider_profile_version,
@@ -26,7 +31,9 @@ from app.services.family_model_settings.errors import (
 from app.services.family_model_settings.transport import ProviderTransport
 
 
-_NOT_SUPPORTED_DETAIL = "此服务没有可确认的免费连接检查；发布后可手动运行真实能力测试。"
+_NOT_SUPPORTED_DETAIL = "此服务没有可确认的免费连接检查；保存完整能力配置后可运行真实能力测试。"
+_MAX_DISCOVERED_MODELS = 200
+_MAX_MODEL_ID_LENGTH = 160
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +51,7 @@ class ConnectionCheckResult:
     checked_at: datetime
     latency_ms: int | None
     profile_version_number: int
+    models: tuple[str, ...] = ()
 
     def response_record(self) -> dict[str, object]:
         return {
@@ -52,6 +60,7 @@ class ConnectionCheckResult:
             "checked_at": self.checked_at.isoformat(),
             "latency_ms": self.latency_ms,
             "profile_version_number": self.profile_version_number,
+            "models": list(self.models),
         }
 
 
@@ -64,6 +73,7 @@ def _result_from_response(response: object) -> ConnectionCheckResult:
         checked_at = response["checked_at"]
         latency_ms = response.get("latency_ms")
         profile_version_number = response["profile_version_number"]
+        models = response.get("models", [])
         if (
             status not in {"reachable", "not_supported"}
             or not isinstance(detail, (str, type(None)))
@@ -71,6 +81,14 @@ def _result_from_response(response: object) -> ConnectionCheckResult:
             or not isinstance(latency_ms, (int, type(None)))
             or isinstance(latency_ms, bool)
             or not isinstance(profile_version_number, int)
+            or not isinstance(models, list)
+            or len(models) > _MAX_DISCOVERED_MODELS
+            or any(
+                not isinstance(model, str)
+                or not model
+                or len(model) > _MAX_MODEL_ID_LENGTH
+                for model in models
+            )
         ):
             raise TypeError
         parsed_at = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
@@ -82,6 +100,7 @@ def _result_from_response(response: object) -> ConnectionCheckResult:
         checked_at=parsed_at,
         latency_ms=latency_ms,
         profile_version_number=profile_version_number,
+        models=tuple(models),
     )
 
 
@@ -92,6 +111,118 @@ def _probe_url(api_base_url: str, path: str) -> str:
     base_path = parsed.path.rstrip("/")
     probe_path = f"{base_path}/{path.lstrip('/')}"
     return urlunsplit((parsed.scheme, parsed.netloc, probe_path, "", ""))
+
+
+def _discovered_model_ids(content: bytes) -> tuple[str, ...]:
+    """Extract only bounded model identifiers from an OpenAI-compatible catalog."""
+
+    try:
+        payload = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return ()
+
+    models: list[str] = []
+    seen: set[str] = set()
+    for item in payload["data"]:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        model_id = item["id"].strip()
+        if (
+            not model_id
+            or len(model_id) > _MAX_MODEL_ID_LENGTH
+            or any(ord(character) < 32 or ord(character) == 127 for character in model_id)
+            or model_id in seen
+        ):
+            continue
+        seen.add(model_id)
+        models.append(model_id)
+        if len(models) >= _MAX_DISCOVERED_MODELS:
+            break
+    return tuple(models)
+
+
+def _probe_provider_catalog(
+    db: Session,
+    *,
+    family_id: str,
+    profile: FamilyModelProviderProfile,
+    version: FamilyModelProviderProfileVersion,
+    cipher: FamilyModelCredentialCipher,
+    transport: ProviderTransport,
+) -> ConnectionCheckResult:
+    definition = adapter_definition(version.adapter_kind)
+    checked_at = utcnow()
+    if definition.free_probe_path is None:
+        return ConnectionCheckResult(
+            status="not_supported",
+            detail=_NOT_SUPPORTED_DETAIL,
+            checked_at=checked_at,
+            latency_ms=None,
+            profile_version_number=version.version_number,
+            models=(),
+        )
+
+    credential = resolve_dispatch_credential(
+        db,
+        cipher=cipher,
+        family_id=family_id,
+        provider_profile_id=profile.id,
+        credential_secret_version_id=None,
+    )
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if credential.api_key is not None:
+        headers["Authorization"] = f"Bearer {credential.api_key}"
+    started_at = perf_counter()
+    try:
+        response = transport.request(
+            "GET",
+            _probe_url(version.api_base_url, definition.free_probe_path),
+            headers=headers,
+        )
+    finally:
+        # Keep the decrypted string's lifetime bounded to this request path.
+        credential = None  # type: ignore[assignment]
+    latency_ms = max(0, round((perf_counter() - started_at) * 1000))
+    if not 200 <= response.status_code < 300:
+        raise FamilyModelProviderTransportError("family_model_provider_connection_rejected")
+    return ConnectionCheckResult(
+        status="reachable",
+        detail=None,
+        checked_at=utcnow(),
+        latency_ms=latency_ms,
+        profile_version_number=version.version_number,
+        models=_discovered_model_ids(response.content),
+    )
+
+
+def discover_provider_models(
+    db: Session,
+    *,
+    family_id: str,
+    profile_id: str,
+    cipher: FamilyModelCredentialCipher,
+    transport: ProviderTransport,
+) -> ConnectionCheckResult:
+    """Read a safe model catalog without creating an idempotency receipt."""
+
+    profile = require_provider_profile(db, family_id=family_id, profile_id=profile_id)
+    version = get_current_provider_profile_version(
+        db,
+        family_id=family_id,
+        profile=profile,
+    )
+    if version is None:
+        raise FamilyModelProviderTransportError("family_model_provider_profile_incomplete")
+    return _probe_provider_catalog(
+        db,
+        family_id=family_id,
+        profile=profile,
+        version=version,
+        cipher=cipher,
+        transport=transport,
+    )
 
 
 def run_connection_check(
@@ -120,7 +251,6 @@ def run_connection_check(
     )
     if version is None:
         raise FamilyModelProviderTransportError("family_model_provider_profile_incomplete")
-    definition = adapter_definition(version.adapter_kind)
     fingerprint_for_key_id = lambda key_id: operation_request_fingerprint(
         cipher.keyring,
         key_id=key_id,
@@ -146,53 +276,13 @@ def run_connection_check(
     if not claim.created_by_request:
         raise FamilyModelOperationInProgress()
 
-    checked_at = utcnow()
-    if definition.free_probe_path is None:
-        result = ConnectionCheckResult(
-            status="not_supported",
-            detail=_NOT_SUPPORTED_DETAIL,
-            checked_at=checked_at,
-            latency_ms=None,
-            profile_version_number=version.version_number,
-        )
-        complete_operation(
-            claim,
-            result_id=version.id,
-            response_json=result.response_record(),
-            completed_at=checked_at,
-        )
-        db.flush()
-        return result
-
-    credential = resolve_dispatch_credential(
+    result = _probe_provider_catalog(
         db,
-        cipher=cipher,
         family_id=command.family_id,
-        provider_profile_id=profile.id,
-        credential_secret_version_id=None,
-    )
-    headers: dict[str, str] = {"Accept": "application/json"}
-    if credential.api_key is not None:
-        headers["Authorization"] = f"Bearer {credential.api_key}"
-    started_at = perf_counter()
-    try:
-        response = transport.request(
-            "GET",
-            _probe_url(version.api_base_url, definition.free_probe_path),
-            headers=headers,
-        )
-    finally:
-        # Keep the decrypted string's lifetime bounded to this request path.
-        credential = None  # type: ignore[assignment]
-    latency_ms = max(0, round((perf_counter() - started_at) * 1000))
-    if not 200 <= response.status_code < 300:
-        raise FamilyModelProviderTransportError("family_model_provider_connection_rejected")
-    result = ConnectionCheckResult(
-        status="reachable",
-        detail=None,
-        checked_at=utcnow(),
-        latency_ms=latency_ms,
-        profile_version_number=version.version_number,
+        profile=profile,
+        version=version,
+        cipher=cipher,
+        transport=transport,
     )
     complete_operation(
         claim,

@@ -1330,14 +1330,21 @@ async function fulfillFamilyModelSettingsMock({
       return true;
     }
     const { base_draft_version_number: _baseDraftVersion, idempotency_key: _idempotencyKey, ...payload } = body;
+    const nextDraftVersion = state.draft.draft_version_number + 1;
+    const nextConfigRevisionId = `family-model-config-v${nextDraftVersion}`;
+    const nextPriceVersionId = `family-model-price-v${nextDraftVersion}`;
     state.draft = {
       ...state.draft,
-      draft_version_number: state.draft.draft_version_number + 1,
-      payload: copyFixture(payload),
-      validation_status: 'not_validated',
+      base_config_revision_id: nextConfigRevisionId,
+      draft_version_number: nextDraftVersion,
+      payload: copyFixture({ ...payload, base_config_revision_id: nextConfigRevisionId }),
+      validation_status: 'valid',
       validation_errors: [],
       updated_at: now,
     };
+    state.settings.active_config_revision_id = nextConfigRevisionId;
+    state.settings.active_price_version_id = nextPriceVersionId;
+    bumpFamilyModelSettingsVersion(state);
     await fulfillJson(route, copyFixture(state.draft));
     return true;
   }
@@ -1371,8 +1378,8 @@ async function fulfillFamilyModelSettingsMock({
     return true;
   }
 
-  const profileAction = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles/([^/]+)/(rotate-key|connection-check)$`).exec(url.pathname);
-  if (request.method() === 'POST' && profileAction) {
+  const profileAction = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles/([^/]+)/(rotate-key|connection-check|models)$`).exec(url.pathname);
+  if (profileAction && (request.method() === 'POST' || (request.method() === 'GET' && profileAction[2] === 'models'))) {
     const [, profileId, action] = profileAction;
     const profile = state.settings.provider_profiles.find((item) => item.id === profileId);
     if (!profile) {
@@ -1396,6 +1403,17 @@ async function fulfillFamilyModelSettingsMock({
       checked_at: now,
       latency_ms: 18,
       profile_version_number: profile.profile_version_number,
+      models: profile.adapter_kind === 'openai_compatible_http'
+        ? [
+          'culina-chat-v1',
+          'culina-chat-v2',
+          'culina-image-v1',
+          'culina-stt-v1',
+          'culina-tts-v1',
+          'culina-embedding-v1',
+          'culina-rerank-v1',
+        ]
+        : [],
     });
     return true;
   }

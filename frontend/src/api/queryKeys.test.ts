@@ -116,6 +116,13 @@ describe('queryKeys', () => {
       'family-a',
       'prices',
     ]);
+    expect(queryKeys.familyProviderModels('family-a', 'profile-a')).toEqual([
+      'family-model-settings',
+      'family-a',
+      'providers',
+      'profile-a',
+      'models',
+    ]);
     expect(queryKeys.familySearchProfile('family-a')).toEqual([
       'family-model-settings',
       'family-a',
@@ -124,5 +131,10 @@ describe('queryKeys', () => {
     expect(queryKeys.familyModelSettingsRoot('family-a')).not.toEqual(
       queryKeys.familyModelSettingsRoot('family-b'),
     );
+    expect(queryKeys.familyProviderModels('family-a', 'profile-a')).not.toEqual(
+      queryKeys.familyProviderModels('family-b', 'profile-a'),
+    );
+    expect(queryKeys.aiStatus('family-a')).toEqual(['ai-status', 'family-a']);
+    expect(queryKeys.aiStatus('family-a')).not.toEqual(queryKeys.aiStatus('family-b'));
   });
 });

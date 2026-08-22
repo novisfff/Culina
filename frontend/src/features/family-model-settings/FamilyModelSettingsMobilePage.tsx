@@ -14,9 +14,9 @@ const MOBILE_TASKS: ReadonlyArray<{
 }> = [
   { id: 'providers', label: 'Provider 服务', description: '管理连接方式、服务范围与凭据。' },
   { id: 'capabilities', label: '能力配置', description: '选择需要启用的七类模型能力。' },
-  { id: 'prices', label: '模型价格', description: '补齐启用能力的全部计价规则。' },
+  { id: 'prices', label: '模型价格', description: '可选设置，未填写的项目按 0 计算。' },
   { id: 'search', label: '搜索索引', description: '查看或安全地替换家庭搜索索引。' },
-  { id: 'review', label: '发布复核', description: '检查能力、价格和搜索影响后发布。' },
+  { id: 'review', label: '配置检查', description: '查看服务、能力和价格的完善度。' },
 ];
 
 function getMobileTaskIcon(id: string): ReactNode {
@@ -79,9 +79,9 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
             {props.overview.publication.label}
           </span>
         </div>
-        <h1 id="family-model-settings-mobile-summary-title">家庭 AI 服务</h1>
+        <h1 id="family-model-settings-mobile-summary-title">{props.overview.title}</h1>
         <p className="family-model-settings-mobile-summary-desc">{props.overview.publication.description}</p>
-        <div className="family-model-settings-mobile-stats-row">
+        <div className="family-model-settings-mobile-metrics">
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.providerCount}</strong>
             <span>服务档案</span>
@@ -92,25 +92,26 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
           </div>
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount}</strong>
-            <span>价格就绪</span>
+            <span>已填价格</span>
           </div>
         </div>
         <p className="family-model-settings-overview-summary visually-hidden">
-          {props.overview.providerCount} 个服务 · {props.overview.enabledCapabilityCount} 类能力 · {props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount} 类价格就绪
+          {props.overview.providerCount} 个服务 · {props.overview.enabledCapabilityCount} 类能力 · {props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount} 类已填写价格
         </p>
       </section>
       <nav className="family-model-settings-mobile-task-list" aria-label="家庭 AI 服务任务">
         {MOBILE_TASKS.map((task) => {
           const isComplete = props.overview.steps.find((step) => step.id === task.id)?.status === 'complete';
           const isNext = props.overview.primarySection === task.id;
-          const statusKind = task.id === 'search'
+          const optional = task.id === 'prices' || task.id === 'search' || task.id === 'review';
+          const statusKind = optional
             ? 'optional'
             : isComplete
               ? 'complete'
               : isNext
                 ? 'next'
                 : 'pending';
-          const statusLabel = task.id === 'search'
+          const statusLabel = optional
             ? '按需'
             : isComplete
               ? '已完成'
@@ -174,7 +175,8 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
           profiles={props.settings.provider_profiles}
           busy={props.busyAction !== null}
           onDraftChange={props.onDraftChange}
-          onTestCapability={props.actions.testCapability}
+          onDiscoverModels={props.onDiscoverModels}
+          onTestCapability={props.onTestCapability}
         />
       );
     case 'prices':
@@ -194,29 +196,18 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
 
 function MobileFooter(props: FamilyModelSettingsSurfaceProps) {
   const busy = props.busyAction !== null;
-  if (props.state.section === 'review' || props.state.section === 'search') return null;
+  if (props.state.section !== 'overview') return null;
 
   return (
     <footer className="family-model-settings-mobile-footer">
       {props.errorMessage ? <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p> : null}
       <div>
-        {props.state.section === 'overview' ? (
-          <button className="solid-button family-model-settings-mobile-primary-cta" type="button" disabled={busy} onClick={() => props.onPushMobileTask(props.overview.primarySection)}>
-            <span>{props.overview.primaryLabel}</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m9 6 6 6-6 6" />
-            </svg>
-          </button>
-        ) : (
-          <>
-            <button className="ghost-button" type="button" disabled={busy} onClick={() => props.onPushMobileTask('review')}>
-              前往复核
-            </button>
-            <button className="solid-button" type="button" disabled={busy || !props.state.dirty} onClick={() => { void props.onSaveDraft(); }}>
-              {busy ? '正在保存' : '保存草稿'}
-            </button>
-          </>
-        )}
+        <button className="solid-button family-model-settings-mobile-primary-cta" type="button" disabled={busy} onClick={() => props.onPushMobileTask(props.overview.primarySection)}>
+          <span>{props.overview.primaryLabel}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
       </div>
     </footer>
   );
@@ -246,6 +237,20 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
       </header>
       <div className="family-model-settings-mobile-scroll">
         {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
+        {props.errorMessage ? (
+          <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
+        ) : props.state.section !== 'overview' ? (
+          <p className={`family-model-settings-auto-save-status ${props.serverDraft.validation_status === 'invalid' ? 'is-warning' : 'is-ready'}`} role="status">
+            <span className="family-model-settings-status-dot" aria-hidden="true" />
+            {props.busyAction === 'save'
+              ? '正在自动保存…'
+              : props.state.dirty
+                ? '修改将在稍后自动保存'
+                : props.serverDraft.validation_status === 'invalid'
+                  ? '已保存，配置仍可继续完善'
+                  : '修改会自动保存并生效'}
+          </p>
+        ) : null}
         <MobileTaskBody {...props} />
       </div>
       <MobileFooter {...props} />

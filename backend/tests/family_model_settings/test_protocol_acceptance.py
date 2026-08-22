@@ -56,8 +56,8 @@ from tests.family_model_settings._support import (
     family_model_api,
 )
 from tests.family_model_settings.test_capability_tests import (
-    _publish_all_capabilities,
-    _publish_llm,
+    _save_all_active_capabilities,
+    _save_active_llm,
 )
 
 
@@ -457,7 +457,7 @@ def test_published_family_dispatches_each_capability_through_its_snapshot(
     model: str,
     path: str,
 ) -> None:
-    _publish_all_capabilities(family_model_api)
+    _save_all_active_capabilities(family_model_api)
 
     result = dispatch_real_family_operation(
         family_model_api,
@@ -509,7 +509,7 @@ def test_capability_test_replay_never_sends_twice_and_rejects_key_reuse(
     family_model_api: FamilyModelApiContext,
     fake_provider: FakeFamilyModelProvider,
 ) -> None:
-    _publish_all_capabilities(family_model_api)
+    _save_all_active_capabilities(family_model_api)
     payload = {
         "variant_key": "primary",
         "confirm_billable": True,
@@ -540,7 +540,7 @@ def test_rotation_uses_new_secret_only_for_new_dispatch_and_preserves_old_snapsh
     family_model_api: FamilyModelApiContext,
     fake_provider: FakeFamilyModelProvider,
 ) -> None:
-    _publish_llm(family_model_api)
+    _save_active_llm(family_model_api)
     profile = family_model_api.client.get("/api/family/model-settings").json()["provider_profiles"][0]
     first = family_model_api.client.post(
         "/api/family/model-settings/capabilities/llm/test",
@@ -557,7 +557,6 @@ def test_rotation_uses_new_secret_only_for_new_dispatch_and_preserves_old_snapsh
     rotate = family_model_api.client.post(
         f"/api/family/model-settings/provider-profiles/{profile['id']}/rotate-key",
         json={
-            "current_password": "OwnerPass123",
             "new_api_key": rotated_marker,
             "base_settings_version_number": settings_before_rotation["version_number"],
             "idempotency_key": "protocol-rotate-key",

@@ -104,30 +104,21 @@ def _publish_receipt_count(context: FamilyModelApiContext) -> int:
         )
 
 
-def test_owner_can_validate_and_publish_with_a_redacted_response(
+def test_owner_save_automatically_applies_a_redacted_configuration(
     family_model_api: FamilyModelApiContext,
 ) -> None:
-    request, validation = _prepare_publish(family_model_api)
+    _, validation = _prepare_publish(family_model_api)
 
     assert SECRET_MARKER not in json.dumps(validation)
-    published = _publish(
-        family_model_api,
-        request | {"current_password": "OwnerPass123"},
-    )
-
-    assert published.status_code == 200, published.text
-    body = published.json()
-    assert {
-        "config_revision_id",
-        "price_version_id",
-        "settings_version_number",
-        "config_checksum",
-        "price_checksum",
-    } <= set(body)
+    settings = family_model_api.client.get("/api/family/model-settings")
+    assert settings.status_code == 200, settings.text
+    body = settings.json()
+    assert body["active_config_revision_id"] is not None
+    assert body["active_price_version_id"] is not None
     serialized = json.dumps(body)
     assert SECRET_MARKER not in serialized
-    assert "OwnerPass123" not in serialized
     assert "current_password" not in serialized
+    assert _publish_receipt_count(family_model_api) == 0
 
 
 def test_member_cannot_validate_or_publish_family_model_settings(
@@ -146,78 +137,23 @@ def test_member_cannot_validate_or_publish_family_model_settings(
     assert publish.status_code == 403
 
 
-def test_initial_publish_requires_the_current_owner_password_before_claiming(
+def test_complete_save_does_not_require_an_owner_password_or_publish_receipt(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    request, validation = _prepare_publish(family_model_api)
+
+    assert validation["valid"] is True
+    assert request["base_settings_version_number"] > 1
+    assert _publish_receipt_count(family_model_api) == 0
+
+
+def test_legacy_publish_route_reports_that_the_saved_configuration_is_already_active(
     family_model_api: FamilyModelApiContext,
 ) -> None:
     request, _ = _prepare_publish(family_model_api)
 
-    missing = _publish(family_model_api, request)
-    wrong = _publish(
-        family_model_api,
-        request | {"current_password": "definitely-not-the-owner-password"},
-    )
+    response = _publish(family_model_api, request)
 
-    assert missing.status_code == 422
-    assert missing.json()["detail"]["code"] == "family_model_owner_reauthentication_failed"
-    assert wrong.status_code == 422
-    assert wrong.json()["detail"]["code"] == "family_model_owner_reauthentication_failed"
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "family_model_configuration_already_published"
     assert _publish_receipt_count(family_model_api) == 0
-
-    succeeded = _publish(
-        family_model_api,
-        request | {"current_password": "OwnerPass123"},
-    )
-    assert succeeded.status_code == 200, succeeded.text
-
-
-def test_publish_checksum_conflicts_replay_and_stale_responses_are_structured(
-    family_model_api: FamilyModelApiContext,
-) -> None:
-    request, _ = _prepare_publish(family_model_api)
-
-    checksum_mismatch = _publish(
-        family_model_api,
-        request
-        | {
-            "idempotency_key": "publish-api-checksum-mismatch-1",
-            "config_checksum": "0" * 64,
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert checksum_mismatch.status_code == 422
-    assert checksum_mismatch.json()["detail"]["code"] == "family_model_publish_checksum_mismatch"
-    assert _publish_receipt_count(family_model_api) == 0
-
-    first = _publish(
-        family_model_api,
-        request | {"current_password": "OwnerPass123"},
-    )
-    assert first.status_code == 200, first.text
-    first_body = first.json()
-
-    # This is the request a client sends after a successful commit whose HTTP
-    # response was lost.  The active pointer has advanced, so it deliberately
-    # omits the one-time first-publication password.
-    replay = _publish(family_model_api, request)
-    assert replay.status_code == 200, replay.text
-    assert replay.json() == first_body
-
-    same_key_different_confirmation = _publish(
-        family_model_api,
-        request | {"config_checksum": "f" * 64},
-    )
-    assert same_key_different_confirmation.status_code == 409
-    assert (
-        same_key_different_confirmation.json()["detail"]["code"]
-        == "family_model_operation_idempotency_conflict"
-    )
-
-    stale = _publish(
-        family_model_api,
-        request | {"idempotency_key": "publish-api-stale-1"},
-    )
-    assert stale.status_code == 409
-    detail = stale.json()["detail"]
-    assert detail["code"] == "family_model_settings_version_conflict"
-    assert detail["current_settings_version_number"] == first_body["settings_version_number"]
-    assert detail["current_config_revision_id"] == first_body["config_revision_id"]

@@ -12,6 +12,7 @@ vi.mock('../../api/familyModelSettingsApi', () => ({
     getDraft: vi.fn(),
     getPrices: vi.fn(),
     getSearchReplacement: vi.fn(),
+    discoverProviderModels: vi.fn(),
   },
 }));
 
@@ -61,6 +62,7 @@ describe('useFamilyModelSettingsQueries', () => {
     vi.mocked(familyModelSettingsApi.getDraft).mockReset();
     vi.mocked(familyModelSettingsApi.getPrices).mockReset();
     vi.mocked(familyModelSettingsApi.getSearchReplacement).mockReset();
+    vi.mocked(familyModelSettingsApi.discoverProviderModels).mockReset();
   });
 
   it('does not issue owner-only requests for a Member', async () => {
@@ -124,5 +126,77 @@ describe('useFamilyModelSettingsQueries', () => {
       resolvePricesB?.(prices());
     });
     await waitFor(() => expect(result.current.draft?.payload.change_note).toBe('family-b'));
+  });
+
+  it('reuses a fresh Provider model catalog within the same family', async () => {
+    vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings('family-a'));
+    vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft('family-a'));
+    vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.discoverProviderModels).mockResolvedValue({
+      status: 'reachable',
+      detail: null,
+      checked_at: '2026-08-19T10:00:00Z',
+      latency_ms: 12,
+      profile_version_number: 1,
+      models: ['gpt-4.1-mini'],
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useFamilyModelSettingsQueries({ familyId: 'family-a', role: 'Owner' }),
+      {
+        wrapper: ({ children }: PropsWithChildren) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+
+    await act(async () => {
+      await result.current.discoverProviderModels('profile-a');
+      await result.current.discoverProviderModels('profile-a');
+    });
+
+    expect(familyModelSettingsApi.discoverProviderModels).toHaveBeenCalledTimes(1);
+    expect(familyModelSettingsApi.discoverProviderModels).toHaveBeenCalledWith('profile-a');
+  });
+
+  it('does not reuse a Provider model catalog across families', async () => {
+    vi.mocked(familyModelSettingsApi.getSettings).mockImplementation(async () => settings('family-a'));
+    vi.mocked(familyModelSettingsApi.getDraft).mockImplementation(async () => draft('family-a'));
+    vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.discoverProviderModels)
+      .mockResolvedValueOnce({
+        status: 'reachable',
+        detail: null,
+        checked_at: '2026-08-19T10:00:00Z',
+        latency_ms: 12,
+        profile_version_number: 1,
+        models: ['family-a-model'],
+      })
+      .mockResolvedValueOnce({
+        status: 'reachable',
+        detail: null,
+        checked_at: '2026-08-19T10:01:00Z',
+        latency_ms: 14,
+        profile_version_number: 1,
+        models: ['family-b-model'],
+      });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result, rerender } = renderHook(
+      ({ familyId }) => useFamilyModelSettingsQueries({ familyId, role: 'Owner' }),
+      {
+        initialProps: { familyId: 'family-a' },
+        wrapper: ({ children }: PropsWithChildren) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+
+    await expect(result.current.discoverProviderModels('profile-a'))
+      .resolves.toEqual(expect.objectContaining({ models: ['family-a-model'] }));
+    rerender({ familyId: 'family-b' });
+    await expect(result.current.discoverProviderModels('profile-a'))
+      .resolves.toEqual(expect.objectContaining({ models: ['family-b-model'] }));
+
+    expect(familyModelSettingsApi.discoverProviderModels).toHaveBeenCalledTimes(2);
   });
 });

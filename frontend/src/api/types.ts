@@ -168,7 +168,6 @@ export interface FamilyModelProviderProfilePatch {
 }
 
 export interface RotateFamilyModelProviderProfileKeyPayload {
-  current_password: string;
   new_api_key: string;
   base_settings_version_number: number;
   idempotency_key: string;
@@ -190,6 +189,7 @@ export interface FamilyModelProviderConnectionCheckResult {
   checked_at: string;
   latency_ms: number | null;
   profile_version_number: number;
+  models: string[];
 }
 
 interface FamilyModelBindingDraftBase<C extends FamilyModelCapability, V extends string> {
@@ -396,6 +396,7 @@ export interface FamilyModelSettings {
 export interface FamilyModelCapabilityTestPayload {
   variant_key: string;
   confirm_billable: boolean;
+  base_draft_version_number: number;
   idempotency_key: string;
 }
 

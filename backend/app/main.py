@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +35,9 @@ from app.services.family_model_settings.credentials import (
     FamilyModelCredentialCipher,
     validate_credential_keyring_references,
 )
+from app.services.family_model_settings.errors import (
+    FamilyModelCredentialConfigurationError,
+)
 from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
@@ -63,10 +66,10 @@ def validate_family_model_credential_keyring_references(
 ) -> None:
     """Fail startup before workers/API traffic can use an incomplete keyring.
 
-    Local development intentionally permits an empty keyring until a family
-    Provider profile is configured. Once a deployment keyring is configured,
-    or for every non-local environment, retained encrypted secrets and
-    idempotency receipts must be decryptable before the process starts.
+    Local development bootstraps a persistent keyring only when the database
+    has no retained references. Existing references always require their
+    original key material. Non-local environments require deployment-managed
+    keyring configuration.
     """
 
     environment = str(getattr(current_settings, "environment", "local")).strip().lower()
@@ -74,7 +77,17 @@ def validate_family_model_credential_keyring_references(
     keys_json = getattr(current_settings, "family_model_credential_keys_json", None)
     raw_keys_json = keys_json.get_secret_value() if hasattr(keys_json, "get_secret_value") else str(keys_json or "")
     if environment in LOCAL_ENVIRONMENTS and not active_key_id and not raw_keys_json.strip():
-        validate_credential_keyring_references(db, keyring=None)
+        try:
+            cipher = FamilyModelCredentialCipher.from_settings(current_settings)
+        except FamilyModelCredentialConfigurationError as exc:
+            if exc.code != "family_model_credential_keyring_file_missing":
+                raise
+            validate_credential_keyring_references(db, keyring=None)
+            cipher = FamilyModelCredentialCipher.from_settings(
+                current_settings,
+                allow_local_keyring_creation=True,
+            )
+        validate_credential_keyring_references(db, keyring=cipher.keyring)
         return
     cipher = FamilyModelCredentialCipher.from_settings(current_settings)
     validate_credential_keyring_references(db, keyring=cipher.keyring)
@@ -155,6 +168,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(FamilyModelCredentialConfigurationError)
+async def handle_family_model_credential_configuration_error(
+    request: Request,
+    exc: FamilyModelCredentialConfigurationError,
+):
+    logger.error(
+        "Family model credential configuration unavailable path=%s code=%s",
+        request.url.path,
+        exc.code,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": {"code": "family_model_credential_configuration_invalid"}
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)

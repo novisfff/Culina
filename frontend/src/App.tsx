@@ -1546,6 +1546,7 @@ function App() {
         {navigation.state.primaryTab === 'ai' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <AiWorkspace
+              familyId={family?.id ?? ''}
               conversations={aiConversations}
               isLoading={aiConversationsQuery.isLoading}
               currentUser={user}

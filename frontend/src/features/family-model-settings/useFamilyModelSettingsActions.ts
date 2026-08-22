@@ -270,15 +270,17 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     capability: FamilyModelCapability,
     variantKey: string,
     confirmBillable: boolean,
+    baseDraftVersionNumber: number,
   ) => {
     requireContext();
     if (!confirmBillable) throw new Error('请先确认这会产生真实模型费用。');
-    const input = { capability, variantKey, confirmBillable };
+    const input = { capability, variantKey, confirmBillable, baseDraftVersionNumber };
     return run('test', async () => {
       const operation = `test-capability:${capability}:${variantKey}`;
       const result = await idempotentRequest(operation, input, (key) => familyModelSettingsApi.testCapability(capability, {
         variant_key: variantKey,
         confirm_billable: true,
+        base_draft_version_number: baseDraftVersionNumber,
         idempotency_key: key,
       }));
       refreshSettingsInBackground();

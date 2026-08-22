@@ -3,8 +3,9 @@ import type {
   FamilyModelPriceRate,
   FamilyModelSearchReplacementPreviewResult,
 } from '../../api/types';
+import { DropdownSelect } from '../../components/ui-kit';
 import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewTypes';
-import { profileSupportsCapability } from './familyModelSettingsOptions';
+import { FAMILY_MODEL_ADAPTER_OPTIONS, profileSupportsCapability } from './familyModelSettingsOptions';
 
 type SearchProfilePanelProps = Pick<FamilyModelSettingsSurfaceProps,
   | 'settings'
@@ -103,7 +104,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
       </div>
       <div className="family-model-settings-search-summary">
         <strong>{activeSearchProfileId ? '当前搜索索引已启用' : '尚未建立搜索索引'}</strong>
-        <span>{activeSearchProfileId ? '如需更换向量模型、地址或维度，请创建替换索引。' : '首次启用 Embedding 并发布配置后，系统会准备搜索索引。'}</span>
+        <span>{activeSearchProfileId ? '如需更换向量模型、地址或维度，请创建替换索引。' : '首次启用并补全 Embedding 配置后，系统会自动准备搜索索引。'}</span>
       </div>
 
       {replacement ? (
@@ -125,13 +126,29 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
         <div className="family-model-settings-search-replacement">
           <h3>创建替换索引</h3>
           <div className="family-model-settings-form-grid">
-            <label className="family-model-settings-field">
+            <div className="family-model-settings-field">
               <span>新的 Provider 服务</span>
-              <select value={providerProfileId} disabled={busy} onChange={(event) => { setProviderProfileId(event.target.value); setPreview(null); }}>
-                <option value="">选择兼容服务</option>
-                {embeddingProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
-              </select>
-            </label>
+              <DropdownSelect
+                ariaLabel="新的 Provider 服务选项"
+                triggerAriaLabel="新的 Provider 服务"
+                placeholder="选择兼容服务"
+                value={providerProfileId}
+                options={embeddingProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: profile.display_name,
+                  description: FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label
+                    ?? profile.adapter_kind,
+                }))}
+                clearOption={{
+                  value: '',
+                  label: '选择兼容服务',
+                  description: '选择用于新搜索索引的 Embedding 服务。',
+                }}
+                disabled={busy}
+                className="family-model-settings-dropdown"
+                onChange={(value) => { setProviderProfileId(value); setPreview(null); }}
+              />
+            </div>
             <label className="family-model-settings-field">
               <span>新的向量模型</span>
               <input value={requestedModel} disabled={busy} onChange={(event) => { setRequestedModel(event.target.value); setPreview(null); }} placeholder="输入向量模型标识" />

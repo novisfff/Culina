@@ -231,7 +231,10 @@ def _require_reservation_binding_identity(
         or binding.provider_profile_id != reservation.provider_profile_id
         or binding.provider_profile_version_id != reservation.provider_profile_version_id
         or binding.requested_model != reservation.requested_model
-        or binding.billing_scheme_key != reservation.billing_scheme_key
+        or (
+            reservation.pricing_status is not ModelUsagePricingStatus.UNPRICED
+            and binding.billing_scheme_key != reservation.billing_scheme_key
+        )
         or reservation.provider != reservation.provider_profile_id
     ):
         raise ModelUsageStateError("reservation_binding_identity_mismatch")

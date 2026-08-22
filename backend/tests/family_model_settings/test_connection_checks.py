@@ -10,7 +10,18 @@ def test_connection_check_never_calls_generation_endpoint(
 ) -> None:
     profile = family_model_api.create_profile(idempotency_key="profile-check-1")
     family_model_api.transport.responses.append(
-        ProviderResponse(status_code=200, headers={}, content=b'{"data": []}')
+        ProviderResponse(
+            status_code=200,
+            headers={},
+            content=(
+                b'{"data":['
+                b'{"id":"gpt-4.1","object":"model"},'
+                b'{"id":"text-embedding-3-small","object":"model"},'
+                b'{"id":"gpt-4.1","secret":"do-not-leak"},'
+                b'{"id":42}'
+                b'],"secret":"do-not-leak"}'
+            ),
+        )
     )
 
     result = family_model_api.client.post(
@@ -20,11 +31,55 @@ def test_connection_check_never_calls_generation_endpoint(
 
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "reachable"
+    assert result.json()["models"] == ["gpt-4.1", "text-embedding-3-small"]
+    assert "do-not-leak" not in result.text
     assert [(method, url) for method, url, _, _ in family_model_api.transport.calls] == [
         ("GET", "https://provider.example/v1/models")
     ]
     headers = family_model_api.transport.calls[0][2]
     assert headers["Authorization"].startswith("Bearer ")
+
+
+def test_provider_model_catalog_uses_a_read_only_owner_endpoint(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-model-catalog-1")
+    family_model_api.transport.responses.append(
+        ProviderResponse(
+            status_code=200,
+            headers={},
+            content=b'{"data":[{"id":"gpt-4.1-mini"}]}',
+        )
+    )
+
+    result = family_model_api.client.get(
+        f"/api/family/model-settings/provider-profiles/{profile['id']}/models"
+    )
+
+    assert result.status_code == 200, result.text
+    assert result.json()["models"] == ["gpt-4.1-mini"]
+    assert [(method, url) for method, url, _, _ in family_model_api.transport.calls] == [
+        ("GET", "https://provider.example/v1/models")
+    ]
+
+
+def test_provider_model_catalog_enforces_owner_and_family_boundaries(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-model-catalog-boundary-1")
+
+    family_model_api.use_owner("family-b")
+    cross_family = family_model_api.client.get(
+        f"/api/family/model-settings/provider-profiles/{profile['id']}/models"
+    )
+    family_model_api.use_member()
+    member = family_model_api.client.get(
+        f"/api/family/model-settings/provider-profiles/{profile['id']}/models"
+    )
+
+    assert cross_family.status_code == 404
+    assert member.status_code == 403
+    assert family_model_api.transport.calls == []
 
 
 def test_connection_check_without_declared_free_probe_never_sends_a_request(
@@ -45,9 +100,10 @@ def test_connection_check_without_declared_free_probe_never_sends_a_request(
     assert result.status_code == 200, result.text
     assert result.json() == {
         "status": "not_supported",
-        "detail": "此服务没有可确认的免费连接检查；发布后可手动运行真实能力测试。",
+        "detail": "此服务没有可确认的免费连接检查；保存完整能力配置后可运行真实能力测试。",
         "checked_at": result.json()["checked_at"],
         "profile_version_number": 1,
+        "models": [],
     }
     assert family_model_api.transport.calls == []
 

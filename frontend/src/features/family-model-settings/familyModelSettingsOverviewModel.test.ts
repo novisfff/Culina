@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FamilyModelPriceRate, FamilyModelProviderProfile, FamilyModelSettings } from '../../api/types';
-import { createEmptyFamilyModelDraft } from './familyModelSettingsModel';
+import { createEmptyFamilyModelDraft, normalizeFamilyModelPriceRates } from './familyModelSettingsModel';
 import { deriveFamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
 
 function provider(id = 'provider-1'): FamilyModelProviderProfile {
@@ -99,7 +99,7 @@ describe('deriveFamilyModelSettingsOverview', () => {
     expect(overview.steps[2]?.status).toBe('upcoming');
   });
 
-  it('counts enabled capability types once and guides incomplete pricing', () => {
+  it('counts explicit prices without blocking configuration when prices are omitted', () => {
     const draft = createEmptyFamilyModelDraft();
     draft.bindings = draft.bindings.map((binding) => ({
       ...binding,
@@ -112,11 +112,27 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     expect(overview.enabledCapabilityCount).toBe(2);
     expect(overview.pricedCapabilityCount).toBe(0);
-    expect(overview.primarySection).toBe('prices');
-    expect(overview.primaryLabel).toBe('补齐模型价格');
+    expect(overview.primarySection).toBe('review');
+    expect(overview.primaryLabel).toBe('检查配置完善度');
+    expect(overview.steps[2]?.status).toBe('complete');
   });
 
-  it('guides a fully priced draft to publish review', () => {
+  it('does not count automatically supplied zero prices as manually filled prices', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = {
+      ...draft.bindings[0],
+      enabled: true,
+      provider_profile_id: 'provider-1',
+      requested_model: 'chat-model',
+    };
+    draft.price_rates = normalizeFamilyModelPriceRates(draft.bindings, []);
+
+    const overview = deriveFamilyModelSettingsOverview({ settings: settings([provider()]), draft, dirty: false });
+
+    expect(overview.pricedCapabilityCount).toBe(0);
+  });
+
+  it('guides a fully priced draft to the non-blocking configuration check', () => {
     const draft = createEmptyFamilyModelDraft();
     draft.bindings[0] = {
       ...draft.bindings[0],
@@ -134,7 +150,7 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     expect(overview.pricedCapabilityCount).toBe(1);
     expect(overview.primarySection).toBe('review');
-    expect(overview.primaryLabel).toBe('检查并发布');
+    expect(overview.primaryLabel).toBe('检查配置完善度');
     expect(overview.publication.kind).toBe('local_changes');
   });
 
@@ -161,7 +177,7 @@ describe('deriveFamilyModelSettingsOverview', () => {
     expect(overview.steps[3]?.status).toBe('upcoming');
   });
 
-  it('describes an active clean revision without claiming the server draft is identical', () => {
+  it('describes an active clean configuration as automatically applied', () => {
     const draft = createEmptyFamilyModelDraft();
     draft.bindings[0] = {
       ...draft.bindings[0],
@@ -184,9 +200,10 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     expect(overview.publication).toEqual({
       kind: 'published',
-      label: '已有发布版本',
-      description: '当前家庭已有生效配置；如需确认服务端草稿是否有变化，请重新检查发布。',
+      label: '配置已生效',
+      description: '当前家庭正在使用这份配置，后续修改也会自动保存并生效。',
     });
-    expect(overview.primaryLabel).toBe('检查发布状态');
+    expect(overview.title).toBe('家庭 AI 服务已配置');
+    expect(overview.primaryLabel).toBe('查看配置完善度');
   });
 });

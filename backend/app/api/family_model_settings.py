@@ -48,6 +48,7 @@ from app.schemas.family_model_settings import (
 )
 from app.services.family_model_settings.connection_tests import (
     ConnectionCheckCommand,
+    discover_provider_models,
     run_connection_check,
 )
 from app.services.family_model_settings.capability_tests import (
@@ -383,6 +384,7 @@ def save_draft_view(
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
     cipher: FamilyModelCredentialCipher = Depends(get_family_model_credential_cipher),
+    network_policy: ProviderNetworkPolicy = Depends(get_family_model_network_policy),
 ) -> FamilyModelConfigDraftOut:
     user, membership = auth
     try:
@@ -396,6 +398,7 @@ def save_draft_view(
                 payload=payload.storage_payload().model_dump(mode="json", exclude_none=True),
             ),
             cipher=cipher,
+            network_policy=network_policy,
         )
         commit_session(db)
         return _draft_out(snapshot)
@@ -658,7 +661,6 @@ def rotate_provider_profile_key_view(
                 family_id=membership.family_id,
                 profile_id=profile_id,
                 actor_user_id=user.id,
-                current_password=payload.current_password.get_secret_value(),
                 base_settings_version=payload.base_settings_version_number,
                 idempotency_key=payload.idempotency_key,
                 credential_scope_checksum=profile.credential_scope_checksum,
@@ -709,6 +711,40 @@ def provider_connection_check_view(
             checked_at=result.checked_at,
             latency_ms=result.latency_ms,
             profile_version_number=result.profile_version_number,
+            models=list(result.models),
+        )
+    except FamilyModelSettingsError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.get(
+    "/provider-profiles/{profile_id}/models",
+    response_model=ProviderConnectionCheckOut,
+    response_model_exclude_none=True,
+)
+def provider_model_catalog_view(
+    profile_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+    cipher: FamilyModelCredentialCipher = Depends(get_family_model_credential_cipher),
+    transport: ProviderTransport = Depends(get_family_model_provider_transport),
+) -> ProviderConnectionCheckOut:
+    _, membership = auth
+    try:
+        result = discover_provider_models(
+            db,
+            family_id=membership.family_id,
+            profile_id=profile_id,
+            cipher=cipher,
+            transport=transport,
+        )
+        return ProviderConnectionCheckOut(
+            status=result.status,  # type: ignore[arg-type]
+            detail=result.detail,
+            checked_at=result.checked_at,
+            latency_ms=result.latency_ms,
+            profile_version_number=result.profile_version_number,
+            models=list(result.models),
         )
     except FamilyModelSettingsError as exc:
         raise _domain_error(exc) from exc
@@ -728,7 +764,7 @@ def capability_test_view(
         get_family_model_capability_test_dependencies
     ),
 ) -> CapabilityTestOut:
-    """Run one explicitly confirmed, billable test against active family config."""
+    """Run one explicitly confirmed, billable test against a saved draft or active config."""
 
     user, membership = auth
     try:
@@ -741,6 +777,7 @@ def capability_test_view(
                 variant_key=payload.variant_key,
                 confirm_billable=payload.confirm_billable,
                 idempotency_key=payload.idempotency_key,
+                base_draft_version_number=payload.base_draft_version_number,
             ),
             dependencies=dependencies,
         )

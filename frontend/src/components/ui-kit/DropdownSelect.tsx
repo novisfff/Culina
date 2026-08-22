@@ -9,6 +9,7 @@ export type DropdownSelectOption<T extends string> = {
 
 export type DropdownSelectProps<T extends string> = {
   ariaLabel: string;
+  triggerAriaLabel?: string;
   placeholder: string;
   value: T | '';
   options: readonly DropdownSelectOption<T>[];
@@ -26,6 +27,7 @@ export type DropdownSelectProps<T extends string> = {
 
 export function DropdownSelect<T extends string>({
   ariaLabel,
+  triggerAriaLabel,
   placeholder,
   value,
   options,
@@ -81,7 +83,7 @@ export function DropdownSelect<T extends string>({
       <button
         type="button"
         className={['ui-dropdown-select-trigger', triggerClassName].filter(Boolean).join(' ')}
-        aria-label={triggerText}
+        aria-label={triggerAriaLabel ?? triggerText}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}

@@ -53,7 +53,7 @@ export async function invalidateAfterFamilyModelSettingsChanged(
   await invalidateMany(queryClient, [
     queryKeys.familyModelSettingsRoot(familyId),
     queryKeys.modelUsageRoot(familyId),
-    queryKeys.aiStatus,
+    queryKeys.aiStatus(familyId),
   ]);
 }
 
@@ -65,7 +65,7 @@ export async function invalidateAfterFamilySearchReplacementChanged(
     queryKeys.familySearchProfile(familyId),
     queryKeys.familyModelSettings(familyId),
     queryKeys.searchRoot,
-    queryKeys.aiStatus,
+    queryKeys.aiStatus(familyId),
   ]);
 }
 

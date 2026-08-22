@@ -335,6 +335,62 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('describes a configured family with the primary chat capability disabled as not enabled', async () => {
+    vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+      configured: true,
+      enabled: false,
+      supports_vision: false,
+      status: 'disabled',
+      detail: '家庭 AI 服务尚未启用。',
+      capabilities: {
+        llm: 'unavailable',
+        image_generation: 'available',
+        stt: 'unavailable',
+        tts: 'unavailable',
+        realtime_audio: 'unavailable',
+        embedding: 'unavailable',
+        rerank: 'unavailable',
+      },
+    });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace familyId="family-a" conversations={[conversation()]} isLoading={false} />,
+    );
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('AI 未启用');
+    expect(rendered.container.textContent).not.toContain('AI 未配置');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => textarea.placeholder === '主对话模型尚未启用'),
+    ).toBe(true);
+    rendered.unmount();
+  });
+
+  it('does not claim AI is ready when the capability status cannot be loaded', async () => {
+    vi.spyOn(api, 'getAiStatus').mockRejectedValue(new Error('status unavailable'));
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace familyId="family-a" conversations={[conversation()]} isLoading={false} />,
+    );
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('AI 状态未知');
+    expect(rendered.container.textContent).not.toContain('AI 已就绪');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
+        .every((textarea) => (
+          textarea.disabled
+          && textarea.placeholder === '暂时无法确认 AI 服务状态，请稍后重试'
+        )),
+    ).toBe(true);
+    rendered.unmount();
+  });
+
   it('does not pause composers for answered human input request parts', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {

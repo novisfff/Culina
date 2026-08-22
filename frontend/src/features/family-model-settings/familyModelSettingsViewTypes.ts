@@ -2,6 +2,7 @@ import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
   FamilyModelPrices,
+  FamilyModelProviderConnectionCheckResult,
   FamilyModelSearchReplacement,
   FamilyModelSettings,
 } from '../../api/types';
@@ -45,8 +46,12 @@ export type FamilyModelSettingsSurfaceProps = {
   onPushMobileTask: (section: FamilyModelSettingsSection) => void;
   onPopMobileTask: () => void;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;
-  onSaveDraft: () => Promise<void>;
+  onDiscoverModels: (profileId: string) => Promise<FamilyModelProviderConnectionCheckResult>;
+  onTestCapability: (
+    capability: Parameters<FamilyModelSettingsMutationActions['testCapability']>[0],
+    variantKey: string,
+    confirmBillable: boolean,
+  ) => Promise<Awaited<ReturnType<FamilyModelSettingsMutationActions['testCapability']>>>;
   onValidate: () => Promise<void>;
-  onPublish: (input: { currentPassword: string; configChecksum: string; priceChecksum: string }) => Promise<void>;
   onReplacementProfileIdChange: (profileId: string | null) => void;
 };

@@ -86,7 +86,9 @@ class PrivateTargetAllowlist:
             for rule in self.rules[protocol]
         ):
             return
-        raise FamilyModelEndpointBlocked()
+        raise FamilyModelEndpointBlocked(
+            "family_model_endpoint_private_target_not_allowed"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,26 +100,26 @@ class _ParsedProviderUrl:
     normalized_url: str
 
 
-def _blocked() -> FamilyModelEndpointBlocked:
-    return FamilyModelEndpointBlocked()
+def _blocked(code: str | None = None) -> FamilyModelEndpointBlocked:
+    return FamilyModelEndpointBlocked(code)
 
 
 def _normalize_host(host: str) -> str:
     candidate = host.rstrip(".").lower()
     if not candidate or "%" in candidate or any(ord(character) > 127 for character in candidate):
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     try:
         return str(ipaddress.ip_address(candidate))
     except ValueError:
         pass
     if any(character in candidate for character in " /\\@?#:"):
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     try:
         normalized = candidate.encode("idna").decode("ascii")
     except UnicodeError as exc:
-        raise _blocked() from exc
+        raise _blocked("family_model_endpoint_url_invalid") from exc
     if not normalized or len(normalized) > 253 or any(not label for label in normalized.split(".")):
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     return normalized
 
 
@@ -132,26 +134,26 @@ def parse_and_normalize_provider_url(raw_url: str) -> _ParsedProviderUrl:
     if not isinstance(raw_url, str) or not raw_url or any(
         character.isspace() or ord(character) < 32 for character in raw_url
     ):
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     try:
         parsed = urlsplit(raw_url)
         port = parsed.port
     except ValueError as exc:
-        raise _blocked() from exc
+        raise _blocked("family_model_endpoint_url_invalid") from exc
     scheme = parsed.scheme.lower()
     if scheme not in _DEFAULT_PORTS or not parsed.netloc:
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     if parsed.query or parsed.fragment or parsed.hostname is None:
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     host = _normalize_host(parsed.hostname)
     normalized_port = port if port is not None else _DEFAULT_PORTS[scheme]
     if not 1 <= normalized_port <= 65535:
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     base_path = parsed.path or "/"
     if not base_path.startswith("/") or "\\" in base_path:
-        raise _blocked()
+        raise _blocked("family_model_endpoint_url_invalid")
     normalized_url = f"{scheme}://{_authority(host, normalized_port, scheme)}{base_path}"
     return _ParsedProviderUrl(
         scheme=scheme,  # type: ignore[arg-type]
@@ -234,11 +236,13 @@ class ProviderNetworkPolicy:
         *,
         resolver: AddressResolver | None = None,
         private_target_allowlist: PrivateTargetAllowlist | None = None,
+        allow_insecure_public_transports: bool = False,
     ) -> None:
         self.resolver = resolver or SystemAddressResolver()
         self.private_target_allowlist = private_target_allowlist or decode_private_target_allowlist(
             SecretStr('{"http":[],"websocket":[]}')
         )
+        self.allow_insecure_public_transports = allow_insecure_public_transports
 
     @classmethod
     def from_settings(cls, settings: object, *, resolver: AddressResolver | None = None) -> ProviderNetworkPolicy:
@@ -246,6 +250,9 @@ class ProviderNetworkPolicy:
             resolver=resolver,
             private_target_allowlist=decode_private_target_allowlist(
                 getattr(settings, "family_model_private_target_allowlist_json")
+            ),
+            allow_insecure_public_transports=bool(
+                getattr(settings, "family_model_allow_insecure_public_transports", False)
             ),
         )
 
@@ -257,9 +264,9 @@ class ProviderNetworkPolicy:
     ) -> ResolvedProviderEndpoint:
         parsed = parse_and_normalize_provider_url(raw_url)
         if protocol == "http" and parsed.scheme not in {"http", "https"}:
-            raise _blocked()
+            raise _blocked("family_model_endpoint_protocol_mismatch")
         if protocol == "websocket" and parsed.scheme not in {"ws", "wss"}:
-            raise _blocked()
+            raise _blocked("family_model_endpoint_protocol_mismatch")
         try:
             literal_address = ipaddress.ip_address(parsed.host)
         except ValueError:
@@ -273,12 +280,12 @@ class ProviderNetworkPolicy:
                 sorted({str(ipaddress.ip_address(value)) for value in resolved_values})
             )
         except ValueError as exc:
-            raise _blocked() from exc
+            raise _blocked("family_model_endpoint_dns_resolution_failed") from exc
         if not addresses:
-            raise _blocked()
+            raise _blocked("family_model_endpoint_dns_resolution_failed")
         classes = tuple(classify_ip(ipaddress.ip_address(address)) for address in addresses)
         if any(address_class in _FORBIDDEN_ADDRESS_CLASSES for address_class in classes):
-            raise _blocked()
+            raise _blocked("family_model_endpoint_address_forbidden")
         private_target = any(address_class == "private" for address_class in classes)
         endpoint = ResolvedProviderEndpoint(
             normalized_url=parsed.normalized_url,
@@ -291,8 +298,11 @@ class ProviderNetworkPolicy:
         )
         if private_target:
             self.private_target_allowlist.require_exact_match(endpoint=endpoint, protocol=protocol)
-        elif parsed.scheme in {"http", "ws"}:
-            raise _blocked()
+        elif (
+            parsed.scheme in {"http", "ws"}
+            and not self.allow_insecure_public_transports
+        ):
+            raise _blocked("family_model_endpoint_insecure_transport_not_allowed")
         return endpoint
 
     def authorize_media(

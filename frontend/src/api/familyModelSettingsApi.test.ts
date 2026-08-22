@@ -85,14 +85,17 @@ describe('familyModelSettingsApi transport', () => {
     });
 
     await familyModelSettingsApi.rotateProviderProfileKey(profileId, {
-      current_password: 'owner-password',
       new_api_key: 'new-write-only-key',
       base_settings_version_number: 2,
       idempotency_key: 'rotate-key-1',
     });
     expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/provider-profiles/profile%20%2F%20one/rotate-key', {
       method: 'POST',
-      body: expect.any(String),
+      body: JSON.stringify({
+        new_api_key: 'new-write-only-key',
+        base_settings_version_number: 2,
+        idempotency_key: 'rotate-key-1',
+      }),
     });
 
     await familyModelSettingsApi.checkProviderConnection(profileId, { idempotency_key: 'check-key-1' });
@@ -100,6 +103,9 @@ describe('familyModelSettingsApi transport', () => {
       method: 'POST',
       body: JSON.stringify({ idempotency_key: 'check-key-1' }),
     });
+
+    await familyModelSettingsApi.discoverProviderModels(profileId);
+    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/provider-profiles/profile%20%2F%20one/models');
 
     await familyModelSettingsApi.getSearchReplacement(replacementId);
     expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/search/replacements/search%20%2F%20one');
@@ -186,11 +192,17 @@ describe('familyModelSettingsApi transport', () => {
     await familyModelSettingsApi.testCapability('llm', {
       variant_key: 'primary',
       confirm_billable: true,
+      base_draft_version_number: 3,
       idempotency_key: 'test-key-1',
     });
     expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/capabilities/llm/test', {
       method: 'POST',
-      body: JSON.stringify({ variant_key: 'primary', confirm_billable: true, idempotency_key: 'test-key-1' }),
+      body: JSON.stringify({
+        variant_key: 'primary',
+        confirm_billable: true,
+        base_draft_version_number: 3,
+        idempotency_key: 'test-key-1',
+      }),
     });
 
     const replacement = {

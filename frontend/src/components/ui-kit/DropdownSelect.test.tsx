@@ -127,4 +127,21 @@ describe('DropdownSelect', () => {
     const optionIcon = document.querySelector('[data-testid="hard-option-icon"]');
     expect(optionIcon?.closest('.ui-dropdown-select-option-icon')).not.toBeNull();
   });
+
+  it('supports a stable form-field name without replacing the visible selected label', () => {
+    renderDropdown(
+      <DropdownSelect
+        ariaLabel="状态选项"
+        triggerAriaLabel="状态"
+        placeholder="选择状态"
+        value="breakfast"
+        options={options}
+        onChange={vi.fn()}
+      />
+    );
+
+    const trigger = document.querySelector<HTMLButtonElement>('.ui-dropdown-select-trigger');
+    expect(trigger?.getAttribute('aria-label')).toBe('状态');
+    expect(trigger?.textContent).toContain('早餐');
+  });
 });

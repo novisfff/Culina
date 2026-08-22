@@ -44,6 +44,9 @@ from app.services.family_model_settings.errors import (
     FamilyModelSecretUnavailable,
     FamilyModelSettingsError,
 )
+from app.services.family_model_settings.credential_keyring_store import (
+    load_local_credential_keyring,
+)
 from app.services.family_model_settings.types import (
     CanonicalCredentialScope,
     CreateProviderProfileCommand,
@@ -253,11 +256,32 @@ class FamilyModelCredentialCipher:
         return self._keyring
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> FamilyModelCredentialCipher:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        allow_local_keyring_creation: bool = False,
+    ) -> FamilyModelCredentialCipher:
+        active_key_id = settings.family_model_credential_active_key_id
+        keys_json = settings.family_model_credential_keys_json
+        if not active_key_id.strip() and not keys_json.get_secret_value().strip():
+            from app.core.config import LOCAL_ENVIRONMENTS
+
+            if settings.environment.strip().lower() in LOCAL_ENVIRONMENTS:
+                stored = load_local_credential_keyring(
+                    getattr(
+                        settings,
+                        "family_model_credential_keyring_file",
+                        "storage/secrets/family-model-credential-keyring.json",
+                    ),
+                    create_if_missing=allow_local_keyring_creation,
+                )
+                active_key_id = stored.active_key_id
+                keys_json = stored.keys_json
         return cls(
             decode_family_model_credential_keyring(
-                active_key_id=settings.family_model_credential_active_key_id,
-                keys_json=settings.family_model_credential_keys_json,
+                active_key_id=active_key_id,
+                keys_json=keys_json,
             )
         )
 
@@ -472,15 +496,6 @@ def verify_owner_password(
         raise FamilyModelOwnerReauthenticationFailed()
 
 
-def _verify_owner_password(db: Session, *, command: RotateProfileSecretCommand) -> None:
-    verify_owner_password(
-        db,
-        family_id=command.family_id,
-        actor_user_id=command.actor_user_id,
-        current_password=command.current_password,
-    )
-
-
 def _require_api_key_profile(
     db: Session,
     *,
@@ -553,13 +568,12 @@ def rotate_profile_secret(
     *,
     cipher: FamilyModelCredentialCipher,
 ) -> RotatedSecretResult:
-    """Rotate one profile Key under the stable family settings lock.
+    """Replace one profile Key under the stable family settings lock.
 
     The caller owns the surrounding transaction.  A successful receipt and all
     secret-pointer updates are therefore committed or rolled back together.
     """
 
-    _verify_owner_password(db, command=command)
     require_provider_profile(
         db,
         family_id=command.family_id,
@@ -575,10 +589,7 @@ def rotate_profile_secret(
             "base_settings_version": command.base_settings_version,
             "credential_scope_checksum": command.credential_scope_checksum,
         },
-        secret_fields={
-            "current_password": command.current_password,
-            "new_api_key": command.new_api_key,
-        },
+        secret_fields={"new_api_key": command.new_api_key},
     )
     claim = claim_operation(
         db,

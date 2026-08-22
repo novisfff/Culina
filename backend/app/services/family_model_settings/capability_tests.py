@@ -1,13 +1,14 @@
 """Billable, Owner-initiated probes for family model capabilities.
 
 The probes are intentionally a closed registry.  They are not arbitrary
-provider requests: the active family binding supplies every endpoint, model,
-credential scope and pricing identity, while the registry supplies only a
-small, fixed protocol payload for each capability.
+provider requests: a family-owned immutable binding snapshot supplies every
+endpoint, model, credential scope and pricing identity, while the registry
+supplies only a small, fixed protocol payload for each capability.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -16,9 +17,12 @@ from decimal import Decimal
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
+    FamilyModelConfigRevisionStatus,
+    FamilyModelPricePurpose,
     ModelUsageAttributionKind,
     ModelUsageCapability,
     ModelUsageExecutionCertainty,
@@ -27,9 +31,15 @@ from app.core.enums import (
     ModelUsageOperationSource,
     ModelUsageProviderOutcome,
 )
-from app.core.utils import utcnow
+from app.core.utils import create_id, utcnow
 from app.db.session import SessionLocal
+from app.models.family_model_settings import (
+    FamilyModelCapabilityBinding,
+    FamilyModelConfigRevision,
+)
+from app.models.model_usage import ModelUsagePriceVersion
 from app.repos.family_model_settings.idempotency import claim_operation, complete_operation
+from app.repos.model_usage.catalog import next_price_version_number
 from app.services.ai_audio.config import realtime_endpoint_url
 from app.services.family_model_settings.credentials import (
     FamilyModelCredentialCipher,
@@ -43,12 +53,20 @@ from app.services.family_model_settings.errors import (
     FamilyModelSecretUnavailable,
 )
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
+from app.services.family_model_settings.publishing import insert_family_price_rates
 from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
 from app.services.family_model_settings.transport import ProviderResponse, ProviderTransport
 from app.services.family_model_settings.types import (
     DispatchCredential,
     FamilyModelCapability,
     ResolvedCapabilityBinding,
+)
+from app.services.family_model_settings.validation import (
+    ValidateDraftCommand,
+    ValidatedCapabilityBinding,
+    ValidatedFamilyPriceRate,
+    price_checksum,
+    validate_family_model_draft,
 )
 from app.services.model_usage.adapters.base import MeteredProviderAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageError
@@ -85,6 +103,7 @@ class CapabilityTestCommand:
     variant_key: str
     confirm_billable: bool
     idempotency_key: str
+    base_draft_version_number: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +522,175 @@ def _complete_result(
     return result
 
 
+def _draft_test_snapshot_checksum(
+    binding: ValidatedCapabilityBinding,
+    rates: tuple[ValidatedFamilyPriceRate, ...],
+) -> str:
+    payload = {
+        "purpose": "family-model-draft-capability-test-v1",
+        "binding": binding.checksum_record(),
+        "rates": [
+            rate.checksum_record()
+            for rate in sorted(rates, key=lambda item: item.meter.value)
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _next_test_revision_number(db: Session, *, family_id: str) -> int:
+    current = db.scalar(
+        select(func.max(FamilyModelConfigRevision.version_number)).where(
+            FamilyModelConfigRevision.family_id == family_id
+        )
+    )
+    return int(current or 0) + 1
+
+
+def _materialize_draft_test_binding(
+    db: Session,
+    command: CapabilityTestCommand,
+    *,
+    dependencies: CapabilityTestDependencies,
+) -> ResolvedCapabilityBinding:
+    assert command.base_draft_version_number is not None
+    validation = validate_family_model_draft(
+        db,
+        ValidateDraftCommand(
+            family_id=command.family_id,
+            actor_user_id=command.actor_user_id,
+            network_policy=dependencies.network_policy,
+            base_draft_version_number=command.base_draft_version_number,
+        ),
+    )
+    binding = next(
+        (
+            item
+            for item in validation.bindings
+            if item.capability.value == command.capability
+            and item.variant_key == command.variant_key
+            and item.enabled
+            and item.provider_profile_id is not None
+            and item.provider_profile_version_id is not None
+            and item.requested_model
+        ),
+        None,
+    )
+    if binding is None:
+        raise FamilyModelDraftInvalid(
+            "family_model_capability_test_binding_incomplete"
+        )
+
+    rates = tuple(
+        rate
+        for rate in validation.price_rates
+        if rate.capability is binding.capability
+        and rate.variant_key == binding.variant_key
+    )
+    snapshot_checksum = _draft_test_snapshot_checksum(binding, rates)
+    revision = db.scalar(
+        select(FamilyModelConfigRevision).where(
+            FamilyModelConfigRevision.family_id == command.family_id,
+            FamilyModelConfigRevision.config_checksum == snapshot_checksum,
+        )
+    )
+    if revision is None:
+        revision = FamilyModelConfigRevision(
+            id=create_id("family-model-test-revision"),
+            family_id=command.family_id,
+            version_number=_next_test_revision_number(
+                db, family_id=command.family_id
+            ),
+            base_revision_id=validation.payload.base_config_revision_id,
+            config_checksum=snapshot_checksum,
+            status=FamilyModelConfigRevisionStatus.SUPERSEDED,
+            search_profile_id=None,
+            change_note="能力测试配置快照",
+            published_by=command.actor_user_id,
+        )
+        db.add(revision)
+        db.flush()
+        db.add(
+            FamilyModelCapabilityBinding(
+                id=create_id("family-model-test-binding"),
+                family_id=command.family_id,
+                config_revision_id=revision.id,
+                capability=binding.capability,
+                variant_key=binding.variant_key,
+                enabled=True,
+                provider_profile_id=binding.provider_profile_id,
+                provider_profile_version_id=binding.provider_profile_version_id,
+                requested_model=binding.requested_model,
+                options_json=dict(binding.options),
+                billing_scheme_key=binding.billing_scheme_key,
+                identity_checksum=binding.identity_checksum,
+            )
+        )
+        db.flush()
+
+        supplied_meters = {rate.meter for rate in rates}
+        if (
+            supplied_meters == binding.billable_meters
+            and len(rates) == len(binding.billable_meters)
+        ):
+            rate_checksum = price_checksum(rates)
+            now = dependencies.now()
+            price = ModelUsagePriceVersion(
+                id=create_id("family-model-test-price"),
+                family_id=command.family_id,
+                config_revision_id=revision.id,
+                base_price_version_id=None,
+                purpose=FamilyModelPricePurpose.ACTIVE,
+                published_by=command.actor_user_id,
+                version_number=next_price_version_number(db),
+                status="published",
+                effective_from=now,
+                reviewed_at=now,
+                source_ref="family-model-draft-capability-test",
+                change_note="能力测试价格快照",
+                operator=command.actor_user_id,
+                change_ticket=None,
+                manifest_checksum=rate_checksum,
+                model_aliases_json={
+                    f"{rate.provider}:{alias}": rate.billing_model
+                    for rate in rates
+                    for alias in rate.reported_model_aliases
+                },
+                fx_rates_json={
+                    "CNY": "1",
+                    **{
+                        rate.source_currency: str(rate.fx_to_cny)
+                        for rate in rates
+                    },
+                },
+            )
+            db.add(price)
+            db.flush()
+            insert_family_price_rates(
+                db,
+                price_version=price,
+                rates=rates,
+            )
+
+    resolver = FamilyModelConfigurationResolver(
+        db,
+        cipher=dependencies.cipher,
+        network_policy=dependencies.network_policy,
+    )
+    return resolver.resolve_revision(
+        command.family_id,
+        revision.id,
+        command.capability,
+        command.variant_key,
+    )
+
+
 def run_family_capability_test(
     db: Session,
     command: CapabilityTestCommand,
@@ -530,10 +718,18 @@ def run_family_capability_test(
         cipher=dependencies.cipher,
         network_policy=dependencies.network_policy,
     )
-    binding = resolver.resolve_active(
-        command.family_id,
-        command.capability,
-        command.variant_key,
+    binding = (
+        resolver.resolve_active(
+            command.family_id,
+            command.capability,
+            command.variant_key,
+        )
+        if command.base_draft_version_number is None
+        else _materialize_draft_test_binding(
+            db,
+            command,
+            dependencies=dependencies,
+        )
     )
     fingerprint_for_key_id = lambda key_id: operation_request_fingerprint(
         dependencies.cipher.keyring,

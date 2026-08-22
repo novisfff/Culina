@@ -95,8 +95,10 @@ services:
       MODEL_USAGE_SOURCE_INSTANCE: ${MODEL_USAGE_SOURCE_INSTANCE:-culina-api}
       FAMILY_MODEL_CREDENTIAL_ACTIVE_KEY_ID: ${FAMILY_MODEL_CREDENTIAL_ACTIVE_KEY_ID:-}
       FAMILY_MODEL_CREDENTIAL_KEYS_JSON: ${FAMILY_MODEL_CREDENTIAL_KEYS_JSON:-}
+      FAMILY_MODEL_CREDENTIAL_KEYRING_FILE: ${FAMILY_MODEL_CREDENTIAL_KEYRING_FILE:-/app/storage/secrets/family-model-credential-keyring.json}
       FAMILY_MODEL_REVOKED_SECRET_RETENTION_HOURS: ${FAMILY_MODEL_REVOKED_SECRET_RETENTION_HOURS:-24}
       FAMILY_MODEL_PRIVATE_TARGET_ALLOWLIST_JSON: ${FAMILY_MODEL_PRIVATE_TARGET_ALLOWLIST_JSON:-}
+      FAMILY_MODEL_ALLOW_INSECURE_PUBLIC_TRANSPORTS: ${FAMILY_MODEL_ALLOW_INSECURE_PUBLIC_TRANSPORTS:-false}
       FAMILY_MODEL_EGRESS_PROXY_URL: ${FAMILY_MODEL_EGRESS_PROXY_URL:-}
       FAMILY_MODEL_PROVIDER_CONNECT_TIMEOUT_SECONDS: ${FAMILY_MODEL_PROVIDER_CONNECT_TIMEOUT_SECONDS:-10}
       FAMILY_MODEL_PROVIDER_REQUEST_TIMEOUT_SECONDS: ${FAMILY_MODEL_PROVIDER_REQUEST_TIMEOUT_SECONDS:-180}
@@ -131,6 +133,8 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
+    volumes:
+      - culina_backend_secrets:/app/storage/secrets
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).read()\""]
       interval: 10s
@@ -160,3 +164,4 @@ volumes:
   culina_mysql_data:
   culina_minio_data:
   culina_qdrant_data:
+  culina_backend_secrets:

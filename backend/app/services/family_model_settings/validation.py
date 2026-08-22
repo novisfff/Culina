@@ -88,6 +88,13 @@ _REQUIRED_METERS: Mapping[ModelUsageCapability, frozenset[ModelUsageMeter]] = Ma
         ModelUsageCapability.RERANK: frozenset({ModelUsageMeter.INPUT_TOKENS}),
     }
 )
+_DEFAULT_UNIT_QUANTITIES: Mapping[ModelUsageMeter, Decimal] = MappingProxyType(
+    {
+        ModelUsageMeter.GENERATED_IMAGES: Decimal("1"),
+        ModelUsageMeter.AUDIO_INPUT_SECONDS: Decimal("60"),
+        ModelUsageMeter.TTS_CHARACTERS: Decimal("1000"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,8 +417,8 @@ def _validate_enabled_binding(
             auth_mode=version.auth_mode,
             billing_scheme_key=billing_scheme_key,
         )
-    except FamilyModelEndpointBlocked:
-        return None, (DraftValidationIssue("family_model_endpoint_blocked", field_prefix),)
+    except FamilyModelEndpointBlocked as exc:
+        return None, (DraftValidationIssue(exc.code, field_prefix),)
     except FamilyModelProviderProtocolUnsupported:
         return None, (
             DraftValidationIssue("family_model_provider_protocol_unsupported", field_prefix),
@@ -604,6 +611,28 @@ def _validated_rate(
     )
 
 
+def _zero_rate(
+    *,
+    binding: ValidatedCapabilityBinding,
+    meter: ModelUsageMeter,
+) -> ValidatedFamilyPriceRate:
+    assert binding.provider_profile_id is not None
+    return ValidatedFamilyPriceRate(
+        capability=binding.capability,
+        variant_key=binding.variant_key,
+        meter=meter,
+        provider=binding.provider_profile_id,
+        billing_model=binding.requested_model,
+        billing_scheme_key=binding.billing_scheme_key,
+        unit_quantity=_DEFAULT_UNIT_QUANTITIES.get(meter, Decimal("1000000")),
+        unit_price=Decimal("0"),
+        source_currency="CNY",
+        fx_to_cny=Decimal("1"),
+        unit_price_cny=Decimal("0"),
+        reported_model_aliases=(binding.requested_model,),
+    )
+
+
 def _validate_price_coverage(
     payload: FamilyModelConfigDraftPayload,
     bindings: Sequence[ValidatedCapabilityBinding],
@@ -643,13 +672,8 @@ def _validate_price_coverage(
             for _, rate in rates_by_binding.get(identity, [])
             if rate.meter in binding.billable_meters
         }
-        if supplied != binding.billable_meters:
-            issues.append(
-                DraftValidationIssue(
-                    "family_model_price_incomplete",
-                    f"prices.{binding.capability.value}.{binding.variant_key}",
-                )
-            )
+        for meter in sorted(binding.billable_meters - supplied, key=lambda item: item.value):
+            validated.append(_zero_rate(binding=binding, meter=meter))
     return tuple(validated), tuple(issues)
 
 

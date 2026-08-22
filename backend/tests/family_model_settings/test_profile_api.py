@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from app.api import family_model_settings as family_model_settings_api
+from app.main import app
 from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigRevision,
@@ -9,6 +11,7 @@ from app.models.family_model_settings import (
     FamilyModelSecretVersion,
     FamilyModelSettings,
 )
+from app.services.family_model_settings.errors import FamilyModelCredentialConfigurationError
 
 from tests.family_model_settings._support import (
     SECRET_MARKER,
@@ -35,6 +38,25 @@ def test_member_cannot_access_owner_model_settings_api(
             else getattr(family_model_api.client, method)(path)
         )
         assert response.status_code == 403
+
+
+def test_member_cannot_update_provider_key(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile()
+    settings = family_model_api.client.get("/api/family/model-settings").json()
+    family_model_api.use_member()
+
+    response = family_model_api.client.post(
+        f"/api/family/model-settings/provider-profiles/{profile['id']}/rotate-key",
+        json={
+            "new_api_key": "sk-member-must-not-write",
+            "base_settings_version_number": settings["version_number"],
+            "idempotency_key": "profile-member-update-key-1",
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_profile_create_response_is_write_only_for_key(
@@ -84,6 +106,61 @@ def test_invalid_provider_request_never_echoes_write_only_key(
     )
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "family_model_request_invalid"
+    assert SECRET_MARKER not in response.text
+
+
+def test_blocked_provider_address_returns_an_actionable_safe_code(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    response = family_model_api.client.post(
+        "/api/family/model-settings/provider-profiles",
+        json={
+            "display_name": "明文公网服务",
+            "adapter_kind": "openai_compatible_http",
+            "auth_mode": "api_key",
+            "api_base_url": "http://47.93.215.184:31317/v1",
+            "api_key": SECRET_MARKER,
+            "idempotency_key": "blocked-provider-address-1",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": {
+            "code": "family_model_endpoint_insecure_transport_not_allowed"
+        }
+    }
+    assert SECRET_MARKER not in response.text
+
+
+def test_missing_server_credential_keyring_returns_a_stable_service_error(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    def raise_configuration_error():
+        raise FamilyModelCredentialConfigurationError(
+            "family_model_credential_keyring_file_missing"
+        )
+
+    app.dependency_overrides[
+        family_model_settings_api.get_family_model_credential_cipher
+    ] = raise_configuration_error
+
+    response = family_model_api.client.post(
+        "/api/family/model-settings/provider-profiles",
+        json={
+            "display_name": "家用模型",
+            "adapter_kind": "openai_compatible_http",
+            "auth_mode": "api_key",
+            "api_base_url": "https://provider.example/v1",
+            "api_key": SECRET_MARKER,
+            "idempotency_key": "profile-create-missing-keyring-1",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "family_model_credential_configuration_invalid"}
+    }
     assert SECRET_MARKER not in response.text
 
 
@@ -214,7 +291,7 @@ def test_profile_archive_rejects_active_binding_reference(
     assert response.status_code == 409
 
 
-def test_rotate_key_is_reauthenticated_and_does_not_echo_secret(
+def test_update_key_does_not_require_account_password_or_echo_secret(
     family_model_api: FamilyModelApiContext,
 ) -> None:
     profile = family_model_api.create_profile()
@@ -222,7 +299,6 @@ def test_rotate_key_is_reauthenticated_and_does_not_echo_secret(
     response = family_model_api.client.post(
         f"/api/family/model-settings/provider-profiles/{profile['id']}/rotate-key",
         json={
-            "current_password": "OwnerPass123",
             "new_api_key": "sk-rotated-secret-marker",
             "base_settings_version_number": settings["version_number"],
             "idempotency_key": "profile-rotate-api-1",
@@ -231,14 +307,3 @@ def test_rotate_key_is_reauthenticated_and_does_not_echo_secret(
     assert response.status_code == 200, response.text
     assert "sk-rotated-secret-marker" not in response.text
     assert response.json()["configured"] is True
-    bad = family_model_api.client.post(
-        f"/api/family/model-settings/provider-profiles/{profile['id']}/rotate-key",
-        json={
-            "current_password": "wrong",
-            "new_api_key": "sk-never-written",
-            "base_settings_version_number": settings["version_number"] + 1,
-            "idempotency_key": "profile-rotate-bad-1",
-        },
-    )
-    assert bad.status_code == 422
-    assert bad.json()["detail"]["code"] == "family_model_owner_reauthentication_failed"

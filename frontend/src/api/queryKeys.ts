@@ -71,7 +71,7 @@ export const queryKeys = {
   activityHighlights: ['activity-highlights'] as const,
   activityHighlightList: (limit = 5) =>
     ['activity-highlights', 'list', limit] as const,
-  aiStatus: ['ai-status'] as const,
+  aiStatus: (familyId: string) => ['ai-status', familyId] as const,
   aiImageJobs: ['ai-image-jobs'] as const,
   searchIndexJobs: ['search-index-jobs'] as const,
   aiQualityMetrics: ['ai-quality-metrics'] as const,
@@ -87,6 +87,8 @@ export const queryKeys = {
   familyModelSettings: (familyId: string) => [...familyModelSettingsRoot(familyId), 'settings'] as const,
   familyModelSettingsDraft: (familyId: string) => [...familyModelSettingsRoot(familyId), 'draft'] as const,
   familyModelPriceVersions: (familyId: string) => [...familyModelSettingsRoot(familyId), 'prices'] as const,
+  familyProviderModels: (familyId: string, profileId: string) =>
+    [...familyModelSettingsRoot(familyId), 'providers', profileId, 'models'] as const,
   familySearchProfile: (familyId: string) => [...familyModelSettingsRoot(familyId), 'search'] as const,
   familySearchReplacement: (familyId: string, profileId: string) =>
     [...familyModelSettingsRoot(familyId), 'search', 'replacement', profileId] as const,

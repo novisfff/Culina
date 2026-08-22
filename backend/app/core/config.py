@@ -46,12 +46,16 @@ class Settings(BaseSettings):
     model_usage_source_instance: str = "culina-api"
     family_model_credential_active_key_id: str = ""
     family_model_credential_keys_json: SecretStr = SecretStr("")
+    family_model_credential_keyring_file: str = (
+        "storage/secrets/family-model-credential-keyring.json"
+    )
     family_model_revoked_secret_retention_hours: int = 24
     family_model_retired_collection_retention_days: int = 7
     family_model_maintenance_enabled: bool = True
     family_model_private_target_allowlist_json: SecretStr = SecretStr(
         '{"http":[],"websocket":[]}'
     )
+    family_model_allow_insecure_public_transports: bool = False
     family_model_egress_proxy_url: str = ""
     family_model_provider_connect_timeout_seconds: float = 10.0
     family_model_provider_request_timeout_seconds: float = 180.0

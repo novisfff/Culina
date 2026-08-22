@@ -21,6 +21,7 @@ from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigDraft,
     FamilyModelConfigRevision,
+    FamilyModelSettings,
     FamilySearchProfile,
 )
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
@@ -383,6 +384,151 @@ def _reset_draft_after_publish(
     draft.validation_errors_json = []
     draft.updated_at = utcnow()
     draft.updated_by = actor_user_id
+
+
+def _mark_saved_draft_applied(
+    draft: FamilyModelConfigDraft,
+    *,
+    revision: FamilyModelConfigRevision,
+    actor_user_id: str,
+) -> None:
+    payload = dict(draft.payload_json)
+    payload["base_config_revision_id"] = revision.id
+    draft.base_config_revision_id = revision.id
+    draft.payload_json = payload
+    draft.validation_status = "valid"
+    draft.validation_errors_json = []
+    draft.updated_at = utcnow()
+    draft.updated_by = actor_user_id
+
+
+def apply_validated_family_model_configuration(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    settings: FamilyModelSettings,
+    draft: FamilyModelConfigDraft,
+    validation: DraftValidationResult,
+    network_policy: ProviderNetworkPolicy,
+) -> PublishedFamilyModelConfiguration:
+    """Apply a valid saved configuration without a user-facing publish step.
+
+    Revisions and price versions remain immutable runtime snapshots for usage
+    accounting. Equal snapshots are reused, while changed snapshots become
+    active in the same transaction as the draft save.
+    """
+
+    if not validation.valid or validation.config_checksum is None or validation.price_checksum is None:
+        raise FamilyModelDraftInvalid()
+    command = PublishConfigurationCommand(
+        family_id=family_id,
+        actor_user_id=actor_user_id,
+        base_settings_version_number=settings.version_number,
+        base_draft_version_number=draft.draft_version_number,
+        idempotency_key="automatic-apply",
+        confirm_config_checksum=validation.config_checksum,
+        confirm_price_checksum=validation.price_checksum,
+        network_policy=network_policy,
+    )
+    current_revision = (
+        get_config_revision(
+            db,
+            family_id=family_id,
+            config_revision_id=settings.active_config_revision_id,
+            for_update=True,
+        )
+        if settings.active_config_revision_id is not None
+        else None
+    )
+    revision = db.scalar(
+        select(FamilyModelConfigRevision).where(
+            FamilyModelConfigRevision.family_id == family_id,
+            FamilyModelConfigRevision.config_checksum == validation.config_checksum,
+        )
+    )
+    if revision is None:
+        retained_search = _resolved_search_profile(
+            db,
+            family_id=family_id,
+            requested_search_profile_id=validation.search_profile_id,
+        )
+        initial_search = (
+            None
+            if retained_search is not None
+            else _create_initial_search_profile_if_required(
+                db,
+                command=command,
+                validation=validation,
+            )
+        )
+        revision = _insert_config_revision(
+            db,
+            command=command,
+            validation=validation,
+            base_revision_id=settings.active_config_revision_id,
+            search_profile=retained_search or initial_search,
+        )
+        _insert_capability_bindings(db, revision=revision, bindings=validation.bindings)
+
+    price = db.scalar(
+        select(ModelUsagePriceVersion)
+        .where(
+            ModelUsagePriceVersion.family_id == family_id,
+            ModelUsagePriceVersion.config_revision_id == revision.id,
+            ModelUsagePriceVersion.purpose == FamilyModelPricePurpose.ACTIVE,
+            ModelUsagePriceVersion.manifest_checksum == validation.price_checksum,
+        )
+        .order_by(ModelUsagePriceVersion.version_number.desc())
+        .limit(1)
+    )
+    if price is None:
+        price = _insert_complete_active_price_version(
+            db,
+            command=command,
+            revision=revision,
+            base_price_version_id=settings.active_price_version_id,
+            validation=validation,
+        )
+
+    changed = (
+        settings.active_config_revision_id != revision.id
+        or settings.active_price_version_id != price.id
+    )
+    if current_revision is not None and current_revision.id != revision.id:
+        current_revision.status = FamilyModelConfigRevisionStatus.SUPERSEDED
+    revision.status = FamilyModelConfigRevisionStatus.PUBLISHED
+    settings.active_config_revision_id = revision.id
+    settings.active_price_version_id = price.id
+    if changed:
+        settings.version_number += 1
+        settings.updated_by = actor_user_id
+        settings.updated_at = utcnow()
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=actor_user_id,
+            action=ActivityAction.UPDATE,
+            entity_type="FamilyModelConfiguration",
+            entity_id=revision.id,
+            summary="更新了家庭 AI 服务配置",
+        )
+    _mark_saved_draft_applied(
+        draft,
+        revision=revision,
+        actor_user_id=actor_user_id,
+    )
+    result = PublishedFamilyModelConfiguration(
+        family_id=family_id,
+        config_revision_id=revision.id,
+        price_version_id=price.id,
+        settings_version_number=settings.version_number,
+        config_checksum=validation.config_checksum,
+        price_checksum=validation.price_checksum,
+        search_profile_id=revision.search_profile_id,
+    )
+    db.flush()
+    return result
 
 
 def publish_family_model_configuration(

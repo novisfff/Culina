@@ -92,6 +92,37 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+test('@p0 @family-model-settings-390x844 @family-model-settings-1440x900 configuration review makes model and price status scannable', async ({ app }) => {
+  const { page } = app;
+  await openFamilyModelSettings(page);
+
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    await page.locator('.family-model-settings-mobile-task-list')
+      .getByRole('button', { name: /^配置检查/ }).click();
+  } else {
+    await page.locator('.family-model-settings-section-rail')
+      .getByRole('button', { name: /^配置检查/ }).click();
+  }
+
+  await expect(page.getByRole('heading', { name: '配置状态良好' })).toBeVisible();
+  await expect(page.getByText('7 项能力已就绪')).toBeVisible();
+  const llmRow = page.getByRole('article', { name: '对话与视觉理解 primary' });
+  await expect(llmRow.getByText('家庭主服务 · culina-chat-v1')).toBeVisible();
+  await expect(llmRow.getByText('价格已填写')).toBeVisible();
+  await expect(llmRow.getByText('3/3 项')).toBeVisible();
+  await expect(page.getByText('价格设置可用')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await saveVisualReviewScreenshot(
+    page,
+    `${page.viewportSize()?.width}x${page.viewportSize()?.height}-configuration-review.png`,
+  );
+  await llmRow.scrollIntoViewIfNeeded();
+  await saveVisualReviewScreenshot(
+    page,
+    `${page.viewportSize()?.width}x${page.viewportSize()?.height}-configuration-review-models.png`,
+  );
+});
+
 test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract', () => {
   test.use({ familyModelScenario: 'configured' });
 
@@ -147,7 +178,7 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     await expect(page).toHaveURL(/history-origin=family-model-settings/);
   });
 
-  test('browser back asks before discarding an unsaved draft', async ({ app }) => {
+  test('browser back saves pending configuration changes before leaving', async ({ app }) => {
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
@@ -155,17 +186,21 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     const llmCard = page.locator('.family-model-settings-binding-card')
       .filter({ hasText: '对话与视觉理解 · 主用' });
     await expandBinding(llmCard);
-    await llmCard.getByLabel('模型名称').fill('unsaved-browser-back-model');
+    const draftRequest = page.waitForRequest((request) => (
+      request.method() === 'PUT'
+      && new URL(request.url()).pathname === '/api/family/model-settings/draft'
+    ));
+    await llmCard.getByRole('combobox', { name: '模型名称' }).fill('unsaved-browser-back-model');
 
     await page.goBack();
 
-    await expect(page.getByRole('heading', { name: '放弃未保存的配置修改？' })).toBeVisible();
-    await page.locator('.ui-form-actions-secondary').click();
-    await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
-    await expect(llmCard.getByLabel('模型名称')).toHaveValue('unsaved-browser-back-model');
+    const saved = await draftRequest;
+    expect(saved.postDataJSON().bindings.find((binding) => binding.capability === 'llm')?.requested_model)
+      .toBe('unsaved-browser-back-model');
+    await expect(page.getByRole('heading', { name: '放弃未保存的配置修改？' })).toHaveCount(0);
   });
 
-  test('Escape and backdrop stay inert while a draft mutation is pending', async ({ app }) => {
+  test('Escape stays inert while an automatic save is pending', async ({ app }) => {
     const { page } = app;
     let releaseDraftRequest;
     const draftRequestGate = new Promise((resolve) => {
@@ -182,32 +217,67 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     const llmCard = page.locator('.family-model-settings-binding-card')
       .filter({ hasText: '对话与视觉理解 · 主用' });
     await expandBinding(llmCard);
-    await llmCard.getByLabel('模型名称').fill('busy-overlay-model');
-    await page.goBack();
-    const discardDialog = page.getByRole('heading', { name: '放弃未保存的配置修改？' });
-    await expect(discardDialog).toBeVisible();
-
     const draftRequest = page.waitForRequest((request) => (
       request.method() === 'PUT'
       && new URL(request.url()).pathname === '/api/family/model-settings/draft'
     ));
-    await page.getByRole('button', { name: '保存草稿' }).evaluate((button) => button.click());
+    await llmCard.getByRole('combobox', { name: '模型名称' }).fill('busy-auto-save-model');
     await draftRequest;
     await expect(page.locator('.family-model-settings-workspace')).toHaveAttribute('aria-busy', 'true');
 
     await page.keyboard.press('Escape');
-    await page.locator('.workspace-overlay-backdrop').click({ position: { x: 8, y: 8 } });
-    await expect(discardDialog).toBeVisible();
+    await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
 
     releaseDraftRequest();
     await expect(page.locator('.family-model-settings-workspace')).not.toHaveAttribute('aria-busy', 'true');
   });
 });
 
+test.describe('@p0 model discovery and manual fallback', () => {
+  test.use({ familyModelScenario: 'configured' });
+
+  test('@family-model-settings-390x844 @family-model-settings-1440x900 loads Provider models while keeping custom input available', async ({ app }) => {
+    const { page } = app;
+    await openFamilyModelSettings(page);
+    if ((page.viewportSize()?.width ?? 0) < 768) {
+      await page.locator('.family-model-settings-mobile-task-list')
+        .getByRole('button', { name: '能力配置', exact: true }).click();
+    } else {
+      await page.locator('.family-model-settings-section-rail')
+        .getByRole('button', { name: /^能力配置/ }).click();
+    }
+
+    const llmCard = page.locator('.family-model-settings-binding-card')
+      .filter({ hasText: '对话与视觉理解 · 主用' });
+    await expandBinding(llmCard);
+    await expect(llmCard.getByText('已自动读取 7 个模型，也可以直接输入其他模型标识。')).toBeVisible();
+
+    const modelField = llmCard.getByRole('combobox', { name: '模型名称' });
+    await modelField.click();
+    await expect(page.getByRole('option', { name: 'culina-chat-v2' })).toBeVisible();
+    await page.getByRole('option', { name: 'culina-chat-v2' }).click();
+    await expect(modelField).toHaveValue('culina-chat-v2');
+
+    await modelField.fill('family-custom-chat');
+    await expect(modelField).toHaveValue('family-custom-chat');
+    await expect(page.getByRole('option', { name: '使用自定义：family-custom-chat' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 0}x${page.viewportSize()?.height ?? 0}-model-combobox.png`);
+
+    const imageCard = page.locator('.family-model-settings-binding-card')
+      .filter({ hasText: '图片生成 · 文字生成' });
+    await expandBinding(imageCard);
+    await imageCard.getByRole('button', { name: '图片尺寸' }).click();
+    await expect(page.getByRole('option', { name: /1024 × 1536.*竖版图片/ })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 0}x${page.viewportSize()?.height ?? 0}-settings-dropdown.png`);
+  });
+});
+
 test.describe('@p0 @family-model-settings-1440x900 Owner provider credential boundaries', () => {
   test.use({ familyModelScenario: 'configured' });
 
-  test('uses write-only keys only for create and rotation, while endpoint changes create a new profile', async ({ app }) => {
+  test('uses write-only keys only for create and update, while endpoint changes create a new profile', async ({ app }) => {
     const { familyModelRequests, page } = app;
     const createMarker = 'create-key-marker-only-for-request';
     const rotateMarker = 'rotate-key-marker-only-for-request';
@@ -227,18 +297,19 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     ));
     await page.getByRole('button', { name: '检查连接' }).click();
     await connectionRequest;
-    await expect(page.getByText('安全检查已通过，尚未执行真实调用。')).toBeVisible();
+    await expect(page.getByText('服务连接正常，已读取 7 个模型。')).toBeVisible();
 
-    await page.getByRole('button', { name: '轮换 Key' }).click();
-    await page.getByLabel('当前密码').fill('owner-password');
+    await page.getByRole('button', { name: '修改 Key' }).click();
+    await expect(page.getByLabel('当前密码')).toHaveCount(0);
     await page.getByLabel('新的 API Key').fill(rotateMarker);
     const rotateRequestPromise = page.waitForRequest((request) => (
       request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/family/model-settings/provider-profiles/family-model-profile-http/rotate-key'
     ));
-    await page.getByRole('button', { name: '确认轮换' }).click();
+    await page.getByRole('button', { name: '确认修改' }).click();
     const rotateRequest = await rotateRequestPromise;
-    expect(rotateRequest.postDataJSON()).toMatchObject({ new_api_key: rotateMarker, current_password: 'owner-password' });
+    expect(rotateRequest.postDataJSON()).toMatchObject({ new_api_key: rotateMarker });
+    expect(rotateRequest.postDataJSON()).not.toHaveProperty('current_password');
     await expect(page.getByLabel('新的 API Key')).toHaveCount(0);
 
     await page.getByLabel('显示名称').fill('家庭主服务（已校验）');
@@ -333,8 +404,8 @@ test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', 
 test.describe('@p0 @family-model-settings-1440x900 Owner configuration and privacy journey', () => {
   test.use({ familyModelScenario: 'configured' });
 
-  test('binds all seven capabilities, changes a price, validates and publishes', async ({ app }) => {
-    const { page } = app;
+  test('binds all seven capabilities, changes a price, auto saves and checks completeness', async ({ app }) => {
+    const { familyModelRequests, page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^能力配置/ }).click();
@@ -347,46 +418,38 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
 
     const llmCard = bindingCards.filter({ hasText: '对话与视觉理解 · 主用' });
     await expandBinding(llmCard);
-    await llmCard.getByLabel('我确认本次测试可能产生费用').check();
     const testCapabilityRequest = page.waitForRequest((request) => (
       request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/family/model-settings/capabilities/llm/test'
     ));
     await llmCard.getByRole('button', { name: '测试能力' }).click();
     await testCapabilityRequest;
-    await expect(llmCard.getByText('真实能力测试已完成。')).toBeVisible();
+    await expect(llmCard.getByRole('button', { name: '测试成功' })).toBeVisible();
 
-    await llmCard.getByLabel('模型名称').fill('culina-chat-v2');
+    await llmCard.getByRole('combobox', { name: '模型名称' }).fill('culina-chat-v2');
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^模型价格/ }).click();
     const firstPriceCard = page.locator('.family-model-settings-price-card').first();
     await expandPrice(firstPriceCard);
-    await firstPriceCard.getByLabel('单价').fill('0.120000');
     const saveDraftRequest = page.waitForRequest((request) => (
       request.method() === 'PUT' && new URL(request.url()).pathname === '/api/family/model-settings/draft'
     ));
-    await page.getByRole('button', { name: '保存草稿' }).click();
+    await firstPriceCard.getByLabel('未缓存输入 Token 单价').fill('0.120000');
     await saveDraftRequest;
-    await expect(page.getByText('草稿已同步')).toBeVisible();
+    await expect(page.getByText('配置已自动保存并生效')).toBeVisible();
 
-    await page.getByRole('button', { name: '前往发布复核' }).click();
+    await page.locator('.family-model-settings-section-rail')
+      .getByRole('button', { name: /^配置检查/ }).click();
     const validateRequest = page.waitForRequest((request) => (
       request.method() === 'POST' && new URL(request.url()).pathname === '/api/family/model-settings/draft/validate'
     ));
-    await page.getByRole('button', { name: '检查配置' }).click();
+    await page.getByRole('button', { name: '重新检查' }).click();
     await validateRequest;
-    await expect(page.getByText('配置检查已通过')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '配置状态良好' })).toBeVisible();
 
-    await page.getByLabel('当前密码').fill('owner-password');
-    await page.getByLabel('我已核对能力、价格和搜索影响').check();
-    const publishRequestPromise = page.waitForRequest((request) => (
-      request.method() === 'POST' && new URL(request.url()).pathname === '/api/family/model-settings/publish'
-    ));
-    await page.getByRole('button', { name: '发布配置', exact: true }).click();
-    const publishRequest = await publishRequestPromise;
-    expect(publishRequest.postDataJSON()).toMatchObject({ current_password: 'owner-password' });
     await expect(page.getByLabel('当前密码')).toHaveCount(0);
-    expect(await page.content()).not.toContain('owner-password');
+    await expect(page.getByRole('button', { name: '发布配置', exact: true })).toHaveCount(0);
+    expect(familyModelRequests.some((request) => request.pathname === '/api/family/model-settings/publish')).toBe(false);
   });
 
   test('clears family provider/model diagnostics before switching to personal model usage', async ({ app }) => {
@@ -431,17 +494,22 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
   test.describe('draft conflicts', () => {
     test.use({ familyModelScenario: 'conflict' });
 
-    test('retains an unsaved edit when the server reports a stale draft conflict', async ({ app }) => {
+    test('retains a local edit when automatic save reports a stale configuration conflict', async ({ app }) => {
       const { page } = app;
       await openFamilyModelSettings(page);
       await page.locator('.family-model-settings-section-rail')
         .getByRole('button', { name: /^能力配置/ }).click();
       const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
       const enabledSwitch = llmCard.getByRole('checkbox').first();
-      await enabledSwitch.uncheck();
-      await page.getByRole('button', { name: '保存草稿' }).click();
+      const conflictResponse = page.waitForResponse((response) => (
+        response.request().method() === 'PUT'
+        && new URL(response.url()).pathname === '/api/family/model-settings/draft'
+        && response.status() === 409
+      ));
+      await llmCard.locator('.family-model-settings-switch').click();
+      await conflictResponse;
 
-      await expect(page.getByRole('alert')).toContainText('设置已更新，请刷新后重新应用草稿。');
+      await expect(page.getByRole('alert')).toContainText('配置已在别处更新，请刷新后继续编辑。');
       await expect(enabledSwitch).not.toBeChecked();
     });
   });
@@ -458,7 +526,6 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
         .getByRole('button', { name: /^能力配置/ }).click();
       const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
       await expandBinding(llmCard);
-      await llmCard.getByLabel('我确认本次测试可能产生费用').check();
       const failedRefresh = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/api/family/model-settings'
         && response.status() === 503
@@ -474,16 +541,18 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
 test.describe('@family-model-settings-1440x900 capability hard limit and search recovery', () => {
   test.use({ familyModelScenario: 'hard-limit' });
 
-  test('shows a safe failed state when a billable capability test is blocked by the hard limit', async ({ app }) => {
+  test('shows a safe button state when a capability test is blocked by the hard limit', async ({ app }) => {
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^能力配置/ }).click();
     const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
     await expandBinding(llmCard);
-    await llmCard.getByLabel('我确认本次测试可能产生费用').check();
     await llmCard.getByRole('button', { name: '测试能力' }).click();
-    await expect(llmCard.getByText('测试没有完成，请检查配置。')).toBeVisible();
+    await expect(llmCard.getByRole('button', { name: '用量受限，重试' })).toHaveAttribute(
+      'title',
+      '测试被用量限制阻止，未调用模型。请检查模型用量限制后重试。',
+    );
   });
 });
 
@@ -495,7 +564,8 @@ test.describe('@family-model-settings-1440x900 search replacement recovery', () 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
       .getByRole('button', { name: /^搜索索引/ }).click();
-    await page.getByLabel('新的 Provider 服务').selectOption('family-model-profile-http');
+    await page.getByRole('button', { name: '新的 Provider 服务' }).click();
+    await page.getByRole('option', { name: /家庭主服务/ }).click();
     await page.getByLabel('新的向量模型').fill('culina-embedding-v2');
     await page.getByLabel('向量维度').fill('2048');
     await page.getByRole('button', { name: '评估完整重建' }).click();
@@ -518,7 +588,8 @@ test.describe('@family-model-settings-390x844 search cancellation and Member pri
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-mobile-task-list')
       .getByRole('button', { name: '搜索索引', exact: true }).click();
-    await page.getByLabel('新的 Provider 服务').selectOption('family-model-profile-http');
+    await page.getByRole('button', { name: '新的 Provider 服务' }).click();
+    await page.getByRole('option', { name: /家庭主服务/ }).click();
     await page.getByLabel('新的向量模型').fill('culina-embedding-v2');
     await page.getByLabel('向量维度').fill('2048');
     await page.getByRole('button', { name: '评估完整重建' }).click();

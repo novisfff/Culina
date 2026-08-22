@@ -11,9 +11,9 @@ const SECTIONS: ReadonlyArray<{ id: FamilyModelSettingsSection; label: string; d
   { id: 'overview', label: '服务概览', description: '查看当前配置状态' },
   { id: 'providers', label: 'Provider 服务', description: '管理连接地址与凭据' },
   { id: 'capabilities', label: '能力配置', description: '绑定七类模型能力' },
-  { id: 'prices', label: '模型价格', description: '补全计价规则' },
+  { id: 'prices', label: '模型价格', description: '可选，未填按 0 计算' },
   { id: 'search', label: '搜索索引', description: '管理向量索引切换' },
-  { id: 'review', label: '发布复核', description: '检查并发布配置' },
+  { id: 'review', label: '配置检查', description: '查看配置完善度' },
 ];
 
 function renderSectionIcon(id: FamilyModelSettingsSection): ReactNode {
@@ -78,7 +78,7 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
               {overview.publication.label}
             </span>
           </div>
-          <h2 id="family-model-settings-overview-title">{overview.providerCount > 0 ? '继续完成家庭 AI 服务' : '尚未配置服务'}</h2>
+          <h2 id="family-model-settings-overview-title">{overview.title}</h2>
           <p>{overview.publication.description}</p>
         </div>
         <button className="solid-button family-model-settings-primary-cta" type="button" onClick={() => props.onSelectSection(overview.primarySection)}>
@@ -92,10 +92,10 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
       <div className="family-model-settings-steps-section">
         <div className="family-model-settings-steps-header">
           <div className="family-model-settings-steps-header-title">
-            <h3>四步配置流程</h3>
-            <p>按顺序完成连接、绑定、计价与发布，构建家庭专属 AI 工作环境</p>
+            <h3>配置引导</h3>
+            <p>连接服务并绑定需要的能力即可使用；价格和完整度检查可按需查看</p>
           </div>
-          <span className="family-model-settings-steps-badge">4 步向导</span>
+          <span className="family-model-settings-steps-badge">自动保存</span>
         </div>
         <ol className="family-model-settings-setup-steps" aria-label="家庭 AI 服务配置进度">
           {overview.steps.map((step) => (
@@ -112,7 +112,13 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
                     )}
                   </span>
                   <span className={`family-model-settings-step-state is-${step.status}`}>
-                    {step.status === 'complete' ? '已完成' : step.status === 'current' ? '下一步' : '待完成'}
+                    {step.status === 'complete'
+                      ? '已完成'
+                      : step.id === 'prices' || step.id === 'review'
+                        ? '按需'
+                        : step.status === 'current'
+                          ? '下一步'
+                          : '待完成'}
                   </span>
                 </div>
                 <div className="family-model-settings-step-card-body">
@@ -120,7 +126,13 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
                   <small>{step.description}</small>
                 </div>
                 <div className="family-model-settings-step-card-footer" aria-hidden="true">
-                  <span>{step.status === 'complete' ? '查看配置' : step.status === 'current' ? '立即开始' : '前往配置'}</span>
+                  <span>{step.status === 'complete'
+                    ? '查看配置'
+                    : step.id === 'prices' || step.id === 'review'
+                      ? '按需查看'
+                      : step.status === 'current'
+                        ? '立即开始'
+                        : '前往配置'}</span>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="m9 6 6 6-6 6" />
                   </svg>
@@ -173,16 +185,20 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
               </svg>
             </div>
             <div className="family-model-settings-metric-tile-content">
-              <span>价格就绪</span>
+              <span>已填写价格</span>
               <strong>{overview.pricedCapabilityCount} <small>/ {overview.enabledCapabilityCount} 类</small></strong>
             </div>
             <span className={`family-model-settings-metric-tile-badge ${overview.enabledCapabilityCount > 0 && overview.pricedCapabilityCount === overview.enabledCapabilityCount ? 'is-ready' : 'is-pending'}`}>
-              {overview.enabledCapabilityCount > 0 && overview.pricedCapabilityCount === overview.enabledCapabilityCount ? '已补齐' : '待补齐'}
+              {overview.enabledCapabilityCount === 0
+                ? '暂无能力'
+                : overview.pricedCapabilityCount === overview.enabledCapabilityCount
+                  ? '已填写'
+                  : '未填按 0'}
             </span>
           </article>
         </div>
         <p className="family-model-settings-overview-summary">
-          {overview.providerCount} 个服务 · {overview.enabledCapabilityCount} 类已启用能力 · {overview.pricedCapabilityCount}/{overview.enabledCapabilityCount} 类价格就绪
+          {overview.providerCount} 个服务 · {overview.enabledCapabilityCount} 类已启用能力 · {overview.pricedCapabilityCount}/{overview.enabledCapabilityCount} 类已填写价格
         </p>
       </div>
     </section>
@@ -251,6 +267,22 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             </div>
           </div>
           {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
+          {props.errorMessage ? (
+            <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
+          ) : (
+            <p className={`family-model-settings-auto-save-status ${props.serverDraft.validation_status === 'invalid' ? 'is-warning' : 'is-ready'}`} role="status">
+              <span className="family-model-settings-status-dot" aria-hidden="true" />
+              {props.busyAction === 'save'
+                ? '正在自动保存…'
+                : props.state.dirty
+                  ? '修改将在稍后自动保存'
+                  : props.serverDraft.validation_status === 'invalid'
+                    ? '修改已保存，配置仍可继续完善；当前可用配置不受影响'
+                    : props.settings.active_config_revision_id
+                      ? '配置已自动保存并生效'
+                      : '修改会自动保存，信息完整后立即生效'}
+            </p>
+          )}
         </header>
 
         {props.state.section === 'overview' ? <Overview overview={props.overview} onSelectSection={props.onSelectSection} /> : null}
@@ -274,36 +306,13 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             profiles={props.settings.provider_profiles}
             busy={busy}
             onDraftChange={props.onDraftChange}
-            onTestCapability={props.actions.testCapability}
+            onDiscoverModels={props.onDiscoverModels}
+            onTestCapability={props.onTestCapability}
           />
         ) : null}
         {props.state.section === 'prices' ? <ModelPriceEditor draft={props.draft} busy={busy} onDraftChange={props.onDraftChange} /> : null}
         {props.state.section === 'search' ? <SearchProfilePanel {...props} /> : null}
         {props.state.section === 'review' ? <PublishReview {...props} /> : null}
-
-        {props.state.section !== 'review' && props.state.section !== 'overview' ? (
-          <footer className="family-model-settings-desktop-footer">
-            <div className="family-model-settings-footer-status">
-              {props.errorMessage ? (
-                <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
-              ) : (
-                <div className={`family-model-settings-draft-indicator ${props.state.dirty ? 'is-dirty' : 'is-synced'}`}>
-                  <span className="family-model-settings-status-dot" aria-hidden="true" />
-                  <span>{props.state.dirty ? '有未保存的草稿修改' : '草稿已同步'}</span>
-                </div>
-              )}
-            </div>
-            <div className="family-model-settings-editor-actions">
-              <button className="ghost-button" type="button" disabled={busy || !props.state.dirty} onClick={() => { void props.onSaveDraft(); }}>保存草稿</button>
-              <button className="tertiary-button family-model-settings-review-cta" type="button" disabled={busy} onClick={() => props.onSelectSection('review')}>
-                <span>前往发布复核</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m9 6 6 6-6 6" />
-                </svg>
-              </button>
-            </div>
-          </footer>
-        ) : null}
       </section>
     </main>
   );

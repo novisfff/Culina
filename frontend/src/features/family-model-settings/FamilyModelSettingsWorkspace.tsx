@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ConfirmDialog, StateBlock } from '../../components/ui-kit';
+import { StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
@@ -8,6 +8,7 @@ import type {
 import {
   createEmptyFamilyModelDraft,
   createFamilyModelSettingsDraft,
+  normalizeFamilyModelPriceRates,
   rebindDraftProviderProfile,
   type FamilyModelSettingsDraft,
 } from './familyModelSettingsModel';
@@ -82,7 +83,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const [serverDraft, setServerDraft] = useState<FamilyModelConfigDraft | null>(null);
   const [draft, setDraft] = useState<FamilyModelSettingsDraft>(() => createEmptyFamilyModelDraft());
   const [validation, setValidation] = useState<FamilyModelDraftValidation | null>(null);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const failedAutoSaveDraftRef = useRef<FamilyModelSettingsDraft | null>(null);
 
   useLayoutEffect(() => {
     const previousState = window.history.state;
@@ -121,7 +122,10 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const busy = busyAction !== null;
 
   const setLocalDraft = useCallback((next: FamilyModelSettingsDraft) => {
-    setDraft(next);
+    setDraft({
+      ...next,
+      price_rates: normalizeFamilyModelPriceRates(next.bindings, next.price_rates),
+    });
     setValidation(null);
     state.actions.markDirty(true);
   }, [state.actions]);
@@ -131,6 +135,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     setServerDraft(saved);
     setDraft(localDraftFromServerDraft(saved));
     setValidation(null);
+    failedAutoSaveDraftRef.current = null;
     state.actions.markDirty(false);
     return saved;
   }, [mutationState.actions, state.actions]);
@@ -139,6 +144,17 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     () => persistDraftValue(draft),
     [draft, persistDraftValue],
   );
+
+  useEffect(() => {
+    if (!state.state.dirty || busy || failedAutoSaveDraftRef.current === draft) return;
+    const timer = window.setTimeout(() => {
+      failedAutoSaveDraftRef.current = draft;
+      void persistDraftValue(draft).catch(() => {
+        // Keep the local value and wait for another edit or an explicit retry.
+      });
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [busy, draft, persistDraftValue, state.state.dirty]);
 
   const rebindCreatedProfile = useCallback(async (
     fromProfileId: string,
@@ -165,17 +181,20 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     setValidation(result);
   }, [mutationState.actions, persistDraft, serverDraft, state.state.dirty]);
 
-  const publish = useCallback(async (input: {
-    currentPassword: string;
-    configChecksum: string;
-    priceChecksum: string;
-  }) => {
+  const testCapability = useCallback(async (
+    capability: Parameters<typeof mutationState.actions.testCapability>[0],
+    variantKey: string,
+    confirmBillable: boolean,
+  ) => {
     const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
-    if (!currentDraft) return;
-    await mutationState.actions.publish(input, currentDraft.draft_version_number);
-    setValidation(null);
-    state.actions.markDirty(false);
-  }, [mutationState.actions, persistDraft, serverDraft, state.actions, state.state.dirty]);
+    if (!currentDraft) throw new Error('家庭模型草稿尚未加载完成。');
+    return mutationState.actions.testCapability(
+      capability,
+      variantKey,
+      confirmBillable,
+      currentDraft.draft_version_number,
+    );
+  }, [mutationState.actions, persistDraft, serverDraft, state.state.dirty]);
 
   const exitWorkspace = useCallback(() => {
     if (pendingHistoryExitRef.current) return;
@@ -190,11 +209,13 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const requestBack = useCallback(() => {
     if (busy) return;
     if (state.state.dirty) {
-      setConfirmDiscard(true);
+      void persistDraft().then(exitWorkspace).catch(() => {
+        // Stay on the page so the visible error can guide recovery.
+      });
       return;
     }
     exitWorkspace();
-  }, [busy, exitWorkspace, state.state.dirty]);
+  }, [busy, exitWorkspace, persistDraft, state.state.dirty]);
 
   useEffect(() => {
     const preserveWorkspaceHistory = () => {
@@ -216,7 +237,6 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (confirmDiscard) return;
       event.preventDefault();
       event.stopPropagation();
       requestBack();
@@ -228,7 +248,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [busy, confirmDiscard, historyMarker, props.onBack, requestBack, state.state.dirty]);
+  }, [busy, historyMarker, props.onBack, requestBack, state.state.dirty]);
 
   if (!queries.isOwner) {
     return (
@@ -296,40 +316,15 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     onPushMobileTask: state.actions.pushMobileTask,
     onPopMobileTask: state.actions.popMobileTask,
     onDraftChange: setLocalDraft,
-    onSaveDraft: async () => {
-      try {
-        await persistDraft();
-      } catch {
-        // Mutation state already exposes a safe, recoverable error message.
-      }
-    },
+    onDiscoverModels: queries.discoverProviderModels,
+    onTestCapability: testCapability,
     onValidate: validate,
-    onPublish: publish,
     onReplacementProfileIdChange: setReplacementProfileId,
   };
 
-  return (
-    <>
-      {props.isPhoneViewport
-        ? <FamilyModelSettingsMobilePage {...surfaceProps} />
-        : <FamilyModelSettingsDesktopView {...surfaceProps} />}
-      <ConfirmDialog
-        open={confirmDiscard}
-        isSubmitting={busy}
-        title="放弃未保存的配置修改？"
-        description="返回家庭后，本次尚未保存的服务、能力和价格修改将被放弃。"
-        confirmLabel="放弃修改并返回"
-        cancelLabel="继续编辑"
-        tone="danger"
-        onCancel={() => setConfirmDiscard(false)}
-        onConfirm={() => {
-          setConfirmDiscard(false);
-          state.actions.markDirty(false);
-          exitWorkspace();
-        }}
-      />
-    </>
-  );
+  return props.isPhoneViewport
+    ? <FamilyModelSettingsMobilePage {...surfaceProps} />
+    : <FamilyModelSettingsDesktopView {...surfaceProps} />;
 }
 
 /**
