@@ -41,7 +41,7 @@ export function HomeCompactCalendar(props: {
     : '已选日期';
   const selectedDayPlanSummary = selectedDayProgress.totalCount
     ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
-    : '当天还没有安排';
+    : '当天暂无安排';
 
   return (
     <section className="home-compact-calendar" aria-label="七天菜单">
@@ -162,7 +162,7 @@ export function HomeCompactCalendar(props: {
               <small>
                 {selectedDayProgress.totalCount
                   ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
-                  : '当天还没有安排'}
+                  : '当天暂无安排'}
               </small>
             </div>
             <button
@@ -198,10 +198,10 @@ export function HomeCompactCalendar(props: {
                 <div className="home-compact-meal-slot-head">
                   <strong>{MEAL_TYPE_LABELS[meal.mealType]}</strong>
                   <span className="home-compact-meal-status-long">
-                    {progress.totalCount > 0 ? `${progress.totalCount} 项计划 · 已记录 ${progress.recordedCount} 项` : '未安排'}
+                    {progress.totalCount > 0 ? `${progress.totalCount} 项计划 · 已记录 ${progress.recordedCount} 项` : '暂无安排'}
                   </span>
                   <span className="home-compact-meal-status-tablet">
-                    {progress.totalCount > 0 ? `已记 ${progress.recordedCount}/${progress.totalCount}` : '未安排'}
+                    {progress.totalCount > 0 ? `已记 ${progress.recordedCount}/${progress.totalCount}` : '暂无安排'}
                   </span>
                 </div>
                 <div className="home-compact-meal-items">

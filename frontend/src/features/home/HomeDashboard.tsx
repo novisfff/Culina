@@ -67,7 +67,6 @@ import { MealRecordResultBar } from '../meals/MealRecordResultBar';
 import type { MealRecordResult } from '../meals/useMealRecordResultState';
 import {
   type DashboardPlanDay,
-  type DashboardPlanSummaryItem,
   type DashboardRecommendation,
   type DashboardStat,
   type HomeHighlightsViewModel,
@@ -98,7 +97,6 @@ export type HomeDashboardProps = {
   hasMoreHomeActions: boolean;
   activeFoodPlanItems: FoodPlanItem[];
   foodPlanItems: FoodPlanItem[];
-  dashboardWeekMealCapacity: number;
   dashboardPlanDays: DashboardPlanDay[];
   compactPlanDays: DashboardPlanDay[];
   selectedDashboardPlanDay?: DashboardPlanDay;
@@ -106,7 +104,6 @@ export type HomeDashboardProps = {
   selectedPlanSummary: string;
   pendingShoppingCount: number;
   pendingShoppingPreview: ShoppingListItem[];
-  dashboardPlanSummary: DashboardPlanSummaryItem[];
   foodPlanWeekRange: { start: string; end: string };
   homeHighlights: HomeHighlightsViewModel;
   foods: Food[];
