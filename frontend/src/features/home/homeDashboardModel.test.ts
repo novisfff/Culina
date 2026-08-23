@@ -82,7 +82,7 @@ describe('homeDashboardModel', () => {
       updated_at: '2026-07-15T00:00:00Z',
     };
 
-    expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '待安排', state: 'empty' });
+    expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '暂无安排', state: 'empty' });
     expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2' }])).toEqual({ totalCount: 2, recordedCount: 0, pendingCount: 2, label: '2 项安排', state: 'planned' });
     expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 1, pendingCount: 1, label: '已记录 1 / 2', state: 'partial' });
     expect(getDashboardPlanProgress([{ ...base, status: 'cooked' }, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 2, pendingCount: 0, label: '2 项已记录', state: 'complete' });
@@ -312,7 +312,11 @@ describe('homeDashboardModel', () => {
       inventoryActionGroups,
       availableIngredientCount,
       shoppingItems: [shoppingItem, { ...shoppingItem, id: 'shopping-done', done: true }],
-      foodPlanItems: [planItem, { ...planItem, id: 'plan-skipped', status: 'skipped' }],
+      foodPlanItems: [
+        planItem,
+        { ...planItem, id: 'plan-second-dish', food_id: 'food-2', food_name: '冬瓜汤' },
+        { ...planItem, id: 'plan-skipped', status: 'skipped' },
+      ],
       foodRecommendations: {
         target_meal_type: 'dinner',
         target_date: '2026-06-01',
@@ -341,14 +345,27 @@ describe('homeDashboardModel', () => {
     expect(model.pendingShoppingCount).toBe(1);
     expect(model.mobileRecommendations[0]?.recommendation.food.id).toBe('food-1');
     expect(model.desktopRecommendations[0]?.recommendation.food.id).toBe('food-1');
-    expect(model.activeFoodPlanItems).toHaveLength(1);
+    expect(model.activeFoodPlanItems).toHaveLength(2);
+    expect(model.dashboardStats.find((stat) => stat.label === '本周已安排')).toMatchObject({
+      value: '1',
+      unit: '顿',
+      detail: '按家庭节奏规划',
+    });
+    expect('dashboardWeekMealCapacity' in model).toBe(false);
+    expect('dashboardPlanSummary' in model).toBe(false);
     expect(model.dashboardPlanDays[0]).toMatchObject({
       date: '2026-06-01',
       plannedMealCount: 1,
-      totalCount: 1,
+      totalCount: 2,
       isToday: true,
       isSelected: true,
     });
+    expect(model.dashboardPlanDays[0].mealItems.map((meal) => meal.mealType)).toEqual([
+      'breakfast',
+      'lunch',
+      'dinner',
+      'snack',
+    ]);
     expect(model.selectedDashboardPlanDateLabel).toContain('今天');
   });
 

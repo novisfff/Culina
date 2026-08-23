@@ -231,7 +231,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
       { label: '在库食材', value: '4', unit: '种', detail: '库存充足', icon: 'leaf', tone: 'green' },
       { label: '需处理食材', value: '3', unit: '种', detail: '过期、临期或待补货', icon: 'bell', tone: 'coral' },
       { label: '待采购', value: '0', unit: '项', detail: '清单已完成', icon: 'cart', tone: 'yellow' },
-      { label: '本周做菜', value: '0', unit: '餐', detail: '计划进行中', icon: 'pot', tone: 'violet' },
+      { label: '本周已安排', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
     ],
     mobileRecommendations: [],
     recommendationCount: 0,
@@ -452,7 +452,10 @@ describe('HomeMobileDashboard three-question mobile', () => {
     const toggle = view.querySelector<HTMLButtonElement>('button[aria-label="展开当天安排"]');
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');
     expect(toggle?.textContent).toContain('今天 · 6日');
-    expect(toggle?.textContent).toContain('当天还没有安排');
+    expect(toggle?.textContent).toContain('当天暂无安排');
+    expect(view.textContent).toContain('暂无安排');
+    expect(view.textContent).not.toContain('待安排');
+    expect(view.textContent).not.toContain('当天还没有安排');
     expect(detail?.hidden).toBe(true);
     act(() => toggle?.click());
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
@@ -460,6 +463,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(detail?.hidden).toBe(false);
     expect(view.querySelector('.home-compact-meal-grid')?.classList.contains('is-mobile-list')).toBe(true);
     expect(view.querySelectorAll('.home-compact-meal-slot')).toHaveLength(4);
+    expect(view.textContent).not.toContain('未安排');
     expect(buttonByText(view, '完整周菜单')).toBeTruthy();
     expect(view.textContent).toContain('7月6日 - 7月12日');
   });

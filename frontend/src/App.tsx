@@ -934,8 +934,6 @@ function App() {
     dashboardRecommendationItems,
     desktopRecommendations,
     mobileRecommendations,
-    dashboardWeekMealCapacity,
-    dashboardPlanSummary,
     dashboardPlanDays,
     selectedDashboardPlanDay,
     selectedDashboardPlanDateLabel,
@@ -1221,7 +1219,6 @@ function App() {
             hasMoreHomeActions={hasMoreHomeActions}
             activeFoodPlanItems={activeFoodPlanItems}
             foodPlanItems={foodPlanItems}
-            dashboardWeekMealCapacity={dashboardWeekMealCapacity}
             dashboardPlanDays={dashboardPlanDays}
             compactPlanDays={dashboardPlanDays}
             selectedDashboardPlanDay={selectedDashboardPlanDay}
@@ -1229,7 +1226,6 @@ function App() {
             selectedPlanSummary={selectedPlanSummary}
             pendingShoppingCount={pendingShoppingCount}
             pendingShoppingPreview={pendingShoppingPreview}
-            dashboardPlanSummary={dashboardPlanSummary}
             foodPlanWeekRange={foodPlanWeekRange}
             homeHighlights={homeHighlightsViewModel}
             foods={foods}

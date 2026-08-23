@@ -67,13 +67,6 @@ export type DashboardPlanDay = {
   isSelected: boolean;
 };
 
-export type DashboardPlanSummaryItem = {
-  label: string;
-  value: number;
-  icon: DashboardIconName;
-  tone: string;
-};
-
 export type DashboardPlanProgress = {
   totalCount: number;
   recordedCount: number;
@@ -88,7 +81,7 @@ export function getDashboardPlanProgress(items: readonly FoodPlanItem[]): Dashbo
   const recordedCount = visibleItems.filter((item) => item.status === 'cooked').length;
   const pendingCount = totalCount - recordedCount;
   if (totalCount === 0) {
-    return { totalCount, recordedCount, pendingCount, label: '待安排', state: 'empty' };
+    return { totalCount, recordedCount, pendingCount, label: '暂无安排', state: 'empty' };
   }
   if (recordedCount === 0) {
     return { totalCount, recordedCount, pendingCount, label: `${totalCount} 项安排`, state: 'planned' };
@@ -297,6 +290,9 @@ export function buildHomeDashboardViewModel(input: {
   const hasFullListInventoryActionGroups = input.inventoryActionGroups.length > homeInventoryActionGroups.length;
   const availableInventoryCount = input.availableIngredientCount;
   const activeFoodPlanItems = input.foodPlanItems.filter((item) => item.status !== 'skipped');
+  const scheduledMealCount = new Set(
+    activeFoodPlanItems.map((item) => `${item.plan_date}:${item.meal_type}`),
+  ).size;
   const pendingShoppingPreview = input.shoppingItems.filter((item) => !item.done);
   const pendingShoppingCount = pendingShoppingPreview.length;
   const todaysMeals = input.mealLogs.filter((item) => item.date === input.today);
@@ -326,10 +322,10 @@ export function buildHomeDashboardViewModel(input: {
       tone: 'yellow',
     },
     {
-      label: '本周做菜',
-      value: `${activeFoodPlanItems.length}`,
-      unit: '餐',
-      detail: '计划进行中',
+      label: '本周已安排',
+      value: `${scheduledMealCount}`,
+      unit: '顿',
+      detail: '按家庭节奏规划',
       icon: 'pot',
       tone: 'violet',
     },
@@ -348,14 +344,6 @@ export function buildHomeDashboardViewModel(input: {
     input.mobileRecommendationCursor ?? 0,
     1,
   );
-  const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;
-  const completedFoodPlanCount = activeFoodPlanItems.filter((item) => item.status === 'cooked').length;
-  const pendingFoodPlanSlots = Math.max(0, dashboardWeekMealCapacity - activeFoodPlanItems.length);
-  const dashboardPlanSummary: DashboardPlanSummaryItem[] = [
-    { label: '已安排', value: activeFoodPlanItems.length, icon: 'receipt', tone: 'orange' },
-    { label: '待补充', value: pendingFoodPlanSlots, icon: 'flame', tone: 'amber' },
-    { label: '已完成', value: completedFoodPlanCount, icon: 'check', tone: 'green' },
-  ];
   const dashboardPlanDays: DashboardPlanDay[] = Array.from({ length: 7 }, (_, index) => {
     const date = addDateKeyDays(input.foodPlanWeekRange.start, index);
     const dayItems = activeFoodPlanItems.filter((entry) => entry.plan_date === date);
@@ -397,8 +385,6 @@ export function buildHomeDashboardViewModel(input: {
     mobileRecommendations,
     canChangeDesktopRecommendations: dashboardRecommendationItems.length > 3,
     canChangeMobileRecommendation: dashboardRecommendationItems.length > 1,
-    dashboardWeekMealCapacity,
-    dashboardPlanSummary,
     dashboardPlanDays,
     selectedDashboardPlanDay,
     selectedDashboardPlanDateLabel,
