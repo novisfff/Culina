@@ -1,4 +1,5 @@
 import threading
+import time
 from typing import Any
 
 from app.ai.errors import ApprovalRequired
@@ -666,7 +667,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             continue_stream.set()
             scrubbed = False
-            for _attempt in range(250):
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
                 with self.SessionLocal() as db:
                     run = db.get(AIAgentRun, "agent_run-transient-stream-disconnect")
                     if run is not None and run.conversation_id is None:

@@ -52,28 +52,16 @@ def _publish_initial_configuration(context: FamilyModelApiContext) -> dict[str, 
         },
     )
     assert saved.status_code == 200, saved.text
-    draft = saved.json()
-    validation = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": draft["draft_version_number"]},
-    )
-    assert validation.status_code == 200, validation.text
-    checks = validation.json()
     settings = context.client.get("/api/family/model-settings")
     assert settings.status_code == 200, settings.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": draft["draft_version_number"],
-            "idempotency_key": "price-api-config-publish-1",
-            "config_checksum": checks["config_checksum"],
-            "price_checksum": checks["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert published.status_code == 200, published.text
-    return published.json()
+    active = settings.json()
+    assert active["active_config_revision_id"] is not None
+    assert active["active_price_version_id"] is not None
+    return {
+        "config_revision_id": active["active_config_revision_id"],
+        "price_version_id": active["active_price_version_id"],
+        "settings_version_number": active["version_number"],
+    }
 
 
 def _price_input_rates(prices: dict[str, object]) -> list[dict[str, object]]:

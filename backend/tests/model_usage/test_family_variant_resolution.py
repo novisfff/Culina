@@ -54,26 +54,11 @@ def _publish_family_llm(
         },
     )
     assert draft.status_code == 200, draft.text
-    validation = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": draft.json()["draft_version_number"]},
-    )
-    assert validation.status_code == 200, validation.text
     settings = context.client.get("/api/family/model-settings")
     assert settings.status_code == 200, settings.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": draft.json()["draft_version_number"],
-            "idempotency_key": f"variant-publish-{suffix}",
-            "config_checksum": validation.json()["config_checksum"],
-            "price_checksum": validation.json()["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert published.status_code == 200, published.text
-    return str(profile["id"]), str(published.json()["config_revision_id"])
+    config_revision_id = settings.json()["active_config_revision_id"]
+    assert config_revision_id is not None
+    return str(profile["id"]), str(config_revision_id)
 
 
 def test_configured_variants_come_from_one_family_revision(

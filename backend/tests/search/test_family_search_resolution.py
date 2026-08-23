@@ -101,27 +101,13 @@ def _publish_initial_configuration(
             ],
             "price_rates": _rates(),
             "change_note": "family search runtime test",
+            "confirm_initial_search_index": True,
         },
     )
     assert saved.status_code == 200, saved.text
-    validation = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": saved.json()["draft_version_number"]},
-    )
-    assert validation.status_code == 200, validation.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": saved.json()["draft_version_number"],
-            "idempotency_key": f"family-search-publish-{id_suffix}",
-            "config_checksum": validation.json()["config_checksum"],
-            "price_checksum": validation.json()["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert published.status_code == 200, published.text
-    return published.json()
+    saved_payload = saved.json()["payload"]
+    assert saved_payload["search_profile_id"] is not None
+    return {"search_profile_id": saved_payload["search_profile_id"]}
 
 
 def _resolver(context: FamilyModelApiContext, db) -> FamilyModelConfigurationResolver:

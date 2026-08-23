@@ -15,7 +15,7 @@ from tests.family_model_settings._support import (
     family_model_api,
 )
 from tests.family_model_settings.fake_provider import FakeFamilyModelProvider
-from tests.family_model_settings.test_capability_tests import _publish_llm
+from tests.family_model_settings.test_capability_tests import _save_active_llm
 
 
 def _install_fake_provider(
@@ -82,7 +82,7 @@ def test_owner_configuration_never_crosses_family_boundary_or_member_privacy_bou
 ) -> None:
     provider = FakeFamilyModelProvider()
     _install_fake_provider(family_model_api, provider)
-    _publish_llm(family_model_api)
+    _save_active_llm(family_model_api)
     owner_test = family_model_api.client.post(
         "/api/family/model-settings/capabilities/llm/test",
         json={
