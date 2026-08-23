@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     access_token_expire_minutes: int = 60 * 24 * 7
     media_max_upload_bytes: int = 30 * 1024 * 1024
+    media_access_url_ttl_seconds: int = 300
+    realtime_websocket_ticket_ttl_seconds: int = 45
     minio_endpoint: str = "127.0.0.1:9000"
     minio_access_key: str = "culina"
     minio_secret_key: str = "culina_local_minio_secret"
@@ -145,6 +147,12 @@ class Settings(BaseSettings):
             raise ValueError("FAMILY_MODEL_TTS_MAX_CHARACTERS must be positive")
         if self.family_model_realtime_session_max_seconds <= 0:
             raise ValueError("FAMILY_MODEL_REALTIME_SESSION_MAX_SECONDS must be positive")
+        if not 30 <= self.media_access_url_ttl_seconds <= 900:
+            raise ValueError("MEDIA_ACCESS_URL_TTL_SECONDS must be between 30 and 900")
+        if not 30 <= self.realtime_websocket_ticket_ttl_seconds <= 60:
+            raise ValueError(
+                "REALTIME_WEBSOCKET_TICKET_TTL_SECONDS must be between 30 and 60"
+            )
 
         search_vector_backend = self.search_vector_backend.strip().lower()
         if self.search_keyword_backend.strip().lower() != "mysql":

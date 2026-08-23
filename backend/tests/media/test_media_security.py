@@ -6,7 +6,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi import Header, HTTPException
 from fastapi.testclient import TestClient
+from jose import jwt
+import pytest
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -29,7 +32,12 @@ from app.services.family_model_settings.types import (
     ResolvedCapabilityBinding,
     ResolvedProviderEndpoint,
 )
-from app.services.media import build_media_variants, delete_media_file
+from app.services.media import build_media_variants, delete_media_file, read_media_asset_content
+from app.services.access_tickets import MEDIA_ACCESS_AUDIENCE
+
+pytestmark = pytest.mark.filterwarnings(
+    r"ignore:datetime.datetime.utcnow\(\) is deprecated:DeprecationWarning:jose.jwt"
+)
 
 
 def make_png_payload() -> bytes:
@@ -129,6 +137,22 @@ class FakeFamilyImageResolver:
 
 
 class MediaVariantServiceTestCase(unittest.TestCase):
+    def test_ensure_media_bucket_removes_anonymous_policy(self) -> None:
+        from app.services.media import ensure_media_bucket
+
+        with (
+            patch(
+                "app.services.media.get_settings",
+                return_value=SimpleNamespace(minio_bucket="bucket"),
+            ),
+            patch("app.services.media._storage_client") as storage_client,
+        ):
+            storage_client.return_value.bucket_exists.return_value = True
+            ensure_media_bucket()
+
+        storage_client.return_value.delete_bucket_policy.assert_called_once_with("bucket")
+        storage_client.return_value.set_bucket_policy.assert_not_called()
+
     def test_build_media_variants_writes_three_webp_objects(self) -> None:
         with patch("app.services.media._put_media_object") as put_object:
             variants = build_media_variants(family_id="family-test", asset_id="photo-test", payload=PNG_PAYLOAD)
@@ -170,6 +194,24 @@ class MediaVariantServiceTestCase(unittest.TestCase):
         remove_object.assert_any_call("bucket", "family-test/variants/photo-test/card.webp")
         remove_object.assert_any_call("bucket", "family-test/cover.png")
 
+    def test_original_media_path_must_belong_to_asset_family(self) -> None:
+        asset = MediaAsset(
+            id="photo-test",
+            family_id="family-test",
+            name="cover",
+            url="/media/family-other/private.png",
+            file_path="family-other/private.png",
+            source=MediaSource.UPLOAD,
+            alt="cover",
+        )
+
+        with patch("app.services.media._storage_client") as storage_client:
+            with self.assertRaises(HTTPException) as exc_info:
+                read_media_asset_content(asset, "original")
+
+        self.assertEqual(exc_info.exception.status_code, 404)
+        storage_client.assert_not_called()
+
 
 class MediaSecurityTestCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -198,17 +240,65 @@ class MediaSecurityTestCase(unittest.TestCase):
                 role=UserRole.OWNER,
                 status=MembershipStatus.ACTIVE,
             )
-            db.add_all([family, user, membership])
+            other_family = Family(id="family-other", name="其他家庭", motto="", location="")
+            other_user = User(
+                id="user-other",
+                username="media-other",
+                display_name="Other Media",
+                avatar_seed="",
+                is_active=True,
+            )
+            other_membership = Membership(
+                id="membership-other",
+                family_id=other_family.id,
+                user_id=other_user.id,
+                role=UserRole.OWNER,
+                status=MembershipStatus.ACTIVE,
+            )
+            private_asset = MediaAsset(
+                id="photo-private",
+                family_id=family.id,
+                name="private.png",
+                url="/media/family-test/private.png",
+                file_path="family-test/private.png",
+                source=MediaSource.UPLOAD,
+                alt="家庭私有图片",
+                variants={
+                    "card": {
+                        "url": "/media/family-test/variants/photo-private/card.webp",
+                        "width": 640,
+                        "height": 480,
+                        "content_type": "image/webp",
+                        "byte_size": 1024,
+                    }
+                },
+                created_by=user.id,
+            )
+            db.add_all(
+                [
+                    family,
+                    user,
+                    membership,
+                    other_family,
+                    other_user,
+                    other_membership,
+                    private_asset,
+                ]
+            )
             db.commit()
 
         def override_db():
             with self.SessionLocal() as db:
                 yield db
 
-        def override_auth():
+        def override_auth(authorization: str | None = Header(default=None)):
             with self.SessionLocal() as db:
-                user = db.get(User, "user-test")
-                membership = db.get(Membership, "membership-test")
+                other_family = authorization == "Bearer other-family"
+                user = db.get(User, "user-other" if other_family else "user-test")
+                membership = db.get(
+                    Membership,
+                    "membership-other" if other_family else "membership-test",
+                )
                 assert user is not None and membership is not None
                 return user, membership
 
@@ -219,6 +309,15 @@ class MediaSecurityTestCase(unittest.TestCase):
             ),
         )
         self.settings_patcher.start()
+        self.access_ticket_settings_patcher = patch(
+            "app.services.access_tickets.get_settings",
+            return_value=SimpleNamespace(
+                jwt_secret="media-ticket-test-secret",
+                media_access_url_ttl_seconds=300,
+                realtime_websocket_ticket_ttl_seconds=45,
+            ),
+        )
+        self.access_ticket_settings_patcher.start()
         self.image_job_settings_patcher = patch(
             "app.ai.images.jobs.get_settings",
             return_value=SimpleNamespace(model_usage_required=False),
@@ -249,6 +348,7 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.image_usage_adapter_patcher.stop()
         self.family_model_resolver_patcher.stop()
         self.image_job_settings_patcher.stop()
+        self.access_ticket_settings_patcher.stop()
         self.settings_patcher.stop()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
@@ -352,7 +452,9 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.assertEqual(variants["card"]["content_type"], "image/webp")
         self.assertEqual(variants["card"]["width"], 4)
         self.assertEqual(variants["card"]["height"], 3)
-        self.assertTrue(variants["card"]["url"].endswith("/card.webp"))
+        self.assertIn("/api/media/", variants["card"]["url"])
+        self.assertIn("variant=card", variants["card"]["url"])
+        self.assertNotIn("/card.webp", variants["card"]["url"])
 
     def test_retry_failed_ai_render_requeues_job(self) -> None:
         response = self.client.post(
@@ -625,14 +727,83 @@ class MediaSecurityTestCase(unittest.TestCase):
             self.assertIsNone(generated.entity_type)
             self.assertIsNone(generated.entity_id)
 
-    def test_media_route_reads_object_from_storage(self) -> None:
-        with patch("app.api.media.read_media_object_by_key", return_value=(b"png", "image/png")) as read_object:
-            response = self.client.get("/media/family-test/cover.png")
+    def test_raw_object_key_route_is_not_public(self) -> None:
+        response = self.client.get("/media/family-test/private.png")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_media_content_without_capability_is_unauthorized(self) -> None:
+        response = self.client.get("/api/media/photo-private/content?variant=original")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_other_family_cannot_issue_media_access(self) -> None:
+        response = self.client.get(
+            "/api/media/photo-private/access",
+            headers={"Authorization": "Bearer other-family"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Media asset not found")
+
+    def test_expired_media_capability_is_unauthorized(self) -> None:
+        now = utcnow()
+        token = jwt.encode(
+            {
+                "aud": MEDIA_ACCESS_AUDIENCE,
+                "typ": "media_access",
+                "media_id": "photo-private",
+                "family_id": "family-test",
+                "variant": "original",
+                "jti": "expired-media-ticket",
+                "iat": now - timedelta(minutes=2),
+                "exp": now - timedelta(seconds=1),
+            },
+            "media-ticket-test-secret",
+            algorithm="HS256",
+        )
+
+        response = self.client.get(
+            f"/api/media/photo-private/content?variant=original&ticket={token}"
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_deleted_media_is_not_readable_with_unexpired_capability(self) -> None:
+        access_response = self.client.get("/api/media/photo-private/access")
+        self.assertEqual(access_response.status_code, 200)
+        signed_url = access_response.json()["url"]
+        with self.SessionLocal() as db:
+            asset = db.get(MediaAsset, "photo-private")
+            assert asset is not None
+            db.delete(asset)
+            db.commit()
+
+        response = self.client.get(signed_url)
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_signed_media_id_url_reads_selected_asset_without_exposing_object_key(self) -> None:
+        access_response = self.client.get("/api/media/photo-private/access")
+
+        self.assertEqual(access_response.status_code, 200)
+        payload = access_response.json()
+        self.assertIn("/api/media/photo-private/content", payload["url"])
+        self.assertNotIn("family-test/private.png", payload["url"])
+        self.assertIn("variant=card", payload["variants"]["card"]["url"])
+        with patch(
+            "app.api.media.read_media_asset_content",
+            return_value=(b"png", "image/png"),
+            create=True,
+        ) as read_object:
+            response = self.client.get(payload["url"])
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"png")
         self.assertEqual(response.headers["content-type"], "image/png")
-        read_object.assert_called_once_with("family-test/cover.png")
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+        self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+        read_object.assert_called_once()
 
 
 if __name__ == "__main__":

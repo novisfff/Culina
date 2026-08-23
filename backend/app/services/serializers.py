@@ -33,6 +33,7 @@ from app.models.domain import (
 )
 from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
+from app.services.media import signed_media_content_access, signed_media_variants
 
 
 def _to_float(value: Decimal | float | int | None) -> float:
@@ -67,17 +68,35 @@ def _remaining_quantity(
 
 
 def serialize_media(asset: MediaAsset) -> dict:
+    original_access = signed_media_content_access(asset, "original")
     return {
         "id": asset.id,
         "name": asset.name,
-        "url": asset.url,
+        **original_access,
         "source": asset.source,
         "alt": asset.alt,
         "generation_mode": asset.generation_mode,
         "reference_media_id": asset.reference_media_id,
         "style_key": asset.style_key,
         "prompt_version": asset.prompt_version,
-        "variants": asset.variants,
+        "variants": signed_media_variants(asset),
+        "created_at": _utc_datetime(asset.created_at),
+        "created_by": asset.created_by,
+    }
+
+
+def serialize_media_reference(asset: MediaAsset) -> dict:
+    """Serialize durable media identity without persisting a transport credential."""
+    return {
+        "media_reference": True,
+        "id": asset.id,
+        "name": asset.name,
+        "source": asset.source,
+        "alt": asset.alt,
+        "generation_mode": asset.generation_mode,
+        "reference_media_id": asset.reference_media_id,
+        "style_key": asset.style_key,
+        "prompt_version": asset.prompt_version,
         "created_at": _utc_datetime(asset.created_at),
         "created_by": asset.created_by,
     }

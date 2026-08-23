@@ -12,7 +12,6 @@ from fastapi import (
     File,
     Form,
     HTTPException,
-    Query,
     Request,
     UploadFile,
     WebSocket,
@@ -21,7 +20,6 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.ai.runtime.factory import (
@@ -29,7 +27,6 @@ from app.ai.runtime.factory import (
     RevisionBoundFamilyChatProviderFactory,
 )
 from app.ai.workspace_service import AIApplicationService
-from app.core.config import get_settings
 from app.core.deps import get_current_auth
 from app.core.utils import create_id
 from app.db.session import SessionLocal, get_db
@@ -60,6 +57,10 @@ from app.services.ai_audio.service import AIAudioService
 from app.services.ai_audio.speech import sanitize_speech_text
 from app.services.ai_audio.transcription import read_audio_upload
 from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.access_tickets import (
+    AccessTicketInvalid,
+    decode_realtime_websocket_ticket,
+)
 
 
 router = APIRouter(prefix="/api/ai", tags=["ai-audio"])
@@ -77,26 +78,28 @@ def get_ai_audio_service(
     )
 
 
-def _authenticate_websocket_token(
-    token: str | None,
-    db: Session,
-) -> tuple[User, Membership] | None:
-    if not token:
+REALTIME_WEBSOCKET_SUBPROTOCOL = "culina-realtime"
+REALTIME_TICKET_SUBPROTOCOL_PREFIX = "culina-ticket."
+
+
+def _websocket_ticket(websocket: WebSocket) -> str | None:
+    offered = [
+        item.strip()
+        for item in websocket.headers.get("sec-websocket-protocol", "").split(",")
+    ]
+    if REALTIME_WEBSOCKET_SUBPROTOCOL not in offered:
         return None
-    try:
-        payload = jwt.decode(
-            token, get_settings().jwt_secret, algorithms=["HS256"]
-        )
-    except JWTError:
+    ticket_protocol = next(
+        (
+            item
+            for item in offered
+            if item.startswith(REALTIME_TICKET_SUBPROTOCOL_PREFIX)
+        ),
+        None,
+    )
+    if ticket_protocol is None:
         return None
-    subject = payload.get("sub")
-    if not subject:
-        return None
-    user = get_user_by_id(db, subject)
-    membership = get_active_membership(db, subject)
-    if user is None or membership is None:
-        return None
-    return user, membership
+    return ticket_protocol.removeprefix(REALTIME_TICKET_SUBPROTOCOL_PREFIX) or None
 
 
 def _validate_cooking_subject(subject: dict) -> None:
@@ -376,6 +379,8 @@ def create_cooking_realtime_session(
     return CookingRealtimeSessionResponse(
         session_id=session.session_id,
         websocket_url=session.websocket_url,
+        websocket_ticket=session.websocket_ticket,
+        websocket_ticket_expires_at=session.websocket_ticket_expires_at.isoformat(),
         expires_at=session.expires_at.isoformat(),
     )
 
@@ -384,28 +389,40 @@ def create_cooking_realtime_session(
 async def cooking_realtime_session_ws(
     websocket: WebSocket,
     session_id: str,
-    token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> None:
-    auth = _authenticate_websocket_token(token, db)
-    if auth is None:
+    try:
+        claims = decode_realtime_websocket_ticket(_websocket_ticket(websocket) or "")
+    except AccessTicketInvalid:
         await websocket.close(code=4401)
         return
-    user, membership = auth
+    if claims.session_id != session_id:
+        await websocket.close(code=4401)
+        return
+    user = get_user_by_id(db, claims.user_id)
+    membership = get_active_membership(db, claims.user_id)
+    if user is None or membership is None:
+        await websocket.close(code=4401)
+        return
+    if membership.family_id != claims.family_id:
+        await websocket.close(code=4403)
+        return
     try:
-        session = realtime_voice_session_store.require_owner(
+        session = realtime_voice_session_store.consume_connection_ticket(
             session_id,
             family_id=membership.family_id,
             user_id=user.id,
+            ticket_id=claims.ticket_id,
         )
-    except HTTPException:
-        await websocket.close(code=4404)
+    except HTTPException as exc:
+        close_code = 4401 if exc.status_code == status.HTTP_401_UNAUTHORIZED else 4404
+        await websocket.close(code=close_code)
         return
     service = AIAudioService(db, family_id=membership.family_id, user_id=user.id)
     try:
         provider = service.realtime_runtime_for_session(session)
     except FamilyModelSettingsError as exc:
-        await websocket.accept()
+        await websocket.accept(subprotocol=REALTIME_WEBSOCKET_SUBPROTOCOL)
         await websocket.send_json({"type": "error", "message": audio_capability_error(exc).detail["message"]})
         await websocket.close(code=1011)
         return
@@ -423,7 +440,7 @@ async def cooking_realtime_session_ws(
         async with send_lock:
             await websocket.send_json(payload)
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=REALTIME_WEBSOCKET_SUBPROTOCOL)
     await send_json(
         {
             "type": "status",

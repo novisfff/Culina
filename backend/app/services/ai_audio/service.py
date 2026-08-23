@@ -45,6 +45,7 @@ from app.services.ai_audio.schemas import (
 )
 from app.services.ai_audio.speech import sanitize_speech_text
 from app.services.ai_audio.transcription import AudioDurationError, measure_audio_duration_seconds
+from app.services.access_tickets import create_realtime_websocket_ticket
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
 from app.services.family_model_settings.transport import ProviderTransport
@@ -260,12 +261,20 @@ class AIAudioService:
         request: CookingRealtimeSessionRequest,
     ) -> CookingRealtimeSession:
         runtime = self._new_realtime_runtime(request, register=True)
+        connection_ticket = create_realtime_websocket_ticket(
+            session_id=runtime.session.session_id,
+            family_id=runtime.session.family_id,
+            user_id=runtime.session.user_id,
+        )
+        runtime.session.connection_ticket_id = connection_ticket.ticket_id
         return CookingRealtimeSession(
             mode="agent_backed_websocket",
             session_id=runtime.session.session_id,
             websocket_url=(
                 f"/api/ai/realtime/cooking/sessions/{runtime.session.session_id}/ws"
             ),
+            websocket_ticket=connection_ticket.token,
+            websocket_ticket_expires_at=connection_ticket.expires_at,
             expires_at=runtime.session.expires_at,
         )
 

@@ -14,12 +14,13 @@ from app.ai.tools.catalog.meal_log import meal_log_create_draft
 from app.ai.tools.catalog.recipe import recipe_create_draft
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.runner_support.attachments import (
+    build_user_message_parts,
     provider_images_for_attachments,
     validate_current_attachment_ids,
 )
 from app.ai.workflows.runner import WorkspaceGraphRunner
-from app.core.enums import Difficulty, MealType, MediaSource
-from app.models.domain import AIMessage, AITaskDraft, Food, Ingredient, MealLog, MediaAsset, Recipe, RecipeIngredient, RecipeStep
+from app.core.enums import AIConversationVisibility, AiMode, Difficulty, MealType, MediaSource
+from app.models.domain import AIApprovalRequest, AIConversation, AIMessage, AITaskDraft, Food, Ingredient, MealLog, MediaAsset, Recipe, RecipeIngredient, RecipeStep
 from app.services.ai_operations.registry import draft_operation_registry
 
 from ._support import AIAgentInfraTestCase, FakeChatProvider, patch_ai_workspace_provider
@@ -543,6 +544,224 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
                     provider_supports_vision=False,
                     read_media_object=lambda _asset: (b"jpeg-bytes", "image/jpeg"),
                 )
+
+    def test_persisted_attachment_parts_store_stable_media_references(self) -> None:
+        asset = MediaAsset(
+            id="media-stable-reference",
+            family_id=self.family.id,
+            name="stable.jpg",
+            url="/media/family-test/stable.jpg",
+            file_path="family-test/stable.jpg",
+            source=MediaSource.UPLOAD,
+            alt="稳定引用",
+            created_by=self.user.id,
+        )
+
+        parts = build_user_message_parts("查看图片", [asset])
+        stored_asset = parts[1]["image"]["asset"]
+
+        self.assertEqual(stored_asset["id"], asset.id)
+        self.assertTrue(stored_asset["media_reference"])
+        self.assertNotIn("url", stored_asset)
+        self.assertNotIn("variants", stored_asset)
+
+    def test_history_reissues_media_capabilities_for_attachments_and_drafts(self) -> None:
+        legacy_url = "/api/media/media-history/content?variant=original&ticket=expired-ticket"
+        legacy_media = {
+            "id": "media-history",
+            "name": "history.jpg",
+            "url": legacy_url,
+            "source": "upload",
+            "alt": "历史图片",
+            "created_at": "2026-07-10T00:00:00+00:00",
+        }
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-media-history",
+                family_id=self.family.id,
+                owner_user_id=self.user.id,
+                visibility=AIConversationVisibility.PRIVATE,
+                mode=AiMode.RECOMMENDATION,
+                prompt="查看图片",
+                response="",
+                context={},
+                title="媒体历史",
+                summary="",
+                status="active",
+                created_by=self.user.id,
+            )
+            asset = MediaAsset(
+                id="media-history",
+                family_id=self.family.id,
+                name="history.jpg",
+                url="/media/family-test/history.jpg",
+                file_path="family-test/history.jpg",
+                source=MediaSource.UPLOAD,
+                alt="历史图片",
+                variants={
+                    "thumb": {
+                        "url": "/media/family-test/variants/media-history/thumb.webp",
+                        "width": 320,
+                        "height": 240,
+                        "content_type": "image/webp",
+                        "byte_size": 256,
+                    }
+                },
+                created_by=self.user.id,
+            )
+            message = AIMessage(
+                id="message-media-history",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                role="user",
+                content="查看图片",
+                content_type="parts",
+                parts=[
+                    {
+                        "id": "part-media-history",
+                        "type": "image",
+                        "image": {
+                            "media_id": asset.id,
+                            "asset": legacy_media,
+                            "alt": asset.alt,
+                        },
+                    },
+                    {
+                        "id": "part-draft-media-history",
+                        "type": "draft",
+                        "draft": {
+                            "id": "draft-media-history",
+                            "conversation_id": conversation.id,
+                            "message_id": "message-media-history",
+                            "run_id": None,
+                            "draft_type": "inventory_operation",
+                            "payload": {"operations": [{"image": legacy_media}]},
+                            "preview_summary": "库存操作",
+                            "status": "pending",
+                            "version": 1,
+                            "schema_version": "inventory_operation.v1",
+                            "validation_errors": [],
+                            "expires_at": None,
+                            "created_at": "2026-07-10T00:00:00+00:00",
+                            "updated_at": "2026-07-10T00:00:00+00:00",
+                        },
+                    },
+                ],
+                status="completed",
+                message_metadata={},
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, asset, message])
+            db.commit()
+
+        response = self.client.get("/api/ai/conversations/conversation-media-history/messages")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        parts = response.json()[0]["parts"]
+        image_asset = parts[0]["image"]["asset"]
+        draft_image = parts[1]["draft"]["payload"]["operations"][0]["image"]
+        self.assertNotEqual(image_asset["url"], legacy_url)
+        self.assertEqual(draft_image["url"], image_asset["url"])
+        self.assertIn("expires_at=", image_asset["url"])
+        self.assertIsNotNone(image_asset["url_expires_at"])
+        self.assertIsNotNone(image_asset["variants"]["thumb"]["url_expires_at"])
+
+        with self.SessionLocal() as db:
+            stored = db.get(AIMessage, "message-media-history")
+            assert stored is not None
+            self.assertEqual(stored.parts[0]["image"]["asset"]["url"], legacy_url)
+            db.delete(db.get(MediaAsset, "media-history"))
+            db.commit()
+
+        deleted_response = self.client.get("/api/ai/conversations/conversation-media-history/messages")
+        self.assertEqual(deleted_response.status_code, 200, deleted_response.text)
+        deleted_parts = deleted_response.json()[0]["parts"]
+        self.assertFalse(any(part["type"] == "image" for part in deleted_parts))
+        self.assertIsNone(deleted_parts[0]["draft"]["payload"]["operations"][0]["image"])
+
+    def test_pending_approvals_reissue_media_capabilities(self) -> None:
+        stable_reference = {
+            "media_reference": True,
+            "id": "media-pending-approval",
+            "name": "pending.jpg",
+            "source": "upload",
+            "alt": "待审批图片",
+        }
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-media-pending",
+                family_id=self.family.id,
+                owner_user_id=self.user.id,
+                visibility=AIConversationVisibility.PRIVATE,
+                mode=AiMode.INVENTORY_QA,
+                prompt="处理库存图片",
+                response="",
+                context={},
+                title="媒体审批",
+                summary="",
+                status="active",
+                created_by=self.user.id,
+            )
+            asset = MediaAsset(
+                id=stable_reference["id"],
+                family_id=self.family.id,
+                name=stable_reference["name"],
+                url="/media/family-test/pending.jpg",
+                file_path="family-test/pending.jpg",
+                source=MediaSource.UPLOAD,
+                alt=stable_reference["alt"],
+                created_by=self.user.id,
+            )
+            draft = AITaskDraft(
+                id="draft-media-pending",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                draft_type="inventory_operation",
+                payload={"operations": [{"image": stable_reference}]},
+                preview_summary="库存操作",
+                status="pending",
+                version=1,
+                schema_version="inventory_operation.v1",
+                validation_errors=[],
+                ai_metadata={},
+                idempotency_key="draft-media-pending",
+                created_by=self.user.id,
+            )
+            approval = AIApprovalRequest(
+                id="approval-media-pending",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                draft_id=draft.id,
+                draft_version=draft.version,
+                draft_schema_version=draft.schema_version,
+                approval_type="inventory.operation",
+                status="pending",
+                request_payload={},
+                field_schema=[],
+                initial_values={"draft": draft.payload},
+                submitted_values={"draft": draft.payload},
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, asset, draft, approval])
+            db.commit()
+
+        response = self.client.get(
+            "/api/ai/conversations/conversation-media-pending/approvals/pending"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        pending = response.json()[0]
+        initial_image = pending["initial_values"]["draft"]["operations"][0]["image"]
+        submitted_image = pending["submitted_values"]["draft"]["operations"][0]["image"]
+        self.assertIn("ticket=", initial_image["url"])
+        self.assertEqual(submitted_image["url"], initial_image["url"])
+        self.assertIsNotNone(initial_image["url_expires_at"])
+
+        with self.SessionLocal() as db:
+            stored = db.get(AIApprovalRequest, "approval-media-pending")
+            assert stored is not None
+            self.assertTrue(stored.initial_values["draft"]["operations"][0]["image"]["media_reference"])
+            self.assertNotIn("url", stored.initial_values["draft"]["operations"][0]["image"])
 
     def test_current_attachment_validation_rejects_stale_cross_family_and_unknown_media(self) -> None:
         with self.SessionLocal() as db:

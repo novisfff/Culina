@@ -24,7 +24,10 @@ class FakeWebSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
 
-  constructor(public url: string) {
+  constructor(
+    public url: string,
+    public protocols?: string | string[],
+  ) {
     latestSocket = this;
   }
 
@@ -89,10 +92,11 @@ beforeEach(() => {
   latest = null;
   latestSocket = null;
   vi.spyOn(aiVoiceApi, 'createCookingRealtimeSession').mockResolvedValue({
-    provider: 'dashscope',
     mode: 'agent_backed_websocket',
     session_id: 'voice-session-1',
     websocket_url: '/api/ai/realtime/cooking/sessions/voice-session-1/ws',
+    websocket_ticket: 'short-lived-ticket',
+    websocket_ticket_expires_at: '2026-07-03T11:55:45Z',
     expires_at: '2026-07-03T12:00:00Z',
   });
   vi.spyOn(aiVoiceApi, 'cookingRealtimeWebSocketUrl').mockReturnValue('ws://localhost/voice-session-1');
@@ -114,6 +118,16 @@ afterEach(() => {
 });
 
 describe('useCookingRealtimeVoiceSession', () => {
+  it('opens the socket with only the short-lived ticket protocols', async () => {
+    renderProbe();
+    await startSession();
+
+    expect(latestSocket?.protocols).toEqual([
+      'culina-realtime',
+      'culina-ticket.short-lived-ticket',
+    ]);
+  });
+
   it('waits for turn cancellation acknowledgement before returning to listening', async () => {
     renderProbe();
     await startSession();

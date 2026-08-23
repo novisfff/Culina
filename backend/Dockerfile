@@ -14,4 +14,4 @@ COPY backend/ .
 
 EXPOSE 8010
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8010"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8010 --no-access-log"]

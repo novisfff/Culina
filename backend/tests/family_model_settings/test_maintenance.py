@@ -275,6 +275,7 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
 
     monkeypatch.setattr(main, "SessionLocal", lambda: nullcontext(FakeDb()))
     monkeypatch.setattr(main, "initialize_configured_admin", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "ensure_media_bucket", lambda: events.append("media:private"))
     monkeypatch.setattr(
         main,
         "validate_family_model_credential_keyring_references",
@@ -302,6 +303,7 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
         async with main.lifespan(object()):
             assert events == [
                 "credentials:validate",
+                "media:private",
                 "image:start",
                 "search:start",
                 "family-model:start",
@@ -310,6 +312,7 @@ def test_lifespan_starts_and_stops_family_model_maintenance_worker(monkeypatch) 
     asyncio.run(exercise_lifespan())
     assert events == [
         "credentials:validate",
+        "media:private",
         "image:start",
         "search:start",
         "family-model:start",

@@ -46,4 +46,6 @@ class CookingRealtimeSessionResponse(BaseModel):
     mode: Literal["agent_backed_websocket"] = "agent_backed_websocket"
     session_id: str
     websocket_url: str
+    websocket_ticket: str
+    websocket_ticket_expires_at: str
     expires_at: str

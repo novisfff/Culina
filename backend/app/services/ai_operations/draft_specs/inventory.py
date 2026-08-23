@@ -13,6 +13,7 @@ from app.services.ai_operations.registry_types import (
     DraftResultMetadata,
 )
 from app.services.ai_operations.draft_specs.common import _spec
+from app.services.media_references import media_reference_id, stable_media_reference
 
 
 INVENTORY_APPROVAL_PROTECTED_FIELDS = (
@@ -69,7 +70,12 @@ def _validate_inventory_operation_value(original: Any, submitted: Any) -> None:
             if index in used:
                 continue
             if any(
-                submitted_operation.get(field) != candidate.get(field)
+                (
+                    media_reference_id(submitted_operation.get(field))
+                    != media_reference_id(candidate.get(field))
+                    if field == "image"
+                    else submitted_operation.get(field) != candidate.get(field)
+                )
                 for field in INVENTORY_APPROVAL_PROTECTED_FIELDS
             ):
                 continue
@@ -118,7 +124,11 @@ def _normalize_inventory_operation(context: DraftNormalizeContext) -> dict[str, 
         if not isinstance(submitted, dict) or not isinstance(current, dict):
             raise ValueError("库存操作项格式不正确")
         for field in INVENTORY_APPROVAL_PROTECTED_FIELDS:
-            current[field] = submitted.get(field)
+            current[field] = (
+                stable_media_reference(submitted.get(field))
+                if field == "image"
+                else submitted.get(field)
+            )
     return normalized
 
 

@@ -8,6 +8,7 @@
     "deploy:up": "cd deploy && docker compose up -d --build",
     "deploy:down": "cd deploy && docker compose down",
     "deploy:logs": "cd deploy && docker compose logs -f",
+    "deploy:smoke:realtime": "node deploy/tests/run-realtime-websocket-smoke.mjs",
     "frontend:install": "npm --prefix frontend install",
     "dev": "npm --prefix frontend run dev --",
     "build": "npm --prefix frontend run build --",

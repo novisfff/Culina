@@ -170,6 +170,8 @@ class RealtimeVoiceSessionState:
     active_usage_lease: ActiveRealtimeUsageLease | None = None
     realtime_usage_scope: RealtimeProviderScope | None = None
     remote_voice_ended: bool = False
+    connection_ticket_id: str = ""
+    connection_ticket_consumed: bool = False
     usage_lease_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
 
@@ -526,20 +528,40 @@ class RealtimeVoiceSessionStore:
 
     def get(self, session_id: str) -> RealtimeVoiceSessionState:
         with self._lock:
-            self._cleanup_locked()
-            state = self._sessions.get(session_id)
-            if state is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice session not found")
-            if state.expires_at <= utcnow():
-                self._sessions.pop(session_id, None)
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice session expired")
-            return state
+            return self._get_locked(session_id)
 
     def require_owner(self, session_id: str, *, family_id: str, user_id: str) -> RealtimeVoiceSessionState:
         state = self.get(session_id)
         if state.family_id != family_id or state.user_id != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Voice session is not available")
         return state
+
+    def consume_connection_ticket(
+        self,
+        session_id: str,
+        *,
+        family_id: str,
+        user_id: str,
+        ticket_id: str,
+    ) -> RealtimeVoiceSessionState:
+        with self._lock:
+            state = self._get_locked(session_id)
+            if state.family_id != family_id or state.user_id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Voice session is not available",
+                )
+            if (
+                not ticket_id
+                or ticket_id != state.connection_ticket_id
+                or state.connection_ticket_consumed
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Voice connection ticket is invalid",
+                )
+            state.connection_ticket_consumed = True
+            return state
 
     def close(self, session_id: str) -> None:
         with self._lock:
@@ -554,6 +576,16 @@ class RealtimeVoiceSessionStore:
         expired = [session_id for session_id, state in self._sessions.items() if state.expires_at <= now]
         for session_id in expired:
             self._sessions.pop(session_id, None)
+
+    def _get_locked(self, session_id: str) -> RealtimeVoiceSessionState:
+        self._cleanup_locked()
+        state = self._sessions.get(session_id)
+        if state is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voice session not found",
+            )
+        return state
 
 
 realtime_voice_session_store = RealtimeVoiceSessionStore()

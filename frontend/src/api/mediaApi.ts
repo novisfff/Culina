@@ -2,6 +2,7 @@ import { request } from './request';
 import type { AiRenderResponse, CreateAiRenderRequest, MediaAsset } from './types';
 
 export const mediaApi = {
+  getMediaAccess: (mediaId: string) => request<MediaAsset>(`/api/media/${encodeURIComponent(mediaId)}/access`),
   uploadMedia: async (file: File, source: 'upload' | 'ai', alt: string) => {
     const formData = new FormData();
     formData.append('file', file);

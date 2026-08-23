@@ -643,6 +643,7 @@ export interface MediaAsset {
   id: string;
   name: string;
   url: string;
+  url_expires_at?: string;
   source: MediaSource;
   alt: string;
   generation_mode?: ImageGenerationMode | null;
@@ -660,6 +661,7 @@ export interface MediaAsset {
 
 export interface MediaAssetVariant {
   url: string;
+  url_expires_at?: string;
   width: number;
   height: number;
   content_type: string;

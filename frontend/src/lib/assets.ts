@@ -1,8 +1,49 @@
-import { API_BASE_URL } from '../api/client';
+import { mediaApi } from '../api/mediaApi';
+import { API_BASE_URL } from '../api/request';
 import type { MediaAsset } from '../api/types';
 
 export type MediaDisplaySize = 'thumb' | 'card' | 'large' | 'original';
 export type MediaSizesPreset = 'thumb' | 'card' | 'hero';
+export type MediaAccessReference = { mediaId: string; variant: MediaDisplaySize };
+
+const MEDIA_ACCESS_RENEWAL_WINDOW_MS = 15_000;
+const MEDIA_VARIANTS = new Set<MediaDisplaySize>(['thumb', 'card', 'large', 'original']);
+
+function parsedMediaUrl(url: string): URL | undefined {
+  try {
+    return new URL(url, 'http://culina.local');
+  } catch {
+    return undefined;
+  }
+}
+
+export function mediaAccessReferenceFromUrl(url?: string | null): MediaAccessReference | undefined {
+  if (!url) return undefined;
+  const parsed = parsedMediaUrl(url);
+  const match = parsed?.pathname.match(/^\/api\/media\/([^/]+)\/content$/);
+  if (!parsed || !match) return undefined;
+  const variant = parsed.searchParams.get('variant') ?? 'original';
+  if (!MEDIA_VARIANTS.has(variant as MediaDisplaySize)) return undefined;
+  return {
+    mediaId: decodeURIComponent(match[1]),
+    variant: variant as MediaDisplaySize,
+  };
+}
+
+export function shouldRenewMediaUrl(url?: string | null, now = Date.now()): boolean {
+  if (!url || !mediaAccessReferenceFromUrl(url)) return false;
+  const expiresAt = parsedMediaUrl(url)?.searchParams.get('expires_at');
+  if (!expiresAt) return false;
+  const expiresAtMs = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= now + MEDIA_ACCESS_RENEWAL_WINDOW_MS;
+}
+
+export async function renewMediaUrl(url?: string | null): Promise<string | undefined> {
+  const reference = mediaAccessReferenceFromUrl(url);
+  if (!reference) return undefined;
+  const asset = await mediaApi.getMediaAccess(reference.mediaId);
+  return resolveMediaUrl(asset, reference.variant);
+}
 
 export function resolveAssetUrl(
   url?: string | null,

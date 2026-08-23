@@ -1801,6 +1801,12 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 card_item = stored_message.parts[0]["card"]["data"]["items"][0]
                 self.assertEqual(card_item["quantity"], "0")
                 self.assertEqual(card_item["lastOperation"]["action"], "dispose")
+                stored_approval = db.get(AIApprovalRequest, approval["id"])
+                assert stored_approval is not None
+                submitted_record = json.dumps(stored_approval.submitted_values, ensure_ascii=False)
+                self.assertNotIn("ticket=", submitted_record)
+                self.assertNotIn("url_expires_at", submitted_record)
+                self.assertIn('"media_reference": true', submitted_record)
 
         def test_presence_restock_approval_refreshes_state_backed_inventory_card(self) -> None:
             from app.core.enums import InventoryAvailabilityLevel

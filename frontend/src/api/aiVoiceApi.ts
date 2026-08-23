@@ -20,10 +20,11 @@ export type CookingRealtimeSessionRequest = {
 };
 
 export type CookingRealtimeSessionResponse = {
-  provider: string;
   mode: 'agent_backed_websocket';
   session_id: string;
   websocket_url: string;
+  websocket_ticket: string;
+  websocket_ticket_expires_at: string;
   expires_at: string;
 };
 
@@ -105,9 +106,11 @@ export function cookingRealtimeWebSocketUrl(path: string) {
   const base = API_BASE_URL || window.location.origin;
   const url = new URL(path, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const token = getAccessToken();
-  if (token) url.searchParams.set('token', token);
   return url.toString();
+}
+
+export function cookingRealtimeWebSocketProtocols(ticket: string) {
+  return ['culina-realtime', `culina-ticket.${ticket}`];
 }
 
 export const aiVoiceApi = {
@@ -115,4 +118,5 @@ export const aiVoiceApi = {
   synthesizeSpeech,
   createCookingRealtimeSession,
   cookingRealtimeWebSocketUrl,
+  cookingRealtimeWebSocketProtocols,
 };
