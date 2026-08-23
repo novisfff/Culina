@@ -4,6 +4,7 @@ import type {
   ModelUsageScope,
 } from '../../api/types';
 import type { ModelUsageWorkspaceViewModel } from './modelUsageModel';
+import type { ModelUsageTrendWindow } from './modelUsageChartModel';
 
 export type ModelUsageWorkspaceActions = {
   setScope: (scope: ModelUsageScope) => void;
@@ -19,6 +20,7 @@ export type ModelUsageWorkspaceViewProps = {
   period: string;
   groupBy: ModelUsageGroupBy;
   alerts: ModelUsageAlert[];
+  trendWindow: ModelUsageTrendWindow;
   isBreakdownLoading: boolean;
   isOffline: boolean;
   actions: ModelUsageWorkspaceActions;

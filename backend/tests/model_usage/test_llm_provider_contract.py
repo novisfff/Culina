@@ -262,82 +262,26 @@ def test_streaming_chat_cancellation_marks_only_the_dispatched_attempt_uncertain
     ]
 
 
-def test_chat_provider_constructor_disables_sdk_retries(monkeypatch) -> None:
-    captured: dict[str, Any] = {}
-
-    class _OpenAI:
-        def __init__(self, **kwargs: Any) -> None:
-            captured.update(kwargs)
-
-    monkeypatch.setattr("app.ai.runtime.openai_chat.OpenAI", _OpenAI)
-
-    OpenAICompatibleChatProvider(
+def test_chat_provider_constructor_does_not_construct_an_sdk_client() -> None:
+    provider = OpenAICompatibleChatProvider(
         api_base="https://example.invalid/v1",
         api_key="test-key",
         model_name="gpt-test",
     )
 
-    assert captured["max_retries"] == 0
+    assert provider.openai_client is None
 
 
-def test_responses_provider_constructor_disables_sdk_retries(monkeypatch) -> None:
-    captured: dict[str, Any] = {}
-
-    class _OpenAI:
-        def __init__(self, **kwargs: Any) -> None:
-            captured.update(kwargs)
-
-    monkeypatch.setattr("app.ai.runtime.openai_responses.OpenAI", _OpenAI)
-
-    OpenAIResponsesChatProvider(
+def test_responses_provider_constructor_does_not_construct_an_sdk_client() -> None:
+    provider = OpenAIResponsesChatProvider(
         api_base="https://example.invalid/v1",
         api_key="test-key",
         model_name="gpt-test",
     )
 
-    assert captured["max_retries"] == 0
+    assert provider.client is None
 
 
-@pytest.mark.parametrize(
-    ("configured_provider", "constructor_name"),
-    (
-        ("openai-compatible", "OpenAICompatibleChatProvider"),
-        ("openai-responses", "OpenAIResponsesChatProvider"),
-    ),
-)
-def test_runtime_factory_preserves_configured_provider_identity_for_usage_pricing(
-    monkeypatch: pytest.MonkeyPatch,
-    configured_provider: str,
-    constructor_name: str,
-) -> None:
-    adapter_providers: list[str] = []
-    constructor_arguments: dict[str, Any] = {}
-
-    def build_adapter(_settings: object, *, provider: str) -> object:
-        adapter_providers.append(provider)
-        return object()
-
-    def build_provider(**kwargs: Any) -> object:
-        constructor_arguments.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(runtime_factory, "_model_usage_adapter", build_adapter)
-    monkeypatch.setattr(runtime_factory, constructor_name, build_provider)
-    settings = SimpleNamespace(
-        ai_provider=configured_provider,
-        ai_model="gpt-test",
-        ai_supports_vision=False,
-        ai_api_key="test-key",
-        ai_prompt_cache_enabled=False,
-        ai_max_output_tokens=16,
-        ai_fallback_model="",
-        ai_fallback_max_output_tokens=0,
-        model_usage_required=True,
-        ai_api_base="https://example.invalid/v1",
-        ai_timeout_seconds=5,
-    )
-
-    runtime_factory.build_chat_provider(settings)
-
-    assert adapter_providers == [configured_provider]
-    assert constructor_arguments["usage_adapter"] is not None
+def test_runtime_factory_requires_a_family_binding_instead_of_settings() -> None:
+    with pytest.raises(RuntimeError, match="family_chat_provider_factory_required"):
+        runtime_factory.build_chat_provider(SimpleNamespace(ai_provider="openai"))

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
+    ModelUsageCapability,
     ModelUsageMeter,
     ModelUsageMeterRole,
     ModelUsagePricingStatus,
@@ -17,12 +18,19 @@ from app.core.utils import create_id, utcnow
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
 from app.repos.model_usage.catalog import (
     current_published_version,
+    get_candidate_search_price_version,
+    get_complete_active_family_price_version,
+    list_active_family_price_versions,
     next_price_version_number,
     price_rates_for_variant,
     price_version_references_query,
     published_checksum_exists,
 )
-from app.services.model_usage.configured_variants import ConfiguredUsageVariant
+from app.repos.family_model_settings.profiles import lock_family_model_settings
+from app.services.model_usage.configured_variants import (
+    ConfiguredUsageVariant,
+    configured_usage_variants,
+)
 from app.services.model_usage.decimal_math import CNY_QUANTUM
 from app.services.model_usage.errors import ModelUsageContractError
 from app.services.model_usage.pricing_manifest import (
@@ -94,6 +102,16 @@ class PriceCoverageReport:
         return self.price_version_id is not None and all(
             not row.missing_meters for row in self.rows
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveModelPriceSnapshot:
+    """The config/price pair observed while holding a family's settings lock."""
+
+    family_id: str
+    config_revision_id: str
+    price_version_id: str
+    search_profile_id: str | None
 
 
 def _cny_unit_price(rate: ManifestRate, fx_rates: Mapping[str, Decimal]) -> Decimal | None:
@@ -199,30 +217,37 @@ def _canonical_billing_model(
     )
 
 
-def select_price_snapshot(
-    db: Session,
-    context: UsageContext,
-    estimate: UsageEstimate,
-    *,
-    at: datetime,
-) -> UsagePriceSnapshot:
-    version = current_published_version(db, at=at)
-    required = frozenset(
+def _required_billable_meters(estimate: UsageEstimate) -> frozenset[ModelUsageMeter]:
+    return frozenset(
         line.meter
         for line in estimate.meters
         if line.meter_role is ModelUsageMeterRole.BILLABLE
     )
-    if version is None:
-        return UsagePriceSnapshot(
-            pricing_status=ModelUsagePricingStatus.UNPRICED,
-            price_version_id=None,
-            billing_model=context.billing_model,
-            billing_scheme_key=None,
-            rates=(),
-            missing_billable_meters=required,
-            checksum=None,
-        )
 
+
+def _unpriced_snapshot(
+    context: UsageContext,
+    *,
+    required: frozenset[ModelUsageMeter],
+) -> UsagePriceSnapshot:
+    return UsagePriceSnapshot(
+        pricing_status=ModelUsagePricingStatus.UNPRICED,
+        price_version_id=None,
+        billing_model=context.billing_model,
+        billing_scheme_key=None,
+        rates=(),
+        missing_billable_meters=required,
+        checksum=None,
+    )
+
+
+def _snapshot_from_version(
+    db: Session,
+    *,
+    version: ModelUsagePriceVersion,
+    context: UsageContext,
+    required: frozenset[ModelUsageMeter],
+) -> UsagePriceSnapshot:
     billing_model = _canonical_billing_model(
         version,
         provider=context.provider,
@@ -270,6 +295,248 @@ def select_price_snapshot(
         rates=snapshots,
         missing_billable_meters=frozenset(missing),
         checksum=version.manifest_checksum,
+    )
+
+
+def _family_price_version_is_complete(
+    db: Session,
+    *,
+    version: ModelUsagePriceVersion,
+) -> bool:
+    """Check full active-config coverage without relying on a mutable pointer."""
+
+    if version.config_revision_id is None:
+        return False
+    variants = configured_usage_variants(
+        db,
+        family_id=version.family_id or "",
+        config_revision_id=version.config_revision_id,
+    )
+    for variant in variants:
+        rows = price_rates_for_variant(
+            db,
+            price_version_id=version.id,
+            provider=variant.provider,
+            billing_model=variant.billing_model,
+            capability=variant.capability,
+            variant_key=variant.variant_key,
+        )
+        available = {
+            row.meter
+            for row in rows
+            if row.meter_role is ModelUsageMeterRole.BILLABLE
+            and row.billing_scheme_key == variant.billing_scheme_key
+            and row.unit_price_cny is not None
+        }
+        if available != variant.billable_meters:
+            return False
+    return True
+
+
+def require_complete_active_price_version(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str,
+    price_version_id: str,
+) -> ModelUsagePriceVersion:
+    version = get_complete_active_family_price_version(
+        db,
+        family_id=family_id,
+        config_revision_id=config_revision_id,
+        price_version_id=price_version_id,
+    )
+    if version is None:
+        raise ModelUsageContractError("family_model_price_version_not_found")
+    if not _family_price_version_is_complete(db, version=version):
+        raise ModelUsageContractError("family_model_price_incomplete")
+    return version
+
+
+def require_candidate_price_for_search_profile(
+    db: Session,
+    *,
+    family_id: str,
+    price_version_id: str,
+    search_profile_id: str,
+) -> ModelUsagePriceVersion:
+    version = get_candidate_search_price_version(
+        db,
+        family_id=family_id,
+        search_profile_id=search_profile_id,
+        price_version_id=price_version_id,
+    )
+    if version is None:
+        raise ModelUsageContractError("candidate_price_scope_mismatch")
+    return version
+
+
+def family_price_version_for_context(
+    db: Session,
+    context: UsageContext,
+) -> ModelUsagePriceVersion | None:
+    """Resolve a family/candidate price without falling back across scopes."""
+
+    family_id = context.attribution.family_id
+    if context.config_revision_id is None:
+        if context.explicit_price_version_id is None:
+            if context.search_profile_id is not None:
+                raise ModelUsageContractError("candidate_price_scope_mismatch")
+            return None
+        if (
+            context.search_profile_id is None
+            or context.capability is not ModelUsageCapability.EMBEDDING
+        ):
+            raise ModelUsageContractError("candidate_price_scope_mismatch")
+        return require_candidate_price_for_search_profile(
+            db,
+            family_id=family_id,
+            price_version_id=context.explicit_price_version_id,
+            search_profile_id=context.search_profile_id,
+        )
+
+    if context.explicit_price_version_id is not None:
+        return require_complete_active_price_version(
+            db,
+            family_id=family_id,
+            config_revision_id=context.config_revision_id,
+            price_version_id=context.explicit_price_version_id,
+        )
+
+    # The current revision is linearized by the same stable settings lock used
+    # by price-only publication.  A historical revision intentionally avoids
+    # this pointer and instead keeps its own latest complete price version.
+    settings = lock_family_model_settings(db, family_id=family_id)
+    if settings.active_config_revision_id == context.config_revision_id:
+        if settings.active_price_version_id is None:
+            return None
+        version = get_complete_active_family_price_version(
+            db,
+            family_id=family_id,
+            config_revision_id=context.config_revision_id,
+            price_version_id=settings.active_price_version_id,
+        )
+        if version is None:
+            raise ModelUsageContractError("family_model_price_pointer_invalid")
+        return version
+
+    for version in list_active_family_price_versions(
+        db,
+        family_id=family_id,
+        config_revision_id=context.config_revision_id,
+    ):
+        if _family_price_version_is_complete(db, version=version):
+            return version
+    return None
+
+
+def lock_active_model_price_snapshot(
+    db: Session,
+    *,
+    family_id: str,
+) -> ActiveModelPriceSnapshot:
+    """Lock and return the active config/price pair for durable active work."""
+
+    settings = lock_family_model_settings(db, family_id=family_id)
+    if (
+        settings.active_config_revision_id is None
+        or settings.active_price_version_id is None
+    ):
+        raise ModelUsageContractError("family_model_settings_not_configured")
+    require_complete_active_price_version(
+        db,
+        family_id=family_id,
+        config_revision_id=settings.active_config_revision_id,
+        price_version_id=settings.active_price_version_id,
+    )
+    return ActiveModelPriceSnapshot(
+        family_id=family_id,
+        config_revision_id=settings.active_config_revision_id,
+        price_version_id=settings.active_price_version_id,
+        search_profile_id=settings.active_search_profile_id,
+    )
+
+
+def family_price_coverage(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str,
+    price_version_id: str | None,
+    configured_variants: Sequence[ConfiguredUsageVariant],
+) -> PriceCoverageReport:
+    version = (
+        get_complete_active_family_price_version(
+            db,
+            family_id=family_id,
+            config_revision_id=config_revision_id,
+            price_version_id=price_version_id,
+        )
+        if price_version_id is not None
+        else None
+    )
+    rows: list[PriceCoverageRow] = []
+    for variant in configured_variants:
+        rates = (
+            price_rates_for_variant(
+                db,
+                price_version_id=version.id,
+                provider=variant.provider,
+                billing_model=variant.billing_model,
+                capability=variant.capability,
+                variant_key=variant.variant_key,
+            )
+            if version is not None
+            else ()
+        )
+        available = {
+            rate.meter
+            for rate in rates
+            if rate.meter_role is ModelUsageMeterRole.BILLABLE
+            and rate.unit_price_cny is not None
+            and rate.billing_scheme_key == variant.billing_scheme_key
+        }
+        rows.append(
+            PriceCoverageRow(
+                provider=variant.provider,
+                billing_model=variant.billing_model,
+                capability=variant.capability.value,
+                variant_key=variant.variant_key,
+                billing_scheme_key=variant.billing_scheme_key,
+                missing_meters=frozenset(variant.billable_meters - available),
+            )
+        )
+    return PriceCoverageReport(
+        price_version_id=version.id if version is not None else None,
+        rows=tuple(rows),
+    )
+
+
+def select_price_snapshot(
+    db: Session,
+    context: UsageContext,
+    estimate: UsageEstimate,
+    *,
+    at: datetime,
+) -> UsagePriceSnapshot:
+    required = _required_billable_meters(estimate)
+    if (
+        context.config_revision_id is not None
+        or context.explicit_price_version_id is not None
+        or context.search_profile_id is not None
+    ):
+        version = family_price_version_for_context(db, context)
+    else:
+        # Retained only for rows/callers that predate family-managed model
+        # settings.  New family contexts must carry an immutable revision.
+        version = current_published_version(db, at=at)
+    if version is None:
+        return _unpriced_snapshot(context, required=required)
+    return _snapshot_from_version(
+        db,
+        version=version,
+        context=context,
+        required=required,
     )
 
 

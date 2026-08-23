@@ -225,6 +225,7 @@ class WorkspaceOrchestratorAgent:
                     trace_id=context.tracer.trace_id,
                     user_id=context.user_id,
                     span_id=orchestrator_span.span_id if orchestrator_span is not None else context.trace_parent_span_id,
+                    binding=getattr(self.provider, "binding", None),
                 )
             if "usage_attribution" in inspect.signature(self.provider.generate_with_tools).parameters:
                 provider_kwargs["usage_attribution"] = UsageAttribution(

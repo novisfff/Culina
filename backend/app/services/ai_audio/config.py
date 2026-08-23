@@ -1,46 +1,94 @@
 from __future__ import annotations
 
-from urllib.parse import urljoin
-from urllib.parse import urlencode
+from dataclasses import dataclass
+from typing import Mapping
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from app.core.config import Settings
-
-
-def dashscope_region_host(region: str) -> str:
-    region = (region or "cn-beijing").strip()
-    if region == "cn-beijing":
-        return "cn-beijing.maas.aliyuncs.com"
-    return f"{region}.maas.aliyuncs.com"
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 
 
-def dashscope_http_base(settings: Settings) -> str:
-    if settings.dashscope_http_api_base.strip():
-        return settings.dashscope_http_api_base.rstrip("/")
-    if settings.dashscope_workspace_id.strip():
-        return f"https://{settings.dashscope_workspace_id}.{dashscope_region_host(settings.dashscope_region)}/api/v1"
-    return "https://dashscope.aliyuncs.com/api/v1"
+@dataclass(frozen=True, slots=True)
+class ResolvedAudioProviderConfig:
+    """Validated non-secret audio options for one immutable family binding.
+
+    Provider endpoint, adapter and model identity are carried by ``binding``.
+    The object deliberately has no Settings reference and no credential: a
+    caller may resolve a credential only after its usage attempt has obtained a
+    durable dispatch permit.
+    """
+
+    binding: ResolvedCapabilityBinding
+    language_hint: str | None
+    hotwords: tuple[str, ...]
+    voice: str | None
+    output_format: str | None
 
 
-def dashscope_ws_base(settings: Settings) -> str:
-    if settings.dashscope_websocket_api_base.strip():
-        return settings.dashscope_websocket_api_base.rstrip("/")
-    if settings.dashscope_workspace_id.strip():
-        return f"wss://{settings.dashscope_workspace_id}.{dashscope_region_host(settings.dashscope_region)}/api-ws/v1"
-    return "wss://dashscope.aliyuncs.com/api-ws/v1"
+def resolved_audio_provider_config(
+    binding: ResolvedCapabilityBinding,
+) -> ResolvedAudioProviderConfig:
+    if binding.capability not in {"stt", "tts", "realtime_audio"}:
+        raise FamilyModelSettingsError("family_model_capability_disabled")
+    options = binding.options if isinstance(binding.options, Mapping) else {}
+    language_hint = _optional_string(options.get("language_hint"), max_length=32)
+    voice = _optional_string(options.get("voice"), max_length=80)
+    output_format = _optional_string(options.get("output_format"), max_length=16)
+    raw_hotwords = options.get("hotwords", ())
+    if not isinstance(raw_hotwords, (list, tuple)):
+        raw_hotwords = ()
+    hotwords = tuple(
+        value
+        for item in raw_hotwords
+        if (value := _optional_string(item, max_length=80)) is not None
+    )
+    if len(hotwords) != len(set(hotwords)) or len(hotwords) > 32:
+        raise FamilyModelSettingsError("family_model_audio_options_invalid")
+    if output_format is not None and output_format not in {"mp3", "wav", "ogg", "flac", "mp4"}:
+        raise FamilyModelSettingsError("family_model_audio_options_invalid")
+    return ResolvedAudioProviderConfig(
+        binding=binding,
+        language_hint=language_hint,
+        hotwords=hotwords,
+        voice=voice,
+        output_format=output_format,
+    )
 
 
-def dashscope_api_key(settings: Settings, explicit: str = "") -> str:
-    return explicit.strip() or settings.dashscope_api_key.strip()
+def binding_endpoint_url(binding: ResolvedCapabilityBinding, suffix: str) -> str:
+    """Append one adapter-owned path without accepting a caller URL."""
+
+    parsed = urlsplit(binding.endpoint.normalized_url)
+    base_path = parsed.path.rstrip("/")
+    path = f"{base_path}/{suffix.lstrip('/')}"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
-def join_api_url(base: str, path: str) -> str:
-    return urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+def realtime_endpoint_url(binding: ResolvedCapabilityBinding) -> str:
+    """Build the one allowed realtime URL from a published websocket binding."""
+
+    endpoint = binding.websocket_endpoint or binding.endpoint
+    if endpoint.scheme not in {"ws", "wss"}:
+        raise FamilyModelSettingsError("family_model_provider_protocol_unsupported")
+    parsed = urlsplit(endpoint.normalized_url)
+    path = parsed.path.rstrip("/")
+    if not path.endswith("/realtime"):
+        path = f"{path}/realtime"
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            urlencode({"model": binding.requested_model}),
+            "",
+        )
+    )
 
 
-def dashscope_realtime_url(settings: Settings, model: str) -> str:
-    base = (settings.ai_realtime_api_base.strip() or dashscope_ws_base(settings)).rstrip("/")
-    if base.endswith("/realtime"):
-        endpoint = base
-    else:
-        endpoint = join_api_url(base, "/realtime")
-    return f"{endpoint}?{urlencode({'model': model})}"
+def _optional_string(value: object, *, max_length: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized or len(normalized) > max_length:
+        return None
+    return normalized

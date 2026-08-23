@@ -34,8 +34,9 @@ from app.services.model_usage.incidents import flush_outage_latch
 from app.services.model_usage.outage_latch import ModelUsageOutageLatch
 from app.services.model_usage.policies import lock_current_policy, lock_family_policy
 from app.services.model_usage.preflight import decode_receipt_integrity_keyring
-from app.services.model_usage.pricing import price_coverage
+from app.models.family_model_settings import FamilyModelSettings
 from app.services.model_usage.configured_variants import configured_usage_variants
+from app.services.model_usage.pricing import PriceCoverageReport, family_price_coverage
 from app.services.model_usage.recovery import reconcile_uncertain_in_session
 from app.services.model_usage.retention import prune_eligible_periods_batch
 from app.services.model_usage.rollups import rebuild_monthly_rollups
@@ -60,6 +61,25 @@ class DailyMaintenanceTask:
     runner: Callable[[], object]
     local_time: time
     timezone: ZoneInfo
+
+
+@dataclass(frozen=True, slots=True)
+class FamilyPriceCoverageBatch:
+    """Aggregate per-family immutable price coverage without a global fallback."""
+
+    reports: tuple[PriceCoverageReport, ...]
+
+    @property
+    def healthy(self) -> bool:
+        return all(report.healthy for report in self.reports)
+
+    @property
+    def price_version_id(self) -> None:
+        return None
+
+    @property
+    def rows(self) -> tuple[object, ...]:
+        return tuple(row for report in self.reports for row in report.rows)
 
 
 def _process_outage_latch() -> ModelUsageOutageLatch:
@@ -376,14 +396,30 @@ def check_price_coverage_batch(
     *,
     session_factory: Callable[[], Session] = SessionLocal,
     at: datetime | None = None,
-) -> object:
-    settings = get_settings()
+) -> FamilyPriceCoverageBatch:
     with session_factory() as db:
-        return price_coverage(
-            db,
-            configured_variants=configured_usage_variants(settings),
-            at=at or utcnow(),
+        pointers = tuple(
+            db.scalars(
+                select(FamilyModelSettings).where(
+                    FamilyModelSettings.active_config_revision_id.is_not(None)
+                )
+            )
         )
+        reports = tuple(
+            family_price_coverage(
+                db,
+                family_id=pointer.family_id,
+                config_revision_id=pointer.active_config_revision_id or "",
+                price_version_id=pointer.active_price_version_id,
+                configured_variants=configured_usage_variants(
+                    db,
+                    family_id=pointer.family_id,
+                    config_revision_id=pointer.active_config_revision_id or "",
+                ),
+            )
+            for pointer in pointers
+        )
+        return FamilyPriceCoverageBatch(reports=reports)
 
 
 DEFAULT_INTERVAL_TASKS = (

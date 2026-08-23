@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,10 @@ from fastapi.responses import JSONResponse
 from app.api.inventory_reconciliation import (
     RECONCILIATION_SUBMIT_PATH,
     reconciliation_request_validation_detail,
+)
+from app.api.family_model_settings import (
+    FAMILY_MODEL_SETTINGS_API_PREFIX,
+    family_model_settings_request_validation_detail,
 )
 from app.api.router import api_router
 from app.api.shopping_intake import (
@@ -24,6 +28,16 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.services.model_usage.maintenance import ModelUsageMaintenanceWorker
 from app.services.model_usage.preflight import run_model_usage_preflight
+from app.services.family_model_settings.maintenance import (
+    FamilyModelSettingsMaintenanceWorker,
+)
+from app.services.family_model_settings.credentials import (
+    FamilyModelCredentialCipher,
+    validate_credential_keyring_references,
+)
+from app.services.family_model_settings.errors import (
+    FamilyModelCredentialConfigurationError,
+)
 from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
@@ -43,6 +57,40 @@ def cors_allowed_origins(current_settings: Settings) -> list[str]:
     if current_settings.environment.strip().lower() in LOCAL_ENVIRONMENTS:
         origins.append("http://127.0.0.1:5173")
     return list(dict.fromkeys(origins))
+
+
+def validate_family_model_credential_keyring_references(
+    db,
+    *,
+    current_settings: Settings,
+) -> None:
+    """Fail startup before workers/API traffic can use an incomplete keyring.
+
+    Local development bootstraps a persistent keyring only when the database
+    has no retained references. Existing references always require their
+    original key material. Non-local environments require deployment-managed
+    keyring configuration.
+    """
+
+    environment = str(getattr(current_settings, "environment", "local")).strip().lower()
+    active_key_id = str(getattr(current_settings, "family_model_credential_active_key_id", ""))
+    keys_json = getattr(current_settings, "family_model_credential_keys_json", None)
+    raw_keys_json = keys_json.get_secret_value() if hasattr(keys_json, "get_secret_value") else str(keys_json or "")
+    if environment in LOCAL_ENVIRONMENTS and not active_key_id and not raw_keys_json.strip():
+        try:
+            cipher = FamilyModelCredentialCipher.from_settings(current_settings)
+        except FamilyModelCredentialConfigurationError as exc:
+            if exc.code != "family_model_credential_keyring_file_missing":
+                raise
+            validate_credential_keyring_references(db, keyring=None)
+            cipher = FamilyModelCredentialCipher.from_settings(
+                current_settings,
+                allow_local_keyring_creation=True,
+            )
+        validate_credential_keyring_references(db, keyring=cipher.keyring)
+        return
+    cipher = FamilyModelCredentialCipher.from_settings(current_settings)
+    validate_credential_keyring_references(db, keyring=cipher.keyring)
 
 
 class UnhandledApiExceptionMiddleware:
@@ -86,18 +134,30 @@ async def lifespan(app: FastAPI):
             initialize_configured_admin(db, commit=False)
             if settings.model_usage_required:
                 run_model_usage_preflight(settings, session_factory=SessionLocal, db=db)
+            validate_family_model_credential_keyring_references(
+                db,
+                current_settings=settings,
+            )
     image_worker = ImageGenerationWorker()
     search_index_worker = SearchIndexWorker()
     model_usage_worker = ModelUsageMaintenanceWorker()
+    family_model_settings_worker = FamilyModelSettingsMaintenanceWorker()
     image_worker.start()
     search_index_worker.start()
     if settings.model_usage_maintenance_enabled:
         model_usage_worker.start()
+    if settings.family_model_maintenance_enabled:
+        family_model_settings_worker.start()
     logger.info("AI image generation worker started")
     logger.info("Search index worker started")
     if settings.model_usage_maintenance_enabled:
         logger.info("Model usage maintenance worker started")
+    if settings.family_model_maintenance_enabled:
+        logger.info("Family model settings maintenance worker started")
     yield
+    if settings.family_model_maintenance_enabled:
+        family_model_settings_worker.stop()
+        logger.info("Family model settings maintenance worker stopped")
     if settings.model_usage_maintenance_enabled:
         model_usage_worker.stop()
         logger.info("Model usage maintenance worker stopped")
@@ -110,8 +170,31 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)
 
 
+@app.exception_handler(FamilyModelCredentialConfigurationError)
+async def handle_family_model_credential_configuration_error(
+    request: Request,
+    exc: FamilyModelCredentialConfigurationError,
+):
+    logger.error(
+        "Family model credential configuration unavailable path=%s code=%s",
+        request.url.path,
+        exc.code,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": {"code": "family_model_credential_configuration_invalid"}
+        },
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith(FAMILY_MODEL_SETTINGS_API_PREFIX):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": family_model_settings_request_validation_detail(exc.errors())},
+        )
     if request.method == "POST" and request.url.path == RECONCILIATION_SUBMIT_PATH:
         return JSONResponse(
             status_code=422,

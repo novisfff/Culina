@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth, require_owner
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
@@ -80,16 +79,10 @@ from app.services.ai_client_projection import (
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
+from app.services.family_model_settings.status import project_member_safe_ai_status
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
-
-
-def _model_supports_vision(model: str, configured: bool | None) -> bool:
-    if configured is not None:
-        return configured
-    normalized_model = model.strip().lower()
-    return any(marker in normalized_model for marker in ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "vision", "qwen-vl", "vl"))
 
 
 def _discard_transient_chat_history(db: Session, *, family_id: str, response: dict) -> None:
@@ -127,52 +120,14 @@ def _serialize_orchestrator_profile(profile: OrchestratorProfile, *, default_key
 
 
 @router.get("/api/ai/status", response_model=AIStatusResponse)
-def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
-    _, _membership = auth
-    settings = get_settings()
-    provider = (settings.ai_provider or "disabled").strip().lower()
-    model = settings.ai_model or "gpt-4o-mini"
-    supports_vision = _model_supports_vision(model, getattr(settings, "ai_supports_vision", None))
-    supported = {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}
-    contracts = recipe_cook_contracts_probe()
-    if provider in {"", "disabled", "mock"}:
-        return {
-            "enabled": False,
-            "provider": provider or "disabled",
-            "model": model,
-            "supports_vision": False,
-            "status": "disabled",
-            "detail": "AI 模型未配置。",
-            "recipe_cook_contracts": contracts,
-        }
-    if provider not in supported:
-        return {
-            "enabled": False,
-            "provider": provider,
-            "model": model,
-            "supports_vision": False,
-            "status": "unsupported_provider",
-            "detail": "AI provider 配置不受支持。",
-            "recipe_cook_contracts": contracts,
-        }
-    if not settings.ai_api_key:
-        return {
-            "enabled": False,
-            "provider": provider,
-            "model": model,
-            "supports_vision": False,
-            "status": "missing_api_key",
-            "detail": "AI API Key 未配置。",
-            "recipe_cook_contracts": contracts,
-        }
+def get_ai_status(
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
     return {
-        "enabled": True,
-        "provider": provider,
-        "model": model,
-        "supports_vision": supports_vision,
-        "status": "ready",
-        "detail": "AI 已就绪。",
-        "recipe_cook_contracts": contracts,
+        **project_member_safe_ai_status(db, family_id=membership.family_id),
+        "recipe_cook_contracts": recipe_cook_contracts_probe(),
     }
 
 

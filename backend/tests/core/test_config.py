@@ -3,13 +3,11 @@ from __future__ import annotations
 from app.core.config import Settings
 
 
-def test_ai_supports_vision_defaults_to_true() -> None:
-    settings = Settings()
+def test_family_model_platform_limits_have_safe_defaults() -> None:
+    settings = Settings(_env_file=None)
 
-    assert settings.ai_supports_vision is True
-
-
-def test_empty_ai_supports_vision_env_value_is_unset() -> None:
-    settings = Settings(ai_supports_vision="")
-
-    assert settings.ai_supports_vision is None
+    assert settings.family_model_allow_insecure_public_transports is False
+    assert settings.family_model_audio_upload_max_bytes == 10 * 1024 * 1024
+    assert settings.family_model_stt_max_duration_seconds == 60
+    assert settings.family_model_tts_max_characters == 4096
+    assert settings.family_model_realtime_session_max_seconds == 300

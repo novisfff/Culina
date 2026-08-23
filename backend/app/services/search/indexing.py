@@ -5,7 +5,6 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import DISABLED_SEARCH_PROVIDERS, get_settings
 from app.core.utils import create_id
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
 from app.services.search.documents import (
@@ -15,8 +14,7 @@ from app.services.search.documents import (
     build_meal_plan_search_document,
     build_recipe_search_document,
 )
-from app.services.search.vector_indexing import search_point_id
-from app.services.search.vector_store import VectorStore, build_vector_store
+from app.services.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +35,6 @@ def upsert_search_document(db: Session, payload: SearchDocumentPayload) -> Searc
             entity_id=payload.entity_id,
             content_hash=payload.content_hash,
             document_builder_version=payload.document_builder_version,
-            # SQLAlchemy column defaults are populated at flush time.  The
-            # indexing worker reads this value before committing a freshly
-            # created document, so make the lifecycle state explicit here.
-            vector_status="pending",
         )
         db.add(document)
 
@@ -53,34 +47,27 @@ def upsert_search_document(db: Session, payload: SearchDocumentPayload) -> Searc
     document.metadata_json = payload.metadata_json
     document.content_hash = payload.content_hash
     document.document_builder_version = payload.document_builder_version
-    if is_new or hash_changed:
-        document.embedding_model = payload.embedding_model
-        document.embedding_dimensions = payload.embedding_dimensions
-        document.pending_vector = None
-        document.pending_vector_content_hash = None
-        document.pending_vector_model = None
-        document.pending_vector_dimensions = None
-    if hash_changed or document.vector_status == "disabled":
-        document.vector_status = "pending"
-        document.vector_error = None
-        document.indexed_at = None
+    # Vector lifecycle belongs exclusively to FamilySearchProfileDocument.
+    # The legacy SearchDocument vector fields remain untouched for migration
+    # downgrade compatibility and must not be used as a shared profile state.
+    del is_new, hash_changed
     return document
 
 
 def upsert_ingredient_search_document(db: Session, ingredient: Ingredient) -> SearchDocument:
-    return upsert_search_document(db, build_ingredient_search_document(ingredient, **_embedding_document_config()))
+    return upsert_search_document(db, build_ingredient_search_document(ingredient))
 
 
 def upsert_food_search_document(db: Session, food: Food) -> SearchDocument:
-    return upsert_search_document(db, build_food_search_document(food, **_embedding_document_config()))
+    return upsert_search_document(db, build_food_search_document(food))
 
 
 def upsert_recipe_search_document(db: Session, recipe: Recipe) -> SearchDocument:
-    return upsert_search_document(db, build_recipe_search_document(recipe, **_embedding_document_config()))
+    return upsert_search_document(db, build_recipe_search_document(recipe))
 
 
 def upsert_meal_plan_search_document(db: Session, item: FoodPlanItem) -> SearchDocument:
-    return upsert_search_document(db, build_meal_plan_search_document(item, **_embedding_document_config()))
+    return upsert_search_document(db, build_meal_plan_search_document(item))
 
 
 def delete_search_document(
@@ -101,43 +88,6 @@ def delete_search_document(
     )
     if document is not None:
         db.delete(document)
-    if delete_vector:
-        delete_search_vector_point(entity_type=entity_type, entity_id=entity_id, vector_store=vector_store)
-
-
-def _embedding_document_config() -> dict[str, object]:
-    settings = get_settings()
-    provider = settings.search_embedding_provider.strip().lower()
-    if provider in DISABLED_SEARCH_PROVIDERS:
-        return {"embedding_model": "", "embedding_dimensions": 0}
-    return {
-        "embedding_model": settings.search_embedding_model.strip(),
-        "embedding_dimensions": settings.search_embedding_dimensions,
-    }
-
-
-def delete_search_vector_point(*, entity_type: str, entity_id: str, vector_store: VectorStore | None = None) -> None:
-    if not entity_type or not entity_id:
-        return
-    if vector_store is None and not _should_delete_vector_point():
-        return
-    try:
-        store = vector_store or build_vector_store()
-        store.delete_point(point_id=search_point_id(entity_type, entity_id))
-    except Exception as exc:
-        logger.warning(
-            "Failed to delete search vector point entity_type=%s entity_id=%s error=%s",
-            entity_type,
-            entity_id,
-            exc,
-        )
-
-
-def _should_delete_vector_point() -> bool:
-    settings = get_settings()
-    return (
-        settings.search_vector_backend.strip().lower() == "qdrant"
-        and settings.search_embedding_provider.strip().lower() not in DISABLED_SEARCH_PROVIDERS
-        and bool(settings.qdrant_url.strip())
-        and bool(settings.qdrant_collection.strip())
-    )
+    # Collection cleanup is profile-aware and durable.  It cannot be done
+    # against one global collection from this canonical-document boundary.
+    del delete_vector, vector_store

@@ -20,6 +20,7 @@ from app.models.model_usage import ModelUsageEvent, ModelUsageReservation
 from app.services.model_usage.adapters.embedding import EmbeddingUsageAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageContractError
 from app.services.model_usage.facade import ModelUsageFacade
+from app.services.model_usage.configured_variants import ConfiguredUsageVariant
 from app.services.model_usage.policies import CapabilityLimitCommand
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.types import UsageAttribution
@@ -172,6 +173,19 @@ def test_embedding_budget_block_happens_before_dispatch(
                 limit_value=Decimal("1"),
             ),
         ),
+        active_variants=(
+            ConfiguredUsageVariant(
+                provider="openai",
+                billing_model="embedding-test",
+                capability=ModelUsageCapability.EMBEDDING,
+                variant_key="dimensions=1536",
+                billing_scheme_key="embedding-token-v1",
+                billable_meters=frozenset({ModelUsageMeter.EMBEDDING_TOKENS}),
+                produced_meters=frozenset(
+                    {ModelUsageMeter.EMBEDDING_TOKENS, ModelUsageMeter.REQUEST_UNITS}
+                ),
+            ),
+        ),
     )
 
     with pytest.raises(ModelUsageBlocked, match="model_usage_capability_limit_exceeded"):
@@ -226,16 +240,21 @@ def test_embedding_background_batch_uses_system_attribution(
     assert attempt.estimate.quantity(ModelUsageMeter.EMBEDDING_TOKENS) == Decimal("7")
 
 
-def test_search_usage_handoff_columns_exist() -> None:
-    document_columns = Base.metadata.tables["search_documents"].c
+def test_profile_search_usage_handoff_columns_exist() -> None:
+    document_columns = Base.metadata.tables["family_search_profile_documents"].c
     assert {
-        "pending_vector",
-        "pending_vector_content_hash",
-        "pending_vector_model",
-        "pending_vector_dimensions",
+        "search_profile_id",
+        "search_document_id",
+        "vector_json",
+        "vector_dimensions",
+        "error_code",
+        "attempt_count",
     } <= set(document_columns.keys())
     job_columns = Base.metadata.tables["search_index_jobs"].c
     assert {
+        "search_profile_id",
+        "config_revision_id",
+        "price_version_id",
         "usage_attempt_key",
         "usage_event_id",
         "budget_blocked_period_start",

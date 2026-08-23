@@ -15,6 +15,7 @@ from app.schemas.model_usage import (
     ModelUsageMeasurementHealthOut,
     ModelUsagePersonalBreakdownOut,
     ModelUsagePersonalOverviewOut,
+    ModelUsagePersonalRequestLogOut,
 )
 from app.services.model_usage.aggregation import UsageAggregate, UsageGapInterval
 from app.services.model_usage.queries import (
@@ -27,6 +28,7 @@ from app.services.model_usage.serializers import (
     decimal_text,
     serialize_family_overview,
     serialize_personal_overview,
+    serialize_personal_usage_breakdown,
     serialize_usage_breakdown,
     serialize_cost_summary,
     serialize_measurement_health,
@@ -248,3 +250,45 @@ def test_breakdown_serialization_has_no_internal_subject_identity_fields() -> No
     assert "subject_id" not in payload["items"][0]
     assert "subject_key" not in payload["items"][0]
     assert ModelUsagePersonalBreakdownOut.model_fields["scope"].annotation is not None
+
+
+def test_personal_usage_schemas_cannot_express_provider_or_model_identity() -> None:
+    forbidden = {
+        "provider",
+        "requested_model",
+        "billing_model",
+        "provider_request_id",
+        "subject_label",
+        "cost_cny",
+    }
+
+    assert forbidden.isdisjoint(ModelUsagePersonalRequestLogOut.model_fields)
+    item_type = ModelUsagePersonalBreakdownOut.model_fields["items"].annotation
+    assert "provider" not in str(item_type)
+    assert "billing_model" not in str(item_type)
+
+
+def test_personal_breakdown_serializer_omits_provider_identity_structurally() -> None:
+    breakdown = UsageBreakdown(
+        family_id="family-1",
+        scope="me",
+        period=parse_local_month("2026-07"),
+        source="raw",
+        is_partial_period=False,
+        group_by="capability",
+        items=(
+            UsageBreakdownItem(
+                label="llm",
+                provider="provider-secret",
+                billing_model="model-secret",
+                aggregate=UsageAggregate(known_priced_cost_cny=Decimal("1")),
+            ),
+        ),
+    )
+
+    payload = serialize_personal_usage_breakdown(breakdown)
+    validated = ModelUsagePersonalBreakdownOut.model_validate(payload)
+
+    assert "provider-secret" not in str(payload)
+    assert "model-secret" not in str(payload)
+    assert "provider" not in validated.items[0].model_fields_set

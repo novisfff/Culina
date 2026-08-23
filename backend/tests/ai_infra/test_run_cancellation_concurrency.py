@@ -103,7 +103,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
         return int(operation_count or 0), int(food_count or 0), int(cancel_count or 0)
 
     def _create_waiting_human_input(self, provider: HumanInputRaceProvider) -> tuple[dict, str]:
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+        with patch_ai_workspace_provider(provider):
             response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
@@ -160,7 +160,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
 
     def test_approval_business_write_commits_once_then_cancel_stops_continuation(self) -> None:
         provider = FollowupCountingProvider()
-        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+        with patch_ai_workspace_provider(provider):
             data = self._create_food_profile_approval(suffix="审批先到")
             approval = data["included"]["approvals"][0]
             before_operation_count, before_food_count, _ = self._counts(run_id=data["run"]["id"])
@@ -419,7 +419,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
                 autospec=True,
                 side_effect=update_message_then_cancel,
             ),
-            patch("app.ai.workspace_service.get_chat_provider", return_value=provider),
+            patch_ai_workspace_provider(provider),
         ):
             worker = Thread(target=submit_response)
             worker.start()

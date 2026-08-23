@@ -2,25 +2,26 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from pathlib import Path
-from typing import TYPE_CHECKING
-from urllib.parse import unquote, urlparse
+from typing import TYPE_CHECKING, Any
 
-import httpx
-
-from app.core.config import get_settings
 from app.core.enums import ImageGenerationMode, MealType, MediaEntityType
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.transport import ProviderResponse, ProviderTransport
+from app.services.family_model_settings.types import (
+    DispatchCredential,
+    ResolvedCapabilityBinding,
+)
 from app.services.model_usage.adapters.base import MeteredProviderAttempt
 from app.services.model_usage.errors import ModelUsageContractError
+from app.services.model_usage.types import DispatchPermit
 
 if TYPE_CHECKING:
     from app.services.model_usage.adapters.image_generation import ImageGenerationUsageAdapter
 
 STYLE_KEY = "culina-still-life-v1"
 PROMPT_VERSION = "7"
-DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DASHSCOPE_SYNC_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 OPENAI_IMAGE_GENERATIONS_ENDPOINT = "/images/generations"
 OPENAI_IMAGE_EDITS_ENDPOINT = "/images/edits"
@@ -167,13 +168,20 @@ class ImageGenerationProviderOutcomeUncertain(ImageGenerationProviderError):
     """A send may have reached the provider; it must never be auto-replayed."""
 
 
-@dataclass(slots=True)
-class ImageProviderConfig:
-    provider: str = "disabled"
-    api_base: str = DEFAULT_DASHSCOPE_BASE_URL
-    api_key: str = ""
-    model: str = ""
-    timeout_seconds: float = 180.0
+@dataclass(frozen=True, slots=True)
+class ImageProviderDependencies:
+    """Short-lived dependencies used to send one family-bound image request.
+
+    The binding deliberately contains no credential.  A concrete provider only
+    invokes ``resolve_dispatch_credential`` after the caller has obtained a
+    dispatch permit, which pins the active secret version for that physical
+    request.
+    """
+
+    transport: ProviderTransport
+    resolve_dispatch_credential: Callable[
+        [ResolvedCapabilityBinding, str | None], DispatchCredential
+    ]
 
 
 def INGREDIENT_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
@@ -374,11 +382,11 @@ def normalize_image_generation_request(request: ImageGenerationRequest) -> Image
 _normalize_request = normalize_image_generation_request
 
 
-def _provider_request_id(response: httpx.Response) -> str | None:
+def _provider_request_id(response: ProviderResponse) -> str | None:
     return (
-        response.headers.get("x-request-id")
-        or response.headers.get("request-id")
-        or response.headers.get("x-dashscope-request-id")
+        response.header("x-request-id")
+        or response.header("request-id")
+        or response.header("x-dashscope-request-id")
         or None
     )
 
@@ -390,7 +398,7 @@ def _is_confirmed_not_executed_status(status_code: int) -> bool:
     return status_code in {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}
 
 
-def _classify_provider_request_status(response: httpx.Response) -> ImageGenerationProviderError:
+def _classify_provider_request_status(response: ProviderResponse) -> ImageGenerationProviderError:
     request_id = _provider_request_id(response)
     if _is_confirmed_not_executed_status(response.status_code):
         return ImageGenerationProviderRejected(
@@ -465,12 +473,6 @@ def _extract_image_url(payload: dict) -> str:
     raise RuntimeError(_extract_provider_error(payload) or "图像生成结果中未找到图片地址")
 
 
-def _infer_extension_from_url(url: str) -> str | None:
-    path = Path(unquote(urlparse(url).path))
-    suffix = path.suffix.lower()
-    return suffix if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"} else None
-
-
 def _format_openai_size(size: str) -> str:
     if not size:
         return "auto"
@@ -524,15 +526,31 @@ def _extract_openai_image_payload(payload: dict) -> tuple[bytes | None, str | No
 
 
 class BaseImageGenerationProvider:
-    def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:  # pragma: no cover - interface
+    def generate_from_text(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:  # pragma: no cover - interface
         raise NotImplementedError
 
-    def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:  # pragma: no cover - interface
+    def generate_from_reference(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:  # pragma: no cover - interface
         raise NotImplementedError
 
 
 class MockImageGenerationProvider(BaseImageGenerationProvider):
-    def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def generate_from_text(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
+        del permit
         normalized = _normalize_request(request)
         return ImageGenerationResult(
             prompt=build_ai_image_prompt(normalized),
@@ -541,7 +559,13 @@ class MockImageGenerationProvider(BaseImageGenerationProvider):
             mime_type="image/svg+xml",
         )
 
-    def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def generate_from_reference(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
+        del permit
         normalized = _normalize_request(request)
         return ImageGenerationResult(
             prompt=build_ai_image_prompt(normalized),
@@ -551,47 +575,127 @@ class MockImageGenerationProvider(BaseImageGenerationProvider):
         )
 
 
-class DashScopeImageGenerationProvider(BaseImageGenerationProvider):
-    def __init__(self, config: ImageProviderConfig) -> None:
-        self.base_url = (config.api_base or DEFAULT_DASHSCOPE_BASE_URL).rstrip("/")
-        self.api_key = config.api_key
-        self.model = config.model
-        timeout_seconds = max(float(config.timeout_seconds or 120.0), 30.0)
-        self.timeout = httpx.Timeout(timeout_seconds, connect=10.0, read=timeout_seconds, write=30.0)
+class _BoundImageGenerationProvider(BaseImageGenerationProvider):
+    """Provider base that never stores a decrypted family credential."""
 
-    def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def __init__(
+        self,
+        binding: ResolvedCapabilityBinding,
+        dependencies: ImageProviderDependencies,
+    ) -> None:
+        if binding.capability != "image_generation":
+            raise ModelUsageContractError("image_binding_required")
+        self.binding = binding
+        self.dependencies = dependencies
+
+    def _post_json(
+        self,
+        *,
+        suffix: str,
+        payload: Mapping[str, Any],
+        permit: DispatchPermit | None,
+    ) -> ProviderResponse:
+        if permit is None:
+            # Family credentials are authorized only through the durable usage
+            # dispatch boundary.  This prevents an unmetered code path from
+            # decrypting a provider key merely because it has a binding.
+            raise ModelUsageContractError("image_dispatch_permit_required")
+        credential: DispatchCredential | None = None
+        try:
+            credential = self.dependencies.resolve_dispatch_credential(
+                self.binding,
+                permit.credential_secret_version_id,
+            )
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            if self.binding.auth_mode == "api_key":
+                if not credential.api_key:
+                    raise ModelUsageContractError("image_dispatch_credential_required")
+                headers["Authorization"] = f"Bearer {credential.api_key}"
+            if permit.provider_idempotency_key:
+                headers["Idempotency-Key"] = permit.provider_idempotency_key
+            return self.dependencies.transport.request(
+                "POST",
+                _binding_endpoint_url(self.binding, suffix),
+                headers=headers,
+                json=dict(payload),
+            )
+        except ImageGenerationProviderError:
+            raise
+        except (FamilyModelSettingsError, ModelUsageContractError):
+            raise
+        except Exception as exc:
+            # ProviderTransport intentionally exposes only content-free
+            # domain errors.  Any unexpected adapter failure is still an
+            # ambiguous outcome once the send boundary has been crossed.
+            raise ImageGenerationProviderOutcomeUncertain(
+                "image_provider_outcome_uncertain"
+            ) from exc
+        finally:
+            credential = None
+
+    def _download_media(self, image_url: str) -> tuple[bytes, str, str]:
+        try:
+            media = self.dependencies.transport.download_media(
+                image_url,
+                source=self.binding.endpoint,
+                adapter_kind=self.binding.adapter_kind,
+            )
+        except FamilyModelSettingsError as exc:
+            raise ImageGenerationProviderOutcomeUncertain(
+                "image_provider_outcome_uncertain"
+            ) from exc
+        content_type = media.content_type.split(";", 1)[0].strip().lower()
+        file_extension = CONTENT_TYPE_TO_EXTENSION.get(content_type) or ".png"
+        return media.content, content_type or "image/png", file_extension
+
+
+class DashScopeImageGenerationProvider(_BoundImageGenerationProvider):
+    def generate_from_text(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
         normalized = _normalize_request(request)
         prompt = build_ai_image_prompt(normalized)
         return self._generate(
             request=normalized,
-            model=self.model,
             prompt=prompt,
             content=[{"text": prompt}],
+            permit=permit,
         )
 
-    def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def generate_from_reference(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
         normalized = _normalize_request(request)
         prompt = build_ai_image_prompt(normalized)
         return self._generate(
             request=normalized,
-            model=self.model,
             prompt=prompt,
             content=[
                 {"text": prompt},
                 {"image": _encode_reference_data_uri(normalized.reference_image_bytes, normalized.reference_filename)},
             ],
+            permit=permit,
         )
 
     def _generate(
         self,
         *,
         request: ImageGenerationRequest,
-        model: str,
         prompt: str,
         content: list[dict[str, str]],
+        permit: DispatchPermit | None,
     ) -> ImageGenerationResult:
         payload = {
-            "model": model,
+            "model": self.binding.requested_model,
             "input": {
                 "messages": [
                     {
@@ -606,65 +710,53 @@ class DashScopeImageGenerationProvider(BaseImageGenerationProvider):
                 "watermark": False,
             },
         }
-
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                try:
-                    response = client.post(
-                        f"{self.base_url}{DASHSCOPE_SYNC_ENDPOINT}",
-                        json=payload,
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                    )
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as exc:  # pragma: no cover - provider path
-                    raise _classify_provider_request_status(exc.response) from exc
-                except httpx.HTTPError as exc:  # pragma: no cover - network path
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain"
-                    ) from exc
-
-                try:
-                    response_payload = response.json()
-                    image_url = _extract_image_url(response_payload)
-                    download_response = client.get(image_url, follow_redirects=True)
-                    download_response.raise_for_status()
-                except (httpx.HTTPError, ValueError, RuntimeError) as exc:  # pragma: no cover - provider path
-                    # A completed provider request may have produced an image
-                    # even if fetching or parsing its result later failed.
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain",
-                        provider_request_id=_provider_request_id(response),
-                    ) from exc
+            response = self._post_json(
+                suffix=DASHSCOPE_SYNC_ENDPOINT,
+                payload=payload,
+                permit=permit,
+            )
+            if not 200 <= response.status_code < 300:
+                raise _classify_provider_request_status(response)
+            response_payload = response.json()
+            if not isinstance(response_payload, dict):
+                raise RuntimeError("图像生成服务未返回有效结果")
+            image_url = _extract_image_url(response_payload)
+            binary_content, mime_type, file_extension = self._download_media(image_url)
         except ImageGenerationProviderError:
             raise
+        except (FamilyModelSettingsError, ModelUsageContractError):
+            raise
+        except Exception as exc:
+            # A completed provider request may have produced an image even if
+            # parsing or fetching its result later fails; never auto-replay.
+            raise ImageGenerationProviderOutcomeUncertain(
+                "image_provider_outcome_uncertain",
+                provider_request_id=_provider_request_id(response) if "response" in locals() else None,
+            ) from exc
 
-        content_type = download_response.headers.get("content-type", "").split(";")[0].strip().lower()
-        file_extension = CONTENT_TYPE_TO_EXTENSION.get(content_type) or _infer_extension_from_url(image_url) or ".png"
-        mime_type = content_type or "image/png"
         return ImageGenerationResult(
             prompt=prompt,
-            binary_content=download_response.content,
+            binary_content=binary_content,
             file_extension=file_extension,
             mime_type=mime_type,
-            reported_model=model,
+            reported_model=self.binding.requested_model,
             provider_request_id=_provider_request_id(response),
         )
 
 
-class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
-    def __init__(self, config: ImageProviderConfig) -> None:
-        self.base_url = (config.api_base or DEFAULT_OPENAI_BASE_URL).rstrip("/")
-        self.api_key = config.api_key
-        self.model = config.model or "gpt-image-2"
-        timeout_seconds = max(float(config.timeout_seconds or 180.0), 30.0)
-        self.timeout = httpx.Timeout(timeout_seconds, connect=10.0, read=timeout_seconds, write=60.0)
-
-    def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+class OpenAIImageGenerationProvider(_BoundImageGenerationProvider):
+    def generate_from_text(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
         normalized = _normalize_request(request)
         prompt = build_ai_image_prompt(normalized)
         output_format = _normalize_openai_output_format(normalized.output_format)
         payload = {
-            "model": self.model,
+            "model": self.binding.requested_model,
             "prompt": prompt,
             "size": _format_openai_size(normalized.size),
             "n": 1,
@@ -675,9 +767,15 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
             payload=payload,
             prompt=prompt,
             output_format=output_format,
+            permit=permit,
         )
 
-    def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def generate_from_reference(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
         normalized = _normalize_request(request)
         prompt = build_ai_image_prompt(normalized)
         output_format = _normalize_openai_output_format(normalized.output_format)
@@ -687,111 +785,70 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
             mime_type = _guess_reference_mime_type(normalized.reference_filename)
         except ValueError as exc:
             raise ImageGenerationProviderRejected("image_reference_invalid") from exc
-        files = {
-            "image": (
-                normalized.reference_filename or "reference.png",
-                normalized.reference_image_bytes,
-                mime_type,
-            )
-        }
-        data = {
-            "model": self.model,
+        # The family transport owns all outbound sends and intentionally
+        # accepts JSON only.  OpenAI-compatible adapters receive the reference
+        # as a bounded data URI; adapter validation has already constrained
+        # this endpoint shape and the image bytes never enter a durable job
+        # payload or trace.
+        payload = {
+            "model": self.binding.requested_model,
             "prompt": prompt,
             "size": _format_openai_size(normalized.size),
-            "n": "1",
+            "n": 1,
             "output_format": output_format,
+            "image": _encode_reference_data_uri(
+                normalized.reference_image_bytes,
+                normalized.reference_filename,
+            ),
+            "image_mime_type": mime_type,
         }
-        return self._post_multipart_image(
+        return self._post_json_image(
             endpoint=OPENAI_IMAGE_EDITS_ENDPOINT,
-            data=data,
-            files=files,
+            payload=payload,
             prompt=prompt,
             output_format=output_format,
+            permit=permit,
         )
 
     def _post_json_image(
         self,
         *,
         endpoint: str,
-        payload: dict,
+        payload: Mapping[str, Any],
         prompt: str,
         output_format: str,
+        permit: DispatchPermit | None,
     ) -> ImageGenerationResult:
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                try:
-                    response = client.post(
-                        f"{self.base_url}{endpoint}",
-                        json=payload,
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                    )
-                except httpx.HTTPError as exc:  # pragma: no cover - network failure
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain"
-                    ) from exc
-                if response.is_error:
-                    raise _classify_provider_request_status(response)
-                try:
-                    return self._result_from_payload(
-                        client,
-                        response.json(),
-                        prompt,
-                        output_format,
-                        reported_model=self.model,
-                        provider_request_id=_provider_request_id(response),
-                    )
-                except (httpx.HTTPError, ValueError, RuntimeError) as exc:  # pragma: no cover - provider path
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain",
-                        provider_request_id=_provider_request_id(response),
-                    ) from exc
+            response = self._post_json(
+                suffix=endpoint,
+                payload=payload,
+                permit=permit,
+            )
+            if not 200 <= response.status_code < 300:
+                raise _classify_provider_request_status(response)
+            response_payload = response.json()
+            if not isinstance(response_payload, dict):
+                raise RuntimeError("OpenAI 图像生成结果缺少 data")
+            return self._result_from_payload(
+                response_payload,
+                prompt,
+                output_format,
+                reported_model=self.binding.requested_model,
+                provider_request_id=_provider_request_id(response),
+            )
         except ImageGenerationProviderError:
             raise
-
-    def _post_multipart_image(
-        self,
-        *,
-        endpoint: str,
-        data: dict[str, str],
-        files: dict[str, tuple[str, bytes, str]],
-        prompt: str,
-        output_format: str,
-    ) -> ImageGenerationResult:
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                try:
-                    response = client.post(
-                        f"{self.base_url}{endpoint}",
-                        data=data,
-                        files=files,
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                    )
-                except httpx.HTTPError as exc:  # pragma: no cover - network failure
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain"
-                    ) from exc
-                if response.is_error:
-                    raise _classify_provider_request_status(response)
-                try:
-                    return self._result_from_payload(
-                        client,
-                        response.json(),
-                        prompt,
-                        output_format,
-                        reported_model=self.model,
-                        provider_request_id=_provider_request_id(response),
-                    )
-                except (httpx.HTTPError, ValueError, RuntimeError) as exc:  # pragma: no cover - provider path
-                    raise ImageGenerationProviderOutcomeUncertain(
-                        "image_provider_outcome_uncertain",
-                        provider_request_id=_provider_request_id(response),
-                    ) from exc
-        except ImageGenerationProviderError:
+        except (FamilyModelSettingsError, ModelUsageContractError):
             raise
+        except Exception as exc:
+            raise ImageGenerationProviderOutcomeUncertain(
+                "image_provider_outcome_uncertain",
+                provider_request_id=_provider_request_id(response) if "response" in locals() else None,
+            ) from exc
 
     def _result_from_payload(
         self,
-        client: httpx.Client,
         payload: dict,
         prompt: str,
         output_format: str,
@@ -803,12 +860,9 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
         mime_type = _openai_mime_type(output_format)
         file_extension = ".jpg" if output_format == "jpeg" else f".{output_format}"
         if binary_content is None and image_url:
-            download_response = client.get(image_url, follow_redirects=True)
-            download_response.raise_for_status()
-            content_type = download_response.headers.get("content-type", "").split(";")[0].strip().lower()
-            binary_content = download_response.content
-            mime_type = content_type or mime_type
-            file_extension = CONTENT_TYPE_TO_EXTENSION.get(content_type) or _infer_extension_from_url(image_url) or file_extension
+            binary_content, media_mime_type, media_extension = self._download_media(image_url)
+            mime_type = media_mime_type or mime_type
+            file_extension = media_extension or file_extension
         return ImageGenerationResult(
             prompt=prompt,
             binary_content=binary_content,
@@ -819,48 +873,26 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
         )
 
 
-def _build_provider_config(mode: ImageGenerationMode) -> ImageProviderConfig:
-    settings = get_settings()
-    timeout_seconds = getattr(settings, "ai_timeout_seconds", 180.0)
-    if mode == ImageGenerationMode.REFERENCE:
-        reference_provider = settings.ai_image_reference_provider
-        reference_provider_name = reference_provider.strip().lower()
-        reference_is_openai = reference_provider_name in {"openai", "openai-compatible", "compatible", "custom"}
-        return ImageProviderConfig(
-            provider=reference_provider,
-            api_base=settings.ai_image_reference_api_base or (DEFAULT_OPENAI_BASE_URL if reference_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
-            api_key=settings.ai_image_reference_api_key,
-            model=settings.ai_image_reference_model or ("gpt-image-2" if reference_is_openai else "wan2.6-image"),
-            timeout_seconds=timeout_seconds,
-        )
-    text_provider = settings.ai_image_text_provider
-    text_provider_name = text_provider.strip().lower()
-    text_is_openai = text_provider_name in {"openai", "openai-compatible", "compatible", "custom"}
-    return ImageProviderConfig(
-        provider=text_provider,
-        api_base=settings.ai_image_text_api_base or (DEFAULT_OPENAI_BASE_URL if text_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
-        api_key=settings.ai_image_text_api_key,
-        model=settings.ai_image_text_model or ("gpt-image-2" if text_is_openai else "wan2.6-t2i"),
-        timeout_seconds=timeout_seconds,
-    )
+def _binding_endpoint_url(binding: ResolvedCapabilityBinding, suffix: str) -> str:
+    from app.ai.runtime.family_transport import binding_endpoint_url
+
+    return binding_endpoint_url(binding, suffix)
 
 
-def image_provider_config_for_mode(mode: ImageGenerationMode) -> ImageProviderConfig:
-    """Return the same provider/model identity the image client will use."""
+def image_provider_from_adapter(
+    binding: ResolvedCapabilityBinding,
+    *,
+    dependencies: ImageProviderDependencies,
+) -> BaseImageGenerationProvider:
+    """Select a protocol implementation from an immutable family binding."""
 
-    return _build_provider_config(mode)
-
-
-def _resolve_provider(mode: ImageGenerationMode) -> BaseImageGenerationProvider:
-    config = _build_provider_config(mode)
-    provider_name = config.provider.strip().lower()
-    if provider_name in {"", "disabled", "mock"} or not config.api_key:
-        return MockImageGenerationProvider()
-    if provider_name == "dashscope":
-        return DashScopeImageGenerationProvider(config)
-    if provider_name in {"openai", "openai-compatible", "compatible", "custom"}:
-        return OpenAIImageGenerationProvider(config)
-    raise RuntimeError(f"Unsupported image provider: {config.provider}")
+    if binding.capability != "image_generation":
+        raise ModelUsageContractError("image_binding_required")
+    if binding.adapter_kind == "dashscope_http":
+        return DashScopeImageGenerationProvider(binding, dependencies)
+    if binding.adapter_kind == "openai_compatible_http":
+        return OpenAIImageGenerationProvider(binding, dependencies)
+    raise ModelUsageContractError("image_binding_adapter_unsupported")
 
 
 class ImageGenerationClient:
@@ -870,13 +902,34 @@ class ImageGenerationClient:
         text_provider: BaseImageGenerationProvider | None = None,
         reference_provider: BaseImageGenerationProvider | None = None,
     ) -> None:
-        self.text_provider = text_provider or _resolve_provider(ImageGenerationMode.TEXT)
-        self.reference_provider = reference_provider or _resolve_provider(ImageGenerationMode.REFERENCE)
+        # There is deliberately no settings-derived default here.  Production
+        # workers must construct this client through ``for_binding``; focused
+        # tests may still inject an explicit deterministic provider.
+        self.text_provider = text_provider
+        self.reference_provider = reference_provider
+
+    @classmethod
+    def for_binding(
+        cls,
+        binding: ResolvedCapabilityBinding,
+        *,
+        dependencies: ImageProviderDependencies,
+    ) -> "ImageGenerationClient":
+        provider = image_provider_from_adapter(binding, dependencies=dependencies)
+        if binding.variant_key == ImageGenerationMode.TEXT.value:
+            return cls(text_provider=provider)
+        if binding.variant_key == ImageGenerationMode.REFERENCE.value:
+            return cls(reference_provider=provider)
+        raise ModelUsageContractError("image_binding_variant_invalid")
 
     def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        if self.text_provider is None:
+            raise ModelUsageContractError("image_text_provider_not_selected")
         return self.text_provider.generate_from_text(request)
 
     def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        if self.reference_provider is None:
+            raise ModelUsageContractError("image_reference_provider_not_selected")
         return self.reference_provider.generate_from_reference(request)
 
     def generate(
@@ -904,7 +957,7 @@ class ImageGenerationClient:
         # second dispatch transition inside the client.
         permit = usage_attempt.dispatch_permit or usage_attempt.prepare_dispatch()
         try:
-            image = self._generate_unmetered(request)
+            image = self._generate_unmetered(request, permit=permit)
         except ImageGenerationProviderRejected as exc:
             try:
                 settlement = usage_attempt.settle(
@@ -958,10 +1011,23 @@ class ImageGenerationClient:
             ) from exc
         return MeteredImageGenerationResult(image=image, usage_event_id=settlement.event_id)
 
-    def _generate_unmetered(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    def _generate_unmetered(
+        self,
+        request: ImageGenerationRequest,
+        *,
+        permit: DispatchPermit | None = None,
+    ) -> ImageGenerationResult:
         if request.mode == ImageGenerationMode.REFERENCE:
-            return self.generate_from_reference(request)
-        return self.generate_from_text(request)
+            if self.reference_provider is None:
+                raise ModelUsageContractError("image_reference_provider_not_selected")
+            if permit is None:
+                return self.reference_provider.generate_from_reference(request)
+            return self.reference_provider.generate_from_reference(request, permit=permit)
+        if self.text_provider is None:
+            raise ModelUsageContractError("image_text_provider_not_selected")
+        if permit is None:
+            return self.text_provider.generate_from_text(request)
+        return self.text_provider.generate_from_text(request, permit=permit)
 
     @staticmethod
     def _mark_usage_outcome_uncertain(

@@ -11,12 +11,20 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+    configured: true,
     enabled: true,
-    provider: 'openai-compatible',
-    model: 'fake-model',
     supports_vision: true,
     status: 'ready',
     detail: 'AI 已就绪。',
+    capabilities: {
+      llm: 'available',
+      image_generation: 'available',
+      stt: 'available',
+      tts: 'available',
+      realtime_audio: 'available',
+      embedding: 'available',
+      rerank: 'available',
+    },
   });
   vi.spyOn(api, 'getFoods').mockResolvedValue([]);
   vi.spyOn(api, 'getIngredients').mockResolvedValue([]);

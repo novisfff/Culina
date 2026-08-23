@@ -28,8 +28,6 @@ class TranscriptionResult:
     text: str
     language: str | None
     duration_seconds: float | None
-    provider: str
-    model: str
     raw_metadata: dict = field(default_factory=dict)
 
 
@@ -51,13 +49,10 @@ class SpeechResult:
     audio_stream: object | None
     external_url: str | None
     external_url_expires_at: datetime | None
-    provider: str
-    model: str
 
 
 @dataclass(frozen=True)
 class CookingRealtimeSessionRequest:
-    provider: str
     family_id: str
     user_id: str
     recipe_id: str
@@ -68,7 +63,6 @@ class CookingRealtimeSessionRequest:
 
 @dataclass(frozen=True)
 class CookingRealtimeSession:
-    provider: str
     mode: Literal["agent_backed_websocket"]
     session_id: str
     websocket_url: str

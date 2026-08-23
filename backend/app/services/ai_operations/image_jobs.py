@@ -11,8 +11,16 @@ from app.ai.images.generation import ImageGenerationRequest
 from app.ai.images.jobs import enqueue_image_generation
 from app.core.enums import ImageGenerationMode, MediaEntityType, MediaSource
 from app.models.domain import AIImageGenerationJob, MediaAsset
+from app.services.family_model_settings.errors import FamilyModelSettingsError
 
 AI_IMAGE_BIND_STRATEGY_APPEND = "append"
+_OPTIONAL_IMAGE_CAPABILITY_UNAVAILABLE_CODES = frozenset(
+    {
+        "family_model_settings_not_configured",
+        "family_model_capability_disabled",
+        "family_model_provider_disabled",
+    }
+)
 
 
 def _first_uploaded_reference_media_id(db: Session, *, family_id: str, media_ids: Iterable[str]) -> str | None:
@@ -44,18 +52,29 @@ def enqueue_ai_entity_image_generation(
     media_ids: Iterable[str],
     target_entity_type: str | None = None,
     target_entity_id: str | None = None,
-) -> AIImageGenerationJob:
+) -> AIImageGenerationJob | None:
     reference_media_id = _first_uploaded_reference_media_id(db, family_id=family_id, media_ids=media_ids)
     request_mode = ImageGenerationMode.REFERENCE if reference_media_id else ImageGenerationMode.TEXT
-    job = enqueue_image_generation(
-        db,
-        family_id=family_id,
-        user_id=user_id,
-        request=replace(request, mode=request_mode),
-        reference_media_id=reference_media_id,
-        target_entity_type=target_entity_type,
-        target_entity_id=target_entity_id,
-    )
+    try:
+        job = enqueue_image_generation(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            request=replace(request, mode=request_mode),
+            reference_media_id=reference_media_id,
+            target_entity_type=target_entity_type,
+            target_entity_id=target_entity_id,
+        )
+    except FamilyModelSettingsError as exc:
+        # AI draft approval creates the requested food/recipe/ingredient in
+        # one transaction.  Generated artwork is an optional follow-up, so an
+        # unconfigured or disabled image capability must not turn a valid
+        # approved business write into a failed operation.  Interactive image
+        # APIs still call ``enqueue_image_generation`` directly and retain the
+        # explicit failure contract.
+        if exc.code in _OPTIONAL_IMAGE_CAPABILITY_UNAVAILABLE_CODES:
+            return None
+        raise
     job.request_payload = {
         **job.request_payload,
         "bind_strategy": AI_IMAGE_BIND_STRATEGY_APPEND,

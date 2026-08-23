@@ -4,22 +4,37 @@ import hashlib
 import json
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
-import httpx
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 
-from app.core.config import Settings
-from app.services.ai_audio.providers import provider_unavailable
-from app.services.ai_audio.schemas import SpeechRequest, SpeechResult, TranscriptionRequest, TranscriptionResult
+from app.services.ai_audio.config import (
+    ResolvedAudioProviderConfig,
+    binding_endpoint_url,
+)
+from app.services.ai_audio.providers import (
+    AudioProviderDependencies,
+    audio_provider_error,
+)
+from app.services.ai_audio.schemas import (
+    SpeechRequest,
+    SpeechResult,
+    TranscriptionRequest,
+    TranscriptionResult,
+)
 from app.services.ai_audio.speech import sanitize_speech_text
 from app.services.ai_audio.transcription import normalize_transcript
+from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.transport import ProviderResponse
 from app.services.model_usage.adapters.audio import AudioUsageAdapter
 from app.services.model_usage.adapters.base import MeteredProviderAttempt
 from app.services.model_usage.errors import ModelUsageContractError, ModelUsageError
 from app.services.model_usage.types import DispatchPermit
 
 
-_CONFIRMED_NOT_EXECUTED_STATUS_CODES = frozenset({400, 401, 403, 404, 405, 406, 413, 415, 422, 429})
+_CONFIRMED_NOT_EXECUTED_STATUS_CODES = frozenset(
+    {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}
+)
 
 
 class _ConfirmedAudioProviderFailure(RuntimeError):
@@ -32,249 +47,264 @@ class _AmbiguousAudioProviderFailure(RuntimeError):
     pass
 
 
+class _KnownNoSendAudioFailure(RuntimeError):
+    def __init__(self, cause: Exception) -> None:
+        self.cause = cause
+        super().__init__(str(cause))
+
+
 class OpenAIAudioProvider:
+    """OpenAI-compatible STT/TTS using one immutable family binding.
+
+    No constructor argument can select an endpoint, model, or credential.  A
+    provider call obtains its key only after ``prepare_dispatch`` persists the
+    permit that pins the credential secret version.
+    """
+
     def __init__(
         self,
-        settings: Settings,
+        config: ResolvedAudioProviderConfig,
         *,
-        capability: str,
-        usage_adapter: AudioUsageAdapter | None = None,
-        model_usage_required: bool = False,
-        transport: httpx.BaseTransport | None = None,
+        dependencies: AudioProviderDependencies,
+        usage_adapter: AudioUsageAdapter,
     ) -> None:
-        self.settings = settings
-        self.capability = capability
+        binding = config.binding
+        if (
+            binding.adapter_kind != "openai_compatible_http"
+            or binding.capability not in {"stt", "tts"}
+        ):
+            raise ModelUsageContractError("audio_binding_adapter_unsupported")
+        if usage_adapter.binding is not binding and usage_adapter.binding != binding:
+            raise ModelUsageContractError("audio_binding_required")
+        self.config = config
+        self.dependencies = dependencies
         self.usage_adapter = usage_adapter
-        self.model_usage_required = model_usage_required
-        self.transport = transport
 
     @property
-    def api_key(self) -> str:
-        if self.capability == "stt":
-            return self.settings.ai_stt_api_key.strip() or self.settings.ai_api_key.strip()
-        if self.capability == "tts":
-            return self.settings.ai_tts_api_key.strip() or self.settings.ai_api_key.strip()
-        return self.settings.ai_api_key.strip()
-
-    @property
-    def api_base(self) -> str:
-        if self.capability == "stt":
-            return (self.settings.ai_stt_api_base.strip() or self.settings.ai_api_base).rstrip("/")
-        if self.capability == "tts":
-            return (self.settings.ai_tts_api_base.strip() or self.settings.ai_api_base).rstrip("/")
-        return self.settings.ai_api_base.rstrip("/")
+    def binding(self):
+        return self.config.binding
 
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResult:
-        if not self.api_key:
-            raise provider_unavailable("openai", "transcription")
-        model = self.settings.ai_stt_model.strip() or "gpt-4o-mini-transcribe"
-        files = {"file": (request.filename or "audio.webm", request.audio_bytes, request.content_type)}
-        data: dict[str, str] = {"model": model}
-        if request.language_hint and request.language_hint != "auto":
-            data["language"] = request.language_hint
-        adapter = self._require_usage_adapter()
-        attempt: MeteredProviderAttempt | None = None
-        permit: DispatchPermit | None = None
-        settled = False
-        if adapter is not None:
-            duration = _required_measured_duration(request)
-            attempt = adapter.begin_stt(
-                request,
-                duration_seconds=duration,
-                fingerprint=adapter.request_fingerprint(
-                    _stt_fingerprint_payload(
-                        provider="openai",
-                        model=model,
-                        request=request,
-                    )
-                ),
-            )
-            permit = attempt.prepare_dispatch()
+        if self.binding.capability != "stt":
+            raise ModelUsageContractError("audio_stt_capability_mismatch")
+        duration = _required_measured_duration(request)
+        language = request.language_hint or self.config.language_hint
+        fields: dict[str, str] = {"model": self.binding.requested_model}
+        if language and language != "auto":
+            fields["language"] = language
+        body, content_type = _multipart_form(
+            fields,
+            filename=request.filename or "audio.webm",
+            payload=request.audio_bytes,
+            media_type=request.content_type,
+        )
+        attempt = self.usage_adapter.begin_stt(
+            request,
+            duration_seconds=duration,
+            fingerprint=self.usage_adapter.request_fingerprint(
+                _stt_fingerprint_payload(
+                    binding=self.binding,
+                    request=request,
+                    language=language,
+                )
+            ),
+            binding=self.binding,
+        )
+        permit = attempt.prepare_dispatch()
         try:
-            response = self._post_transcription(data=data, files=files)
+            response = self._request(
+                suffix="audio/transcriptions",
+                headers={"Accept": "application/json", "Content-Type": content_type},
+                body=body,
+                permit=permit,
+            )
+        except _KnownNoSendAudioFailure as exc:
+            self._settle_confirmed_not_executed(attempt, permit, 0)
+            raise exc.cause
         except _ConfirmedAudioProviderFailure as exc:
-            self._settle_confirmed_not_executed(attempt, permit, adapter, exc.status_code)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别服务返回错误") from exc
+            self._settle_confirmed_not_executed(attempt, permit, exc.status_code)
+            raise audio_provider_error(code="audio_transcription_rejected") from exc
         except _AmbiguousAudioProviderFailure as exc:
             self._mark_uncertain(attempt)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别服务不可用") from exc
+            raise audio_provider_error(code="audio_transcription_unavailable") from exc
+
+        # A 2xx response represents a provider execution even if its body
+        # later proves malformed.  Persist its receipt before parsing content.
         try:
-            if attempt is not None and permit is not None and adapter is not None:
-                attempt.settle(
-                    adapter.stt_receipt(
-                        permit,
-                        duration_seconds=_required_measured_duration(request),
-                        reported_model=model,
-                        provider_request_id=_provider_request_id(response),
-                    )
+            attempt.settle(
+                self.usage_adapter.stt_receipt(
+                    permit,
+                    duration_seconds=duration,
+                    reported_model=self.binding.requested_model,
+                    provider_request_id=_provider_request_id(response),
+                    provider_usage=_response_usage(response),
                 )
-                settled = True
+            )
+        except Exception:
+            self._mark_uncertain(attempt)
+            raise
+        try:
             payload = response.json()
             if not isinstance(payload, dict):
                 raise ValueError("transcription response must be an object")
             text = normalize_transcript(str(payload.get("text") or ""))
             if not text:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别结果为空")
+                raise ValueError("transcription result empty")
             return TranscriptionResult(
                 text=text,
-                language=payload.get("language") if isinstance(payload.get("language"), str) else None,
+                language=(
+                    payload.get("language")
+                    if isinstance(payload.get("language"), str)
+                    else language
+                ),
                 duration_seconds=None,
-                provider="openai",
-                model=model,
                 raw_metadata={},
             )
         except HTTPException:
-            if not settled:
-                self._mark_uncertain(attempt)
             raise
         except Exception as exc:
-            if not settled:
-                self._mark_uncertain(attempt)
-            if isinstance(exc, ModelUsageContractError):
-                raise
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音识别结果无效") from exc
+            raise audio_provider_error(code="audio_transcription_invalid") from exc
 
     def synthesize(self, request: SpeechRequest) -> SpeechResult:
-        if not self.api_key:
-            raise provider_unavailable("openai", "speech")
-        model = self.settings.ai_tts_model.strip() or "gpt-4o-mini-tts"
-        voice = request.voice or self.settings.ai_tts_voice.strip() or "alloy"
-        audio_format = self.settings.ai_tts_format.strip() or "mp3"
+        if self.binding.capability != "tts":
+            raise ModelUsageContractError("audio_tts_capability_mismatch")
         text = sanitize_speech_text(request.text)
-        adapter = self._require_usage_adapter()
-        attempt: MeteredProviderAttempt | None = None
-        permit: DispatchPermit | None = None
-        settled = False
-        if adapter is not None:
-            attempt = adapter.begin_tts(
-                request,
-                sanitized_text=text,
-                fingerprint=adapter.request_fingerprint(
-                    _tts_fingerprint_payload(
-                        provider="openai",
-                        model=model,
-                        voice=voice,
-                        audio_format=audio_format,
-                        text=text,
-                    )
-                ),
-            )
-            permit = attempt.prepare_dispatch()
+        voice = request.voice or self.config.voice or "alloy"
+        output_format = self.config.output_format or "mp3"
+        payload = {
+            "model": self.binding.requested_model,
+            "voice": voice,
+            "input": text,
+            "response_format": output_format,
+        }
+        attempt = self.usage_adapter.begin_tts(
+            request,
+            sanitized_text=text,
+            fingerprint=self.usage_adapter.request_fingerprint(
+                _tts_fingerprint_payload(
+                    binding=self.binding,
+                    voice=voice,
+                    audio_format=output_format,
+                    text=text,
+                )
+            ),
+            binding=self.binding,
+        )
+        permit = attempt.prepare_dispatch()
         try:
-            response = self._post_speech(
-                {"model": model, "voice": voice, "input": text, "response_format": audio_format}
+            response = self._request(
+                suffix="audio/speech",
+                headers={"Accept": "audio/*"},
+                json=payload,
+                permit=permit,
             )
+        except _KnownNoSendAudioFailure as exc:
+            self._settle_confirmed_not_executed(attempt, permit, 0)
+            raise exc.cause
         except _ConfirmedAudioProviderFailure as exc:
-            self._settle_confirmed_not_executed(attempt, permit, adapter, exc.status_code)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成服务返回错误") from exc
+            self._settle_confirmed_not_executed(attempt, permit, exc.status_code)
+            raise audio_provider_error(code="audio_speech_rejected") from exc
         except _AmbiguousAudioProviderFailure as exc:
             self._mark_uncertain(attempt)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成服务不可用") from exc
+            raise audio_provider_error(code="audio_speech_unavailable") from exc
+
         try:
-            if attempt is not None and permit is not None and adapter is not None:
-                # Settle before accessing provider audio bytes so a successful
-                # send remains durable even if local response handling fails.
-                attempt.settle(
-                    adapter.tts_receipt(
-                        permit,
-                        sanitized_text=text,
-                        reported_model=model,
-                        provider_request_id=_provider_request_id(response),
-                    )
+            attempt.settle(
+                self.usage_adapter.tts_receipt(
+                    permit,
+                    sanitized_text=text,
+                    reported_model=self.binding.requested_model,
+                    provider_request_id=_provider_request_id(response),
+                    provider_usage=_response_usage(response),
                 )
-                settled = True
-            audio_bytes = response.content
-            if not audio_bytes:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成结果为空")
-            return SpeechResult(
-                content_type=_content_type_for_format(audio_format),
-                audio_bytes=audio_bytes,
-                audio_stream=None,
-                external_url=None,
-                external_url_expires_at=None,
-                provider="openai",
-                model=model,
             )
-        except HTTPException:
-            if not settled:
-                self._mark_uncertain(attempt)
+        except Exception:
+            self._mark_uncertain(attempt)
             raise
+        if not response.content:
+            raise audio_provider_error(code="audio_speech_invalid")
+        return SpeechResult(
+            content_type=(
+                response.header("content-type") or _content_type_for_format(output_format)
+            ).split(";", 1)[0],
+            audio_bytes=response.content,
+            audio_stream=None,
+            external_url=None,
+            external_url_expires_at=None,
+        )
+
+    def _request(
+        self,
+        *,
+        suffix: str,
+        headers: dict[str, str],
+        permit: DispatchPermit,
+        json: object | None = None,
+        body: bytes | None = None,
+    ) -> ProviderResponse:
+        credential = None
+        try:
+            # Credential resolution happens immediately before the shared,
+            # policy-enforced transport send and after the permit is durable.
+            credential = self.dependencies.resolve_dispatch_credential(
+                self.binding,
+                permit.credential_secret_version_id,
+            )
+        except (FamilyModelSettingsError, ModelUsageContractError) as exc:
+            # A credential failure occurs before a send; preserving the domain
+            # error lets the service return the correct Member-safe message.
+            raise _KnownNoSendAudioFailure(exc) from exc
+        try:
+            request_headers = dict(headers)
+            if self.binding.auth_mode == "api_key":
+                if not credential.api_key:
+                    raise _KnownNoSendAudioFailure(
+                        ModelUsageContractError("audio_dispatch_credential_required")
+                    )
+                request_headers["Authorization"] = f"Bearer {credential.api_key}"
+            if permit.provider_idempotency_key:
+                request_headers["Idempotency-Key"] = permit.provider_idempotency_key
+            response = self.dependencies.transport.request(
+                "POST",
+                binding_endpoint_url(self.binding, suffix),
+                headers=request_headers,
+                json=json,
+                body=body,
+            )
+        except _KnownNoSendAudioFailure:
+            raise
+        except (FamilyModelSettingsError, ModelUsageContractError) as exc:
+            # Once the shared transport has been entered, its failure may have
+            # happened after a remote send.  Preserve the uncertain barrier.
+            raise _AmbiguousAudioProviderFailure() from exc
         except Exception as exc:
-            if not settled:
-                self._mark_uncertain(attempt)
-            if isinstance(exc, ModelUsageError):
-                raise
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="语音合成结果无效") from exc
-
-    def _require_usage_adapter(self) -> AudioUsageAdapter | None:
-        if self.usage_adapter is None and self.model_usage_required:
-            raise ModelUsageContractError("model_usage_adapter_required")
-        return self.usage_adapter
-
-    def _post_transcription(self, *, data: dict[str, str], files: dict[str, tuple[str, bytes, str]]) -> httpx.Response:
-        try:
-            with httpx.Client(
-                timeout=self.settings.ai_stt_timeout_seconds,
-                transport=self.transport,
-            ) as client:
-                response = client.post(
-                    f"{self.api_base}/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    data=data,
-                    files=files,
-                )
-                response.raise_for_status()
-                return response
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in _CONFIRMED_NOT_EXECUTED_STATUS_CODES:
-                raise _ConfirmedAudioProviderFailure(status_code=exc.response.status_code) from exc
-            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
-        except httpx.TransportError as exc:
-            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
-
-    def _post_speech(self, payload: dict[str, str]) -> httpx.Response:
-        try:
-            with httpx.Client(
-                timeout=self.settings.ai_tts_timeout_seconds,
-                transport=self.transport,
-            ) as client:
-                response = client.post(
-                    f"{self.api_base}/audio/speech",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json=payload,
-                )
-                response.raise_for_status()
-                return response
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in _CONFIRMED_NOT_EXECUTED_STATUS_CODES:
-                raise _ConfirmedAudioProviderFailure(status_code=exc.response.status_code) from exc
-            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
-        except httpx.TransportError as exc:
-            raise _AmbiguousAudioProviderFailure(str(exc)) from exc
+            raise _AmbiguousAudioProviderFailure() from exc
+        finally:
+            credential = None
+        if 200 <= response.status_code < 300:
+            return response
+        if response.status_code in _CONFIRMED_NOT_EXECUTED_STATUS_CODES:
+            raise _ConfirmedAudioProviderFailure(status_code=response.status_code)
+        raise _AmbiguousAudioProviderFailure()
 
     @staticmethod
-    def _mark_uncertain(attempt: MeteredProviderAttempt | None) -> None:
-        if attempt is None:
-            return
+    def _mark_uncertain(attempt: MeteredProviderAttempt) -> None:
         try:
             attempt.mark_uncertain("audio_provider_result_unavailable")
         except Exception:
-            # Preserve the original provider/ledger exception.  The durable
-            # dispatching reservation is still a conservative resend barrier.
+            # Keep the original terminal error; recovery still has the
+            # dispatching reservation as a conservative resend barrier.
             pass
 
     def _settle_confirmed_not_executed(
         self,
-        attempt: MeteredProviderAttempt | None,
-        permit: DispatchPermit | None,
-        adapter: AudioUsageAdapter | None,
+        attempt: MeteredProviderAttempt,
+        permit: DispatchPermit,
         status_code: int,
     ) -> None:
-        if attempt is None or permit is None or adapter is None:
-            return
         try:
             attempt.settle(
-                adapter.confirmed_not_executed_receipt(
+                self.usage_adapter.confirmed_not_executed_receipt(
                     permit,
                     stable_provider_request_id=f"http_status_{status_code}",
                 )
@@ -283,14 +313,53 @@ class OpenAIAudioProvider:
             self._mark_uncertain(attempt)
 
 
+def _multipart_form(
+    fields: dict[str, str],
+    *,
+    filename: str,
+    payload: bytes,
+    media_type: str,
+) -> tuple[bytes, str]:
+    """Build the bounded STT multipart payload without a raw HTTP client."""
+
+    boundary = f"----CulinaAudio{uuid4().hex}"
+    safe_filename = filename.replace("\\", "_").replace('"', "_").replace("\r", "_").replace("\n", "_")
+    chunks: list[bytes] = []
+    for key, value in fields.items():
+        chunks.extend(
+            (
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+                value.encode("utf-8"),
+                b"\r\n",
+            )
+        )
+    chunks.extend(
+        (
+            f"--{boundary}\r\n".encode(),
+            (
+                "Content-Disposition: form-data; name=\"file\"; "
+                f'filename="{safe_filename}"\r\n'
+            ).encode(),
+            f"Content-Type: {media_type}\r\n\r\n".encode(),
+            payload,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        )
+    )
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
 def _content_type_for_format(audio_format: str) -> str:
     return {
         "mp3": "audio/mpeg",
         "mpeg": "audio/mpeg",
         "wav": "audio/wav",
+        "ogg": "audio/ogg",
         "opus": "audio/ogg",
         "aac": "audio/aac",
         "flac": "audio/flac",
+        "mp4": "audio/mp4",
         "pcm": "audio/wav",
     }.get(audio_format.lower(), "application/octet-stream")
 
@@ -302,15 +371,22 @@ def _required_measured_duration(request: TranscriptionRequest) -> Decimal:
     return duration
 
 
-def _stt_fingerprint_payload(*, provider: str, model: str, request: TranscriptionRequest) -> bytes:
+def _stt_fingerprint_payload(
+    *,
+    binding: Any,
+    request: TranscriptionRequest,
+    language: str | None,
+) -> bytes:
     return json.dumps(
         {
             "audio_sha256": hashlib.sha256(request.audio_bytes).hexdigest(),
+            "binding_revision": binding.config_revision_id,
             "content_type": request.content_type,
             "filename": request.filename,
             "kind": "stt",
-            "model": model,
-            "provider": provider,
+            "language": language or "",
+            "model": binding.requested_model,
+            "profile": binding.provider_profile_id,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -320,8 +396,7 @@ def _stt_fingerprint_payload(*, provider: str, model: str, request: Transcriptio
 
 def _tts_fingerprint_payload(
     *,
-    provider: str,
-    model: str,
+    binding: Any,
     voice: str,
     audio_format: str,
     text: str,
@@ -329,9 +404,10 @@ def _tts_fingerprint_payload(
     return json.dumps(
         {
             "audio_format": audio_format,
+            "binding_revision": binding.config_revision_id,
             "kind": "tts",
-            "model": model,
-            "provider": provider,
+            "model": binding.requested_model,
+            "profile": binding.provider_profile_id,
             "text": text,
             "voice": voice,
         },
@@ -341,9 +417,17 @@ def _tts_fingerprint_payload(
     ).encode("utf-8")
 
 
-def _provider_request_id(response: Any) -> str | None:
-    headers = getattr(response, "headers", None)
-    if headers is None:
-        return None
-    value = headers.get("x-request-id") or headers.get("request-id")
+def _provider_request_id(response: ProviderResponse) -> str | None:
+    value = response.header("x-request-id") or response.header("request-id")
     return value if isinstance(value, str) and value else None
+
+
+def _response_usage(response: ProviderResponse) -> object | None:
+    content_type = (response.header("content-type") or "").lower()
+    if "json" not in content_type:
+        return None
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    return payload.get("usage") if isinstance(payload, dict) else None

@@ -8,8 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelUsageBreakdown,
   ModelUsageAlert,
+  ModelUsageFamilyBreakdown,
+  ModelUsageFamilyBreakdownItem,
   ModelUsageFamilyOverview,
   ModelUsageMeasurementHealth,
+  ModelUsagePersonalBreakdown,
+  ModelUsagePersonalBreakdownItem,
   ModelUsagePersonalOverview,
   ModelUsagePolicy,
 } from '../../api/types';
@@ -74,7 +78,32 @@ function familyOverview(overrides: Partial<ModelUsageFamilyOverview> = {}): Mode
   };
 }
 
+function breakdown(scope: 'me'): ModelUsagePersonalBreakdown;
+function breakdown(scope: 'family'): ModelUsageFamilyBreakdown;
 function breakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
+  const item = {
+    label: 'llm',
+    capability: 'llm' as const,
+    meter: null,
+    meter_total: null,
+    local_day: null,
+    known_priced_cost_cny: '1.500000000000',
+    pricing_complete: true,
+    unpriced_event_count: 0,
+    total_cost_cny: '1.500000000000',
+    measurement_health: health(),
+  } satisfies ModelUsagePersonalBreakdownItem;
+  if (scope === 'me') {
+    return {
+      family_id: 'family-1',
+      scope,
+      period: '2026-07',
+      source: 'raw',
+      is_partial_period: false,
+      group_by: 'capability',
+      items: [item],
+    };
+  }
   return {
     family_id: 'family-1',
     scope,
@@ -83,40 +112,51 @@ function breakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
     is_partial_period: false,
     group_by: 'capability',
     items: [{
-      label: 'llm',
-      capability: 'llm',
+      ...item,
       provider: null,
       billing_model: null,
-      meter: null,
-      meter_total: null,
-      local_day: null,
-      known_priced_cost_cny: '1.500000000000',
-      pricing_complete: true,
-      unpriced_event_count: 0,
-      total_cost_cny: '1.500000000000',
-      measurement_health: health(),
-    }],
+    } satisfies ModelUsageFamilyBreakdownItem],
   };
 }
 
+function dailyBreakdown(scope: 'me'): ModelUsagePersonalBreakdown;
+function dailyBreakdown(scope: 'family'): ModelUsageFamilyBreakdown;
 function dailyBreakdown(scope: 'me' | 'family'): ModelUsageBreakdown {
+  const item = {
+    label: '2026-07-18 / llm',
+    capability: 'llm' as const,
+    meter: null,
+    meter_total: null,
+    local_day: '2026-07-18',
+    known_priced_cost_cny: '1.500000000000',
+    pricing_complete: true,
+    unpriced_event_count: 0,
+    total_cost_cny: '1.500000000000',
+    measurement_health: health(),
+  } satisfies ModelUsagePersonalBreakdownItem;
+  if (scope === 'me') {
+    return {
+      family_id: 'family-1',
+      scope,
+      period: '2026-07',
+      source: 'raw',
+      is_partial_period: false,
+      group_by: 'daily_capability_cost',
+      items: [item],
+    };
+  }
   return {
-    ...breakdown(scope),
+    family_id: 'family-1',
+    scope,
+    period: '2026-07',
+    source: 'raw',
+    is_partial_period: false,
     group_by: 'daily_capability_cost',
     items: [{
-      label: '2026-07-18 / llm',
-      capability: 'llm',
+      ...item,
       provider: null,
       billing_model: null,
-      meter: null,
-      meter_total: null,
-      local_day: '2026-07-18',
-      known_priced_cost_cny: '1.500000000000',
-      pricing_complete: true,
-      unpriced_event_count: 0,
-      total_cost_cny: '1.500000000000',
-      measurement_health: health(),
-    }],
+    } satisfies ModelUsageFamilyBreakdownItem],
   };
 }
 
@@ -216,7 +256,7 @@ describe('ModelUsageWorkspace', () => {
       );
       renderWorkspace();
 
-      expect(await screen.findByRole('img', { name: '本月每日模型费用趋势' })).toBeVisible();
+      expect(await screen.findByRole('img', { name: '最近 30 天每日模型费用趋势' })).toBeVisible();
       expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'capability');
       expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-07', 'daily_capability_cost');
     } finally {
@@ -232,24 +272,23 @@ describe('ModelUsageWorkspace', () => {
     renderWorkspace();
 
     expect(await screen.findByRole('heading', { name: '每日费用趋势' })).toBeVisible();
-    expect(screen.getByText('按日期')).toBeVisible();
+    expect(screen.getByText('近 30 天')).toBeVisible();
     expect(screen.getByRole('heading', { name: '费用细分' })).toBeVisible();
     expect(screen.getByLabelText('细分方式')).toBeVisible();
     expect(screen.queryByText('统计维度')).not.toBeInTheDocument();
   });
 
-  it('orders the workspace from period overview through attention, trend, capabilities and details', async () => {
+  it('puts chart insights directly after the period overview and keeps review details before the ledger', async () => {
     resolveOwner();
     modelUsageApi.getModelUsageAlerts.mockResolvedValue([usageAlert()]);
     renderWorkspace();
 
     const summary = (await screen.findByText('7 月已记录费用')).closest('section');
     const attention = screen.getByRole('heading', { name: '家庭预算已达到 80%' }).closest('section');
-    const trend = screen.getByRole('heading', { name: '每日费用趋势' }).closest('section');
-    const capabilities = screen.getByRole('heading', { name: '七类模型能力' }).closest('section');
+    const insights = screen.getByRole('heading', { name: '费用趋势与用量构成' }).closest('section');
     const details = screen.getByRole('heading', { name: '费用细分' }).closest('section');
 
-    const sections = [summary, attention, trend, capabilities, details];
+    const sections = [summary, insights, attention, details];
     expect(sections.every(Boolean)).toBe(true);
     sections.slice(1).forEach((section, index) => {
       const previous = sections[index];
@@ -284,7 +323,7 @@ describe('ModelUsageWorkspace', () => {
     expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-06', 'daily_capability_cost');
   });
 
-  it('uses the same unambiguous capability meter fallback on phone as on desktop', async () => {
+  it('keeps unambiguous meter totals visible in the phone insight view', async () => {
     resolveOwner();
     modelUsageApi.getFamilyModelUsageOverview.mockResolvedValue(familyOverview({
       known_priced_cost_cny: '0.000000000000',
@@ -297,7 +336,10 @@ describe('ModelUsageWorkspace', () => {
     });
     renderWorkspace({ isPhoneViewport: true });
 
-    expect(await screen.findByText('2 生成图片')).toBeVisible();
+    const meterPanel = (await screen.findByRole('heading', { name: '计量足迹' })).closest('article');
+    expect(meterPanel).not.toBeNull();
+    expect(within(meterPanel as HTMLElement).getByText('生成图片')).toBeVisible();
+    expect(within(meterPanel as HTMLElement).getByText('2')).toBeVisible();
   });
 
   it('shows the actual tracking start for a partial first month', async () => {

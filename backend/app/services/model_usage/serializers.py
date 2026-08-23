@@ -160,17 +160,47 @@ def _serialize_breakdown_item(item: UsageBreakdownItem) -> dict[str, object]:
     }
 
 
+def _serialize_personal_breakdown_item(item: UsageBreakdownItem) -> dict[str, object]:
+    """Serialize only the aggregate fields that are safe in a Member view."""
+
+    return {
+        "label": item.label,
+        "capability": item.capability,
+        "meter": item.meter,
+        "meter_total": decimal_text(item.meter_total),
+        "local_day": item.local_day.isoformat() if item.local_day is not None else None,
+        **serialize_cost_summary(item.aggregate),
+        "measurement_health": serialize_measurement_health(item.aggregate),
+    }
+
+
 def serialize_usage_breakdown(breakdown: UsageBreakdown) -> dict[str, object]:
-    if breakdown.scope not in {"family", "me"}:
-        raise ValueError("model_usage_breakdown_scope_required")
+    if breakdown.scope != "family":
+        raise ValueError("model_usage_family_breakdown_required")
     return {
         "family_id": breakdown.family_id,
-        "scope": breakdown.scope,
+        "scope": "family",
         "period": breakdown.period.local_month,
         "source": breakdown.source,
         "is_partial_period": breakdown.is_partial_period,
         "group_by": breakdown.group_by,
         "items": [_serialize_breakdown_item(item) for item in breakdown.items],
+    }
+
+
+def serialize_personal_usage_breakdown(breakdown: UsageBreakdown) -> dict[str, object]:
+    if breakdown.scope != "me":
+        raise ValueError("model_usage_personal_breakdown_required")
+    if breakdown.group_by not in {"capability", "meter", "daily_capability_cost"}:
+        raise ValueError("model_usage_personal_group_by_not_allowed")
+    return {
+        "family_id": breakdown.family_id,
+        "scope": "me",
+        "period": breakdown.period.local_month,
+        "source": breakdown.source,
+        "is_partial_period": breakdown.is_partial_period,
+        "group_by": breakdown.group_by,
+        "items": [_serialize_personal_breakdown_item(item) for item in breakdown.items],
     }
 
 

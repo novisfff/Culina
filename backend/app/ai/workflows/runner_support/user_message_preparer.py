@@ -51,11 +51,11 @@ class UserMessagePreparer:
         self,
         *,
         db: Session,
-        provider: Any,
+        provider_factory: Any,
         json_record: Callable[[Any], Any],
     ) -> None:
         self.db = db
-        self.provider = provider
+        self.provider_factory = provider_factory
         self.json_record = json_record
 
     def prepare(
@@ -82,6 +82,11 @@ class UserMessagePreparer:
         )
         if existing is not None:
             return self._prepared_existing_run(existing, normalized_subject)
+
+        # Resolve before any run row is written. The selected immutable
+        # revision is persisted with the run and will be reconstructed by
+        # retries, resumes and background stream workers.
+        selection = self.provider_factory.for_active_family(self.db, family_id=family_id)
 
         conversation = get_or_create_conversation(
             self.db,
@@ -122,6 +127,8 @@ class UserMessagePreparer:
             quick_task=quick_task,
             subject=normalized_subject,
             attachments=user_attachment_summaries,
+            config_revision_id=selection.config_revision_id,
+            model=getattr(selection.primary, "model_name", ""),
         )
         conversation.prompt = message_summary
         conversation.last_message_at = utcnow()
@@ -308,6 +315,8 @@ class UserMessagePreparer:
         quick_task: str | None,
         subject: dict[str, Any],
         attachments: list[dict[str, Any]],
+        config_revision_id: str | None,
+        model: str,
     ) -> AIAgentRun:
         timeline = build_planner_conversation(
             self.db,
@@ -318,6 +327,7 @@ class UserMessagePreparer:
         run = AIAgentRun(
             id=client_run_id or create_id("agent_run"),
             family_id=family_id,
+            config_revision_id=config_revision_id,
             conversation_id=conversation_id,
             message_id=user_message_id,
             agent_key="workspace_orchestrator",
@@ -327,7 +337,7 @@ class UserMessagePreparer:
             context_summary={"graph": {"runtime": "langgraph", "threadId": conversation_id}},
             output_summary="",
             status="running",
-            model=getattr(self.provider, "model_name", ""),
+            model=model,
             input={
                 "prompt": prompt,
                 "attachments": attachments,

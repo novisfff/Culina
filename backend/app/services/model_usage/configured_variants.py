@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
 from app.core.enums import ModelUsageCapability, ModelUsageMeter
+from app.models.family_model_settings import FamilyModelCapabilityBinding
+from app.repos.family_model_settings.configurations import list_enabled_bindings
+from app.repos.family_model_settings.profiles import get_provider_profile_version
+from app.services.family_model_settings.adapter_registry import AdapterDefinition, adapter_definition
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 from app.services.model_usage.errors import ModelUsageContractError
 
 
@@ -52,17 +60,53 @@ AUDIO_SECOND_METERS = frozenset(
 )
 
 
-def dashscope_realtime_input_model(settings: object) -> str:
-    return (
-        str(getattr(settings, "ai_realtime_model", "") or "").strip()
-        or str(getattr(settings, "ai_stt_model", "") or "").strip()
-        or "qwen3-asr-flash-realtime"
-    )
+_BILLABLE_METERS_BY_CAPABILITY: dict[
+    ModelUsageCapability, frozenset[ModelUsageMeter]
+] = {
+    ModelUsageCapability.LLM: frozenset(
+        {
+            ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+            ModelUsageMeter.CACHED_INPUT_TOKENS,
+            ModelUsageMeter.OUTPUT_TOKENS,
+        }
+    ),
+    ModelUsageCapability.IMAGE_GENERATION: frozenset(
+        {ModelUsageMeter.GENERATED_IMAGES}
+    ),
+    ModelUsageCapability.STT: frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
+    ModelUsageCapability.TTS: frozenset({ModelUsageMeter.TTS_CHARACTERS}),
+    ModelUsageCapability.REALTIME_AUDIO: frozenset(
+        {ModelUsageMeter.AUDIO_INPUT_SECONDS, ModelUsageMeter.TTS_CHARACTERS}
+    ),
+    ModelUsageCapability.EMBEDDING: frozenset({ModelUsageMeter.EMBEDDING_TOKENS}),
+    ModelUsageCapability.RERANK: frozenset({ModelUsageMeter.INPUT_TOKENS}),
+}
 
-
-def dashscope_realtime_output_model(settings: object) -> str:
-    configured = str(getattr(settings, "ai_tts_model", "") or "").strip()
-    return configured if "realtime" in configured else "qwen3-tts-flash-realtime"
+_PRODUCED_METERS_BY_CAPABILITY: dict[
+    ModelUsageCapability, frozenset[ModelUsageMeter]
+] = {
+    ModelUsageCapability.LLM: frozenset(
+        {
+            ModelUsageMeter.INPUT_TOKENS,
+            ModelUsageMeter.UNCACHED_INPUT_TOKENS,
+            ModelUsageMeter.CACHED_INPUT_TOKENS,
+            ModelUsageMeter.OUTPUT_TOKENS,
+            ModelUsageMeter.TOTAL_TOKENS,
+        }
+    ),
+    ModelUsageCapability.IMAGE_GENERATION: frozenset(
+        {ModelUsageMeter.GENERATED_IMAGES}
+    ),
+    ModelUsageCapability.STT: frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
+    ModelUsageCapability.TTS: frozenset({ModelUsageMeter.TTS_CHARACTERS}),
+    ModelUsageCapability.REALTIME_AUDIO: frozenset(
+        {ModelUsageMeter.AUDIO_INPUT_SECONDS, ModelUsageMeter.TTS_CHARACTERS}
+    ),
+    ModelUsageCapability.EMBEDDING: frozenset(
+        {ModelUsageMeter.EMBEDDING_TOKENS, ModelUsageMeter.REQUEST_UNITS}
+    ),
+    ModelUsageCapability.RERANK: frozenset({ModelUsageMeter.INPUT_TOKENS}),
+}
 
 
 def realtime_duplex_billing_model(*, input_model: str, output_model: str) -> str:
@@ -144,189 +188,138 @@ def validate_configured_variant(
     return variant
 
 
-def configured_usage_variants(settings: object) -> tuple[ConfiguredUsageVariant, ...]:
-    """Return enabled production variants from settings without reading credentials."""
+def configured_variant_from_binding(
+    binding: FamilyModelCapabilityBinding,
+    definition: AdapterDefinition,
+) -> ConfiguredUsageVariant:
+    """Build one stable ledger variant from an immutable capability binding.
+
+    A provider profile's opaque, family-owned ID is deliberately the ledger
+    provider identity.  Endpoint and credential changes therefore cannot
+    accidentally merge usage from two families or two provider profiles that
+    happen to use the same adapter kind.
+    """
+
+    if (
+        not binding.enabled
+        or binding.provider_profile_id is None
+        or binding.provider_profile_version_id is None
+        or not binding.requested_model
+        or not binding.billing_scheme_key
+    ):
+        raise PriceManifestError("configured_binding_identity_required")
+    if (
+        binding.capability.value not in definition.capabilities
+        or binding.billing_scheme_key
+        not in definition.billing_schemes.get(binding.capability.value, ())
+    ):
+        # The caller validates the actual profile auth mode as well.  Keeping
+        # this structural check here makes a corrupted immutable binding fail
+        # closed even when no provider request is attempted.
+        raise PriceManifestError("configured_binding_adapter_unsupported")
+
+    billable = _BILLABLE_METERS_BY_CAPABILITY[binding.capability]
+    produced = _PRODUCED_METERS_BY_CAPABILITY[binding.capability]
+    realtime_options = binding.options_json if isinstance(binding.options_json, dict) else {}
+    realtime_cap = realtime_options.get("max_tts_characters")
+    if not isinstance(realtime_cap, int) or isinstance(realtime_cap, bool):
+        realtime_cap = 4096
+    return ConfiguredUsageVariant(
+        provider=binding.provider_profile_id,
+        billing_model=binding.requested_model,
+        capability=binding.capability,
+        variant_key=binding.variant_key,
+        billing_scheme_key=binding.billing_scheme_key,
+        billable_meters=billable,
+        produced_meters=produced,
+        tts_characters_per_lease_cap=(
+            realtime_cap
+            if binding.capability is ModelUsageCapability.REALTIME_AUDIO
+            else None
+        ),
+    )
+
+
+def configured_variant_from_resolved_binding(
+    binding: ResolvedCapabilityBinding,
+) -> ConfiguredUsageVariant:
+    """Build a ledger variant from request-scoped immutable binding metadata.
+
+    Runtime adapters receive ``ResolvedCapabilityBinding`` rather than ORM rows
+    so that they never re-read a mutable active pointer after a session or job
+    has selected its configuration revision.
+    """
+
+    if binding.capability != "realtime_audio":
+        raise PriceManifestError("configured_binding_capability_invalid")
+    definition = adapter_definition(binding.adapter_kind)
+    if not definition.supports(
+        capability=binding.capability,
+        auth_mode=binding.auth_mode,
+        billing_scheme_key=binding.billing_scheme_key,
+    ):
+        raise PriceManifestError("configured_binding_adapter_unsupported")
+    # ``ResolvedCapabilityBinding.options`` deliberately uses the Mapping
+    # contract.  A resolver may hand us an immutable mapping, which is just as
+    # valid as the mutable ORM JSON dict used while publishing a revision.
+    options = binding.options if isinstance(binding.options, Mapping) else {}
+    raw_cap = options.get("max_tts_characters", 4096)
+    if isinstance(raw_cap, bool) or not isinstance(raw_cap, int) or raw_cap <= 0:
+        raise PriceManifestError("realtime_tts_character_cap_required")
+    return validate_configured_variant(
+        ConfiguredUsageVariant(
+            provider=binding.provider_profile_id,
+            billing_model=binding.billing_model,
+            capability=ModelUsageCapability.REALTIME_AUDIO,
+            variant_key=binding.variant_key,
+            billing_scheme_key=binding.billing_scheme_key,
+            billable_meters=_BILLABLE_METERS_BY_CAPABILITY[ModelUsageCapability.REALTIME_AUDIO],
+            produced_meters=_PRODUCED_METERS_BY_CAPABILITY[ModelUsageCapability.REALTIME_AUDIO],
+            tts_characters_per_lease_cap=raw_cap,
+        )
+    )
+
+
+def configured_usage_variants(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str,
+) -> tuple[ConfiguredUsageVariant, ...]:
+    """Return enabled family variants for one immutable configuration revision.
+
+    The function intentionally accepts neither ``Settings`` nor a provider
+    environment name.  Runtime callers must choose a family/revision before
+    they can obtain a billable provider identity.
+    """
 
     variants: list[ConfiguredUsageVariant] = []
-
-    ai_provider = str(getattr(settings, "ai_provider", "disabled") or "disabled")
-    ai_model = str(getattr(settings, "ai_model", "") or "")
-    if ai_provider not in {"", "disabled", "mock"} and ai_model:
+    for binding in list_enabled_bindings(
+        db,
+        family_id=family_id,
+        config_revision_id=config_revision_id,
+    ):
+        if (
+            binding.provider_profile_id is None
+            or binding.provider_profile_version_id is None
+        ):
+            raise PriceManifestError("configured_binding_identity_required")
+        profile_version = get_provider_profile_version(
+            db,
+            family_id=family_id,
+            profile_id=binding.provider_profile_id,
+            profile_version_id=binding.provider_profile_version_id,
+        )
+        if profile_version is None:
+            raise PriceManifestError("configured_binding_profile_not_found")
+        definition = adapter_definition(profile_version.adapter_kind)
+        if not definition.supports(
+            capability=binding.capability.value,
+            auth_mode=profile_version.auth_mode,
+            billing_scheme_key=binding.billing_scheme_key,
+        ):
+            raise PriceManifestError("configured_binding_adapter_unsupported")
         variants.append(
-            ConfiguredUsageVariant(
-                provider=ai_provider,
-                billing_model=ai_model,
-                capability=ModelUsageCapability.LLM,
-                variant_key="default",
-                billing_scheme_key="llm-split-v1",
-                billable_meters=frozenset(
-                    {
-                        ModelUsageMeter.UNCACHED_INPUT_TOKENS,
-                        ModelUsageMeter.CACHED_INPUT_TOKENS,
-                        ModelUsageMeter.OUTPUT_TOKENS,
-                    }
-                ),
-                produced_meters=frozenset(
-                    {
-                        ModelUsageMeter.INPUT_TOKENS,
-                        ModelUsageMeter.UNCACHED_INPUT_TOKENS,
-                        ModelUsageMeter.CACHED_INPUT_TOKENS,
-                        ModelUsageMeter.OUTPUT_TOKENS,
-                        ModelUsageMeter.TOTAL_TOKENS,
-                    }
-                ),
-            )
+            validate_configured_variant(configured_variant_from_binding(binding, definition))
         )
-
-    embedding_provider = str(
-        getattr(settings, "search_embedding_provider", "disabled") or "disabled"
-    )
-    embedding_model = str(getattr(settings, "search_embedding_model", "") or "")
-    embedding_dimensions = int(getattr(settings, "search_embedding_dimensions", 0) or 0)
-    if embedding_provider not in {"", "disabled", "mock"} and embedding_model:
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=embedding_provider,
-                billing_model=embedding_model,
-                capability=ModelUsageCapability.EMBEDDING,
-                variant_key=f"dimensions={embedding_dimensions}",
-                billing_scheme_key="embedding-token-v1",
-                billable_meters=frozenset({ModelUsageMeter.EMBEDDING_TOKENS}),
-                produced_meters=frozenset(
-                    {
-                        ModelUsageMeter.EMBEDDING_TOKENS,
-                        ModelUsageMeter.REQUEST_UNITS,
-                    }
-                ),
-            )
-        )
-
-    rerank_provider = str(
-        getattr(settings, "search_rerank_provider", "disabled") or "disabled"
-    )
-    rerank_model = str(getattr(settings, "search_rerank_model", "") or "")
-    rerank_limit = int(getattr(settings, "search_rerank_candidate_limit", 50) or 50)
-    if rerank_provider not in {"", "disabled", "mock"} and rerank_model:
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=rerank_provider,
-                billing_model=rerank_model,
-                capability=ModelUsageCapability.RERANK,
-                variant_key=f"top_n={rerank_limit}",
-                billing_scheme_key="rerank-token-v1",
-                billable_meters=frozenset({ModelUsageMeter.INPUT_TOKENS}),
-                produced_meters=frozenset({ModelUsageMeter.INPUT_TOKENS}),
-            )
-        )
-
-    stt_provider = str(getattr(settings, "ai_stt_provider", "disabled") or "disabled")
-    stt_model = str(getattr(settings, "ai_stt_model", "") or "")
-    stt_format = str(getattr(settings, "ai_stt_audio_format", "auto") or "auto")
-    if stt_provider not in {"", "disabled", "mock"} and stt_model:
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=stt_provider,
-                billing_model=stt_model,
-                capability=ModelUsageCapability.STT,
-                variant_key=f"format={stt_format}",
-                billing_scheme_key="stt-seconds-v1",
-                billable_meters=frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
-                produced_meters=frozenset({ModelUsageMeter.AUDIO_INPUT_SECONDS}),
-            )
-        )
-
-    tts_provider = str(getattr(settings, "ai_tts_provider", "disabled") or "disabled")
-    tts_model = str(getattr(settings, "ai_tts_model", "") or "")
-    tts_voice = str(getattr(settings, "ai_tts_voice", "default") or "default")
-    if tts_provider not in {"", "disabled", "mock"} and tts_model:
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=tts_provider,
-                billing_model=tts_model,
-                capability=ModelUsageCapability.TTS,
-                variant_key=f"voice={tts_voice}",
-                billing_scheme_key="tts-characters-v1",
-                billable_meters=frozenset({ModelUsageMeter.TTS_CHARACTERS}),
-                produced_meters=frozenset({ModelUsageMeter.TTS_CHARACTERS}),
-            )
-        )
-
-    realtime_provider = str(
-        getattr(settings, "ai_realtime_provider", "disabled") or "disabled"
-    )
-    realtime_model = str(getattr(settings, "ai_realtime_model", "") or "")
-    realtime_voice = str(
-        getattr(settings, "ai_realtime_voice", "default") or "default"
-    )
-    if realtime_provider not in {"", "disabled", "mock"} and realtime_model:
-        realtime_input_model = (
-            dashscope_realtime_input_model(settings)
-            if realtime_provider == "dashscope"
-            else realtime_model
-        )
-        realtime_output_model = (
-            dashscope_realtime_output_model(settings)
-            if realtime_provider == "dashscope"
-            else realtime_model
-        )
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=realtime_provider,
-                billing_model=realtime_duplex_billing_model(
-                    input_model=realtime_input_model,
-                    output_model=realtime_output_model,
-                ),
-                capability=ModelUsageCapability.REALTIME_AUDIO,
-                variant_key=f"voice={realtime_voice}",
-                billing_scheme_key="realtime-asr-seconds-tts-characters-v1",
-                billable_meters=frozenset(
-                    {
-                        ModelUsageMeter.AUDIO_INPUT_SECONDS,
-                        ModelUsageMeter.TTS_CHARACTERS,
-                    }
-                ),
-                produced_meters=frozenset(
-                    {
-                        ModelUsageMeter.AUDIO_INPUT_SECONDS,
-                        ModelUsageMeter.TTS_CHARACTERS,
-                    }
-                ),
-                realtime_input_model=realtime_input_model,
-                realtime_output_model=realtime_output_model,
-                tts_characters_per_lease_cap=int(
-                    getattr(settings, "ai_realtime_tts_max_characters", 4096) or 4096
-                ),
-            )
-        )
-
-    image_modes = (
-        (
-            "reference",
-            str(
-                getattr(settings, "ai_image_reference_provider", "disabled")
-                or "disabled"
-            ),
-            str(getattr(settings, "ai_image_reference_model", "") or ""),
-        ),
-        (
-            "text",
-            str(getattr(settings, "ai_image_text_provider", "disabled") or "disabled"),
-            str(getattr(settings, "ai_image_text_model", "") or ""),
-        ),
-    )
-    for mode, provider, model in image_modes:
-        if provider in {"", "disabled", "mock"} or not model:
-            continue
-        variants.append(
-            ConfiguredUsageVariant(
-                provider=provider,
-                billing_model=model,
-                capability=ModelUsageCapability.IMAGE_GENERATION,
-                variant_key=f"mode={mode}|size=1536*1152|quality=standard",
-                billing_scheme_key="image-count-v1",
-                billable_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
-                produced_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
-            )
-        )
-
-    return tuple(validate_configured_variant(variant) for variant in variants)
+    return tuple(variants)

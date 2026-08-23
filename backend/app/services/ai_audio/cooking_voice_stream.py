@@ -11,11 +11,8 @@ from sqlalchemy.orm import Session
 from app.ai.errors import AIConflictError
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
-from app.core.config import get_settings
-from app.core.config import Settings
 from app.core.utils import create_id
-from app.services.ai_audio.dashscope_audio import DashScopeAudioProvider
-from app.services.ai_audio.providers import normalize_provider
+from app.services.ai_audio.dashscope_audio import RealtimeAudioProvider
 from app.services.ai_audio.realtime import RealtimeProviderScope
 from app.services.ai_audio.schemas import SpeechRequest
 
@@ -36,23 +33,20 @@ def _text_from_response_message(response: dict) -> str:
     text_parts = [
         str(part.get("text") or "").strip()
         for part in parts
-        if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+        if isinstance(part, dict)
+        and part.get("type") == "text"
+        and str(part.get("text") or "").strip()
     ]
     if text_parts:
         return "\n\n".join(text_parts)
     return str(message.get("content") or "").strip()
 
 
-def _should_stream_dashscope_tts(provider: str | None, settings: Settings | Any | None = None) -> bool:
-    settings = settings or get_settings()
-    return normalize_provider(provider) == "dashscope" and normalize_provider(getattr(settings, "ai_tts_provider", "disabled")) == "dashscope"
-
-
 def _assistant_audio_error_event(exc: HTTPException) -> dict[str, str]:
     detail = exc.detail
     code = detail.get("code") if isinstance(detail, dict) else None
     event = {"type": "assistant_audio_error", "message": "语音播报失败"}
-    if isinstance(code, str) and code.startswith("model_usage_"):
+    if isinstance(code, str):
         event["code"] = code
     return event
 
@@ -69,11 +63,11 @@ def _should_flush_tts_text(text: str) -> bool:
         return False
     if len(value) >= _TTS_TEXT_MAX_CHARS:
         return True
-    if len(value) >= _TTS_TEXT_MIN_BOUNDARY_CHARS and value.endswith(_TTS_TEXT_BOUNDARY_CHARS):
+    if len(value) >= _TTS_TEXT_MIN_BOUNDARY_CHARS and value.endswith(
+        _TTS_TEXT_BOUNDARY_CHARS
+    ):
         return True
-    if len(value) >= 14 and value.endswith(_TTS_TEXT_SOFT_BOUNDARY_CHARS):
-        return True
-    return False
+    return len(value) >= 14 and value.endswith(_TTS_TEXT_SOFT_BOUNDARY_CHARS)
 
 
 async def stream_cooking_assistant_voice_events(
@@ -83,22 +77,27 @@ async def stream_cooking_assistant_voice_events(
     user_id: str,
     message: str,
     subject: dict,
-    provider: str | None,
+    realtime_provider: RealtimeAudioProvider,
+    realtime_usage_scope: RealtimeProviderScope,
+    realtime_turn_id: str,
+    provider_factory: Any,
     client_message_id: str | None = None,
     client_run_id: str | None = None,
-    settings: Settings | Any | None = None,
-    service_factory: Callable[[Session], Any] | None = None,
-    tts_provider_factory: Callable[[Any, str], Any] | None = None,
+    service_factory: Callable[..., Any] = AIApplicationService,
     db_session_factory: Callable[[], Any] | None = None,
-    realtime_usage_scope: RealtimeProviderScope | None = None,
-    realtime_turn_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
+    """Fan out one revision-bound cooking run and a metered realtime TTS run.
+
+    The LLM factory is supplied by the caller after it binds the same immutable
+    config revision as the realtime session.  This function has intentionally
+    no Settings/provider-name parameters, so it cannot fall back to process
+    level credentials while a session is active.
+    """
+
     loop = asyncio.get_running_loop()
     events: asyncio.Queue[dict[str, Any] | object] = asyncio.Queue()
     text_chunks: asyncio.Queue[str | None] = asyncio.Queue()
     stop_event = threading.Event()
-    stream_settings = settings or get_settings()
-    tts_enabled = _should_stream_dashscope_tts(provider, stream_settings)
 
     def emit(event: dict[str, Any] | object) -> None:
         try:
@@ -107,18 +106,17 @@ async def stream_cooking_assistant_voice_events(
             pass
 
     def emit_tts_text(delta: str) -> None:
-        if tts_enabled:
-            try:
-                loop.call_soon_threadsafe(text_chunks.put_nowait, delta)
-            except RuntimeError:
-                pass
+        try:
+            loop.call_soon_threadsafe(text_chunks.put_nowait, delta)
+        except RuntimeError:
+            pass
 
     def run_agent_stream() -> None:
         assistant_text_parts: list[str] = []
         seen_cards: set[str] = set()
         worker_db = db_session_factory() if db_session_factory is not None else db
         try:
-            service = (service_factory or AIApplicationService)(worker_db)
+            service = service_factory(worker_db, provider_factory=provider_factory)
             for event, data in service.stream_chat(
                 family_id=family_id,
                 user_id=user_id,
@@ -160,7 +158,11 @@ async def stream_cooking_assistant_voice_events(
                             continue
                         seen_cards.add(card_id)
                         emit({"type": "ui_actions", "card": card})
-                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
+                    run_id = (
+                        data.get("run", {}).get("id")
+                        if isinstance(data.get("run"), dict)
+                        else None
+                    )
                     live_ai_stream_cache.clear_run(run_id)
                     final_text = "".join(assistant_text_parts).strip() or _text_from_response_message(data)
                     if final_text and not assistant_text_parts:
@@ -177,11 +179,10 @@ async def stream_cooking_assistant_voice_events(
         finally:
             if db_session_factory is not None and hasattr(worker_db, "close"):
                 worker_db.close()
-            if tts_enabled:
-                try:
-                    loop.call_soon_threadsafe(text_chunks.put_nowait, None)
-                except RuntimeError:
-                    pass
+            try:
+                loop.call_soon_threadsafe(text_chunks.put_nowait, None)
+            except RuntimeError:
+                pass
             emit(_AGENT_DONE)
 
     async def tts_text_iterator() -> AsyncIterator[str]:
@@ -195,7 +196,9 @@ async def stream_cooking_assistant_voice_events(
         while True:
             if pending:
                 try:
-                    chunk = await asyncio.wait_for(text_chunks.get(), timeout=_TTS_TEXT_IDLE_FLUSH_SECONDS)
+                    chunk = await asyncio.wait_for(
+                        text_chunks.get(), timeout=_TTS_TEXT_IDLE_FLUSH_SECONDS
+                    )
                 except TimeoutError:
                     text = "".join(pending).strip()
                     if len(text) >= _TTS_TEXT_MIN_IDLE_CHARS:
@@ -209,18 +212,10 @@ async def stream_cooking_assistant_voice_events(
                     yield text
                 break
             pending.append(chunk)
-            text = "".join(pending)
-            if _should_flush_tts_text(text):
+            if _should_flush_tts_text("".join(pending)):
                 yield drain_pending()
 
     async def run_tts_stream() -> None:
-        if not tts_enabled:
-            await events.put(_TTS_DONE)
-            return
-        if tts_provider_factory is None:
-            provider_client = DashScopeAudioProvider(stream_settings, capability="tts")
-        else:
-            provider_client = tts_provider_factory(stream_settings, "tts")
         try:
             speech_request = SpeechRequest(
                 text="",
@@ -230,21 +225,17 @@ async def stream_cooking_assistant_voice_events(
                 operation_id=create_id("realtime-tts-operation"),
                 metadata={},
             )
-            if realtime_usage_scope is None:
-                audio_events = provider_client.stream_realtime_text(
-                    tts_text_iterator(),
-                    speech_request,
-                )
-            else:
-                audio_events = provider_client.stream_realtime_text(
-                    tts_text_iterator(),
-                    speech_request,
-                    realtime_usage_scope=realtime_usage_scope,
-                    realtime_turn_id=realtime_turn_id or speech_request.operation_id,
-                )
-            async for audio_event in audio_events:
+            async for audio_event in realtime_provider.stream_realtime_text(
+                tts_text_iterator(),
+                speech_request,
+                realtime_usage_scope=realtime_usage_scope,
+                realtime_turn_id=realtime_turn_id,
+            ):
                 event_type = str(audio_event.get("type") or "")
-                mapped = {"type": f"assistant_{event_type}", **{key: value for key, value in audio_event.items() if key != "type"}}
+                mapped = {
+                    "type": f"assistant_{event_type}",
+                    **{key: value for key, value in audio_event.items() if key != "type"},
+                }
                 await events.put(mapped)
         except HTTPException as exc:
             await events.put(_assistant_audio_error_event(exc))
@@ -253,7 +244,9 @@ async def stream_cooking_assistant_voice_events(
         finally:
             await events.put(_TTS_DONE)
 
-    agent_thread = threading.Thread(target=run_agent_stream, name="cooking-voice-agent-stream", daemon=True)
+    agent_thread = threading.Thread(
+        target=run_agent_stream, name="cooking-voice-agent-stream", daemon=True
+    )
     tts_task = asyncio.create_task(run_tts_stream())
     agent_thread.start()
     agent_done = False

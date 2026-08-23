@@ -50,7 +50,30 @@ for (const viewport of MODEL_USAGE_VIEWPORTS) {
     await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '每日费用趋势' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '费用细分' })).toBeVisible();
-    await expect(page.getByText('按日期', { exact: true }).or(page.getByText('每日', { exact: true }))).toBeVisible();
+    await expect(page.getByText('近 30 天', { exact: true })).toBeVisible();
+    await expect(page.getByText('最高单日费用', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('有记录天数', { exact: true })).toHaveCount(0);
+    const trendScroller = page.getByRole('region', { name: '最近 30 天每日费用，可横向滚动' });
+    await expect(trendScroller).toBeVisible();
+    await expect(page.locator('.model-usage-trend-val-badge')).toHaveCount(30);
+    await expect.poll(() => trendScroller.evaluate((element) => (
+      Math.abs(element.scrollWidth - element.clientWidth - element.scrollLeft)
+    ))).toBeLessThanOrEqual(1);
+    const trendScrollState = await trendScroller.evaluate((element) => ({
+      maxScroll: element.scrollWidth - element.clientWidth,
+      scrollLeft: element.scrollLeft,
+    }));
+    expect(trendScrollState.maxScroll).toBeGreaterThan(0);
+    expect(Math.abs(trendScrollState.maxScroll - trendScrollState.scrollLeft)).toBeLessThanOrEqual(1);
+    if (viewport.width === 1440) {
+      const [trendPanelBox, capabilityPanelBox] = await Promise.all([
+        page.locator('.model-usage-trend-panel.model-usage-insight-card').boundingBox(),
+        page.locator('.model-usage-capability-panel.model-usage-insight-card').boundingBox(),
+      ]);
+      expect(trendPanelBox).not.toBeNull();
+      expect(capabilityPanelBox).not.toBeNull();
+      expect(Math.abs(trendPanelBox.height - capabilityPanelBox.height)).toBeLessThanOrEqual(1);
+    }
     await expectNoHorizontalOverflow(page);
     await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-owner.png`);
   });

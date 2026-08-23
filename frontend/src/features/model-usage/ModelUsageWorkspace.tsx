@@ -30,7 +30,13 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
     void queries.overviewQuery.refetch();
     void queries.breakdownQuery.refetch();
     void queries.dailyTrendQuery.refetch();
-  }, [queries.breakdownQuery, queries.dailyTrendQuery, queries.overviewQuery]);
+    void queries.capabilityBreakdownQuery.refetch();
+  }, [
+    queries.breakdownQuery,
+    queries.capabilityBreakdownQuery,
+    queries.dailyTrendQuery,
+    queries.overviewQuery,
+  ]);
   const actions: ModelUsageWorkspaceActions = {
     ...queries.actions,
     retry,
@@ -81,6 +87,7 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
         period={queries.period}
         groupBy={queries.groupBy}
         alerts={queries.alerts}
+        trendWindow={queries.trendWindow}
         isBreakdownLoading={queries.activeBreakdownQuery.isLoading}
         isOffline={typeof navigator !== 'undefined' && navigator.onLine === false}
         actions={actions}

@@ -19,6 +19,7 @@ from app.core.enums import (
     ModelUsageQuantitySource,
 )
 from app.services.ai_audio.schemas import SpeechRequest, TranscriptionRequest
+from app.services.family_model_settings.types import ResolvedCapabilityBinding
 from app.services.ai_audio.speech import dashscope_tts_billable_characters
 from app.services.model_usage.adapters.base import MeteredProviderAdapter, MeteredProviderAttempt
 from app.services.model_usage.estimators import estimate_stt, estimate_tts
@@ -30,6 +31,7 @@ from app.services.model_usage.types import (
     UsageContext,
     UsageEstimate,
     UsageMeterQuantity,
+    receipt_identity_from_permit,
 )
 
 
@@ -83,9 +85,19 @@ class AudioUsageAdapter(MeteredProviderAdapter):
     capability: ModelUsageCapability = ModelUsageCapability.STT
     variant_key: str = ""
     operation_kind: str = "audio_provider_request"
+    binding: ResolvedCapabilityBinding | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is None:
+            return
+        if self.binding.capability not in {"stt", "tts"}:
+            raise ModelUsageContractError("audio_binding_required")
+        self.provider = self.binding.provider_profile_id
+        self.model = self.binding.requested_model
+        self.variant_key = self.binding.variant_key
 
     def _tts_character_count(self, sanitized_text: str) -> int:
-        if self.provider.strip().lower() == "dashscope":
+        if self.binding is not None and self.binding.adapter_kind == "dashscope_http":
             return dashscope_tts_billable_characters(sanitized_text)
         return len(sanitized_text)
 
@@ -110,6 +122,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         *,
         duration_seconds: Decimal,
         fingerprint: str,
+        binding: ResolvedCapabilityBinding | None = None,
     ) -> MeteredProviderAttempt:
         if self.capability is not ModelUsageCapability.STT:
             raise ModelUsageContractError("audio_stt_capability_mismatch")
@@ -119,6 +132,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
             attempt_suffix="stt",
             estimate=estimate_stt(duration_seconds=duration),
             fingerprint=fingerprint,
+            binding=binding,
         )
 
     def begin_tts(
@@ -127,6 +141,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         *,
         sanitized_text: str,
         fingerprint: str,
+        binding: ResolvedCapabilityBinding | None = None,
     ) -> MeteredProviderAttempt:
         if self.capability is not ModelUsageCapability.TTS:
             raise ModelUsageContractError("audio_tts_capability_mismatch")
@@ -139,6 +154,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
                 character_count=self._tts_character_count(sanitized_text)
             ),
             fingerprint=fingerprint,
+            binding=binding,
         )
 
     def stt_receipt(
@@ -248,6 +264,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )
 
@@ -258,11 +275,29 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         attempt_suffix: str,
         estimate: UsageEstimate,
         fingerprint: str,
+        binding: ResolvedCapabilityBinding | None,
     ) -> MeteredProviderAttempt:
+        resolved_binding = binding or self.binding
+        if resolved_binding is not None:
+            if (
+                resolved_binding.capability
+                != ("stt" if self.capability is ModelUsageCapability.STT else "tts")
+                or resolved_binding.family_id != request.family_id
+            ):
+                raise ModelUsageContractError("audio_binding_required")
+            provider = resolved_binding.provider_profile_id
+            model = resolved_binding.requested_model
+            billing_model = resolved_binding.billing_model
+            variant_key = resolved_binding.variant_key
+        else:
+            provider = self.provider
+            model = self.model
+            billing_model = self.model
+            variant_key = self.variant_key
         if (
-            not self.provider.strip()
-            or not self.model.strip()
-            or not self.variant_key.strip()
+            not provider.strip()
+            or not model.strip()
+            or not variant_key.strip()
             or not request.family_id
             or not request.user_id
             or not request.operation_id
@@ -280,14 +315,23 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         context = UsageContext(
             attribution=attribution,
             capability=self.capability,
-            provider=self.provider,
-            requested_model=self.model,
-            billing_model=self.model,
-            variant_key=self.variant_key,
+            provider=provider,
+            requested_model=model,
+            billing_model=billing_model,
+            variant_key=variant_key,
             operation_kind=self.operation_kind,
             attempt_key=attempt_key,
             client_attempt_id=(
                 f"mua_audio_{_stable_digest(request.family_id, attempt_key, fingerprint)[:32]}"
+            ),
+            config_revision_id=(
+                resolved_binding.config_revision_id if resolved_binding is not None else None
+            ),
+            provider_profile_id=(
+                resolved_binding.provider_profile_id if resolved_binding is not None else None
+            ),
+            provider_profile_version_id=(
+                resolved_binding.provider_profile_version_id if resolved_binding is not None else None
             ),
         )
         return self.start_attempt(context, estimate, fingerprint=fingerprint)
@@ -419,5 +463,6 @@ class AudioUsageAdapter(MeteredProviderAdapter):
                 integrity_key_id="",
                 integrity_hmac="",
                 required_meters=permit.required_meters,
+                **receipt_identity_from_permit(permit),
             )
         )

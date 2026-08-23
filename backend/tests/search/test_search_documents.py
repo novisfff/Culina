@@ -36,8 +36,10 @@ def test_builds_ingredient_search_document_with_semantic_context() -> None:
     assert "食材：番茄" in document.semantic_text
     assert "备注：适合做汤和快手晚餐" in document.semantic_text
     assert document.metadata_json["quantity_tracking_mode"] == "track_quantity"
-    assert document.embedding_model == "model-a"
-    assert document.embedding_dimensions == 1024
+    # Embedding identity belongs to the immutable FamilySearchProfile rather
+    # than the shared search-document record.
+    assert document.embedding_model == ""
+    assert document.embedding_dimensions == 0
 
 
 def test_builds_food_search_document_without_dynamic_stock_context() -> None:
@@ -150,7 +152,7 @@ def test_builds_meal_plan_search_document_with_user_and_plan_context() -> None:
     assert document.metadata_json["meal_type_label"] == "晚餐"
 
 
-def test_content_hash_changes_with_embedding_model_and_dimensions() -> None:
+def test_content_hash_is_not_tied_to_embedding_model_or_dimensions() -> None:
     ingredient = Ingredient(
         id="ingredient-tomato",
         family_id="family-1",
@@ -168,8 +170,8 @@ def test_content_hash_changes_with_embedding_model_and_dimensions() -> None:
     second = build_ingredient_search_document(ingredient, embedding_model="model-b", embedding_dimensions=1024)
     third = build_ingredient_search_document(ingredient, embedding_model="model-a", embedding_dimensions=768)
 
-    assert first.content_hash != second.content_hash
-    assert first.content_hash != third.content_hash
+    assert first.content_hash == second.content_hash
+    assert first.content_hash == third.content_hash
 
 
 def test_search_document_mysql_ddl_uses_mediumtext_for_long_context_fields() -> None:

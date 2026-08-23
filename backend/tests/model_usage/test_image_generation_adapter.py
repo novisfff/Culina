@@ -21,9 +21,14 @@ from app.models.model_usage import ModelUsageEvent, ModelUsageReservation
 from app.services.model_usage.adapters.image_generation import ImageGenerationUsageAdapter
 from app.services.model_usage.errors import ModelUsageBlocked
 from app.services.model_usage.facade import ModelUsageFacade
+from app.services.model_usage.configured_variants import ConfiguredUsageVariant
 from app.services.model_usage.policies import CapabilityLimitCommand
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.types import UsageAttribution
+from app.services.family_model_settings.types import (
+    ResolvedCapabilityBinding,
+    ResolvedProviderEndpoint,
+)
 from tests.model_usage.test_pricing_service import publish, raw_manifest
 from tests.model_usage.test_reservations import NOW, set_policy
 
@@ -62,6 +67,33 @@ def _image_attribution(reservation_context) -> UsageAttribution:
         actor_user_id=reservation_context.attribution.actor_user_id,
         operation_source=ModelUsageOperationSource.IMAGE_JOB,
         logical_operation_id="image-job-1",
+    )
+
+
+def _image_binding() -> ResolvedCapabilityBinding:
+    return ResolvedCapabilityBinding(
+        family_id="family-reserve",
+        config_revision_id="image-revision",
+        provider_profile_id="image-profile",
+        provider_profile_version_id="image-profile-version",
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        endpoint=ResolvedProviderEndpoint(
+            normalized_url="https://image.provider.example/v1",
+            scheme="https",
+            host="image.provider.example",
+            port=443,
+            base_path="/v1",
+            resolved_addresses=("93.184.216.34",),
+            private_target=False,
+        ),
+        websocket_endpoint=None,
+        requested_model="image-bound-model",
+        billing_model="image-bound-model",
+        capability="image_generation",
+        variant_key="text",
+        billing_scheme_key="image-count-v1",
+        options={},
     )
 
 
@@ -115,6 +147,40 @@ def test_image_variant_uses_only_billable_dimensions_and_receipt_stays_content_f
     assert event.reported_model == "image-test-2026-07-30"
 
 
+def test_image_binding_is_carried_into_the_usage_context(
+    image_adapter: ImageGenerationUsageAdapter,
+    reservation_context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    def record_start(self, context, estimate, *, fingerprint, at=None):
+        del self, estimate, fingerprint, at
+        captured["context"] = context
+        return object()
+
+    monkeypatch.setattr(ImageGenerationUsageAdapter, "start_attempt", record_start)
+    result = image_adapter.begin(
+        attribution=_image_attribution(reservation_context),
+        attempt_key="image-job-1:bound",
+        mode="text",
+        image_count=1,
+        size="1536*1152",
+        quality="standard",
+        fingerprint="hmac:image-bound",
+        binding=_image_binding(),
+    )
+
+    assert result is not None
+    context = captured["context"]
+    assert context.provider == "image-profile"
+    assert context.requested_model == "image-bound-model"
+    assert context.variant_key == "text"
+    assert context.config_revision_id == "image-revision"
+    assert context.provider_profile_id == "image-profile"
+    assert context.provider_profile_version_id == "image-profile-version"
+
+
 def test_image_adapter_can_include_independent_request_fee_when_variant_declares_one(
     image_adapter: ImageGenerationUsageAdapter,
     reservation_context,
@@ -151,6 +217,17 @@ def test_image_adapter_blocks_budget_before_provider_dispatch(
                 limit_kind=ModelUsageLimitKind.METER,
                 meter=ModelUsageMeter.GENERATED_IMAGES,
                 limit_value=Decimal("1"),
+            ),
+        ),
+        active_variants=(
+            ConfiguredUsageVariant(
+                provider="dashscope",
+                billing_model="image-test",
+                capability=ModelUsageCapability.IMAGE_GENERATION,
+                variant_key="mode=text|size=1024*1024|quality=standard",
+                billing_scheme_key="image-count-v1",
+                billable_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
+                produced_meters=frozenset({ModelUsageMeter.GENERATED_IMAGES}),
             ),
         ),
     )

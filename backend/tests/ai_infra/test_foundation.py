@@ -3,7 +3,7 @@ from ._support import *
 from typing import Any
 
 from app.ai.errors import ApprovalRequired, HumanInputRequired, ToolExecutionError
-from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput, get_chat_provider
+from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput
 from app.ai.tools import ToolRegistry
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.runner_support.graph_state_builder import GraphStateBuilder
@@ -563,7 +563,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     )
                     raise AssertionError("successful draft call must pause for approval")
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=RepairingDraftProvider()):
+            with patch_ai_workspace_provider(RepairingDraftProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "新增评估青菜"})
             self.assertEqual(response.status_code, 200, response.text)
             run_id = response.json()["run"]["id"]
@@ -593,7 +593,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                             pass
                     return ChatProviderResult(text="草稿输入需要修复。", status="completed", model=self.model_name)
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=ReplayedDraftProvider()):
+            with patch_ai_workspace_provider(ReplayedDraftProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "新增食材"})
             self.assertEqual(response.status_code, 200, response.text)
             run_id = response.json()["run"]["id"]
@@ -653,7 +653,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                             pass
                     return ChatProviderResult(text="continuation 输入已拒绝。", status="completed", model=self.model_name)
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=InvalidContinuationProvider()):
+            with patch_ai_workspace_provider(InvalidContinuationProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "新增饮品后安排晚餐"})
             self.assertEqual(response.status_code, 200, response.text)
             run_id = response.json()["run"]["id"]
@@ -922,10 +922,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 self.assertEqual(db.query(AIGraphWrite).count(), 0)
 
         def test_ai_workspace_disabled_provider_returns_orchestrator_failure_without_business_fallback(self) -> None:
-            with patch(
-                "app.ai.workspace_service.get_chat_provider",
-                return_value=DisabledChatProvider(model_name="disabled-model"),
-            ):
+            with patch_ai_workspace_provider(DisabledChatProvider(model_name="disabled-model")):
                 response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
@@ -958,10 +955,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                         error="provider failed after routing",
                     )
 
-            with patch(
-                "app.ai.workspace_service.get_chat_provider",
-                return_value=FailedAfterInjectionProvider(),
-            ):
+            with patch_ai_workspace_provider(FailedAfterInjectionProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "查库存后失败"})
             self.assertEqual(response.status_code, 200, response.text)
             with self.SessionLocal() as db:
@@ -1878,36 +1872,20 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(request_messages[2]["content"][1]["type"], "image_url")
             self.assertNotIn("image_url", str(request_messages[1]["content"]))
 
-        def test_openai_compatible_provider_enables_prompt_cache_for_custom_api_base(self) -> None:
-            settings = SimpleNamespace(
-                ai_provider="openai-compatible",
-                ai_model="compatible-model",
-                ai_api_key="test-key",
-                ai_api_base="https://llm.example.test/compatible-mode/v1",
-                ai_timeout_seconds=15,
-                ai_supports_vision=False,
-                ai_prompt_cache_enabled=True,
+        def test_openai_compatible_provider_uses_explicit_prompt_cache_configuration(self) -> None:
+            provider = OpenAICompatibleChatProvider(
+                model_name="compatible-model",
+                prompt_cache_enabled=True,
             )
-
-            with patch("app.ai.runtime.provider.get_settings", return_value=settings):
-                provider = get_chat_provider()
 
             self.assertIsInstance(provider, OpenAICompatibleChatProvider)
             self.assertTrue(provider.prompt_cache_enabled)
 
-        def test_openai_compatible_provider_can_disable_prompt_cache_from_settings(self) -> None:
-            settings = SimpleNamespace(
-                ai_provider="openai-compatible",
-                ai_model="compatible-model",
-                ai_api_key="test-key",
-                ai_api_base="https://llm.example.test/compatible-mode/v1",
-                ai_timeout_seconds=15,
-                ai_supports_vision=False,
-                ai_prompt_cache_enabled=False,
+        def test_openai_compatible_provider_can_disable_explicit_prompt_cache(self) -> None:
+            provider = OpenAICompatibleChatProvider(
+                model_name="compatible-model",
+                prompt_cache_enabled=False,
             )
-
-            with patch("app.ai.runtime.provider.get_settings", return_value=settings):
-                provider = get_chat_provider()
 
             self.assertIsInstance(provider, OpenAICompatibleChatProvider)
             self.assertFalse(provider.prompt_cache_enabled)
@@ -1976,22 +1954,14 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertTrue(fake_completions.request["prompt_cache_key"].startswith("culina:"))
             self.assertEqual(fake_completions.request["prompt_cache_retention"], "24h")
 
-        def test_openai_responses_provider_factory_uses_responses_protocol(self) -> None:
-            for provider_name in ("openai-response", "openai-responses", "responses"):
-                settings = SimpleNamespace(
-                    ai_provider=provider_name,
-                    ai_model="gpt-5-mini",
-                    ai_api_key="test-key",
-                    ai_api_base="https://api.openai.com/v1",
-                    ai_timeout_seconds=15,
-                    ai_supports_vision=True,
-                )
+        def test_openai_responses_provider_uses_explicit_protocol_configuration(self) -> None:
+            provider = OpenAIResponsesChatProvider(
+                model_name="gpt-5-mini",
+                supports_vision=True,
+            )
 
-                with patch("app.ai.runtime.provider.get_settings", return_value=settings):
-                    provider = get_chat_provider()
-
-                self.assertIsInstance(provider, OpenAIResponsesChatProvider)
-                self.assertEqual(provider.model_name, "gpt-5-mini")
+            self.assertIsInstance(provider, OpenAIResponsesChatProvider)
+            self.assertEqual(provider.model_name, "gpt-5-mini")
 
         def test_openai_responses_provider_streams_runtime_after_prefix_and_keeps_images_runtime_only(self) -> None:
             class FakeResponses:
@@ -5243,7 +5213,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     )
 
             provider = HumanInputApiProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 first_response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
                 self.assertEqual(first_response.status_code, 200, first_response.text)
                 first_data = first_response.json()
@@ -5324,7 +5294,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     )
 
             provider = HumanInputStreamProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 first_response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
                 self.assertEqual(first_response.status_code, 200, first_response.text)
                 first_data = first_response.json()

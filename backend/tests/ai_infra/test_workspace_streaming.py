@@ -1,4 +1,5 @@
 import threading
+import time
 from typing import Any
 
 from app.ai.errors import ApprovalRequired
@@ -666,7 +667,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             continue_stream.set()
             scrubbed = False
-            for _attempt in range(250):
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
                 with self.SessionLocal() as db:
                     run = db.get(AIAgentRun, "agent_run-transient-stream-disconnect")
                     if run is not None and run.conversation_id is None:
@@ -693,7 +695,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             def consume_stream() -> None:
                 try:
-                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                    with patch_ai_workspace_provider(provider):
                         with self.client.stream(
                             "POST",
                             "/api/ai/chat/stream",
@@ -773,7 +775,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             def consume_stream() -> None:
                 try:
-                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                    with patch_ai_workspace_provider(provider):
                         with self.client.stream(
                             "POST",
                             "/api/ai/chat/stream",
@@ -1353,7 +1355,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertNotIn("餐食安排执行完成", event_messages)
 
         def test_ai_workspace_streams_previewed_tool_name_as_single_activity(self) -> None:
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=PreviewedRecipeDraftProvider()):
+            with patch_ai_workspace_provider(PreviewedRecipeDraftProvider()):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1386,7 +1388,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_stops_after_first_draft_before_approval(self) -> None:
             provider = ProgressiveMultiDraftProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1432,7 +1434,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_approval_resume_generates_next_draft(self) -> None:
             provider = ProgressiveMultiDraftProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1452,7 +1454,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 },
             )
             self.assertEqual(decision_response.status_code, 200, decision_response.text)
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     f"/api/ai/conversations/{response_event['conversation_id']}/approvals/{approval['id']}/decision/stream",
@@ -1556,7 +1558,15 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertNotIn("resumeAfterApproval", conversation.context or {})
 
         def test_ai_workspace_stream_approval_commits_image_job_before_resume_finishes(self) -> None:
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=PreviewedRecipeDraftProvider()):
+            with self.SessionLocal() as db:
+                configure_family_image_generation(
+                    db,
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                )
+                db.commit()
+
+            with patch_ai_workspace_provider(PreviewedRecipeDraftProvider()):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1615,7 +1625,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             def consume_decision_stream() -> None:
                 try:
-                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                    with patch_ai_workspace_provider(provider):
                         with patch.object(WorkspaceGraphRunner, "_commit_stream_checkpoint", spy_commit):
                             with self.client.stream(
                                 "POST",
@@ -1651,7 +1661,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_commit_gated_draft_waits_for_approval_before_next_action(self) -> None:
             provider = CommitGatedRecipeProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1677,7 +1687,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_repeated_read_tool_is_guarded(self) -> None:
             provider = RepeatedReadToolProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1698,7 +1708,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_non_stream_chat_returns_progressive_drafts_without_duplicates(self) -> None:
             provider = ProgressiveMultiDraftProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={"message": "安排晚餐并列购物清单", "client_run_id": "agent_run-progressive-drafts-non-stream"},
@@ -1718,7 +1728,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_progressive_draft_publish_dedupes_structured_retry(self) -> None:
             provider = RetrySameDraftProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1745,7 +1755,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(len(approvals), 1)
 
         def test_ai_workspace_phase4_streams_fallback_model_deltas_before_final_response(self) -> None:
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=StreamingChatProvider()):
+            with patch_ai_workspace_provider(StreamingChatProvider()):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",
@@ -1760,7 +1770,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertIn("workspace_orchestrator", body)
 
         def test_ai_workspace_stream_failure_marks_run_failed(self) -> None:
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=FailingStreamingChatProvider()):
+            with patch_ai_workspace_provider(FailingStreamingChatProvider()):
                 with self.client.stream(
                     "POST",
                     "/api/ai/chat/stream",

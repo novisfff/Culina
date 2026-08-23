@@ -17,7 +17,11 @@ from app.ai.kitchen.recipe_drafts import (
 )
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
-from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
+from app.ai.runtime.provider import (
+    BaseChatProvider,
+    FamilyChatProviderFactory,
+    FixedChatProviderFactory,
+)
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.workflows.conversation_access import (
@@ -72,9 +76,25 @@ logger = logging.getLogger(__name__)
 
 
 class AIApplicationService:
-    def __init__(self, db: Session, provider: BaseChatProvider | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        provider: BaseChatProvider | None = None,
+        *,
+        provider_factory: Any | None = None,
+    ) -> None:
         self.db = db
-        self.provider = provider if provider is not None else get_chat_provider()
+        if provider is not None and provider_factory is not None:
+            raise ValueError("ai_provider_and_factory_are_mutually_exclusive")
+        # ``provider`` is retained solely as an explicit test injection. Normal
+        # application construction always resolves a family-owned provider at
+        # the run boundary through ``FamilyChatProviderFactory``.
+        self.provider_factory = (
+            provider_factory
+            if provider_factory is not None
+            else (FixedChatProviderFactory(provider) if provider is not None else FamilyChatProviderFactory())
+        )
+        self.provider = provider
 
     def chat(
         self,
@@ -168,6 +188,8 @@ class AIApplicationService:
         generate_image: bool,
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
+        selection = self.provider_factory.for_active_family(self.db, family_id=family_id)
+        provider = selection.primary
         draft_input = RecipeDraftGenerationInput(prompt=prompt, subject=subject)
         context = load_agent_context(
             self.db,
@@ -181,6 +203,7 @@ class AIApplicationService:
         run = AIAgentRun(
             id=create_id("agent_run"),
             family_id=family_id,
+            config_revision_id=selection.config_revision_id,
             agent_key="recipe_draft_agent",
             feature_key="aiRecipeDraft",
             intent="recipe_draft",
@@ -188,7 +211,7 @@ class AIApplicationService:
             context_summary=context.to_record(),
             output_summary="",
             status="running",
-            model=getattr(self.provider, "model_name", ""),
+            model=getattr(provider, "model_name", ""),
             input={
                 "prompt": prompt,
                 "subject": subject,
@@ -248,7 +271,7 @@ class AIApplicationService:
                 "tool_handler": call_recipe_tool,
                 "max_rounds": 4,
             }
-            if "trace_recorder" in inspect.signature(self.provider.generate_with_tools).parameters:
+            if "trace_recorder" in inspect.signature(provider.generate_with_tools).parameters:
                 provider_kwargs["trace_recorder"] = LLMExchangeRecorder(
                     db=self.db,
                     family_id=family_id,
@@ -256,8 +279,9 @@ class AIApplicationService:
                     conversation_id=None,
                     trace_id=tracer.trace_id,
                     user_id=user_id,
+                    binding=getattr(provider, "binding", None),
                 )
-            if "usage_attribution" in inspect.signature(self.provider.generate_with_tools).parameters:
+            if "usage_attribution" in inspect.signature(provider.generate_with_tools).parameters:
                 provider_kwargs["usage_attribution"] = UsageAttribution(
                     family_id=family_id,
                     attribution_kind=ModelUsageAttributionKind.USER,
@@ -265,7 +289,7 @@ class AIApplicationService:
                     operation_source=ModelUsageOperationSource.INTERACTIVE,
                     logical_operation_id=run.id,
                 )
-            result = self.provider.generate_with_tools(**provider_kwargs)
+            result = provider.generate_with_tools(**provider_kwargs)
         except Exception as exc:
             result = None
             error = str(exc)
@@ -286,7 +310,7 @@ class AIApplicationService:
 
         run.output_summary = "已生成可编辑的菜谱草稿。" if status == "completed" else "AI 菜谱生成失败，请稍后重试。"
         run.status = status
-        run.model = (result.model if result is not None else None) or getattr(self.provider, "model_name", "")
+        run.model = (result.model if result is not None else None) or getattr(provider, "model_name", "")
         run.output = {"recipeDraft": draft, "imageRenderPayload": image_render_payload}
         run.tool_calls = tool_executor.records()
         run.error = error

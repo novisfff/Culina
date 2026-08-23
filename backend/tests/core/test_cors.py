@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 import pytest
 
 from app.core.config import Settings
@@ -24,6 +27,10 @@ def test_non_local_environment_keeps_cors_to_explicit_origins() -> None:
         jwt_secret="safe-production-secret",
         minio_secret_key="safe-minio-secret",
         model_usage_required=True,
+        family_model_credential_active_key_id="test-key",
+        family_model_credential_keys_json=SecretStr(
+            json.dumps({"test-key": base64.b64encode(b"t" * 32).decode("ascii")})
+        ),
     )
 
     assert cors_allowed_origins(settings) == ["https://culina.example.com"]

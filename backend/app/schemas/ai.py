@@ -49,12 +49,23 @@ class RecipeCookContractsProbe(BaseModel):
 
 
 class AIStatusResponse(BaseModel):
+    configured: bool
     enabled: bool
-    provider: str
-    model: str
     supports_vision: bool = False
-    status: Literal["ready", "disabled", "missing_api_key", "unsupported_provider"]
+    status: Literal["ready", "not_configured", "disabled", "degraded"]
     detail: str
+    capabilities: dict[
+        Literal[
+            "llm",
+            "image_generation",
+            "stt",
+            "tts",
+            "realtime_audio",
+            "embedding",
+            "rerank",
+        ],
+        Literal["available", "unavailable", "provisioning", "failed", "budget_blocked"],
+    ]
     recipe_cook_contracts: RecipeCookContractsProbe | None = None
 
 

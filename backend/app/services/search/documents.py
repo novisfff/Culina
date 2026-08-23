@@ -314,14 +314,16 @@ def _payload(
     embedding_model: str,
     embedding_dimensions: int,
 ) -> SearchDocumentPayload:
+    # Embedding identity is owned by FamilySearchProfile.  Keep these
+    # compatibility parameters accepted for old callers while deliberately
+    # excluding them from the canonical document and its content hash.
+    del embedding_model, embedding_dimensions
     normalized_metadata = _jsonable(metadata_json)
     content_hash = _content_hash(
         entity_type=entity_type,
         entity_id=entity_id,
         semantic_text=semantic_text,
         metadata_json=normalized_metadata,
-        embedding_model=embedding_model,
-        embedding_dimensions=embedding_dimensions,
         document_builder_version=DOCUMENT_BUILDER_VERSION,
     )
     return SearchDocumentPayload(
@@ -334,8 +336,8 @@ def _payload(
         semantic_text=semantic_text,
         metadata_json=normalized_metadata,
         content_hash=content_hash,
-        embedding_model=embedding_model,
-        embedding_dimensions=embedding_dimensions,
+        embedding_model=DEFAULT_EMBEDDING_MODEL,
+        embedding_dimensions=DEFAULT_EMBEDDING_DIMENSIONS,
     )
 
 
@@ -345,8 +347,6 @@ def _content_hash(
     entity_id: str,
     semantic_text: str,
     metadata_json: dict[str, Any],
-    embedding_model: str,
-    embedding_dimensions: int,
     document_builder_version: str,
 ) -> str:
     payload = {
@@ -354,8 +354,6 @@ def _content_hash(
         "entity_id": entity_id,
         "semantic_text": semantic_text,
         "metadata_json": metadata_json,
-        "embedding_model": embedding_model,
-        "embedding_dimensions": embedding_dimensions,
         "document_builder_version": document_builder_version,
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")

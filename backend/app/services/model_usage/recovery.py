@@ -491,6 +491,11 @@ def _estimated_receipt(
         fail_open_proof_id=None,
         integrity_key_id="",
         integrity_hmac="",
+        config_revision_id=reservation.config_revision_id,
+        provider_profile_id=reservation.provider_profile_id,
+        provider_profile_version_id=reservation.provider_profile_version_id,
+        credential_secret_version_id=reservation.credential_secret_version_id,
+        search_profile_id=reservation.search_profile_id,
     )
 
 

@@ -16,6 +16,7 @@ from app.core.security import get_password_hash, verify_password
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import Base, Family, Membership, User, UserCredential
+from app.models.family_model_settings import FamilyModelSettings
 from app.models.model_usage import ModelUsageFamilyPolicy, ModelUsagePolicyVersion, ModelUsageSubject
 from app.services.bootstrap import initialize_configured_admin
 
@@ -226,12 +227,30 @@ class InitialAdminBootstrapTestCase(unittest.TestCase):
                 self.assertEqual(len(subjects), 2)
                 self.assertEqual({item.user_id for item in subjects}, {None, membership.user_id})
                 pointer = db.query(ModelUsageFamilyPolicy).one()
+                model_settings = db.query(FamilyModelSettings).one()
                 policy = db.get(ModelUsagePolicyVersion, pointer.current_policy_version_id)
                 self.assertIsNotNone(policy)
                 assert policy is not None
                 owner_subject = next(item for item in subjects if item.user_id == membership.user_id)
                 self.assertEqual(policy.version_number, 1)
                 self.assertEqual(policy.created_by_subject_id, owner_subject.id)
+                self.assertEqual(model_settings.family_id, membership.family_id)
+                self.assertIsNone(model_settings.active_config_revision_id)
+                self.assertIsNone(model_settings.active_price_version_id)
+                self.assertIsNone(model_settings.active_search_profile_id)
+
+    def test_initialization_rollback_does_not_orphan_model_settings_lock(self) -> None:
+        with patch("app.services.bootstrap.get_settings", return_value=self.settings()):
+            with self.SessionLocal() as db:
+                created = initialize_configured_admin(db, commit=False)
+                self.assertTrue(created)
+                self.assertEqual(db.query(Family).count(), 1)
+                self.assertEqual(db.query(FamilyModelSettings).count(), 1)
+                db.rollback()
+
+        with self.SessionLocal() as db:
+            self.assertEqual(db.query(Family).count(), 0)
+            self.assertEqual(db.query(FamilyModelSettings).count(), 0)
 
     def test_existing_user_skips_initialization(self) -> None:
         with self.SessionLocal() as db:

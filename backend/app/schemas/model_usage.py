@@ -68,11 +68,9 @@ class ModelUsageFamilyOverviewOut(ModelUsageOverviewBaseOut):
     hard_limit_enabled: bool
 
 
-class ModelUsageBreakdownItemOut(BaseModel):
+class ModelUsageBreakdownItemBaseOut(BaseModel):
     label: str
     capability: ModelUsageCapability | None = None
-    provider: str | None = None
-    billing_model: str | None = None
     meter: ModelUsageMeter | None = None
     meter_total: str | None = None
     local_day: str | None = None
@@ -83,19 +81,24 @@ class ModelUsageBreakdownItemOut(BaseModel):
     measurement_health: ModelUsageMeasurementHealthOut
 
 
+class ModelUsagePersonalBreakdownItemOut(ModelUsageBreakdownItemBaseOut):
+    """Member-safe aggregate item.
+
+    Provider/profile/model identity is intentionally absent instead of nullable:
+    a personal response schema must not be able to serialize those values.
+    """
+
+
+class ModelUsageFamilyBreakdownItemOut(ModelUsageBreakdownItemBaseOut):
+    provider: str | None = None
+    billing_model: str | None = None
+
+
 class ModelUsageBreakdownBaseOut(BaseModel):
     family_id: str
     period: str
     source: Literal["raw", "rollup"]
     is_partial_period: bool
-    group_by: Literal[
-        "capability",
-        "provider_model",
-        "subject",
-        "meter",
-        "daily_capability_cost",
-    ]
-    items: list[ModelUsageBreakdownItemOut] = Field(default_factory=list)
 
 
 class ModelUsageRequestMeterOut(BaseModel):
@@ -103,30 +106,45 @@ class ModelUsageRequestMeterOut(BaseModel):
     quantity: str
 
 
-class ModelUsageRequestLogOut(BaseModel):
+class ModelUsagePersonalRequestLogOut(BaseModel):
     id: str
     occurred_at: datetime
     capability: ModelUsageCapability
+    provider_outcome: str
+    execution_certainty: str
+    measurement_status: str
+    pricing_status: str
+    meters: list[ModelUsageRequestMeterOut] = Field(default_factory=list)
+
+
+class ModelUsageFamilyRequestLogOut(ModelUsagePersonalRequestLogOut):
     provider: str
     requested_model: str
     billing_model: str
     provider_request_id: str | None = None
     subject_label: str | None = None
-    provider_outcome: str
-    execution_certainty: str
-    measurement_status: str
-    pricing_status: str
     cost_cny: str | None = None
-    meters: list[ModelUsageRequestMeterOut] = Field(default_factory=list)
 
 
-class ModelUsageRequestLogPageOut(BaseModel):
+class ModelUsagePersonalRequestLogPageOut(BaseModel):
     family_id: str
     date_from: date
     date_to: date
-    scope: Literal["family", "me"]
+    scope: Literal["me"]
     source: Literal["raw"]
-    items: list[ModelUsageRequestLogOut] = Field(default_factory=list)
+    items: list[ModelUsagePersonalRequestLogOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
+class ModelUsageFamilyRequestLogPageOut(BaseModel):
+    family_id: str
+    date_from: date
+    date_to: date
+    scope: Literal["family"]
+    source: Literal["raw"]
+    items: list[ModelUsageFamilyRequestLogOut] = Field(default_factory=list)
     total: int
     limit: int
     offset: int
@@ -134,10 +152,20 @@ class ModelUsageRequestLogPageOut(BaseModel):
 
 class ModelUsagePersonalBreakdownOut(ModelUsageBreakdownBaseOut):
     scope: Literal["me"]
+    group_by: Literal["capability", "meter", "daily_capability_cost"]
+    items: list[ModelUsagePersonalBreakdownItemOut] = Field(default_factory=list)
 
 
 class ModelUsageFamilyBreakdownOut(ModelUsageBreakdownBaseOut):
     scope: Literal["family"]
+    group_by: Literal[
+        "capability",
+        "provider_model",
+        "subject",
+        "meter",
+        "daily_capability_cost",
+    ]
+    items: list[ModelUsageFamilyBreakdownItemOut] = Field(default_factory=list)
 
 
 class ModelUsageCapabilityLimitOut(BaseModel):

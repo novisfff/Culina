@@ -26,11 +26,59 @@ from app.services.model_usage.errors import ModelUsageBlocked
 from app.services.model_usage.facade import ModelUsageFacade
 from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 from app.services.model_usage.types import UsageAttribution
+from app.services.family_model_settings.types import (
+    ResolvedCapabilityBinding,
+    ResolvedProviderEndpoint,
+)
 from tests.model_usage.test_pricing_service import publish, raw_manifest
 from tests.model_usage.test_reservations import NOW
 
 
 pytest_plugins = ("tests.model_usage.test_reservations",)
+
+
+def _image_binding(*, family_id: str) -> ResolvedCapabilityBinding:
+    return ResolvedCapabilityBinding(
+        family_id=family_id,
+        config_revision_id="revision-image-test",
+        provider_profile_id="profile-image-test",
+        provider_profile_version_id="profile-version-image-test",
+        adapter_kind="openai_compatible_http",
+        auth_mode="api_key",
+        endpoint=ResolvedProviderEndpoint(
+            normalized_url="https://image.provider.example/v1",
+            scheme="https",
+            host="image.provider.example",
+            port=443,
+            base_path="/v1",
+            resolved_addresses=("93.184.216.34",),
+            private_target=False,
+        ),
+        websocket_endpoint=None,
+        requested_model="image-test",
+        billing_model="image-test",
+        capability="image_generation",
+        variant_key="text",
+        billing_scheme_key="image-count-v1",
+        options={},
+    )
+
+
+class _StaticImageResolver:
+    def __init__(self, binding: ResolvedCapabilityBinding) -> None:
+        self.binding = binding
+
+    def resolve_active(self, _family_id: str, _capability: str, _variant_key: str) -> ResolvedCapabilityBinding:
+        return self.binding
+
+
+@pytest.fixture(autouse=True)
+def _stub_worker_image_binding(monkeypatch: pytest.MonkeyPatch, reservation_context) -> None:
+    binding = _image_binding(family_id=reservation_context.attribution.family_id)
+    monkeypatch.setattr(
+        "app.ai.images.jobs.image_binding_for_job",
+        lambda _db, *, job, resolver=None: binding,
+    )
 
 
 class BlockingImageUsageAdapter:
@@ -127,6 +175,7 @@ def _enqueue_job(model_usage_db: Session, reservation_context) -> AIImageGenerat
         family_id=reservation_context.attribution.family_id,
         user_id=reservation_context.attribution.actor_user_id or "owner-reserve",
         request=request,
+        resolver=_StaticImageResolver(_image_binding(family_id=reservation_context.attribution.family_id)),
     )
     model_usage_db.commit()
     return job
@@ -205,6 +254,7 @@ def test_default_image_usage_adapter_uses_job_session_factory(
     observed_session_factories: list[object] = []
 
     def default_adapter(
+        _binding: ResolvedCapabilityBinding,
         _request: ImageGenerationRequest,
         *,
         session_factory: object,
@@ -213,7 +263,7 @@ def test_default_image_usage_adapter_uses_job_session_factory(
         return BlockingImageUsageAdapter()
 
     monkeypatch.setattr(
-        "app.ai.images.jobs._image_usage_adapter_for_request",
+        "app.ai.images.jobs._image_usage_adapter_for_binding",
         default_adapter,
     )
 

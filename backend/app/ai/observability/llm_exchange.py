@@ -148,6 +148,7 @@ class LLMExchangeRecorder:
         user_id: str | None = None,
         span_id: str | None = None,
         durable_writes: bool = False,
+        binding: Any | None = None,
     ) -> None:
         settings = get_settings()
         self.enabled = bool(getattr(settings, "ai_trace_enabled", True)) and bool(
@@ -166,6 +167,7 @@ class LLMExchangeRecorder:
         self.trace_id = trace_id
         self.user_id = user_id
         self.span_id = span_id
+        self.binding = binding
         del durable_writes
         self.durable_writes = True
 
@@ -188,6 +190,13 @@ class LLMExchangeRecorder:
             exchange = AIRunLLMExchange(
                 id=create_id("ai_llm_exchange"),
                 family_id=self.family_id,
+                config_revision_id=getattr(self.binding, "config_revision_id", None),
+                provider_profile_id=getattr(self.binding, "provider_profile_id", None),
+                provider_profile_version_id=getattr(
+                    self.binding,
+                    "provider_profile_version_id",
+                    None,
+                ),
                 run_id=self.run_id,
                 conversation_id=self.conversation_id,
                 trace_id=self.trace_id,

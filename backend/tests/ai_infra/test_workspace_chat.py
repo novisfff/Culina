@@ -1,7 +1,5 @@
 from ._support import *
 
-from types import SimpleNamespace
-
 from app.ai.errors import ApprovalRequired
 
 
@@ -190,7 +188,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         message_handler(result.text)
                     return result
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=FallbackProvider()):
+            with patch_ai_workspace_provider(FallbackProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "给我一个晚餐建议"})
 
             self.assertEqual(response.status_code, 200, response.text)
@@ -264,7 +262,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         raise
                     raise AssertionError("meal plan draft must interrupt for approval")
 
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=FallbackApprovalProvider()):
+            with patch_ai_workspace_provider(FallbackApprovalProvider()):
                 response = self.client.post("/api/ai/chat", json={"message": "请生成晚餐草稿"})
 
             self.assertEqual(response.status_code, 200, response.text)
@@ -487,7 +485,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_general_chat_sends_conversation_history_to_provider(self) -> None:
             provider = CapturingGeneralChatProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 first_response = self.client.post("/api/ai/chat", json={"message": "给我两个早餐思路"})
                 self.assertEqual(first_response.status_code, 200, first_response.text)
                 conversation_id = first_response.json()["conversation_id"]
@@ -508,7 +506,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_subject_references_reach_toolcalling_skill_payload(self) -> None:
             provider = CapturingToolSubjectProvider()
-            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with patch_ai_workspace_provider(provider):
                 response = self.client.post(
                     "/api/ai/chat",
                     json={
@@ -645,27 +643,30 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                     self.assertEqual(response.status_code, 409, response.text)
                     self.assertIn("当前会话已有 AI 任务", response.text)
 
-        def test_ai_status_reports_disabled_provider_without_secrets(self) -> None:
-            settings = SimpleNamespace(ai_provider="disabled", ai_model="", ai_api_key="")
-            with patch("app.api.ai.get_settings", return_value=settings):
-                response = self.client.get("/api/ai/status")
+        def test_ai_status_reports_unconfigured_family_without_provider_identity(self) -> None:
+            response = self.client.get("/api/ai/status")
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
+            self.assertFalse(data["configured"])
             self.assertFalse(data["enabled"])
-            self.assertEqual(data["status"], "disabled")
-            self.assertEqual(data["provider"], "disabled")
-            self.assertNotIn("api_key", data)
+            self.assertFalse(data["supports_vision"])
+            self.assertEqual(data["status"], "not_configured")
+            self.assertEqual(data["detail"], "家庭 AI 服务尚未配置。")
+            self.assertTrue(all(state == "unavailable" for state in data["capabilities"].values()))
+            for forbidden in ("provider", "model", "base_url", "profile_id", "price", "credential"):
+                self.assertNotIn(forbidden, data)
 
-        def test_ai_status_reports_ready_provider_without_secrets(self) -> None:
-            settings = SimpleNamespace(ai_provider="openai-compatible", ai_model="fake-model", ai_api_key="secret")
-            with patch("app.api.ai.get_settings", return_value=settings):
+        def test_ai_status_does_not_resolve_a_chat_provider(self) -> None:
+            with patch(
+                "app.ai.runtime.factory.FamilyChatProviderFactory.for_active_family",
+                side_effect=AssertionError("status must not resolve a chat provider"),
+            ):
                 response = self.client.get("/api/ai/status")
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            self.assertTrue(data["enabled"])
-            self.assertEqual(data["status"], "ready")
-            self.assertEqual(data["model"], "fake-model")
-            self.assertNotIn("secret", response.text)
+            self.assertEqual(data["status"], "not_configured")
+            self.assertNotIn("provider", data)
+            self.assertNotIn("model", data)
 
         def test_ai_chat_request_rejects_blank_message_before_running_agent(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "   "})

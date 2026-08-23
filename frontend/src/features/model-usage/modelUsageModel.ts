@@ -180,6 +180,7 @@ function hasMeasuredUsage(
   overview: ModelUsageOverview,
   breakdown: ModelUsageBreakdown | null,
   dailyTrend: ModelUsageBreakdown | null,
+  capabilityBreakdown: ModelUsageBreakdown | null,
 ): boolean {
   const health = overview.measurement_health;
   return Boolean(
@@ -188,6 +189,7 @@ function hasMeasuredUsage(
       overview.meter_totals.some((item) => hasNonZeroDecimal(item.quantity)) ||
       breakdown?.items.length ||
       dailyTrend?.items.length ||
+      capabilityBreakdown?.items.length ||
       health.exact_event_count > 0 ||
       health.estimated_event_count > 0 ||
       health.unpriced_event_count > 0 ||
@@ -207,10 +209,12 @@ type WorkspaceDataState = {
   overview: ModelUsageOverview;
   breakdown: ModelUsageBreakdown | null;
   dailyTrend: ModelUsageBreakdown | null;
+  capabilityBreakdown: ModelUsageBreakdown | null;
   cost: string;
   healthNotices: ModelUsageHealthNotice[];
   isRefreshing: boolean;
   isDailyTrendLoading: boolean;
+  isCapabilityBreakdownLoading: boolean;
   refreshError: string | null;
 };
 
@@ -223,9 +227,11 @@ export function buildModelUsageWorkspaceViewModel(args: {
   overview: ModelUsageOverview | null;
   breakdown: ModelUsageBreakdown | null;
   dailyTrend: ModelUsageBreakdown | null;
+  capabilityBreakdown?: ModelUsageBreakdown | null;
   isInitialLoading: boolean;
   isRefreshing: boolean;
   isDailyTrendLoading: boolean;
+  isCapabilityBreakdownLoading?: boolean;
   error: unknown;
 }): ModelUsageWorkspaceViewModel {
   if (!args.overview) {
@@ -237,14 +243,21 @@ export function buildModelUsageWorkspaceViewModel(args: {
     overview: args.overview,
     breakdown: args.breakdown,
     dailyTrend: args.dailyTrend,
+    capabilityBreakdown: args.capabilityBreakdown ?? null,
     cost: costDisplay(args.overview),
     healthNotices: modelUsageHealthNotices(args.overview.measurement_health),
     isRefreshing: args.isRefreshing,
     isDailyTrendLoading: args.isDailyTrendLoading,
+    isCapabilityBreakdownLoading: args.isCapabilityBreakdownLoading ?? false,
     refreshError: args.error ? errorMessage(args.error) : null,
   };
   return {
-    state: hasMeasuredUsage(args.overview, args.breakdown, args.dailyTrend) ? 'ready' : 'empty',
+    state: hasMeasuredUsage(
+      args.overview,
+      args.breakdown,
+      args.dailyTrend,
+      args.capabilityBreakdown ?? null,
+    ) ? 'ready' : 'empty',
     ...data,
   };
 }

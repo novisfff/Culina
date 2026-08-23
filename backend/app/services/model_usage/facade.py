@@ -65,6 +65,10 @@ class DispatchEligibilityProof:
     price_snapshot_checksum: str | None
     recovery_policy: ProviderRecoveryPolicy
     required_meters: tuple[UsageMeterQuantity, ...]
+    config_revision_id: str | None = None
+    provider_profile_id: str | None = None
+    provider_profile_version_id: str | None = None
+    search_profile_id: str | None = None
 
 
 class FailOpenPermitRegistry:
@@ -145,6 +149,10 @@ def _prepare_monitoring_dispatch_eligibility(
         price_snapshot_checksum=price.checksum,
         recovery_policy=ProviderRecoveryPolicy.none(),
         required_meters=tuple(estimate.meters),
+        config_revision_id=context.config_revision_id,
+        provider_profile_id=context.provider_profile_id,
+        provider_profile_version_id=context.provider_profile_version_id,
+        search_profile_id=context.search_profile_id,
     )
     admission = prepare_reservation_admission(
         context=context,
@@ -235,6 +243,11 @@ def exchange_proof_for_permit(
         fail_open_proof_id=proof.proof_id,
         expires_at=proof.expires_at,
         required_meters=proof.required_meters,
+        config_revision_id=proof.config_revision_id,
+        provider_profile_id=proof.provider_profile_id,
+        provider_profile_version_id=proof.provider_profile_version_id,
+        credential_secret_version_id=None,
+        search_profile_id=proof.search_profile_id,
     )
 
 
