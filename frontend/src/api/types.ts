@@ -305,6 +305,7 @@ export interface FamilyModelConfigDraftPayload {
 export interface SaveFamilyModelConfigDraftPayload extends FamilyModelConfigDraftPayload {
   base_draft_version_number: number;
   idempotency_key: string;
+  confirm_initial_search_index?: boolean;
 }
 
 export interface FamilyModelConfigDraft {

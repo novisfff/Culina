@@ -46,6 +46,7 @@ export type FamilyModelSettingsSurfaceProps = {
   onPushMobileTask: (section: FamilyModelSettingsSection) => void;
   onPopMobileTask: () => void;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;
+  onConfirmInitialSearchIndex: (draft: FamilyModelSettingsDraft) => Promise<void>;
   onDiscoverModels: (profileId: string) => Promise<FamilyModelProviderConnectionCheckResult>;
   onTestCapability: (
     capability: Parameters<FamilyModelSettingsMutationActions['testCapability']>[0],

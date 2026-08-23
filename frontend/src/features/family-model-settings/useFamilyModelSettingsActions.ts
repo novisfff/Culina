@@ -156,11 +156,15 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     void invalidateSearch().catch(() => undefined);
   }, [invalidateSearch]);
 
-  const saveDraft = useCallback(async (draft: FamilyModelSettingsDraft) => {
+  const saveDraft = useCallback(async (
+    draft: FamilyModelSettingsDraft,
+    options: { confirmInitialSearchIndex?: boolean } = {},
+  ) => {
     requireContext();
     return run('save', async () => {
-      const result = await idempotentRequest('save-draft', draft, (key) => (
-        familyModelSettingsApi.saveDraft(toSaveDraftPayload(draft, key))
+      const input = { draft, confirmInitialSearchIndex: Boolean(options.confirmInitialSearchIndex) };
+      const result = await idempotentRequest('save-draft', input, (key) => (
+        familyModelSettingsApi.saveDraft(toSaveDraftPayload(draft, key, options))
       ));
       refreshSettingsInBackground();
       return result;

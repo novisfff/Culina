@@ -208,6 +208,7 @@ def _save_all_active_capabilities(context: FamilyModelApiContext) -> None:
             "change_note": "完整能力测试配置",
             "base_draft_version_number": 0,
             "idempotency_key": "capability-test-all-draft-1",
+            "confirm_initial_search_index": True,
         },
     )
     assert saved.status_code == 200, saved.text

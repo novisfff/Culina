@@ -377,6 +377,7 @@ def _reset_draft_after_publish(
 ) -> None:
     payload = dict(draft.payload_json)
     payload["base_config_revision_id"] = revision.id
+    payload["search_profile_id"] = revision.search_profile_id
     draft.base_config_revision_id = revision.id
     draft.payload_json = payload
     draft.draft_version_number += 1
@@ -394,6 +395,7 @@ def _mark_saved_draft_applied(
 ) -> None:
     payload = dict(draft.payload_json)
     payload["base_config_revision_id"] = revision.id
+    payload["search_profile_id"] = revision.search_profile_id
     draft.base_config_revision_id = revision.id
     draft.payload_json = payload
     draft.validation_status = "valid"

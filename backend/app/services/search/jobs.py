@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 from typing import Callable
@@ -53,6 +54,7 @@ from app.services.search.indexing import (
     upsert_recipe_search_document,
 )
 from app.services.search.vector_indexing import (
+    SearchProfileDocumentSnapshot,
     system_embedding_attribution,
     clear_profile_pending_vector,
     persist_profile_pending_vector,
@@ -68,9 +70,20 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 JOB_LOCK_STALE_AFTER = timedelta(minutes=15)
 WORKER_SCAN_INTERVAL_SECONDS = 3
+WORKER_MAX_IN_FLIGHT = 2
 ACTIVE_COMPLETED_WINDOW = timedelta(hours=24)
 SEARCH_INDEX_ENTITY_TYPES = {"ingredient", "food", "recipe", "meal_plan"}
 EMBEDDING_OUTPUT_UNAVAILABLE = "embedding_output_unavailable_after_provider_success"
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedProfileEmbeddingAttempt:
+    family_id: str
+    search_profile_id: str
+    qdrant_collection: str
+    snapshot: SearchProfileDocumentSnapshot
+    attempt_key: str
+    handoff_only: bool
 
 
 def enqueue_search_index_job(
@@ -441,10 +454,7 @@ def recover_interrupted_search_index_jobs(
             job.error_code = None
             job.updated_at = now
             continue
-        try:
-            resolved = _profile_job_document(db, job=job, for_update=True)
-        except Exception:
-            resolved = None
+        resolved = _profile_job_document(db, job=job, for_update=True)
         if resolved is None:
             _finish_job_in_session(job, vector_status="skipped", now=now)
             continue
@@ -531,6 +541,33 @@ def process_search_index_job(
     claimed: bool = False,
     embedding_client: EmbeddingClient | None = None,
     vector_store: VectorStore | None = None,
+) -> None:
+    try:
+        _process_search_index_job(
+            job_id,
+            session_factory=session_factory,
+            claimed=claimed,
+            embedding_client=embedding_client,
+            vector_store=vector_store,
+        )
+    except Exception:
+        logger.exception("Search index job crashed job_id=%s", job_id)
+        try:
+            _mark_unexpected_search_index_job_failure(
+                job_id,
+                session_factory=session_factory,
+            )
+        except Exception:
+            logger.exception("Search index job crash recovery failed job_id=%s", job_id)
+
+
+def _process_search_index_job(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+    claimed: bool,
+    embedding_client: EmbeddingClient | None,
+    vector_store: VectorStore | None,
 ) -> None:
     if not _start_job(job_id, session_factory=session_factory, claimed=claimed):
         return
@@ -674,16 +711,15 @@ def _process_family_search_profile_job(
     )
     if prepared is None:
         return
-    profile, snapshot, attempt_key, handoff_only = prepared
+    snapshot = prepared.snapshot
     store = vector_store or build_vector_store(
         get_settings(),
-        qdrant_collection=profile.qdrant_collection,
+        qdrant_collection=prepared.qdrant_collection,
     )
-    if handoff_only:
+    if prepared.handoff_only:
         _handoff_profile_pending_vector(
             job_id,
             snapshot=snapshot,
-            profile=profile,
             vector_store=store,
             session_factory=session_factory,
         )
@@ -691,7 +727,8 @@ def _process_family_search_profile_job(
 
     try:
         client = embedding_client or _build_profile_embedding_client(
-            profile,
+            family_id=prepared.family_id,
+            search_profile_id=prepared.search_profile_id,
             session_factory=session_factory,
         )
         job = _load_profile_job_snapshot(job_id, session_factory=session_factory)
@@ -701,9 +738,9 @@ def _process_family_search_profile_job(
             snapshot.semantic_text,
             attribution=system_embedding_attribution(
                 family_id=job.family_id,
-                logical_operation_id=attempt_key,
+                logical_operation_id=prepared.attempt_key,
             ),
-            attempt_key=attempt_key,
+            attempt_key=prepared.attempt_key,
             usage_snapshot=EmbeddingUsageSnapshot(
                 config_revision_id=job.config_revision_id,
                 price_version_id=_require_job_price_version_id(job),
@@ -761,7 +798,7 @@ def _process_family_search_profile_job(
     _persist_profile_provider_vector(
         job_id,
         snapshot=snapshot,
-        attempt_key=attempt_key,
+        attempt_key=prepared.attempt_key,
         vector=result.vectors[0],
         usage_event_id=result.usage_event_id,
         session_factory=session_factory,
@@ -769,7 +806,6 @@ def _process_family_search_profile_job(
     _handoff_profile_pending_vector(
         job_id,
         snapshot=snapshot,
-        profile=profile,
         vector_store=store,
         session_factory=session_factory,
     )
@@ -794,17 +830,12 @@ def _prepare_profile_embedding_attempt(
     job_id: str,
     *,
     session_factory: Callable[[], Session],
-) -> tuple[FamilySearchProfile, object, str, bool] | None:
-    from app.services.search.vector_indexing import SearchProfileDocumentSnapshot
-
+) -> PreparedProfileEmbeddingAttempt | None:
     with session_factory() as db:
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None or job.search_profile_id is None:
             return None
-        try:
-            resolved = _profile_job_document(db, job=job, for_update=True)
-        except Exception:
-            resolved = None
+        resolved = _profile_job_document(db, job=job, for_update=True)
         if resolved is None:
             _mark_job_failure_in_session(
                 job,
@@ -838,7 +869,14 @@ def _prepare_profile_embedding_attempt(
             job.vector_status = "pending"
             job.updated_at = utcnow()
             db.commit()
-            return profile, snapshot, job.usage_attempt_key or "", True
+            return PreparedProfileEmbeddingAttempt(
+                family_id=profile.family_id,
+                search_profile_id=profile.id,
+                qdrant_collection=profile.qdrant_collection,
+                snapshot=snapshot,
+                attempt_key=job.usage_attempt_key or "",
+                handoff_only=True,
+            )
         if _attempt_output_is_unrecoverable(db, job=job):
             _mark_profile_terminal_missing_output_in_session(
                 db,
@@ -880,21 +918,29 @@ def _prepare_profile_embedding_attempt(
         profile_document.status = "indexing"
         profile_document.error_code = None
         profile_document.last_attempt_at = utcnow()
+        prepared = PreparedProfileEmbeddingAttempt(
+            family_id=profile.family_id,
+            search_profile_id=profile.id,
+            qdrant_collection=profile.qdrant_collection,
+            snapshot=snapshot,
+            attempt_key=attempt_key,
+            handoff_only=False,
+        )
         db.commit()
-        assert isinstance(snapshot, SearchProfileDocumentSnapshot)
-        return profile, snapshot, attempt_key, False
+        return prepared
 
 
 def _build_profile_embedding_client(
-    profile: FamilySearchProfile,
     *,
+    family_id: str,
+    search_profile_id: str,
     session_factory: Callable[[], Session],
 ) -> EmbeddingClient:
     """Resolve immutable metadata now; decrypt later through a fresh session."""
 
     with session_factory() as db:
         resolver = FamilyModelConfigurationResolver(db)
-        binding = resolver.resolve_search_profile(profile.family_id, profile.id)
+        binding = resolver.resolve_search_profile(family_id, search_profile_id)
         settings = get_settings()
         transport = ProviderTransport.from_settings(settings, policy=resolver.network_policy)
         usage_dependencies = EmbeddingUsageDependencies(
@@ -985,7 +1031,6 @@ def _handoff_profile_pending_vector(
     job_id: str,
     *,
     snapshot: object,
-    profile: FamilySearchProfile,
     vector_store: VectorStore,
     session_factory: Callable[[], Session],
 ) -> None:
@@ -1053,7 +1098,19 @@ def _handoff_profile_pending_vector(
         profile_document.indexed_at = utcnow()
         _finish_job_in_session(job, vector_status="indexed", now=utcnow())
         refresh_profile_progress(db, profile=live_profile)
+        provisioning_profile_id = (
+            live_profile.id
+            if live_profile.status is FamilyModelSearchProfileStatus.PROVISIONING
+            else None
+        )
+        family_id = live_profile.family_id
         db.commit()
+    if provisioning_profile_id:
+        _activate_profile_if_ready(
+            family_id=family_id,
+            profile_id=provisioning_profile_id,
+            session_factory=session_factory,
+        )
 
 
 def _mark_profile_job_failure(
@@ -1092,6 +1149,72 @@ def _mark_profile_job_failure(
             increment_provider_attempt=increment_provider_attempt,
             now=utcnow(),
         )
+        if (
+            profile.status is FamilyModelSearchProfileStatus.PROVISIONING
+            and (job.attempt_count or 0) >= MAX_ATTEMPTS
+        ):
+            profile.status = FamilyModelSearchProfileStatus.FAILED
+        refresh_profile_progress(db, profile=profile)
+        db.commit()
+
+
+def _mark_unexpected_search_index_job_failure(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> None:
+    """Make an escaped worker exception durable without risking a duplicate send."""
+
+    with session_factory() as db:
+        job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
+        if job is None or job.status == "succeeded":
+            return
+        resolved = _profile_job_document(db, job=job, for_update=True) if job.search_profile_id else None
+        if resolved is None:
+            _mark_job_failure_in_session(
+                job,
+                error="搜索索引后台任务异常退出",
+                error_code="search_index_worker_failed",
+                # Canonical jobs and profile jobs whose target disappeared
+                # have not sent a Provider request.  Count the local worker
+                # attempt so a persistently broken job cannot retry forever.
+                increment_provider_attempt=True,
+                now=utcnow(),
+            )
+            db.commit()
+            return
+
+        profile, profile_document, _document = resolved
+        if profile_document.status == "pending_handoff" and profile_document.vector_json is not None:
+            _mark_job_failure_in_session(
+                job,
+                error="搜索向量写入暂时中断，稍后会继续",
+                error_code="search_vector_unavailable",
+                increment_provider_attempt=False,
+                vector_status="pending",
+                now=utcnow(),
+            )
+        elif _attempt_output_is_unrecoverable(db, job=job):
+            _mark_profile_terminal_missing_output_in_session(
+                db,
+                job,
+                profile_document=profile_document,
+                profile=profile,
+                now=utcnow(),
+            )
+        else:
+            profile_document.status = "failed"
+            profile_document.error_code = "search_index_worker_failed"
+            clear_profile_pending_vector(profile_document)
+            _mark_job_failure_in_session(
+                job,
+                error="搜索索引后台任务异常退出",
+                error_code="search_index_worker_failed",
+                increment_provider_attempt=True,
+                now=utcnow(),
+            )
+            if (job.attempt_count or 0) >= MAX_ATTEMPTS:
+                profile.status = FamilyModelSearchProfileStatus.FAILED
         refresh_profile_progress(db, profile=profile)
         db.commit()
 
@@ -1138,6 +1261,8 @@ def _mark_profile_terminal_missing_output_in_session(
     profile_document.error_code = EMBEDDING_OUTPUT_UNAVAILABLE
     clear_profile_pending_vector(profile_document)
     _mark_terminal_missing_output(job, now=now)
+    if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
+        profile.status = FamilyModelSearchProfileStatus.FAILED
     refresh_profile_progress(db, profile=profile)
 
 
@@ -1280,6 +1405,59 @@ def _finish_job_in_session(job: SearchIndexJob, *, vector_status: str, now: date
     job.updated_at = now
 
 
+def _activate_profile_if_ready(
+    *,
+    family_id: str,
+    profile_id: str,
+    session_factory: Callable[[], Session],
+) -> None:
+    """Recount after job commit, then switch or expose a failed cutover."""
+
+    from app.services.family_model_settings.errors import FamilyModelSettingsError
+    from app.services.family_model_settings.search_profiles import activate_ready_search_profile
+
+    with session_factory() as db:
+        profile = require_search_profile(
+            db,
+            family_id=family_id,
+            search_profile_id=profile_id,
+        )
+        if profile.status is not FamilyModelSearchProfileStatus.PROVISIONING:
+            return
+        counts = refresh_profile_progress(db, profile=profile)
+        db.commit()
+    if not counts.ready:
+        return
+
+    try:
+        with session_factory() as db:
+            activate_ready_search_profile(
+                db,
+                family_id=family_id,
+                profile_id=profile_id,
+            )
+            db.commit()
+    except FamilyModelSettingsError:
+        logger.exception(
+            "Ready search profile activation failed family_id=%s profile_id=%s",
+            family_id,
+            profile_id,
+        )
+        with session_factory() as db:
+            settings = lock_family_model_settings(db, family_id=family_id)
+            profile = require_search_profile(
+                db,
+                family_id=family_id,
+                search_profile_id=profile_id,
+                for_update=True,
+            )
+            if settings.active_search_profile_id == profile.id:
+                return
+            if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
+                profile.status = FamilyModelSearchProfileStatus.FAILED
+                db.commit()
+
+
 def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> SearchDocument | None:
     if job.entity_type == "ingredient":
         ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == job.family_id, Ingredient.id == job.entity_id))
@@ -1333,13 +1511,17 @@ class SearchIndexWorker:
         self._stop_event = Event()
         self._thread: Thread | None = None
         self._executor: ThreadPoolExecutor | None = None
+        self._futures: set[Future[None]] = set()
 
     def start(self) -> None:
         if self._thread is not None:
             return
         self._stop_event.clear()
         self._recover_startup_jobs()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="culina-search-index")
+        self._executor = ThreadPoolExecutor(
+            max_workers=WORKER_MAX_IN_FLIGHT,
+            thread_name_prefix="culina-search-index",
+        )
         self._thread = Thread(target=self._run, name="culina-search-index-worker", daemon=True)
         self._thread.start()
 
@@ -1351,17 +1533,34 @@ class SearchIndexWorker:
         if self._executor is not None:
             self._executor.shutdown(wait=False, cancel_futures=True)
             self._executor = None
+        self._futures.clear()
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
+                completed = {future for future in self._futures if future.done()}
+                for future in completed:
+                    try:
+                        future.result()
+                    except Exception:
+                        logger.exception("Search index worker future failed")
+                self._futures.difference_update(completed)
+                available_slots = WORKER_MAX_IN_FLIGHT - len(self._futures)
+                if available_slots <= 0:
+                    self._stop_event.wait(WORKER_SCAN_INTERVAL_SECONDS)
+                    continue
                 with self._session_factory() as db:
                     recover_interrupted_search_index_jobs(db)
-                    job_ids = claim_pending_search_index_jobs(db)
+                    job_ids = claim_pending_search_index_jobs(db, limit=available_slots)
                 if self._executor is None:
                     return
                 for job_id in job_ids:
-                    self._executor.submit(process_search_index_job, job_id, session_factory=self._session_factory, claimed=True)
+                    self._futures.add(self._executor.submit(
+                        process_search_index_job,
+                        job_id,
+                        session_factory=self._session_factory,
+                        claimed=True,
+                    ))
             except Exception:
                 logger.exception("Search index worker scan failed")
             self._stop_event.wait(WORKER_SCAN_INTERVAL_SECONDS)

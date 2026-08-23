@@ -396,6 +396,7 @@ def save_draft_view(
                 base_draft_version_number=payload.base_draft_version_number,
                 idempotency_key=payload.idempotency_key,
                 payload=payload.storage_payload().model_dump(mode="json", exclude_none=True),
+                confirm_initial_search_index=payload.confirm_initial_search_index,
             ),
             cipher=cipher,
             network_policy=network_policy,

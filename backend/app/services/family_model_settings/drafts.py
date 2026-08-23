@@ -15,7 +15,9 @@ from app.models.family_model_settings import (
     FamilyModelProviderProfile,
 )
 from app.repos.family_model_settings.configurations import get_config_draft
+from app.repos.family_model_settings.configurations import get_config_revision
 from app.repos.family_model_settings.idempotency import claim_operation, complete_operation
+from app.repos.family_model_settings.search_profiles import get_search_profile
 from app.repos.family_model_settings.profiles import (
     get_family_model_settings,
     lock_family_model_settings,
@@ -26,6 +28,7 @@ from app.services.family_model_settings.credentials import (
     operation_request_fingerprint,
 )
 from app.services.family_model_settings.errors import (
+    FamilyModelDraftInvalid,
     FamilyModelOperationInProgress,
     FamilyModelProviderProfileNotFound,
     FamilyModelSettingsVersionConflict,
@@ -53,6 +56,7 @@ class SaveConfigDraftCommand:
     base_draft_version_number: int
     idempotency_key: str
     payload: Mapping[str, Any]
+    confirm_initial_search_index: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,8 +101,14 @@ def remove_write_only_secret_commands(value: Any) -> Any:
     return value
 
 
-def _snapshot(draft: FamilyModelConfigDraft) -> ConfigDraftSnapshot:
+def _snapshot(
+    draft: FamilyModelConfigDraft,
+    *,
+    fallback_search_profile_id: str | None = None,
+) -> ConfigDraftSnapshot:
     payload = FamilyModelConfigDraftPayload.model_validate(draft.payload_json)
+    if payload.search_profile_id is None and fallback_search_profile_id is not None:
+        payload = payload.model_copy(update={"search_profile_id": fallback_search_profile_id})
     errors: list[dict[str, str]] = []
     for item in draft.validation_errors_json:
         if not isinstance(item, dict):
@@ -197,7 +207,61 @@ def load_config_draft(
             validation_errors=(),
             updated_at=None,
         )
-    return _snapshot(draft)
+    fallback_search_profile_id: str | None = None
+    if draft.base_config_revision_id is not None:
+        revision = get_config_revision(
+            db,
+            family_id=family_id,
+            config_revision_id=draft.base_config_revision_id,
+        )
+        fallback_search_profile_id = revision.search_profile_id if revision is not None else None
+    return _snapshot(draft, fallback_search_profile_id=fallback_search_profile_id)
+
+
+def _ready_initial_embedding(payload: FamilyModelConfigDraftPayload):
+    return next(
+        (
+            binding
+            for binding in payload.bindings
+            if binding.capability == "embedding"
+            and binding.enabled
+            and binding.provider_profile_id is not None
+            and bool(binding.requested_model.strip())
+        ),
+        None,
+    )
+
+
+def _configured_search_profile(db: Session, *, settings):
+    profile_id = settings.active_search_profile_id
+    if profile_id is None and settings.active_config_revision_id is not None:
+        revision = get_config_revision(
+            db,
+            family_id=settings.family_id,
+            config_revision_id=settings.active_config_revision_id,
+        )
+        profile_id = revision.search_profile_id if revision is not None else None
+    if profile_id is None:
+        return None
+    return get_search_profile(
+        db,
+        family_id=settings.family_id,
+        search_profile_id=profile_id,
+    )
+
+
+def _require_immutable_search_identity(db: Session, *, settings, payload) -> None:
+    profile = _configured_search_profile(db, settings=settings)
+    if profile is None:
+        return
+    embedding = _ready_initial_embedding(payload)
+    if (
+        embedding is None
+        or embedding.provider_profile_id != profile.provider_profile_id
+        or embedding.requested_model != profile.embedding_model
+        or embedding.dimensions != profile.dimensions
+    ):
+        raise FamilyModelDraftInvalid("family_search_profile_locked")
 
 
 def save_config_draft(
@@ -226,6 +290,7 @@ def save_config_draft(
             "family_id": command.family_id,
             "base_draft_version_number": command.base_draft_version_number,
             "payload": serialized,
+            "confirm_initial_search_index": command.confirm_initial_search_index,
         },
         secret_fields={},
     )
@@ -251,6 +316,16 @@ def save_config_draft(
         raise FamilyModelSettingsVersionConflict(
             current_draft_version_number=current_version
         )
+    configured_search_profile = _configured_search_profile(db, settings=settings)
+    if (
+        network_policy is not None
+        and _ready_initial_embedding(payload) is not None
+        and configured_search_profile is None
+        and not command.confirm_initial_search_index
+    ):
+        raise FamilyModelDraftInvalid("family_search_initial_confirmation_required")
+    if network_policy is not None:
+        _require_immutable_search_identity(db, settings=settings, payload=payload)
     _require_owned_profile_references(db, family_id=command.family_id, payload=payload)
     changed_at = utcnow()
     if draft is None:

@@ -20,6 +20,9 @@ export type CapabilityBindingEditorProps = {
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;
   onDiscoverModels: (profileId: string) => Promise<FamilyModelProviderConnectionCheckResult>;
   onTestCapability: (capability: FamilyModelCapability, variantKey: string, confirmBillable: boolean) => Promise<unknown>;
+  scope?: 'general' | 'search';
+  embedded?: boolean;
+  blockedTests?: readonly FamilyModelCapability[];
 };
 
 type ModelDiscoveryState =
@@ -140,11 +143,16 @@ function getCapabilityIcon(capability: FamilyModelCapability) {
 }
 
 export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
+  const visibleGroups = CAPABILITY_GROUPS.filter((group) => (
+    props.scope === 'search' ? group.id === 'search' : group.id !== 'search'
+  ));
+  const visibleCapabilities = new Set(visibleGroups.flatMap((group) => group.capabilities));
   const [capabilityTests, setCapabilityTests] = useState<Record<string, CapabilityTestState>>({});
   const [selectedBindingKey, setSelectedBindingKey] = useState(() => {
-    const first = props.draft.active_embedding_binding
-      ? props.draft.bindings.find((binding) => binding.capability === 'embedding')
-      : props.draft.bindings.find((binding) => binding.enabled) ?? props.draft.bindings[0];
+    const visibleBindings = props.draft.bindings.filter((binding) => visibleCapabilities.has(binding.capability));
+    const first = props.scope === 'search' && props.draft.active_embedding_binding
+      ? visibleBindings.find((binding) => binding.capability === 'embedding')
+      : visibleBindings.find((binding) => binding.enabled) ?? visibleBindings[0];
     return first ? bindingKey(first) : '';
   });
   const [modelDiscovery, setModelDiscovery] = useState<Record<string, ModelDiscoveryState>>({});
@@ -231,17 +239,11 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
     }
   }
 
-  return (
-    <section className="family-model-settings-editor" aria-labelledby="family-model-capability-editor-title">
-      <div className="family-model-settings-section-head">
-        <div>
-          <h2 id="family-model-capability-editor-title">能力配置</h2>
-          <p>为七类能力选择已创建的兼容服务和模型；启用后需要补全对应价格。</p>
-        </div>
-      </div>
-      <div className="family-model-settings-binding-groups">
-        {CAPABILITY_GROUPS.map((group) => (
-          <section key={group.id} className="family-model-settings-binding-group" aria-labelledby={`family-model-settings-binding-group-${group.id}`}>
+  const bindingGroups = (
+    <div className="family-model-settings-binding-groups">
+      {visibleGroups.map((group) => (
+        <section key={group.id} className="family-model-settings-binding-group" aria-labelledby={`family-model-settings-binding-group-${group.id}`}>
+          {!props.embedded ? (
             <div className="family-model-settings-group-head">
               <div>
                 <h3 id={`family-model-settings-binding-group-${group.id}`}>{group.label}</h3>
@@ -249,215 +251,232 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
               </div>
               <span>{props.draft.bindings.filter((binding) => group.capabilities.includes(binding.capability) && binding.enabled).length} 项启用</span>
             </div>
-            <div className="family-model-settings-binding-list">
-              {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability)).map(({ binding, index }) => {
-          const key = bindingKey(binding);
-          const embeddingLocked = isActiveEmbedding(props.draft, binding);
-          const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
-          const expanded = selectedBindingKey === key;
-          const capabilityTest = capabilityTests[key];
-          const canRunDraftTest = bindingCanRunDraftTest(binding);
-          return (
-            <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
-              <div className="family-model-settings-binding-head">
-                <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => setSelectedBindingKey(key)}>
-                  <div className="family-model-settings-binding-head-info">
-                    <span className={`family-model-settings-binding-icon tone-${binding.capability}`} aria-hidden="true">
-                      {getCapabilityIcon(binding.capability)}
-                    </span>
-                    <div>
-                      <h3>{bindingTitle(binding)}</h3>
-                      <p>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].description}</p>
-                    </div>
-                  </div>
-                  <span className={`family-model-settings-binding-chevron ${expanded ? 'is-expanded' : ''}`} aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </span>
-                </button>
-                <label className="family-model-settings-switch">
-                  <input
-                    type="checkbox"
-                    checked={binding.enabled}
-                    disabled={props.busy || embeddingLocked}
-                    onChange={(event) => patchBinding(index, binding, { enabled: event.target.checked })}
-                  />
-                  <span className="family-model-settings-switch-track" aria-hidden="true" />
-                  <span>{binding.enabled ? '已启用' : '未启用'}</span>
-                </label>
-              </div>
-              {expanded ? <div id={`family-model-settings-binding-panel-${key}`} className="family-model-settings-binding-panel">
-              {embeddingLocked ? <p className="family-model-settings-readonly-note">更换这些设置需要完整重建搜索索引。</p> : null}
-              <div className="family-model-settings-form-grid">
-                <div className="family-model-settings-field">
-                  <span>Provider 服务</span>
-                  <DropdownSelect
-                    ariaLabel="Provider 服务选项"
-                    triggerAriaLabel="Provider 服务"
-                    placeholder="选择兼容服务"
-                    value={binding.provider_profile_id ?? ''}
-                    options={profiles.map((profile) => ({
-                      value: profile.id,
-                      label: profile.display_name,
-                      description: FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label
-                        ?? profile.adapter_kind,
-                    }))}
-                    clearOption={{
-                      value: '',
-                      label: '选择兼容服务',
-                      description: '先选择服务，再自动读取可用模型。',
-                    }}
-                    disabled={props.busy || embeddingLocked}
-                    className="family-model-settings-dropdown"
-                    onChange={(value) => patchBinding(index, binding, { provider_profile_id: value || null })}
-                  />
-                </div>
-                <div className="family-model-settings-field">
-                  <span>模型名称</span>
-                  <ComboboxField
-                    ariaLabel="模型名称"
-                    value={binding.requested_model}
-                    options={(binding.provider_profile_id ? modelDiscovery[binding.provider_profile_id]?.models ?? [] : [])
-                      .map((model) => ({ value: model, label: model }))}
-                    allowCustom
-                    disabled={props.busy || embeddingLocked}
-                    placeholder={binding.provider_profile_id ? '选择或输入模型标识' : '请先选择 Provider 服务'}
-                    onChange={(value) => patchBinding(index, binding, { requested_model: String(value) })}
-                  />
-                  {binding.provider_profile_id ? (
-                    <div
-                      className={`family-model-settings-model-discovery is-${modelDiscovery[binding.provider_profile_id]?.status ?? 'loading'}`}
-                      role="status"
-                    >
-                      <span>
-                        {modelDiscovery[binding.provider_profile_id]?.status === 'ready'
-                          ? modelDiscovery[binding.provider_profile_id].models.length > 0
-                            ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型标识。`
-                            : '服务连接正常，但未返回模型列表，请手动输入模型标识。'
-                          : modelDiscovery[binding.provider_profile_id]?.status === 'not_supported'
-                            ? '此服务不支持自动读取模型列表，请手动输入模型标识。'
-                            : modelDiscovery[binding.provider_profile_id]?.status === 'error'
-                              ? '自动读取模型列表失败，仍可手动输入。'
-                              : '正在自动读取模型列表…'}
-                      </span>
-                      {modelDiscovery[binding.provider_profile_id]?.status === 'error' ? (
-                        <button
-                          type="button"
-                          className="tertiary-button"
-                          disabled={props.busy}
-                          onClick={() => { void discoverModels(binding.provider_profile_id as string); }}
-                        >
-                          重新读取
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="family-model-settings-model-discovery" role="status">
-                      <span>选择服务后会自动读取模型列表，也可以直接手动输入。</span>
-                    </div>
-                  )}
-                </div>
-                {binding.capability === 'llm' ? (
-                  <>
-                    <label className="family-model-settings-field">
-                      <span>最大输出 Token</span>
-                      <input type="number" min="1" value={binding.max_output_tokens} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { max_output_tokens: Number(event.target.value) || 1 })} />
-                    </label>
-                    <div className="family-model-settings-field">
-                      <span>视觉多模态</span>
-                      <label className="family-model-settings-toggle-card">
-                        <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
-                        <span className="family-model-settings-switch-track" aria-hidden="true" />
-                        <span className="family-model-settings-toggle-card-copy">
-                          <strong>支持图片理解</strong>
-                          <small>允许识别菜谱照片与食材图片</small>
+          ) : null}
+          <div className="family-model-settings-binding-list">
+            {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability)).map(({ binding, index }) => {
+              const key = bindingKey(binding);
+              const embeddingLocked = isActiveEmbedding(props.draft, binding);
+              const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
+              const expanded = selectedBindingKey === key;
+              const capabilityTest = capabilityTests[key];
+              const testBlocked = props.blockedTests?.includes(binding.capability) ?? false;
+              const canRunDraftTest = bindingCanRunDraftTest(binding) && !testBlocked;
+              return (
+                <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
+                  <div className="family-model-settings-binding-head">
+                    <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => setSelectedBindingKey(key)}>
+                      <div className="family-model-settings-binding-head-info">
+                        <span className={`family-model-settings-binding-icon tone-${binding.capability}`} aria-hidden="true">
+                          {getCapabilityIcon(binding.capability)}
                         </span>
+                        <div>
+                          <h3>{bindingTitle(binding)}</h3>
+                          <p>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].description}</p>
+                        </div>
+                      </div>
+                      <span className={`family-model-settings-binding-chevron ${expanded ? 'is-expanded' : ''}`} aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </span>
+                    </button>
+                    <label className="family-model-settings-switch">
+                      <input
+                        type="checkbox"
+                        checked={binding.enabled}
+                        disabled={props.busy || embeddingLocked}
+                        onChange={(event) => patchBinding(index, binding, { enabled: event.target.checked })}
+                      />
+                      <span className="family-model-settings-switch-track" aria-hidden="true" />
+                      <span>{binding.enabled ? '已启用' : '未启用'}</span>
+                    </label>
+                  </div>
+                  {expanded ? <div id={`family-model-settings-binding-panel-${key}`} className="family-model-settings-binding-panel">
+                  {embeddingLocked ? <p className="family-model-settings-readonly-note">向量模型已锁定。更换 Provider、模型或维度会完整重建搜索索引。</p> : null}
+                  <div className="family-model-settings-form-grid">
+                    <div className="family-model-settings-field">
+                      <span>Provider 服务</span>
+                      <DropdownSelect
+                        ariaLabel="Provider 服务选项"
+                        triggerAriaLabel="Provider 服务"
+                        placeholder="选择兼容服务"
+                        value={binding.provider_profile_id ?? ''}
+                        options={profiles.map((profile) => ({
+                          value: profile.id,
+                          label: profile.display_name,
+                          description: FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label
+                            ?? profile.adapter_kind,
+                        }))}
+                        clearOption={{
+                          value: '',
+                          label: '选择兼容服务',
+                          description: '先选择服务，再自动读取可用模型。',
+                        }}
+                        disabled={props.busy || embeddingLocked}
+                        className="family-model-settings-dropdown"
+                        onChange={(value) => patchBinding(index, binding, { provider_profile_id: value || null })}
+                      />
+                    </div>
+                    <div className="family-model-settings-field">
+                      <span>模型名称</span>
+                      <ComboboxField
+                        ariaLabel="模型名称"
+                        value={binding.requested_model}
+                        options={(binding.provider_profile_id ? modelDiscovery[binding.provider_profile_id]?.models ?? [] : [])
+                          .map((model) => ({ value: model, label: model }))}
+                        allowCustom
+                        disabled={props.busy || embeddingLocked}
+                        placeholder={binding.provider_profile_id ? '选择或输入模型标识' : '请先选择 Provider 服务'}
+                        onChange={(value) => patchBinding(index, binding, { requested_model: String(value) })}
+                      />
+                      {binding.provider_profile_id ? (
+                        <div
+                          className={`family-model-settings-model-discovery is-${modelDiscovery[binding.provider_profile_id]?.status ?? 'loading'}`}
+                          role="status"
+                        >
+                          <span>
+                            {modelDiscovery[binding.provider_profile_id]?.status === 'ready'
+                              ? modelDiscovery[binding.provider_profile_id].models.length > 0
+                                ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型标识。`
+                                : '服务连接正常，但未返回模型列表，请手动输入模型标识。'
+                              : modelDiscovery[binding.provider_profile_id]?.status === 'not_supported'
+                                ? '此服务不支持自动读取模型列表，请手动输入模型标识。'
+                                : modelDiscovery[binding.provider_profile_id]?.status === 'error'
+                                  ? '自动读取模型列表失败，仍可手动输入。'
+                                  : '正在自动读取模型列表…'}
+                          </span>
+                          {modelDiscovery[binding.provider_profile_id]?.status === 'error' ? (
+                            <button
+                              type="button"
+                              className="tertiary-button"
+                              disabled={props.busy}
+                              onClick={() => { void discoverModels(binding.provider_profile_id as string); }}
+                            >
+                              重新读取
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="family-model-settings-model-discovery" role="status">
+                          <span>选择服务后会自动读取模型列表，也可以直接手动输入。</span>
+                        </div>
+                      )}
+                    </div>
+                    {binding.capability === 'llm' ? (
+                      <>
+                        <label className="family-model-settings-field">
+                          <span>最大输出 Token</span>
+                          <input type="number" min="1" value={binding.max_output_tokens} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { max_output_tokens: Number(event.target.value) || 1 })} />
+                        </label>
+                        <div className="family-model-settings-field">
+                          <span>视觉多模态</span>
+                          <label className="family-model-settings-toggle-card">
+                            <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
+                            <span className="family-model-settings-switch-track" aria-hidden="true" />
+                            <span className="family-model-settings-toggle-card-copy">
+                              <strong>支持图片理解</strong>
+                              <small>允许识别菜谱照片与食材图片</small>
+                            </span>
+                          </label>
+                        </div>
+                      </>
+                    ) : null}
+                    {binding.capability === 'image_generation' ? (
+                      <>
+                        <div className="family-model-settings-field">
+                          <span>图片尺寸</span>
+                          <DropdownSelect
+                            ariaLabel="图片尺寸选项"
+                            triggerAriaLabel="图片尺寸"
+                            placeholder="选择图片尺寸"
+                            value={binding.image_size}
+                            options={IMAGE_SIZE_OPTIONS}
+                            disabled={props.busy}
+                            className="family-model-settings-dropdown"
+                            onChange={(value) => { if (value) patchBinding(index, binding, { image_size: value }); }}
+                          />
+                        </div>
+                        <div className="family-model-settings-field">
+                          <span>返回格式</span>
+                          <DropdownSelect
+                            ariaLabel="返回格式选项"
+                            triggerAriaLabel="返回格式"
+                            placeholder="选择返回格式"
+                            value={binding.response_format}
+                            options={RESPONSE_FORMAT_OPTIONS}
+                            disabled={props.busy}
+                            className="family-model-settings-dropdown"
+                            onChange={(value) => { if (value) patchBinding(index, binding, { response_format: value }); }}
+                          />
+                        </div>
+                      </>
+                    ) : null}
+                    {binding.capability === 'embedding' ? (
+                      <label className="family-model-settings-field">
+                        <span>向量维度</span>
+                        <input type="number" min="1" value={binding.dimensions} disabled={props.busy || embeddingLocked} onChange={(event) => patchBinding(index, binding, { dimensions: Number(event.target.value) || 1 })} />
                       </label>
-                    </div>
-                  </>
-                ) : null}
-                {binding.capability === 'image_generation' ? (
-                  <>
-                    <div className="family-model-settings-field">
-                      <span>图片尺寸</span>
-                      <DropdownSelect
-                        ariaLabel="图片尺寸选项"
-                        triggerAriaLabel="图片尺寸"
-                        placeholder="选择图片尺寸"
-                        value={binding.image_size}
-                        options={IMAGE_SIZE_OPTIONS}
-                        disabled={props.busy}
-                        className="family-model-settings-dropdown"
-                        onChange={(value) => { if (value) patchBinding(index, binding, { image_size: value }); }}
-                      />
-                    </div>
-                    <div className="family-model-settings-field">
-                      <span>返回格式</span>
-                      <DropdownSelect
-                        ariaLabel="返回格式选项"
-                        triggerAriaLabel="返回格式"
-                        placeholder="选择返回格式"
-                        value={binding.response_format}
-                        options={RESPONSE_FORMAT_OPTIONS}
-                        disabled={props.busy}
-                        className="family-model-settings-dropdown"
-                        onChange={(value) => { if (value) patchBinding(index, binding, { response_format: value }); }}
-                      />
-                    </div>
-                  </>
-                ) : null}
-                {binding.capability === 'embedding' ? (
-                  <label className="family-model-settings-field">
-                    <span>向量维度</span>
-                    <input type="number" min="1" value={binding.dimensions} disabled={props.busy || embeddingLocked} onChange={(event) => patchBinding(index, binding, { dimensions: Number(event.target.value) || 1 })} />
-                  </label>
-                ) : null}
-                {binding.capability === 'rerank' ? (
-                  <label className="family-model-settings-field">
-                    <span>返回条数</span>
-                    <input type="number" min="1" max="200" value={binding.top_n} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { top_n: Number(event.target.value) || 1 })} />
-                  </label>
-                ) : null}
-              </div>
-              <div className="family-model-settings-binding-test">
-                <button
-                  className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
-                  type="button"
-                  title={!canRunDraftTest
-                    ? '请先启用能力，并补全 Provider 服务和模型名称。'
-                    : capabilityTest?.message}
-                  aria-busy={capabilityTest?.status === 'running'}
-                  disabled={props.busy || !canRunDraftTest || capabilityTest?.status === 'running'}
-                  onClick={() => { void runCapabilityTest(binding); }}
-                >
-                  {capabilityTest?.status === 'running' ? (
-                    <span className="family-model-settings-test-spinner" aria-hidden="true" />
-                  ) : null}
-                  {capabilityTest?.status === 'succeeded' ? (
-                    <svg className="family-model-settings-test-result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m5 12 4 4 10-10" />
-                    </svg>
-                  ) : null}
-                  {capabilityTest?.status === 'running'
-                    ? '正在测试'
-                    : capabilityTest?.status === 'succeeded'
-                      ? '测试成功'
-                      : capabilityTest?.status === 'blocked'
-                        ? '用量受限，重试'
-                        : capabilityTest?.status === 'failed' || capabilityTest?.status === 'request-error'
-                          ? '测试失败，重试'
-                          : '测试能力'}
-                </button>
-              </div>
-              </div> : null}
-            </article>
-          );
-              })}
-            </div>
-          </section>
-        ))}
+                    ) : null}
+                    {binding.capability === 'rerank' ? (
+                      <label className="family-model-settings-field">
+                        <span>返回条数</span>
+                        <input type="number" min="1" max="200" value={binding.top_n} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { top_n: Number(event.target.value) || 1 })} />
+                      </label>
+                    ) : null}
+                  </div>
+                  <div className="family-model-settings-binding-test">
+                    <button
+                      className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
+                      type="button"
+                      title={testBlocked
+                        ? '请先确认向量模型并建立搜索索引。'
+                        : !canRunDraftTest
+                          ? '请先启用能力，并补全 Provider 服务和模型名称。'
+                          : capabilityTest?.message}
+                      aria-busy={capabilityTest?.status === 'running'}
+                      disabled={props.busy || !canRunDraftTest || capabilityTest?.status === 'running'}
+                      onClick={() => { void runCapabilityTest(binding); }}
+                    >
+                      {capabilityTest?.status === 'running' ? (
+                        <span className="family-model-settings-test-spinner" aria-hidden="true" />
+                      ) : null}
+                      {capabilityTest?.status === 'succeeded' ? (
+                        <svg className="family-model-settings-test-result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m5 12 4 4 10-10" />
+                        </svg>
+                      ) : null}
+                      {capabilityTest?.status === 'running'
+                        ? '正在测试'
+                        : capabilityTest?.status === 'succeeded'
+                          ? '测试成功'
+                          : capabilityTest?.status === 'blocked'
+                            ? '用量受限，重试'
+                            : capabilityTest?.status === 'failed' || capabilityTest?.status === 'request-error'
+                              ? '测试失败，重试'
+                              : '测试能力'}
+                    </button>
+                  </div>
+                  </div> : null}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+
+  if (props.embedded) return bindingGroups;
+
+  return (
+    <section className="family-model-settings-editor" aria-labelledby="family-model-capability-editor-title">
+      <div className="family-model-settings-section-head">
+        <div>
+          <h2 id="family-model-capability-editor-title">能力配置</h2>
+          <p>为对话、图片和语音能力选择兼容服务与模型；搜索相关配置统一在“搜索索引”中管理。</p>
+        </div>
       </div>
+      {bindingGroups}
     </section>
   );
 }

@@ -224,13 +224,14 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
         <button
           className="family-model-settings-mobile-back"
           type="button"
+          aria-label={isOverview ? '返回家庭' : '返回服务概览'}
           disabled={busy}
           onClick={isOverview ? props.onBack : props.onPopMobileTask}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
-          <span>{isOverview ? '返回家庭' : '返回服务概览'}</span>
+          <span>{isOverview ? '返回家庭' : '返回概览'}</span>
         </button>
         <strong>{taskTitle(props.state.section)}</strong>
         <span className="family-model-settings-mobile-header-spacer" aria-hidden="true" />

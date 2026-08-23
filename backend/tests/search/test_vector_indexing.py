@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -164,6 +166,52 @@ def test_index_pending_search_documents_indexes_profile_job_without_mutating_can
     assert canonical.vector_status == "pending"
     assert canonical.embedding_model == ""
     assert canonical.embedding_dimensions == 0
+
+
+def test_profile_worker_uses_immutable_identity_with_expiring_production_sessions() -> None:
+    base_factory = session_factory()
+    with base_factory() as db:
+        bind = db.get_bind()
+    expiring_factory = sessionmaker(bind=bind, expire_on_commit=True)
+    vector_store = RecordingVectorStore()
+    embedding = CountingEmbeddingClient()
+    with expiring_factory() as db:
+        _seed_profile_job(db, suffix="expiring")
+        db.commit()
+
+    with (
+        patch("app.services.search.jobs.build_vector_store", return_value=vector_store),
+        patch("app.services.search.jobs._build_profile_embedding_client", return_value=embedding),
+        expiring_factory() as db,
+    ):
+        stats = index_pending_search_documents(db, session_factory=expiring_factory)
+
+    with expiring_factory() as db:
+        job = db.get(SearchIndexJob, "job-expiring")
+        profile_document = db.get(FamilySearchProfileDocument, "profile-document-expiring")
+    assert stats == {"indexed": 1, "failed": 0, "skipped": 0}
+    assert job is not None and job.status == "succeeded"
+    assert profile_document is not None and profile_document.status == "indexed"
+
+
+def test_unexpected_profile_worker_exception_is_persisted_instead_of_staying_running() -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        _seed_profile_job(db, suffix="worker-crash")
+        db.commit()
+
+    with patch("app.services.search.jobs.build_vector_store", side_effect=RuntimeError("worker crashed")):
+        with SessionLocal() as db:
+            stats = index_pending_search_documents(db, session_factory=SessionLocal)
+
+    with SessionLocal() as db:
+        job = db.get(SearchIndexJob, "job-worker-crash")
+        profile_document = db.get(FamilySearchProfileDocument, "profile-document-worker-crash")
+    assert stats == {"indexed": 0, "failed": 1, "skipped": 0}
+    assert job is not None and job.status == "failed"
+    assert job.error_code == "search_index_worker_failed"
+    assert job.locked_at is None
+    assert profile_document is not None and profile_document.status == "failed"
 
 
 def test_qdrant_retry_reuses_profile_pending_vector_without_another_embedding_send() -> None:

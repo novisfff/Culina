@@ -77,6 +77,32 @@ describe('useFamilyModelSettingsActions', () => {
     });
   });
 
+  it('only sends the initial search confirmation for an explicit confirmed save', async () => {
+    vi.mocked(familyModelSettingsApi.saveDraft).mockResolvedValue(draft);
+    const localDraft = {
+      ...draft.payload,
+      base_draft_version_number: draft.draft_version_number,
+    };
+    const { result } = renderHook(
+      () => useFamilyModelSettingsActions({ familyId: 'family-a', settings, draft, queryClient: new QueryClient() }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await result.current.actions.saveDraft(localDraft);
+    });
+    expect(familyModelSettingsApi.saveDraft).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ confirm_initial_search_index: expect.anything() }),
+    );
+
+    await act(async () => {
+      await result.current.actions.saveDraft(localDraft, { confirmInitialSearchIndex: true });
+    });
+    expect(familyModelSettingsApi.saveDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ confirm_initial_search_index: true }),
+    );
+  });
+
   it('uses current versions, confirmation checksums and a stable idempotency key for a structurally equal publish retry', async () => {
     const queryClient = new QueryClient();
     const { result } = renderHook(

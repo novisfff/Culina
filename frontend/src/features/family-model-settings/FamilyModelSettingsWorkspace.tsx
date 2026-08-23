@@ -84,6 +84,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const [draft, setDraft] = useState<FamilyModelSettingsDraft>(() => createEmptyFamilyModelDraft());
   const [validation, setValidation] = useState<FamilyModelDraftValidation | null>(null);
   const failedAutoSaveDraftRef = useRef<FamilyModelSettingsDraft | null>(null);
+  const refreshedSearchProfileRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const previousState = window.history.state;
@@ -130,8 +131,15 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     state.actions.markDirty(true);
   }, [state.actions]);
 
-  const persistDraftValue = useCallback(async (nextDraft: FamilyModelSettingsDraft): Promise<FamilyModelConfigDraft> => {
-    const saved = await mutationState.actions.saveDraft(nextDraft);
+  const persistDraftValue = useCallback(async (
+    nextDraft: FamilyModelSettingsDraft,
+    options: { confirmInitialSearchIndex?: boolean } = {},
+  ): Promise<FamilyModelConfigDraft> => {
+    const normalizedDraft = {
+      ...nextDraft,
+      price_rates: normalizeFamilyModelPriceRates(nextDraft.bindings, nextDraft.price_rates),
+    };
+    const saved = await mutationState.actions.saveDraft(normalizedDraft, options);
     setServerDraft(saved);
     setDraft(localDraftFromServerDraft(saved));
     setValidation(null);
@@ -139,6 +147,45 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     state.actions.markDirty(false);
     return saved;
   }, [mutationState.actions, state.actions]);
+
+  const confirmInitialSearchIndex = useCallback(
+    async (nextDraft: FamilyModelSettingsDraft) => {
+      await persistDraftValue(nextDraft, { confirmInitialSearchIndex: true });
+    },
+    [persistDraftValue],
+  );
+
+  useEffect(() => {
+    if (replacementProfileId || !serverDraft?.payload.search_profile_id) return;
+    setReplacementProfileId(serverDraft.payload.search_profile_id);
+  }, [replacementProfileId, serverDraft?.payload.search_profile_id]);
+
+  const completedSearchProfileId = queries.searchReplacement?.status === 'active'
+    ? queries.searchReplacement.profile_id
+    : null;
+  useEffect(() => {
+    if (
+      !completedSearchProfileId
+      || queries.settings?.active_search_profile_id === completedSearchProfileId
+      || refreshedSearchProfileRef.current === completedSearchProfileId
+    ) return;
+    refreshedSearchProfileRef.current = completedSearchProfileId;
+    void Promise.all([
+      queries.settingsQuery.refetch(),
+      queries.draftQuery.refetch(),
+      queries.pricesQuery.refetch(),
+    ]).catch(() => {
+      if (refreshedSearchProfileRef.current === completedSearchProfileId) {
+        refreshedSearchProfileRef.current = null;
+      }
+    });
+  }, [
+    completedSearchProfileId,
+    queries.draftQuery.refetch,
+    queries.pricesQuery.refetch,
+    queries.settings?.active_search_profile_id,
+    queries.settingsQuery.refetch,
+  ]);
 
   const persistDraft = useCallback(
     () => persistDraftValue(draft),
@@ -316,6 +363,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     onPushMobileTask: state.actions.pushMobileTask,
     onPopMobileTask: state.actions.popMobileTask,
     onDraftChange: setLocalDraft,
+    onConfirmInitialSearchIndex: confirmInitialSearchIndex,
     onDiscoverModels: queries.discoverProviderModels,
     onTestCapability: testCapability,
     onValidate: validate,

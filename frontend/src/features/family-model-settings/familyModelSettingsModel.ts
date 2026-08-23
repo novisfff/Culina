@@ -302,6 +302,7 @@ function savedBindings(draft: FamilyModelSettingsDraft): FamilyModelBindingDraft
 export function toSaveDraftPayload(
   draft: FamilyModelSettingsDraft,
   idempotencyKey: string,
+  options: { confirmInitialSearchIndex?: boolean } = {},
 ): SaveFamilyModelConfigDraftPayload {
   const bindings = savedBindings(draft);
   return {
@@ -321,6 +322,7 @@ export function toSaveDraftPayload(
     change_note: draft.change_note,
     base_draft_version_number: draft.base_draft_version_number,
     idempotency_key: idempotencyKey,
+    ...(options.confirmInitialSearchIndex ? { confirm_initial_search_index: true } : {}),
   };
 }
 
@@ -335,6 +337,8 @@ function safeErrorCode(reason: unknown): string | null {
 }
 
 const SAFE_ERROR_MESSAGES: Record<string, string> = {
+  family_search_initial_confirmation_required: '首次配置向量模型前需要确认。确认后系统会建立搜索索引，今后更换模型、Provider 或维度都需要完整重建。',
+  family_search_profile_locked: '向量模型身份已锁定。请前往“搜索索引”，通过高风险重建流程更换 Provider、模型或维度。',
   family_model_settings_version_conflict: '配置已在别处更新，请刷新后继续编辑。',
   family_model_settings_not_configured: '当前家庭还没有可用的模型配置。请先启用能力，并补全 Provider 服务和模型名称。',
   family_model_capability_disabled: '当前配置未启用此能力。请先在能力配置中启用并补全信息。',

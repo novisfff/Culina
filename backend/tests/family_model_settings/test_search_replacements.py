@@ -25,6 +25,7 @@ from app.services.family_model_settings.search_profiles import (
     retry_search_replacement,
     seed_search_profile_documents,
 )
+from app.services.search.jobs import _activate_profile_if_ready
 
 from tests.family_model_settings._support import FamilyModelApiContext, family_model_api
 
@@ -97,27 +98,11 @@ def _publish(
             "base_config_revision_id": settings.json().get("active_config_revision_id"),
             "base_draft_version_number": base_draft,
             "idempotency_key": f"search-rebuild-draft-{id_suffix}",
+            "confirm_initial_search_index": True,
         },
     )
     assert saved.status_code == 200, saved.text
-    validation = context.client.post(
-        "/api/family/model-settings/draft/validate",
-        json={"base_draft_version_number": saved.json()["draft_version_number"]},
-    )
-    assert validation.status_code == 200, validation.text
-    published = context.client.post(
-        "/api/family/model-settings/publish",
-        json={
-            "base_settings_version_number": settings.json()["version_number"],
-            "base_draft_version_number": saved.json()["draft_version_number"],
-            "idempotency_key": f"search-rebuild-publish-{id_suffix}",
-            "config_checksum": validation.json()["config_checksum"],
-            "price_checksum": validation.json()["price_checksum"],
-            "current_password": "OwnerPass123",
-        },
-    )
-    assert published.status_code == 200, published.text
-    return published.json()
+    return {"search_profile_id": saved.json()["payload"]["search_profile_id"]}
 
 
 def _activate_initial(context: FamilyModelApiContext, profile_id: str) -> None:
@@ -135,13 +120,12 @@ def _activate_initial(context: FamilyModelApiContext, profile_id: str) -> None:
             for_update=True,
         ):
             row.status = "indexed"
-        activate_ready_search_profile(
-            db,
-            family_id="family-a",
-            profile_id=profile_id,
-            actor_user_id="owner-a",
-        )
         db.commit()
+    _activate_profile_if_ready(
+        family_id="family-a",
+        profile_id=profile_id,
+        session_factory=context.session_factory,
+    )
 
 
 def _replacement_command(

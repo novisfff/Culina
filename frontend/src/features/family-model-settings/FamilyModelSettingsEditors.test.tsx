@@ -14,6 +14,7 @@ import { createEmptyFamilyModelDraft, normalizeFamilyModelPriceRates } from './f
 import { ProviderProfileEditor } from './ProviderProfileEditor';
 import { PublishReview } from './PublishReview';
 import { ModelPriceEditor } from './ModelPriceEditor';
+import { SearchProfilePanel } from './SearchProfilePanel';
 
 const profile: FamilyModelProviderProfile = {
   id: 'profile-a',
@@ -311,6 +312,8 @@ describe('Family model settings editors', () => {
         draft={draft}
         profiles={[profile]}
         busy={false}
+        scope="search"
+        embedded
         onDraftChange={vi.fn()}
         onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
         onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
@@ -320,7 +323,7 @@ describe('Family model settings editors', () => {
     const heading = screen.getByRole('heading', { name: '搜索向量 · 默认' });
     const card = heading.closest('article');
     if (!card) throw new Error('Expected the Embedding editor card.');
-    expect(within(card).getByText('更换这些设置需要完整重建搜索索引。')).toBeVisible();
+    expect(within(card).getByText('向量模型已锁定。更换 Provider、模型或维度会完整重建搜索索引。')).toBeVisible();
     expect(within(card).getByRole('checkbox', { name: '已启用' })).toBeDisabled();
     expect(within(card).getByRole('button', { name: 'Provider 服务' })).toBeDisabled();
     expect(within(card).getByLabelText('模型名称')).toBeDisabled();
@@ -342,12 +345,111 @@ describe('Family model settings editors', () => {
 
     expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
     expect(screen.getByRole('heading', { name: '语音' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '搜索' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: '搜索' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '搜索向量 · 默认' })).not.toBeInTheDocument();
     expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
+  });
+
+  it('moves Embedding and rerank configuration into the search index surface', () => {
+    const draft = createEmptyFamilyModelDraft();
+    render(
+      <SearchProfilePanel
+        settings={settings}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={null}
+        replacementProfileId={null}
+        actions={{} as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '搜索索引' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '搜索向量 · 默认' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '搜索重排 · 默认' })).toBeVisible();
+  });
+
+  it('confirms the first vector identity before saving it', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    const onConfirmInitialSearchIndex = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SearchProfilePanel
+        settings={settings}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={null}
+        replacementProfileId={null}
+        actions={{} as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={onConfirmInitialSearchIndex}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: /搜索向量 · 默认/ }));
-    expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /搜索向量 · 默认/ })).toHaveAttribute('aria-expanded', 'true');
+    const embeddingCard = screen.getByRole('heading', { name: '搜索向量 · 默认' }).closest('article');
+    if (!embeddingCard) throw new Error('Expected the Embedding editor card.');
+    await user.click(within(embeddingCard).getByRole('checkbox', { name: '未启用' }));
+    await chooseDropdown(user, 'Provider 服务', /家庭主服务/);
+    await user.type(screen.getByLabelText('模型名称'), 'text-embedding-3-small');
+    await user.click(screen.getByRole('button', { name: '确认向量模型' }));
+
+    expect(screen.getByRole('dialog', { name: '确认建立搜索索引' })).toBeVisible();
+    expect(screen.getByText(/今后更换向量模型、Provider 或维度时，需要完整重建搜索索引/)).toBeVisible();
+    expect(onConfirmInitialSearchIndex).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '确认并建立索引' }));
+    await waitFor(() => expect(onConfirmInitialSearchIndex).toHaveBeenCalledTimes(1));
+  });
+
+  it('treats changing an active vector identity as a high-risk rebuild', async () => {
+    const user = userEvent.setup();
+    const base = createEmptyFamilyModelDraft();
+    const embedding = base.bindings.find(
+      (binding): binding is FamilyModelEmbeddingBindingDraft => binding.capability === 'embedding',
+    );
+    if (!embedding) throw new Error('Expected the Embedding binding.');
+    const activeEmbedding = {
+      ...embedding,
+      enabled: true,
+      provider_profile_id: profile.id,
+      requested_model: 'text-embedding-3-small',
+    };
+    const activeDraft = {
+      ...base,
+      search_profile_id: 'search-profile-a',
+      active_embedding_binding: activeEmbedding,
+      bindings: base.bindings.map((binding) => binding.capability === 'embedding' ? activeEmbedding : binding),
+    };
+
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: 'search-profile-a' }}
+        draft={activeDraft}
+        busyAction={null}
+        searchReplacement={null}
+        replacementProfileId={null}
+        actions={{} as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByText('高风险操作')).toBeVisible();
+    expect(screen.getByText(/更换 Provider、向量模型或维度会建立一套全新索引/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '更换向量模型（高风险）' }));
+    expect(screen.getByLabelText('新的向量模型')).toBeVisible();
+    expect(screen.getByRole('button', { name: '评估完整重建' })).toBeDisabled();
   });
 
   it('keeps capability test progress and success feedback inside the button', async () => {

@@ -23,6 +23,33 @@ def _draft_payload(profile_id: str | None = None) -> dict[str, object]:
     return {"bindings": [binding], "change_note": "保存草稿"}
 
 
+def _embedding_draft_payload(profile_id: str) -> dict[str, object]:
+    return {
+        "bindings": [
+            {
+                "capability": "embedding",
+                "variant_key": "search",
+                "enabled": True,
+                "provider_profile_id": profile_id,
+                "requested_model": "family-embedding-model",
+                "dimensions": 1536,
+            }
+        ],
+        "price_rates": [
+            {
+                "capability": "embedding",
+                "variant_key": "search",
+                "meter": "embedding_tokens",
+                "unit_quantity": "1000000",
+                "unit_price": "0.01",
+                "source_currency": "CNY",
+                "fx_to_cny": "1",
+            }
+        ],
+        "change_note": "配置家庭搜索向量",
+    }
+
+
 def test_draft_initial_save_and_same_request_replay(
     family_model_api: FamilyModelApiContext,
 ) -> None:
@@ -120,3 +147,57 @@ def test_same_key_with_different_draft_payload_is_a_conflict(
     assert first.status_code == 200
     assert second.status_code == 409
     assert second.json()["detail"]["code"] == "family_model_operation_idempotency_conflict"
+
+
+def test_initial_embedding_requires_explicit_confirmation_and_returns_profile_identity(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="draft-initial-search-profile-1")
+    payload = _embedding_draft_payload(str(profile["id"]))
+
+    unconfirmed = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json=payload
+        | {
+            "base_draft_version_number": 0,
+            "idempotency_key": "draft-initial-search-unconfirmed-1",
+        },
+    )
+
+    assert unconfirmed.status_code == 422
+    assert unconfirmed.json()["detail"]["code"] == "family_search_initial_confirmation_required"
+
+    confirmed = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json=payload
+        | {
+            "base_draft_version_number": 0,
+            "idempotency_key": "draft-initial-search-confirmed-1",
+            "confirm_initial_search_index": True,
+        },
+    )
+
+    assert confirmed.status_code == 200, confirmed.text
+    profile_id = confirmed.json()["payload"]["search_profile_id"]
+    assert isinstance(profile_id, str) and profile_id
+
+    loaded = family_model_api.client.get("/api/family/model-settings/draft")
+    assert loaded.status_code == 200
+    assert loaded.json()["payload"]["search_profile_id"] == profile_id
+
+    changed_payload = _embedding_draft_payload(str(profile["id"]))
+    changed_payload["bindings"][0]["requested_model"] = "different-embedding-model"
+    changed = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json=changed_payload
+        | {
+            "search_profile_id": profile_id,
+            "base_config_revision_id": confirmed.json()["base_config_revision_id"],
+            "base_draft_version_number": confirmed.json()["draft_version_number"],
+            "idempotency_key": "draft-initial-search-illegal-change-1",
+            "confirm_initial_search_index": True,
+        },
+    )
+
+    assert changed.status_code == 422
+    assert changed.json()["detail"]["code"] == "family_search_profile_locked"

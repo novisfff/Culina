@@ -352,12 +352,19 @@ class FamilyModelConfigDraftPayload(_StrictModel):
 class SaveConfigDraftRequest(FamilyModelConfigDraftPayload):
     base_draft_version_number: int = Field(ge=0)
     idempotency_key: str = Field(min_length=8, max_length=160)
+    # A first vector identity creates an immutable search profile. Keep this
+    # acknowledgement write-only so it can never be replayed as draft state.
+    confirm_initial_search_index: bool = False
 
     def storage_payload(self) -> FamilyModelConfigDraftPayload:
         return FamilyModelConfigDraftPayload.model_validate(
             self.model_dump(
                 mode="json",
-                exclude={"base_draft_version_number", "idempotency_key"},
+                exclude={
+                    "base_draft_version_number",
+                    "idempotency_key",
+                    "confirm_initial_search_index",
+                },
             )
         )
 

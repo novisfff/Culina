@@ -160,6 +160,25 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
             self.assertIsNotNone(job.completed_at)
             self.assertIn("索引对象不存在或已删除", job.error or "")
 
+    def test_unexpected_canonical_worker_failure_stops_after_max_attempts(self) -> None:
+        self._create_job(job_id="job-worker-crash")
+
+        with patch(
+            "app.services.search.jobs._process_canonical_search_document_job",
+            side_effect=RuntimeError("worker crashed"),
+        ) as process_canonical:
+            for _ in range(MAX_ATTEMPTS + 1):
+                process_search_index_job("job-worker-crash", session_factory=self.SessionLocal)
+
+        self.assertEqual(process_canonical.call_count, MAX_ATTEMPTS)
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-worker-crash")
+            assert job is not None
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.error_code, "search_index_worker_failed")
+            self.assertEqual(job.attempt_count, MAX_ATTEMPTS)
+            self.assertIsNone(job.locked_at)
+
     def test_missing_food_search_job_deletes_stale_document_and_succeeds(self) -> None:
         self.assertNotIn("meal_log", SEARCH_INDEX_ENTITY_TYPES)
         with self.SessionLocal() as db:
