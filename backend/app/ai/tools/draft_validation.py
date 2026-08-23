@@ -34,7 +34,15 @@ from app.services.ingredient_inventory_state import (
 from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
 
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
-from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
+from app.services.serializers import (
+    serialize_food,
+    serialize_food_plan_item,
+    serialize_ingredient,
+    serialize_meal_log,
+    serialize_media_reference,
+    serialize_recipe,
+    serialize_shopping_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1595,7 +1603,7 @@ def _serialize_recipe_before(db: Session, *, family_id: str, recipe: Recipe) -> 
 
 
 def _serialize_draft_media(asset: Any) -> dict[str, Any]:
-    media = serialize_media(asset)
+    media = serialize_media_reference(asset)
     for key in ("created_at", "updated_at"):
         value = media.get(key)
         if hasattr(value, "isoformat"):

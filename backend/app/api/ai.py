@@ -80,6 +80,7 @@ from app.services.serializers import serialize_ai_conversation, serialize_ai_mes
 from app.services.ai_quality import build_ai_quality_metrics
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
 from app.services.family_model_settings.status import project_member_safe_ai_status
+from app.services.media_access_projection import rehydrate_media_access
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -376,7 +377,11 @@ def chat_ai(
         _discard_transient_chat_history(db, family_id=membership.family_id, response=result)
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_chat_response(result, capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_chat_response(result, capabilities),
+    )
 
 
 @router.post("/api/ai/chat/stream")
@@ -416,7 +421,10 @@ def stream_chat_ai(
                     data,
                     viewer_capabilities=capabilities,
                 )
-                yield encode(projected_event, projected_data)
+                yield encode(
+                    projected_event,
+                    rehydrate_media_access(db, family_id=membership.family_id, payload=projected_data),
+                )
         except ClientContractUpgradeRequired as exc:
             yield encode("error", {"detail": exc.to_detail(), "status": 409})
             return
@@ -517,7 +525,11 @@ def list_ai_messages(
         messages=serialized_messages,
     )
     set_ai_client_aware_headers(response)
-    return [project_ai_message(item, capabilities) for item in overlaid]
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=[project_ai_message(item, capabilities) for item in overlaid],
+    )
 
 
 @router.post("/api/ai/messages/{message_id}/recommendation-selection", response_model=AIMessageDTO)
@@ -546,7 +558,11 @@ def record_ai_recommendation_selection(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_message(serialize_ai_message(message), capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_message(serialize_ai_message(message), capabilities),
+    )
 
 
 @router.post("/api/ai/messages/{message_id}/inventory-operation-draft", response_model=AIMessageDTO)
@@ -575,7 +591,11 @@ def create_ai_inventory_operation_draft(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_message(serialize_ai_message(message), capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_message(serialize_ai_message(message), capabilities),
+    )
 
 
 @router.get("/api/ai/runs/{run_id}/events", response_model=list[AIRunEventDTO])
@@ -605,7 +625,11 @@ def list_ai_run_events(
         )
     )
     set_ai_client_aware_headers(response)
-    return [project_ai_run_event(serialize_ai_run_event(item), capabilities) for item in events]
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=[project_ai_run_event(serialize_ai_run_event(item), capabilities) for item in events],
+    )
 
 
 @router.get("/api/ai/runs/{run_id}/events/stream")
@@ -645,7 +669,10 @@ def stream_ai_run_events(
                 serialize_ai_run_event(item),
                 viewer_capabilities=capabilities,
             )
-            yield encode(projected_event, projected_data)
+            yield encode(
+                projected_event,
+                rehydrate_media_access(db, family_id=membership.family_id, payload=projected_data),
+            )
 
     return StreamingResponse(
         generate(),
@@ -892,7 +919,11 @@ def retry_ai_run(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_chat_response(result, capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_chat_response(result, capabilities),
+    )
 
 
 @router.post("/api/ai/messages/{message_id}/parts/{part_id}/regenerate", response_model=AIChatResponse)
@@ -923,7 +954,11 @@ def regenerate_ai_message_part(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_chat_response(result, capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_chat_response(result, capabilities),
+    )
 
 
 @router.get("/api/ai/conversations/{conversation_id}/approvals/pending", response_model=list[AIApprovalRequestDTO])
@@ -947,7 +982,11 @@ def list_pending_ai_approvals(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     set_ai_client_aware_headers(response)
-    return approvals
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=approvals,
+    )
 
 
 @router.post(
@@ -987,7 +1026,11 @@ def decide_ai_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_decision_response(result, capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_decision_response(result, capabilities),
+    )
 
 
 @router.post("/api/ai/conversations/{conversation_id}/human-input/{request_id}/response", response_model=AIChatResponse)
@@ -1021,7 +1064,11 @@ def respond_ai_human_input(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
-    return project_ai_chat_response(result, capabilities)
+    return rehydrate_media_access(
+        db,
+        family_id=membership.family_id,
+        payload=project_ai_chat_response(result, capabilities),
+    )
 
 
 @router.post("/api/ai/conversations/{conversation_id}/human-input/{request_id}/response/stream")
@@ -1059,7 +1106,10 @@ def stream_ai_human_input_response(
                     data,
                     viewer_capabilities=capabilities,
                 )
-                yield encode(projected_event, projected_data)
+                yield encode(
+                    projected_event,
+                    rehydrate_media_access(db, family_id=membership.family_id, payload=projected_data),
+                )
         except ClientContractUpgradeRequired as exc:
             yield encode("error", {"detail": exc.to_detail(), "status": 409})
             return
@@ -1133,7 +1183,10 @@ def stream_ai_approval_decision(
                     data,
                     viewer_capabilities=capabilities,
                 )
-                yield encode(projected_event, projected_data)
+                yield encode(
+                    projected_event,
+                    rehydrate_media_access(db, family_id=membership.family_id, payload=projected_data),
+                )
         except ClientContractUpgradeRequired as exc:
             yield encode("error", {"detail": exc.to_detail(), "status": 409})
             return

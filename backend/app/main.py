@@ -28,6 +28,7 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.services.model_usage.maintenance import ModelUsageMaintenanceWorker
 from app.services.model_usage.preflight import run_model_usage_preflight
+from app.services.media import ensure_media_bucket
 from app.services.family_model_settings.maintenance import (
     FamilyModelSettingsMaintenanceWorker,
 )
@@ -138,6 +139,7 @@ async def lifespan(app: FastAPI):
                 db,
                 current_settings=settings,
             )
+    ensure_media_bucket()
     image_worker = ImageGenerationWorker()
     search_index_worker = SearchIndexWorker()
     model_usage_worker = ModelUsageMaintenanceWorker()

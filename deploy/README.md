@@ -13,7 +13,7 @@ Compose 会启动四类服务：
 - `mysql`：MySQL 8.4 数据库
 - `minio`：对象存储，保存上传图片和 AI 生成图片
 - `backend`：FastAPI 后端服务，启动时自动执行 Alembic 迁移
-- `frontend`：nginx 托管 Vite 构建产物，并代理 `/api` 到后端、`/media` 到 MinIO
+- `frontend`：nginx 托管 Vite 构建产物，并代理 `/api`（包括实时语音 WebSocket）到后端
 
 ## 配置
 
@@ -60,7 +60,11 @@ http://localhost:8080
 
 如果 `8080` 端口已被占用，可以在 `deploy/.env` 中修改 `FRONTEND_PORT`。
 
-MinIO 控制台默认映射到 `http://localhost:9001`。S3 API 默认映射到 `localhost:9000`，主要用于本地后端开发；浏览器访问图片统一走前端 nginx 的 `/media/...` 代理。
+MinIO 控制台默认映射到 `http://localhost:9001`。S3 API 默认映射到 `localhost:9000`，只用于本地后端开发；bucket 保持私有，浏览器图片统一使用后端签发的短时 `/api/media/{media_id}/content` capability URL。nginx 不再把 `/media/...` 直接代理到 MinIO。
+
+实时语音会话通过同源 `/api/ai/realtime/.../ws` 建立 WebSocket。nginx 转发 Upgrade/Connection，并使用 360 秒读写超时覆盖默认 300 秒会话上限。连接认证使用 45 秒单用途 ticket 的 WebSocket 子协议，不把普通 access token 或 ticket 放进 URL。
+
+nginx access log 只记录不含查询字符串的 `$uri`；后端容器同时关闭 Uvicorn access log，避免媒体 capability 被上游重复记录。应用异常日志也只记录 path。
 
 ## 查看日志
 

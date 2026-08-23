@@ -50,11 +50,14 @@ def test_member_audio_response_contract_has_no_provider_or_model() -> None:
     realtime = CookingRealtimeSessionResponse(
         session_id="voice-session-1",
         websocket_url="/api/ai/realtime/cooking/sessions/voice-session-1/ws",
+        websocket_ticket="short-lived-ticket",
+        websocket_ticket_expires_at="2026-08-17T23:55:45+00:00",
         expires_at="2026-08-18T00:00:00+00:00",
     )
     forbidden = {"provider", "model", "base_url", "profile_id", "credential"}
     assert forbidden.isdisjoint(transcription.model_dump())
     assert forbidden.isdisjoint(realtime.model_dump())
+    assert "?" not in realtime.websocket_url
 
 
 def test_form_provider_override_is_rejected_before_audio_read() -> None:

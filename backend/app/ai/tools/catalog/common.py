@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.registry import ToolRegistry
 from app.models.domain import MediaAsset
-from app.services.serializers import group_media_by_entity, serialize_media
+from app.services.serializers import group_media_by_entity, serialize_media_reference
 
 
 def register_tool(
@@ -75,7 +75,7 @@ def first_entity_media(media_map: dict[tuple[str, str], list[MediaAsset]], entit
     assets = media_map.get((entity_type, entity_id), [])
     if not assets:
         return None
-    media = serialize_media(assets[0])
+    media = serialize_media_reference(assets[0])
     created_at = media.get("created_at")
     if hasattr(created_at, "isoformat"):
         media["created_at"] = created_at.isoformat()

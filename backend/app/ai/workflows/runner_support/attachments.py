@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.ai.runtime.provider import ProviderImageInput
 from app.core.utils import create_id
 from app.models.domain import MediaAsset
-from app.services.serializers import serialize_media
+from app.services.serializers import serialize_media_reference
 
 
 class InvalidCurrentAttachmentError(ValueError):
@@ -137,7 +137,7 @@ def build_user_message_parts(prompt: str, attachment_assets: list[MediaAsset]) -
                 "type": "image",
                 "image": {
                     "media_id": asset.id,
-                    "asset": serialize_media(asset),
+                    "asset": serialize_media_reference(asset),
                     "alt": asset.alt or asset.name,
                 },
             }

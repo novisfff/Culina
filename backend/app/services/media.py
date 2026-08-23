@@ -2,6 +2,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
@@ -15,6 +16,7 @@ from app.core.config import get_settings
 from app.core.enums import ImageGenerationMode, MediaSource
 from app.core.utils import create_id, utcnow
 from app.models.domain import MediaAsset
+from app.services.access_tickets import MediaVariantName, create_media_access_ticket
 
 ALLOWED_CONTENT_TYPES = {
     "image/png": ".png",
@@ -70,18 +72,11 @@ def ensure_media_bucket() -> None:
     client = _storage_client()
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
-    policy = f"""{{
-      "Version": "2012-10-17",
-      "Statement": [
-        {{
-          "Effect": "Allow",
-          "Principal": {{"AWS": ["*"]}},
-          "Action": ["s3:GetObject"],
-          "Resource": ["arn:aws:s3:::{settings.minio_bucket}/*"]
-        }}
-      ]
-    }}"""
-    client.set_bucket_policy(settings.minio_bucket, policy)
+    try:
+        client.delete_bucket_policy(settings.minio_bucket)
+    except S3Error as exc:
+        if exc.code != "NoSuchBucketPolicy":
+            raise
 
 
 def _object_key(*, family_id: str, file_name: str) -> str:
@@ -90,6 +85,44 @@ def _object_key(*, family_id: str, file_name: str) -> str:
 
 def _public_url(object_key: str) -> str:
     return f"/media/{object_key}"
+
+
+def signed_media_content_access(asset: MediaAsset, variant: MediaVariantName) -> dict[str, Any]:
+    ticket = create_media_access_ticket(
+        media_id=asset.id,
+        family_id=asset.family_id,
+        variant=variant,
+    )
+    query = urlencode(
+        {
+            "variant": variant,
+            "ticket": ticket.token,
+            "expires_at": ticket.expires_at.isoformat(),
+        }
+    )
+    return {
+        "url": f"/api/media/{asset.id}/content?{query}",
+        "url_expires_at": ticket.expires_at,
+    }
+
+
+def signed_media_content_url(asset: MediaAsset, variant: MediaVariantName) -> str:
+    return str(signed_media_content_access(asset, variant)["url"])
+
+
+def signed_media_variants(asset: MediaAsset) -> dict[str, dict[str, Any]] | None:
+    if not asset.variants:
+        return None
+    signed: dict[str, dict[str, Any]] = {}
+    for variant in ("thumb", "card", "large"):
+        value = asset.variants.get(variant)
+        if not isinstance(value, dict):
+            continue
+        signed[variant] = {
+            **value,
+            **signed_media_content_access(asset, variant),
+        }
+    return signed or None
 
 
 def _put_media_object(*, object_key: str, payload: bytes, content_type: str) -> None:
@@ -220,6 +253,52 @@ def read_media_object(asset: MediaAsset) -> bytes:
             response.release_conn()
 
 
+def _variant_object_key_from_asset(
+    asset: MediaAsset,
+    variant: MediaVariantName,
+) -> str:
+    if variant == "original":
+        object_key = asset.file_path
+        if not object_key or not object_key.startswith(f"{asset.family_id}/"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Media file not found",
+            )
+        return object_key
+    value = (asset.variants or {}).get(variant)
+    url = value.get("url") if isinstance(value, dict) else None
+    object_key = _object_key_from_public_url(url) if isinstance(url, str) else None
+    if not object_key or not object_key.startswith(f"{asset.family_id}/"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media variant not found",
+        )
+    return object_key
+
+
+def read_media_asset_content(
+    asset: MediaAsset,
+    variant: MediaVariantName,
+) -> tuple[bytes, str]:
+    object_key = _variant_object_key_from_asset(asset, variant)
+    settings = get_settings()
+    client = _storage_client()
+    response = None
+    try:
+        stat = client.stat_object(settings.minio_bucket, object_key)
+        response = client.get_object(settings.minio_bucket, object_key)
+        return response.read(), stat.content_type or "application/octet-stream"
+    except S3Error as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media file not found",
+        ) from exc
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
+
+
 def read_media_object_for_ai(asset: MediaAsset) -> tuple[bytes, str]:
     payload = read_media_object(asset)
     try:
@@ -233,36 +312,6 @@ def read_media_object_for_ai(asset: MediaAsset) -> tuple[bytes, str]:
     output = BytesIO()
     image.save(output, format="JPEG", quality=AI_IMAGE_INPUT_QUALITY, optimize=True)
     return output.getvalue(), AI_IMAGE_INPUT_CONTENT_TYPE
-
-
-def read_media_object_by_key(object_key: str) -> tuple[bytes, str]:
-    settings = get_settings()
-    client = _storage_client()
-    response = None
-    try:
-        resolved_key = object_key
-        try:
-            stat = client.stat_object(settings.minio_bucket, resolved_key)
-        except S3Error:
-            if "/" in object_key:
-                raise
-            matches = [
-                item.object_name
-                for item in client.list_objects(settings.minio_bucket, recursive=True)
-                if item.object_name and item.object_name.endswith(f"/{object_key}")
-            ]
-            if len(matches) != 1:
-                raise
-            resolved_key = matches[0]
-            stat = client.stat_object(settings.minio_bucket, resolved_key)
-        response = client.get_object(settings.minio_bucket, resolved_key)
-        return response.read(), stat.content_type or "application/octet-stream"
-    except S3Error as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file not found") from exc
-    finally:
-        if response is not None:
-            response.close()
-            response.release_conn()
 
 
 def delete_media_file(asset: MediaAsset) -> None:

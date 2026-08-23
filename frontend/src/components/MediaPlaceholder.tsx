@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { mediaAccessReferenceFromUrl, renewMediaUrl, shouldRenewMediaUrl } from '../lib/assets';
 
 export type MediaPlaceholderState = 'empty' | 'loading' | 'error';
 
@@ -106,11 +107,54 @@ export function MediaWithPlaceholder(props: {
   const [activeSrc, setActiveSrc] = useState(props.src ?? null);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const renewalAttempted = useRef(false);
+  const sourceGeneration = useRef(0);
+
+  const applyTerminalFailure = () => {
+    if (props.fallbackSrc && activeSrc !== props.fallbackSrc) {
+      setActiveSrc(props.fallbackSrc);
+      setLoaded(false);
+      return;
+    }
+    setLoaded(false);
+    setFailed(true);
+    props.onLoadError?.();
+  };
+
+  const renewActiveSource = async (source: string, generation: number): Promise<boolean> => {
+    if (renewalAttempted.current || !mediaAccessReferenceFromUrl(source)) return false;
+    renewalAttempted.current = true;
+    try {
+      const renewed = await renewMediaUrl(source);
+      if (generation !== sourceGeneration.current) return true;
+      if (!renewed || renewed === source) return false;
+      setActiveSrc(renewed);
+      setFailed(false);
+      setLoaded(false);
+      return true;
+    } catch {
+      return generation !== sourceGeneration.current;
+    }
+  };
 
   useEffect(() => {
-    setActiveSrc(props.src ?? null);
+    const generation = sourceGeneration.current + 1;
+    sourceGeneration.current = generation;
+    const source = props.src ?? null;
+    renewalAttempted.current = false;
+    setActiveSrc(source);
     setFailed(false);
     setLoaded(false);
+    if (source && shouldRenewMediaUrl(source)) {
+      void renewActiveSource(source, generation).then((renewed) => {
+        if (!renewed) applyTerminalFailure();
+      });
+    }
+    return () => {
+      if (sourceGeneration.current === generation) {
+        sourceGeneration.current += 1;
+      }
+    };
   }, [props.src]);
 
   const state: MediaPlaceholderState | 'loaded' = !activeSrc ? 'empty' : failed ? 'error' : loaded ? 'loaded' : 'loading';
@@ -145,14 +189,13 @@ export function MediaWithPlaceholder(props: {
           aria-hidden={props.ariaHidden}
           onLoad={() => setLoaded(true)}
           onError={() => {
-            if (props.fallbackSrc && activeSrc !== props.fallbackSrc) {
-              setActiveSrc(props.fallbackSrc);
-              setLoaded(false);
+            if (mediaAccessReferenceFromUrl(activeSrc) && !renewalAttempted.current) {
+              void renewActiveSource(activeSrc, sourceGeneration.current).then((renewed) => {
+                if (!renewed) applyTerminalFailure();
+              });
               return;
             }
-            setLoaded(false);
-            setFailed(true);
-            props.onLoadError?.();
+            applyTerminalFailure();
           }}
         />
       )}

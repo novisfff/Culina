@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from app.core.deps import get_current_auth
 from app.core.enums import ImageGenerationMode, MediaSource
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.schemas.media import AiRenderResponse, CreateAiRenderRequest, UploadMediaResponse
+from app.schemas.media import AiRenderResponse, CreateAiRenderRequest, MediaAssetOut, UploadMediaResponse
 from app.ai.images.generation import ImageGenerationRequest
 from app.ai.images.jobs import (
     attach_image_generation_job_to_entity,
@@ -22,9 +22,14 @@ from app.ai.images.jobs import (
 from app.services.media import (
     delete_media_file,
     get_media_asset,
+    read_media_asset_content,
     read_media_object,
-    read_media_object_by_key,
     save_upload,
+)
+from app.services.access_tickets import (
+    AccessTicketInvalid,
+    MediaVariantName,
+    decode_media_access_ticket,
 )
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import serialize_media
@@ -239,7 +244,61 @@ def retry_ai_image_render_job(
     return _render_job_response(job, db=db, family_id=membership.family_id)
 
 
-@router.get("/media/{object_key:path}")
-def get_media_object(object_key: str) -> Response:
-    payload, content_type = read_media_object_by_key(object_key)
-    return Response(content=payload, media_type=content_type)
+@router.get("/api/media/{media_id}/access", response_model=MediaAssetOut)
+def get_media_access(
+    media_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    asset = get_media_asset(
+        db,
+        family_id=membership.family_id,
+        media_id=media_id,
+    )
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media asset not found",
+        )
+    return serialize_media(asset)
+
+
+@router.get("/api/media/{media_id}/content")
+def get_media_content(
+    media_id: str,
+    variant: MediaVariantName = Query(default="original"),
+    ticket: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        claims = decode_media_access_ticket(ticket or "")
+    except AccessTicketInvalid as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Media access ticket is invalid or expired",
+        ) from exc
+    if claims.media_id != media_id or claims.variant != variant:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Media access ticket scope is invalid",
+        )
+    asset = get_media_asset(
+        db,
+        family_id=claims.family_id,
+        media_id=claims.media_id,
+    )
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media asset not found",
+        )
+    payload, content_type = read_media_asset_content(asset, variant)
+    return Response(
+        content=payload,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

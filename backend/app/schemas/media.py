@@ -14,6 +14,7 @@ AiImageBindStatus = Literal["pending", "bound", "skipped", "unbound"]
 
 class MediaVariantOut(BaseModel):
     url: str
+    url_expires_at: datetime
     width: int
     height: int
     content_type: str
@@ -30,6 +31,7 @@ class MediaAssetOut(BaseModel):
     id: str
     name: str
     url: str
+    url_expires_at: datetime
     source: MediaSource
     alt: str
     generation_mode: ImageGenerationMode | None = None

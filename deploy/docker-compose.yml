@@ -40,6 +40,12 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - culina_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   qdrant:
     image: qdrant/qdrant:v1.12.6
@@ -70,6 +76,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-culina-local-dev-secret}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
       MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-31457280}
+      MEDIA_ACCESS_URL_TTL_SECONDS: ${MEDIA_ACCESS_URL_TTL_SECONDS:-300}
+      REALTIME_WEBSOCKET_TICKET_TTL_SECONDS: ${REALTIME_WEBSOCKET_TICKET_TTL_SECONDS:-45}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-culina}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-culina_local_minio_secret}
@@ -130,7 +138,7 @@ services:
       mysql:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       qdrant:
         condition: service_started
     volumes:
@@ -153,7 +161,6 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      MINIO_BUCKET: ${MINIO_BUCKET:-culina-media}
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     depends_on:

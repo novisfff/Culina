@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { synthesizeSpeech } from './aiVoiceApi';
+import * as aiVoiceApi from './aiVoiceApi';
+import { setAccessToken } from './request';
 
 afterEach(() => {
+  setAccessToken(null);
   vi.unstubAllGlobals();
 });
 
@@ -18,15 +20,43 @@ describe('synthesizeSpeech', () => {
       headers: { 'Content-Type': 'application/json' },
     })));
 
-    await expect(synthesizeSpeech({ text: '请继续下一步。', surface: 'recipe_cook_page' }))
-      .rejects.toMatchObject({
-        status: 429,
-        path: '/api/ai/audio/speech',
-        payload: {
-          detail: {
-            code: 'model_usage_capability_limit_exceeded',
-          },
+    await expect(aiVoiceApi.synthesizeSpeech({
+      text: '请继续下一步。',
+      surface: 'recipe_cook_page',
+    })).rejects.toMatchObject({
+      status: 429,
+      path: '/api/ai/audio/speech',
+      payload: {
+        detail: {
+          code: 'model_usage_capability_limit_exceeded',
         },
-      });
+      },
+    });
+  });
+});
+
+describe('realtime voice websocket authentication', () => {
+  it('never puts the access token in the websocket URL', () => {
+    setAccessToken('seven-day-access-token');
+
+    const url = aiVoiceApi.cookingRealtimeWebSocketUrl(
+      '/api/ai/realtime/cooking/sessions/voice-a/ws',
+    );
+
+    expect(url).not.toContain('seven-day-access-token');
+    expect(new URL(url).search).toBe('');
+  });
+
+  it('offers the short-lived ticket as a websocket subprotocol', () => {
+    const protocols = (
+      aiVoiceApi as typeof aiVoiceApi & {
+        cookingRealtimeWebSocketProtocols: (ticket: string) => string[];
+      }
+    ).cookingRealtimeWebSocketProtocols('ticket-a');
+
+    expect(protocols).toEqual([
+      'culina-realtime',
+      'culina-ticket.ticket-a',
+    ]);
   });
 });

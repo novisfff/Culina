@@ -167,7 +167,10 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       setSession(nextSession);
       setStartedAt(Date.now());
       setElapsedSeconds(0);
-      const socket = new WebSocket(aiVoiceApi.cookingRealtimeWebSocketUrl(nextSession.websocket_url));
+      const socket = new WebSocket(
+        aiVoiceApi.cookingRealtimeWebSocketUrl(nextSession.websocket_url),
+        aiVoiceApi.cookingRealtimeWebSocketProtocols(nextSession.websocket_ticket),
+      );
       socketRef.current = socket;
       socket.onopen = () => {
         setStatus('listening');
