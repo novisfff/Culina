@@ -2865,17 +2865,7 @@
     object-fit: cover;
   }
 
-  .home-compact-meal-item.is-condensed {
-    flex: 0 0 auto;
-  }
-
-  .home-compact-meal-item.is-condensed .home-compact-meal-item-label {
-    width: 1em;
-    flex: 0 0 1em;
-    text-overflow: clip;
-  }
-
-  .home-compact-meal-item:not(.is-condensed) {
+  .home-compact-meal-foods > .home-compact-meal-item {
     flex: 1 1 0;
   }
 }

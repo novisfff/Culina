@@ -315,10 +315,9 @@ export function HomeCompactCalendar(props: {
                 </div>
                 <div className="home-compact-meal-items">
                   <div className="home-compact-meal-foods">
-                    {visibleItems.map((item, itemIndex) => {
+                    {visibleItems.map((item) => {
                       const title = item.recipe_title || item.food_name || '未命名餐食';
                       const coverUrl = props.resolvePlanItemCoverUrl?.(item);
-                      const isCondensedDesktopItem = itemIndex < visibleItems.length - 1;
                       return (
                         <button
                           key={item.id}
@@ -327,7 +326,6 @@ export function HomeCompactCalendar(props: {
                             item.status === 'cooked' ? 'is-cooked' : '',
                             'has-media',
                             coverUrl ? 'has-cover' : '',
-                            isCondensedDesktopItem ? 'is-condensed' : '',
                           ]
                             .filter(Boolean)
                             .join(' ')}

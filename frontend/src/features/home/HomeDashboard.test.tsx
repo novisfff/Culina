@@ -423,8 +423,9 @@ describe('HomeDashboard three-question desktop', () => {
       /\.home-compact-meal-item-media:not\(\.is-empty\) \.home-compact-meal-item-image \{[^}]*display: block;[^}]*object-fit: cover;/s,
     );
     expect(homeStyles).toMatch(
-      /\.home-compact-meal-item\.is-condensed \.home-compact-meal-item-label \{[^}]*width: 1em;[^}]*text-overflow: clip;/s,
+      /\.home-compact-meal-foods > \.home-compact-meal-item \{[^}]*flex: 1 1 0;/s,
     );
+    expect(homeStyles).not.toContain('.home-compact-meal-item.is-condensed');
     expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');
   });
 
@@ -504,9 +505,6 @@ describe('HomeDashboard three-question desktop', () => {
     ).toContain('has-cover');
     expect(
       desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
-    ).toContain('is-condensed');
-    expect(
-      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="盒装牛奶自动测试，待记录"]')?.classList,
     ).not.toContain('is-condensed');
   });
 
