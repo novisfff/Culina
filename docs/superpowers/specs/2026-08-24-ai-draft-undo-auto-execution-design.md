@@ -1,0 +1,1078 @@
+# AI Draft 撤销与低风险自动执行设计
+
+日期：2026-08-24
+
+状态：已确认，待书面复核
+
+范围：AI Draft 捕获与路由、人工审批、低风险自动执行、AI Operation 审计、领域撤销、AI 工作区结果卡、成员与家庭授权设置
+
+## 1. 背景
+
+Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> approval -> service commit`。这个边界保证了模型不能直接写业务数据，但也带来两个产品问题：
+
+1. 用户确认 Draft 并完成写入后，AI 结果卡没有统一撤销入口；发生误操作时只能自行进入业务页面修正。
+2. 收藏、评分、小规模购物清单维护等低风险、意图明确的操作仍要求逐次确认，确认成本高于操作本身。
+
+本设计将两个问题成套处理：
+
+- 对已经提交的 AI Operation 提供有条件、可审计的一小时补偿式撤销；
+- 模型仍然只生成 Draft，由服务端基于明确意图证据、成员授权、家庭策略、动作白名单、批量限制、版本和撤销能力决定自动执行或人工确认。
+
+撤销能力和自动执行资格是两个独立维度。一个操作可以始终确认但支持撤销，也可以因为缺少可靠撤销适配器而永远不能自动执行。
+
+## 2. 当前实现事实
+
+设计以当前源码为实现事实：
+
+1. `backend/app/ai/tools/catalog/common.py` 为 Draft Tool 统一设置 `requires_confirmation=True`。
+2. `backend/app/ai/skills/loader.py` 只接受 `none | draft_then_confirm`。
+3. `backend/app/ai/workflows/orchestrator/draft_capture.py` 捕获 Draft 后固定进入 `ApprovalRequired`。
+4. `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py` 会立即持久化 Draft 和 Approval、发布待确认卡并将 Run 置为 `waiting_approval`。
+5. 正式写入集中在 `backend/app/services/ai_operations/approval_decisions.py`，再分发到现有领域 Service。
+6. `AIOperation.approval_request_id` 当前非空，Operation 无法表达没有用户审批的策略自动执行。
+7. `AIOperation` 尚未保存执行模式、授权快照、策略版本、撤销适配器、底层操作引用和撤销状态。
+8. 库存入库/盘点已有 `InventoryOperation` 前后快照、版本检查、权限和整笔撤销。
+9. 快速餐食记录已有 `MealLogRecordOperation` 撤销账本；普通 AI 餐食新增尚未完整接入该账本。
+10. 收藏、评分、购物清单安全操作和餐食计划新增尚无统一 AI 撤销上下文。
+11. `Food`、`MealLog`、`ShoppingListItem` 已有 `row_version`；`FoodPlanItem` 只有时间戳，没有乐观版本列。
+12. `frontend/src/components/ai/AiResultCards.tsx` 的 Operation Result 固定显示“已按确认执行”，没有执行来源、撤销截止时间或冲突状态。
+13. 当前普通消息完成主要刷新 AI 查询；自动业务写入如果复用该路径，会留下陈旧的 React Query 业务缓存。
+14. 家庭公开会话允许其他成员贡献；执行人必须来自发出当前消息、创建当前 Run 的成员，不能借用会话创建人或 Owner 身份。
+
+## 3. 目标
+
+本设计必须实现：
+
+1. 人工确认和策略自动执行调用同一个 Commit Coordinator 与领域 Service。
+2. 模型仍然不能获得正式 Write Tool，也不能自行判定风险等级或执行权限。
+3. 只有用户明确发出操作指令时才可能自动执行；隐含或推断意图始终进入人工路径。
+4. 使用定义明确的意图清晰度档位，不使用未校准的连续 `confidence` 分数。
+5. 首批自动执行收藏、餐食评分、受限购物清单、安全的餐食记录新增和餐食计划新增。
+6. 所有自动执行都要求成员预先开启；购物清单还要求家庭 Owner 开放家庭能力。
+7. 自动执行前必须验证目标、关键字段来源、批量、版本、权限和撤销适配器。
+8. 人工确认和自动执行的结果都可以按实际适配器能力提供一小时撤销。
+9. 撤销是新的补偿操作，不改写真实审批事实，也不覆盖后续正常修改。
+10. 自动执行、执行失败和撤销都能在刷新、SSE 重连和幂等重试后恢复真实状态。
+11. 自动执行与撤销都正确更新活动日志、持久化消息、Artifact、SSE 和业务缓存。
+12. 设置页和结果卡符合 Culina 的中文、移动优先、低维护和可访问性规范。
+
+## 4. 非目标
+
+本次不包含：
+
+- 让模型直接调用正式业务 Write Tool；
+- 让模型自己声明 `autoExecute=true` 或决定动作风险；
+- 通过连续置信度阈值授权执行；
+- 根据隐含意图自动写入；
+- Shadow Mode、灰度发布或样本门槛；
+- 做菜操作的整组撤销；
+- 通用硬删除恢复；
+- 复杂媒体或参与人更新的通用撤销；
+- Composite 的整组撤销；
+- Continuation 整条链的一键撤销；
+- 为自动执行开放库存入库、盘点、消耗、丢弃或做菜；
+- 修改普通页面现有 15 分钟领域撤销窗口；
+- 引入通用 JSON 回滚器、事件溯源框架、任务队列或新微服务。
+
+## 5. 已确认的产品规则
+
+| 主题 | 规则 |
+| --- | --- |
+| 自动执行硬条件 | 用户必须明确发出操作指令 |
+| 隐含意图 | 即使模型认为非常确定，也只能建议或生成待确认 Draft |
+| 模型信号 | 使用离散 `intent_clarity` 和结构化证据，不使用 `confidence` |
+| 风险归属 | 风险白名单和最终执行权完全由服务端控制 |
+| 首批自动执行 | 收藏、餐食评分、受限购物清单、简单餐食记录新增、简单餐食计划新增 |
+| 个人授权 | 五类动作均要求当前成员个人开启 |
+| 家庭授权 | 购物清单还要求 Owner 开放家庭共享能力 |
+| 购物批量 | 新增或恢复最多 5 项；修改一次只允许 1 项 |
+| 餐食批量 | 评分最多 5 个食物项；新增记录最多 5 个 Food |
+| 计划批量 | 新增计划最多 5 项 |
+| 自动连锁 | 每个用户消息最多自动执行一个 Draft；Composite 与 Continuation 不自动执行 |
+| 撤销窗口 | 正式提交成功后 1 小时，服务端时间为准 |
+| 撤销权限 | 原执行人或当前家庭 Owner |
+| 撤销冲突 | 目标后来被修改或引用时拒绝，不覆盖较新状态 |
+| 审批事实 | 用户审批保持不可变；撤销不把 Approval 改成 rejected/pending |
+| 发布方式 | 系统尚未上线，直接按目标机制实现，不做 Shadow 或灰度 |
+
+## 6. 方案比较与选择
+
+### 6.1 方案 A：在 Progressive Publisher 中伪造自动批准
+
+捕获 Draft 后，如果模型声明低风险，就创建 Approval 并立即标记为 approved，再复用现有审批执行路径。
+
+优点是改动小。缺点是数据库会记录一条用户从未做出的批准，审计、指标、恢复和撤销语义都会失真；模型信号也会直接获得执行权。
+
+不采用。
+
+### 6.2 方案 B：策略决策层 + 公共 Commit Coordinator + 领域撤销适配器
+
+模型输出 Draft 和意图证据；服务端策略决定 `manual_confirmation | policy_auto | policy_no_change`；人工与自动路径共用 Commit Coordinator；Approval 只用于真实人工决定；AIOperation 独立记录执行来源和撤销能力。
+
+优点是审批、执行和撤销事实清楚，能复用现有领域 Service 和撤销账本，也能按动作逐步扩展。
+
+采用本方案。
+
+### 6.3 方案 C：全业务事件溯源与反向命令
+
+把所有业务写入重构为事件和反向事件，从底层统一撤销。
+
+长期能力强，但会扩大到所有领域写入、历史迁移和查询模型，明显超出本需求。
+
+不采用。
+
+## 7. 总体架构
+
+```text
+模型生成 Draft + Intent Evidence
+  -> Draft Tool 校验与归一化
+  -> 服务端 AutoExecutionPolicy
+     ├─ manual_confirmation
+     │    -> AITaskDraft + AIApprovalRequest
+     │    -> waiting_approval
+     │    -> 用户真实决定
+     └─ policy_auto
+          -> 事务内授权/版本/限制复核
+  -> DraftCommitCoordinator
+  -> 现有领域 Service 正式写入
+  -> AIOperation + Result Card + Revert Context
+  -> post-commit SSE + 业务缓存失效
+```
+
+主要组件：
+
+- `IntentEvidenceValidator`：验证意图档位、当前消息引用和可信上下文来源。
+- `AutoExecutionPolicyRegistry`：按 Draft 类型与 action 注册确定性策略。
+- `DraftRoutingCoordinator`：返回人工确认、自动执行、无需变更或失败结果。
+- `DraftCommitCoordinator`：统一人工与自动正式写入。
+- `AIRevertAdapterRegistry`：按适配器 key 执行领域条件式补偿。
+- `AIAutoExecutionSettingsService`：读取和修改成员偏好及家庭策略。
+- `AI operation result contract`：统一持久化卡片、SSE 与缓存标签。
+
+## 8. 意图清晰度与证据
+
+### 8.1 `intent_clarity`
+
+只允许四个档位：
+
+| 档位 | 定义 | 自动执行资格 |
+| --- | --- | --- |
+| `explicit_complete` | 用户明确要求操作，目标和该动作的关键参数均由原话完整给出 | 可成为候选 |
+| `explicit_context_resolved` | 用户明确要求操作；指代通过当前卡片、本轮 Tool 结果或可信 Artifact 唯一解析，且没有关键默认值 | 可成为候选 |
+| `explicit_incomplete` | 用户明确要求操作，但关键字段缺失、目标不唯一、指令冲突或必须补入关键默认值 | 不可自动 |
+| `inferred` | 用户没有直接要求执行，模型根据表达推测可能想做 | 不可自动 |
+
+例子：
+
+- “给今天午餐的番茄炒蛋打 5 分”是 `explicit_complete`。
+- 当前打开唯一 Food 卡片时说“收藏这个”是 `explicit_context_resolved`。
+- “把牛奶加入购物清单”但定量模式缺数量/单位，是 `explicit_incomplete`。
+- “这道菜真不错”不能推断成收藏或五星评分，属于 `inferred`。
+
+### 8.2 证据结构
+
+首批 Draft Tool Schema 增加可选 `intentEvidence`：
+
+```json
+{
+  "intentClarity": "explicit_complete",
+  "sourceQuotes": [
+    {
+      "fields": ["action", "rating"],
+      "text": "给番茄炒蛋打 5 分"
+    }
+  ],
+  "resolutionSources": [
+    {
+      "fields": ["targetId"],
+      "kind": "tool_result",
+      "referenceId": "tool-call-id",
+      "entityId": "meal-log-id",
+      "rowVersion": 3
+    }
+  ],
+  "ambiguityCodes": [],
+  "defaultedFields": []
+}
+```
+
+`resolutionSources.kind` 使用服务端枚举：
+
+- `current_ui_context`
+- `tool_result`
+- `conversation_artifact`
+
+`sourceQuotes` 经 Unicode NFC 和确定性空白标准化后，必须能在当前用户消息中找到。`resolutionSources` 的引用 ID、实体 ID、家庭归属和版本必须出现在服务端持有的可信上下文中。
+
+模型声明 `defaultedFields=[]` 不构成证明。服务端按动作关键字段表重新检查每个值是否来自用户原话或可信来源。证据缺失、格式错误或无法验证时，Draft 仍可进入人工确认，但不能自动执行。
+
+证据 Schema 对数组长度、文本长度和字段数量设置固定上限，拒绝无限载荷。自由文本解释不参与授权。
+
+## 9. 自动执行全局门禁
+
+`AutoExecutionPolicy` 只返回：
+
+```text
+auto_execute
+manual_confirmation
+no_change
+```
+
+`auto_execute` 与免确认返回的 `no_change` 都必须同时满足以下门禁；未授权时即使目标已经一致也仍进入现有人工路径：
+
+1. `intent_clarity` 为 `explicit_complete` 或 `explicit_context_resolved`。
+2. 操作要求来自当前用户消息。
+3. 所有关键字段都有已验证来源。
+4. `ambiguityCodes` 不含当前动作的阻断项。
+5. 没有使用关键默认值。
+6. 动作在服务端首批白名单内。
+7. 当前成员已开启对应动作。
+8. 购物清单家庭策略已由 Owner 开启。
+9. 当前成员仍具有领域写入权限。
+10. 目标属于当前家庭且身份唯一。
+11. 批量和字段变更不超过服务端硬限制。
+12. 正式写入前的版本仍有效。
+13. 已注册可靠撤销适配器。
+14. 不含媒体、外部副作用或未开放字段。
+15. 不属于 Composite 或 Continuation。
+16. 当前 Run 尚未尝试其他自动执行。
+
+所有目标已经处于所需状态时返回 `no_change`，不创建 AIOperation，也不伪造一次完成写入。批量 Draft 只有部分目标已经满足时不做静默的部分提交，首批统一降级人工确认。
+
+建议的稳定 `policy_reason_codes` 至少包括：
+
+- `intent_not_explicit`
+- `intent_evidence_missing`
+- `source_quote_mismatch`
+- `resolution_source_untrusted`
+- `critical_default_used`
+- `ambiguity_present`
+- `action_not_allowed`
+- `batch_limit_exceeded`
+- `member_authorization_missing`
+- `family_policy_disabled`
+- `revert_adapter_missing`
+- `composite_not_allowed`
+- `continuation_not_allowed`
+- `auto_execution_already_attempted`
+- `target_already_satisfied`
+- `target_stale`
+- `domain_constraint_failed`
+
+这些 code 用于审计、测试和诊断，不作为发布门槛。
+
+## 10. 首批动作策略矩阵
+
+### 10.1 收藏状态：`food.set_favorite`
+
+允许：
+
+- `draft_type=food_profile`
+- `action=set_favorite`
+- 仅一个当前家庭已有 Food
+- payload 只含 `favorite: boolean`
+- `baseUpdatedAt` 和目标版本有效
+- 成员个人已开启
+
+状态已经一致时返回 `no_change`。Food 其他资料、媒体或库存字段出现时降级人工确认。
+
+### 10.2 餐食评分：`meal_log.rate_food`
+
+允许：
+
+- `draft_type=meal_log`
+- `action=rate_food`
+- 目标 MealLog 和 MealLogFood 唯一、版本有效
+- 操作者是记录创建人或参与人
+- 一次最多 5 个食物项
+- 每个评分值或取消评分均由用户明确表达
+- 只修改评分，不修改组成、详情、参与人、媒体或库存
+- 成员个人已开启
+
+评分允许现有领域范围 `0.5..5`，取消评分使用明确的 `null` 语义。
+
+### 10.3 购物清单：`shopping_list.safe_write`
+
+允许三种互斥模式，不允许在一份自动 Draft 中混合：
+
+- 新增：最多 5 项；采购对象必须精确匹配当前家庭真实 Ingredient 或 ready-like Food。
+- 修改：一次 1 项；归一化前后 diff 只能改变数量、单位或备注，不能替换采购对象。
+- 恢复待买：最多 5 项；只允许 `set_done(done=false)`，目标必须唯一。
+
+定量对象的数量和单位必须来自用户原话或可信 Artifact；不定量 Ingredient 可以使用系统固定“需要补充”语义。
+
+以下情况始终人工确认：
+
+- 删除；
+- `set_done(done=true)`；
+- 完成采购、部分采购或库存入库；
+- 自动创建 Ingredient/Food 档案；
+- 候选歧义；
+- 超过 5 项；
+- Composite、Continuation 或混合操作。
+
+授权要求为 Owner 开放家庭能力且成员本人开启。
+
+### 10.4 简单餐食记录新增：`meal_log.simple_create`
+
+允许：
+
+- 只创建一条新 MealLog；
+- 最多 5 个当前家庭已有 Food；
+- 日期、餐次和每个 Food 的份量来源明确；
+- 参与人严格等于当前成员；
+- `deductStock=false`；
+- 无媒体；
+- 无 `planItemId`，不完成或关联计划；
+- 无 Continuation；
+- 成员个人已开启。
+
+用户明确表达的备注、心情或评分可以随新增一起保存；未表达时只使用领域固定空值。不得根据当前时钟猜测餐次，也不得把缺失份量补成 1。
+
+“今天”“明天”“今晚”等可以通过家庭时区和固定产品词典解析；“刚吃了”但没有餐次不能按当前时刻推断为午餐或晚餐。
+
+### 10.5 简单餐食计划新增：`meal_plan.simple_create`
+
+允许：
+
+- 只新增 FoodPlanItem；
+- 最多 5 个当前家庭已有 Food；
+- 日期和餐次来源明确；
+- `user_id` 固定为当前成员；
+- 不更新、删除或改变计划状态；
+- 不联动购物清单；
+- 不带 Continuation；
+- 成员个人已开启。
+
+完全相同的 `user + date + meal_type + food` 已存在时返回 `no_change`；同一餐次的不同 Food 可以作为多个计划项。
+
+## 11. 授权模型
+
+### 11.1 成员偏好
+
+新增 `AIAutoExecutionPreference`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 偏好 ID |
+| `family_id` | 当前家庭 |
+| `user_id` | 当前成员用户 |
+| `action_key` | 服务端目录中的动作 key |
+| `enabled` | 是否开启 |
+| `row_version` | 乐观并发版本 |
+| `consent_notice_version` | 最近一次开启时确认的安全说明版本 |
+| `consented_at` | 最近一次确认开启说明的时间 |
+| 审计字段 | `created_at/by`、`updated_at/by` |
+
+唯一约束为 `family_id + user_id + action_key`。不存在的记录等价于关闭。所有动作默认关闭。
+
+### 11.2 家庭策略
+
+新增 `AIFamilyAutoExecutionPolicy`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 策略 ID |
+| `family_id` | 当前家庭 |
+| `action_key` | 家庭共享动作 key |
+| `enabled` | Owner 是否允许 |
+| `row_version` | 乐观并发版本 |
+| `consent_notice_version` | Owner 开放该能力时确认的说明版本 |
+| `consented_at` | Owner 最近一次确认开放说明的时间 |
+| `consented_by` | 最近一次确认开放说明的 Owner |
+| 审计字段 | `created_at/by`、`updated_at/by` |
+
+唯一约束为 `family_id + action_key`。当前只有 `shopping_list.safe_write` 使用家庭策略。只有当前家庭 Owner 能修改。
+
+服务端代码目录保存硬上限，数据库设置不能新增动作或提高批量限制。启用请求必须携带当前 `consent_notice_version`；关闭不要求重新确认，并保留最近一次确认记录。
+
+安全说明发生实质变化时提升服务端 notice version。已保存行保留原始 `enabled` 和确认记录用于审计，但只要其 `consent_notice_version` 与当前版本不一致，策略层就把它视为未授权并降级人工确认。设置 API 同时返回 `effective_enabled=false` 和 `requires_reconsent=true`，前端开关按有效状态显示并在重新开启时再次展示说明；携带当前 notice version 的成功 PUT 才恢复有效授权。
+
+GET 中的 `consent_notice.acknowledged` 只表示当前登录成员是否曾在当前版本确认过说明，不代表任一动作已经开启。它可由当前成员的偏好确认记录，或该成员作为 Owner 写入的家庭策略 `consented_by` 记录确定。动作是否可执行仍逐行动作检查 `effective_enabled`，不能使用这个聚合展示字段授权。
+
+执行时将成员偏好版本、家庭策略版本、各自的 consent notice version 和规则版本写入授权快照。事务内发现用户已关闭授权、家庭策略已关闭或任一有效授权使用旧 notice version 时，尚未写业务数据的 Draft 降级人工确认。
+
+## 12. 持久化模型
+
+### 12.1 `AITaskDraft`
+
+新增：
+
+- `intent_clarity`
+- `intent_evidence_json`
+- `execution_route`：`manual_confirmation | policy_auto | policy_no_change`
+- `policy_key`
+- `policy_version`
+- `policy_reason_codes`
+- `policy_evaluated_at`
+
+`ai_metadata` 继续保存普通模型元数据，不承担安全审计。
+
+Draft 状态统一为：
+
+```text
+pending_confirmation
+executed
+no_change
+rejected
+expired
+execution_failed
+pending_retry
+reverted
+```
+
+状态流：
+
+```text
+pending_confirmation
+  ├─ rejected
+  ├─ expired
+  └─ executed
+       └─ reverted
+
+policy_auto
+  ├─ executed -> reverted
+  ├─ pending_confirmation   # 最终门禁不再满足
+  └─ execution_failed       # 正式执行冲突或失败
+
+policy_no_change
+  └─ no_change
+```
+
+`no_change` 是持久化终态：保存 Draft、受控结果消息和 Artifact，但不创建 Approval 或 AIOperation，也不能记为 `executed`。刷新或 SSE 重连从该持久化结果恢复“已是目标状态”卡片。
+
+### 12.2 `AIApprovalRequest` 与 `AIUserApproval`
+
+- 只有人工路径创建 AIApprovalRequest。
+- AIUserApproval 只表示真实用户决定。
+- 用户批准后执行失败，Approval 仍保持 `approved`。
+- 后续撤销，Approval 仍保持 `approved`。
+- 拒绝和过期继续使用现有真实状态。
+
+### 12.3 `AIOperation`
+
+调整和新增：
+
+- `approval_request_id` 改为可空，外键删除规则改为 `SET NULL`；
+- `run_id`；
+- `actor_user_id`；
+- `execution_mode`：`manual_approval | policy_auto`；
+- `authorization_source`：`approval_request | member_preference | member_and_family_policy`；
+- `authorization_snapshot_json`；
+- `policy_key`、`policy_version`、`policy_reason_codes`；
+- `committed_payload_json`；
+- `result_json`；
+- `error_code`、`error_message`、`failed_at`；
+- `revert_adapter_key`，不支持撤销时为空；
+- `revert_context_json`，不支持撤销时为空；
+- `revertible_until`，不支持撤销时为空；
+- `revert_request_id`，可空且唯一；
+- `reverted_at`、`reverted_by`；
+- `revert_result_json`；
+- `revert_blocked_at`、`revert_blocked_code`。
+
+Operation 状态：
+
+```text
+pending -> completed -> reverted
+        -> failed
+```
+
+超过一小时不改变 `completed` 状态，只使 `revert_availability=expired`。不可逆的版本或依赖冲突记录 `revert_blocked_*`，Operation 仍保持 `completed`。临时网络或数据库错误不写永久 blocked。
+
+`revert_context_json` 必须是适配器拥有、带 schema version 的最小上下文。通用代码不得直接回放任意 JSON。
+
+### 12.4 `AIAgentRun`
+
+新增：
+
+- `auto_execution_attempted`
+- `auto_operation_id`，`no_change` 时为空
+
+最终策略通过后锁定 Run 并设置 attempted；`policy_no_change` 也会占用本轮唯一的免确认路由名额。领域执行失败同样计为本轮已尝试，阻止同一用户消息继续自动写第二笔。
+
+### 12.5 领域模型
+
+- `FoodPlanItem` 增加 `row_version` 并启用 SQLAlchemy version column。
+- `InventoryOperationType` 增加 `consume`、`dispose`。
+- 现有 InventoryOperation 和 MealLogRecordOperation 创建服务允许调用方显式传入撤销截止时间；非 AI 调用保持当前 15 分钟默认。
+
+## 13. Runtime 与事务
+
+### 13.1 Skill 与 Tool 契约
+
+Skill approval policy 扩展为：
+
+```text
+none
+draft_then_confirm
+draft_then_policy
+```
+
+首批相关 Draft Tool 使用 `draft_then_policy`。Loader 只有在对应 Draft 类型存在已注册服务端策略时才允许加载。其他 Draft 继续 `draft_then_confirm`。
+
+Draft Tool 的 `requires_confirmation` 仍保持真值，语义是必须停在服务端 commit gate；不得通过将其设为 false 绕过 Draft 捕获。模型面对的工具仍然没有正式写权限。
+
+### 13.2 路由结果
+
+Draft 捕获不再固定等于 ApprovalRequired，而是返回：
+
+```text
+DraftRouteOutcome
+  waiting_approval
+  auto_executed
+  no_change
+  execution_failed
+```
+
+DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publisher 只有在 `waiting_approval` 时创建并持久化 Approval、发布确认卡；自动与 `no_change` 路径不发布 pending 卡，避免卡片闪烁和用户点击竞态。`no_change` 直接持久化受控结果消息和 Artifact。
+
+### 13.3 公共 Commit Coordinator
+
+`approval_decisions.py` 中的领域执行部分提取为公共 `DraftCommitCoordinator`：
+
+- 人工路径先记录真实决定，再调用 Coordinator；
+- 自动路径通过最终门禁后直接调用 Coordinator；
+- Coordinator 统一负责 operation 幂等、领域执行、结果序列化、撤销上下文、Artifact、活动日志和缓存标签；
+- 每个领域仍由现有 Service 负责权限、锁、事务内业务校验和正式写入。
+
+### 13.4 自动执行事务
+
+```text
+捕获并归一化 Draft
+  -> 验证 Intent Evidence
+  -> 策略预判
+  -> 持久化 Draft
+  -> 锁 Run 与 Draft
+  -> 按固定顺序锁家庭策略和成员偏好并最终复核
+  -> 标记 auto_execution_attempted
+  -> 若全部目标已满足，持久化 no_change 结果并提交
+  -> 创建 pending AIOperation
+  -> nested transaction 执行领域 Service
+  -> 生成 revert context
+  -> Operation completed + Draft executed
+  -> 持久化 result message/artifact
+  -> 提交事务
+  -> 发布 SSE 与缓存失效
+```
+
+相对锁顺序遵循既有 AI Run 取消规格：
+
+```text
+AIAgentRun
+  -> AIApprovalRequest（如存在）
+  -> AITaskDraft
+  -> 家庭策略行
+  -> 成员偏好行
+  -> AIOperation
+  -> 领域 Service 固定锁顺序
+```
+
+授权设置接口只锁设置行，不反向锁 AI 对象，避免形成锁环。
+
+### 13.5 幂等
+
+- Draft 继续使用现有 idempotency key。
+- AIOperation idempotency key 由 `draft_id + draft_version` 派生，与执行模式无关。
+- 同一版 Draft 最多正式提交一次。
+- Runner 重试发现 completed/reverted Operation 时重放持久化结果，不重新调用领域 Service。
+- Runner 重试发现 Draft 已为 `no_change` 时重放持久化结果，不重新评估为一次新写入。
+- 自动执行失败后需要刷新业务数据并生成新 Draft/version；不能把原失败 Operation 换成一次新写入。
+- 撤销使用 operation 状态和 `revert_request_id` 保证幂等。
+
+### 13.6 失败处理
+
+- 证据或策略不满足：正常降级为人工确认，不作为系统错误。
+- 最终授权或限制不满足：在正式写入前降级人工确认。
+- 目标版本冲突：nested transaction 整笔回滚，Operation `failed`，Draft `execution_failed`，不发布过期确认卡。
+- 临时数据库错误：Draft `pending_retry`，只允许完全相同载荷的显式幂等重试。
+- 任一失败：不推进 Continuation，不调用下一 Draft。
+- 事务提交成功但 SSE 断开：重连从持久化消息、Draft 和 Operation 恢复。
+
+### 13.7 与取消状态机的关系
+
+- 自动执行前锁定 Run 并复核不存在已生效的取消命令。
+- 取消先取得 Run 锁时，不开始业务写入。
+- 自动 Commit 已开始后收到取消命令时，不回滚已经开始的正式业务事务；提交真实结果，随后按取消规格停止其余回复。
+- 自动 Draft 本身不启动 Continuation，因此取消后不会出现新的连锁写入。
+
+## 14. 撤销协调器
+
+统一接口：
+
+```text
+POST /api/ai/operations/{operation_id}/revert
+```
+
+处理步骤：
+
+1. 以当前 membership 的 `family_id` 加载 Operation。
+2. 校验当前用户是原执行人或当前 Owner。
+3. `FOR UPDATE` 锁定 AIOperation。
+4. 处理已撤销重放和 `revert_request_id` 复用。
+5. 检查 status、适配器、一小时截止时间和 blocked 状态。
+6. 由适配器按领域固定顺序锁定目标。
+7. 检查写入后版本、当前值和下游依赖。
+8. 在同一事务执行全部补偿。
+9. 更新 AIOperation、Draft、活动日志、结果消息、Artifact 和缓存标签。
+10. 提交后发布 `operation_reverted`。
+
+一小时边界为 `now <= revertible_until` 仍允许；`now > revertible_until` 过期。批量操作全量成功或全量失败。
+
+撤销成功是该 AIOperation 的终态，本次不提供“重做”或对撤销再撤销；用户需要恢复目标状态时，应发出一条新的明确业务指令并形成新的 Operation。
+
+稳定错误码：
+
+- `operation_not_revertible`
+- `revert_expired`
+- `revert_forbidden`
+- `revert_target_changed`
+- `revert_dependency_exists`
+- `revert_adapter_version_unsupported`
+- `revert_request_id_reused`
+
+关闭自动执行设置不影响已完成 Operation 的撤销资格。用户离开家庭后不能再访问；当前 Owner 仍可按领域条件撤销。
+
+## 15. 首批撤销适配器
+
+### 15.1 `food.favorite.v1`
+
+上下文：
+
+- `foodId`
+- `beforeFavorite`
+- `afterFavorite`
+- `afterRowVersion`
+
+撤销时锁 Food，检查家庭、存在性、row version 和当前 favorite 均等于写入后值，再恢复旧值。
+
+### 15.2 `meal_log.rating.v1`
+
+上下文：
+
+- `mealLogId`
+- `afterMealLogRowVersion`
+- `entries[]`：entry ID、旧评分、写入后评分
+
+按现有 MealLog 锁顺序锁定相关 Food 和 MealLog；检查父版本、entry 归属和当前评分；全部恢复后只 bump 一次 MealLog row version。
+
+### 15.3 `shopping_list.safe_write.v1`
+
+- 新增：保存所有新购物项 ID 和写入后版本；全部未修改、未完成、未用于入库时整体删除。
+- 修改：保存允许字段的前后值和写入后版本；只恢复数量、单位和备注。
+- 恢复待买：保存原 `done=true`、写入后 `done=false` 和版本；未再次修改时恢复。
+
+所有实体按稳定 ID 顺序锁定，任一冲突整批拒绝。
+
+### 15.4 `meal_log.simple_create.v1`
+
+AI 简单餐食新增在同一事务创建 MealLogRecordOperation，AIOperation 只保存底层 operation ID。领域账本使用 AI 传入的一小时截止时间。
+
+撤销要求创建出的 MealLog、MealLogFood 和相关记录仍符合领域账本的写入后版本与依赖约束。该路径不会包含库存扣减、媒体、计划完成或新 Food。
+
+### 15.5 `meal_plan.simple_create.v1`
+
+保存新 FoodPlanItem ID 和写入后 row version。撤销要求所有项目：
+
+- 仍存在；
+- 仍为 `planned`；
+- `meal_log_id` 为空；
+- 未被编辑；
+- 未产生其他领域依赖。
+
+成功后整体删除并同步清理/更新搜索索引。
+
+### 15.6 `inventory.operation_ref.v1`
+
+用于始终确认但可撤销的：
+
+- 库存入库；
+- 盘点；
+- 单独消耗；
+- 单独丢弃。
+
+直接消耗和丢弃必须扩展为生成 InventoryOperation 与前后快照行，不再只修改计数。AIOperation 保存底层 InventoryOperation ID；AI 调用使用一小时截止时间，普通页面仍使用原 15 分钟默认。
+
+## 16. 暂不实现的撤销
+
+### 16.1 做菜
+
+做菜同时影响 InventoryItem、Ingredient collection、MealLog/MealLogFood、FoodPlanItem、RecipeCookLog，并可能创建自制 Food。可靠撤销需要独立 RecipeCookOperation 账本和反向依赖检查，本次不实现。
+
+### 16.2 硬删除
+
+硬删除只有在具体实体采用软删除或拥有完整、可验证的依赖快照时才能恢复。本次不提供通用删除撤销。
+
+### 16.3 媒体和参与人复杂更新
+
+只有完整 operation 适配器能够恢复同一 Draft 的全部字段和媒体绑定，不能只恢复其中一部分。本次不实现。
+
+### 16.4 Composite 与 Continuation
+
+Composite 将来只有所有子步骤都产生可撤销上下文时，才能按依赖逆序原子恢复。Continuation 跨多个独立提交，只能分别撤销仍可撤销的 Operation。本次不实现整组或整链撤销。
+
+没有适配器的人工确认结果显示“前往页面修正”，不显示虚假撤销按钮。
+
+## 17. API 契约
+
+### 17.1 设置
+
+```text
+GET /api/ai/auto-execution/settings
+PUT /api/ai/auto-execution/preferences/{action_key}
+PUT /api/ai/auto-execution/family-policies/{action_key}
+```
+
+GET 返回：
+
+```json
+{
+  "catalog_version": "auto-execution.v1",
+  "consent_notice": {
+    "version": "auto-execution-consent.v1",
+    "acknowledged": false
+  },
+  "member_preferences": [],
+  "family_policies": [],
+  "limits": {
+    "shopping_list.safe_write": {
+      "add_or_restore_items": 5,
+      "update_items": 1
+    },
+    "meal_log.rate_food": {"items": 5},
+    "meal_log.simple_create": {"foods": 5},
+    "meal_plan.simple_create": {"items": 5}
+  },
+  "server_now": "2026-08-24T00:00:00Z"
+}
+```
+
+每个偏好或策略条目至少返回 `action_key`、原始 `enabled`、`effective_enabled`、`row_version`、`consent_notice_version` 和 `requires_reconsent`。不存在的行按 `enabled=false, effective_enabled=false, row_version=0` 序列化。PUT 请求包含 `enabled` 和 `expected_row_version`；开启时还必须包含响应中的 `consent_notice.version`。版本冲突返回结构化 409。家庭策略接口要求 Owner，目前只接受购物动作 key。
+
+### 17.2 撤销
+
+```text
+POST /api/ai/operations/{operation_id}/revert
+```
+
+请求：
+
+```json
+{
+  "client_request_id": "client-generated-id"
+}
+```
+
+响应包含：
+
+- 最新 Operation UI 投影；
+- 更新后的持久化 result card；
+- `cache_scopes`；
+- `server_now`。
+
+同一请求重放返回第一次成功/永久阻塞结果；一个已记录的 client request ID 用于其他 Operation 返回 409。
+
+### 17.3 Result UI 投影
+
+统一结果卡投影只向前端提供：
+
+- `draft_id`
+- `operation_id`，`no_change` 时为空
+- `result_status`：`completed | no_change | failed | reverted`
+- `execution_mode`：`manual_approval | policy_auto | policy_no_change`
+- `operation_status`，没有 AIOperation 时为空
+- `execution_explanation`
+- `revert_availability`
+- `revertible_until`
+- `revert_blocked_code`
+- `server_now`
+- `entities`
+- `cache_scopes`
+
+不返回完整授权快照、模型证据、提交 payload 或领域撤销 context。`no_change` 使用 `result_status=no_change`、`execution_mode=policy_no_change`、`operation_id=null` 和 `revert_availability=unsupported`；它仍有稳定 `draft_id`，可以刷新和重连恢复。
+
+`revert_availability` 枚举：
+
+```text
+available
+expired
+unsupported
+blocked
+reverted
+```
+
+## 18. SSE、消息与缓存
+
+事务提交后发布：
+
+- `operation_completed`
+- `operation_failed`
+- `operation_reverted`
+- `draft_no_change`
+
+人工确认、自动执行和 `no_change` 都使用同一 AI Result message part 外壳；真实写入内嵌 Operation 投影，`no_change` 使用可空 operation ID。自动路径不能在 commit 前发出成功事件。
+
+Result payload 携带服务端受控 `cache_scopes`。前端新增统一 `invalidateAfterAiOperationSettled`，按受影响领域刷新：
+
+- Food / 收藏；
+- MealLog / 历史；
+- MealPlan；
+- ShoppingList；
+- Inventory；
+- AI conversation/messages/operations。
+
+SSE 重连只读取持久化结果，不触发 Coordinator。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。
+
+## 19. 前端设置体验
+
+新增 `frontend/src/features/ai-auto-execution/`，承载 API、state、view model、桌面和移动视图。
+
+入口：
+
+- AI 工作区标题栏设置；
+- 家庭页面“AI 自动执行”快捷入口。
+
+个人设置不放入 Owner 专用“家庭 AI 服务”工作区。手机端使用独立全屏子页面；桌面端使用 AI 工作区内设置面板。
+
+页面分为：
+
+### 19.1 我的自动执行
+
+- 收藏状态
+- 餐食评分
+- 简单餐食记录
+- 简单餐食计划
+- 购物清单安全操作
+
+每行展示允许范围和不包含内容。当前成员第一次开启任一能力时显示一次当前版本说明：明确指令且符合规则时会直接执行，其他情况仍确认，可撤销操作在一小时内可恢复。服务端 notice version 升级后，下一次重新授权时再次展示。
+
+关闭立即生效，不二次确认。设置保存不做虚假乐观成功；仅禁用当前行。409 时刷新并提示设置已在其他页面更新。
+
+### 19.2 家庭共享操作
+
+Owner 可以切换“允许家庭成员在规则内自动维护购物清单”。普通成员只读。家庭未开放时，成员购物开关禁用并说明原因。
+
+开关使用 `role=switch`、`aria-checked` 和关联说明，点击区不小于 44px。
+
+## 20. Result Card 与撤销交互
+
+AI Result 根据状态显示：
+
+| 状态 | 眉题 |
+| --- | --- |
+| 人工确认成功 | 已按你的确认执行 |
+| 自动执行成功 | 已自动执行 |
+| 无需变更 | 已是目标状态 |
+| 已撤销 | 已撤销 |
+| 执行失败 | 未完成操作 |
+
+自动结果卡使用服务端固定模板生成说明，不能直接展示模型自由文本。默认说明：
+
+> 你明确要求执行此操作，且它符合已开启的低风险规则。
+
+并提供“管理自动执行设置”入口，不展示置信度或内部策略详情。
+
+可撤销卡显示：
+
+- “可在 1 小时内撤销”；
+- 绝对截止时间，例如“可撤销至 15:42”；
+- “撤销”按钮；
+- “查看详情”入口。
+
+撤销直接执行，不增加确认弹窗，也不乐观显示成功。成功后原卡片原位变为“已撤销”，使用 `aria-live=polite` 宣布，不抢焦点。
+
+不可撤销状态：
+
+- 过期：“撤销时间已过，可前往页面修改”；
+- 版本变化：“相关内容后来被修改，无法安全撤销”；
+- 依赖出现：“该内容已被后续操作使用”；
+- 不支持：“此操作需要前往页面修正”。
+
+永久版本/依赖冲突写入 blocked 后不再展示无效按钮；临时网络错误保留重试。离线时不把撤销排队到后台。
+
+移动端按钮自动换行且不横向滚动；倒计时按分钟更新，不每秒跳动。服务端时间、权限和最终撤销检查始终为准。
+
+所有视觉值复用现有 token、`StateBlock`、`StatusBadge` 和按钮体系，不新增任意色值、阴影或圆角。
+
+## 21. 数据库迁移
+
+新增一份完整 Alembic migration：
+
+1. 创建 `ai_auto_execution_preferences`。
+2. 创建 `ai_family_auto_execution_policies`。
+3. 扩展 `ai_task_drafts` 意图和策略字段。
+4. 扩展 `ai_operations` 执行、Run、策略、结果和撤销字段。
+5. 将 `ai_operations.approval_request_id` 改为 nullable，重建 `SET NULL` 外键。
+6. 扩展 `ai_agent_runs` 单轮自动执行字段。
+7. 为 `food_plan_items` 添加 `row_version` 和 server default。
+8. 更新非原生 Enum/约束以接受 InventoryOperationType `consume | dispose`。
+9. 添加家庭、状态、截止时间、动作 key、Run 和唯一幂等索引。
+
+数据迁移：
+
+- 现有 AIOperation 回填 `execution_mode=manual_approval`、`authorization_source=approval_request`。
+- 尽可能从 AIUserApproval、Approval 审计字段和 Draft 创建人回填 actor。
+- 无法可靠确定的遗留 actor 保持 nullable；新 Coordinator 强制新行 actor 非空。
+- 现有 Draft 回填 `execution_route=manual_confirmation`；遗留行的意图证据和策略字段允许为空，新捕获行由 Routing Coordinator 完整写入。
+- Draft `confirmed -> executed`。
+- Draft `confirmation_failed -> execution_failed`。
+- 现有撤销截止时间不修改。
+- 所有偏好和家庭策略初始关闭。
+
+不修改旧 migration。Migration 必须支持 MySQL upgrade/downgrade，并保持单一 Alembic head。
+
+## 22. 错误与安全边界
+
+- 所有设置、Draft、Approval、Operation、撤销和领域查询必须以当前 membership 的 `family_id` 隔离。
+- 不信任请求体中的 family、actor、Owner 或权限字段。
+- 自动执行 actor 固定为当前用户消息/Run 创建人。
+- 公开会话不继承会话 Owner 的授权。
+- 自动执行不会绕过领域 Service 的 membership、Owner、归属和版本检查。
+- 引用文本和模型声明不是授权；服务端规则和当前数据库状态才是授权。
+- 目标在策略判断后变化时必须失败，不按旧快照继续写。
+- 自动执行不包含媒体、文件生成、外部通知或第三方副作用。
+- 结果卡不能在提交前声称完成。
+- 撤销不能覆盖后续修改，也不能部分恢复批量操作。
+- 取消、失败、拒绝、过期、撤销和无需变更使用不同状态，不互相冒充。
+
+## 23. 测试策略
+
+### 23.1 策略单元测试
+
+覆盖所有允许与拒绝规则：
+
+- 四档 intent clarity；
+- 缺失/伪造 quote；
+- 不可信/过期 resolution source；
+- 关键默认值；
+- ambiguity code；
+- 成员与 Owner 授权；
+- consent notice 版本匹配、旧版本降级与重新授权；
+- 批量边界 1、5、6；
+- 缺少适配器；
+- Composite、Continuation；
+- 同一 Run 第二笔；
+- 目标过期和 no-change。
+
+按五个动作 key 覆盖字段白名单与边界：购物混合/删除/缺数量，餐食库存/媒体/额外参与人/缺份量，计划更新/状态/缺日期等。
+
+### 23.2 后端集成测试
+
+验证：
+
+- 自动成功不创建 AIApprovalRequest 或 AIUserApproval；
+- 人工降级恰好创建一份审批且不提前写业务数据；
+- 人工和自动进入同一 Commit Coordinator；
+- actor 来自当前消息/Run；
+- 幂等重试不重复写入；
+- 冲突整笔回滚；
+- 失败不推进 Continuation；
+- SSE 重连只恢复持久化结果；
+- `no_change` 不创建 Approval/AIOperation、占用本轮名额并可在刷新后恢复；
+- 取消与自动 commit 的锁后复核语义；
+- 业务缓存标签完整。
+
+### 23.3 撤销测试
+
+每个首批适配器覆盖：
+
+- 原执行人；
+- Owner；
+- 其他成员 403；
+- 一小时包含边界；
+- 过期；
+- row version 变化；
+- 下游依赖；
+- 批量原子性；
+- 已撤销幂等重放；
+- client request ID 跨 Operation 复用；
+- 永久 blocked 与临时错误；
+- 活动日志、message、artifact、SSE 和 cache scopes。
+
+库存额外覆盖入库、盘点、消耗和丢弃的前后快照恢复，以及非 AI 调用仍为 15 分钟。
+
+### 23.4 前端测试
+
+覆盖：
+
+- Owner/Member 设置差异；
+- 家庭购物策略禁用；
+- 第一次开启说明；
+- 设置 row version 409；
+- 人工、自动、无需变更、失败、已撤销卡片；
+- available、expired、unsupported、blocked、reverted；
+- 请求期间不乐观成功；
+- 离线不排队；
+- 键盘、switch、aria-live 和焦点；
+- 业务与 AI React Query 缓存失效；
+- SSE 重连和持久化卡片恢复。
+
+### 23.5 验证命令
+
+实施完成后至少执行：
+
+```bash
+# 定向后端测试后再跑全量质量
+npm run backend:quality
+
+# Alembic 单头与 MySQL upgrade/downgrade/upgrade
+backend/.venv/bin/alembic heads
+npm run backend:migrate
+
+# 定向 Vitest 后再跑前端质量、构建和 token 检查
+npm run frontend:quality
+npm run frontend:build
+npm --prefix frontend run check:style-tokens
+
+# 关键响应式路径
+npm run frontend:e2e:p0
+```
+
+人工验收记录实际手机和桌面视口；样式 token 报告必须人工审阅新增命中，不能仅依据退出码。
+
+## 24. 实施范围与顺序约束
+
+本次实现包含：
+
+- 数据模型、Alembic migration 和跨端契约；
+- 意图证据与策略注册表；
+- 成员偏好和家庭策略；
+- Draft routing 与公共 Commit Coordinator；
+- 五类首批自动执行；
+- 收藏、评分、购物、简单餐食、简单计划撤销；
+- 库存入库、盘点、消耗、丢弃的 AI 撤销；
+- Result Card、设置页、SSE、消息和缓存；
+- AI 标准、Skill contract 和测试。
+
+本次明确不实现第 4 节与第 16 节列出的非目标。
+
+实施必须先完成数据模型、公共 Coordinator 和撤销底座，再开放任何策略自动执行。不能以临时分支绕过 Approval 或在前端隐藏确认卡来模拟完成。
+
+## 25. 验收标准
+
+满足以下条件才算完成：
+
+1. 未开启授权或授权的 consent notice 已过期时，所有现有 Draft 仍按人工确认工作。
+2. 明确、白名单、已授权且可撤销的首批动作不创建审批，恰好执行一次。
+3. 隐含、缺字段、超限、无授权、无适配器或连锁动作不自动执行。
+4. 自动路径的数据库审计中不存在伪造用户批准。
+5. 人工与自动路径的领域写入和结果契约一致。
+6. 五类首批自动执行动作，以及始终确认但已纳入的库存操作，在一小时内且状态未变化时可以整笔撤销。
+7. 后续修改或依赖出现时撤销返回明确冲突，不覆盖数据。
+8. 刷新、重连、重试和重复撤销都不产生重复写入。
+9. 公开会话使用当前发言成员的授权和 actor。
+10. 前端准确区分人工、自动、无需变更、失败、过期、阻塞和已撤销。
+11. 业务缓存不会因自动执行或撤销保持陈旧。
+12. MySQL migration、后端质量、前端质量、构建、样式检查和关键响应式验证均通过并有新鲜证据。
+
+## 26. 已关闭的设计决策
+
+本规格没有待定产品项：
+
+- 首批动作、档位、授权、批量限制均已确认；
+- 撤销窗口、权限和冲突语义已确认；
+- 首批撤销适配器和明确排除项已确认；
+- Runtime、事务、幂等、UI、API、迁移和测试边界已确认；
+- 发布方式已确认直接实现，不使用 Shadow Mode 或灰度。
+
+任何扩大到做菜撤销、硬删除恢复、复杂媒体/参与人恢复、Composite 整组撤销或 Continuation 整链撤销的需求，都必须作为新的设计范围重新评估。
