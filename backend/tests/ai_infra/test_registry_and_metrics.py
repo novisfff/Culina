@@ -1,3 +1,5 @@
+import hashlib
+import json
 from typing import Any
 
 from ._support import *
@@ -26,6 +28,11 @@ from app.services.ai_operations.registry_types import (
     DraftOperationSpec,
     DraftPostExecuteContext,
 )
+
+
+def _draft_payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _highlight_test_spec(draft_type: str) -> DraftOperationSpec:
@@ -278,6 +285,7 @@ def _add_quality_approval_fixture(
             source_run_id=run_id,
             draft_type="recipe",
             payload={},
+            payload_hash=_draft_payload_hash({}),
             idempotency_key=f"quality-window-{suffix}",
         )
     )
@@ -1028,9 +1036,9 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                     AIConversation(id="quality-conversation-other", family_id=self.other_family.id, owner_user_id=self.user.id, visibility=AIConversationVisibility.PRIVATE, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}, created_by=self.user.id),
                 ]
                 drafts = [
-                    AITaskDraft(id="quality-draft-unedited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, idempotency_key="quality-unedited"),
-                    AITaskDraft(id="quality-draft-edited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, idempotency_key="quality-edited"),
-                    AITaskDraft(id="quality-draft-other", family_id=self.other_family.id, conversation_id="quality-conversation-other", source_run_id="agent-run-quality-other-family", draft_type="recipe", payload={}, idempotency_key="quality-other"),
+                    AITaskDraft(id="quality-draft-unedited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, payload_hash=_draft_payload_hash({}), idempotency_key="quality-unedited"),
+                    AITaskDraft(id="quality-draft-edited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, payload_hash=_draft_payload_hash({}), idempotency_key="quality-edited"),
+                    AITaskDraft(id="quality-draft-other", family_id=self.other_family.id, conversation_id="quality-conversation-other", source_run_id="agent-run-quality-other-family", draft_type="recipe", payload={}, payload_hash=_draft_payload_hash({}), idempotency_key="quality-other"),
                 ]
                 db.add_all([*conversations, *drafts])
                 db.flush()
