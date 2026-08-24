@@ -206,6 +206,8 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 
 模型声明 `defaultedFields=[]` 不构成证明。服务端按动作关键字段表重新检查每个值是否来自用户原话或可信来源。证据缺失、格式错误或无法验证时，Draft 仍可进入人工确认，但不能自动执行。
 
+对 `meal_log.simple_create` 和 `meal_plan.simple_create`，语义字段 `action` 也是关键证据：当前用户消息必须明确要求“记录/新增这餐”或“加入/安排到计划”。即使日期、餐次、Food 和份量等业务字段全部齐全，单纯陈述已经吃过什么、打算吃什么或描述一个安排，也不能由服务端推断为新增指令，只能进入人工确认。
+
 证据 Schema 对数组长度、文本长度和字段数量设置固定上限，拒绝无限载荷。自由文本解释不参与授权。
 
 ## 9. 自动执行全局门禁
@@ -318,6 +320,7 @@ no_change
 允许：
 
 - 只创建一条新 MealLog；
+- 当前用户消息明确要求记录或新增这餐，`action` 有可验证的原话证据；
 - 最多 5 个当前家庭已有 Food；
 - 日期、餐次和每个 Food 的份量来源明确；
 - 参与人严格等于当前成员；
@@ -336,6 +339,7 @@ no_change
 允许：
 
 - 只新增 FoodPlanItem；
+- 当前用户消息明确要求加入或安排到餐食计划，`action` 有可验证的原话证据；
 - 最多 5 个当前家庭已有 Food；
 - 日期和餐次来源明确；
 - `user_id` 固定为当前成员；
@@ -525,7 +529,7 @@ DraftRouteOutcome
   execution_failed
 ```
 
-DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publisher 只有在 `waiting_approval` 时创建并持久化 Approval、发布确认卡；自动与 `no_change` 路径不发布 pending 卡，避免卡片闪烁和用户点击竞态。`no_change` 直接持久化受控结果消息和 Artifact。
+DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publisher 和最终的 `AssistantResultPersister` 都只在路由结果为 `waiting_approval` 时创建、关联或补齐 Approval 并发布确认卡；不能再用“Draft 缺少 Approval”作为补建条件。自动与 `no_change` 路径不发布 pending 卡，也不会在最终结果持久化时被补建 Approval，避免卡片闪烁、用户点击竞态和伪审批。`no_change` 直接持久化受控结果消息和 Artifact。
 
 ### 13.3 公共 Commit Coordinator
 
@@ -606,16 +610,16 @@ POST /api/ai/operations/{operation_id}/revert
 
 处理步骤：
 
-1. 以当前 membership 的 `family_id` 加载 Operation。
+1. 以当前 membership 的 `family_id` 加载并 `FOR UPDATE` 锁定 AIOperation。
 2. 校验当前用户是原执行人或当前 Owner。
-3. `FOR UPDATE` 锁定 AIOperation。
-4. 处理已撤销重放和 `revert_request_id` 复用。
+3. 权限通过后才处理已撤销/永久阻塞重放和全局 `revert_request_id` 复用。
+4. 对同一 Operation 的相同请求返回已保存结果；对其他 Operation 的复用返回冲突。
 5. 检查 status、适配器、一小时截止时间和 blocked 状态。
 6. 由适配器按领域固定顺序锁定目标。
 7. 检查写入后版本、当前值和下游依赖。
 8. 在同一事务执行全部补偿。
 9. 更新 AIOperation、Draft、活动日志、结果消息、Artifact 和缓存标签。
-10. 提交后发布 `operation_reverted`。
+10. 提交后通过现有 SSE `message_part` 事件发布已更新的持久化 result part。
 
 一小时边界为 `now <= revertible_until` 仍允许；`now > revertible_until` 过期。批量操作全量成功或全量失败。
 
@@ -747,7 +751,7 @@ GET 返回：
 }
 ```
 
-每个偏好或策略条目至少返回 `action_key`、原始 `enabled`、`effective_enabled`、`row_version`、`consent_notice_version` 和 `requires_reconsent`。不存在的行按 `enabled=false, effective_enabled=false, row_version=0` 序列化。PUT 请求包含 `enabled` 和 `expected_row_version`；开启时还必须包含响应中的 `consent_notice.version`。版本冲突返回结构化 409。家庭策略接口要求 Owner，目前只接受购物动作 key。
+每个偏好或策略条目至少返回 `action_key`、原始 `enabled`、`effective_enabled`、`row_version`、`consent_notice_version` 和 `requires_reconsent`。不存在的行按 `enabled=false, effective_enabled=false, row_version=0` 序列化。两个 PUT 成功后都返回与 GET 完全相同的完整 settings envelope，前端不自行拼装聚合授权状态。PUT 请求包含 `enabled` 和 `expected_row_version`；开启时还必须包含响应中的 `consent_notice.version`。版本冲突返回结构化 409。家庭策略接口要求 Owner，目前只接受购物动作 key。
 
 ### 17.2 撤销
 
@@ -770,7 +774,9 @@ POST /api/ai/operations/{operation_id}/revert
 - `cache_scopes`；
 - `server_now`。
 
-同一请求重放返回第一次成功/永久阻塞结果；一个已记录的 client request ID 用于其他 Operation 返回 409。
+同一请求重放返回第一次成功/永久阻塞结果；一个已记录的 client request ID 用于其他 Operation 返回 409。以上重放和复用判断只能在原执行人/当前 Owner 权限校验通过后进行，不能让无权限调用者读取或探测历史结果。
+
+`revert_target_changed`、`revert_dependency_exists` 或 `revert_adapter_version_unsupported` 会把 Operation 持久化为永久 blocked。对应 409 的 `detail` 除 `code`、`message` 外，还必须返回最新 `projection`、`result_card`、`cache_scopes`、`server_now` 和 `replayed`；前端用它立即替换原卡片并移除失效的撤销按钮。临时错误不返回伪造的 blocked 投影。
 
 ### 17.3 Result UI 投影
 
@@ -803,14 +809,9 @@ reverted
 
 ## 18. SSE、消息与缓存
 
-事务提交后发布：
+人工确认、自动执行、执行失败、撤销和 `no_change` 都复用现有 SSE 传输事件 `message_part`，其 data 继续使用 `message_id`、`conversation_id`、`run_id` 和持久化 `part`。不新增 `operation_completed`、`operation_failed`、`operation_reverted` 或 `draft_no_change` 顶层 SSE 事件；结果种类由 part 内的 `result_status` 和 `execution_mode` 表达，直接进入现有 `onMessagePart -> applyStreamPart` 合并链。
 
-- `operation_completed`
-- `operation_failed`
-- `operation_reverted`
-- `draft_no_change`
-
-人工确认、自动执行和 `no_change` 都使用同一 AI Result message part 外壳；真实写入内嵌 Operation 投影，`no_change` 使用可空 operation ID。自动路径不能在 commit 前发出成功事件。
+所有路径使用同一 AI Result message part 外壳；真实写入内嵌 Operation 投影，`no_change` 使用可空 operation ID。自动路径不能在 commit 前发出成功 part。
 
 Result payload 携带服务端受控 `cache_scopes`。前端新增统一 `invalidateAfterAiOperationSettled`，按受影响领域刷新：
 
@@ -821,7 +822,7 @@ Result payload 携带服务端受控 `cache_scopes`。前端新增统一 `invali
 - Inventory；
 - AI conversation/messages/operations。
 
-SSE 重连只读取持久化结果，不触发 Coordinator。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。
+SSE 重连只读取持久化结果，不触发 Coordinator。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。自动执行设置的 React Query key 必须包含当前 `family_id`，家庭切换不能复用上一家庭的设置缓存。
 
 ## 19. 前端设置体验
 
@@ -888,7 +889,9 @@ AI Result 根据状态显示：
 - 依赖出现：“该内容已被后续操作使用”；
 - 不支持：“此操作需要前往页面修正”。
 
-永久版本/依赖冲突写入 blocked 后不再展示无效按钮；临时网络错误保留重试。离线时不把撤销排队到后台。
+`no_change` 虽在传输契约中使用 `revert_availability=unsupported`，但它不是一次需要撤销或修正的写入。View Model 必须先按 `result_status=no_change` 返回“相关内容已经是你要求的状态”，不显示撤销、过期、不支持或“前往页面修正”提示。
+
+永久版本/依赖冲突写入 blocked 后，前端从结构化 409 立即应用最新 result card，不再展示无效按钮；临时网络错误保留重试。离线时不把撤销排队到后台。
 
 移动端按钮自动换行且不横向滚动；倒计时按分钟更新，不每秒跳动。服务端时间、权限和最终撤销检查始终为准。
 
@@ -945,6 +948,7 @@ AI Result 根据状态显示：
 - 缺失/伪造 quote；
 - 不可信/过期 resolution source；
 - 关键默认值；
+- 简单餐食/计划业务字段齐全但当前消息没有明确新增指令；
 - ambiguity code；
 - 成员与 Owner 授权；
 - consent notice 版本匹配、旧版本降级与重新授权；
@@ -985,6 +989,7 @@ AI Result 根据状态显示：
 - 下游依赖；
 - 批量原子性；
 - 已撤销幂等重放；
+- 无权限调用者即使复用已成功或永久阻塞的 request ID 也先得到 403；
 - client request ID 跨 Operation 复用；
 - 永久 blocked 与临时错误；
 - 活动日志、message、artifact、SSE 和 cache scopes。
@@ -999,6 +1004,7 @@ AI Result 根据状态显示：
 - 家庭购物策略禁用；
 - 第一次开启说明；
 - 设置 row version 409；
+- 家庭切换使用独立 settings query key；
 - 人工、自动、无需变更、失败、已撤销卡片；
 - available、expired、unsupported、blocked、reverted；
 - 请求期间不乐观成功；
@@ -1006,6 +1012,8 @@ AI Result 根据状态显示：
 - 键盘、switch、aria-live 和焦点；
 - 业务与 AI React Query 缓存失效；
 - SSE 重连和持久化卡片恢复。
+- result part 通过既有 `message_part` 消费链合并；
+- 永久撤销 409 立即替换 blocked 卡片，`no_change` 不显示“前往页面修正”。
 
 ### 23.5 验证命令
 

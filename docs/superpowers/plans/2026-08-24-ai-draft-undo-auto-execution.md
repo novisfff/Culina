@@ -13,6 +13,7 @@
 - 模型仍只能调用 read/draft/control Tool；所有相关 Draft Tool 的 `requires_confirmation` 保持 `True`，不新增或暴露正式业务 Write Tool。
 - 不使用连续 `confidence`；`intent_clarity` 只允许 `explicit_complete | explicit_context_resolved | explicit_incomplete | inferred`。
 - 自动执行动作只允许 `food.set_favorite`、`meal_log.rate_food`、`shopping_list.safe_write`、`meal_log.simple_create`、`meal_plan.simple_create`。
+- `meal_log.simple_create` 和 `meal_plan.simple_create` 必须有当前消息明确要求新增的 `action` 证据；字段齐全的事实陈述或意向描述仍然人工确认。
 - 五类动作默认关闭并要求当前成员 opt-in；`shopping_list.safe_write` 还要求当前 Owner 开启家庭策略；notice 版本固定从 `auto-execution-consent.v1` 开始。
 - 购物新增/恢复最多 5 项、修改最多 1 项；评分最多 5 项；简单餐食最多 5 个 Food；简单计划最多 5 项。
 - 每条用户消息最多尝试一个免确认 Draft；`no_change` 和执行失败同样占用名额；Composite 与 Continuation 始终人工确认。
@@ -63,7 +64,7 @@
 - Modify `backend/app/ai/tools/schemas.py`: shared bounded `INTENT_EVIDENCE_SCHEMA` on four relevant Draft schemas.
 - Modify `backend/app/ai/workflows/orchestrator/state.py` and `tools.py`: retain trusted call IDs/entity versions for read/UI/artifact references.
 - Modify `backend/app/ai/workflows/orchestrator/draft_capture.py` and `backend/app/ai/errors.py`: route-aware control flow rather than unconditional `ApprovalRequired`.
-- Modify `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py`, `orchestrator_next_state.py`, `message_parts.py` and `run_status.py`: publish only the route-appropriate persistent result.
+- Modify `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py`, `assistant_result_persister.py`, `orchestrator_next_state.py`, `message_parts.py` and `run_status.py`: create Approval only for `waiting_approval` and publish only the route-appropriate persistent result.
 - Modify `backend/app/ai/skills/loader.py`, `backend/app/ai/skills/base.py` and the four selected `skill.yaml` files: add `draft_then_policy` only when a server policy exists.
 
 ### Backend revert and domain ledgers
@@ -453,7 +454,13 @@ class AIAutoExecutionSettingsTestCase(AIAgentInfraTestCase):
                   "consent_notice_version": "auto-execution-consent.v1"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["effective_enabled"])
+        body = response.json()
+        favorite = next(
+            row for row in body["member_preferences"]
+            if row["action_key"] == "food.set_favorite"
+        )
+        self.assertTrue(favorite["effective_enabled"])
+        self.assertEqual(body["catalog_version"], "auto-execution.v1")
         stale = self.client.put(
             "/api/ai/auto-execution/preferences/food.set_favorite",
             json={"enabled": False, "expected_row_version": 0},
@@ -521,6 +528,8 @@ def set_family_policy(
 ) -> AutoExecutionSettingEntryOut: ...
 ```
 
+The service setters may return the changed `AutoExecutionSettingEntryOut` internally, but both successful PUT routes must call `get_auto_execution_settings(...)` after the write and return the complete `AutoExecutionSettingsOut` envelope, exactly like GET. This keeps `consent_notice.acknowledged`, both row collections, limits and `server_now` server-owned; the frontend never patches a single row into cached aggregate state.
+
 Map unknown action keys to 404, non-Owner family writes to 403, stale versions and old notice versions to structured 409. Register `ai_auto_execution.router` after `ai_router` without changing existing paths.
 
 - [ ] **Step 4: Run settings tests and API contract checks**
@@ -553,7 +562,7 @@ git commit -m "feat: add AI auto execution settings"
 
 - [ ] **Step 1: Write failing schema and validator tests**
 
-Test all four clarity levels, NFC/whitespace quote match, quote mismatch, untrusted call ID, cross-family entity, stale version, array/text bounds, defaulted critical fields and evidence omission falling back to manual eligibility.
+Test all four clarity levels, NFC/whitespace quote match, quote mismatch, untrusted call ID, cross-family entity, stale version, array/text bounds, defaulted critical fields and evidence omission falling back to manual eligibility. Include a complete simple-meal/simple-plan payload whose current message only states what was eaten or may be eaten: without a verified semantic `action` field, validation remains manual-only.
 
 ```python
 def test_explicit_context_resolution_requires_trusted_call_and_version() -> None:
@@ -799,7 +808,7 @@ def test_action_policy_matrix(policy_context_factory, case):
     assert decision.route == case.expected_route
 ```
 
-Also assert: rating actor must be MealLog creator or participant; shopping modes cannot mix; tracked-quantity shopping requires quote/artifact provenance for quantity and unit; ready Food types are only `readyMade | instant | packaged`; simple meal has one current actor, explicit date/meal type/servings, no media/plan/stock/Continuation; simple plan fixes `user_id` to actor and only creates unique planned items.
+Also assert: rating actor must be MealLog creator or participant; shopping modes cannot mix; tracked-quantity shopping requires quote/artifact provenance for quantity and unit; ready Food types are only `readyMade | instant | packaged`; simple meal has one current actor, explicit create intent/date/meal type/servings, no media/plan/stock/Continuation; simple plan has explicit create intent, fixes `user_id` to actor and only creates unique planned items. For both create policies, field-complete statements such as “今天午餐吃了番茄炒蛋” or “明晚吃番茄炒蛋” without a request to record/add must return `manual_confirmation`.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -828,8 +837,8 @@ CRITICAL_FIELDS = {
     "food.set_favorite": frozenset({"action", "targetId", "payload.favorite"}),
     "meal_log.rate_food": frozenset({"action", "targetId", "payload.foodEntryRatings[].id", "payload.foodEntryRatings[].rating"}),
     "shopping_list.safe_write": frozenset({"operations[].action", "operations[].targetId", "operations[].payload.quantity", "operations[].payload.unit"}),
-    "meal_log.simple_create": frozenset({"date", "mealType", "foods[].foodId", "foods[].servings"}),
-    "meal_plan.simple_create": frozenset({"items[].date", "items[].mealType", "items[].foodId"}),
+    "meal_log.simple_create": frozenset({"action", "date", "mealType", "foods[].foodId", "foods[].servings"}),
+    "meal_plan.simple_create": frozenset({"action", "items[].date", "items[].mealType", "items[].foodId"}),
 }
 ```
 
@@ -1038,6 +1047,7 @@ git commit -m "refactor: share AI draft commit coordination"
 - Modify: `backend/app/ai/workflows/orchestrator/agent.py`
 - Modify: `backend/app/ai/workflows/orchestrator/results.py`
 - Modify: `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py`
+- Modify: `backend/app/ai/workflows/runner_support/assistant_result_persister.py`
 - Modify: `backend/app/ai/workflows/runner_support/orchestrator_next_state.py`
 - Modify: `backend/app/ai/workflows/runner_support/message_parts.py`
 - Modify: `backend/app/ai/workflows/runner_support/run_status.py`
@@ -1049,7 +1059,7 @@ git commit -m "refactor: share AI draft commit coordination"
 
 - [ ] **Step 1: Write failing route/state-machine tests**
 
-Cover manual default, authorized auto success, final authorization downgrade, no-change, second attempt, conflict failure, idempotent replay, cancellation-before-lock and no Continuation advance.
+Cover manual default, authorized auto success, final authorization downgrade, no-change, second attempt, conflict failure, idempotent replay, cancellation-before-lock and no Continuation advance. Exercise the full Runner final-persistence path and assert it cannot recreate an Approval for an auto/no-change Draft merely because `approval_id` is absent.
 
 ```python
 def test_auto_route_creates_no_approval_and_commits_once(self) -> None:
@@ -1115,6 +1125,8 @@ class DraftRouted(Exception):
 
 `capture_draft_output` raises `ApprovalRequired` only for `waiting_approval`; it raises `DraftRouted` for `auto_executed | no_change | execution_failed`. The assembler returns the persisted Draft/result and a completed/failed SkillResult. `OrchestratorNextStateResolver` accepts a Draft without Approval only when its route outcome is one of those three; the existing `draft_without_approval` guard remains for malformed results.
 
+Refactor `AssistantResultPersister` so `assistant_status`, Draft/Approval association and missing-part repair use the persisted route outcome, not `bool(result.drafts)` or `approval is None`. It may call `_create_draft_approval` and `missing_draft_approval_message_parts` only for `waiting_approval`; auto/no-change/failure results reuse their already-persisted Draft/result part and leave `approval_ids=[]`. This final persistence pass must be covered by the routing tests.
+
 Publisher emits Draft+Approval parts only after the manual checkpoint. Auto/no-change emit only the persisted result part after commit, so no pending card is visible. Retried completed/reverted Operations and `no_change` Drafts replay persisted parts without policy/domain re-execution. Any failure suppresses Continuation and does not let the model call a second Draft. A transient `pending_retry` keeps `run.auto_execution_attempted=True`; the one-attempt gate permits only the explicit recovery of that same Draft ID/version/payload hash and never opens a slot for another Draft.
 
 - [ ] **Step 4: Run routing, streaming and cancellation tests**
@@ -1147,7 +1159,7 @@ git commit -m "feat: route AI drafts through server policy"
 
 **Interfaces:**
 - Consumes: `AIOperationResultProjection`, `DraftExecutionReceipt`, persisted Draft/Operation, and post-commit event publishing from Tasks 6–8.
-- Produces: `project_ai_operation_result(...) -> AIOperationResultProjection`, `serialize_ai_operation_result_projection(...) -> dict[str, Any]`, `upsert_message_operation_result(...) -> dict[str, Any]`, `operation_result_artifacts(...) -> tuple[dict[str, Any], ...]`, and `operation_result_event_name(...) -> str`.
+- Produces: `project_ai_operation_result(...) -> AIOperationResultProjection`, `serialize_ai_operation_result_projection(...) -> dict[str, Any]`, `upsert_message_operation_result(...) -> dict[str, Any]`, `operation_result_artifacts(...) -> tuple[dict[str, Any], ...]`; post-commit delivery reuses the existing SSE `message_part` envelope.
 
 - [ ] **Step 1: Write failing public-projection and persistence tests**
 
@@ -1190,7 +1202,7 @@ def test_result_part_is_replaced_in_place_on_terminal_state_change(self) -> None
     self.assertEqual(second["card"]["data"]["result_status"], "reverted")
 ```
 
-Also parameterize `manual_approval`, `policy_auto`, `policy_no_change`, `failed` and `reverted`; assert event names are respectively `operation_completed`, `operation_completed`, `draft_no_change`, `operation_failed` and `operation_reverted`. Assert no event is enqueued before the surrounding transaction commits, and SSE replay reads the persisted part without invoking the policy or domain executor.
+Also parameterize `manual_approval`, `policy_auto`, `policy_no_change`, `failed` and `reverted`; assert every transport event is named `message_part`, carries `message_id/conversation_id/run_id/part`, and exposes the corresponding outcome only through `part.card.data.result_status` and `execution_mode`. Assert no part is enqueued before the surrounding transaction commits, and SSE replay reads the persisted part without invoking the policy or domain executor. Do not add top-level `operation_completed`, `operation_failed`, `operation_reverted` or `draft_no_change` events that the current frontend parser would drop.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -1301,7 +1313,21 @@ def operation_result_artifacts(
 
 `upsert_message_operation_result` finds an existing `result_card` by `card.data.draft_id`; it retains the message-part ID and replaces the card and matching metadata Artifact. If absent, it creates one part after the matching Approval for manual execution or appends it for policy routes. Remove approval-only assumptions from the old builder, but preserve approval IDs as optional display metadata for existing clients.
 
-`DraftCommitCoordinator` and `DraftRoutingCoordinator` persist projection, part and Artifact inside the transaction. The publisher queues only `operation_result_event_name(projection)` after commit. `no_change` always passes only `("ai_conversation",)`; real writes use the receipt scopes. Operation serialization and response schemas use the same whitelist.
+`DraftCommitCoordinator` and `DraftRoutingCoordinator` persist projection, part and Artifact inside the transaction. After commit, the publisher emits the exact persisted part through the existing envelope:
+
+```python
+{
+    "event": "message_part",
+    "data": {
+        "message_id": message.id,
+        "conversation_id": message.conversation_id,
+        "run_id": message.run_id,
+        "part": result_part,
+    },
+}
+```
+
+This must flow through the current `aiApi.streamAiResponse` `onMessagePart` handler and `AiWorkspace.applyStreamPart`, whose stable card ID replaces an earlier result part. `no_change` always passes only `("ai_conversation",)`; real writes use the receipt scopes. Operation serialization and response schemas use the same whitelist.
 
 - [ ] **Step 4: Run projection, streaming and existing card tests**
 
@@ -1375,7 +1401,7 @@ def test_permanent_conflict_is_recorded_but_transient_error_is_not(self) -> None
     self.assertIsNone(load_operation("operation-transient").revert_blocked_code)
 ```
 
-Also cover: cross-family 404, original actor, current Owner, other member 403, actor who left the family, `now > revertible_until`, missing adapter, unsupported context schema version, already blocked, all-or-nothing nested rollback, Draft status update, activity log, message/Artifact replacement and post-commit `operation_reverted`.
+Also cover: cross-family 404, original actor, current Owner, other member 403, actor who left the family, `now > revertible_until`, missing adapter, unsupported context schema version, already blocked, all-or-nothing nested rollback, Draft status update, activity log, message/Artifact replacement and post-commit updated `message_part`. Add explicit cases where an unauthorized member reuses the original actor's successful or permanently blocked request ID: both must fail permission before any replay payload or global request-ID result is returned.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -1445,15 +1471,15 @@ def find_ai_operation_by_revert_request_id_for_update(
 `AIRevertCoordinator.revert` performs checks in this order:
 
 1. family-scoped Operation load and `FOR UPDATE`;
-2. global request-ID reuse check;
-3. exact successful/permanent-result replay for the same Operation and request ID;
-4. original actor/current Owner permission;
+2. original actor/current Owner permission;
+3. global request-ID reuse check;
+4. exact successful/permanent-result replay for the same Operation and request ID;
 5. `status=completed`, adapter/context presence and no prior blocked state;
 6. inclusive deadline check;
 7. adapter key and `revert_context_json.schema_version == adapter.schema_version`;
 8. adapter locks, validates and compensates all targets inside one nested transaction;
 9. Operation `reverted`, Draft `reverted`, activity, result projection, message and Artifact update;
-10. caller commit, then `operation_reverted` publication.
+10. caller commit, then publish the updated persisted result part through SSE `message_part`.
 
 The coordinator signature is fixed:
 
@@ -1473,7 +1499,7 @@ class AIRevertCoordinator:
     ) -> AIRevertResponse: ...
 ```
 
-When an adapter raises `revert_target_changed`, `revert_dependency_exists` or `revert_adapter_version_unsupported`, roll back the nested compensation, store `revert_request_id`, `revert_blocked_at`, `revert_blocked_code` and a replay-safe result, rebuild the persisted card, and let the route commit before returning the structured 409. Do not set blocked fields or consume the request ID for `OperationalError`, connection errors or transaction failures.
+When an adapter raises `revert_target_changed`, `revert_dependency_exists` or `revert_adapter_version_unsupported`, roll back the nested compensation, store `revert_request_id`, `revert_blocked_at`, `revert_blocked_code` and a replay-safe result, rebuild the persisted card, and let the route commit before returning the structured 409. The 409 `detail` must contain `code`, `message`, and the same public `projection`, `result_card`, `cache_scopes`, `server_now`, `replayed` fields as a successful response so the client can replace the card immediately. Do not set blocked fields, consume the request ID or return a fabricated blocked projection for `OperationalError`, connection errors or transaction failures.
 
 Define strict DTOs:
 
@@ -1488,9 +1514,17 @@ class AIRevertResponseDTO(BaseModel):
     cache_scopes: list[AICacheScope]
     server_now: datetime
     replayed: bool
+
+class AIRevertConflictDetailDTO(AIRevertResponseDTO):
+    code: Literal[
+        "revert_target_changed",
+        "revert_dependency_exists",
+        "revert_adapter_version_unsupported",
+    ]
+    message: str
 ```
 
-The API reads `user, membership = get_current_auth`, never accepts family/role/actor from the request, uses `commit_session`, and maps the seven stable errors without returning cross-family existence. A permanent conflict is committed before the HTTP error is raised; transient exceptions roll back. Register the router once in `backend/app/api/router.py`.
+The API reads `user, membership = get_current_auth`, never accepts family/role/actor from the request, uses `commit_session`, and maps the seven stable errors without returning cross-family existence. It must not perform same-request replay or global request-ID lookup before coordinator permission validation. A permanent conflict is committed before the HTTP error is raised and returns the latest public blocked-card fields in `detail`; transient exceptions roll back. Register the router once in `backend/app/api/router.py`.
 
 - [ ] **Step 4: Run coordinator, API and transaction tests**
 
@@ -2136,14 +2170,14 @@ git commit -m "feat: enable server policy routing for selected AI skills"
 
 **Interfaces:**
 - Consumes: exact Task 2 settings DTOs, Task 9 `AIOperationResultProjection` fields and Task 10 revert response.
-- Produces: typed settings/revert API methods, `queryKeys.aiAutoExecutionSettings`, and `invalidateAfterAiOperationSettled(queryClient, input)`.
+- Produces: typed settings/revert API methods, `queryKeys.aiAutoExecutionSettings(familyId)`, and `invalidateAfterAiOperationSettled(queryClient, input)`.
 
 - [ ] **Step 1: Write failing API and cache-scope tests**
 
 ```typescript
-it('sends current row version and notice only when enabling', async () => {
+it('sends current row version and receives the complete settings envelope', async () => {
   mockFetchOnce(settingsResponse());
-  await aiApi.updateAiAutoExecutionPreference('food.set_favorite', {
+  const response = await aiApi.updateAiAutoExecutionPreference('food.set_favorite', {
     enabled: true,
     expected_row_version: 2,
     consent_notice_version: 'auto-execution-consent.v1',
@@ -2159,6 +2193,8 @@ it('sends current row version and notice only when enabling', async () => {
       }),
     }),
   );
+  expect(response.member_preferences).toHaveLength(5);
+  expect(response.consent_notice.version).toBe('auto-execution-consent.v1');
 });
 
 it('posts an idempotent operation revert request', async () => {
@@ -2187,7 +2223,7 @@ it('no-change scopes invalidate only AI conversation data', async () => {
 });
 ```
 
-Parameterize all six cache scopes; verify deduplication, inventory uses the complete inventory-operation invalidation set, and business scopes never omit the AI message/conversation refresh supplied by `ai_conversation`.
+Parameterize all six cache scopes; verify deduplication, inventory uses the complete inventory-operation invalidation set, and business scopes never omit the AI message/conversation refresh supplied by `ai_conversation`. Assert `queryKeys.aiAutoExecutionSettings('family-a')` and `queryKeys.aiAutoExecutionSettings('family-b')` differ. Mock a permanent 409 whose `detail` contains the latest blocked projection/card/scopes and assert the typed conflict parser accepts it while rejecting incomplete/transient payloads. Feed a persisted `operation_result` part through a streamed `message_part` fixture and assert the existing `onMessagePart` callback receives it; no new top-level operation event parser is added.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -2234,6 +2270,14 @@ export interface AiOperationRevertResponse {
   server_now: string;
   replayed: boolean;
 }
+
+export interface AiOperationRevertConflict extends AiOperationRevertResponse {
+  code:
+    | 'revert_target_changed'
+    | 'revert_dependency_exists'
+    | 'revert_adapter_version_unsupported';
+  message: string;
+}
 ```
 
 Make `AiResultCard.data` include the projection fields directly for `type=operation_result`; do not introduce a second renamed projection. Keep legacy optional display keys during migration, but all state decisions use `result_status`, `execution_mode`, `revert_availability`, `revertible_until`, `revert_blocked_code` and `server_now`.
@@ -2266,7 +2310,7 @@ revertAiOperation: (
 ),
 ```
 
-Add `queryKeys.aiAutoExecutionSettings = ['ai-auto-execution-settings'] as const`. Implement one invalidator with explicit scope mappings:
+Add `queryKeys.aiAutoExecutionSettings = (familyId: string) => ['ai-auto-execution-settings', familyId] as const`; an empty or implicit family key is not allowed. Add a narrow `aiOperationRevertConflictFromError(error)` parser that accepts only a 409 `ApiError.payload.detail` with one of the three permanent codes and a complete public projection/card/scopes payload. Implement one invalidator with explicit scope mappings:
 
 ```typescript
 export async function invalidateAfterAiOperationSettled(
@@ -2292,7 +2336,7 @@ export async function invalidateAfterAiOperationSettled(
 }
 ```
 
-Do not infer scopes from entity labels or Draft types. Callers must use the server-returned scopes; `policy_no_change` therefore invalidates only AI data.
+Do not infer scopes from entity labels or Draft types. Callers must use the server-returned scopes; `policy_no_change` therefore invalidates only AI data. The stream API continues to consume result updates through its existing `message_part` branch; tests lock this transport contract so adding new unhandled top-level SSE names is not an implementation option.
 
 - [ ] **Step 4: Run API, query-key and invalidation tests**
 
@@ -2337,7 +2381,7 @@ git commit -m "feat: add frontend AI execution contracts"
 - Modify: `frontend/src/styles/02-family-settings.css`
 
 **Interfaces:**
-- Consumes: Task 15 API/types/query key and current membership role.
+- Consumes: Task 15 API/types/family-scoped query key, current `familyId` and membership role.
 - Produces: `AiView = 'conversation' | 'autoExecution'`, `{ workspace: 'ai'; view?: AiView }`, settings state/actions and accessible desktop/mobile settings views.
 
 Before editing UI, read `.agents/skills/frontend-ui-style/SKILL.md` and `.agents/skills/frontend-ui-engineering/SKILL.md` plus their routed references. Apply the existing token/component/responsive rules verbatim.
@@ -2379,7 +2423,7 @@ it('shows family shopping policy as read-only for members', () => {
 });
 ```
 
-Also cover: Owner editability, member shopping row disabled while family policy is off, re-consent on notice version change, immediate disable without dialog, only the active row disabled during PUT, 409 refetch/message, loading/error/retry, desktop panel, phone full-screen back behavior, persisted `ai.view`, keyboard activation, `role=switch`, `aria-checked`, description linkage and a minimum 44px hit target class.
+Also cover: Owner editability, member shopping row disabled while family policy is off, re-consent on notice version change, immediate disable without dialog, only the active row disabled during PUT, 409 refetch/message, loading/error/retry, desktop panel, phone full-screen back behavior, persisted `ai.view`, keyboard activation, `role=switch`, `aria-checked`, description linkage and a minimum 44px hit target class. Switch from family A to family B and assert the hook uses a distinct query key and never renders or writes family A's cached settings for family B.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -2442,7 +2486,7 @@ export const AI_AUTO_EXECUTION_ACTIONS = [
 ] as const satisfies readonly AiAutoExecutionActionDefinition[];
 ```
 
-`useAiAutoExecutionSettings` queries `queryKeys.aiAutoExecutionSettings`. It keeps `pendingActionKey` and pending scope (`member | family`) local, but never mutates cached enabled state before success. On success, replace the settings query with the server response. On structured 409, invalidate/refetch the settings query and expose “设置已在其他页面更新，请重新确认”。Other errors keep the current value and expose a row-level retry message.
+`useAiAutoExecutionSettings(familyId)` queries and writes only `queryKeys.aiAutoExecutionSettings(familyId)`. A family change resets row-local pending/error state and resolves against the new key; it never copies or shows the previous family's settings. The hook keeps `pendingActionKey` and pending scope (`member | family`) local, but never mutates cached enabled state before success. On success, replace that family-scoped settings query with the complete server envelope. On structured 409, invalidate/refetch the same family-scoped query and expose “设置已在其他页面更新，请重新确认”。Other errors keep the current value and expose a row-level retry message.
 
 When enabling, always send the current notice version. Show `AiAutoExecutionConsentDialog` only when the aggregate notice is unacknowledged or the row requires re-consent. The dialog text is fixed:
 
@@ -2499,12 +2543,11 @@ git commit -m "feat: add AI auto execution settings"
 - Modify: `frontend/src/components/ai/AiConversationThread.test.tsx`
 - Modify: `frontend/src/components/ai/AiWorkspace.tsx`
 - Modify: `frontend/src/components/ai/AiWorkspaceLiveSync.test.tsx`
-- Modify: `frontend/src/components/ai/useAiConversationLiveSync.ts`
 - Modify: `frontend/src/styles/09-ai-workspace.css`
 
 **Interfaces:**
 - Consumes: Task 15 `AiOperationResultProjection`, revert API and invalidator; Task 16 AI settings navigation target.
-- Produces: `operationResultProjection(card)`, `operationResultViewModel(projection, now)`, `useAiOperationRevert(...)`, direct revert UI and persisted part replacement on `operation_reverted`.
+- Produces: `operationResultProjection(card)`, `operationResultViewModel(projection, now)`, `useAiOperationRevert(...)`, direct revert UI and persisted result-part replacement through existing SSE `message_part`.
 
 - [ ] **Step 1: Write failing state, mutation, accessibility and live-sync tests**
 
@@ -2540,6 +2583,13 @@ it('does not queue revert while offline', async () => {
   expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled();
   expect(screen.getByText('联网后可重试撤销')).toBeVisible();
   expect(api.revertAiOperation).not.toHaveBeenCalled();
+});
+
+it('treats no-change as satisfied, not as an unsupported write', () => {
+  renderOperationCard(noChangeCard());
+  expect(screen.getByText('相关内容已经是你要求的状态。')).toBeVisible();
+  expect(screen.queryByText('此操作需要前往页面修正')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '撤销' })).not.toBeInTheDocument();
 });
 ```
 
@@ -2586,6 +2636,13 @@ export function operationResultViewModel(
   projection: AiOperationResultProjection,
   effectiveNowMs: number,
 ): AiOperationResultViewModel {
+  if (projection.result_status === 'no_change') {
+    return {
+      eyebrow: '已是目标状态',
+      canRevert: false,
+      statusText: projection.execution_explanation,
+    };
+  }
   if (projection.result_status === 'failed') {
     return { eyebrow: '未完成操作', canRevert: false, statusText: '本次操作未完成' };
   }
@@ -2646,11 +2703,11 @@ export function useAiOperationRevert(input: {
 }
 ```
 
-Retain the same request ID after a temporary network/database failure so an uncertain response can be replayed safely. Clear it after success or a structured permanent conflict. Do not register an offline mutation queue or persist revert requests to storage.
+Retain the same request ID after a temporary network/database failure so an uncertain response can be replayed safely. In `onError`, parse only Task 15's structured permanent 409: immediately call `onResultCard(conflict.result_card)`, invalidate with `conflict.cache_scopes`, announce the server message and clear the request ID. This replaces the available card with the persisted blocked card and removes the stale button. Other 409s and transient errors do not synthesize card state and retain the request ID for safe retry. Do not register an offline mutation queue or persist revert requests to storage.
 
 `AiResultCards` renders the server explanation, entities and status model. Available cards show “撤销”, “查看详情” and “管理自动执行设置”; the settings action calls `{ workspace: 'ai', view: 'autoExecution' }`. The revert button calls the hook immediately, shows a pending label while disabled, and does not open a dialog. A visually appropriate `role="status" aria-live="polite"` region announces success/error without moving focus.
 
-`AiConversationThread` passes conversation ID, navigation and result replacement callbacks. `AiWorkspace` replaces the matching local/React Query message part by stable card ID after the HTTP response. `useAiConversationLiveSync` handles `operation_completed`, `operation_failed`, `operation_reverted` and `draft_no_change` by merging the persisted message part; it never calls the mutation or Coordinator during reconnect. Refresh uses the same persisted card payload.
+`AiConversationThread` passes conversation ID, navigation and result replacement callbacks. `AiWorkspace` replaces the matching local/React Query message part by stable card ID after the HTTP response. Streamed completion/no-change/failure/revert results use the already-supported `aiApi.streamAiResponse.onMessagePart -> AiWorkspace.applyStreamPart -> messagePartKey(card.id)` chain; `AiWorkspaceLiveSync.test.tsx` proves replacement through that real path. No operation-specific top-level SSE event or handler is introduced. Reconnect/refresh reads the same persisted card payload and never calls the mutation or Coordinator.
 
 Use existing card/button/status tokens. On narrow screens the status, deadline and actions wrap into multiple rows; no action strip has horizontal overflow. Permanent blocked/reverted/expired states do not render an enabled undo button. Temporary errors keep it available when the server projection still says available.
 
@@ -2667,7 +2724,7 @@ Expected: PASS; manually inspect new token hits and confirm mobile actions wrap 
 - [ ] **Step 5: Commit Result Card undo**
 
 ```bash
-git add frontend/src/features/ai-auto-execution/useAiOperationRevert.ts frontend/src/features/ai-auto-execution/useAiOperationRevert.test.tsx frontend/src/components/ai/AiResultCardModel.ts frontend/src/components/ai/AiResultCards.tsx frontend/src/components/ai/AiResultCards.test.tsx frontend/src/components/ai/AiConversationThread.tsx frontend/src/components/ai/AiConversationThread.test.tsx frontend/src/components/ai/AiWorkspace.tsx frontend/src/components/ai/AiWorkspaceLiveSync.test.tsx frontend/src/components/ai/useAiConversationLiveSync.ts frontend/src/styles/09-ai-workspace.css
+git add frontend/src/features/ai-auto-execution/useAiOperationRevert.ts frontend/src/features/ai-auto-execution/useAiOperationRevert.test.tsx frontend/src/components/ai/AiResultCardModel.ts frontend/src/components/ai/AiResultCards.tsx frontend/src/components/ai/AiResultCards.test.tsx frontend/src/components/ai/AiConversationThread.tsx frontend/src/components/ai/AiConversationThread.test.tsx frontend/src/components/ai/AiWorkspace.tsx frontend/src/components/ai/AiWorkspaceLiveSync.test.tsx frontend/src/styles/09-ai-workspace.css
 git commit -m "feat: add AI operation result undo"
 ```
 
@@ -2751,7 +2808,7 @@ Complete the E2E route fixtures with strict JSON matching the frontend types. Th
 Run the focused backend suites first:
 
 ```bash
-backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_auto_execution_migration.py backend/tests/ai_infra/test_ai_auto_execution_settings.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_auto_execution_policy.py backend/tests/ai_infra/test_ai_auto_execution_action_policies.py backend/tests/ai_infra/test_ai_draft_execution_receipts.py backend/tests/ai_infra/test_ai_draft_commit_coordinator.py backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_ai_operation_result_projection.py backend/tests/ai_infra/test_ai_revert_coordinator.py backend/tests/ai_infra/test_ai_revert_low_risk_adapters.py backend/tests/ai_infra/test_ai_simple_meal_operation.py backend/tests/ai_infra/test_ai_inventory_operation_revert.py backend/tests/ai_infra/test_ai_draft_then_policy_contract.py -q
+backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_auto_execution_migration.py backend/tests/ai_infra/test_ai_auto_execution_settings.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_auto_execution_policy_registry.py backend/tests/ai_infra/test_ai_auto_execution_action_policies.py backend/tests/ai_infra/test_ai_draft_execution_receipts.py backend/tests/ai_infra/test_ai_draft_commit_coordinator.py backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_ai_operation_result_projection.py backend/tests/ai_infra/test_ai_revert_coordinator.py backend/tests/ai_infra/test_ai_revert_low_risk_adapters.py backend/tests/ai_infra/test_ai_simple_meal_operation.py backend/tests/ai_infra/test_ai_inventory_operation_revert.py backend/tests/ai_infra/test_ai_draft_then_policy_contract.py -q
 ```
 
 Expected: PASS.
