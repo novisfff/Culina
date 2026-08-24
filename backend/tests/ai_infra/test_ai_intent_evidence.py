@@ -298,8 +298,43 @@ def test_rating_action_and_value_reject_non_unique_or_invalid_complete_number_to
 
 
 @pytest.mark.parametrize(
+    ("message", "normalized_rating"),
+    [
+        ("给它打 -1 分", 1),
+        ("给它打 +6 分", 5),
+        ("给它打 －1 分", 1),
+        ("给它打 ＋6 分", 5),
+        ("给它打 ﹣1 分", 1),
+        ("给它打 −1 分", 1),
+        ("给它打 4-5 分", 5),
+    ],
+)
+def test_rating_action_and_value_reject_signed_or_hyphen_adjacent_number_tokens(
+    message: str,
+    normalized_rating: int,
+) -> None:
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": message}],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, normalized_rating, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert "source_value_unverifiable" in validation.reason_codes
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
     ("message", "expected_rating"),
     [
+        ("给它打 1 分", Decimal("1")),
         ("给它打 5 分", Decimal("5")),
         ("给它打 4.5 分", Decimal("4.5")),
     ],

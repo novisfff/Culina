@@ -68,7 +68,8 @@ _UNIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _RATING_TOKEN_PATTERN = re.compile(
-    r"(?<![\d.])(?P<number>[0-9]+(?:\.[0-9]+)?)(?![\d.])\s*分(?![\d.])"
+    r"(?<![0-9.+\-＋－﹣−])(?P<number>[0-9]+(?:\.[0-9]+)?)"
+    r"(?![0-9.+\-＋－﹣−])\s*分(?![0-9.+\-＋－﹣−])"
 )
 _RATING_ACTION_PATTERN = re.compile(r"(?:打|评分(?:为)?|评为)")
 
