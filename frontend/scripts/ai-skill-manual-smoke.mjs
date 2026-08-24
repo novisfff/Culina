@@ -315,7 +315,6 @@ function printHelp() {
 
 用法：
   npm --prefix frontend run ai:skill-smoke -- --username=<user> --password=<password>
-  npm --prefix frontend run ai:skill-smoke -- --token=<access-token>
 
 常用参数：
   --url=http://127.0.0.1:5173          使用已启动的前端，不自动启动 Vite dev server
@@ -549,24 +548,36 @@ async function startDevServer() {
 
 async function login(page) {
   if (args.token) {
-    await page.goto(frontendUrl(), { waitUntil: 'domcontentloaded' });
-    return;
+    throw new Error('--token 已不再支持：access token 仅保存在页面内存中，请使用 --username/--password。');
   }
   if (!args.username || !args.password) {
-    throw new Error('请通过 --username/--password 或 --token 提供登录信息。');
+    throw new Error('请通过 --username/--password 提供登录信息。');
   }
   await page.goto(frontendUrl(), { waitUntil: 'domcontentloaded' });
   const loginHeading = page.getByRole('heading', { name: '登录家庭厨房' });
   if (await loginHeading.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await page.getByLabel('用户名').fill(args.username);
     await page.getByLabel('密码').fill(args.password);
+    const loginResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/auth/login'
+    ));
     await page.getByRole('button', { name: '进入家庭厨房' }).click();
+    const loginResponse = await loginResponsePromise;
+    const payload = await loginResponse.json().catch(() => null);
+    if (!loginResponse.ok() || typeof payload?.access_token !== 'string') {
+      throw new Error(`登录失败：HTTP ${loginResponse.status()}`);
+    }
+    diagnosticAccessToken = payload.access_token;
+  } else {
+    diagnosticAccessToken = await refreshDiagnosticAccessToken(page, args.backendUrl);
   }
-  await page.waitForFunction(() => Boolean(localStorage.getItem('culina-access-token')), undefined, { timeout: 20_000 });
+  await loginHeading.waitFor({ state: 'hidden', timeout: 20_000 });
 }
 
 let resolvedFrontendUrl = '';
 let activeConversationId = '';
+let diagnosticAccessToken = '';
 function frontendUrl() {
   return resolvedFrontendUrl;
 }
@@ -1011,11 +1022,36 @@ async function fetchRunEvents(page, backendUrl, runId) {
 }
 
 async function fetchAuthenticatedJson(page, backendUrl, path) {
-  const result = await page.evaluate(async ({ url, requestPath }) => {
-    const token = localStorage.getItem('culina-access-token');
-    if (!token) return { ok: false, status: 401, detail: 'missing token' };
+  if (!diagnosticAccessToken) {
+    diagnosticAccessToken = await refreshDiagnosticAccessToken(page, backendUrl);
+  }
+  let result = await fetchJsonWithAccessToken(
+    page,
+    backendUrl,
+    path,
+    diagnosticAccessToken,
+  );
+  if (result.status === 401) {
+    diagnosticAccessToken = await refreshDiagnosticAccessToken(page, backendUrl);
+    result = await fetchJsonWithAccessToken(
+      page,
+      backendUrl,
+      path,
+      diagnosticAccessToken,
+    );
+  }
+  if (!result.ok) {
+    const detail = typeof result.data === 'string' ? result.data : JSON.stringify(result.data ?? result.detail ?? '');
+    throw new Error(`${path} 请求失败：HTTP ${result.status}${detail ? `，${detail.slice(0, 500)}` : ''}`);
+  }
+  return result.data;
+}
+
+async function fetchJsonWithAccessToken(page, backendUrl, path, accessToken) {
+  return page.evaluate(async ({ url, requestPath, token }) => {
     const response = await fetch(`${url.replace(/\/$/, '')}${requestPath}`, {
       headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
     });
     const text = await response.text();
     let data = null;
@@ -1027,12 +1063,22 @@ async function fetchAuthenticatedJson(page, backendUrl, path) {
       }
     }
     return { ok: response.ok, status: response.status, data };
-  }, { url: backendUrl, requestPath: path });
-  if (!result.ok) {
-    const detail = typeof result.data === 'string' ? result.data : JSON.stringify(result.data ?? result.detail ?? '');
-    throw new Error(`${path} 请求失败：HTTP ${result.status}${detail ? `，${detail.slice(0, 500)}` : ''}`);
+  }, { url: backendUrl, requestPath: path, token: accessToken });
+}
+
+async function refreshDiagnosticAccessToken(page, backendUrl) {
+  const result = await page.evaluate(async (url) => {
+    const response = await fetch(`${url.replace(/\/$/, '')}/api/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const payload = await response.json().catch(() => null);
+    return { ok: response.ok, status: response.status, payload };
+  }, backendUrl);
+  if (!result.ok || typeof result.payload?.access_token !== 'string') {
+    throw new Error(`刷新诊断会话失败：HTTP ${result.status}`);
   }
-  return result.data;
+  return result.payload.access_token;
 }
 
 async function submitDecision(panel, decision) {
@@ -1443,12 +1489,9 @@ async function main() {
         if (message.type() === 'error') consoleErrors.push(message.text());
       });
     });
-    if (args.token) {
-      await context.addInitScript((token) => {
-        localStorage.setItem('culina-access-token', token);
-        localStorage.setItem('culina-active-tab-v4', 'home');
-      }, args.token);
-    }
+    await context.addInitScript(() => {
+      localStorage.setItem('culina-active-tab-v4', 'home');
+    });
     page = await context.newPage();
 
     await login(page);

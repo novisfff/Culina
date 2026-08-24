@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiError, getAccessToken, request } from './request';
+import { API_BASE_URL, ApiError, authorizedFetch, request } from './request';
 
 export type AiVoiceSurface = 'main_ai' | 'recipe_cook_page';
 export type AiVoiceProvider = 'openai' | 'dashscope';
@@ -69,9 +69,7 @@ export async function synthesizeSpeech(args: {
   signal?: AbortSignal;
 }): Promise<Blob> {
   const headers = new Headers({ 'Content-Type': 'application/json' });
-  const token = getAccessToken();
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_BASE_URL}/api/ai/audio/speech`, {
+  const response = await authorizedFetch('/api/ai/audio/speech', {
     method: 'POST',
     headers,
     signal: args.signal,

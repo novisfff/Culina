@@ -8,7 +8,8 @@ const reportDir = process.env.PLAYWRIGHT_HTML_OUTPUT_DIR || 'playwright-report';
 const retainFailureEvidence = process.env.PLAYWRIGHT_DISABLE_FAILURE_EVIDENCE !== '1';
 const modelUsageGovernanceSpec = /model-usage-governance\.spec\.mjs/;
 const familyModelSettingsSpec = /family-model-settings\.spec\.mjs/;
-const specializedViewportSpecs = /(?:model-usage-governance|family-model-settings)\.spec\.mjs/;
+const authSessionMultitabSpec = /auth-session-multitab\.spec\.mjs/;
+const specializedViewportSpecs = /(?:model-usage-governance|family-model-settings|auth-session-multitab)\.spec\.mjs/;
 const modelUsageViewportProjects = [
   { name: 'model-usage-360x800', viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true },
   { name: 'model-usage-375x812', viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true },
@@ -91,6 +92,13 @@ export default defineConfig({
       testIgnore: specializedViewportSpecs,
       use: {
         viewport: { width: 1440, height: 960 },
+      },
+    },
+    {
+      name: 'auth-session-multitab',
+      testMatch: authSessionMultitabSpec,
+      use: {
+        viewport: { width: 1280, height: 800 },
       },
     },
     ...modelUsageViewportProjects,

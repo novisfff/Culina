@@ -55,12 +55,19 @@ class UpdatePasswordRequest(BaseModel):
         return validate_password_strength(value)
 
 
-class LoginResponse(BaseModel):
-    access_token: str
+class AuthSnapshotResponse(BaseModel):
     user: UserSummary
     membership: MembershipSummary
     family: FamilyDetailOut
 
 
-class MeResponse(LoginResponse):
+class LoginResponse(AuthSnapshotResponse):
+    access_token: str
+
+
+class RefreshResponse(LoginResponse):
+    pass
+
+
+class MeResponse(AuthSnapshotResponse):
     pass

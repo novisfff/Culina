@@ -1,10 +1,24 @@
-import { readStringStorage, removeStorage, writeStringStorage } from '../lib/storage';
+import { removeStorage } from '../lib/storage';
+import {
+  publishAuthCookieTransition,
+  subscribeAuthCookieTransition,
+  withAuthCookieLock,
+} from './authSessionCoordinator';
+import type { LoginResponse } from './types';
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:8010';
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
 const ACCESS_TOKEN_STORAGE_KEY = 'culina-access-token';
 
-let authToken: string | null = readStringStorage(ACCESS_TOKEN_STORAGE_KEY, '') || null;
+let authToken: string | null = null;
+let refreshPromise: Promise<LoginResponse> | null = null;
+let authSessionRevision = 0;
+let authIdentity: string | null = null;
+const authSessionListeners = new Set<(payload: LoginResponse | null) => void>();
+
+type AuthRequestBehavior = {
+  authCookieLockHeld?: boolean;
+};
 
 export class ApiError extends Error {
   status: number;
@@ -28,16 +42,41 @@ export function isApiError(reason: unknown): reason is ApiError {
 
 export function setAccessToken(token: string | null) {
   authToken = token;
-  if (token) {
-    writeStringStorage(ACCESS_TOKEN_STORAGE_KEY, token);
-  } else {
-    removeStorage(ACCESS_TOKEN_STORAGE_KEY);
+  if (token === null) {
+    authIdentity = null;
   }
 }
 
 export function getAccessToken() {
   return authToken;
 }
+
+export function purgeLegacyAccessToken() {
+  removeStorage(ACCESS_TOKEN_STORAGE_KEY);
+}
+
+export function subscribeAuthSession(listener: (payload: LoginResponse | null) => void) {
+  authSessionListeners.add(listener);
+  return () => {
+    authSessionListeners.delete(listener);
+  };
+}
+
+export function setAuthenticatedSession(payload: LoginResponse) {
+  authSessionRevision += 1;
+  authToken = payload.access_token;
+  authIdentity = `${payload.user.id}:${payload.membership.family_id}`;
+  authSessionListeners.forEach((listener) => listener(payload));
+}
+
+export function clearAuthenticatedSession() {
+  authSessionRevision += 1;
+  authToken = null;
+  authIdentity = null;
+  authSessionListeners.forEach((listener) => listener(null));
+}
+
+purgeLegacyAccessToken();
 
 function resolveApiErrorDetail(payload: unknown, fallback: string) {
   if (typeof payload === 'string' && payload.trim()) {
@@ -73,30 +112,145 @@ function resolveApiErrorDetail(payload: unknown, fallback: string) {
   return fallback || '请求失败';
 }
 
-export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function responsePayload(response: Response): Promise<unknown> {
+  const isJson = response.headers.get('Content-Type')?.includes('application/json');
+  return isJson ? response.json() : response.text();
+}
+
+function apiUrl(path: string) {
+  if (/^https?:\/\//.test(path)) return path;
+  return `${API_BASE_URL}${path}`;
+}
+
+function canRefreshAfterUnauthorized(path: string) {
+  return ![
+    '/api/auth/login',
+    '/api/auth/refresh',
+    '/api/auth/logout',
+  ].some((authPath) => path.endsWith(authPath));
+}
+
+export async function refreshAuthSession(
+  behavior: AuthRequestBehavior = {},
+): Promise<LoginResponse> {
+  if (!refreshPromise) {
+    const requestedRevision = authSessionRevision;
+    const refreshOperation = async () => {
+      if (authSessionRevision !== requestedRevision) {
+        throw new Error('认证状态已更新，已忽略过期的刷新请求');
+      }
+      const response = await fetch(apiUrl('/api/auth/refresh'), {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const payload = await responsePayload(response);
+      if (!response.ok) {
+        throw new ApiError({
+          status: response.status,
+          detail: resolveApiErrorDetail(payload, response.statusText),
+          path: '/api/auth/refresh',
+          payload,
+        });
+      }
+      if (authSessionRevision !== requestedRevision) {
+        throw new Error('认证状态已更新，已忽略过期的刷新响应');
+      }
+      const authenticated = payload as LoginResponse;
+      setAuthenticatedSession(authenticated);
+      publishAuthCookieTransition(authenticated);
+      return authenticated;
+    };
+    refreshPromise = (
+      behavior.authCookieLockHeld
+        ? refreshOperation()
+        : withAuthCookieLock(refreshOperation)
+    )
+      .catch((reason) => {
+        if (authSessionRevision === requestedRevision) {
+          clearAuthenticatedSession();
+          if (reason instanceof ApiError && reason.status === 401) {
+            publishAuthCookieTransition(null);
+          }
+        }
+        throw reason;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+async function fetchWithAccessToken(
+  path: string,
+  init: RequestInit,
+  accessToken: string | null,
+): Promise<Response> {
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && !(init.body instanceof FormData) && init.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
-  if (authToken) {
-    headers.set('Authorization', `Bearer ${authToken}`);
+  if (accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  return fetch(apiUrl(path), {
     ...init,
     headers,
+    credentials: 'include',
   });
+}
+
+function assertResponseIdentity(identityUsed: string | null): void {
+  if (identityUsed !== null && authIdentity !== identityUsed) {
+    throw new Error('认证身份已切换，已忽略旧会话响应');
+  }
+}
+
+export async function authorizedFetch(
+  path: string,
+  init: RequestInit = {},
+  behavior: AuthRequestBehavior = {},
+): Promise<Response> {
+  let tokenUsed = authToken;
+  let identityUsed = authIdentity;
+  let response = await fetchWithAccessToken(path, init, tokenUsed);
+  assertResponseIdentity(identityUsed);
+  if (response.status === 401 && tokenUsed && canRefreshAfterUnauthorized(path)) {
+    if (authToken === tokenUsed) {
+      await refreshAuthSession(behavior);
+    }
+    tokenUsed = authToken;
+    identityUsed = authIdentity;
+    if (tokenUsed) {
+      response = await fetchWithAccessToken(path, init, tokenUsed);
+      assertResponseIdentity(identityUsed);
+    }
+  }
+  if (
+    response.status === 401
+    && tokenUsed
+    && authToken === tokenUsed
+    && !path.endsWith('/api/auth/login')
+  ) {
+    clearAuthenticatedSession();
+  }
+  return response;
+}
+
+export async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  behavior: AuthRequestBehavior = {},
+): Promise<T> {
+  const response = await authorizedFetch(path, init, behavior);
 
   if (response.status === 204) {
     return undefined as T;
   }
 
-  const isJson = response.headers.get('Content-Type')?.includes('application/json');
-  const payload = isJson ? await response.json() : await response.text();
+  const payload = await responsePayload(response);
   if (!response.ok) {
-    if (response.status === 401) {
-      setAccessToken(null);
-    }
     throw new ApiError({
       status: response.status,
       detail: resolveApiErrorDetail(payload, response.statusText),
@@ -107,3 +261,11 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 
   return payload as T;
 }
+
+subscribeAuthCookieTransition((payload) => {
+  if (payload) {
+    setAuthenticatedSession(payload);
+    return;
+  }
+  clearAuthenticatedSession();
+});

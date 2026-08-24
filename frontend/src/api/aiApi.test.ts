@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AI_DRAFT_CONTRACTS_HEADER, aiApi } from './aiApi';
-import type { AiChatResponse } from './types';
+import { setAccessToken } from './request';
+import type { AiChatResponse, LoginResponse } from './types';
 
 function streamFrom(text: string) {
   return new ReadableStream<Uint8Array>({
@@ -43,6 +44,34 @@ const emptyChatResponse: AiChatResponse = {
   },
   events: [],
   included: { result_cards: [], drafts: [], approvals: [] },
+};
+
+const refreshedSession: LoginResponse = {
+  access_token: 'fresh-access-token',
+  user: {
+    id: 'user-a',
+    username: 'owner',
+    display_name: 'Owner',
+    avatar_seed: 'Owner',
+  },
+  membership: {
+    id: 'membership-a',
+    family_id: 'family-a',
+    user_id: 'user-a',
+    role: 'Owner',
+    status: 'active',
+  },
+  family: {
+    id: 'family-a',
+    name: '测试家庭',
+    motto: '',
+    location: '',
+    food_preferences: [],
+    food_avoidances: [],
+    created_at: '2026-08-24T00:00:00Z',
+    updated_at: '2026-08-24T00:00:00Z',
+    ai_recommendations: [],
+  },
 };
 
 function jsonResponse(body: unknown = {}) {
@@ -144,7 +173,30 @@ const STREAM_METHODS = [
 
 describe('aiApi', () => {
   afterEach(() => {
+    setAccessToken(null);
     vi.restoreAllMocks();
+  });
+
+  it('refreshes and retries an unauthorized stream with cookies included', async () => {
+    setAccessToken('expired-access-token');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path.endsWith('/api/auth/refresh')) {
+        return jsonResponse(refreshedSession);
+      }
+      const authorization = new Headers(init?.headers).get('Authorization');
+      if (authorization === 'Bearer expired-access-token') {
+        return new Response(null, { status: 401 });
+      }
+      return new Response(streamFrom(sseBlock('response', emptyChatResponse)), { status: 200 });
+    });
+
+    await expect(aiApi.streamChatAi({ message: '你好' })).resolves.toEqual(emptyChatResponse);
+
+    expect(fetchSpy.mock.calls).toHaveLength(3);
+    expect(fetchSpy.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true);
+    expect(new Headers(fetchSpy.mock.calls[2]?.[1]?.headers).get('Authorization'))
+      .toBe('Bearer fresh-access-token');
   });
 
   it('test_cancel_ai_run_uses_post_path', async () => {

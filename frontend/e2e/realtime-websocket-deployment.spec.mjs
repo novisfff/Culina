@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('browser crosses nginx and exchanges a realtime audio event frame', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'commit' });
   await page.evaluate(async () => {
     const response = await fetch('/api/health?ticket=query-log-sentinel');
     if (!response.ok) throw new Error(`health request failed: ${response.status}`);

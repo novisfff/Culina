@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiError, getAccessToken, request } from './request';
+import { API_BASE_URL, ApiError, authorizedFetch, request } from './request';
 import type {
   AiApprovalDecisionResponse,
   AiApprovalRequest,
@@ -98,11 +98,7 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
   // Rebuild capability headers on every stream connect/reconnect so capability never
   // freezes to a response-derived value from a prior connection.
   const headers = aiContractHeaders({ 'Content-Type': 'application/json' });
-  const token = getAccessToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  const response = await fetch(url, {
+  const response = await authorizedFetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),

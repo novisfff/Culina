@@ -15,13 +15,22 @@ export const test = base.extend({
     await installApiMocks(context, unexpectedRequests, {
       modelUsageScenario,
       familyModelScenario,
+      authenticated,
       requestedApiPaths,
       familyModelRequests,
     });
 
     if (authenticated) {
+      await context.addCookies([{
+        name: 'culina-refresh',
+        value: 'smoke-refresh-token',
+        domain: '127.0.0.1',
+        path: '/api/auth',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Strict',
+      }]);
       await context.addInitScript(() => {
-        localStorage.setItem('culina-access-token', 'smoke-token');
         localStorage.setItem(
           'culina-navigation-v2',
           JSON.stringify({

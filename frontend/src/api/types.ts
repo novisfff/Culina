@@ -699,11 +699,14 @@ export interface FamilyDetail {
   ai_recommendations: AiRecommendation[];
 }
 
-export interface LoginResponse {
-  access_token: string;
+export interface AuthSnapshot {
   user: UserSummary;
   membership: MembershipSummary;
   family: FamilyDetail;
+}
+
+export interface LoginResponse extends AuthSnapshot {
+  access_token: string;
 }
 
 export interface Member extends UserSummary {
