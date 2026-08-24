@@ -364,6 +364,53 @@ def test_rating_action_and_value_share_one_valid_complete_number_token(
     }
 
 
+def test_explicit_rating_cancellation_verifies_action_and_null_value() -> None:
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": "取消这道菜的评分"}],
+        ),
+        current_message="取消这道菜的评分",
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, None, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_fields == frozenset({"action", rating_field})
+    assert validation.verified_values[rating_field] is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "取消评分，改成 5 分",
+        "取消评分 5 分",
+        "取消评分然后评分为 5 分",
+    ],
+)
+def test_rating_cancellation_with_new_value_or_conflicting_direction_fails_closed(message: str) -> None:
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": message}],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, None, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert validation.verified_fields == frozenset()
+    assert "source_value_unverifiable" in validation.reason_codes
+
+
 def test_cancelled_rating_keeps_value_but_never_proves_positive_action_direction() -> None:
     message = "取消给它打 5 分"
     rating_field = "payload.foodEntryRatings[0].rating"

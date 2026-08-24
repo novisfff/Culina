@@ -72,6 +72,10 @@ _RATING_TOKEN_PATTERN = re.compile(
     r"(?![0-9.+\-＋－﹣−])\s*分(?![0-9.+\-＋－﹣−])"
 )
 _RATING_ACTION_PATTERN = re.compile(r"(?:打|评分(?:为)?|评为)")
+_RATING_CANCELLATION_PATTERNS = (
+    r"(?:取消|清除|删除|去掉).{0,12}(?:评分|打分)",
+    r"(?:评分|打分).{0,8}(?:清空|取消|删除)",
+)
 
 
 def normalize_intent_text(value: Any) -> str:
@@ -395,6 +399,8 @@ def _canonical_from_quote(
             return True
         return _UNVERIFIABLE
     if matcher_key == "rating":
+        if expected_value is None:
+            return None if _is_explicit_rating_cancellation(quote) else _UNVERIFIABLE
         parsed_rating = _parse_rating_token(quote)
         return parsed_rating[0] if parsed_rating is not None else _UNVERIFIABLE
     if matcher_key == "quantity":
@@ -564,6 +570,8 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"rate_food", "meal_log.rate_food"}:
+        if _is_explicit_rating_cancellation(quote):
+            return expected
         parsed_rating = _parse_rating_token(quote)
         if parsed_rating is None:
             return _UNVERIFIABLE
@@ -642,6 +650,28 @@ def _parse_rating_token(quote: str) -> tuple[Decimal, tuple[int, int]] | None:
     return value, match.span()
 
 
+def _is_explicit_rating_cancellation(quote: str) -> bool:
+    if _RATING_TOKEN_PATTERN.search(quote):
+        return False
+    cancellation_spans = [
+        match.span()
+        for pattern in _RATING_CANCELLATION_PATTERNS
+        for match in re.finditer(pattern, quote)
+    ]
+    if not cancellation_spans:
+        return False
+    polarity = _command_polarity(
+        quote,
+        positive_patterns=_RATING_CANCELLATION_PATTERNS,
+    )
+    if polarity != "positive":
+        return False
+    return not any(
+        not any(_spans_overlap(action_match.span(), cancellation_span) for cancellation_span in cancellation_spans)
+        for action_match in _RATING_ACTION_PATTERN.finditer(quote)
+    )
+
+
 def _rating_action_span(quote: str, *, rating_span: tuple[int, int]) -> tuple[int, int] | None:
     prefix = quote[: rating_span[0]]
     for action_match in reversed(list(_RATING_ACTION_PATTERN.finditer(prefix))):
@@ -685,6 +715,8 @@ def _meal_type_value(quote: str) -> Any:
 
 def _canonical_values_equal(matcher_key: str, actual: Any, expected: Any) -> bool:
     if matcher_key in {"rating", "quantity", "servings"}:
+        if matcher_key == "rating" and actual is None and expected is None:
+            return True
         try:
             return Decimal(str(actual)) == Decimal(str(expected))
         except InvalidOperation:

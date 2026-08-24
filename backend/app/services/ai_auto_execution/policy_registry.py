@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.services.ai_auto_execution.intent_evidence import validate_intent_evidence
+from app.services.ai_auto_execution.policies import build_action_policies
 from app.services.ai_auto_execution.policy_types import (
     AutoExecutionActionPolicy,
     AutoExecutionDecision,
@@ -153,4 +154,4 @@ class AutoExecutionPolicyRegistry:
         return evidence, self.evaluate(context)
 
 
-auto_execution_policy_registry = AutoExecutionPolicyRegistry(())
+auto_execution_policy_registry = AutoExecutionPolicyRegistry(build_action_policies())
