@@ -127,6 +127,8 @@ class DraftOperationSpec:
     result_metadata: DraftResultMetadata = DEFAULT_DRAFT_RESULT_METADATA
     business_entity_records: BusinessEntityRecordsExtractor | None = None
     load_current_value: RecoveryCurrentValueLoader | None = None
+    auto_execution_policy_key: str | None = None
+    revert_adapter_key: str | None = None
 
 
 class DraftOperationRegistry:

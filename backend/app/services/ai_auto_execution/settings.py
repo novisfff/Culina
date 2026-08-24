@@ -22,6 +22,7 @@ from app.services.ai_auto_execution.catalog import (
     CATALOG_VERSION,
     CONSENT_NOTICE_VERSION,
 )
+from app.services.ai_auto_execution.policy_types import AuthorizationSource, EffectiveAuthorization
 
 
 class AutoExecutionSettingsError(Exception):
@@ -143,6 +144,101 @@ def get_auto_execution_settings(
             if definition.limits
         },
         server_now=now,
+    )
+
+
+def resolve_effective_authorization(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    action_key: str,
+    policy_version: str,
+    for_update: bool = False,
+) -> EffectiveAuthorization:
+    """Resolve current server-owned authorization without creating settings rows."""
+    definition = AUTO_EXECUTION_CATALOG.get(action_key)
+    if definition is None:
+        return EffectiveAuthorization(
+            enabled=False,
+            source=None,
+            snapshot={
+                "source": None,
+                "member_preference_version": 0,
+                "member_notice_version": None,
+                "family_policy_version": None,
+                "family_notice_version": None,
+                "catalog_version": CATALOG_VERSION,
+                "policy_version": policy_version,
+            },
+            reason_codes=("action_not_allowed",),
+        )
+
+    family_policy = None
+    if definition.family_policy_required:
+        family_policy = get_family_policy(
+            db,
+            family_id=family_id,
+            action_key=action_key,
+            for_update=for_update,
+        )
+    preference = get_member_preference(
+        db,
+        family_id=family_id,
+        user_id=actor_user_id,
+        action_key=action_key,
+        for_update=for_update,
+    )
+
+    member_enabled = bool(
+        preference is not None
+        and preference.enabled
+        and preference.consent_notice_version == CONSENT_NOTICE_VERSION
+    )
+    family_enabled = bool(
+        not definition.family_policy_required
+        or (
+            family_policy is not None
+            and family_policy.enabled
+            and family_policy.consent_notice_version == CONSENT_NOTICE_VERSION
+        )
+    )
+    reason_codes: list[str] = []
+    if not member_enabled:
+        reason_codes.append("member_authorization_missing")
+    if not family_enabled:
+        reason_codes.append("family_policy_disabled")
+
+    enabled = member_enabled and family_enabled
+    source: AuthorizationSource | None = None
+    if enabled:
+        source = (
+            "member_and_family_policy"
+            if definition.family_policy_required
+            else "member_preference"
+        )
+    snapshot = {
+        "source": source,
+        "member_preference_version": preference.row_version if preference is not None else 0,
+        "member_notice_version": (
+            preference.consent_notice_version if preference is not None else None
+        ),
+        "family_policy_version": (
+            family_policy.row_version
+            if family_policy is not None
+            else (0 if definition.family_policy_required else None)
+        ),
+        "family_notice_version": (
+            family_policy.consent_notice_version if family_policy is not None else None
+        ),
+        "catalog_version": CATALOG_VERSION,
+        "policy_version": policy_version,
+    }
+    return EffectiveAuthorization(
+        enabled=enabled,
+        source=source,
+        snapshot=snapshot,
+        reason_codes=tuple(reason_codes),
     )
 
 
