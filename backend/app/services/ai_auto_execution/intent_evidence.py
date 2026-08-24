@@ -77,7 +77,7 @@ _RATING_CANCELLATION_PATTERNS = (
     r"(?:评分|打分).{0,8}(?:清空|取消|删除)",
 )
 _ACTION_REQUEST_PREFIX_PATTERN = re.compile(
-    r"^(?:请(?:你|您)?|请帮(?:我|忙)?|帮(?:我|忙)|麻烦(?:你|您)?|劳驾|给我)"
+    r"^(?:请帮(?:我|忙)|请(?:你|您)?|帮(?:我|忙)|麻烦(?:你|您)?|劳驾|给我)\s*"
 )
 _ACTION_QUESTION_PATTERN = re.compile(
     r"[?？]|请问|为什么|为何|凭什么|干嘛|怎么|怎样|如何|是否|有没有|"
@@ -727,12 +727,12 @@ def _is_explicit_action_request(
     if _ACTION_STATE_DESCRIPTION_PATTERN.search(text):
         return False
 
-    has_request_prefix = _ACTION_REQUEST_PREFIX_PATTERN.match(text) is not None
-    if not has_request_prefix and _COMPLETED_ACTION_DESCRIPTION_PATTERN.match(text):
+    request_body = text
+    while prefix_match := _ACTION_REQUEST_PREFIX_PATTERN.match(request_body):
+        request_body = request_body[prefix_match.end() :].lstrip("：:，,")
+    if _COMPLETED_ACTION_DESCRIPTION_PATTERN.match(request_body):
         return False
-    if has_request_prefix:
-        return True
-    return any(re.match(pattern, text) is not None for pattern in imperative_patterns)
+    return any(re.match(pattern, request_body) is not None for pattern in imperative_patterns)
 
 
 def _command_polarity(

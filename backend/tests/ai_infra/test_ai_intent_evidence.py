@@ -571,6 +571,36 @@ def test_explicit_action_rejects_questions_facts_and_intent_descriptions(
 
 
 @pytest.mark.parametrize(
+    ("message", "quote", "expected_action"),
+    [
+        ("请复述：这个收藏了", "这个收藏了", "set_favorite:true"),
+        ("请总结：给这道菜打 5 分", "给这道菜打 5 分", "meal_log.rate_food"),
+        ("请翻译：取消这道菜的评分", "取消这道菜的评分", "meal_log.rate_food"),
+        ("请复述：买牛奶", "买牛奶", "shopping_list.create"),
+        ("请解释：修改购物项", "修改购物项", "update"),
+        ("请翻译：恢复购物项", "恢复购物项", "set_done:false"),
+        ("请复述：记录一下今天午餐", "记录一下今天午餐", "meal_log.simple_create"),
+        ("请总结：把明晚的番茄炒蛋安排到计划", "把明晚的番茄炒蛋安排到计划", "meal_plan.simple_create"),
+    ],
+)
+def test_explicit_action_rejects_meta_requests_wrapping_an_action_quote(
+    message: str,
+    quote: str,
+    expected_action: str,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": quote}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", expected_action, "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
     ("message", "expected_action"),
     [
         ("请收藏这个", "set_favorite:true"),
@@ -581,7 +611,9 @@ def test_explicit_action_rejects_questions_facts_and_intent_descriptions(
         ("请修改购物项", "update"),
         ("恢复购物项", "set_done:false"),
         ("请记录一下今天午餐吃了番茄炒蛋", "meal_log.simple_create"),
+        ("帮我记录一下今天午餐吃了番茄炒蛋", "meal_log.simple_create"),
         ("请把明晚的番茄炒蛋安排到计划", "meal_plan.simple_create"),
+        ("帮我把明晚的番茄炒蛋安排到计划", "meal_plan.simple_create"),
     ],
 )
 def test_explicit_action_accepts_clear_current_requests(

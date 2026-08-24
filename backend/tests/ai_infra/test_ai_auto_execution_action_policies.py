@@ -309,6 +309,7 @@ def _evaluate(
     draft_type: str,
     payload: dict[str, Any],
     message: str | None = None,
+    action_quote: str | None = None,
     omitted_fields: set[str] | None = None,
     source_value_overrides: dict[str, Any] | None = None,
 ):
@@ -327,7 +328,10 @@ def _evaluate(
     facts.update(source_value_overrides or {})
     evidence_input = {
         "intentClarity": "explicit_complete",
-        "sourceQuotes": ([{"fields": action_fields, "text": message or _action_message(policy.key, payload)}] if action_fields else []),
+        "sourceQuotes": ([{
+            "fields": action_fields,
+            "text": action_quote or message or _action_message(policy.key, payload),
+        }] if action_fields else []),
         "resolutionSources": ([{
             "fields": [item.field for item in fact_requirements],
             "kind": "conversation_artifact",
@@ -551,6 +555,50 @@ def test_action_descriptions_and_questions_require_manual_confirmation(
         draft_type=draft_type,
         payload=payload,
         message=message,
+    )
+
+    assert decision.route == "manual_confirmation"
+    assert "source_value_unverifiable" in decision.reason_codes
+
+
+@pytest.mark.parametrize(
+    ("case", "message", "action_quote"),
+    [
+        ("favorite", "请复述：这个收藏了", "这个收藏了"),
+        ("rating", "请总结：给这道菜打 5 分", "给这道菜打 5 分"),
+        ("rating_cancel", "请翻译：取消这道菜的评分", "取消这道菜的评分"),
+        ("shopping_update", "请解释：修改购物项", "修改购物项"),
+        ("simple_meal", "请复述：记录一下今天午餐", "记录一下今天午餐"),
+        ("simple_plan", "请总结：把明晚的番茄炒蛋安排到计划", "把明晚的番茄炒蛋安排到计划"),
+    ],
+)
+def test_meta_requests_wrapping_action_quotes_require_manual_confirmation(
+    policy_seed: PolicySeed,
+    case: str,
+    message: str,
+    action_quote: str,
+) -> None:
+    if case == "favorite":
+        draft_type, payload = "food_profile", _favorite(policy_seed, favorite=True)
+    elif case == "rating":
+        draft_type, payload = "meal_log", _rating(policy_seed, count=1)
+    elif case == "rating_cancel":
+        draft_type, payload = "meal_log", _rating(policy_seed, count=1, value=None)
+    elif case == "shopping_update":
+        draft_type, payload = "shopping_list", _shopping_update(policy_seed)
+    elif case == "simple_meal":
+        draft_type, payload = "meal_log", _simple_meal(policy_seed, count=1)
+    elif case == "simple_plan":
+        draft_type, payload = "meal_plan", _simple_plan(policy_seed, count=1)
+    else:
+        raise AssertionError(case)
+
+    _, decision = _evaluate(
+        policy_seed,
+        draft_type=draft_type,
+        payload=payload,
+        message=message,
+        action_quote=action_quote,
     )
 
     assert decision.route == "manual_confirmation"
