@@ -513,6 +513,50 @@ def _simple_plan(seed: PolicySeed, *, count: int, start_offset: int = 10) -> dic
     })
 
 
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("simple_meal", "我打算记录一下今天午餐吃了番茄炒蛋"),
+        ("simple_plan", "我打算把明晚的番茄炒蛋安排到计划"),
+        ("simple_meal", "为什么要记录一下今天午餐？"),
+        ("simple_plan", "为什么要把明晚的番茄炒蛋安排到计划？"),
+        ("favorite", "这个已经收藏了"),
+        ("rating", "为什么给这道菜打 5 分？"),
+        ("shopping_update", "为什么要修改购物项？"),
+        ("rating_cancel", "为什么要取消这道菜的评分？"),
+    ],
+)
+def test_action_descriptions_and_questions_require_manual_confirmation(
+    policy_seed: PolicySeed,
+    case: str,
+    message: str,
+) -> None:
+    if case == "favorite":
+        draft_type, payload = "food_profile", _favorite(policy_seed, favorite=True)
+    elif case == "rating":
+        draft_type, payload = "meal_log", _rating(policy_seed, count=1)
+    elif case == "rating_cancel":
+        draft_type, payload = "meal_log", _rating(policy_seed, count=1, value=None)
+    elif case == "shopping_update":
+        draft_type, payload = "shopping_list", _shopping_update(policy_seed)
+    elif case == "simple_meal":
+        draft_type, payload = "meal_log", _simple_meal(policy_seed, count=1)
+    elif case == "simple_plan":
+        draft_type, payload = "meal_plan", _simple_plan(policy_seed, count=1)
+    else:
+        raise AssertionError(case)
+
+    _, decision = _evaluate(
+        policy_seed,
+        draft_type=draft_type,
+        payload=payload,
+        message=message,
+    )
+
+    assert decision.route == "manual_confirmation"
+    assert "source_value_unverifiable" in decision.reason_codes
+
+
 @pytest.mark.parametrize("favorite", [True, False])
 def test_favorite_policy_allows_only_exact_state_change(policy_seed: PolicySeed, favorite: bool) -> None:
     payload = _favorite(policy_seed, favorite=favorite)

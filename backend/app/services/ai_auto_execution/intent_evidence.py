@@ -76,6 +76,28 @@ _RATING_CANCELLATION_PATTERNS = (
     r"(?:取消|清除|删除|去掉).{0,12}(?:评分|打分)",
     r"(?:评分|打分).{0,8}(?:清空|取消|删除)",
 )
+_ACTION_REQUEST_PREFIX_PATTERN = re.compile(
+    r"^(?:请(?:你|您)?|请帮(?:我|忙)?|帮(?:我|忙)|麻烦(?:你|您)?|劳驾|给我)"
+)
+_ACTION_QUESTION_PATTERN = re.compile(
+    r"[?？]|请问|为什么|为何|凭什么|干嘛|怎么|怎样|如何|是否|有没有|"
+    r"能否|可否|能不能|可不可以|要不要|是不是|什么|谁|哪(?:个|些|里|儿)?|"
+    r"几(?:个|次|分)?|吗|呢"
+)
+_ACTION_INTENT_DESCRIPTION_PATTERN = re.compile(
+    r"打算|准备|可能|也许|或许|考虑|希望|(?:我|我们)想(?:要)?|"
+    r"计划(?:以后|之后|将来|稍后|晚点)|(?:以后|之后|将来|稍后|晚点|回头)再"
+)
+_ACTION_STATE_DESCRIPTION_PATTERN = re.compile(
+    r"已经|早已|本来就|原本就|目前|当前|刚刚|刚才|早就|仍然|依然|"
+    r"现在(?:是|已经|还|仍|处于)"
+)
+_COMPLETED_ACTION_DESCRIPTION_PATTERN = re.compile(
+    r"^(?:(?:收藏|取消收藏|买|购买|记录|记下|安排|制定|修改|调整|恢复|"
+    r"取消完成|重新加入)|给.{0,24}打|(?:取消|清除|删除|去掉).{0,12}(?:评分|打分)|"
+    r"(?:评分|打分).{0,8}(?:清空|取消|删除))"
+    r".{0,32}(?:了|过|着)(?:吧|啊|呀)?$"
+)
 
 
 def normalize_intent_text(value: Any) -> str:
@@ -153,6 +175,7 @@ def validate_intent_evidence(
                 field=requirement.field,
                 expected_value=requirement.expected_value,
                 quote=normalize_intent_text(quote.get("text")),
+                current_message=message,
                 family_id=family_id,
                 requirements=requirements,
                 sources=sources,
@@ -372,13 +395,18 @@ def _canonical_from_quote(
     field: str,
     expected_value: Any,
     quote: str,
+    current_message: str,
     family_id: str,
     requirements: tuple[CriticalEvidenceRequirement, ...],
     sources: list[dict[str, Any]],
     source_trust: dict[int, TrustedResolutionSource | None],
 ) -> Any:
     if matcher_key == "explicit_action":
-        return _explicit_action_value(quote, str(expected_value))
+        return _explicit_action_value(
+            quote,
+            str(expected_value),
+            request_context=current_message,
+        )
     if matcher_key == "entity_id":
         return _UNVERIFIABLE
     if matcher_key == "boolean_direction":
@@ -400,7 +428,11 @@ def _canonical_from_quote(
         return _UNVERIFIABLE
     if matcher_key == "rating":
         if expected_value is None:
-            return None if _is_explicit_rating_cancellation(quote) else _UNVERIFIABLE
+            return (
+                None
+                if _is_explicit_rating_cancellation(quote, request_context=current_message)
+                else _UNVERIFIABLE
+            )
         parsed_rating = _parse_rating_token(quote)
         return parsed_rating[0] if parsed_rating is not None else _UNVERIFIABLE
     if matcher_key == "quantity":
@@ -530,8 +562,25 @@ def _item_tuples_for_name(quote: str, *, name: str) -> list[tuple[Decimal, str]]
     return list(matches.values())
 
 
-def _explicit_action_value(quote: str, expected: str) -> Any:
+def _explicit_action_value(
+    quote: str,
+    expected: str,
+    *,
+    request_context: str,
+) -> Any:
     if expected.startswith("set_favorite:"):
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"收藏",
+                r"(?:取消|不要|别|不再|不)\s*收藏",
+                r"移出收藏",
+                r"从.{0,8}收藏.{0,8}移出",
+                r"(?:把|将).{1,24}(?:收藏|移出收藏)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(r"收藏",),
@@ -543,6 +592,15 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
             return "set_favorite:true"
         return _UNVERIFIABLE
     if expected == "meal_log.simple_create":
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"(?:记录|记下|记一笔|记一下)",
+                r"(?:把|将).{1,24}(?:记录下来|记下来|记下)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(
@@ -557,6 +615,15 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected == "meal_plan.simple_create":
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"(?:安排|制定)",
+                r"(?:把|将).{1,24}(?:安排到计划|加入计划|加到计划|添加到计划)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(
@@ -570,7 +637,17 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"rate_food", "meal_log.rate_food"}:
-        if _is_explicit_rating_cancellation(quote):
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"给.{1,24}(?:打|评分|评为)",
+                r"(?:打分|评分|评为)",
+                *_RATING_CANCELLATION_PATTERNS,
+            ),
+        ):
+            return _UNVERIFIABLE
+        if _is_explicit_rating_cancellation(quote, request_context=request_context):
             return expected
         parsed_rating = _parse_rating_token(quote)
         if parsed_rating is None:
@@ -585,6 +662,15 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"create", "shopping_list.create"}:
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"(?:买|购买|加入购物清单|添加到购物清单)",
+                r"(?:把|将).{1,24}(?:加入购物清单|添加到购物清单)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(r"加入购物清单", r"添加到购物清单", r"购买", r"买"),
@@ -592,6 +678,15 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected == "update":
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"(?:修改|调整|改成)",
+                r"(?:把|将).{1,24}(?:修改|调整|改成)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(r"修改", r"改成", r"调整"),
@@ -599,12 +694,45 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"set_done:false", "restore"}:
+        if not _is_explicit_action_request(
+            quote,
+            request_context=request_context,
+            imperative_patterns=(
+                r"(?:恢复|取消完成|重新加入)",
+                r"(?:把|将).{1,24}(?:恢复|取消完成|重新加入)",
+            ),
+        ):
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
             positive_patterns=(r"恢复", r"取消完成", r"重新加入"),
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     return _UNVERIFIABLE
+
+
+def _is_explicit_action_request(
+    quote: str,
+    *,
+    request_context: str | None = None,
+    imperative_patterns: tuple[str, ...],
+) -> bool:
+    text = (request_context or quote).strip()
+    if not text:
+        return False
+    if _ACTION_QUESTION_PATTERN.search(text):
+        return False
+    if _ACTION_INTENT_DESCRIPTION_PATTERN.search(text):
+        return False
+    if _ACTION_STATE_DESCRIPTION_PATTERN.search(text):
+        return False
+
+    has_request_prefix = _ACTION_REQUEST_PREFIX_PATTERN.match(text) is not None
+    if not has_request_prefix and _COMPLETED_ACTION_DESCRIPTION_PATTERN.match(text):
+        return False
+    if has_request_prefix:
+        return True
+    return any(re.match(pattern, text) is not None for pattern in imperative_patterns)
 
 
 def _command_polarity(
@@ -650,7 +778,17 @@ def _parse_rating_token(quote: str) -> tuple[Decimal, tuple[int, int]] | None:
     return value, match.span()
 
 
-def _is_explicit_rating_cancellation(quote: str) -> bool:
+def _is_explicit_rating_cancellation(
+    quote: str,
+    *,
+    request_context: str | None = None,
+) -> bool:
+    if not _is_explicit_action_request(
+        quote,
+        request_context=request_context,
+        imperative_patterns=_RATING_CANCELLATION_PATTERNS,
+    ):
+        return False
     if _RATING_TOKEN_PATTERN.search(quote):
         return False
     cancellation_spans = [

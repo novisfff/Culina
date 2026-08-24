@@ -525,6 +525,81 @@ def test_mixed_direction_action_quote_is_scope_ambiguous(
     assert validation.verified_fields == frozenset()
 
 
+@pytest.mark.parametrize(
+    ("message", "expected_action"),
+    [
+        ("为什么要收藏这个？", "set_favorite:true"),
+        ("这个已经收藏了", "set_favorite:true"),
+        ("我打算收藏这个", "set_favorite:true"),
+        ("为什么给这道菜打 5 分？", "meal_log.rate_food"),
+        ("这道菜已经打 5 分了", "meal_log.rate_food"),
+        ("我准备给这道菜打 5 分", "meal_log.rate_food"),
+        ("为什么要取消这道菜的评分？", "meal_log.rate_food"),
+        ("这道菜的评分已经取消了", "meal_log.rate_food"),
+        ("我打算取消这道菜的评分", "meal_log.rate_food"),
+        ("为什么要买牛奶？", "shopping_list.create"),
+        ("牛奶已经买了", "shopping_list.create"),
+        ("我可能会买牛奶", "shopping_list.create"),
+        ("为什么要修改购物项？", "update"),
+        ("购物项已经修改了", "update"),
+        ("我准备修改购物项", "update"),
+        ("为什么要恢复购物项？", "set_done:false"),
+        ("购物项已经恢复了", "set_done:false"),
+        ("我打算恢复购物项", "set_done:false"),
+        ("为什么要记录一下今天午餐？", "meal_log.simple_create"),
+        ("今天午餐已经记录了", "meal_log.simple_create"),
+        ("我打算记录一下今天午餐吃了番茄炒蛋", "meal_log.simple_create"),
+        ("为什么要把明晚的番茄炒蛋安排到计划？", "meal_plan.simple_create"),
+        ("明晚的番茄炒蛋已经安排到计划了", "meal_plan.simple_create"),
+        ("我打算把明晚的番茄炒蛋安排到计划", "meal_plan.simple_create"),
+    ],
+)
+def test_explicit_action_rejects_questions_facts_and_intent_descriptions(
+    message: str,
+    expected_action: str,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", expected_action, "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_action"),
+    [
+        ("请收藏这个", "set_favorite:true"),
+        ("取消收藏这个", "set_favorite:false"),
+        ("请给这道菜打 5 分", "meal_log.rate_food"),
+        ("请取消这道菜的评分", "meal_log.rate_food"),
+        ("帮我买牛奶", "shopping_list.create"),
+        ("请修改购物项", "update"),
+        ("恢复购物项", "set_done:false"),
+        ("请记录一下今天午餐吃了番茄炒蛋", "meal_log.simple_create"),
+        ("请把明晚的番茄炒蛋安排到计划", "meal_plan.simple_create"),
+    ],
+)
+def test_explicit_action_accepts_clear_current_requests(
+    message: str,
+    expected_action: str,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", expected_action, "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_values == {"action": expected_action}
+
+
 def test_quantity_matcher_ignores_numbers_from_an_explicit_date() -> None:
     message = "2026-08-26 买 1 盒牛奶"
     validation = validate_intent_evidence(
