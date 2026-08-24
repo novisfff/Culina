@@ -17,12 +17,11 @@ import { HomeCompactCalendar } from './HomeCompactCalendar';
 import { HomeHighlightTimeline } from './HomeHighlightTimeline';
 import { HomeRequiredActions } from './HomeRequiredActions';
 
-function MobileQuestionHeading(props: { title: string }) {
+function MobileQuestionHeading(props: { title: string; hint?: string }) {
   return (
     <div className="mobile-dashboard-section-head">
-      <h2>
-        {props.title} <span>✦</span>
-      </h2>
+      <h2>{props.title}</h2>
+      {props.hint && <span>{props.hint}</span>}
     </div>
   );
 }
@@ -251,9 +250,14 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
         ))}
       </section>
 
-      <section className="mobile-dashboard-panel mobile-home-question" data-testid="mobile-home-question" data-question="1">
+      <section
+        className="mobile-dashboard-panel mobile-home-question"
+        data-testid="mobile-home-question"
+        data-home-section="recommendations"
+        data-question="1"
+      >
         <div className="mobile-home-question-head">
-          <MobileQuestionHeading title="今天吃什么" />
+          <MobileQuestionHeading title="今天吃什么" hint="为你推荐" />
           <button
             type="button"
             onClick={props.onNextMobileRecommendation}
@@ -273,22 +277,23 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
           onQuickStartFood={props.onQuickStartFood}
           onHomePlanAddDialogOpen={props.onHomePlanAddDialogOpen}
         />
-        <HomeCompactCalendar
-          days={props.compactPlanDays}
-          selectedDate={selectedPlanDate}
-          selectedSummary={props.selectedPlanSummary}
-          onSelectDate={props.onSelectedPlanDateChange}
-          onPreviousWeek={props.onFoodPlanPreviousWeek}
-          onCurrentWeek={props.onFoodPlanCurrentWeek}
-          onNextWeek={props.onFoodPlanNextWeek}
-          onOpenFullWeek={props.onOpenFullWeek}
-          onAddMeal={props.onHomePlanAddEmptyDialogOpen}
-          onOpenPlanDetail={props.onHomePlanDetailOpen}
-          onOpenMealPlans={props.onOpenMealPlans}
-          resolvePlanItemCoverUrl={props.resolvePlanItemCoverUrl}
-          mobile
-        />
       </section>
+
+      <HomeCompactCalendar
+        days={props.compactPlanDays}
+        selectedDate={selectedPlanDate}
+        selectedSummary={props.selectedPlanSummary}
+        onSelectDate={props.onSelectedPlanDateChange}
+        onPreviousWeek={props.onFoodPlanPreviousWeek}
+        onCurrentWeek={props.onFoodPlanCurrentWeek}
+        onNextWeek={props.onFoodPlanNextWeek}
+        onOpenFullWeek={props.onOpenFullWeek}
+        onAddMeal={props.onHomePlanAddEmptyDialogOpen}
+        onOpenPlanDetail={props.onHomePlanDetailOpen}
+        onOpenMealPlans={props.onOpenMealPlans}
+        resolvePlanItemCoverUrl={props.resolvePlanItemCoverUrl}
+        mobile
+      />
 
       <div className="mobile-home-question" data-testid="mobile-home-question" data-question="2">
         <HomeRequiredActions
