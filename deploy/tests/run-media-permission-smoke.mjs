@@ -212,9 +212,13 @@ try {
   console.error('Compose logs:');
   run('docker', [...compose, 'logs', '--no-color'], { allowFailure: true });
 } finally {
-  const down = run('docker', [...compose, 'down', '--volumes', '--remove-orphans'], {
-    allowFailure: true,
-  });
+  const down = run(
+    'docker',
+    [...compose, 'down', '--volumes', '--remove-orphans', '--rmi', 'local'],
+    {
+      allowFailure: true,
+    },
+  );
   if (down.status !== 0 && failure === null) {
     failure = new Error(`docker compose cleanup exited with ${down.status}`);
   }
