@@ -67,6 +67,10 @@ _UNIT_PATTERN = re.compile(
     r"(公斤|千克|毫升|kg|ml|盒|个|袋|瓶|包|斤|克|升|份|碗|罐|条|棵|颗|块|片)",
     re.IGNORECASE,
 )
+_RATING_TOKEN_PATTERN = re.compile(
+    r"(?<![\d.])(?P<number>[0-9]+(?:\.[0-9]+)?)(?![\d.])\s*分(?![\d.])"
+)
+_RATING_ACTION_PATTERN = re.compile(r"(?:打|评分(?:为)?|评为)")
 
 
 def normalize_intent_text(value: Any) -> str:
@@ -390,11 +394,8 @@ def _canonical_from_quote(
             return True
         return _UNVERIFIABLE
     if matcher_key == "rating":
-        matches = {
-            _decimal_number(value)
-            for value in re.findall(r"(?:打|评分(?:为)?|评为)?\s*([0-5](?:\.\d+)?)\s*分", quote)
-        }
-        return next(iter(matches)) if len(matches) == 1 else _UNVERIFIABLE
+        parsed_rating = _parse_rating_token(quote)
+        return parsed_rating[0] if parsed_rating is not None else _UNVERIFIABLE
     if matcher_key == "quantity":
         if _concrete_item_scope(field) is not None:
             return _canonical_from_bound_item_tuple(
@@ -562,9 +563,15 @@ def _explicit_action_value(quote: str, expected: str) -> Any:
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"rate_food", "meal_log.rate_food"}:
+        parsed_rating = _parse_rating_token(quote)
+        if parsed_rating is None:
+            return _UNVERIFIABLE
+        action_span = _rating_action_span(quote, rating_span=parsed_rating[1])
+        if action_span is None:
+            return _UNVERIFIABLE
         polarity = _command_polarity(
             quote,
-            positive_patterns=(r"(?:打|评分|评为).{0,12}[0-5](?:\.\d+)?\s*分",),
+            positive_patterns=(re.escape(quote[action_span[0] : action_span[1]]),),
             negative_patterns=(r"(?:取消|撤销)(?:评分|打分)",),
         )
         return expected if polarity == "positive" else _UNVERIFIABLE
@@ -621,6 +628,26 @@ def _command_polarity(
 
 def _spans_overlap(left: tuple[int, int], right: tuple[int, int]) -> bool:
     return left[0] < right[1] and right[0] < left[1]
+
+
+def _parse_rating_token(quote: str) -> tuple[Decimal, tuple[int, int]] | None:
+    matches = list(_RATING_TOKEN_PATTERN.finditer(quote))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    value = Decimal(match.group("number"))
+    if value < Decimal("0") or value > Decimal("5"):
+        return None
+    return value, match.span()
+
+
+def _rating_action_span(quote: str, *, rating_span: tuple[int, int]) -> tuple[int, int] | None:
+    prefix = quote[: rating_span[0]]
+    for action_match in reversed(list(_RATING_ACTION_PATTERN.finditer(prefix))):
+        between = prefix[action_match.end() :]
+        if len(between) <= 12 and not re.search(r"[，,。；;]", between):
+            return action_match.start(), rating_span[1]
+    return None
 
 
 def _date_value(quote: str, *, family_id: str) -> Any:
@@ -966,10 +993,6 @@ def _number_value(text: str) -> Decimal:
     for character in text:
         value = value * 10 + digits[character]
     return Decimal(value)
-
-
-def _decimal_number(text: str) -> Decimal:
-    return Decimal(text)
 
 
 class _Unverifiable:

@@ -267,6 +267,89 @@ def test_quote_canonical_value_mismatch_never_verifies_payload(
 
 
 @pytest.mark.parametrize(
+    "message",
+    [
+        "给它打 15 分",
+        "给它打 55 分",
+        "给它打 5.5 分",
+        "给它打 4.5.0 分",
+        "给它打 4 分还是 5 分",
+    ],
+)
+def test_rating_action_and_value_reject_non_unique_or_invalid_complete_number_tokens(
+    message: str,
+) -> None:
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": message}],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, 5, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert "source_value_unverifiable" in validation.reason_codes
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_rating"),
+    [
+        ("给它打 5 分", Decimal("5")),
+        ("给它打 4.5 分", Decimal("4.5")),
+    ],
+)
+def test_rating_action_and_value_share_one_valid_complete_number_token(
+    message: str,
+    expected_rating: Decimal,
+) -> None:
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": message}],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, expected_rating, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_values == {
+        "action": "meal_log.rate_food",
+        rating_field: expected_rating,
+    }
+
+
+def test_cancelled_rating_keeps_value_but_never_proves_positive_action_direction() -> None:
+    message = "取消给它打 5 分"
+    rating_field = "payload.foodEntryRatings[0].rating"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[{"fields": ["action", rating_field], "text": message}],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "meal_log.rate_food", "explicit_action"),
+            CriticalEvidenceRequirement(rating_field, 5, "rating"),
+        ),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset({rating_field})
+
+
+@pytest.mark.parametrize(
     ("message", "expected_action", "expected_reason"),
     [
         ("不收藏这个", "set_favorite:true", "source_value_mismatch"),
