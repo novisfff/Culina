@@ -70,7 +70,11 @@ export function HomeRequiredActions(props: {
         <div>
           <h2 id="home-required-title">今天必须处理什么</h2>
         </div>
-        <button className="ghost-button button-compact home-question-head-action" type="button" onClick={props.onOpenReconciliation}>
+        <button
+          className="ghost-button button-compact home-question-head-action"
+          type="button"
+          onClick={props.onOpenReconciliation}
+        >
           <DashboardIcon name="refresh" />
           核对库存
         </button>
@@ -113,7 +117,11 @@ export function HomeRequiredActions(props: {
         />
       )}
       {props.hasMore ? (
-        <button className="tertiary-button button-compact home-question-more" type="button" onClick={props.onViewAll}>
+        <button
+          className="tertiary-button button-compact home-question-more"
+          type="button"
+          onClick={props.onViewAll}
+        >
           <span>查看全部</span>
           <DashboardIcon name="arrow-right" />
         </button>

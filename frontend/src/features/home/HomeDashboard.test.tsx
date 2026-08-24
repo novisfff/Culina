@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Food, MealLog, MealLogRecordOperationSummary, RecordMealResponse } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog, MealLogRecordOperationSummary, RecordMealResponse } from '../../api/types';
 import type {
   ExpiryInventoryActionGroup,
   LowStockInventoryActionGroup,
@@ -391,6 +391,18 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?grid-template-columns: repeat\(3, minmax\(260px, 1fr\)\)/);
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?overflow-x: auto/);
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?scrollbar-width: none/);
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1024px\) and \(max-width: 1159px\) \{[\s\S]*?\.dashboard-food-row \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1024px\) and \(max-width: 1159px\) \{[\s\S]*?\.dashboard-food-card \{[^}]*grid-template-columns: clamp\(84px, 8\.5vw, 104px\) minmax\(0, 1fr\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1023px\) \{[\s\S]*?\.dashboard-food-row \{[^}]*grid-template-columns: repeat\(3, minmax\(260px, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1280px\) \{[\s\S]*?\.dashboard-food-card \{[^}]*grid-template-columns: minmax\(96px, 0\.65fr\) minmax\(0, 1fr\);/,
+    );
     expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left \.dashboard-food-row[\s\S]*?mask-image/);
     expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left\.can-scroll-right \.dashboard-food-row/);
     expect(homeStyles).toMatch(/\.dashboard-food-scroller \{[\s\S]*?overflow: hidden[\s\S]*?border-radius: 14px/);
@@ -399,6 +411,9 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).toMatch(/\.dashboard-food-card:hover \{[^}]*border-color: var\(--accent\)/);
     expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*border-width:/);
     expect(homeStyles).not.toMatch(/\.dashboard-food-card:hover \{[^}]*transform:/);
+    expect(homeStyles).toMatch(
+      /\.home-dashboard-lower-grid \.home-highlight-copy strong \{[^}]*flex: 0 0 3\.5em;[^}]*min-width: 3\.5em;[^}]*max-width: 3\.5em;/s,
+    );
     expect(homeStyles).toMatch(/\.home-question-one \{[\s\S]*?gap: 6px[\s\S]*?padding: 8px 18px/);
     expect(homeStyles).toMatch(/\.home-compact-days > button[\s\S]*?min-height: 60px[\s\S]*?align-content: start/);
     expect(homeStyles).toMatch(
@@ -413,6 +428,19 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).toMatch(
       /\.home-compact-meal-actions \{[^}]*grid-template-columns: 44px minmax\(0, 1fr\);/s,
     );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1181px\) \{[\s\S]*?\.home-compact-meal-item\.has-cover \{[^}]*overflow: hidden;[^}]*gap: 4px;[^}]*padding-left: 0;[^}]*padding-right: 3px;/,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-item-media:not\(\.is-empty\) \.home-compact-meal-item-image \{[^}]*display: block;[^}]*object-fit: cover;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-foods > \.home-compact-meal-item \{[^}]*flex: 1 1 0;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-foods > \.home-compact-meal-item \.home-compact-meal-item-label \{[^}]*flex: 1 1 0;/s,
+    );
+    expect(homeStyles).not.toContain('.home-compact-meal-item.is-condensed');
     expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');
   });
 
@@ -452,12 +480,28 @@ describe('HomeDashboard three-question desktop', () => {
                 created_at: '2026-07-01T00:00:00.000Z',
                 updated_at: '2026-07-01T00:00:00.000Z',
               },
+              {
+                id: 'plan-text-food',
+                family_id: 'family-1',
+                user_id: 'user-1',
+                food_id: 'food-without-cover',
+                food_name: '盒装牛奶自动测试',
+                food_type: 'dish',
+                recipe_id: null,
+                recipe_title: '',
+                plan_date: day.date,
+                meal_type: 'dinner',
+                note: '',
+                status: 'planned',
+                created_at: '2026-07-01T00:00:00.000Z',
+                updated_at: '2026-07-01T00:00:00.000Z',
+              },
             ],
           }
         : meal,
     );
     day.plannedMealCount = 1;
-    day.totalCount = 1;
+    day.totalCount = 2;
 
     const view = renderDashboard({
       foods: [picturedFood],
@@ -471,6 +515,12 @@ describe('HomeDashboard three-question desktop', () => {
         ?.querySelector<HTMLImageElement>('.home-compact-meal-item-image')
         ?.getAttribute('src'),
     ).toBe('/media/番茄炒蛋.webp');
+    expect(
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+    ).toContain('has-cover');
+    expect(
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+    ).not.toContain('is-condensed');
   });
 
   it('renders desktop recommendations, compact week and the two-column lower questions', () => {
@@ -499,6 +549,111 @@ describe('HomeDashboard three-question desktop', () => {
     expect(desktop.textContent).toContain('家里发生了什么');
     expect(desktop.querySelectorAll('[data-testid="home-highlight-row"]')).toHaveLength(5);
     expect(desktop.querySelector('[data-testid="home-lower-grid"]')?.classList.contains('home-dashboard-lower-grid')).toBe(true);
+  });
+
+  it('keeps recommendations and the weekly menu as independent home sections', () => {
+    const view = renderDashboard({
+      desktopRecommendations: [0, 1, 2].map(makeRecommendation),
+      recommendationCount: 3,
+      compactPlanDays: Array.from({ length: 7 }, (_, index) => makePlanDay(index)),
+    });
+    const desktop = desktopSurface(view);
+    const recommendations = desktop.querySelector('[data-testid="home-recommendations-section"]');
+    const weeklyMenu = desktop.querySelector('[data-testid="home-week-plan"]');
+
+    expect(recommendations).not.toBeNull();
+    expect(weeklyMenu).not.toBeNull();
+    expect(recommendations?.contains(weeklyMenu)).toBe(false);
+  });
+
+  it('opens the existing global search from a lightweight search entry', () => {
+    const onOpenGlobalSearch = vi.fn();
+    const view = renderDashboard({ onOpenGlobalSearch });
+    const search = desktopSurface(view).querySelector<HTMLButtonElement>(
+      'button.dashboard-search-trigger[aria-label="全局搜索"]',
+    );
+
+    expect(search).not.toBeNull();
+    expect(search?.classList.contains('solid-button')).toBe(false);
+    expect(search?.textContent).toContain('搜索食材、菜谱、计划');
+    act(() => search?.click());
+    expect(onOpenGlobalSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a selected-day empty state and keeps the four real meal arrangement entries', () => {
+    const onAddMeal = vi.fn();
+    const days = Array.from({ length: 7 }, (_, index) => makePlanDay(index));
+    const otherDayItem = {
+      id: 'other-day-plan',
+      family_id: 'family-1',
+      user_id: 'user-1',
+      food_id: 'food-other-day',
+      food_name: '清蒸鱼',
+      food_type: 'dish',
+      recipe_id: null,
+      recipe_title: '',
+      plan_date: days[1]!.date,
+      meal_type: 'dinner',
+      note: '',
+      status: 'planned',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-01T00:00:00.000Z',
+    } satisfies FoodPlanItem;
+    days[1] = {
+      ...days[1]!,
+      mealItems: days[1]!.mealItems.map((meal) =>
+        meal.mealType === 'dinner' ? { ...meal, items: [otherDayItem] } : meal,
+      ),
+      plannedMealCount: 1,
+      totalCount: 1,
+    };
+    const view = renderDashboard({
+      compactPlanDays: days,
+      selectedDashboardPlanDay: days[0],
+      onHomePlanAddEmptyDialogOpen: onAddMeal,
+    });
+    const weeklyMenu = desktopSurface(view).querySelector('[data-testid="home-week-plan"]');
+    const emptyState = weeklyMenu?.querySelector('[data-testid="home-day-empty"]');
+
+    expect(emptyState).not.toBeNull();
+    expect(emptyState?.textContent).toContain('当日还没有安排菜单');
+    expect(weeklyMenu?.querySelectorAll('.home-compact-meal-slot')).toHaveLength(0);
+    expect(weeklyMenu?.textContent).not.toContain('智能安排本周');
+    expect(weeklyMenu?.textContent).not.toContain('手动安排');
+    expect(weeklyMenu?.textContent).not.toContain('暂无安排');
+    const artwork = emptyState?.querySelector<HTMLImageElement>('.home-compact-week-empty-art');
+    expect(artwork?.getAttribute('src')).toBe('/assets/home-week-plan-empty.webp');
+    expect(artwork?.getAttribute('alt')).toBe('');
+
+    const mealButtons = Array.from(
+      emptyState?.querySelectorAll<HTMLButtonElement>('button[aria-label$="安排餐食"]') ?? [],
+    );
+    expect(mealButtons).toHaveLength(4);
+    expect(
+      mealButtons.map((button) =>
+        button
+          .querySelector<HTMLImageElement>('.home-compact-week-empty-action-art')
+          ?.getAttribute('src'),
+      ),
+    ).toEqual([
+      '/assets/home-meal-breakfast.webp',
+      '/assets/home-meal-lunch.webp',
+      '/assets/home-meal-dinner.webp',
+      '/assets/home-meal-snack.webp',
+    ]);
+    expect(
+      mealButtons.every((button) => {
+        const image = button.querySelector<HTMLImageElement>('.home-compact-week-empty-action-art');
+        return image?.getAttribute('alt') === '' && image.getAttribute('aria-hidden') === 'true';
+      }),
+    ).toBe(true);
+    act(() => mealButtons.forEach((button) => button.click()));
+    expect(onAddMeal.mock.calls).toEqual([
+      [days[0]?.date, 'breakfast'],
+      [days[0]?.date, 'lunch'],
+      [days[0]?.date, 'dinner'],
+      [days[0]?.date, 'snack'],
+    ]);
   });
 
   it('adds a non-recipe recommendation to the selected meal plan', () => {
@@ -560,6 +715,16 @@ describe('HomeDashboard three-question desktop', () => {
 
     const lunchAdd = desktop.querySelector('button[aria-label="为6日午餐安排餐食"]') as HTMLButtonElement | null;
     expect(lunchAdd).not.toBeNull();
+    expect(
+      Array.from(
+        desktop.querySelectorAll<HTMLImageElement>('.home-compact-meal-slot.is-empty .home-compact-meal-empty-art'),
+      ).map((image) => image.getAttribute('src')),
+    ).toEqual([
+      '/assets/home-meal-lunch.webp',
+      '/assets/home-meal-dinner.webp',
+      '/assets/home-meal-snack.webp',
+    ]);
+    expect(desktop.textContent).not.toContain('暂无安排');
     act(() => lunchAdd?.click());
     expect(addMeal).toHaveBeenCalledWith(days[0]!.date, 'lunch');
   });

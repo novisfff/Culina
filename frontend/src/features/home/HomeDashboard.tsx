@@ -853,12 +853,17 @@ export function HomeDashboard(props: HomeDashboardProps) {
       <main className="dashboard-page">
         <PageHeader
           title="首页"
-          description="把今天要做、要买、要处理的事放在一个清晰工作台里。"
+          description="今天吃什么、买什么、先处理什么，都在这里。"
           actions={
             <div className="dashboard-hero-actions">
-              <button className="solid-button dashboard-action-primary" type="button" onClick={onOpenGlobalSearch}>
+              <button
+                className="dashboard-search-trigger"
+                type="button"
+                aria-label="全局搜索"
+                onClick={onOpenGlobalSearch}
+              >
                 <DashboardIcon name="search" />
-                全局搜索
+                <span>搜索食材、菜谱、计划...</span>
               </button>
             </div>
           }
@@ -882,10 +887,17 @@ export function HomeDashboard(props: HomeDashboardProps) {
           ))}
         </div>
 
-        <section className="home-question-one card dashboard-panel">
+        <section
+          className="home-question-one home-recommendations-section"
+          data-testid="home-recommendations-section"
+        >
           <header className="home-question-head home-question-one-head">
             <div>
-              <h2>今天吃什么</h2>
+              <div className="home-question-title-line">
+                <h2>今天吃什么</h2>
+                <span>为你推荐</span>
+              </div>
+              <p>结合家里的食材和常用菜谱，挑一份适合今天的建议。</p>
             </div>
             <button
               className="ghost-button button-compact"
@@ -977,22 +989,22 @@ export function HomeDashboard(props: HomeDashboardProps) {
           ) : (
             <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
           )}
-
-          <HomeCompactCalendar
-            days={compactPlanDays}
-            selectedDate={selectedPlanDate}
-            selectedSummary={selectedPlanSummary}
-            onSelectDate={onSelectedPlanDateChange}
-            onPreviousWeek={onFoodPlanPreviousWeek}
-            onCurrentWeek={onFoodPlanCurrentWeek}
-            onNextWeek={onFoodPlanNextWeek}
-            onOpenFullWeek={onOpenFullWeek}
-            onAddMeal={openHomePlanAddEmptyDialog}
-            onOpenPlanDetail={openHomePlanDetail}
-            onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
-            resolvePlanItemCoverUrl={resolvePlanItemCoverUrl}
-          />
         </section>
+
+        <HomeCompactCalendar
+          days={compactPlanDays}
+          selectedDate={selectedPlanDate}
+          selectedSummary={selectedPlanSummary}
+          onSelectDate={onSelectedPlanDateChange}
+          onPreviousWeek={onFoodPlanPreviousWeek}
+          onCurrentWeek={onFoodPlanCurrentWeek}
+          onNextWeek={onFoodPlanNextWeek}
+          onOpenFullWeek={onOpenFullWeek}
+          onAddMeal={openHomePlanAddEmptyDialog}
+          onOpenPlanDetail={openHomePlanDetail}
+          onOpenMealPlans={(date, mealType, items) => setMorePlansPopover({ date, mealType, items })}
+          resolvePlanItemCoverUrl={resolvePlanItemCoverUrl}
+        />
 
         <div className="home-dashboard-lower-grid" data-testid="home-lower-grid">
           <HomeRequiredActions
