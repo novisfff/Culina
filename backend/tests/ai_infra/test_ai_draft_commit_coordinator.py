@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -10,7 +11,7 @@ import time
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, func, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ._support import AIAgentInfraTestCase, FakeChatProvider
@@ -48,6 +49,29 @@ from app.services.ai_operations.commit_coordinator import (
 
 
 class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
+    def _add_family_member(self, db, *, suffix: str) -> User:
+        user = User(
+            id=f"user-commit-{suffix}",
+            username=f"commit-{suffix}",
+            display_name=f"重试成员 {suffix}",
+            avatar_seed="",
+            is_active=True,
+        )
+        db.add_all(
+            (
+                user,
+                Membership(
+                    id=f"membership-commit-{suffix}",
+                    family_id=self.family.id,
+                    user_id=user.id,
+                    role=UserRole.MEMBER,
+                    status=MembershipStatus.ACTIVE,
+                ),
+            )
+        )
+        db.flush()
+        return user
+
     def _favorite_payload(self, db, *, favorite: bool = True) -> dict:
         food = db.get(Food, "food-tomato")
         assert food is not None
@@ -333,6 +357,128 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                 1,
             )
 
+    def test_manual_retry_uses_current_decision_maker_in_operation_audit_and_replay(self) -> None:
+        with self.SessionLocal() as db:
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="food_profile",
+                payload=self._favorite_payload(db),
+                suffix="retry-current-actor",
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=RuntimeError("first decision failed"),
+            ):
+                first = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+            retry_approval = db.get(AIApprovalRequest, first["approval"]["id"])
+            current_actor = self._add_family_member(db, suffix="current-actor")
+            assert retry_approval is not None
+            with (
+                patch(
+                    "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                    return_value=self._fake_receipt(),
+                ),
+                patch.object(
+                    DraftCommitCoordinator,
+                    "commit_locked",
+                    wraps=DraftCommitCoordinator.commit_locked,
+                ) as commit,
+            ):
+                second = service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=current_actor.id,
+                    conversation_id=retry_approval.conversation_id,
+                    approval_id=retry_approval.id,
+                    decision="approved",
+                    draft_version=draft.version,
+                    values=retry_approval.initial_values,
+                )
+
+            operation = db.get(AIOperation, second["operation"]["id"])
+            assert operation is not None
+            expected_snapshot = {
+                "approval_request_id": retry_approval.id,
+                "draft_version": draft.version,
+            }
+            self.assertEqual(operation.actor_user_id, current_actor.id)
+            self.assertEqual(operation.approval_request_id, retry_approval.id)
+            self.assertEqual(operation.authorization_source, "approval_request")
+            self.assertEqual(operation.authorization_snapshot_json, expected_snapshot)
+
+            request = commit.call_args.kwargs["request"]
+            replay = DraftCommitCoordinator.commit_locked(
+                db,
+                request=request,
+                locked_run=None,
+                locked_draft=draft,
+            )
+            self.assertEqual(replay.operation_id, operation.id)
+            self.assertEqual(operation.actor_user_id, current_actor.id)
+            self.assertEqual(operation.approval_request_id, retry_approval.id)
+            self.assertEqual(operation.authorization_snapshot_json, expected_snapshot)
+
+    def test_manual_retry_transient_failure_reapplies_current_decision_audit(self) -> None:
+        with self.SessionLocal() as db:
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="food_profile",
+                payload=self._favorite_payload(db),
+                suffix="retry-transient-current-actor",
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=RuntimeError("first decision failed"),
+            ):
+                first = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+            retry_approval = db.get(AIApprovalRequest, first["approval"]["id"])
+            current_actor = self._add_family_member(db, suffix="transient-current-actor")
+            assert retry_approval is not None
+            transient = OperationalError(
+                "UPDATE foods SET favorite = 1",
+                {},
+                Exception(1213, "Deadlock found when trying to get lock"),
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=transient,
+            ):
+                second = service._apply_approval_decision(
+                    family_id=self.family.id,
+                    user_id=current_actor.id,
+                    conversation_id=retry_approval.conversation_id,
+                    approval_id=retry_approval.id,
+                    decision="approved",
+                    draft_version=draft.version,
+                    values=retry_approval.initial_values,
+                )
+
+            operation = db.get(AIOperation, second["operation"]["id"])
+            assert operation is not None
+            self.assertEqual(operation.status, "failed")
+            self.assertEqual(operation.error_code, "draft_commit_transient_database_error")
+            self.assertEqual(operation.actor_user_id, current_actor.id)
+            self.assertEqual(operation.approval_request_id, retry_approval.id)
+            self.assertEqual(operation.authorization_source, "approval_request")
+            self.assertEqual(
+                operation.authorization_snapshot_json,
+                {
+                    "approval_request_id": retry_approval.id,
+                    "draft_version": draft.version,
+                },
+            )
+            self.assertEqual(
+                db.scalar(
+                    select(func.count()).select_from(AIApprovalRequest).where(
+                        AIApprovalRequest.draft_id == draft.id,
+                        AIApprovalRequest.status == "pending",
+                        AIApprovalRequest.approval_type.like("%.retry"),
+                    )
+                ),
+                1,
+            )
+
     def test_non_retryable_operational_error_is_not_persisted_as_pending_retry(self) -> None:
         with self.SessionLocal() as db:
             run, draft, request = self._seed_policy_draft(db, suffix="non-retryable-db")
@@ -357,6 +503,126 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                     )
             self.assertEqual(draft.status, "pending")
             self.assertEqual(db.scalar(select(func.count()).select_from(AIOperation)), 0)
+
+    def test_manual_dbapi_failures_are_redacted_across_retry_response_and_artifacts(self) -> None:
+        for exception_type in (IntegrityError, ProgrammingError, SQLAlchemyError):
+            with self.subTest(exception_type=exception_type.__name__), self.SessionLocal() as db:
+                sentinel = f"PRIVATE-FAMILY-SQL-{exception_type.__name__}"
+                service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="food_profile",
+                    payload=self._favorite_payload(db),
+                    suffix=f"redact-{exception_type.__name__.lower()}",
+                )
+                database_error = (
+                    SQLAlchemyError(f"SQLAlchemy internal detail {sentinel}")
+                    if exception_type is SQLAlchemyError
+                    else exception_type(
+                        f"INSERT INTO foods (name) VALUES ('{sentinel}')",
+                        {"name": sentinel},
+                        Exception(f"database detail {sentinel}"),
+                    )
+                )
+                with patch(
+                    "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                    side_effect=database_error,
+                ):
+                    result = self._approve_ai_approval_for_test(
+                        service,
+                        draft=draft,
+                        approval=approval,
+                    )
+
+                operation = db.get(AIOperation, result["operation"]["id"])
+                original_approval = db.get(AIApprovalRequest, approval.id)
+                retry_approval = db.get(AIApprovalRequest, result["approval"]["id"])
+                message = db.get(AIMessage, draft.message_id)
+                assert operation is not None
+                assert original_approval is not None
+                assert retry_approval is not None
+                assert message is not None
+                self.assertEqual(original_approval.status, "approved")
+                self.assertEqual(retry_approval.status, "pending")
+                self.assertEqual(operation.error_code, "draft_commit_database_error")
+                self.assertEqual(operation.error_message, "数据库写入失败，请稍后重试")
+                self.assertEqual(
+                    db.scalar(
+                        select(func.count()).select_from(AIApprovalRequest).where(
+                            AIApprovalRequest.draft_id == draft.id,
+                            AIApprovalRequest.status == "pending",
+                            AIApprovalRequest.approval_type.like("%.retry"),
+                        )
+                    ),
+                    1,
+                )
+                public_and_persisted_surface = json.dumps(
+                    {
+                        "response": result,
+                        "message_parts": message.parts,
+                        "message_artifacts": (message.message_metadata or {}).get("artifacts"),
+                        "retry_request": retry_approval.request_payload,
+                        "operation_error": {
+                            "code": operation.error_code,
+                            "message": operation.error_message,
+                        },
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+                self.assertNotIn(sentinel, public_and_persisted_surface)
+                self.assertNotIn("INSERT INTO foods", public_and_persisted_surface)
+
+    def test_policy_dbapi_failure_is_redacted_and_creates_no_approval(self) -> None:
+        with self.SessionLocal() as db:
+            run, draft, request = self._seed_policy_draft(db, suffix="policy-dbapi-redaction")
+            run = db.get(AIAgentRun, run.id)
+            draft = db.get(AITaskDraft, draft.id)
+            assert run is not None and draft is not None
+            sentinel = "PRIVATE-POLICY-SQL-PARAM"
+            database_error = ProgrammingError(
+                f"UPDATE foods SET notes = '{sentinel}'",
+                {"notes": sentinel},
+                Exception(f"database detail {sentinel}"),
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=database_error,
+            ):
+                result = DraftCommitCoordinator.commit_locked(
+                    db,
+                    request=request,
+                    locked_run=run,
+                    locked_draft=draft,
+                )
+
+            operation = db.get(AIOperation, result.operation_id)
+            message = db.get(AIMessage, draft.message_id)
+            assert operation is not None and message is not None
+            self.assertEqual(operation.status, "failed")
+            self.assertEqual(operation.error_code, "draft_commit_database_error")
+            self.assertEqual(operation.error_message, "数据库写入失败，请稍后重试")
+            self.assertEqual(draft.status, "execution_failed")
+            self.assertEqual(
+                db.scalar(
+                    select(func.count()).select_from(AIApprovalRequest).where(
+                        AIApprovalRequest.draft_id == draft.id
+                    )
+                ),
+                0,
+            )
+            persisted_surface = json.dumps(
+                {
+                    "result_part": result.result_part,
+                    "artifacts": result.artifacts,
+                    "message_parts": message.parts,
+                    "message_artifacts": (message.message_metadata or {}).get("artifacts"),
+                    "operation_error": operation.error_message,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            self.assertNotIn(sentinel, persisted_surface)
+            self.assertNotIn("UPDATE foods", persisted_surface)
 
     def test_full_rollback_relock_does_not_overwrite_a_resolved_approval(self) -> None:
         with self.SessionLocal() as db:

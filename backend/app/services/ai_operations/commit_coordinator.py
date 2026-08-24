@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
@@ -63,6 +63,8 @@ logger = logging.getLogger(__name__)
 TRANSIENT_DATABASE_ERROR_CODE = "draft_commit_transient_database_error"
 DOMAIN_CONFLICT_ERROR_CODE = "draft_commit_domain_conflict"
 DOMAIN_FAILURE_ERROR_CODE = "draft_commit_domain_failed"
+DATABASE_FAILURE_ERROR_CODE = "draft_commit_database_error"
+DATABASE_FAILURE_ERROR_MESSAGE = "数据库写入失败，请稍后重试"
 REVERT_WINDOW = timedelta(hours=1)
 TRANSIENT_DATABASE_ERROR_MESSAGE = "数据库暂时不可用，请重试原草稿"
 DATABASE_CONNECTION_FAILURE_CODES = {2006, 2013, 2055}
@@ -124,6 +126,17 @@ def _empty_receipt() -> DraftExecutionReceipt:
         revert_adapter_key=None,
         revert_context=None,
     )
+
+
+def _apply_operation_request_audit(
+    operation: AIOperation,
+    *,
+    request: DraftCommitRequest,
+) -> None:
+    operation.actor_user_id = request.actor_user_id
+    operation.approval_request_id = request.approval_request_id
+    operation.authorization_source = request.authorization_source
+    operation.authorization_snapshot_json = dict(request.authorization_snapshot)
 
 
 class DraftCommitCoordinator:
@@ -482,12 +495,11 @@ class DraftCommitCoordinator:
                 if operation.status == "succeeded":
                     return cls._replay_result(db, operation=operation, draft=locked_draft)
                 raise AIConflictError("该草稿操作正在由另一请求恢复")
-            operation.approval_request_id = request.approval_request_id
         elif not created and operation.status not in {"pending"}:
             raise AIConflictError("该草稿操作正在执行")
 
+        _apply_operation_request_audit(operation, request=request)
         operation.status = "pending"
-        operation.actor_user_id = request.actor_user_id
         if locked_run is not None and request.execution_mode == "policy_auto":
             locked_run.auto_operation_id = operation.id
         return cls._execute_and_persist(
@@ -573,6 +585,46 @@ class DraftCommitCoordinator:
             )
         except OperationalError:
             raise
+        except DBAPIError:
+            if request.execution_mode == "manual_approval" and locked_run is not None:
+                if cancellation_wins(db, run=locked_run):
+                    raise
+            logger.exception(
+                "AI draft commit database failure family_id=%s draft_id=%s operation_id=%s mode=%s",
+                request.family_id,
+                request.draft_id,
+                operation.id,
+                request.execution_mode,
+            )
+            return cls._persist_failed_execution(
+                db,
+                request=request,
+                operation=operation,
+                draft=draft,
+                receipt=receipt,
+                error_code=DATABASE_FAILURE_ERROR_CODE,
+                error_message=DATABASE_FAILURE_ERROR_MESSAGE,
+            )
+        except SQLAlchemyError:
+            if request.execution_mode == "manual_approval" and locked_run is not None:
+                if cancellation_wins(db, run=locked_run):
+                    raise
+            logger.exception(
+                "AI draft commit SQLAlchemy failure family_id=%s draft_id=%s operation_id=%s mode=%s",
+                request.family_id,
+                request.draft_id,
+                operation.id,
+                request.execution_mode,
+            )
+            return cls._persist_failed_execution(
+                db,
+                request=request,
+                operation=operation,
+                draft=draft,
+                receipt=receipt,
+                error_code=DATABASE_FAILURE_ERROR_CODE,
+                error_message=DATABASE_FAILURE_ERROR_MESSAGE,
+            )
         except Exception as exc:
             if request.execution_mode == "manual_approval" and locked_run is not None:
                 if cancellation_wins(db, run=locked_run):
@@ -584,30 +636,54 @@ class DraftCommitCoordinator:
                 operation.id,
                 request.execution_mode,
             )
-            operation.status = "failed"
-            operation.result_json = None
-            operation.business_entity_ids = []
-            operation.error_code = (
-                DOMAIN_CONFLICT_ERROR_CODE if isinstance(exc, AIConflictError) else DOMAIN_FAILURE_ERROR_CODE
-            )
-            operation.error_message = str(exc)
-            operation.failed_at = utcnow()
-            operation.completed_at = None
-            operation.revert_adapter_key = None
-            operation.revert_context_json = None
-            operation.revertible_until = None
-            draft.status = "pending_retry" if request.execution_mode == "manual_approval" else "execution_failed"
-            draft.payload = dict(request.committed_payload)
-            draft.payload_hash = derive_draft_payload_hash(request.committed_payload)
-            draft.updated_by = request.actor_user_id
-            db.flush()
-            return cls._persist_result(
+            return cls._persist_failed_execution(
                 db,
                 request=request,
                 operation=operation,
                 draft=draft,
-                receipt=receipt or _empty_receipt(),
+                receipt=receipt,
+                error_code=(
+                    DOMAIN_CONFLICT_ERROR_CODE
+                    if isinstance(exc, AIConflictError)
+                    else DOMAIN_FAILURE_ERROR_CODE
+                ),
+                error_message=str(exc),
             )
+
+    @classmethod
+    def _persist_failed_execution(
+        cls,
+        db: Session,
+        *,
+        request: DraftCommitRequest,
+        operation: AIOperation,
+        draft: AITaskDraft,
+        receipt: DraftExecutionReceipt | None,
+        error_code: str,
+        error_message: str,
+    ) -> DraftCommitResult:
+        operation.status = "failed"
+        operation.result_json = None
+        operation.business_entity_ids = []
+        operation.error_code = error_code
+        operation.error_message = error_message
+        operation.failed_at = utcnow()
+        operation.completed_at = None
+        operation.revert_adapter_key = None
+        operation.revert_context_json = None
+        operation.revertible_until = None
+        draft.status = "pending_retry" if request.execution_mode == "manual_approval" else "execution_failed"
+        draft.payload = dict(request.committed_payload)
+        draft.payload_hash = derive_draft_payload_hash(request.committed_payload)
+        draft.updated_by = request.actor_user_id
+        db.flush()
+        return cls._persist_result(
+            db,
+            request=request,
+            operation=operation,
+            draft=draft,
+            receipt=receipt or _empty_receipt(),
+        )
 
     @classmethod
     def _run_post_execute(
@@ -689,6 +765,7 @@ class DraftCommitCoordinator:
             )
             if operation.status == "succeeded":
                 return cls._replay_result(db, operation=operation, draft=locked_draft)
+            _apply_operation_request_audit(operation, request=request)
             operation.status = "failed"
             operation.error_code = TRANSIENT_DATABASE_ERROR_CODE
             logger.warning(
