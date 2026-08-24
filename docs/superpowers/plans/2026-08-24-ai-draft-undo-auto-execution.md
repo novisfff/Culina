@@ -4,7 +4,7 @@
 
 **Goal:** 在不向模型暴露正式 Write Tool 的前提下，为五类明确、低风险 Draft 增加服务端策略自动执行，并为已支持的 AI Operation 提供一小时、可审计、冲突安全的补偿式撤销。
 
-**Architecture:** 模型只输出 Draft 与离散意图证据；服务端 `DraftRoutingCoordinator` 通过可信上下文、成员/家庭授权和动作策略决定人工确认、自动执行或无需变更。人工与自动路径统一进入 `DraftCommitCoordinator`，领域执行返回带版本化撤销上下文的 `DraftExecutionReceipt`；撤销由 `AIRevertCoordinator` 分发到固定领域适配器，结果统一投影到持久化消息、Artifact、SSE 和前端缓存范围。
+**Architecture:** 模型只输出 Draft 与离散意图证据；Draft Tool 在领域归一化前分离 evidence，服务端用当前消息、canonical 值匹配和可信上下文验证后，由 `DraftRoutingCoordinator` 决定人工确认、自动执行或无需变更。人工与自动路径统一进入 `DraftCommitCoordinator`，领域执行返回带版本化撤销上下文的 `DraftExecutionReceipt`；撤销由 `AIRevertCoordinator` 分发到固定领域适配器。活动 chat 的自动结果继续走既有 SSE，人工审批与撤销通过普通 HTTP 响应更新发起端，所有结果统一持久化到消息、Artifact 和前端缓存范围。
 
 **Tech Stack:** FastAPI、Pydantic v2、SQLAlchemy 2、Alembic/MySQL、pytest；React 18、TypeScript、React Query、Vitest、Playwright、Culina UI kit/CSS token。
 
@@ -12,6 +12,8 @@
 
 - 模型仍只能调用 read/draft/control Tool；所有相关 Draft Tool 的 `requires_confirmation` 保持 `True`，不新增或暴露正式业务 Write Tool。
 - 不使用连续 `confidence`；`intent_clarity` 只允许 `explicit_complete | explicit_context_resolved | explicit_incomplete | inferred`。
+- 四档完整定义必须通过共享 JSON Schema description 和相关 Skill 指令对模型可见；枚举名本身不作为充分提示。
+- `sourceQuotes.fields` 只是模型声明。自动执行还必须由服务端确定性解析并证明 quote/可信来源中的 canonical 值与规范化 payload 值一致；无法证明即人工确认。
 - 自动执行动作只允许 `food.set_favorite`、`meal_log.rate_food`、`shopping_list.safe_write`、`meal_log.simple_create`、`meal_plan.simple_create`。
 - `meal_log.simple_create` 和 `meal_plan.simple_create` 必须有当前消息明确要求新增的 `action` 证据；字段齐全的事实陈述或意向描述仍然人工确认。
 - 五类动作默认关闭并要求当前成员 opt-in；`shopping_list.safe_write` 还要求当前 Owner 开启家庭策略；notice 版本固定从 `auto-execution-consent.v1` 开始。
@@ -38,7 +40,7 @@
 - Modify `backend/app/models/domain.py`: settings models, Draft/Run/Operation audit fields and `FoodPlanItem.row_version`.
 - Create `backend/app/schemas/ai_auto_execution.py`: settings PUT/GET, operation projection and revert request/response DTOs.
 - Modify `backend/app/schemas/ai.py`: new Draft statuses and strict operation-result card projection.
-- Modify `backend/app/services/serializers.py`: Draft and Operation persistence serializers; never expose authorization snapshot, committed payload or revert context.
+- Modify `backend/app/services/serializers.py`: Draft and Operation persistence serializers; never expose authorization snapshot, committed payload or revert context; every message response hydrates result cards with one fresh response-level `server_now`.
 
 ### Backend policy, routing and commit
 
@@ -61,11 +63,12 @@
 
 ### Backend Runtime and Skill contract
 
-- Modify `backend/app/ai/tools/schemas.py`: shared bounded `INTENT_EVIDENCE_SCHEMA` on four relevant Draft schemas.
+- Modify `backend/app/ai/tools/schemas.py` and the four selected Draft Tool handlers in `backend/app/ai/tools/catalog/`: shared bounded, model-described `INTENT_EVIDENCE_SCHEMA`; split evidence before existing domain normalizers.
 - Modify `backend/app/ai/workflows/orchestrator/state.py` and `tools.py`: retain trusted call IDs/entity versions for read/UI/artifact references.
-- Modify `backend/app/ai/workflows/orchestrator/draft_capture.py` and `backend/app/ai/errors.py`: route-aware control flow rather than unconditional `ApprovalRequired`.
+- Modify `backend/app/ai/workflows/orchestrator/draft_capture.py` and `backend/app/ai/errors.py`: carry raw evidence beside normalized business payload and use route-aware control flow rather than unconditional `ApprovalRequired`.
 - Modify `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py`, `assistant_result_persister.py`, `orchestrator_next_state.py`, `message_parts.py` and `run_status.py`: create Approval only for `waiting_approval` and publish only the route-appropriate persistent result.
-- Modify `backend/app/ai/skills/loader.py`, `backend/app/ai/skills/base.py` and the four selected `skill.yaml` files: add `draft_then_policy` only when a server policy exists.
+- Modify `backend/app/ai/workflows/run_lifecycle.py`, `backend/app/ai/workspace_service.py` and the existing retry endpoint: intercept a `pending_retry` Draft before prompt replay and directly recover the same Run/Draft.
+- Modify `backend/app/ai/skills/loader.py`, `backend/app/ai/skills/base.py`, the four selected `skill.yaml` files and their `SKILL.md`: add `draft_then_policy` only when a server policy exists and require the model-visible evidence contract.
 
 ### Backend revert and domain ledgers
 
@@ -133,13 +136,24 @@ class TrustedResolutionSource:
     reference_id: str
     family_id: str
     entity_versions: dict[str, int | str | None]
+    entity_values: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 @dataclass(frozen=True, slots=True)
 class IntentEvidenceValidation:
     clarity: IntentClarity
     normalized_evidence: dict[str, Any]
     verified_fields: frozenset[str]
+    verified_values: dict[str, Any]
     reason_codes: tuple[str, ...] = ()
+
+@dataclass(frozen=True, slots=True)
+class CriticalEvidenceRequirement:
+    field: str
+    expected_value: Any
+    matcher_key: Literal[
+        "explicit_action", "entity_id", "boolean_direction", "rating",
+        "quantity", "unit", "date", "meal_type", "servings", "text",
+    ]
 
 @dataclass(frozen=True, slots=True)
 class AuthorizationSnapshot:
@@ -310,6 +324,8 @@ Add a model-shape test and a MySQL round-trip test. Seed legacy Draft/Operation 
 ```python
 def test_models_expose_auto_execution_and_revert_columns(self) -> None:
     self.assertIn("intent_clarity", AITaskDraft.__table__.c)
+    self.assertIn("intent_evidence_json", AITaskDraft.__table__.c)
+    self.assertIn("payload_hash", AITaskDraft.__table__.c)
     self.assertIn("auto_execution_attempted", AIAgentRun.__table__.c)
     self.assertTrue(AIOperation.__table__.c.approval_request_id.nullable)
     self.assertIn("revertible_until", AIOperation.__table__.c)
@@ -325,6 +341,7 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(mysql_alembic_dat
     assert db.rows("SELECT status, execution_route FROM ai_task_drafts") == [
         ("executed", "manual_confirmation")
     ]
+    assert len(db.scalar("SELECT payload_hash FROM ai_task_drafts LIMIT 1")) == 64
     assert db.rows(
         "SELECT status, execution_mode, authorization_source FROM ai_operations"
     ) == [("completed", "manual_approval", "approval_request")]
@@ -377,7 +394,7 @@ class AIFamilyAutoExecutionPolicy(AuditMixin, Base):
     __mapper_args__ = {"version_id_col": row_version}
 ```
 
-Add every persistence field from spec sections 12 and 21. `AIOperation.actor_user_id` and `run_id` remain nullable only for legacy rows; new coordinator writes reject missing actors. Replace the approval FK by inspecting the existing FK name and recreating named constraint `fk_ai_operations_approval_request_id_ai_approval_requests` with `SET NULL`.
+Add every persistence field from spec sections 12 and 21. `AITaskDraft.payload_hash` stores SHA-256 of canonical normalized business payload JSON (`sort_keys=True`, compact separators, UTF-8, no `intentEvidence`) and is immutable for a Draft version; migration code backfills it for legacy Draft rows before making it non-null. `AIOperation.actor_user_id` and `run_id` remain nullable only for legacy rows; new coordinator writes reject missing actors. Replace the approval FK by inspecting the existing FK name and recreating named constraint `fk_ai_operations_approval_request_id_ai_approval_requests` with `SET NULL`.
 
 The migration performs these exact data mappings before narrowing the target status semantics:
 
@@ -551,18 +568,25 @@ git commit -m "feat: add AI auto execution settings"
 - Create: `backend/app/services/ai_auto_execution/intent_evidence.py`
 - Create: `backend/tests/ai_infra/test_ai_intent_evidence.py`
 - Modify: `backend/app/ai/tools/schemas.py`
+- Modify: `backend/app/ai/tools/catalog/food.py`
+- Modify: `backend/app/ai/tools/catalog/meal_log.py`
+- Modify: `backend/app/ai/tools/catalog/meal_plan.py`
+- Modify: `backend/app/ai/tools/catalog/shopping.py`
 - Modify: `backend/app/ai/workflows/orchestrator/state.py`
 - Modify: `backend/app/ai/workflows/orchestrator/tools.py`
 - Modify: `backend/app/ai/workflows/orchestrator/draft_capture.py`
 - Modify: `backend/tests/ai_infra/test_ai_draft_contracts.py`
+- Modify: `backend/tests/ai_infra/test_tool_registry.py`
 
 **Interfaces:**
-- Consumes: current user message, normalized `subject`, `tool_call_id`, read/tool outputs and current run Artifacts.
-- Produces: `INTENT_EVIDENCE_SCHEMA`, `TrustedResolutionSource`, `IntentEvidenceValidation`, `validate_intent_evidence(...)`; persisted normalized evidence contains no unverified free-text authorization.
+- Consumes: raw Draft Tool input, separately normalized business Draft, current user message, normalized `subject`, `tool_call_id`, read/tool outputs and current run Artifacts.
+- Produces: model-visible `INTENT_CLARITY_MODEL_DESCRIPTION`, `INTENT_EVIDENCE_SCHEMA`, `TrustedResolutionSource`, `CriticalEvidenceRequirement`, `IntentEvidenceValidation`, `validate_intent_evidence(...)`; the persisted validation record distinguishes model claims from server-verified fields/values.
 
 - [ ] **Step 1: Write failing schema and validator tests**
 
-Test all four clarity levels, NFC/whitespace quote match, quote mismatch, untrusted call ID, cross-family entity, stale version, array/text bounds, defaulted critical fields and evidence omission falling back to manual eligibility. Include a complete simple-meal/simple-plan payload whose current message only states what was eaten or may be eaten: without a verified semantic `action` field, validation remains manual-only.
+Test all four clarity levels, NFC/whitespace quote match, quote mismatch, untrusted call ID, cross-family entity, stale version, array/text bounds, defaulted critical fields and evidence omission falling back to manual eligibility. Add canonical mismatch cases including message “打 4 分” with normalized `rating=5`, “买 1 盒” with `quantity=10`, opposite favorite direction, wrong date/meal type, a trusted entity ID that differs from the payload target, and an Artifact whose allowlisted quantity/unit facts differ from the Draft; all must remain manual-only. Include a complete simple-meal/simple-plan payload whose current message only states what was eaten or may be eaten: without a verified semantic `action` field, validation remains manual-only.
+
+Add one Tool-to-Draft integration test per selected Draft Tool. Pass `intentEvidence` inside the raw Tool input, let the real handler normalizer rebuild its business Draft, then assert capture/routing receives the unchanged evidence separately, persists a server-owned validation record on `AITaskDraft.intent_evidence_json`, and never inserts `intentEvidence` into the committed domain payload.
 
 ```python
 def test_explicit_context_resolution_requires_trusted_call_and_version() -> None:
@@ -578,7 +602,10 @@ def test_explicit_context_resolution_requires_trusted_call_and_version() -> None
         },
         current_message="  收藏这个  ",
         family_id="family-ai",
-        critical_fields=frozenset({"action", "targetId"}),
+        requirements=(
+            CriticalEvidenceRequirement("action", "set_favorite:true", "explicit_action"),
+            CriticalEvidenceRequirement("targetId", "food-tomato", "entity_id"),
+        ),
         trusted_sources={"call-food-1": TrustedResolutionSource(
             kind="tool_result", reference_id="call-food-1", family_id="family-ai",
             entity_versions={"food-tomato": 3},
@@ -586,6 +613,7 @@ def test_explicit_context_resolution_requires_trusted_call_and_version() -> None
     )
     assert validation.clarity == "explicit_context_resolved"
     assert validation.verified_fields == frozenset({"action", "targetId"})
+    assert validation.verified_values["targetId"] == "food-tomato"
     assert validation.reason_codes == ()
 
 def test_model_declared_empty_defaults_does_not_prove_critical_fields() -> None:
@@ -593,33 +621,50 @@ def test_model_declared_empty_defaults_does_not_prove_critical_fields() -> None:
         evidence={"intentClarity": "explicit_complete", "sourceQuotes": [],
                   "resolutionSources": [], "ambiguityCodes": [], "defaultedFields": []},
         current_message="收藏这个", family_id="family-ai",
-        critical_fields=frozenset({"action", "targetId"}), trusted_sources={},
+        requirements=(
+            CriticalEvidenceRequirement("action", "set_favorite:true", "explicit_action"),
+            CriticalEvidenceRequirement("targetId", "food-tomato", "entity_id"),
+        ),
+        trusted_sources={},
     )
     assert "intent_evidence_missing" in validation.reason_codes
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py -q`
+Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py backend/tests/ai_infra/test_tool_registry.py -q`
 
 Expected: FAIL because `INTENT_EVIDENCE_SCHEMA` and validator do not exist.
 
 - [ ] **Step 3: Add bounded schema and server-owned trusted sources**
 
-Define one shared schema and attach it as optional `intentEvidence` to `FOOD_PROFILE_DRAFT_SCHEMA`, `MEAL_LOG_DRAFT_SCHEMA`, `MEAL_PLAN_DRAFT_SCHEMA`, and `SHOPPING_LIST_DRAFT_SCHEMA`:
+Define one shared model-visible description and schema, then attach it as optional `intentEvidence` to `FOOD_PROFILE_DRAFT_SCHEMA`, `MEAL_LOG_DRAFT_SCHEMA`, `MEAL_PLAN_DRAFT_SCHEMA`, and `SHOPPING_LIST_DRAFT_SCHEMA`:
 
 ```python
+INTENT_CLARITY_MODEL_DESCRIPTION = """
+只选择一个档位，不生成置信度：
+- explicit_complete：当前用户明确要求该操作，并直接给出唯一目标和全部关键值。
+- explicit_context_resolved：当前用户明确要求该操作；只有唯一目标/指代来自当前 UI、本轮 Tool 结果或可信 Artifact，且没有关键默认值。
+- explicit_incomplete：用户要求了操作，但关键值或目标缺失、歧义、冲突或依赖默认值。
+- inferred：用户没有直接要求写入；事实陈述、称赞或可能的未来打算都不是操作指令。
+不得因为 Draft 看起来合理而升级档位。没有证据时省略 intentEvidence，服务端会要求人工确认。
+""".strip()
+
 INTENT_EVIDENCE_SCHEMA = {
     "type": "object", "additionalProperties": False,
+    "description": INTENT_CLARITY_MODEL_DESCRIPTION,
     "required": ["intentClarity", "sourceQuotes", "resolutionSources", "ambiguityCodes", "defaultedFields"],
     "properties": {
-        "intentClarity": {"type": "string", "enum": [
-            "explicit_complete", "explicit_context_resolved", "explicit_incomplete", "inferred"
-        ]},
+        "intentClarity": {
+            "type": "string",
+            "description": INTENT_CLARITY_MODEL_DESCRIPTION,
+            "enum": ["explicit_complete", "explicit_context_resolved", "explicit_incomplete", "inferred"],
+        },
         "sourceQuotes": {"type": "array", "maxItems": 12, "items": {
             "type": "object", "additionalProperties": False, "required": ["fields", "text"],
             "properties": {
-                "fields": {"type": "array", "minItems": 1, "maxItems": 12,
+                "fields": {"type": "array", "minItems": 1, "maxItems": 24,
+                           "description": "使用零基具体 payload 路径；[] 通配符不能证明全部数组项。",
                            "items": {"type": "string", "minLength": 1, "maxLength": 80}},
                 "text": {"type": "string", "minLength": 1, "maxLength": 240},
             },
@@ -628,7 +673,8 @@ INTENT_EVIDENCE_SCHEMA = {
             "type": "object", "additionalProperties": False,
             "required": ["fields", "kind", "referenceId", "entityId"],
             "properties": {
-                "fields": {"type": "array", "minItems": 1, "maxItems": 12,
+                "fields": {"type": "array", "minItems": 1, "maxItems": 24,
+                           "description": "使用由该可信实体解析出的零基具体 payload 路径。",
                            "items": {"type": "string", "minLength": 1, "maxLength": 80}},
                 "kind": {"type": "string", "enum": ["current_ui_context", "tool_result", "conversation_artifact"]},
                 "referenceId": {"type": "string", "minLength": 1, "maxLength": 120},
@@ -638,26 +684,41 @@ INTENT_EVIDENCE_SCHEMA = {
         }},
         "ambiguityCodes": {"type": "array", "maxItems": 12,
                            "items": {"type": "string", "minLength": 1, "maxLength": 80}},
-        "defaultedFields": {"type": "array", "maxItems": 12,
+        "defaultedFields": {"type": "array", "maxItems": 24,
                             "items": {"type": "string", "minLength": 1, "maxLength": 80}},
     },
 }
 ```
 
-Change `OrchestratorToolGateway._capture_tool_output(...)` to accept `tool_call_id`. Retain existing `read_outputs` for recommendation assembly, and additionally populate `state.trusted_resolution_sources` with server-extracted IDs/versions and the current family. Register `current_ui_context` only from normalized server `subject`; register `conversation_artifact` only from a successful `workspace.read_artifact` output. Never trust an ID merely because the model repeated it in Draft JSON.
+The field/default bounds are 24 because the largest first-batch case is five tracked shopping operation creates with four concrete requirements each; tests cover 20 valid paths and rejection at 25. Quote/source entry counts remain bounded at 12.
 
-`validate_intent_evidence` normalizes message/quotes with Unicode NFC, collapses all Unicode whitespace to one ASCII space, and uses substring matching. It recomputes field coverage and produces stable codes `intent_evidence_missing`, `source_quote_mismatch`, `resolution_source_untrusted`, `critical_default_used`, `ambiguity_present`; it never upgrades model clarity.
+The four Draft handlers must split the raw input before calling their current normalizers:
+
+```python
+raw_draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+raw_intent_evidence = raw_draft.get("intentEvidence")
+business_draft = {key: value for key, value in raw_draft.items() if key != "intentEvidence"}
+normalized_draft = normalize_existing_domain_draft(..., payload=business_draft)
+```
+
+`capture_draft_output` reads `raw_intent_evidence` from `tool_payload["draft"]`, never from `output["draft"]`, and places it in a separate `intent_evidence_input` member of the routing request. The handler output and persisted/committed business payload remain the normalized Draft only. This rule applies even if a current Pydantic model would silently ignore the extra field.
+
+Change `OrchestratorToolGateway._capture_tool_output(...)` to accept `tool_call_id`. Retain existing `read_outputs` for recommendation assembly, and additionally populate `state.trusted_resolution_sources` with server-extracted IDs/versions, the current family and only the per-Tool allowlisted canonical facts needed by first-batch matchers. Register `current_ui_context` only from normalized server `subject`; register `conversation_artifact` only from a successful `workspace.read_artifact` output. Never copy an arbitrary Tool/Artifact document into authorization state, and never trust an ID or value merely because the model repeated it in Draft JSON.
+
+`validate_intent_evidence` receives the normalized payload plus `tuple[CriticalEvidenceRequirement, ...]`. It normalizes message/quotes with Unicode NFC, collapses all Unicode whitespace to one ASCII space and first verifies substring containment. For every requirement it then uses the server-owned matcher named by `matcher_key` to derive a canonical value from the quote or trusted source and compares that value to `expected_value`. A model-declared field is added to `verified_fields/verified_values` only after this comparison; field coverage alone never passes authorization. Relative dates use the family timezone and a fixed product dictionary. The validator produces stable codes `intent_evidence_missing`, `source_quote_mismatch`, `source_value_unverifiable`, `source_value_mismatch`, `resolution_source_untrusted`, `critical_default_used`, `ambiguity_present`; it never upgrades model clarity and never invokes a model.
+
+Persist `normalized_evidence`, `verified_fields`, `verified_values` and `reason_codes` together in `AITaskDraft.intent_evidence_json`. Raw quote text may be retained for private audit, but only the server-verified fields and values participate in policy authorization.
 
 - [ ] **Step 4: Run focused contract tests**
 
-Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py -q`
+Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py backend/tests/ai_infra/test_tool_registry.py -q`
 
-Expected: PASS; over-limit evidence fails draft schema validation, while missing/unverifiable evidence remains a valid Draft but returns manual-only reason codes.
+Expected: PASS; over-limit evidence fails Draft schema validation, missing/unverifiable/mismatched values remain valid Drafts but return manual-only reason codes, and all four real normalizers preserve the evidence through the separate capture envelope without leaking it into domain payloads.
 
 - [ ] **Step 5: Commit evidence validation**
 
 ```bash
-git add backend/app/services/ai_auto_execution/intent_evidence.py backend/app/ai/tools/schemas.py backend/app/ai/workflows/orchestrator/state.py backend/app/ai/workflows/orchestrator/tools.py backend/app/ai/workflows/orchestrator/draft_capture.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py
+git add backend/app/services/ai_auto_execution/intent_evidence.py backend/app/ai/tools/schemas.py backend/app/ai/tools/catalog/food.py backend/app/ai/tools/catalog/meal_log.py backend/app/ai/tools/catalog/meal_plan.py backend/app/ai/tools/catalog/shopping.py backend/app/ai/workflows/orchestrator/state.py backend/app/ai/workflows/orchestrator/tools.py backend/app/ai/workflows/orchestrator/draft_capture.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_draft_contracts.py backend/tests/ai_infra/test_tool_registry.py
 git commit -m "feat: validate AI draft intent evidence"
 ```
 
@@ -683,6 +744,8 @@ Use a fake action policy that otherwise allows execution, and parameterize every
 @pytest.mark.parametrize("override,reason", [
     ({"clarity": "inferred"}, "intent_not_explicit"),
     ({"evidence_reasons": ("source_quote_mismatch",)}, "source_quote_mismatch"),
+    ({"evidence_reasons": ("source_value_unverifiable",)}, "source_value_unverifiable"),
+    ({"evidence_reasons": ("source_value_mismatch",)}, "source_value_mismatch"),
     ({"member_enabled": False}, "member_authorization_missing"),
     ({"family_enabled": False}, "family_policy_disabled"),
     ({"has_revert_adapter": False}, "revert_adapter_missing"),
@@ -746,12 +809,16 @@ class AutoExecutionActionPolicy(Protocol):
     revert_adapter_key: str
 
     def matches(self, *, draft_type: str, payload: dict[str, Any]) -> bool: ...
+    def evidence_requirements(
+        self, *, db: Session, family_id: str, actor_user_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[CriticalEvidenceRequirement, ...]: ...
     def evaluate(self, context: AutoExecutionPolicyContext) -> ActionPolicyEvaluation: ...
 ```
 
 `resolve_effective_authorization` accepts `for_update: bool`. It checks current notice versions even when raw `enabled=True`, includes both row versions/notices in the snapshot, requires the family row only for shopping, and never creates missing rows during a read or policy decision.
 
-The registry runs gates in a stable order and deduplicates reason codes without sorting away that order. It returns `no_change` only after every global gate and action policy passes and `all_targets_satisfied=True`; partial satisfaction returns manual with `domain_constraint_failed`. No matching policy returns `action_not_allowed`. Register policy key/version and revert adapter key in server code, never from Draft payload.
+The registry resolves the one matching policy before evidence validation so routing can call its read-only `evidence_requirements(...)`; only after `validate_intent_evidence` returns does it build `AutoExecutionPolicyContext` and run gates in a stable order. It deduplicates reason codes without sorting away that order. It returns `no_change` only after every global gate and action policy passes and `all_targets_satisfied=True`; partial satisfaction returns manual with `domain_constraint_failed`. No matching policy returns `action_not_allowed`. Register policy key/version and revert adapter key in server code, never from Draft payload.
 
 Expose `auto_execution_policy_key: str | None` and `revert_adapter_key: str | None` on `DraftOperationSpec` only as server registry metadata; existing specs default to `None`.
 
@@ -810,6 +877,8 @@ def test_action_policy_matrix(policy_context_factory, case):
 
 Also assert: rating actor must be MealLog creator or participant; shopping modes cannot mix; tracked-quantity shopping requires quote/artifact provenance for quantity and unit; ready Food types are only `readyMade | instant | packaged`; simple meal has one current actor, explicit create intent/date/meal type/servings, no media/plan/stock/Continuation; simple plan has explicit create intent, fixes `user_id` to actor and only creates unique planned items. For both create policies, field-complete statements such as “今天午餐吃了番茄炒蛋” or “明晚吃番茄炒蛋” without a request to record/add must return `manual_confirmation`.
 
+Shopping tests must exercise each actual normalized shape separately: plain `shopping_list.v1` create, operation create, update and restore. Assert plain/operation create do not require nonexistent `targetId`; identity comes from `ingredient_id | food_id`; update requires its target and exact changed fields; restore requires `targetId + done=false` but no quantity/unit; tracked targets require quantity/unit while non-tracked targets accept only the server-fixed representation. Add negative cases where evidence names the right field but its canonical value differs from the normalized payload.
+
 - [ ] **Step 2: Run tests to verify failure**
 
 Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_auto_execution_action_policies.py -q`
@@ -830,19 +899,29 @@ POLICY_VERSIONS = {
 }
 ```
 
-The critical evidence fields are fixed as follows:
+Every policy implements `evidence_requirements(...)` and expands arrays into concrete indexed paths. `[]` is documentation shorthand only and is never accepted as proof for all elements:
 
-```python
-CRITICAL_FIELDS = {
-    "food.set_favorite": frozenset({"action", "targetId", "payload.favorite"}),
-    "meal_log.rate_food": frozenset({"action", "targetId", "payload.foodEntryRatings[].id", "payload.foodEntryRatings[].rating"}),
-    "shopping_list.safe_write": frozenset({"operations[].action", "operations[].targetId", "operations[].payload.quantity", "operations[].payload.unit"}),
-    "meal_log.simple_create": frozenset({"action", "date", "mealType", "foods[].foodId", "foods[].servings"}),
-    "meal_plan.simple_create": frozenset({"action", "items[].date", "items[].mealType", "items[].foodId"}),
-}
-```
+| Action | Concrete requirements |
+| --- | --- |
+| `food.set_favorite` | semantic `action`, `targetId`, `payload.favorite` |
+| `meal_log.rate_food` | semantic `action`, `targetId`, and for every entry `payload.foodEntryRatings[i].id` plus `.rating` |
+| `meal_log.simple_create` | semantic `action`, `date`, `mealType`, and for every food `foods[i].foodId` plus `.servings` |
+| `meal_plan.simple_create` | semantic `action`, and for every item `items[i].date`, `.mealType`, `.foodId` |
 
-Only require shopping quantity/unit provenance for tracked-quantity targets; the server-fixed “需要补充” representation for non-tracked Ingredients is not a model default. “今天/明天/今晚” may resolve through the family timezone/product dictionary, but current-clock meal-type inference is always `critical_default_used`.
+The model-visible evidence field grammar uses the same concrete JSON-style paths with zero-based `[i]` indexes. One quote may claim several paths, but the validator compares every path to its own `expected_value`; evidence for item 0 never verifies item 1.
+
+`shopping_list.safe_write` must instead call `shopping_critical_requirements(normalized_payload, server_targets)` and return concrete indexed `CriticalEvidenceRequirement` values from these rules:
+
+| Normalized mode | Required fields |
+| --- | --- |
+| `shopping_list.v1` create | semantic `action`; each `items[i].ingredient_id` or `items[i].food_id`; for server-confirmed tracked targets only, `items[i].quantity` and `items[i].unit` |
+| operation create | `operations[i].action`; `operations[i].payload.ingredient_id` or `food_id`; for tracked targets only, payload `quantity` and `unit`; never `targetId` |
+| operation update | `operations[0].action`, `operations[0].targetId`, and every field in the server-computed normalized diff among `quantity | unit | reason` |
+| restore | each `operations[i].action`, `operations[i].targetId` and `operations[i].payload.done=false`; never quantity/unit |
+
+The helper rejects any mixed mode, delete, `done=true`, target replacement or diff outside the whitelist before evidence validation. It derives tracked/non-tracked status and target identity from family-scoped server rows, never from model-supplied `quantity_mode`. The server-fixed “需要补充” representation for non-tracked Ingredients is not a model default.
+
+For every action, convert the selected fields into `CriticalEvidenceRequirement(field, expected_value, matcher_key)` using values from the normalized business Draft/current server rows. `validate_intent_evidence` must prove those values, not merely the path names. “今天/明天/今晚” may resolve through the family timezone/product dictionary, but current-clock meal-type inference is always `critical_default_used`.
 
 State checks are read-only and family-scoped. Compare both `baseUpdatedAt` and current row version where the model supports both; store the current post-policy version in the later receipt rather than accepting a model-supplied version. For batches, all targets must be valid and all already satisfied for `no_change`; never return a partial auto plan.
 
@@ -969,11 +1048,13 @@ git commit -m "refactor: return typed AI draft execution receipts"
 
 **Interfaces:**
 - Consumes: `DraftCommitRequest`, locked Run/Draft from caller, `DraftExecutionReceipt`, existing retry approval and post-execute hooks.
-- Produces: `DraftCommitCoordinator.commit_locked(...) -> DraftCommitResult`; `derive_draft_operation_idempotency_key(draft_id, draft_version)`; manual approvals remain genuine and immutable.
+- Produces: `DraftCommitCoordinator.commit_locked(...) -> DraftCommitResult`; `DraftCommitCoordinator.retry_pending_locked(...) -> DraftCommitResult`; `derive_draft_payload_hash(payload)`; `derive_draft_operation_idempotency_key(draft_id, draft_version)`; manual approvals remain genuine and immutable.
 
 - [ ] **Step 1: Write failing coordinator and manual-path tests**
 
 Assert manual and direct coordinator calls invoke the same fake executor, derive the same operation key, persist one operation, retain approved status on domain failure/revert preparation and use the current decision maker as actor.
+
+Add direct policy-auto pending-retry tests: the same Draft ID/version/payload hash derives the same Operation key and succeeds once after a simulated transient failure; changed payload/version is rejected before the executor; two concurrent recovery calls produce one domain write and replay one persisted result. A manual-path `pending_retry` remains owned by its existing retry Approval and is rejected by this method.
 
 ```python
 def test_manual_approval_delegates_to_shared_coordinator(self) -> None:
@@ -1008,19 +1089,32 @@ def derive_draft_operation_idempotency_key(draft_id: str, draft_version: int) ->
     digest = hashlib.sha256(f"{draft_id}\0{draft_version}".encode("utf-8")).hexdigest()
     return f"ai-draft:{digest}"
 
+def derive_draft_payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 class DraftCommitCoordinator:
     @classmethod
     def commit_locked(
         cls, db: Session, *, request: DraftCommitRequest,
         locked_run: AIAgentRun | None, locked_draft: AITaskDraft,
     ) -> DraftCommitResult: ...
+
+    @classmethod
+    def retry_pending_locked(
+        cls, db: Session, *, family_id: str, actor_user_id: str,
+        locked_run: AIAgentRun, locked_draft: AITaskDraft,
+        expected_payload_hash: str, now: datetime,
+    ) -> DraftCommitResult: ...
 ```
 
-Verify locked object IDs/family/version before any write. Create/replay `AIOperation(status="pending")`, pass a one-hour `revertible_until` into `DraftExecuteContext`, execute the domain Service inside `db.begin_nested()`, then persist `committed_payload_json`, receipt result, adapter/context/deadline, activity, Artifact and message result. The caller owns the outer commit; SSE is post-commit.
+`retry_pending_locked` requires `locked_draft.execution_route == "policy_auto"`, `status == "pending_retry"` and no Approval retry association. It never replaces the existing manual retry-Approval path.
+
+Verify locked object IDs/family/version before any write. Create/replay `AIOperation(status="pending")`, pass a one-hour `revertible_until` into `DraftExecuteContext`, execute the domain Service inside `db.begin_nested()`, then persist `committed_payload_json`, receipt result, adapter/context/deadline, activity, Artifact and message result. The caller owns the outer commit; an active chat may emit SSE only after that commit, while ordinary mutation callers return their result only after commit.
 
 On target/version/domain conflict, roll back the nested business write, set Operation `failed` with stable `error_code/error_message/failed_at`, and set Draft `execution_failed`. For a genuine manual approval, keep the original Approval `approved`, create `AIUserApproval`, then create exactly one retry Approval and move Draft to `pending_retry` using existing recovery behavior. For policy auto, never create a retry Approval. Preserve the existing recipe-cook rule: a manual `pending_retry` may reuse its failed operation to keep completion idempotency; policy-auto domain failures cannot be repurposed.
 
-Treat retryable `OperationalError`/connection failures separately from domain conflicts. Roll back the full pending Operation/business transaction, then use the existing recovery transaction to persist Draft `pending_retry`, the unchanged payload hash and a retryable error code. A later explicit Runner retry is allowed only for the identical Draft ID/version/payload; it derives the same Operation idempotency key and never creates an Approval. It must recheck cancellation, authorization, versions and the one-attempt Run state before touching business data. A different payload or a confirmed domain conflict requires a new Draft/version.
+Treat retryable `OperationalError`/connection failures separately from domain conflicts. Roll back the full pending Operation/business transaction, then use the existing recovery transaction to persist Draft `pending_retry`, the unchanged payload hash and a retryable error code. `retry_pending_locked` accepts only that identical Draft ID/version/payload hash, derives the same Operation idempotency key and never creates an Approval. It must recheck cancellation, original actor/current membership, authorization, target versions and the one-attempt Run state before touching business data. A different payload or a confirmed domain conflict requires a new Draft/version.
 
 Reduce `apply_ai_approval_decision` to: lock in existing Run → Approval → Draft order; validate submitted values; record rejection or genuine approval; build `DraftCommitRequest`; delegate; attach any retry state. Remove `_acquire_operation_for_approval` after its covered behavior moves to the coordinator.
 
@@ -1052,6 +1146,10 @@ git commit -m "refactor: share AI draft commit coordination"
 - Modify: `backend/app/ai/workflows/runner_support/message_parts.py`
 - Modify: `backend/app/ai/workflows/runner_support/run_status.py`
 - Modify: `backend/app/ai/workflows/state.py`
+- Modify: `backend/app/ai/workflows/run_lifecycle.py`
+- Modify: `backend/app/ai/workspace_service.py`
+- Modify: `backend/app/api/ai.py`
+- Modify: `backend/tests/ai_infra/test_workspace_streaming.py`
 
 **Interfaces:**
 - Consumes: policy registry, settings resolver, `DraftCommitCoordinator`, current message/trusted sources/Skill approval policy and existing cancellation lock order.
@@ -1059,7 +1157,7 @@ git commit -m "refactor: share AI draft commit coordination"
 
 - [ ] **Step 1: Write failing route/state-machine tests**
 
-Cover manual default, authorized auto success, final authorization downgrade, no-change, second attempt, conflict failure, idempotent replay, cancellation-before-lock and no Continuation advance. Exercise the full Runner final-persistence path and assert it cannot recreate an Approval for an auto/no-change Draft merely because `approval_id` is absent.
+Cover manual default, authorized auto success, final authorization downgrade, no-change, second attempt, conflict failure, idempotent replay, cancellation-before-lock and no Continuation advance. Exercise the full Runner final-persistence path and assert it cannot recreate an Approval for an auto/no-change Draft merely because `approval_id` is absent. Cover the existing Run retry endpoint in all three branches: a policy-auto `pending_retry` Draft recovers the same Run/Draft without a provider call; a manual `pending_retry` remains on its retry Approval and does not prompt-replay; an unrelated failed/fallback/cancelled Run retains the existing prompt-retry/new-Run behavior.
 
 ```python
 def test_auto_route_creates_no_approval_and_commits_once(self) -> None:
@@ -1102,6 +1200,7 @@ class DraftRouteRequest:
     run_id: str
     draft_type: str
     payload: dict[str, Any]
+    intent_evidence_input: dict[str, Any] | None
     schema_version: str
     tool_name: str
     skill_approval_policy: str
@@ -1110,7 +1209,7 @@ class DraftRouteRequest:
     continuation: dict[str, Any]
 ```
 
-`route_draft` always persists/loads the idempotent Draft first. `draft_then_confirm`, Composite, any Continuation, missing evidence/settings/adapter and policy denial create exactly one `AIApprovalRequest` and return `waiting_approval`. Only `draft_then_policy` may run preflight.
+`route_draft` receives normalized business `payload` and the separately captured raw `intent_evidence_input`. After resolving the candidate action, it builds the action-specific `CriticalEvidenceRequirement` tuple, calls `validate_intent_evidence`, then persists/loads the idempotent Draft with `intent_clarity`, the complete server-owned validation record in `intent_evidence_json`, and `payload_hash=derive_draft_payload_hash(payload)`. Loading an existing same-version Draft requires the stored hash to match before routing; the committed payload never contains `intentEvidence`. `draft_then_confirm`, Composite, any Continuation, missing/unverifiable evidence, settings/adapter absence and policy denial create exactly one `AIApprovalRequest` and return `waiting_approval`. Only `draft_then_policy` may run preflight.
 
 For an auto candidate, acquire locks in this order: `AIAgentRun -> AITaskDraft -> family policy row -> member preference row -> AIOperation -> domain Service`. Recheck cancellation, actor/run ownership, notice versions, limits, versions and adapter after locks. If the final decision no longer passes before business data is touched, set Draft route to manual and create Approval. If final decision is `no_change`, lock/set `run.auto_execution_attempted=True`, leave `auto_operation_id=None`, persist result message/Artifact and return. If auto commit begins, mark attempted before calling Coordinator; a failed commit remains attempted.
 
@@ -1129,6 +1228,16 @@ Refactor `AssistantResultPersister` so `assistant_status`, Draft/Approval associ
 
 Publisher emits Draft+Approval parts only after the manual checkpoint. Auto/no-change emit only the persisted result part after commit, so no pending card is visible. Retried completed/reverted Operations and `no_change` Drafts replay persisted parts without policy/domain re-execution. Any failure suppresses Continuation and does not let the model call a second Draft. A transient `pending_retry` keeps `run.auto_execution_attempted=True`; the one-attempt gate permits only the explicit recovery of that same Draft ID/version/payload hash and never opens a slot for another Draft.
 
+Wire this recovery into the existing `POST /api/ai/runs/{run_id}/retry` before `build_retry_chat_request` or `AIApplicationService.chat()`:
+
+1. authorize and `FOR UPDATE` lock the original Run, then load the unique associated `AITaskDraft(status="pending_retry")`;
+2. require the original Run actor, active membership and stored Draft version/payload hash; reject ambiguous/mismatched recovery;
+3. for `execution_route="policy_auto"`, call `DraftCommitCoordinator.retry_pending_locked` on that same Run/Draft and return a normal `AIChatResponse` projection of the same Run/message; for a manual-path Draft, return/retain its existing retry Approval and never prompt-replay;
+4. never generate a new `client_message_id`, call the provider, create a new Run/Draft, reset `auto_execution_attempted`, or reopen Continuation;
+5. if no `pending_retry` Draft exists, fall through unchanged to the current prompt retry path.
+
+Tests patch the provider and assert call count 0, identical Run/Draft IDs and payload hash, no new Draft/Approval, and at most one domain write under duplicate/concurrent retries. Retrying a completed/reverted Operation or `no_change` also returns the persisted part before any model call.
+
 - [ ] **Step 4: Run routing, streaming and cancellation tests**
 
 Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_workspace_streaming.py backend/tests/ai_infra/test_workspace_phase_flows.py backend/tests/ai_infra/test_run_cancellation.py backend/tests/ai_infra/test_run_cancellation_concurrency.py -q`
@@ -1138,11 +1247,11 @@ Expected: PASS; no auto result is emitted before the transaction checkpoint and 
 - [ ] **Step 5: Commit route-aware Runtime behavior**
 
 ```bash
-git add backend/app/services/ai_operations/routing.py backend/app/ai/errors.py backend/app/ai/workflows/orchestrator backend/app/ai/workflows/runner_support backend/app/ai/workflows/state.py backend/tests/ai_infra/test_ai_draft_routing.py
+git add backend/app/services/ai_operations/routing.py backend/app/ai/errors.py backend/app/ai/workflows/orchestrator backend/app/ai/workflows/runner_support backend/app/ai/workflows/state.py backend/app/ai/workflows/run_lifecycle.py backend/app/ai/workspace_service.py backend/app/api/ai.py backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_workspace_streaming.py
 git commit -m "feat: route AI drafts through server policy"
 ```
 
-### Task 9: Unified Operation result projection, message, Artifact and SSE contract
+### Task 9: Unified Operation result projection, message, Artifact and transport contract
 
 **Files:**
 - Create: `backend/app/services/ai_operations/result_projection.py`
@@ -1154,12 +1263,13 @@ git commit -m "feat: route AI drafts through server policy"
 - Modify: `backend/app/services/ai_operations/messages.py`
 - Modify: `backend/app/services/ai_operations/commit_coordinator.py`
 - Modify: `backend/app/services/ai_operations/routing.py`
+- Modify: `backend/app/api/ai.py`
 - Modify: `backend/app/ai/workflows/runner_support/message_parts.py`
 - Modify: `backend/app/ai/workflows/runner_support/progressive_draft_publisher.py`
 
 **Interfaces:**
-- Consumes: `AIOperationResultProjection`, `DraftExecutionReceipt`, persisted Draft/Operation, and post-commit event publishing from Tasks 6–8.
-- Produces: `project_ai_operation_result(...) -> AIOperationResultProjection`, `serialize_ai_operation_result_projection(...) -> dict[str, Any]`, `upsert_message_operation_result(...) -> dict[str, Any]`, `operation_result_artifacts(...) -> tuple[dict[str, Any], ...]`; post-commit delivery reuses the existing SSE `message_part` envelope.
+- Consumes: `AIOperationResultProjection`, `DraftExecutionReceipt`, persisted Draft/Operation, active chat post-commit publishing and ordinary mutation responses from Tasks 6–8.
+- Produces: `project_ai_operation_result(...) -> AIOperationResultProjection`, `serialize_ai_operation_result_projection(...) -> dict[str, Any]`, `hydrate_operation_result_server_now(...) -> dict[str, Any]`, `upsert_message_operation_result(...) -> dict[str, Any]`, `operation_result_artifacts(...) -> tuple[dict[str, Any], ...]`; active chat delivery reuses SSE `message_part`, while ordinary approval/revert endpoints return JSON.
 
 - [ ] **Step 1: Write failing public-projection and persistence tests**
 
@@ -1200,9 +1310,21 @@ def test_result_part_is_replaced_in_place_on_terminal_state_change(self) -> None
     self.assertEqual(second["id"], first["id"])
     self.assertEqual(count_result_parts_for_draft(first["card"]["data"]["draft_id"]), 1)
     self.assertEqual(second["card"]["data"]["result_status"], "reverted")
+
+def test_message_rehydration_uses_fresh_response_clock(self) -> None:
+    persisted = persist_result_fixture(server_now="2026-08-24T10:00:00Z")
+    response = serialize_messages_fixture(
+        parts=[persisted], server_now="2026-08-24T10:30:00Z",
+    )
+    self.assertEqual(
+        response[0]["parts"][0]["card"]["data"]["server_now"],
+        "2026-08-24T10:30:00Z",
+    )
 ```
 
-Also parameterize `manual_approval`, `policy_auto`, `policy_no_change`, `failed` and `reverted`; assert every transport event is named `message_part`, carries `message_id/conversation_id/run_id/part`, and exposes the corresponding outcome only through `part.card.data.result_status` and `execution_mode`. Assert no part is enqueued before the surrounding transaction commits, and SSE replay reads the persisted part without invoking the policy or domain executor. Do not add top-level `operation_completed`, `operation_failed`, `operation_reverted` or `draft_no_change` events that the current frontend parser would drop.
+Parameterize persisted projections for `manual_approval`, `policy_auto`, `policy_no_change`, `failed` and `reverted`. For results produced inside an active `/api/ai/chat/stream`, assert the only transport event is `message_part`, carrying `message_id/conversation_id/run_id/part`, and that no event is emitted before commit. For manual approval and revert POSTs, assert the response returns the complete persisted result card/part and scopes without trying to enqueue an SSE event. Reconnect/refetch reads the persisted part without invoking policy, model or domain executor. Do not add top-level `operation_completed`, `operation_failed`, `operation_reverted` or `draft_no_change` events that the current frontend parser would drop.
+
+Add delayed-refresh cases at +30 minutes and just after `revertible_until`: every messages response uses one newly captured response-level `server_now`, not the historical value stored in the card. The underlying stored JSON remains unchanged by a read.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -1313,7 +1435,9 @@ def operation_result_artifacts(
 
 `upsert_message_operation_result` finds an existing `result_card` by `card.data.draft_id`; it retains the message-part ID and replaces the card and matching metadata Artifact. If absent, it creates one part after the matching Approval for manual execution or appends it for policy routes. Remove approval-only assumptions from the old builder, but preserve approval IDs as optional display metadata for existing clients.
 
-`DraftCommitCoordinator` and `DraftRoutingCoordinator` persist projection, part and Artifact inside the transaction. After commit, the publisher emits the exact persisted part through the existing envelope:
+Treat `server_now` as hydration-only transport data. `upsert_message_operation_result` may persist the commit-time projection, but `serialize_ai_message(item, *, response_now: datetime | None = None)` and all response/event/operation-result-Artifact projection helpers must call `hydrate_operation_result_server_now(part, response_now)` on a copied payload; the optional default captures a fresh UTC time for existing single-message callers. `list_ai_messages` captures `response_now` once and passes that same value to every serialized message/card in the response. Revert and approval responses use their post-commit response time. Never write the refreshed clock back during a GET, and never use the historical stored value as the frontend offset source.
+
+`DraftCommitCoordinator` and `DraftRoutingCoordinator` persist projection, part and Artifact inside the transaction. When the caller is the still-active chat stream, after commit the publisher emits a response-hydrated copy of the persisted part through the existing envelope:
 
 ```python
 {
@@ -1327,18 +1451,18 @@ def operation_result_artifacts(
 }
 ```
 
-This must flow through the current `aiApi.streamAiResponse` `onMessagePart` handler and `AiWorkspace.applyStreamPart`, whose stable card ID replaces an earlier result part. `no_change` always passes only `("ai_conversation",)`; real writes use the receipt scopes. Operation serialization and response schemas use the same whitelist.
+This must flow through the current `aiApi.streamAiResponse` `onMessagePart` handler and `AiWorkspace.applyStreamPart`, whose stable card ID replaces an earlier result part. Manual approval and revert are not active chat generators: their HTTP response carries the equivalent hydrated result card/part, the caller applies it, and AI queries are invalidated for other views. `no_change` always passes only `("ai_conversation",)`; real writes use the receipt scopes. Operation serialization and response schemas use the same whitelist.
 
 - [ ] **Step 4: Run projection, streaming and existing card tests**
 
 Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_operation_result_projection.py backend/tests/ai_infra/test_workspace_streaming.py backend/tests/ai_infra/test_workspace_approvals.py -q`
 
-Expected: PASS; manual cards still render, automatic/no-change results are durable, and no private audit data appears in client DTOs or SSE.
+Expected: PASS; manual cards still render, automatic/no-change results are durable, ordinary mutations do not claim nonexistent SSE broadcast, delayed refresh receives a fresh clock, and no private audit data appears in client DTOs or SSE.
 
 - [ ] **Step 5: Commit the unified result contract**
 
 ```bash
-git add backend/app/services/ai_operations/result_projection.py backend/app/services/ai_operations/artifacts.py backend/app/services/ai_operations/messages.py backend/app/services/ai_operations/commit_coordinator.py backend/app/services/ai_operations/routing.py backend/app/services/serializers.py backend/app/schemas/ai.py backend/app/schemas/ai_auto_execution.py backend/app/ai/workflows/runner_support/message_parts.py backend/app/ai/workflows/runner_support/progressive_draft_publisher.py backend/tests/ai_infra/test_ai_operation_result_projection.py
+git add backend/app/services/ai_operations/result_projection.py backend/app/services/ai_operations/artifacts.py backend/app/services/ai_operations/messages.py backend/app/services/ai_operations/commit_coordinator.py backend/app/services/ai_operations/routing.py backend/app/services/serializers.py backend/app/schemas/ai.py backend/app/schemas/ai_auto_execution.py backend/app/api/ai.py backend/app/ai/workflows/runner_support/message_parts.py backend/app/ai/workflows/runner_support/progressive_draft_publisher.py backend/tests/ai_infra/test_ai_operation_result_projection.py
 git commit -m "feat: unify AI operation result projection"
 ```
 
@@ -1401,7 +1525,7 @@ def test_permanent_conflict_is_recorded_but_transient_error_is_not(self) -> None
     self.assertIsNone(load_operation("operation-transient").revert_blocked_code)
 ```
 
-Also cover: cross-family 404, original actor, current Owner, other member 403, actor who left the family, `now > revertible_until`, missing adapter, unsupported context schema version, already blocked, all-or-nothing nested rollback, Draft status update, activity log, message/Artifact replacement and post-commit updated `message_part`. Add explicit cases where an unauthorized member reuses the original actor's successful or permanently blocked request ID: both must fail permission before any replay payload or global request-ID result is returned.
+Also cover: cross-family 404, original actor, current Owner, other member 403, actor who left the family, `now > revertible_until`, missing adapter, unsupported context schema version, already blocked, all-or-nothing nested rollback, Draft status update, activity log, message/Artifact replacement and a post-commit HTTP response containing the updated result card/part, scopes and fresh response clock. Assert the ordinary revert route does not attempt to publish into the chat SSE generator. Add explicit cases where an unauthorized member reuses the original actor's successful or permanently blocked request ID: both must fail permission before any replay payload or global request-ID result is returned.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -1479,7 +1603,7 @@ def find_ai_operation_by_revert_request_id_for_update(
 7. adapter key and `revert_context_json.schema_version == adapter.schema_version`;
 8. adapter locks, validates and compensates all targets inside one nested transaction;
 9. Operation `reverted`, Draft `reverted`, activity, result projection, message and Artifact update;
-10. caller commit, then publish the updated persisted result part through SSE `message_part`.
+10. caller commit, then return the updated persisted result card/part, scopes and freshly hydrated `server_now` in the HTTP response; do not invoke a nonexistent cross-request SSE broadcaster.
 
 The coordinator signature is fixed:
 
@@ -2007,14 +2131,22 @@ git commit -m "feat: link AI inventory writes to snapshot ledgers"
 - Modify: `backend/app/ai/skills/base.py`
 - Modify: `backend/app/ai/skills/loader.py`
 - Modify: `backend/app/ai/skills/catalog/food-profile/skill.yaml`
+- Modify: `backend/app/ai/skills/catalog/food-profile/SKILL.md`
 - Modify: `backend/app/ai/skills/catalog/meal-record/skill.yaml`
+- Modify: `backend/app/ai/skills/catalog/meal-record/SKILL.md`
 - Modify: `backend/app/ai/skills/catalog/meal-planning/skill.yaml`
+- Modify: `backend/app/ai/skills/catalog/meal-planning/SKILL.md`
 - Modify: `backend/app/ai/skills/catalog/shopping-list/skill.yaml`
+- Modify: `backend/app/ai/skills/catalog/shopping-list/SKILL.md`
 - Modify: `backend/tests/ai_infra/test_skill_loader.py`
 - Modify: `backend/tests/ai_infra/test_skill_contract_v3.py`
 - Modify: `backend/tests/ai_infra/test_tool_registry.py`
+- Modify: `backend/tests/ai_infra/_support.py`
+- Modify: `backend/app/ai/evals/models.py`
+- Modify: `backend/app/ai/evals/scoring.py`
 - Modify: `backend/tests/ai_evals/cases/core.jsonl`
 - Modify: `backend/tests/ai_evals/test_eval_dataset.py`
+- Modify: `backend/tests/ai_evals/test_eval_scoring.py`
 
 **Interfaces:**
 - Consumes: fully registered policy and revert registries from Tasks 4–13, existing Skill draft contracts and Draft Tools whose `requires_confirmation=True`.
@@ -2059,7 +2191,7 @@ def test_policy_skill_still_waits_when_member_authorization_is_absent(runtime_fi
     assert result.business_write_count == 0
 ```
 
-Also assert `none` still forbids Drafts, `draft_then_confirm` behavior is unchanged, a `draft_then_policy` manifest without a draft contract fails, a policy Draft Tool with `requires_confirmation=False` fails, and no formal write Tool enters the model registry.
+Also assert `none` still forbids Drafts, `draft_then_confirm` behavior is unchanged, a `draft_then_policy` manifest without a draft contract fails, a policy Draft Tool with `requires_confirmation=False` fails, and no formal write Tool enters the model registry. Render each selected Skill with its Draft Tool schema and assert the model-visible text contains all four clarity definitions, the distinction between a factual statement and an explicit write request, and the instruction to populate `intentEvidence` without inventing missing facts.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -2104,7 +2236,7 @@ def validate_policy_manifest(
 
 `BaseSkill.to_public_dict()` sets `requiresApproval=True` for both Draft policies and includes the exact `approvalPolicy`. Wire the registry into `load_skill_catalog`; production startup uses the complete immutable registry, while tests can inject an empty or partial registry.
 
-Change only these manifest values:
+Change these manifest values:
 
 ```yaml
 # food-profile/skill.yaml
@@ -2117,9 +2249,21 @@ approval_policy: draft_then_policy
 approval_policy: draft_then_policy
 ```
 
+Update the corresponding four `SKILL.md` files with a short shared contract: when calling the Draft Tool, populate optional `intentEvidence` using the four definitions exposed in the Tool schema; quote only the current user message; use `resolutionSources` only for the current UI, this run's Tool output or a successfully read Artifact; put ambiguity/defaults in their explicit arrays; never label a factual statement, praise or possible plan as an execution request. Do not duplicate a divergent definition table in each Skill—the exact definitions remain owned by `INTENT_CLARITY_MODEL_DESCRIPTION` in Task 3 and are rendered with the Tool schema.
+
 All other Skills remain unchanged. Routing still sends non-whitelisted actions, unauthorized members, Composite and Continuation to manual confirmation.
 
-Extend `core.jsonl` with explicit evidence cases for favorite, rating, shopping add, simple meal and simple plan, plus one inferred-language rejection. Each case asserts the exact `intentEvidence.intentClarity` and source quote; because test fixtures have no preferences, all six still end at `waiting_approval`. Update the dataset count and required IDs:
+Because evidence no longer lives inside the normalized business Draft, extend the eval contract instead of putting it back into `draftPayload`: `SkillEvalCase.expectedIntentEvidenceValues` and `SkillEvalObservation.intentEvidence` are optional dictionaries, `_support.py` reads the latter from the persisted `AITaskDraft.intent_evidence_json`, and scoring compares those paths separately from `expectedDraftValues`. Existing eval JSON remains valid through empty defaults.
+
+```python
+class SkillEvalCase(BaseModel):
+    expectedIntentEvidenceValues: dict[str, Any] = Field(default_factory=dict)
+
+class SkillEvalObservation(BaseModel):
+    intentEvidence: dict[str, Any] = Field(default_factory=dict)
+```
+
+Extend `core.jsonl` with explicit evidence cases for favorite, rating, shopping add, simple meal and simple plan, plus one inferred-language rejection. Each case asserts the exact `intentClarity` and source quote through `expectedIntentEvidenceValues`; because test fixtures have no preferences, all six still end at `waiting_approval`. Update the dataset count and required IDs:
 
 ```python
 AUTO_EXECUTION_EVAL_IDS = {
@@ -2137,8 +2281,8 @@ def test_core_dataset_has_auto_execution_intent_coverage():
     assert AUTO_EXECUTION_EVAL_IDS <= set(by_id)
     assert all(by_id[case_id].expectedTerminalStatus == "waiting_approval"
                for case_id in AUTO_EXECUTION_EVAL_IDS)
-    assert by_id["food.favorite_inferred"].expectedDraftValues[
-        "intentEvidence.intentClarity"
+    assert by_id["food.favorite_inferred"].expectedIntentEvidenceValues[
+        "normalized_evidence.intentClarity"
     ] == "inferred"
 ```
 
@@ -2146,14 +2290,14 @@ The explicit cases use `explicit_complete`, except the unique current-card favor
 
 - [ ] **Step 4: Run loader, Runtime contract and eval tests**
 
-Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_draft_then_policy_contract.py backend/tests/ai_infra/test_skill_loader.py backend/tests/ai_infra/test_skill_contract_v3.py backend/tests/ai_infra/test_tool_registry.py backend/tests/ai_evals/test_eval_dataset.py backend/tests/ai_evals/test_skill_scenarios.py -q`
+Run: `backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_draft_then_policy_contract.py backend/tests/ai_infra/test_skill_loader.py backend/tests/ai_infra/test_skill_contract_v3.py backend/tests/ai_infra/test_tool_registry.py backend/tests/ai_evals/test_eval_dataset.py backend/tests/ai_evals/test_eval_scoring.py backend/tests/ai_evals/test_skill_scenarios.py -q`
 
 Expected: PASS; the four Skills can reach server policy routing, authorization remains default-off, and every Draft Tool still stops at the server commit gate.
 
 - [ ] **Step 5: Commit the controlled activation**
 
 ```bash
-git add backend/app/ai/skills/base.py backend/app/ai/skills/loader.py backend/app/ai/skills/catalog/food-profile/skill.yaml backend/app/ai/skills/catalog/meal-record/skill.yaml backend/app/ai/skills/catalog/meal-planning/skill.yaml backend/app/ai/skills/catalog/shopping-list/skill.yaml backend/tests/ai_infra/test_ai_draft_then_policy_contract.py backend/tests/ai_infra/test_skill_loader.py backend/tests/ai_infra/test_skill_contract_v3.py backend/tests/ai_infra/test_tool_registry.py backend/tests/ai_evals/cases/core.jsonl backend/tests/ai_evals/test_eval_dataset.py
+git add backend/app/ai/skills/base.py backend/app/ai/skills/loader.py backend/app/ai/skills/catalog/food-profile/skill.yaml backend/app/ai/skills/catalog/food-profile/SKILL.md backend/app/ai/skills/catalog/meal-record/skill.yaml backend/app/ai/skills/catalog/meal-record/SKILL.md backend/app/ai/skills/catalog/meal-planning/skill.yaml backend/app/ai/skills/catalog/meal-planning/SKILL.md backend/app/ai/skills/catalog/shopping-list/skill.yaml backend/app/ai/skills/catalog/shopping-list/SKILL.md backend/app/ai/evals/models.py backend/app/ai/evals/scoring.py backend/tests/ai_infra/_support.py backend/tests/ai_infra/test_ai_draft_then_policy_contract.py backend/tests/ai_infra/test_skill_loader.py backend/tests/ai_infra/test_skill_contract_v3.py backend/tests/ai_infra/test_tool_registry.py backend/tests/ai_evals/cases/core.jsonl backend/tests/ai_evals/test_eval_dataset.py backend/tests/ai_evals/test_eval_scoring.py
 git commit -m "feat: enable server policy routing for selected AI skills"
 ```
 
@@ -2531,7 +2675,7 @@ git add frontend/src/features/ai-auto-execution frontend/src/app/appNavigationMo
 git commit -m "feat: add AI auto execution settings"
 ```
 
-### Task 17: Result Card revert states, mutation and live synchronization
+### Task 17: Result Card revert states, mutation and persisted synchronization
 
 **Files:**
 - Create: `frontend/src/features/ai-auto-execution/useAiOperationRevert.ts`
@@ -2547,7 +2691,7 @@ git commit -m "feat: add AI auto execution settings"
 
 **Interfaces:**
 - Consumes: Task 15 `AiOperationResultProjection`, revert API and invalidator; Task 16 AI settings navigation target.
-- Produces: `operationResultProjection(card)`, `operationResultViewModel(projection, now)`, `useAiOperationRevert(...)`, direct revert UI and persisted result-part replacement through existing SSE `message_part`.
+- Produces: `operationResultProjection(card)`, `operationResultViewModel(projection, now)`, `useAiOperationRevert(...)`, direct revert UI, HTTP-response replacement for revert and existing `message_part` replacement for active chat results.
 
 - [ ] **Step 1: Write failing state, mutation, accessibility and live-sync tests**
 
@@ -2593,7 +2737,7 @@ it('treats no-change as satisfied, not as an unsupported write', () => {
 });
 ```
 
-Also cover available inclusive boundary, client-side expiry after the deadline, absolute “可撤销至 15:42”, unsupported, target-changed blocked, dependency blocked, expired, reverted, temporary network retry, permanent conflict replacement, minute-level clock updates, settings link navigation, wrapping at phone widths, keyboard activation, focus not being programmatically moved, `aria-live=polite`, response-driven cache scopes, SSE replacement and refresh hydration.
+Also cover available inclusive boundary, client-side expiry after the deadline, absolute “可撤销至 15:42”, unsupported, target-changed blocked, dependency blocked, expired, reverted, temporary network retry, permanent conflict replacement, minute-level clock updates, settings link navigation, wrapping at phone widths, keyboard activation, focus not being programmatically moved, `aria-live=polite`, response-driven cache scopes, active-chat SSE replacement and refresh hydration. Add a delayed-refresh fixture whose persisted card was created at 10:00 but whose messages response hydrates `server_now=10:30`; assert the remaining window is 30 minutes, not reset to one hour. Add the just-after-deadline variant and assert the button is hidden immediately.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -2673,7 +2817,7 @@ export function operationResultViewModel(
 - unsupported: “此操作需要前往页面修正”;
 - reverted: “操作已撤销”.
 
-Use `projection.server_now` to compute a server/client offset when the card arrives. Update effective time once per minute, not once per second. The client may hide an expired button early, but never overrides a server success; the server remains authoritative.
+Use `projection.server_now` to compute a server/client offset when the card arrives, but only after validating that it came from the current SSE/HTTP/messages response contract in Task 9. Refresh hydration replaces any historical persisted value before the card reaches this model. Update effective time once per minute, not once per second. The client may hide an expired button early, but never overrides a server success; the server remains authoritative.
 
 Implement the hook without optimistic updates:
 
@@ -2707,7 +2851,7 @@ Retain the same request ID after a temporary network/database failure so an unce
 
 `AiResultCards` renders the server explanation, entities and status model. Available cards show “撤销”, “查看详情” and “管理自动执行设置”; the settings action calls `{ workspace: 'ai', view: 'autoExecution' }`. The revert button calls the hook immediately, shows a pending label while disabled, and does not open a dialog. A visually appropriate `role="status" aria-live="polite"` region announces success/error without moving focus.
 
-`AiConversationThread` passes conversation ID, navigation and result replacement callbacks. `AiWorkspace` replaces the matching local/React Query message part by stable card ID after the HTTP response. Streamed completion/no-change/failure/revert results use the already-supported `aiApi.streamAiResponse.onMessagePart -> AiWorkspace.applyStreamPart -> messagePartKey(card.id)` chain; `AiWorkspaceLiveSync.test.tsx` proves replacement through that real path. No operation-specific top-level SSE event or handler is introduced. Reconnect/refresh reads the same persisted card payload and never calls the mutation or Coordinator.
+`AiConversationThread` passes conversation ID, navigation and result replacement callbacks. `AiWorkspace` replaces the matching local/React Query message part by stable card ID after the revert HTTP response, then invalidates AI queries. Automatic completion/no-change/failure results produced by an active chat use the already-supported `aiApi.streamAiResponse.onMessagePart -> AiWorkspace.applyStreamPart -> messagePartKey(card.id)` chain; `AiWorkspaceLiveSync.test.tsx` proves replacement through that real path. Revert does not register an SSE handler or pretend a separate POST can yield into the chat stream. Other clients observe the persisted reverted card on their next refetch/reconnect; refresh never calls the mutation or Coordinator.
 
 Use existing card/button/status tokens. On narrow screens the status, deadline and actions wrap into multiple rows; no action strip has horizontal overflow. Permanent blocked/reverted/expired states do not render an enabled undo button. Temporary errors keep it available when the server projection still says available.
 
@@ -2750,6 +2894,9 @@ def test_ai_standards_document_policy_commit_gate_and_revert_contract() -> None:
     assert "requires_confirmation=True" in text
     assert "模型不获得正式 Write Tool" in text
     assert "每条用户消息最多一个免确认 Draft" in text
+    assert "逐值验证" in text
+    assert "pending_retry 不重新调用模型" in text
+    assert "撤销通过 HTTP 响应" in text
     assert "1 小时" in text
     assert "原执行人或当前 Owner" in text
     assert "inventory.operation_ref.v1" in text
@@ -2799,16 +2946,16 @@ draft_then_policy 只有在离散意图证据、当前成员/家庭授权、动�
 已注册撤销适配器全部通过时，才由服务端策略直接提交。其他情况降级人工确认。
 ```
 
-Document all four intent clarity levels, five action keys and their limits, member opt-in plus shopping Owner policy, one-per-message guard, immutable Approval facts, shared `DraftCommitCoordinator`, safe public result fields, one-hour inclusive revert boundary, actor/Owner permission, seven stable errors, six adapter keys, cache scopes, and excluded cook/delete/media/Composite/Continuation undo. State explicitly that normal page domain undo remains fifteen minutes.
+Document all four intent clarity levels and their model-visible definitions, evidence separation from normalized business payload, server-side canonical value comparison, five action keys and their limits, mode-specific shopping evidence fields, member opt-in plus shopping Owner policy, one-per-message guard, immutable Approval facts, shared `DraftCommitCoordinator`, the no-model same-Draft `pending_retry` branch, safe public result fields, fresh response-level `server_now`, one-hour inclusive revert boundary, actor/Owner permission, seven stable errors, six adapter keys, cache scopes, and excluded cook/delete/media/Composite/Continuation undo. State explicitly that normal page domain undo remains fifteen minutes and that ordinary approval/revert mutations update the caller through HTTP rather than a cross-request SSE broadcast.
 
-Complete the E2E route fixtures with strict JSON matching the frontend types. The revert route must assert the client request ID, return `replayed=false`, and replace the same Draft-keyed result card ID. Capture no screenshot baselines unless the existing P0 helper already requires one.
+Complete the E2E route fixtures with strict JSON matching the frontend types. The revert route must assert the client request ID, return `replayed=false` with a fresh `server_now`, and replace the same Draft-keyed result card ID through the HTTP response. Add a messages fixture whose stored card clock is old but hydrated response clock is current, and assert refresh does not reset the countdown. Capture no screenshot baselines unless the existing P0 helper already requires one.
 
 - [ ] **Step 4: Run full verification and manual responsive acceptance**
 
 Run the focused backend suites first:
 
 ```bash
-backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_auto_execution_migration.py backend/tests/ai_infra/test_ai_auto_execution_settings.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_auto_execution_policy_registry.py backend/tests/ai_infra/test_ai_auto_execution_action_policies.py backend/tests/ai_infra/test_ai_draft_execution_receipts.py backend/tests/ai_infra/test_ai_draft_commit_coordinator.py backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_ai_operation_result_projection.py backend/tests/ai_infra/test_ai_revert_coordinator.py backend/tests/ai_infra/test_ai_revert_low_risk_adapters.py backend/tests/ai_infra/test_ai_simple_meal_operation.py backend/tests/ai_infra/test_ai_inventory_operation_revert.py backend/tests/ai_infra/test_ai_draft_then_policy_contract.py -q
+backend/.venv/bin/pytest backend/tests/ai_infra/test_ai_auto_execution_migration.py backend/tests/ai_infra/test_ai_auto_execution_settings.py backend/tests/ai_infra/test_ai_intent_evidence.py backend/tests/ai_infra/test_ai_auto_execution_policy_registry.py backend/tests/ai_infra/test_ai_auto_execution_action_policies.py backend/tests/ai_infra/test_ai_draft_execution_receipts.py backend/tests/ai_infra/test_ai_draft_commit_coordinator.py backend/tests/ai_infra/test_ai_draft_routing.py backend/tests/ai_infra/test_workspace_streaming.py backend/tests/ai_infra/test_ai_operation_result_projection.py backend/tests/ai_infra/test_ai_revert_coordinator.py backend/tests/ai_infra/test_ai_revert_low_risk_adapters.py backend/tests/ai_infra/test_ai_simple_meal_operation.py backend/tests/ai_infra/test_ai_inventory_operation_revert.py backend/tests/ai_infra/test_ai_draft_then_policy_contract.py -q
 ```
 
 Expected: PASS.

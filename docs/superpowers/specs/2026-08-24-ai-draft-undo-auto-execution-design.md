@@ -52,8 +52,8 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 7. 自动执行前必须验证目标、关键字段来源、批量、版本、权限和撤销适配器。
 8. 人工确认和自动执行的结果都可以按实际适配器能力提供一小时撤销。
 9. 撤销是新的补偿操作，不改写真实审批事实，也不覆盖后续正常修改。
-10. 自动执行、执行失败和撤销都能在刷新、SSE 重连和幂等重试后恢复真实状态。
-11. 自动执行与撤销都正确更新活动日志、持久化消息、Artifact、SSE 和业务缓存。
+10. 自动执行、执行失败和撤销都能从持久化消息、刷新和幂等重试恢复真实状态；活动 chat 请求中的自动结果继续使用既有 SSE，普通撤销请求使用 HTTP 响应更新发起端。
+11. 自动执行与撤销都正确更新活动日志、持久化消息、Artifact 和业务缓存，并使用各自真实存在的传输通道返回结果。
 12. 设置页和结果卡符合 Culina 的中文、移动优先、低维护和可访问性规范。
 
 ## 4. 非目标
@@ -136,7 +136,9 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
   -> DraftCommitCoordinator
   -> 现有领域 Service 正式写入
   -> AIOperation + Result Card + Revert Context
-  -> post-commit SSE + 业务缓存失效
+  -> 活动 chat 请求：post-commit message_part
+  -> 普通 mutation：HTTP 结果响应
+  -> 业务缓存失效
 ```
 
 主要组件：
@@ -169,6 +171,8 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 - “把牛奶加入购物清单”但定量模式缺数量/单位，是 `explicit_incomplete`。
 - “这道菜真不错”不能推断成收藏或五星评分，属于 `inferred`。
 
+四档定义、上述边界和“不得自行升级档位”的规则必须来自一份共享的模型可见说明，同时进入首批 Draft Tool 的 JSON Schema `description` 和四个相关 Skill 的运行指令。只向模型暴露四个枚举字符串不构成有效契约；模型没有填写或无法按定义填写证据时，Draft 仍可人工确认，但不能自动执行。
+
 ### 8.2 证据结构
 
 首批 Draft Tool Schema 增加可选 `intentEvidence`：
@@ -196,15 +200,21 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 }
 ```
 
+`intentEvidence` 是 Draft Tool 输入中的传输字段，不属于任何领域业务 payload。Draft Tool 在调用现有领域 normalizer 前必须先把它与业务字段分离：normalizer 只生成规范化业务 Draft，捕获层从原始 Tool input 读取证据，再把“规范化业务 Draft + 原始证据 + 服务端可信来源”交给路由层。路由层保存服务端验证后的 `AITaskDraft.intent_evidence_json`；不得假设 normalizer 会原样保留模型输入，也不得从 handler 重建后的 `output["draft"]` 反推证据。
+
 `resolutionSources.kind` 使用服务端枚举：
 
 - `current_ui_context`
 - `tool_result`
 - `conversation_artifact`
 
-`sourceQuotes` 经 Unicode NFC 和确定性空白标准化后，必须能在当前用户消息中找到。`resolutionSources` 的引用 ID、实体 ID、家庭归属和版本必须出现在服务端持有的可信上下文中。
+`sourceQuotes` 经 Unicode NFC 和确定性空白标准化后，必须能在当前用户消息中找到。`fields` 只表示模型声称该原话覆盖哪些字段，不构成值证明。服务端必须针对首批字段使用确定性 canonical matcher，从 quote 中解析动作方向、评分、数量、单位、日期、餐次等事实，并与规范化 Draft 的实际值逐项比较；例如“打 4 分”不能证明 `rating=5`，“买 1 盒”不能证明 `quantity=10`。解析失败或值不一致时，该字段未验证，只能人工确认。
 
-模型声明 `defaultedFields=[]` 不构成证明。服务端按动作关键字段表重新检查每个值是否来自用户原话或可信来源。证据缺失、格式错误或无法验证时，Draft 仍可进入人工确认，但不能自动执行。
+`resolutionSources` 的引用 ID、实体 ID、家庭归属和版本必须出现在服务端持有的可信上下文中，而且可信来源中的实体和值必须与规范化 Draft 对应字段一致。可信上下文只保存各 Tool/Artifact 显式允许用于首批 matcher 的 canonical facts，不把任意输出 JSON 当授权事实；模型仅重复一个真实 ID 不能证明另一个 payload 值。相对日期只允许由当前消息和家庭时区的确定性词典解析，餐次、收藏方向和恢复方向同样使用固定词典；不调用第二个模型充当授权解析器。
+
+数组证据使用与规范化 payload 一致的零基具体路径，例如 `foods[0].servings`、`foods[1].servings`；文档中的 `foods[].servings` 仅是集合简写，不能一次证明所有元素。服务端逐项生成期望路径和值，一段 quote 可以覆盖多个路径，但每个路径都必须独立比较成功。
+
+模型声明 `defaultedFields=[]` 不构成证明。服务端按动作关键字段要求重新检查每个值是否来自用户原话或可信来源，并把验证后的字段、canonical 值与失败码作为服务端拥有的结果持久化。除现有失败码外，值无法解析和解析值不一致分别使用稳定码 `source_value_unverifiable`、`source_value_mismatch`。证据缺失、格式错误或无法验证时，Draft 仍可进入人工确认，但不能自动执行。
 
 对 `meal_log.simple_create` 和 `meal_plan.simple_create`，语义字段 `action` 也是关键证据：当前用户消息必须明确要求“记录/新增这餐”或“加入/安排到计划”。即使日期、餐次、Food 和份量等业务字段全部齐全，单纯陈述已经吃过什么、打算吃什么或描述一个安排，也不能由服务端推断为新增指令，只能进入人工确认。
 
@@ -246,6 +256,8 @@ no_change
 - `intent_not_explicit`
 - `intent_evidence_missing`
 - `source_quote_mismatch`
+- `source_value_unverifiable`
+- `source_value_mismatch`
 - `resolution_source_untrusted`
 - `critical_default_used`
 - `ambiguity_present`
@@ -300,6 +312,15 @@ no_change
 - 新增：最多 5 项；采购对象必须精确匹配当前家庭真实 Ingredient 或 ready-like Food。
 - 修改：一次 1 项；归一化前后 diff 只能改变数量、单位或备注，不能替换采购对象。
 - 恢复待买：最多 5 项；只允许 `set_done(done=false)`，目标必须唯一。
+
+购物证据字段不能使用一份固定集合，必须按规范化 Draft 形态和每项动作动态生成：
+
+- 普通 `shopping_list.v1` 新增：验证语义 `action`，并逐项验证 `items[i].ingredient_id | items[i].food_id`；只有服务端确认目标为定量对象时，才额外验证该项 `quantity`、`unit`。
+- `shopping_list_operation.v1` 的 create：逐项验证 `operations[i].action`、`operations[i].payload.ingredient_id | food_id`；create 没有 `targetId`，定量要求仍按服务端目标动态加入。
+- update：验证 `operations[0].action`、`operations[0].targetId`，以及归一化 diff 中实际改变的 `quantity | unit | reason`；未改变字段不要求证据，也不能夹带未声明变更。
+- 恢复待买：逐项验证 `operations[i].action`、`operations[i].targetId` 和 `operations[i].payload.done=false`，不要求数量或单位来源。
+
+数组下标和字段名以 normalizer 输出的 canonical 结构为准，证据验证器不得把普通新增误当成 operation Draft，也不得要求 create 中不存在的 `targetId`。
 
 定量对象的数量和单位必须来自用户原话或可信 Artifact；不定量 Ingredient 可以使用系统固定“需要补充”语义。
 
@@ -404,6 +425,7 @@ GET 中的 `consent_notice.acknowledged` 只表示当前登录成员是否曾在
 
 - `intent_clarity`
 - `intent_evidence_json`
+- `payload_hash`：服务端对该 version 的规范化业务 payload 计算的 canonical SHA-256；不包含 `intentEvidence`，同一 version 内不可变
 - `execution_route`：`manual_confirmation | policy_auto | policy_no_change`
 - `policy_key`
 - `policy_version`
@@ -543,8 +565,9 @@ DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publishe
 ### 13.4 自动执行事务
 
 ```text
-捕获并归一化 Draft
-  -> 验证 Intent Evidence
+从原始 Tool input 分离 Intent Evidence
+  -> 归一化不含 evidence 的领域 Draft
+  -> 对规范化 payload 逐字段验证 Intent Evidence
   -> 策略预判
   -> 持久化 Draft
   -> 锁 Run 与 Draft
@@ -579,9 +602,11 @@ AIAgentRun
 - Draft 继续使用现有 idempotency key。
 - AIOperation idempotency key 由 `draft_id + draft_version` 派生，与执行模式无关。
 - 同一版 Draft 最多正式提交一次。
-- Runner 重试发现 completed/reverted Operation 时重放持久化结果，不重新调用领域 Service。
-- Runner 重试发现 Draft 已为 `no_change` 时重放持久化结果，不重新评估为一次新写入。
-- 自动执行失败后需要刷新业务数据并生成新 Draft/version；不能把原失败 Operation 换成一次新写入。
+- `POST /api/ai/runs/{run_id}/retry` 在调用现有 prompt 重试前，先以原 Run 锁定并查找唯一关联 Draft。若 Draft 为策略自动路径的 `pending_retry`，必须在同一 Run 上直接恢复该 Draft，不调用模型、不创建新 Run、消息或 Draft。
+- 直接恢复只接受原执行人、当前有效 membership、完全相同的 Draft ID/version/payload hash，并重新检查取消、授权、目标版本和领域权限；随后使用同一 Operation idempotency key 调用 `DraftCommitCoordinator`。并发或重复请求最多产生一次领域写入。
+- Runner 重试发现 completed/reverted Operation 或 `no_change` Draft 时，同样在进入模型前重放持久化结果，不重新调用领域 Service 或策略。
+- 只有临时数据库/连接失败进入上述 `pending_retry` 恢复；确定的目标版本或领域冲突保持 `execution_failed`，需要刷新业务数据并生成新 Draft/version，不能把原失败 Operation 换成一次新写入。
+- 人工审批路径的 `pending_retry` 继续使用现有 retry Approval 恢复，不进入策略自动恢复，也不得退回 prompt 重放。只有完全没有关联 `pending_retry` Draft 的普通 failed/fallback/cancelled Run 保留现有“重新调用模型并创建新 Run”的行为，三条路径不得混用。
 - 撤销使用 operation 状态和 `revert_request_id` 保证幂等。
 
 ### 13.6 失败处理
@@ -619,7 +644,7 @@ POST /api/ai/operations/{operation_id}/revert
 7. 检查写入后版本、当前值和下游依赖。
 8. 在同一事务执行全部补偿。
 9. 更新 AIOperation、Draft、活动日志、结果消息、Artifact 和缓存标签。
-10. 提交后通过现有 SSE `message_part` 事件发布已更新的持久化 result part。
+10. 提交后在普通 POST 响应中返回已更新的持久化 result card、投影、`cache_scopes` 和新鲜 `server_now`；发起端立即原位替换并刷新查询。首批不为撤销新增跨请求 SSE 广播通道，其他客户端在下一次消息 refetch/reconnect 时读取持久化结果。
 
 一小时边界为 `now <= revertible_until` 仍允许；`now > revertible_until` 过期。批量操作全量成功或全量失败。
 
@@ -797,6 +822,8 @@ POST /api/ai/operations/{operation_id}/revert
 
 不返回完整授权快照、模型证据、提交 payload 或领域撤销 context。`no_change` 使用 `result_status=no_change`、`execution_mode=policy_no_change`、`operation_id=null` 和 `revert_availability=unsupported`；它仍有稳定 `draft_id`，可以刷新和重连恢复。
 
+`server_now` 是传输时钟，不是持久化状态。创建结果时可以保存当时投影，但每次 SSE/HTTP 返回以及消息列表 rehydration 都必须用同一响应内新鲜的服务端时间覆盖 card 中的历史值；前端不得拿数据库里旧的 `server_now` 重新校准倒计时。`revertible_until` 才是稳定持久化截止时间。
+
 `revert_availability` 枚举：
 
 ```text
@@ -809,7 +836,9 @@ reverted
 
 ## 18. SSE、消息与缓存
 
-人工确认、自动执行、执行失败、撤销和 `no_change` 都复用现有 SSE 传输事件 `message_part`，其 data 继续使用 `message_id`、`conversation_id`、`run_id` 和持久化 `part`。不新增 `operation_completed`、`operation_failed`、`operation_reverted` 或 `draft_no_change` 顶层 SSE 事件；结果种类由 part 内的 `result_status` 和 `execution_mode` 表达，直接进入现有 `onMessagePart -> applyStreamPart` 合并链。
+活动 `/api/ai/chat/stream` 请求中的待确认、策略自动执行、执行失败和 `no_change` 继续复用现有 SSE `message_part`，其 data 使用 `message_id`、`conversation_id`、`run_id` 和持久化 `part`。不新增 `operation_completed`、`operation_failed`、`operation_reverted` 或 `draft_no_change` 顶层 SSE 事件；结果种类由 part 内的 `result_status` 和 `execution_mode` 表达，直接进入现有 `onMessagePart -> applyStreamPart` 合并链。
+
+人工审批和撤销是独立 HTTP mutation，不处在上述 chat generator 中。它们在事务提交后返回完整、已持久化的 result card/part 与 `cache_scopes`，发起端使用响应原位替换并 refetch AI 查询；首批不承诺把该变化实时广播给其他已打开客户端。其他客户端通过下一次查询、页面刷新或 stream reconnect 读取同一持久化 part。
 
 所有路径使用同一 AI Result message part 外壳；真实写入内嵌 Operation 投影，`no_change` 使用可空 operation ID。自动路径不能在 commit 前发出成功 part。
 
@@ -822,7 +851,7 @@ Result payload 携带服务端受控 `cache_scopes`。前端新增统一 `invali
 - Inventory；
 - AI conversation/messages/operations。
 
-SSE 重连只读取持久化结果，不触发 Coordinator。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。自动执行设置的 React Query key 必须包含当前 `family_id`，家庭切换不能复用上一家庭的设置缓存。
+SSE 重连只读取持久化结果，不触发 Coordinator。所有消息读取都为 result card 注入本次响应的新鲜 `server_now`。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。自动执行设置的 React Query key 必须包含当前 `family_id`，家庭切换不能复用上一家庭的设置缓存。
 
 ## 19. 前端设置体验
 
@@ -893,7 +922,7 @@ AI Result 根据状态显示：
 
 永久版本/依赖冲突写入 blocked 后，前端从结构化 409 立即应用最新 result card，不再展示无效按钮；临时网络错误保留重试。离线时不把撤销排队到后台。
 
-移动端按钮自动换行且不横向滚动；倒计时按分钟更新，不每秒跳动。服务端时间、权限和最终撤销检查始终为准。
+移动端按钮自动换行且不横向滚动；倒计时按分钟更新，不每秒跳动。初次流式结果、撤销响应和刷新后的消息读取都使用各自响应中的新鲜服务端时间计算偏移；服务端权限和最终撤销检查始终为准。
 
 所有视觉值复用现有 token、`StateBlock`、`StatusBadge` 和按钮体系，不新增任意色值、阴影或圆角。
 
@@ -946,7 +975,9 @@ AI Result 根据状态显示：
 
 - 四档 intent clarity；
 - 缺失/伪造 quote；
+- quote 字段名正确但评分、数量/单位、日期、餐次或动作方向与规范化 payload 不一致；
 - 不可信/过期 resolution source；
+- 普通购物新增、operation create、update、restore 的具体字段形态和定量条件；
 - 关键默认值；
 - 简单餐食/计划业务字段齐全但当前消息没有明确新增指令；
 - ambiguity code；
@@ -968,7 +999,9 @@ AI Result 根据状态显示：
 - 人工降级恰好创建一份审批且不提前写业务数据；
 - 人工和自动进入同一 Commit Coordinator；
 - actor 来自当前消息/Run；
+- 四个真实 Draft normalizer 之后 evidence 仍通过独立 envelope 被验证和持久化，且不进入领域 payload；
 - 幂等重试不重复写入；
+- `pending_retry` 在进入模型前恢复相同 Run/Draft/version/payload hash，provider 调用次数为 0，且不创建新 Draft；
 - 冲突整笔回滚；
 - 失败不推进 Continuation；
 - SSE 重连只恢复持久化结果；
@@ -992,7 +1025,7 @@ AI Result 根据状态显示：
 - 无权限调用者即使复用已成功或永久阻塞的 request ID 也先得到 403；
 - client request ID 跨 Operation 复用；
 - 永久 blocked 与临时错误；
-- 活动日志、message、artifact、SSE 和 cache scopes。
+- 活动日志、message、artifact、HTTP result response 和 cache scopes；其他客户端 refetch 后读取同一撤销终态。
 
 库存额外覆盖入库、盘点、消耗和丢弃的前后快照恢复，以及非 AI 调用仍为 15 分钟。
 
@@ -1011,9 +1044,10 @@ AI Result 根据状态显示：
 - 离线不排队；
 - 键盘、switch、aria-live 和焦点；
 - 业务与 AI React Query 缓存失效；
-- SSE 重连和持久化卡片恢复。
+- SSE 重连和持久化卡片恢复；
 - result part 通过既有 `message_part` 消费链合并；
-- 永久撤销 409 立即替换 blocked 卡片，`no_change` 不显示“前往页面修正”。
+- 永久撤销 409 立即替换 blocked 卡片，`no_change` 不显示“前往页面修正”；
+- 创建 30 分钟后刷新和截止边界使用响应级新鲜 `server_now`，不会重置或延长倒计时。
 
 ### 23.5 验证命令
 
