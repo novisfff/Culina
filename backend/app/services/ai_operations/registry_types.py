@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
 from app.services.activity import ActivityHighlight
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
 
 
 AssertUpdatedAt = Callable[..., None]
@@ -35,6 +37,8 @@ class DraftExecuteContext:
     assert_updated_at_matches: AssertUpdatedAt
     operation_idempotency_key: str
     conversation_id: str = ""
+    committed_at: datetime | None = None
+    revertible_until: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +52,7 @@ class DraftPostExecuteContext:
 
 
 NormalizeDraft = Callable[[DraftNormalizeContext], dict[str, Any]]
-ExecuteDraft = Callable[[DraftExecuteContext], tuple[dict[str, Any], list[str]]]
+ExecuteDraft = Callable[[DraftExecuteContext], DraftExecutionReceipt]
 PostExecuteHook = Callable[[DraftPostExecuteContext], None]
 ApprovalConfigBuilder = Callable[[dict[str, Any]], dict[str, str]]
 PreviewSummaryBuilder = Callable[[dict[str, Any]], str]
@@ -154,8 +158,13 @@ class DraftOperationRegistry:
     def normalize(self, context: DraftNormalizeContext) -> dict[str, Any]:
         return self.get(context.draft_type).normalize(context)
 
-    def execute(self, context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-        return self.get(context.draft_type).execute(context)
+    def execute(self, context: DraftExecuteContext) -> DraftExecutionReceipt:
+        receipt = self.get(context.draft_type).execute(context)
+        if not isinstance(receipt, DraftExecutionReceipt):
+            raise TypeError(
+                f"Draft executor for {context.draft_type!r} must return DraftExecutionReceipt"
+            )
+        return receipt
 
     def after_success(self, context: DraftPostExecuteContext) -> None:
         hook = self.get(context.draft_type).after_success

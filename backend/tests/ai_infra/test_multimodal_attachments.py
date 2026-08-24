@@ -21,6 +21,7 @@ from app.ai.workflows.runner_support.attachments import (
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.core.enums import AIConversationVisibility, AiMode, Difficulty, MealType, MediaSource
 from app.models.domain import AIApprovalRequest, AIConversation, AIMessage, AITaskDraft, Food, Ingredient, MealLog, MediaAsset, Recipe, RecipeIngredient, RecipeStep
+from app.services.ai_operations.approval_requests import _initial_draft_payload_hash
 from app.services.ai_operations.registry import draft_operation_registry
 
 from ._support import AIAgentInfraTestCase, FakeChatProvider, patch_ai_workspace_provider
@@ -712,12 +713,14 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
                 alt=stable_reference["alt"],
                 created_by=self.user.id,
             )
+            draft_payload = {"operations": [{"image": stable_reference}]}
             draft = AITaskDraft(
                 id="draft-media-pending",
                 family_id=self.family.id,
                 conversation_id=conversation.id,
                 draft_type="inventory_operation",
-                payload={"operations": [{"image": stable_reference}]},
+                payload=draft_payload,
+                payload_hash=_initial_draft_payload_hash(draft_payload),
                 preview_summary="库存操作",
                 status="pending",
                 version=1,

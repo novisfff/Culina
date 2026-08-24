@@ -291,7 +291,7 @@ def apply_ai_approval_decision(
     )
     try:
         with db.begin_nested():
-            business_entity, entity_ids = execute_ai_operation_draft(
+            receipt = execute_ai_operation_draft(
                 db,
                 family_id=family_id,
                 user_id=user_id,
@@ -301,6 +301,8 @@ def apply_ai_approval_decision(
                 operation_idempotency_key=operation.idempotency_key,
                 conversation_id=conversation_id,
             )
+            business_entity = receipt.business_entity
+            entity_ids = list(receipt.entity_ids)
             if not recipe_cook_effect:
                 draft_operation_registry.after_success(
                     DraftPostExecuteContext(

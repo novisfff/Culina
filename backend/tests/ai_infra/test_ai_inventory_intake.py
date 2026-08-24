@@ -649,7 +649,7 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                     "app.services.inventory_intake", fromlist=["apply_inventory_intake"]
                 ).apply_inventory_intake,
             ) as mocked:
-                business_entity, entity_ids = execute_ai_operation_draft(
+                receipt = execute_ai_operation_draft(
                     db,
                     family_id=self.family.id,
                     user_id=self.user.id,
@@ -659,6 +659,8 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                     operation_idempotency_key="ai-approval-inventory-intake-execute",
                     conversation_id="conversation-inventory-intake",
                 )
+                business_entity = receipt.business_entity
+                entity_ids = receipt.entity_ids
                 self.assertEqual(mocked.call_count, 1)
                 request = mocked.call_args.kwargs["request"]
                 self.assertEqual(len(request.items), 1)
@@ -770,7 +772,7 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                     "app.services.inventory_intake", fromlist=["apply_inventory_intake"]
                 ).apply_inventory_intake,
             ) as mocked:
-                business_entity, entity_ids = execute_ai_operation_draft(
+                receipt = execute_ai_operation_draft(
                     db,
                     family_id=self.family.id,
                     user_id=self.user.id,
@@ -780,6 +782,8 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                     operation_idempotency_key="ai-approval-inventory-intake-fulfill-only",
                     conversation_id="conversation-inventory-intake",
                 )
+                business_entity = receipt.business_entity
+                entity_ids = receipt.entity_ids
                 self.assertEqual(mocked.call_count, 1)
                 request = mocked.call_args.kwargs["request"]
                 self.assertEqual(len(request.items), 1)

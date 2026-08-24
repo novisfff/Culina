@@ -1,4 +1,5 @@
 from ._support import *
+from app.services.ai_operations.approval_requests import _initial_draft_payload_hash
 
 
 class AIConversationAccessTestCase(AIAgentInfraTestCase):
@@ -387,6 +388,7 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
                 message_id=message.id,
                 draft_type="recipe",
                 payload={},
+                payload_hash=_initial_draft_payload_hash({}),
                 preview_summary="私有草稿",
                 status="pending",
                 version=1,

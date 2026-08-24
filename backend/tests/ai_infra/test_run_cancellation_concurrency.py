@@ -174,7 +174,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
             original_execute = approval_decisions.execute_ai_operation_draft
 
             def blocking_execute(db, **kwargs):
-                business_entity, entity_ids = original_execute(db, **kwargs)
+                receipt = original_execute(db, **kwargs)
                 business_written.set()
                 self.assertTrue(release_write.wait(timeout=5))
                 db.add(
@@ -188,7 +188,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
                     )
                 )
                 db.flush()
-                return business_entity, entity_ids
+                return receipt
 
             def submit_approval() -> None:
                 with self.client.stream(
@@ -252,8 +252,8 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
         original_execute = approval_decisions.execute_ai_operation_draft
 
         def failing_execute(db, **kwargs):
-            business_entity, entity_ids = original_execute(db, **kwargs)
-            del business_entity, entity_ids
+            receipt = original_execute(db, **kwargs)
+            del receipt
             raise RuntimeError("approval write failed")
 
         def submit_approval() -> None:

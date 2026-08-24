@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
 from app.services.ai_operations.registry_types import DraftExecuteContext
 
 
@@ -27,7 +29,9 @@ def execute_ai_operation_draft(
     assert_updated_at_matches: AssertUpdatedAt,
     operation_idempotency_key: str,
     conversation_id: str = "",
-) -> tuple[dict[str, Any], list[str]]:
+    committed_at: datetime | None = None,
+    revertible_until: datetime | None = None,
+) -> DraftExecutionReceipt:
     from app.services.ai_operations.registry import draft_operation_registry
 
     return draft_operation_registry.execute(
@@ -40,5 +44,7 @@ def execute_ai_operation_draft(
             assert_updated_at_matches=assert_updated_at_matches,
             operation_idempotency_key=operation_idempotency_key,
             conversation_id=conversation_id,
+            committed_at=committed_at,
+            revertible_until=revertible_until,
         )
     )

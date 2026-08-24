@@ -9,6 +9,7 @@ from app.ai.tools.draft_validation import (
 )
 from app.core.enums import ActivityHighlightKind
 from app.services.activity import ActivityHighlight
+from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
 from app.services.ai_operations.meal_logs import execute_meal_log_draft
 from app.services.ai_operations.meal_plans import execute_meal_plan_draft
 from app.services.ai_operations.recovery_loaders import (
@@ -178,33 +179,69 @@ def _normalize_meal_log(context: DraftNormalizeContext) -> dict[str, Any]:
     )
 
 
-def _execute_shopping_list(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    return execute_shopping_list_draft(
+def _execute_shopping_list(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids = execute_shopping_list_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
     )
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(entity_ids),
+        cache_scopes=("shopping_list", "ai_conversation"),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
-def _execute_meal_plan(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    return execute_meal_plan_draft(
+def _execute_meal_plan(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids = execute_meal_plan_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
     )
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(entity_ids),
+        cache_scopes=("meal_plan", "ai_conversation"),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
-def _execute_meal_log(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    return execute_meal_log_draft(
+def _execute_meal_log(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids = execute_meal_log_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
+    )
+    scopes: list[AICacheScope] = ["meal_log"]
+    payload = context.payload
+    effective_payload = (
+        payload.get("payload")
+        if payload.get("action") == "create" and isinstance(payload.get("payload"), dict)
+        else payload
+    )
+    if any(
+        isinstance(item, dict) and item.get("deductStock") is True
+        for item in effective_payload.get("foods") or []
+    ):
+        scopes.append("food")
+    if effective_payload.get("planItemId"):
+        scopes.append("meal_plan")
+    scopes.append("ai_conversation")
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(entity_ids),
+        cache_scopes=tuple(scopes),
+        revert_adapter_key=None,
+        revert_context=None,
     )
 
 
