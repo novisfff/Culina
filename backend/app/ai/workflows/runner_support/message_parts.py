@@ -8,6 +8,16 @@ from app.models.domain import AIApprovalRequest, AITaskDraft
 from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
 
 
+ROUTED_WITHOUT_APPROVAL_STATUSES = {"auto_executed", "no_change", "execution_failed"}
+
+
+def draft_route_status(draft_payload: dict[str, Any]) -> str:
+    status = str(draft_payload.get("route_status") or "")
+    if status:
+        return status
+    return "waiting_approval" if draft_payload else ""
+
+
 def draft_message_part(draft: AITaskDraft) -> dict[str, Any]:
     return {
         "id": f"draft-part-{draft.id}",

@@ -40,6 +40,7 @@ from app.ai.workflows.conversations import (
 from app.ai.workflows.run_lifecycle import (
     build_regenerate_part_chat_request,
     build_retry_chat_request,
+    recover_or_replay_draft_run,
 )
 from app.core.enums import AiMode, ModelUsageAttributionKind, ModelUsageOperationSource
 from app.core.utils import create_id, utcnow
@@ -486,6 +487,19 @@ class AIApplicationService:
             run_id=run_id,
             capability="contribute",
         )
+        draft_resolution = recover_or_replay_draft_run(
+            self.db,
+            family_id=family_id,
+            actor_user_id=user_id,
+            run_id=run_id,
+        )
+        if draft_resolution is not None:
+            from app.ai.workflows.runner import WorkspaceGraphRunner
+
+            return WorkspaceGraphRunner(self)._chat_response(
+                draft_resolution.conversation_id,
+                draft_resolution.run_id,
+            )
         retry_request = build_retry_chat_request(self.db, family_id=family_id, run_id=run_id)
         return self.chat(
             family_id=family_id,

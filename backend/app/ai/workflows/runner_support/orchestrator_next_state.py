@@ -7,7 +7,11 @@ from sqlalchemy import select
 from app.ai.skills import SkillResult
 from app.ai.skills.shared import result_artifacts
 from app.ai.workflows.state import WorkspaceGraphState
-from app.models.domain import AIApprovalRequest
+from app.ai.workflows.runner_support.message_parts import (
+    ROUTED_WITHOUT_APPROVAL_STATUSES,
+    draft_route_status,
+)
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -58,7 +62,11 @@ class OrchestratorNextStateResolver:
             .order_by(AIApprovalRequest.created_at.asc(), AIApprovalRequest.id.asc())
         )
         next_agent_rounds = int(state.get("agent_rounds") or 0) + 1
-        if result.drafts and pending_after_result is None:
+        routed_without_approval = self._has_persisted_routed_drafts(
+            state,
+            result=result,
+        )
+        if result.drafts and pending_after_result is None and not routed_without_approval:
             return self._draft_without_persisted_approval_patch(
                 state,
                 result=result,
@@ -87,6 +95,41 @@ class OrchestratorNextStateResolver:
             next_agent_rounds=next_agent_rounds,
             finish_graph_span=finish_graph_span,
         )
+
+    def _has_persisted_routed_drafts(
+        self,
+        state: WorkspaceGraphState,
+        *,
+        result: SkillResult,
+    ) -> bool:
+        if not result.drafts:
+            return False
+        for draft_payload in result.drafts:
+            if not isinstance(draft_payload, dict):
+                return False
+            draft_id = str(draft_payload.get("draft_id") or "")
+            draft = self.runner.db.get(AITaskDraft, draft_id) if draft_id else None
+            if (
+                draft is None
+                or draft.family_id != state["family_id"]
+                or draft.conversation_id != state["conversation_id"]
+                or draft.source_run_id != state["run_id"]
+            ):
+                return False
+            metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
+            stored_outcome = (
+                metadata.get("routeOutcome")
+                if isinstance(metadata.get("routeOutcome"), dict)
+                else {}
+            )
+            stored_status = str(stored_outcome.get("status") or "")
+            claimed_status = draft_route_status(draft_payload)
+            if (
+                stored_status not in ROUTED_WITHOUT_APPROVAL_STATUSES
+                or claimed_status != stored_status
+            ):
+                return False
+        return True
 
     @staticmethod
     def _waiting_input_patch(
@@ -142,6 +185,36 @@ class OrchestratorNextStateResolver:
                 next_agent_rounds=next_agent_rounds,
                 finish_graph_span=finish_graph_span,
             )
+        approval_ids = [
+            str(draft.get("approval_id") or "")
+            for draft in result.drafts
+            if isinstance(draft, dict) and str(draft.get("approval_id") or "")
+        ]
+        resolved_approvals = (
+            list(
+                self.runner.db.scalars(
+                    select(AIApprovalRequest).where(
+                        AIApprovalRequest.id.in_(approval_ids),
+                        AIApprovalRequest.run_id == state["run_id"],
+                        AIApprovalRequest.status != "pending",
+                    )
+                )
+            )
+            if approval_ids
+            else []
+        )
+        if approval_ids and len(resolved_approvals) == len(set(approval_ids)):
+            result.status = "completed"
+            result.error = None
+            self._mark_resolved_replay_completed(state)
+            return self._normal_result_patch(
+                result=result,
+                run_artifacts=run_artifacts,
+                injected_skill_keys=injected_skill_keys,
+                injection_history=injection_history,
+                next_agent_rounds=next_agent_rounds,
+                finish_graph_span=finish_graph_span,
+            )
         finish_graph_span(
             "failed",
             {
@@ -152,6 +225,22 @@ class OrchestratorNextStateResolver:
             },
         )
         raise RuntimeError("草稿已生成，但没有创建确认请求")
+
+    def _mark_resolved_replay_completed(self, state: WorkspaceGraphState) -> None:
+        run = self.runner.db.get(AIAgentRun, state["run_id"])
+        if run is not None:
+            run.status = "completed"
+        message = self.runner.db.scalar(
+            select(AIMessage)
+            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+        )
+        if message is not None:
+            message.status = "completed"
+        conversation = self.runner.db.get(AIConversation, state["conversation_id"])
+        if conversation is not None:
+            conversation.last_run_status = "completed"
+        self.runner.db.flush()
 
     @staticmethod
     def _waiting_approval_patch(

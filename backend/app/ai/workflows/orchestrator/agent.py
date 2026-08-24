@@ -4,7 +4,7 @@ import logging
 import inspect
 from time import perf_counter
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, DraftRouted, HumanInputRequired, ToolBudgetHardStop
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.runtime.provider import BaseChatProvider
 from app.ai.runtime.types import provider_control_flow_metadata
@@ -246,6 +246,18 @@ class WorkspaceOrchestratorAgent:
                 log_turn_completed(result)
                 return finish_orchestrator_span(result)
             result = self.result_assembler.completed_result(provider_result, context, state)
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
+        except DraftRouted as exc:
+            control_flow = provider_control_flow_metadata(exc)
+            result = self.result_assembler.routed_result(
+                context,
+                state,
+                exc.outcome,
+                model=control_flow.model,
+                fallback_used=control_flow.fallback_used,
+                fallback_reason_code=control_flow.fallback_reason_code,
+            )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
         except ApprovalRequired as exc:

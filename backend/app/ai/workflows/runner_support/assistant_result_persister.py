@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -9,10 +9,12 @@ from app.ai.skills import SkillResult
 from app.ai.workflows.result_cards import validate_result_cards
 from app.ai.workflows.runner_support.message_parts import (
     aggregate_text_from_parts,
+    draft_route_status,
     human_input_request_message_part,
     missing_draft_approval_message_parts,
     result_card_message_part,
     result_cards_from_parts,
+    ROUTED_WITHOUT_APPROVAL_STATUSES,
 )
 from app.ai.workflows.runner_support.message_persistence import (
     conversation_context_with_state_patch,
@@ -76,12 +78,25 @@ class AssistantResultPersister:
             result.error = None
             if not result.text.strip():
                 result.text = "已取消这次任务。"
-        assistant_status = "waiting_approval" if result.drafts else result.status
-        cards = [] if result.drafts else validate_result_cards(result.cards)
+        draft_payloads: list[dict[str, Any]] = []
+        for draft_payload in result.drafts:
+            if not isinstance(draft_payload, dict):
+                raise RuntimeError("草稿结果格式无效")
+            draft_payloads.append(draft_payload)
+        route_statuses = [
+            self._persisted_route_status(state, draft_payload)
+            for draft_payload in draft_payloads
+        ]
+        has_manual_draft = any(
+            route_status not in ROUTED_WITHOUT_APPROVAL_STATUSES
+            for route_status in route_statuses
+        )
+        assistant_status = "waiting_approval" if has_manual_draft else result.status
+        cards = [] if has_manual_draft else validate_result_cards(result.cards)
         next_parts = runner._base_assistant_parts_from_live_stream(
             state,
             result.text,
-            stop_after_first_draft=bool(result.drafts),
+            stop_after_first_draft=has_manual_draft,
         )
         for card in cards:
             next_parts.append(result_card_message_part(part_id=create_id("ai_part"), card=card))
@@ -150,11 +165,23 @@ class AssistantResultPersister:
         runner.db.flush()
         drafts: list[AITaskDraft] = []
         approvals: list[AIApprovalRequest] = []
-        for draft_payload in result.drafts:
+        for draft_payload, route_status in zip(draft_payloads, route_statuses, strict=True):
+            routed_without_approval = route_status in ROUTED_WITHOUT_APPROVAL_STATUSES
             draft_id = str(draft_payload.get("draft_id") or "")
             approval_id = str(draft_payload.get("approval_id") or "")
             draft = runner.db.get(AITaskDraft, draft_id) if draft_id else None
             approval = runner.db.get(AIApprovalRequest, approval_id) if approval_id else None
+            if routed_without_approval:
+                if draft is None:
+                    raise RuntimeError("路由草稿缺少已持久化记录")
+                if approval is not None or approval_id:
+                    raise RuntimeError("自动路由草稿不能关联确认请求")
+                draft.message_id = message.id
+                draft.source_run_id = state["run_id"]
+                runner.db.flush()
+                runner.db.refresh(draft)
+                drafts.append(draft)
+                continue
             if draft is None or approval is None:
                 draft, approval = runner.service._create_draft_approval(
                     family_id=state["family_id"],
@@ -251,3 +278,40 @@ class AssistantResultPersister:
             card_count=len(all_cards),
             tool_call_count=len(result.tool_calls),
         )
+
+    def _persisted_route_status(
+        self,
+        state: WorkspaceGraphState,
+        draft_payload: dict[str, Any],
+    ) -> str:
+        claimed_status = str(draft_payload.get("route_status") or "")
+        draft_id = str(draft_payload.get("draft_id") or "")
+        draft = self.runner.db.get(AITaskDraft, draft_id) if draft_id else None
+        if draft is None:
+            if claimed_status in ROUTED_WITHOUT_APPROVAL_STATUSES:
+                raise RuntimeError("自动路由草稿缺少已持久化记录")
+            return draft_route_status(draft_payload)
+        if (
+            draft.family_id != state["family_id"]
+            or draft.conversation_id != state["conversation_id"]
+            or draft.source_run_id != state["run_id"]
+        ):
+            raise RuntimeError("路由草稿的运行或会话归属不一致")
+        metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
+        stored_outcome = (
+            metadata.get("routeOutcome")
+            if isinstance(metadata.get("routeOutcome"), dict)
+            else {}
+        )
+        stored_status = str(stored_outcome.get("status") or "")
+        valid_statuses = {"waiting_approval", *ROUTED_WITHOUT_APPROVAL_STATUSES}
+        if stored_status:
+            if stored_status not in valid_statuses:
+                raise RuntimeError("持久化草稿路由结果无效")
+            if claimed_status and claimed_status != stored_status:
+                raise RuntimeError("草稿路由结果与持久化状态不一致")
+            draft_payload["route_status"] = stored_status
+            return stored_status
+        if claimed_status in ROUTED_WITHOUT_APPROVAL_STATUSES:
+            raise RuntimeError("自动路由草稿缺少持久化路由结果")
+        return draft_route_status(draft_payload)

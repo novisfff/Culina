@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy import select
@@ -16,12 +17,14 @@ from app.ai.workflows.runner_support.message_parts import (
 from app.ai.workflows.runner_support.run_status import RUNNING, WAITING_APPROVAL
 from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import create_id
-from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     finalize_run_cancellation,
     lock_run_for_transition,
 )
+from app.services.ai_operations.routing import DraftRouteRequest, route_draft
+from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
 
 
 class ProgressiveDraftPublisher:
@@ -34,6 +37,7 @@ class ProgressiveDraftPublisher:
         commit_stream_checkpoint: Callable[..., bool],
         optional_stream_writer: Callable[[], Any],
         persistent_progress_writer: Callable[[Any, WorkspaceGraphState], Any],
+        registered_revert_adapters: frozenset[str] = frozenset(),
     ) -> None:
         self.db = db
         self.service = service
@@ -41,6 +45,7 @@ class ProgressiveDraftPublisher:
         self.commit_stream_checkpoint = commit_stream_checkpoint
         self.optional_stream_writer = optional_stream_writer
         self.persistent_progress_writer = persistent_progress_writer
+        self.registered_revert_adapters = registered_revert_adapters
 
     def create_publisher(
         self,
@@ -66,24 +71,79 @@ class ProgressiveDraftPublisher:
                 round_index=round_index,
             )
             message = self._ensure_assistant_message(state)
-            draft, approval = self.service._create_draft_approval(
+            draft_type = str(draft_payload.get("draft_type") or "")
+            payload = self.service._validate_draft_payload(
+                draft_type=draft_type,
                 family_id=state["family_id"],
-                user_id=state["user_id"],
                 conversation_id=state["conversation_id"],
-                message_id=message.id,
-                run_id=state["run_id"],
-                draft_payload=draft_payload,
+                payload=dict(draft_payload.get("payload") or {}),
             )
-            self.mark_waiting_approval_state(state)
-            draft_part = draft_message_part(draft)
-            approval_part = approval_request_message_part(approval)
-            message.message_metadata = append_progressive_draft_metadata(
-                dict(message.message_metadata or {}),
-                draft_id=draft.id,
-                approval_id=approval.id,
+            outcome = route_draft(
+                self.db,
+                DraftRouteRequest(
+                    family_id=state["family_id"],
+                    actor_user_id=state["user_id"],
+                    conversation_id=state["conversation_id"],
+                    message_id=message.id,
+                    run_id=state["run_id"],
+                    draft_type=draft_type,
+                    payload=payload,
+                    intent_evidence_input=(
+                        dict(draft_payload["intent_evidence_input"])
+                        if isinstance(draft_payload.get("intent_evidence_input"), dict)
+                        else None
+                    ),
+                    schema_version=str(
+                        draft_payload.get("schema_version") or f"{draft_type}.v1"
+                    ),
+                    tool_name=str(draft_payload.get("tool") or ""),
+                    skill_approval_policy=str(
+                        draft_payload.get("skill_approval_policy") or "draft_then_confirm"
+                    ),
+                    current_message=str(state.get("message") or ""),
+                    trusted_resolution_sources=dict(
+                        draft_payload.get("trusted_resolution_sources") or {}
+                    ),
+                    continuation=(
+                        dict(draft_payload["continuation"])
+                        if isinstance(draft_payload.get("continuation"), dict)
+                        else {}
+                    ),
+                ),
+                registered_revert_adapters=self.registered_revert_adapters,
             )
+            draft = self.db.get(AITaskDraft, outcome.draft_id)
+            if draft is None:
+                raise RuntimeError("草稿路由完成后没有持久化草稿")
+            parts: tuple[dict[str, Any], ...]
+            if outcome.status == "waiting_approval":
+                approval = self.db.get(AIApprovalRequest, outcome.approval_id)
+                if approval is None:
+                    raise RuntimeError("草稿路由完成后没有持久化确认请求")
+                self.mark_waiting_approval_state(state)
+                draft_part = draft_message_part(draft)
+                approval_part = approval_request_message_part(approval)
+                parts = (draft_part, approval_part)
+                outcome = replace(
+                    outcome,
+                    published_part_ids=(draft_part["id"], approval_part["id"]),
+                )
+                message.message_metadata = append_progressive_draft_metadata(
+                    dict(message.message_metadata or {}),
+                    draft_id=draft.id,
+                    approval_id=approval.id,
+                )
+            else:
+                part_ids = set(outcome.published_part_ids)
+                parts = tuple(
+                    part
+                    for part in message.parts or []
+                    if isinstance(part, dict) and str(part.get("id") or "") in part_ids
+                )
+            _update_published_outcome(draft, outcome)
             self.db.flush()
-            if not self.commit_stream_checkpoint(state, run_status=WAITING_APPROVAL):
+            checkpoint_status = WAITING_APPROVAL if outcome.status == "waiting_approval" else outcome.status
+            if not self.commit_stream_checkpoint(state, run_status=checkpoint_status):
                 if span is not None:
                     span.finish(
                         status="failed",
@@ -91,18 +151,21 @@ class ProgressiveDraftPublisher:
                         error_message="draft approval checkpoint failed",
                     )
                 raise RuntimeError("确认请求持久化失败，请稍后重试")
-            self._emit_parts(state, message_id=message.id, parts=(draft_part, approval_part))
+            self._emit_parts(state, message_id=message.id, parts=parts)
             result = {
-                "draft_id": draft.id,
-                "approval_id": approval.id,
-                "published_part_ids": [draft_part["id"], approval_part["id"]],
+                "draft_id": outcome.draft_id,
+                "approval_id": outcome.approval_id,
+                "operation_id": outcome.operation_id,
+                "route_status": outcome.status,
+                "route_outcome": outcome,
+                "published_part_ids": list(outcome.published_part_ids),
             }
             if span is not None:
                 span.finish(
                     status="waiting",
                     output_summary={
                         "draftId": draft.id,
-                        "approvalId": approval.id,
+                        "approvalId": outcome.approval_id,
                         "messageId": message.id,
                         "publishedPartIds": result["published_part_ids"],
                     },
@@ -189,7 +252,7 @@ class ProgressiveDraftPublisher:
         state: WorkspaceGraphState,
         *,
         message_id: str,
-        parts: tuple[dict[str, Any], dict[str, Any]],
+        parts: tuple[dict[str, Any], ...],
     ) -> None:
         for part in parts:
             writer = self.persistent_progress_writer(self.optional_stream_writer(), state)
@@ -205,3 +268,11 @@ class ProgressiveDraftPublisher:
                         },
                     }
                 )
+
+
+def _update_published_outcome(draft: Any, outcome: DraftRouteOutcome) -> None:
+    metadata = dict(draft.ai_metadata or {})
+    stored = dict(metadata.get("routeOutcome") or {})
+    stored["publishedPartIds"] = list(outcome.published_part_ids)
+    metadata["routeOutcome"] = stored
+    draft.ai_metadata = metadata

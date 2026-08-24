@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ai.errors import ApprovalRequired
+from app.ai.errors import ApprovalRequired, DraftRouted
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.skill_injection import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import normalize_continuation
@@ -114,13 +114,26 @@ def capture_draft_output(
                     json.dumps(input_draft, sort_keys=True, ensure_ascii=False, default=str),
                 )
             )
+        owning_skill_keys = (
+            injection_manager.skill_keys_for_tool(tool_name, state.active_skill_keys)
+            if hasattr(injection_manager, "skill_keys_for_tool")
+            else []
+        )
+        skill_registry = getattr(injection_manager, "skill_registry", None)
+        skill_approval_policy = (
+            skill_registry.get(owning_skill_keys[0]).manifest.approval_policy
+            if len(owning_skill_keys) == 1 and skill_registry is not None
+            else "draft_then_confirm"
+        )
         draft_record = {
             "draft_type": draft_type,
             "payload": draft,
             "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
             "tool": tool_name,
+            "skill_approval_policy": skill_approval_policy,
             "continuation": continuation,
             "intent_evidence_input": raw_intent_evidence,
+            "trusted_resolution_sources": dict(trusted_resolution_sources or {}),
             "intent_evidence_validation": intent_evidence_validation_record(
                 validate_intent_evidence(
                     evidence=raw_intent_evidence,
@@ -142,4 +155,8 @@ def capture_draft_output(
         if published:
             draft_record.update(published)
         state.draft_outputs.append(draft_record)
+        route_status = str(draft_record.get("route_status") or "")
+        route_outcome = draft_record.get("route_outcome")
+        if route_status in {"auto_executed", "no_change", "execution_failed"} and route_outcome is not None:
+            raise DraftRouted(route_outcome)
     raise ApprovalRequired("approval required")
