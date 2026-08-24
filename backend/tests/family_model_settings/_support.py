@@ -34,6 +34,8 @@ from app.services.model_usage.receipts import ProviderUsageReceiptSigner
 
 
 SECRET_MARKER = "sk-family-model-secret-marker"
+_OWNER_PASSWORD_HASH = get_password_hash("OwnerPass123")
+_MEMBER_PASSWORD_HASH = get_password_hash("MemberPass123")
 
 
 @dataclass(slots=True)
@@ -187,17 +189,17 @@ def family_model_api() -> Iterator[FamilyModelApiContext]:
                 UserCredential(
                     id="credential-owner-a",
                     user_id="owner-a",
-                    password_hash=get_password_hash("OwnerPass123"),
+                    password_hash=_OWNER_PASSWORD_HASH,
                 ),
                 UserCredential(
                     id="credential-owner-b",
                     user_id="owner-b",
-                    password_hash=get_password_hash("OwnerPass123"),
+                    password_hash=_OWNER_PASSWORD_HASH,
                 ),
                 UserCredential(
                     id="credential-member-a",
                     user_id="member-a",
-                    password_hash=get_password_hash("MemberPass123"),
+                    password_hash=_MEMBER_PASSWORD_HASH,
                 ),
                 Membership(
                     id="membership-owner-a",

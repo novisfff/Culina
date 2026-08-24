@@ -11,6 +11,7 @@ def test_quality_gates_run_family_model_settings_mysql_release_suite() -> None:
         encoding="utf-8"
     )
 
-    assert "backend-model-usage:" in workflow
+    assert "backend-mysql-suite:" in workflow
+    assert "suite: family-model-settings" in workflow
     assert "CULINA_TEST_MYSQL_URL:" in workflow
-    assert ".venv/bin/python -m pytest tests/family_model_settings -q" in workflow
+    assert "tests/family_model_settings -q --durations=20" in workflow
