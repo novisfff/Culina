@@ -391,6 +391,18 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?grid-template-columns: repeat\(3, minmax\(260px, 1fr\)\)/);
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?overflow-x: auto/);
     expect(homeStyles).toMatch(/\.dashboard-food-row[\s\S]*?scrollbar-width: none/);
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1024px\) and \(max-width: 1159px\) \{[\s\S]*?\.dashboard-food-row \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1024px\) and \(max-width: 1159px\) \{[\s\S]*?\.dashboard-food-card \{[^}]*grid-template-columns: clamp\(84px, 8\.5vw, 104px\) minmax\(0, 1fr\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1023px\) \{[\s\S]*?\.dashboard-food-row \{[^}]*grid-template-columns: repeat\(3, minmax\(260px, 1fr\)\);/,
+    );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 768px\) and \(max-width: 1280px\) \{[\s\S]*?\.dashboard-food-card \{[^}]*grid-template-columns: minmax\(96px, 0\.65fr\) minmax\(0, 1fr\);/,
+    );
     expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left \.dashboard-food-row[\s\S]*?mask-image/);
     expect(homeStyles).toMatch(/\.dashboard-food-scroller\.can-scroll-left\.can-scroll-right \.dashboard-food-row/);
     expect(homeStyles).toMatch(/\.dashboard-food-scroller \{[\s\S]*?overflow: hidden[\s\S]*?border-radius: 14px/);

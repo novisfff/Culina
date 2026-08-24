@@ -4018,7 +4018,7 @@
 
 @media (min-width: 768px) and (max-width: 1280px) {
   .dashboard-food-card {
-    grid-template-columns: minmax(116px, 0.8fr) minmax(160px, 1fr);
+    grid-template-columns: minmax(96px, 0.65fr) minmax(0, 1fr);
   }
 
   .home-compact-week-empty {
@@ -4112,7 +4112,7 @@
   }
 
   .dashboard-food-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(260px, 1fr));
   }
 
   .dashboard-food-card {
@@ -4182,7 +4182,33 @@
 
 @media (min-width: 1024px) and (max-width: 1159px) {
   .dashboard-food-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-food-card {
+    grid-template-columns: clamp(84px, 8.5vw, 104px) minmax(0, 1fr);
+  }
+
+  .dashboard-food-cover {
+    min-height: 128px;
+  }
+
+  .dashboard-food-body {
+    gap: var(--space-1);
+    padding: var(--space-3);
+  }
+
+  .dashboard-food-body h3 {
+    font-size: var(--text-sm);
+  }
+
+  .dashboard-food-actions {
+    gap: var(--space-1);
+  }
+
+  .dashboard-food-actions .solid-button {
+    padding-inline: var(--space-2);
+    font-size: var(--text-xs);
   }
 }
 
