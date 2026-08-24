@@ -3,6 +3,7 @@ from ._support import *
 from app.ai.errors import AIExecutionCancelled
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.registry import ToolRegistry
+from app.ai.tools.schemas import INTENT_CLARITY_MODEL_DESCRIPTION
 from app.services.search.documents import (
     build_food_search_document,
     build_ingredient_search_document,
@@ -14,6 +15,25 @@ from app.services.search.indexing import upsert_search_document
 
 
 class AIToolRegistryTestCase(AIAgentInfraTestCase):
+        def test_selected_draft_tools_expose_bounded_optional_intent_evidence(self) -> None:
+            registry = build_workspace_tool_registry()
+            for tool_name in (
+                "food_profile.create_draft",
+                "meal_log.create_draft",
+                "meal_plan.create_draft",
+                "shopping.create_draft",
+            ):
+                with self.subTest(tool_name=tool_name):
+                    evidence_schema = registry.get(tool_name).input_schema["properties"]["draft"]["properties"][
+                        "intentEvidence"
+                    ]
+                    self.assertEqual(evidence_schema["description"], INTENT_CLARITY_MODEL_DESCRIPTION)
+                    self.assertEqual(evidence_schema["properties"]["sourceQuotes"]["maxItems"], 12)
+                    self.assertEqual(
+                        evidence_schema["properties"]["sourceQuotes"]["items"]["properties"]["fields"]["maxItems"],
+                        24,
+                    )
+
         def test_batch_resolution_keeps_semantic_matches_as_candidates(self) -> None:
             with self.SessionLocal() as db:
                 egg = self._add_egg_ingredient(db)

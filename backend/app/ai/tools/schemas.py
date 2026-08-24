@@ -11,6 +11,83 @@ OPERATION_ACTION_VALUES = ["create", "update", "delete"]
 MEAL_PLAN_OPERATION_ACTION_VALUES = ["create", "update", "set_status", "delete"]
 SHOPPING_OPERATION_ACTION_VALUES = ["create", "update", "set_done", "delete"]
 
+INTENT_CLARITY_MODEL_DESCRIPTION = """
+只选择一个档位，不生成置信度：
+- explicit_complete：当前用户明确要求该操作，并直接给出唯一目标和全部关键值。
+- explicit_context_resolved：当前用户明确要求该操作；只有唯一目标/指代来自当前 UI、本轮 Tool 结果或可信 Artifact，且没有关键默认值。
+- explicit_incomplete：用户要求了操作，但关键值或目标缺失、歧义、冲突或依赖默认值。
+- inferred：用户没有直接要求写入；事实陈述、称赞或可能的未来打算都不是操作指令。
+不得因为 Draft 看起来合理而升级档位。没有证据时省略 intentEvidence，服务端会要求人工确认。
+""".strip()
+
+INTENT_EVIDENCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "description": INTENT_CLARITY_MODEL_DESCRIPTION,
+    "required": ["intentClarity", "sourceQuotes", "resolutionSources", "ambiguityCodes", "defaultedFields"],
+    "properties": {
+        "intentClarity": {
+            "type": "string",
+            "description": INTENT_CLARITY_MODEL_DESCRIPTION,
+            "enum": ["explicit_complete", "explicit_context_resolved", "explicit_incomplete", "inferred"],
+        },
+        "sourceQuotes": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["fields", "text"],
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 24,
+                        "description": "使用零基具体 payload 路径；[] 通配符不能证明全部数组项。",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 80},
+                    },
+                    "text": {"type": "string", "minLength": 1, "maxLength": 240},
+                },
+            },
+        },
+        "resolutionSources": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["fields", "kind", "referenceId", "entityId"],
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 24,
+                        "description": "使用由该可信实体解析出的零基具体 payload 路径。",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 80},
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["current_ui_context", "tool_result", "conversation_artifact"],
+                    },
+                    "referenceId": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "entityId": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "rowVersion": {"type": ["integer", "string", "null"]},
+                },
+            },
+        },
+        "ambiguityCodes": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {"type": "string", "minLength": 1, "maxLength": 80},
+        },
+        "defaultedFields": {
+            "type": "array",
+            "maxItems": 24,
+            "items": {"type": "string", "minLength": 1, "maxLength": 80},
+        },
+    },
+}
+
 LIMIT_INPUT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -1185,3 +1262,11 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
         },
     },
 }
+
+for _intent_evidence_draft_schema in (
+    FOOD_PROFILE_DRAFT_SCHEMA,
+    MEAL_LOG_DRAFT_SCHEMA,
+    MEAL_PLAN_DRAFT_SCHEMA,
+    SHOPPING_LIST_DRAFT_SCHEMA,
+):
+    _intent_evidence_draft_schema["properties"]["intentEvidence"] = INTENT_EVIDENCE_SCHEMA

@@ -21,9 +21,15 @@ from app.ai.draft_contracts import (
     select_recipe_cook_generation_version,
 )
 from app.ai.tools.base import ToolContext
+from app.ai.tools.catalog.food import food_profile_create_draft
+from app.ai.tools.catalog.meal_log import meal_log_create_draft
+from app.ai.tools.catalog.meal_plan import meal_plan_create_draft
+from app.ai.tools.catalog.shopping import shopping_list_create_draft
 from app.ai.tools.catalog.recipe import recipe_create_cook_draft
 from app.ai.errors import AIConflictError
+from app.ai.errors import ApprovalRequired
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft
+from app.ai.workflows.orchestrator.draft_capture import capture_draft_output
 from app.core.enums import Difficulty, FoodType, MealType
 from app.models.domain import (
     AIOperation,
@@ -45,6 +51,180 @@ from app.services.ai_operations.drafts import normalize_ai_draft_payload
 
 
 class AIDraftContractsTestCase(AIAgentInfraTestCase):
+    def _assert_intent_evidence_survives_selected_tool_capture(
+        self,
+        *,
+        tool_name: str,
+        handler,
+        draft_payload: dict,
+        suffix: str,
+    ) -> None:
+        evidence = {
+            "intentClarity": "explicit_incomplete",
+            "sourceQuotes": [{"fields": ["action"], "text": "请生成这份草稿"}],
+            "resolutionSources": [],
+            "ambiguityCodes": ["critical_value_missing"],
+            "defaultedFields": [],
+        }
+        raw_draft = {**draft_payload, "intentEvidence": evidence}
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id=f"conversation-evidence-{suffix}",
+                family_id=self.family.id,
+                owner_user_id=self.user.id,
+                visibility=AIConversationVisibility.PRIVATE,
+                mode=AiMode.RECOMMENDATION,
+                prompt="请生成这份草稿",
+                response="",
+                context={"workspace": True},
+                title="证据测试",
+                summary="",
+                status="active",
+                created_by=self.user.id,
+            )
+            message = AIMessage(
+                id=f"message-evidence-{suffix}",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                role="assistant",
+                content="",
+                content_type="parts",
+                parts=[],
+                status="running",
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, message])
+            db.flush()
+            context = ToolContext(
+                db=db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id=conversation.id,
+                run_id=f"run-evidence-{suffix}",
+            )
+            output = handler(context, {"draft": raw_draft})
+            self.assertNotIn("intentEvidence", output["draft"])
+
+            class InjectionManager:
+                @staticmethod
+                def draft_type_from_tool_output(_tool_name, draft, _active_skill_keys):
+                    return str(draft["draftType"])
+
+            state = SimpleNamespace(
+                active_skill_keys=[],
+                draft_created_this_call=False,
+                draft_input_keys_this_call=set(),
+                published_drafts_by_key={},
+                draft_outputs=[],
+            )
+            service = AIApplicationService(db, provider=FakeChatProvider())
+
+            def publish(record):
+                draft, approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload=record,
+                )
+                return {"draft_id": draft.id, "approval_id": approval.id}
+
+            with self.assertRaises(ApprovalRequired):
+                capture_draft_output(
+                    state=state,
+                    injection_manager=InjectionManager(),
+                    tool_name=tool_name,
+                    tool_payload={"draft": raw_draft},
+                    output=output,
+                    continuation={},
+                    progressive_draft_publisher=publish,
+                    current_message="请生成这份草稿",
+                    family_id=self.family.id,
+                    trusted_resolution_sources={},
+                )
+
+            stored = db.get(AITaskDraft, state.draft_outputs[0]["draft_id"])
+            assert stored is not None
+            self.assertEqual(stored.intent_clarity, "explicit_incomplete")
+            self.assertEqual(stored.intent_evidence_json["normalized_evidence"], evidence)
+            self.assertEqual(stored.intent_evidence_json["verified_fields"], [])
+            self.assertEqual(stored.intent_evidence_json["verified_values"], {})
+            self.assertIn("ambiguity_present", stored.intent_evidence_json["reason_codes"])
+            self.assertNotIn("intentEvidence", stored.payload)
+
+    def test_food_draft_intent_evidence_is_separate_from_business_payload(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            base_updated_at = food.updated_at.isoformat()
+        self._assert_intent_evidence_survives_selected_tool_capture(
+            tool_name="food_profile.create_draft",
+            handler=food_profile_create_draft,
+            suffix="food",
+            draft_payload={
+                "draftType": "food_profile",
+                "schemaVersion": "food_profile_operation.v1",
+                "action": "set_favorite",
+                "targetId": "food-tomato",
+                "baseUpdatedAt": base_updated_at,
+                "payload": {"favorite": True},
+            },
+        )
+
+    def test_meal_log_draft_intent_evidence_is_separate_from_business_payload(self) -> None:
+        self._assert_intent_evidence_survives_selected_tool_capture(
+            tool_name="meal_log.create_draft",
+            handler=meal_log_create_draft,
+            suffix="meal-log",
+            draft_payload={
+                "draftType": "meal_log",
+                "schemaVersion": "meal_log.v1",
+                "date": date.today().isoformat(),
+                "mealType": "dinner",
+                "foods": [{"foodId": "food-tomato", "name": "任意", "servings": 1, "note": ""}],
+                "notes": "",
+            },
+        )
+
+    def test_meal_plan_draft_intent_evidence_is_separate_from_business_payload(self) -> None:
+        self._assert_intent_evidence_survives_selected_tool_capture(
+            tool_name="meal_plan.create_draft",
+            handler=meal_plan_create_draft,
+            suffix="meal-plan",
+            draft_payload={
+                "draftType": "meal_plan",
+                "schemaVersion": "meal_plan.v1",
+                "items": [
+                    {
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "title": "任意",
+                        "foodId": "food-tomato",
+                    }
+                ],
+            },
+        )
+
+    def test_shopping_draft_intent_evidence_is_separate_from_business_payload(self) -> None:
+        self._assert_intent_evidence_survives_selected_tool_capture(
+            tool_name="shopping.create_draft",
+            handler=shopping_list_create_draft,
+            suffix="shopping",
+            draft_payload={
+                "draftType": "shopping_list",
+                "schemaVersion": "shopping_list.v1",
+                "items": [
+                    {
+                        "title": "任意",
+                        "ingredient_id": "ingredient-tomato",
+                        "quantity": 1,
+                        "unit": "个",
+                    }
+                ],
+            },
+        )
+
     def test_accepts_and_generates_v2_only(self) -> None:
         self.assertEqual(
             accepted_recipe_cook_versions(),

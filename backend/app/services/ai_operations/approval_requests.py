@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -22,6 +24,8 @@ def create_ai_draft_approval(
     payload: dict[str, Any],
     preview_summary: str,
     ai_metadata: dict[str, Any] | None = None,
+    intent_clarity: str | None = None,
+    intent_evidence_json: dict[str, Any] | None = None,
 ) -> tuple[AITaskDraft, AIApprovalRequest]:
     config = draft_operation_registry.approval_config_for_payload(draft_type, payload)
     draft = AITaskDraft(
@@ -38,6 +42,9 @@ def create_ai_draft_approval(
         schema_version=schema_version or f"{draft_type}.v1",
         validation_errors=[],
         ai_metadata=ai_metadata or {},
+        intent_clarity=intent_clarity,
+        intent_evidence_json=intent_evidence_json,
+        payload_hash=_initial_draft_payload_hash(payload),
         idempotency_key=f"{run_id}:{draft_type}:{create_id('idem')}",
         created_by=user_id,
         updated_by=user_id,
@@ -73,6 +80,11 @@ def create_ai_draft_approval(
     db.add(approval)
     db.flush()
     return draft, approval
+
+
+def _initial_draft_payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def create_retry_ai_approval(

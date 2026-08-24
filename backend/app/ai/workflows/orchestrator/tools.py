@@ -31,6 +31,10 @@ from app.ai.workflows.runner_support.run_summary import (
     record_route_selection,
     record_tool_budget_exhausted,
 )
+from app.services.ai_auto_execution.intent_evidence import (
+    trusted_sources_from_current_ui_subject,
+    trusted_sources_from_tool_output,
+)
 
 
 _IDENTITY_REJECTION_CODES = {
@@ -58,6 +62,12 @@ class OrchestratorToolGateway:
         self.context = context
         self.injection_manager = injection_manager
         self.state = state
+        self.state.trusted_resolution_sources.update(
+            trusted_sources_from_current_ui_subject(
+                subject=context.subject if isinstance(context.subject, dict) else {},
+                family_id=context.family_id,
+            )
+        )
 
     def refresh_tools(self) -> list[ToolDefinition]:
         self.context.ensure_active()
@@ -275,6 +285,7 @@ class OrchestratorToolGateway:
             prepared_payload.payload,
             output,
             prepared_payload.continuation,
+            tool_call_id=tool_call_id,
             definition=runtime_definition,
         )
         return output
@@ -326,11 +337,20 @@ class OrchestratorToolGateway:
         output: dict[str, Any],
         continuation: dict[str, Any],
         *,
+        tool_call_id: str | None = None,
         definition: ToolDefinition | None = None,
     ) -> None:
         self._capture_tool_contract_metadata(name, side_effect, output, definition=definition)
         if side_effect == "read":
             self.state.read_outputs.setdefault(name, []).append(output)
+            self.state.trusted_resolution_sources.update(
+                trusted_sources_from_tool_output(
+                    tool_name=name,
+                    tool_call_id=tool_call_id,
+                    output=output,
+                    family_id=self.context.family_id,
+                )
+            )
         card = output.get("card") if isinstance(output.get("card"), dict) else None
         if card is not None:
             card_type = str(card.get("type") or "")
@@ -355,6 +375,9 @@ class OrchestratorToolGateway:
             output=output,
             continuation=continuation,
             progressive_draft_publisher=self.context.progressive_draft_publisher,
+            current_message=self.context.current_message,
+            family_id=self.context.family_id,
+            trusted_resolution_sources=self.state.trusted_resolution_sources,
         )
 
     def _capture_tool_contract_metadata(

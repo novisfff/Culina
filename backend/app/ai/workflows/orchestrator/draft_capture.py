@@ -10,6 +10,11 @@ from app.ai.workflows.orchestrator.skill_injection import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import normalize_continuation
 from app.ai.workflows.orchestrator.profiles import OrchestratorCapabilityPolicy
 from app.ai.workflows.orchestrator.state import OrchestratorRunState
+from app.services.ai_auto_execution.intent_evidence import (
+    intent_evidence_validation_record,
+    validate_intent_evidence,
+)
+from app.services.ai_auto_execution.policy_types import TrustedResolutionSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,9 +93,13 @@ def capture_draft_output(
     output: dict[str, Any],
     continuation: dict[str, Any],
     progressive_draft_publisher,
+    current_message: str = "",
+    family_id: str = "",
+    trusted_resolution_sources: dict[str, TrustedResolutionSource] | None = None,
 ) -> None:
     state.draft_created_this_call = True
     input_draft = tool_payload.get("draft") if isinstance(tool_payload.get("draft"), dict) else {}
+    raw_intent_evidence = input_draft.get("intentEvidence") if isinstance(input_draft.get("intentEvidence"), dict) else None
     draft = output.get("draft")
     if isinstance(draft, dict):
         draft_type = injection_manager.draft_type_from_tool_output(tool_name, draft, state.active_skill_keys)
@@ -111,6 +120,16 @@ def capture_draft_output(
             "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
             "tool": tool_name,
             "continuation": continuation,
+            "intent_evidence_input": raw_intent_evidence,
+            "intent_evidence_validation": intent_evidence_validation_record(
+                validate_intent_evidence(
+                    evidence=raw_intent_evidence,
+                    current_message=current_message,
+                    family_id=family_id,
+                    requirements=(),
+                    trusted_sources=trusted_resolution_sources or {},
+                )
+            ),
         }
         draft_key = (
             draft_type,

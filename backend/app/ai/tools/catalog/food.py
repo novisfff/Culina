@@ -161,8 +161,9 @@ def food_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, 
 
 
 def food_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    normalized = normalize_food_profile_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    raw_draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    business_draft = {key: value for key, value in raw_draft.items() if key != "intentEvidence"}
+    normalized = normalize_food_profile_draft_for_tools(context.db, family_id=context.family_id, payload=business_draft)
     food_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
     if isinstance(food_payload, dict):
         food_payload["media_ids"] = validate_current_attachment_ids(

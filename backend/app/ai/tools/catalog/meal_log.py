@@ -183,8 +183,14 @@ def meal_log_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[s
 
 
 def meal_log_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    normalized = normalize_meal_log_draft(context.db, family_id=context.family_id, user_id=context.user_id, payload=draft)
+    raw_draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    business_draft = {key: value for key, value in raw_draft.items() if key != "intentEvidence"}
+    normalized = normalize_meal_log_draft(
+        context.db,
+        family_id=context.family_id,
+        user_id=context.user_id,
+        payload=business_draft,
+    )
     meal_payload = (
         normalized.get("payload")
         if normalized.get("action") in {"create", "update_details"}

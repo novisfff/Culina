@@ -760,6 +760,11 @@ class AIApplicationService:
             "toolName": str(draft_payload.get("tool") or ""),
             **({"continuation": continuation} if continuation else {}),
         }
+        intent_validation = (
+            draft_payload.get("intent_evidence_validation")
+            if isinstance(draft_payload.get("intent_evidence_validation"), dict)
+            else None
+        )
         return create_ai_draft_approval(
             self.db,
             family_id=family_id,
@@ -772,6 +777,12 @@ class AIApplicationService:
             payload=payload,
             preview_summary=summary,
             ai_metadata=ai_metadata,
+            intent_clarity=(
+                str(intent_validation.get("clarity") or "inferred")
+                if intent_validation is not None
+                else None
+            ),
+            intent_evidence_json=intent_validation,
         )
 
     def _operation_current_value(self, *, family_id: str, draft_type: str, target_id: str) -> dict[str, Any] | None:
