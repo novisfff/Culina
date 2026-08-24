@@ -40,9 +40,18 @@ _READ_TOOL_NAMES = {
 }
 _RESOLUTION_TOOL_NAMES = {"ingredient.resolve_candidates", "purchasable.resolve_candidates"}
 _IDENTITY_ONLY_TOOL_NAMES = {"inventory.read_available_items", "inventory.read_low_stock_items"}
-_NEGATIVE_FAVORITE_PHRASES = ("取消收藏", "移出收藏", "不再收藏", "不要收藏")
+_NEGATIVE_FAVORITE_PATTERNS = (
+    r"(?:取消|不要|别|不再|不)\s*收藏",
+    r"移出收藏",
+    r"从.{0,8}收藏.{0,8}移出",
+)
 _MEAL_LOG_ACTION_PHRASES = ("记录这餐", "记录一下", "记下这餐", "记一笔", "新增餐食记录", "添加餐食记录")
 _MEAL_PLAN_ACTION_PHRASES = ("安排到计划", "加入计划", "加到计划", "添加到计划", "制定计划", "安排这餐")
+_NEGATION_PREFIX_PATTERN = re.compile(
+    r"(?:不要|别|无需|不用|取消|撤销|停止|放弃|不再|不想|不必|不应|不能|不可|不该)"
+    r"(?:再|要)?(?:给|把)?[^，,。；;]{0,24}$|不\s*$"
+)
+_CLAUSE_SPLIT_PATTERN = re.compile(r"(?:但是|不过|然后|但)|[，,。；;]")
 _UNIT_ALIASES = {
     "公斤": "kg",
     "千克": "kg",
@@ -132,9 +141,13 @@ def validate_intent_evidence(
                 continue
             canonical = _canonical_from_quote(
                 matcher_key=requirement.matcher_key,
+                field=requirement.field,
                 expected_value=requirement.expected_value,
                 quote=normalize_intent_text(quote.get("text")),
                 family_id=family_id,
+                requirements=requirements,
+                sources=sources,
+                source_trust=source_trust,
             )
             if canonical is _UNVERIFIABLE:
                 _append_reason(reason_codes, "source_value_unverifiable")
@@ -261,7 +274,11 @@ def trusted_sources_from_tool_output(
                 entity_id = str(candidate.get("id") or "").strip()
                 if entity_id:
                     versions[entity_id] = None
-                    values[entity_id] = {"entity_id": entity_id}
+                    candidate_name = normalize_intent_text(candidate.get("name"))
+                    values[entity_id] = {
+                        "entity_id": entity_id,
+                        **({"text": candidate_name} if candidate_name else {}),
+                    }
         return _trusted_tool_source(
             reference_id=str(tool_call_id),
             family_id=family_id,
@@ -323,13 +340,17 @@ def _canonical_from_resolution_source(
     trusted: TrustedResolutionSource,
 ) -> Any:
     entity_id = str(source.get("entityId") or "")
+    facts = trusted.entity_values.get(entity_id) or {}
     if matcher_key == "entity_id":
+        if trusted.kind == "conversation_artifact":
+            return facts.get(field, _UNVERIFIABLE)
         return entity_id
     if matcher_key == "explicit_action":
         return _UNVERIFIABLE
-    facts = trusted.entity_values.get(entity_id) or {}
     if field in facts:
         return facts[field]
+    if trusted.kind != "tool_result" or "." in field or "[" in field:
+        return _UNVERIFIABLE
     if matcher_key in facts:
         return facts[matcher_key]
     field_name = _field_leaf(field)
@@ -339,28 +360,33 @@ def _canonical_from_resolution_source(
 def _canonical_from_quote(
     *,
     matcher_key: str,
+    field: str,
     expected_value: Any,
     quote: str,
     family_id: str,
+    requirements: tuple[CriticalEvidenceRequirement, ...],
+    sources: list[dict[str, Any]],
+    source_trust: dict[int, TrustedResolutionSource | None],
 ) -> Any:
     if matcher_key == "explicit_action":
         return _explicit_action_value(quote, str(expected_value))
     if matcher_key == "entity_id":
         return _UNVERIFIABLE
     if matcher_key == "boolean_direction":
-        negative_phrases = (*_NEGATIVE_FAVORITE_PHRASES, "取消完成", "恢复未完成", "设为未完成", "关闭")
-        negative = any(phrase in quote for phrase in negative_phrases)
-        positive_text = quote
-        for phrase in negative_phrases:
-            positive_text = positive_text.replace(phrase, "")
-        positive = "收藏" in positive_text or any(
-            phrase in positive_text for phrase in ("设为完成", "标记完成", "开启")
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"收藏", r"设为完成", r"标记完成", r"开启"),
+            negative_patterns=(
+                *_NEGATIVE_FAVORITE_PATTERNS,
+                r"取消完成",
+                r"恢复未完成",
+                r"设为未完成",
+                r"关闭",
+            ),
         )
-        if negative and positive:
-            return _UNVERIFIABLE
-        if negative:
+        if polarity == "negative":
             return False
-        if positive:
+        if polarity == "positive":
             return True
         return _UNVERIFIABLE
     if matcher_key == "rating":
@@ -370,9 +396,27 @@ def _canonical_from_quote(
         }
         return next(iter(matches)) if len(matches) == 1 else _UNVERIFIABLE
     if matcher_key == "quantity":
+        if _concrete_item_scope(field) is not None:
+            return _canonical_from_bound_item_tuple(
+                field=field,
+                matcher_key=matcher_key,
+                quote=quote,
+                requirements=requirements,
+                sources=sources,
+                source_trust=source_trust,
+            )
         number = _quantity_value(quote)
         return number if number is not None else _UNVERIFIABLE
     if matcher_key == "unit":
+        if _concrete_item_scope(field) is not None:
+            return _canonical_from_bound_item_tuple(
+                field=field,
+                matcher_key=matcher_key,
+                quote=quote,
+                requirements=requirements,
+                sources=sources,
+                source_trust=source_trust,
+            )
         matches = {
             _UNIT_ALIASES.get(value.strip().lower(), value.strip().lower())
             for value in _UNIT_PATTERN.findall(quote)
@@ -389,44 +433,194 @@ def _canonical_from_quote(
         }
         return next(iter(matches)) if len(matches) == 1 else _UNVERIFIABLE
     if matcher_key == "text":
-        return quote
+        return _text_value(quote)
     return _UNVERIFIABLE
+
+
+def _canonical_from_bound_item_tuple(
+    *,
+    field: str,
+    matcher_key: str,
+    quote: str,
+    requirements: tuple[CriticalEvidenceRequirement, ...],
+    sources: list[dict[str, Any]],
+    source_trust: dict[int, TrustedResolutionSource | None],
+) -> Any:
+    scope = _concrete_item_scope(field)
+    identity_requirements = [
+        requirement
+        for requirement in requirements
+        if requirement.matcher_key == "entity_id" and _concrete_item_scope(requirement.field) == scope
+    ]
+    entity_ids = {str(requirement.expected_value) for requirement in identity_requirements}
+    if scope is None or len(identity_requirements) != 1 or len(entity_ids) != 1:
+        return _UNVERIFIABLE
+
+    identity_field = identity_requirements[0].field
+    entity_id = next(iter(entity_ids))
+    canonical_names: set[str] = set()
+    for source in sources:
+        if identity_field not in _claimed_fields(source) or str(source.get("entityId") or "") != entity_id:
+            continue
+        trusted = source_trust.get(id(source))
+        if trusted is None:
+            continue
+        name = normalize_intent_text((trusted.entity_values.get(entity_id) or {}).get("text"))
+        if name:
+            canonical_names.add(name)
+    if len(canonical_names) != 1:
+        return _UNVERIFIABLE
+
+    canonical_name = next(iter(canonical_names))
+    matching_entity_ids = {
+        candidate_id
+        for trusted in source_trust.values()
+        if trusted is not None
+        for candidate_id, facts in trusted.entity_values.items()
+        if normalize_intent_text(facts.get("text")) == canonical_name
+    }
+    if matching_entity_ids != {entity_id}:
+        return _UNVERIFIABLE
+
+    item_tuples = _item_tuples_for_name(quote, name=canonical_name)
+    if len(item_tuples) != 1:
+        return _UNVERIFIABLE
+    quantity, unit = item_tuples[0]
+    return quantity if matcher_key == "quantity" else unit
+
+
+def _concrete_item_scope(field: str) -> str | None:
+    match = re.search(r"^(.*?\[\d+\])(?:\.|$)", field)
+    return match.group(1) if match is not None else None
+
+
+def _item_tuples_for_name(quote: str, *, name: str) -> list[tuple[Decimal, str]]:
+    number_pattern = r"[0-9]+(?:\.\d+)?|[零〇一二两三四五六七八九十半]+"
+    unit_pattern = _UNIT_PATTERN.pattern[1:-1]
+    escaped_name = re.escape(name)
+    trailing_boundary = r"(?=$|[\s和与及、,，。；;])"
+    patterns = (
+        re.compile(
+            rf"(?P<number>{number_pattern})\s*(?P<unit>{unit_pattern})\s*"
+            rf"{escaped_name}{trailing_boundary}",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            rf"(?:^|[\s和与及、,，。；;]|买|购买|添加|加入)\s*{escaped_name}\s*"
+            rf"(?P<number>{number_pattern})\s*(?P<unit>{unit_pattern}){trailing_boundary}",
+            re.IGNORECASE,
+        ),
+    )
+    matches: dict[tuple[int, int], tuple[Decimal, str]] = {}
+    for pattern in patterns:
+        for match in pattern.finditer(quote):
+            unit = match.group("unit").strip().lower()
+            matches[match.span()] = (
+                _number_value(match.group("number")),
+                _UNIT_ALIASES.get(unit, unit),
+            )
+    return list(matches.values())
 
 
 def _explicit_action_value(quote: str, expected: str) -> Any:
     if expected.startswith("set_favorite:"):
-        negative = any(phrase in quote for phrase in _NEGATIVE_FAVORITE_PHRASES)
-        positive_text = quote
-        for phrase in _NEGATIVE_FAVORITE_PHRASES:
-            positive_text = positive_text.replace(phrase, "")
-        positive = "收藏" in positive_text
-        if negative and positive:
-            return _UNVERIFIABLE
-        if negative:
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"收藏",),
+            negative_patterns=_NEGATIVE_FAVORITE_PATTERNS,
+        )
+        if polarity == "negative":
             return "set_favorite:false"
-        if positive:
+        if polarity == "positive":
             return "set_favorite:true"
         return _UNVERIFIABLE
     if expected == "meal_log.simple_create":
-        explicit = any(phrase in quote for phrase in _MEAL_LOG_ACTION_PHRASES) or bool(
-            re.search(r"^(?:请|帮我|给我)?\s*(?:记录|记下|记一笔|记一下)", quote)
-            or re.search(r"把.{1,24}(?:记录下来|记下来|记下)", quote)
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(
+                *(re.escape(phrase) for phrase in _MEAL_LOG_ACTION_PHRASES),
+                r"^(?:请|帮我|给我)?\s*(?:记录|记下|记一笔|记一下)",
+                r"把.{1,24}(?:记录下来|记下来|记下)",
+            ),
+            negative_patterns=(
+                r"(?:取消|撤销|删除)(?:餐食)?记录",
+                r"(?:不要|别|无需|不用|停止|放弃|不再)\s*(?:记录|记下|记一笔|记一下)",
+            ),
         )
-        return expected if explicit else _UNVERIFIABLE
+        return expected if polarity == "positive" else _UNVERIFIABLE
     if expected == "meal_plan.simple_create":
-        explicit = any(phrase in quote for phrase in _MEAL_PLAN_ACTION_PHRASES) or bool(
-            re.search(r"^(?:请|帮我|给我)?\s*(?:安排|制定)", quote)
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(
+                *(re.escape(phrase) for phrase in _MEAL_PLAN_ACTION_PHRASES),
+                r"^(?:请|帮我|给我)?\s*(?:安排|制定)",
+            ),
+            negative_patterns=(
+                r"(?:取消|撤销)(?:安排|计划)",
+                r"(?:不要|别|无需|不用|停止|放弃|不再)\s*(?:安排|制定|加入计划|添加到计划)",
+            ),
         )
-        return expected if explicit else _UNVERIFIABLE
+        return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"rate_food", "meal_log.rate_food"}:
-        return expected if re.search(r"(?:打|评分|评为).{0,12}[0-5](?:\.\d+)?\s*分", quote) else _UNVERIFIABLE
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"(?:打|评分|评为).{0,12}[0-5](?:\.\d+)?\s*分",),
+            negative_patterns=(r"(?:取消|撤销)(?:评分|打分)",),
+        )
+        return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"create", "shopping_list.create"}:
-        return expected if any(phrase in quote for phrase in ("买", "加入购物清单", "添加到购物清单")) else _UNVERIFIABLE
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"加入购物清单", r"添加到购物清单", r"购买", r"买"),
+            negative_patterns=(r"(?:取消|撤销)(?:购买|买|加入购物清单|添加到购物清单)",),
+        )
+        return expected if polarity == "positive" else _UNVERIFIABLE
     if expected == "update":
-        return expected if any(phrase in quote for phrase in ("修改", "改成", "调整")) else _UNVERIFIABLE
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"修改", r"改成", r"调整"),
+            negative_patterns=(r"(?:取消|撤销)(?:修改|调整)",),
+        )
+        return expected if polarity == "positive" else _UNVERIFIABLE
     if expected in {"set_done:false", "restore"}:
-        return expected if any(phrase in quote for phrase in ("恢复", "取消完成", "重新加入")) else _UNVERIFIABLE
+        polarity = _command_polarity(
+            quote,
+            positive_patterns=(r"恢复", r"取消完成", r"重新加入"),
+        )
+        return expected if polarity == "positive" else _UNVERIFIABLE
     return _UNVERIFIABLE
+
+
+def _command_polarity(
+    quote: str,
+    *,
+    positive_patterns: tuple[str, ...],
+    negative_patterns: tuple[str, ...] = (),
+) -> str | None:
+    polarities: set[str] = set()
+    for clause in (part.strip() for part in _CLAUSE_SPLIT_PATTERN.split(quote)):
+        if not clause:
+            continue
+        negative_spans = [
+            match.span()
+            for pattern in negative_patterns
+            for match in re.finditer(pattern, clause)
+        ]
+        if negative_spans:
+            polarities.add("negative")
+        for pattern in positive_patterns:
+            for match in re.finditer(pattern, clause):
+                if any(_spans_overlap(match.span(), negative_span) for negative_span in negative_spans):
+                    continue
+                prefix = clause[: match.start()]
+                polarities.add("negative" if _NEGATION_PREFIX_PATTERN.search(prefix) else "positive")
+    if len(polarities) != 1:
+        return None
+    return next(iter(polarities))
+
+
+def _spans_overlap(left: tuple[int, int], right: tuple[int, int]) -> bool:
+    return left[0] < right[1] and right[0] < left[1]
 
 
 def _date_value(quote: str, *, family_id: str) -> Any:
@@ -472,8 +666,56 @@ def _canonical_values_equal(matcher_key: str, actual: Any, expected: Any) -> boo
         expected_unit = _UNIT_ALIASES.get(str(expected).strip().lower(), str(expected).strip().lower())
         return actual_unit == expected_unit
     if matcher_key == "text":
-        return normalize_intent_text(expected) in normalize_intent_text(actual)
+        return normalize_intent_text(actual) == normalize_intent_text(expected)
     return actual == expected
+
+
+def _text_value(quote: str) -> Any:
+    normalized = normalize_intent_text(quote)
+    quoted_mentions = [
+        normalize_intent_text(value)
+        for value in re.findall(r"[「“\"]([^」”\"]+)[」”\"]", normalized)
+        if normalize_intent_text(value)
+    ]
+    if quoted_mentions:
+        return next(iter(quoted_mentions)) if len(quoted_mentions) == 1 else _UNVERIFIABLE
+
+    content = normalized
+    action_match = re.fullmatch(
+        r"(?:请|帮我|给我|麻烦)?\s*(?:买|购买|加入购物清单|添加到购物清单)\s*(.+)",
+        content,
+    )
+    field_match = re.fullmatch(
+        r"(?:请|帮我|给我|麻烦)?\s*(?:把)?(?:名称|标题|备注|原因)"
+        r"(?:修改为|改成|改为|调整为|设为|是|为)\s*(.+)",
+        content,
+    )
+    if action_match is not None:
+        content = action_match.group(1)
+    elif field_match is not None:
+        content = field_match.group(1)
+    elif re.search(r"(?:买|购买|加入购物清单|添加到购物清单|修改为|改成|调整为)", content):
+        return _UNVERIFIABLE
+
+    candidates = [
+        _strip_quantity_unit_prefix(part)
+        for part in re.split(r"(?:以及|还有|或者|和|与|或|、|，|,|；|;)", content)
+        if _strip_quantity_unit_prefix(part)
+    ]
+    return next(iter(candidates)) if len(candidates) == 1 else _UNVERIFIABLE
+
+
+def _strip_quantity_unit_prefix(value: str) -> str:
+    number_pattern = r"[0-9]+(?:\.\d+)?|[零〇一二两三四五六七八九十半]+"
+    unit_pattern = _UNIT_PATTERN.pattern[1:-1]
+    stripped = re.sub(
+        rf"^\s*(?:{number_pattern})\s*(?:{unit_pattern})\s*",
+        "",
+        normalize_intent_text(value),
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return stripped.strip(" \t\r\n。.!！?？")
 
 
 def _collect_tool_item_facts(
@@ -552,12 +794,20 @@ def _artifact_facts(artifact: dict[str, Any]) -> tuple[dict[str, int | str | Non
     versions: dict[str, int | str | None] = {}
     values: dict[str, dict[str, Any]] = {}
 
-    def add(entity_id: Any, record: dict[str, Any], *, path_prefix: str | None = None) -> None:
+    def add(
+        entity_id: Any,
+        record: dict[str, Any],
+        *,
+        path_prefix: str | None = None,
+        identity_path: str | None = None,
+    ) -> None:
         normalized_id = str(entity_id or "").strip()
         if not normalized_id:
             return
         versions[normalized_id] = artifact_version
         path_facts = _allowlisted_path_facts(record, path_prefix=path_prefix) if path_prefix else {}
+        if identity_path:
+            path_facts[identity_path] = normalized_id
         values[normalized_id] = {
             **values.get(normalized_id, {}),
             **_allowlisted_facts(record, entity_id=normalized_id),
@@ -568,33 +818,68 @@ def _artifact_facts(artifact: dict[str, Any]) -> tuple[dict[str, int | str | Non
         payload.get("targetId"),
         payload.get("payload") if isinstance(payload.get("payload"), dict) else payload,
         path_prefix="payload",
+        identity_path="targetId",
     )
     for index, item in enumerate(payload.get("foods") or []):
         if isinstance(item, dict):
-            add(item.get("foodId"), item, path_prefix=f"foods[{index}]")
+            add(
+                item.get("foodId"),
+                item,
+                path_prefix=f"foods[{index}]",
+                identity_path=f"foods[{index}].foodId",
+            )
     for index, item in enumerate(payload.get("items") or []):
         if isinstance(item, dict):
+            identity_key = next(
+                (
+                    key
+                    for key in ("foodId", "ingredient_id", "ingredientId")
+                    if item.get(key)
+                ),
+                None,
+            )
             add(
-                item.get("foodId") or item.get("ingredient_id") or item.get("ingredientId"),
+                item.get(identity_key) if identity_key else None,
                 item,
                 path_prefix=f"items[{index}]",
+                identity_path=f"items[{index}].{identity_key}" if identity_key else None,
             )
     nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     for index, item in enumerate(nested_payload.get("foodEntryRatings") or []):
         if isinstance(item, dict):
-            add(item.get("id"), item, path_prefix=f"payload.foodEntryRatings[{index}]")
+            add(
+                item.get("id"),
+                item,
+                path_prefix=f"payload.foodEntryRatings[{index}]",
+                identity_path=f"payload.foodEntryRatings[{index}].id",
+            )
     for index, operation in enumerate(payload.get("operations") or []):
         if not isinstance(operation, dict):
             continue
         operation_payload = operation.get("payload") if isinstance(operation.get("payload"), dict) else {}
+        operation_identity_key = next(
+            (
+                key
+                for key in ("food_id", "foodId", "ingredient_id", "ingredientId")
+                if operation_payload.get(key)
+            ),
+            None,
+        )
+        operation_target_id = operation.get("targetId")
         add(
-            operation.get("targetId")
-            or operation_payload.get("food_id")
-            or operation_payload.get("foodId")
-            or operation_payload.get("ingredient_id")
-            or operation_payload.get("ingredientId"),
+            operation_target_id
+            or (operation_payload.get(operation_identity_key) if operation_identity_key else None),
             operation_payload,
             path_prefix=f"operations[{index}].payload",
+            identity_path=(
+                f"operations[{index}].targetId"
+                if operation_target_id
+                else (
+                    f"operations[{index}].payload.{operation_identity_key}"
+                    if operation_identity_key
+                    else None
+                )
+            ),
         )
     return versions, values
 

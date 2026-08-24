@@ -242,7 +242,7 @@ def test_versioned_resolution_source_cannot_omit_the_server_version() -> None:
     ("message", "field", "expected_value", "matcher_key"),
     [
         ("给番茄炒蛋打 4 分", "payload.foodEntryRatings[0].rating", 5, "rating"),
-        ("买 1 盒牛奶", "items[0].quantity", 10, "quantity"),
+        ("买 1 盒牛奶", "quantity", 10, "quantity"),
         ("取消收藏这个", "payload.favorite", True, "boolean_direction"),
         ("2026-08-26 晚餐记录一下", "date", "2026-08-25", "date"),
         ("2026-08-26 晚餐记录一下", "mealType", "lunch", "meal_type"),
@@ -266,6 +266,100 @@ def test_quote_canonical_value_mismatch_never_verifies_payload(
     assert field not in validation.verified_fields
 
 
+@pytest.mark.parametrize(
+    ("message", "expected_action", "expected_reason"),
+    [
+        ("不收藏这个", "set_favorite:true", "source_value_mismatch"),
+        ("取消收藏这个", "set_favorite:true", "source_value_mismatch"),
+        ("不要给番茄炒蛋打 5 分", "meal_log.rate_food", "source_value_unverifiable"),
+        ("取消给番茄炒蛋打 5 分", "meal_log.rate_food", "source_value_unverifiable"),
+        ("别买牛奶", "shopping_list.create", "source_value_unverifiable"),
+        ("取消购买牛奶", "shopping_list.create", "source_value_unverifiable"),
+        ("不要记录这餐", "meal_log.simple_create", "source_value_unverifiable"),
+        ("取消记录这餐", "meal_log.simple_create", "source_value_unverifiable"),
+        ("别安排这餐", "meal_plan.simple_create", "source_value_unverifiable"),
+        ("取消安排这餐", "meal_plan.simple_create", "source_value_unverifiable"),
+    ],
+)
+def test_negated_or_cancelled_action_never_proves_a_positive_command(
+    message: str,
+    expected_action: str,
+    expected_reason: str,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", expected_action, "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert expected_reason in validation.reason_codes
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "不收藏这个",
+        "不要标记完成",
+        "别开启这个选项",
+        "这个不要收藏，那个收藏",
+    ],
+)
+def test_boolean_direction_rejects_negated_or_scope_ambiguous_positive_claims(message: str) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["payload.enabled"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("payload.enabled", True, "boolean_direction"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes
+    assert validation.verified_fields == frozenset()
+
+
+def test_favorite_cancellation_verifies_only_the_false_direction() -> None:
+    message = "取消收藏这个"
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", "set_favorite:false", "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_values == {"action": "set_favorite:false"}
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_action"),
+    [
+        ("收藏这个，但不要收藏另一个", "set_favorite:true"),
+        ("给番茄打 5 分，但不要给鸡蛋打 5 分", "meal_log.rate_food"),
+        ("买牛奶，但别买鸡蛋", "shopping_list.create"),
+        ("记录这餐，但不要记录那餐", "meal_log.simple_create"),
+        ("安排这餐，但别安排那餐", "meal_plan.simple_create"),
+    ],
+)
+def test_mixed_direction_action_quote_is_scope_ambiguous(
+    message: str,
+    expected_action: str,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["action"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("action", expected_action, "explicit_action"),),
+        trusted_sources={},
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset()
+
+
 def test_quantity_matcher_ignores_numbers_from_an_explicit_date() -> None:
     message = "2026-08-26 买 1 盒牛奶"
     validation = validate_intent_evidence(
@@ -275,22 +369,222 @@ def test_quantity_matcher_ignores_numbers_from_an_explicit_date() -> None:
                     "fields": ["items[0].date", "items[0].quantity", "items[0].unit"],
                     "text": message,
                 }
-            ]
+            ],
+            sources=[
+                {
+                    "fields": ["items[0].ingredient_id"],
+                    "kind": "tool_result",
+                    "referenceId": "call-milk",
+                    "entityId": "ingredient-milk",
+                    "rowVersion": 3,
+                }
+            ],
         ),
         current_message=message,
         family_id="family-ai",
         requirements=(
             CriticalEvidenceRequirement("items[0].date", "2026-08-26", "date"),
+            CriticalEvidenceRequirement("items[0].ingredient_id", "ingredient-milk", "entity_id"),
             CriticalEvidenceRequirement("items[0].quantity", 1, "quantity"),
             CriticalEvidenceRequirement("items[0].unit", "盒", "unit"),
         ),
-        trusted_sources={},
+        trusted_sources={
+            "call-milk": TrustedResolutionSource(
+                kind="tool_result",
+                reference_id="call-milk",
+                family_id="family-ai",
+                entity_versions={"ingredient-milk": 3},
+                entity_values={
+                    "ingredient-milk": {"entity_id": "ingredient-milk", "text": "牛奶"}
+                },
+            )
+        },
     )
 
     assert validation.reason_codes == ()
     assert validation.verified_fields == frozenset(
-        {"items[0].date", "items[0].quantity", "items[0].unit"}
+        {
+            "items[0].date",
+            "items[0].ingredient_id",
+            "items[0].quantity",
+            "items[0].unit",
+        }
     )
+
+
+def _shopping_item_sources(*, reversed_targets: bool) -> tuple[list[dict], dict[str, TrustedResolutionSource]]:
+    item_entities = (
+        ("ingredient-egg", "ingredient-milk")
+        if reversed_targets
+        else ("ingredient-milk", "ingredient-egg")
+    )
+    sources = [
+        {
+            "fields": [f"items[{index}].ingredient_id"],
+            "kind": "tool_result",
+            "referenceId": "call-shopping-items",
+            "entityId": entity_id,
+            "rowVersion": 3,
+        }
+        for index, entity_id in enumerate(item_entities)
+    ]
+    trusted = {
+        "call-shopping-items": TrustedResolutionSource(
+            kind="tool_result",
+            reference_id="call-shopping-items",
+            family_id="family-ai",
+            entity_versions={"ingredient-milk": 3, "ingredient-egg": 3},
+            entity_values={
+                "ingredient-milk": {"entity_id": "ingredient-milk", "text": "牛奶"},
+                "ingredient-egg": {"entity_id": "ingredient-egg", "text": "鸡蛋"},
+            },
+        )
+    }
+    return sources, trusted
+
+
+def test_multi_item_quotes_bind_each_quantity_and_unit_to_its_server_resolved_entity() -> None:
+    message = "买 1 盒牛奶和 2 盒鸡蛋"
+    sources, trusted = _shopping_item_sources(reversed_targets=False)
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[
+                {"fields": ["items[0].quantity", "items[0].unit"], "text": "1 盒牛奶"},
+                {"fields": ["items[1].quantity", "items[1].unit"], "text": "2 盒鸡蛋"},
+            ],
+            sources=sources,
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("items[0].ingredient_id", "ingredient-milk", "entity_id"),
+            CriticalEvidenceRequirement("items[0].quantity", 1, "quantity"),
+            CriticalEvidenceRequirement("items[0].unit", "盒", "unit"),
+            CriticalEvidenceRequirement("items[1].ingredient_id", "ingredient-egg", "entity_id"),
+            CriticalEvidenceRequirement("items[1].quantity", 2, "quantity"),
+            CriticalEvidenceRequirement("items[1].unit", "盒", "unit"),
+        ),
+        trusted_sources=trusted,
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_fields == frozenset(
+        {
+            "items[0].ingredient_id",
+            "items[0].quantity",
+            "items[0].unit",
+            "items[1].ingredient_id",
+            "items[1].quantity",
+            "items[1].unit",
+        }
+    )
+
+
+def test_multi_item_quotes_cannot_rebind_quantities_to_different_resolved_entities() -> None:
+    message = "买 1 盒牛奶和 2 盒鸡蛋"
+    sources, trusted = _shopping_item_sources(reversed_targets=True)
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[
+                {"fields": ["items[0].quantity", "items[0].unit"], "text": "1 盒牛奶"},
+                {"fields": ["items[1].quantity", "items[1].unit"], "text": "2 盒鸡蛋"},
+            ],
+            sources=sources,
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("items[0].ingredient_id", "ingredient-egg", "entity_id"),
+            CriticalEvidenceRequirement("items[0].quantity", 1, "quantity"),
+            CriticalEvidenceRequirement("items[0].unit", "盒", "unit"),
+            CriticalEvidenceRequirement("items[1].ingredient_id", "ingredient-milk", "entity_id"),
+            CriticalEvidenceRequirement("items[1].quantity", 2, "quantity"),
+            CriticalEvidenceRequirement("items[1].unit", "盒", "unit"),
+        ),
+        trusted_sources=trusted,
+    )
+
+    assert "source_value_unverifiable" in validation.reason_codes
+    assert validation.verified_fields == frozenset(
+        {"items[0].ingredient_id", "items[1].ingredient_id"}
+    )
+
+
+def test_multi_item_short_value_quotes_cannot_bypass_entity_tuple_binding() -> None:
+    message = "买 1 盒牛奶和 2 盒鸡蛋"
+    sources, trusted = _shopping_item_sources(reversed_targets=True)
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[
+                {"fields": ["items[0].quantity", "items[0].unit"], "text": "1 盒"},
+                {"fields": ["items[1].quantity", "items[1].unit"], "text": "2 盒"},
+            ],
+            sources=sources,
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("items[0].ingredient_id", "ingredient-egg", "entity_id"),
+            CriticalEvidenceRequirement("items[0].quantity", 1, "quantity"),
+            CriticalEvidenceRequirement("items[0].unit", "盒", "unit"),
+            CriticalEvidenceRequirement("items[1].ingredient_id", "ingredient-milk", "entity_id"),
+            CriticalEvidenceRequirement("items[1].quantity", 2, "quantity"),
+            CriticalEvidenceRequirement("items[1].unit", "盒", "unit"),
+        ),
+        trusted_sources=trusted,
+    )
+
+    assert "source_value_unverifiable" in validation.reason_codes
+    assert validation.verified_fields == frozenset(
+        {"items[0].ingredient_id", "items[1].ingredient_id"}
+    )
+
+
+def test_item_tuple_rejects_a_name_shared_by_multiple_trusted_entity_candidates() -> None:
+    message = "买 1 盒牛奶"
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            quotes=[
+                {"fields": ["items[0].quantity", "items[0].unit"], "text": message},
+            ],
+            sources=[
+                {
+                    "fields": ["items[0].ingredient_id"],
+                    "kind": "tool_result",
+                    "referenceId": "call-ambiguous-milk",
+                    "entityId": "ingredient-milk-a",
+                }
+            ],
+        ),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("items[0].ingredient_id", "ingredient-milk-a", "entity_id"),
+            CriticalEvidenceRequirement("items[0].quantity", 1, "quantity"),
+            CriticalEvidenceRequirement("items[0].unit", "盒", "unit"),
+        ),
+        trusted_sources={
+            "call-ambiguous-milk": TrustedResolutionSource(
+                kind="tool_result",
+                reference_id="call-ambiguous-milk",
+                family_id="family-ai",
+                entity_versions={"ingredient-milk-a": None, "ingredient-milk-b": None},
+                entity_values={
+                    "ingredient-milk-a": {
+                        "entity_id": "ingredient-milk-a",
+                        "text": "牛奶",
+                    },
+                    "ingredient-milk-b": {
+                        "entity_id": "ingredient-milk-b",
+                        "text": "牛奶",
+                    },
+                },
+            )
+        },
+    )
+
+    assert "source_value_unverifiable" in validation.reason_codes
+    assert validation.verified_fields == frozenset({"items[0].ingredient_id"})
 
 
 def test_server_matcher_does_not_accept_one_value_from_an_ambiguous_meal_type_quote() -> None:
@@ -334,7 +628,10 @@ def test_artifact_allowlisted_quantity_and_unit_must_match_the_draft() -> None:
                 family_id="family-ai",
                 entity_versions={"ingredient-tomato": 2},
                 entity_values={
-                    "ingredient-tomato": {"quantity": 1, "unit": "盒"},
+                    "ingredient-tomato": {
+                        "items[0].quantity": 1,
+                        "items[0].unit": "盒",
+                    },
                 },
             )
         },
@@ -547,7 +844,7 @@ def test_purchasable_resolution_candidate_becomes_allowlisted_trusted_identity()
 
     assert sources["call-purchasable-1"].entity_versions == {"ingredient-tomato": None}
     assert sources["call-purchasable-1"].entity_values == {
-        "ingredient-tomato": {"entity_id": "ingredient-tomato"}
+        "ingredient-tomato": {"entity_id": "ingredient-tomato", "text": "番茄"}
     }
 
 
@@ -605,6 +902,7 @@ def test_successful_artifact_read_copies_only_allowlisted_canonical_facts() -> N
         "items[0].quantity": 2,
         "items[0].unit": "个",
         "items[0].title": "番茄",
+        "items[0].ingredient_id": "ingredient-tomato",
     }
     assert sources["call-artifact-1"].entity_values == source.entity_values
 
@@ -658,18 +956,128 @@ def test_artifact_facts_keep_concrete_array_paths_for_repeated_entities() -> Non
     assert validation.verified_fields == frozenset({"items[0].quantity", "items[1].quantity"})
 
 
+def test_artifact_generic_fact_cannot_prove_a_different_concrete_array_path() -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            clarity="explicit_context_resolved",
+            sources=[
+                {
+                    "fields": ["items[1].quantity"],
+                    "kind": "conversation_artifact",
+                    "referenceId": "ai-draft-one-item",
+                    "entityId": "ingredient-tomato",
+                    "rowVersion": 2,
+                }
+            ],
+        ),
+        current_message="按之前的清单加入第二项",
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("items[1].quantity", 1, "quantity"),),
+        trusted_sources={
+            "ai-draft-one-item": TrustedResolutionSource(
+                kind="conversation_artifact",
+                reference_id="ai-draft-one-item",
+                family_id="family-ai",
+                entity_versions={"ingredient-tomato": 2},
+                entity_values={
+                    "ingredient-tomato": {
+                        "quantity": 1,
+                        "items[0].quantity": 1,
+                    }
+                },
+            )
+        },
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset()
+
+
+def test_artifact_entity_identity_cannot_move_to_a_different_concrete_array_path() -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            clarity="explicit_context_resolved",
+            sources=[
+                {
+                    "fields": ["items[1].ingredient_id"],
+                    "kind": "conversation_artifact",
+                    "referenceId": "ai-draft-one-identity",
+                    "entityId": "ingredient-tomato",
+                    "rowVersion": 2,
+                }
+            ],
+        ),
+        current_message="按之前的清单加入第二项",
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement(
+                "items[1].ingredient_id",
+                "ingredient-tomato",
+                "entity_id",
+            ),
+        ),
+        trusted_sources={
+            "ai-draft-one-identity": TrustedResolutionSource(
+                kind="conversation_artifact",
+                reference_id="ai-draft-one-identity",
+                family_id="family-ai",
+                entity_versions={"ingredient-tomato": 2},
+                entity_values={
+                    "ingredient-tomato": {
+                        "entity_id": "ingredient-tomato",
+                        "items[0].ingredient_id": "ingredient-tomato",
+                    }
+                },
+            )
+        },
+    )
+
+    assert validation.reason_codes == ("source_value_unverifiable",)
+    assert validation.verified_fields == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_text", "expected_reason"),
+    [
+        ("买牛奶", "牛", "source_value_mismatch"),
+        ("买牛奶", "牛奶", None),
+        ("买牛奶和鸡蛋", "牛奶", "source_value_unverifiable"),
+        ("买牛奶和牛奶", "牛奶", "source_value_unverifiable"),
+    ],
+)
+def test_text_matcher_requires_one_complete_canonical_mention(
+    message: str,
+    expected_text: str,
+    expected_reason: str | None,
+) -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(quotes=[{"fields": ["items[0].title"], "text": message}]),
+        current_message=message,
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("items[0].title", expected_text, "text"),),
+        trusted_sources={},
+    )
+
+    if expected_reason is None:
+        assert validation.reason_codes == ()
+        assert validation.verified_values == {"items[0].title": expected_text}
+    else:
+        assert expected_reason in validation.reason_codes
+        assert validation.verified_fields == frozenset()
+
+
 def test_persisted_validation_record_is_json_safe_for_decimal_expected_values() -> None:
     validation = validate_intent_evidence(
-        evidence=_evidence(quotes=[{"fields": ["items[0].quantity"], "text": "买 1.5 盒"}]),
+        evidence=_evidence(quotes=[{"fields": ["quantity"], "text": "买 1.5 盒"}]),
         current_message="买 1.5 盒",
         family_id="family-ai",
-        requirements=(CriticalEvidenceRequirement("items[0].quantity", Decimal("1.5"), "quantity"),),
+        requirements=(CriticalEvidenceRequirement("quantity", Decimal("1.5"), "quantity"),),
         trusted_sources={},
     )
 
     record = intent_evidence_validation_record(validation)
     assert json.loads(json.dumps(record, ensure_ascii=False))["verified_values"] == {
-        "items[0].quantity": "1.5"
+        "quantity": "1.5"
     }
 
 
