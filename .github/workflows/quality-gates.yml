@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-service:
     name: Backend Service Tests
@@ -16,10 +20,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend service tests
         run: npm run backend:test:service
@@ -33,10 +40,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend AI tests
         run: npm run backend:test:ai
@@ -50,10 +60,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run deterministic AI skill evaluations
         env:
@@ -77,18 +90,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend search tests
         run: npm run backend:test:search
 
-  backend-model-usage:
-    name: Backend Model Usage Tests
+  backend-mysql-suite:
+    name: Backend MySQL (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: family-model-settings
+            command: npm run backend:test:family-model-settings -- --durations=20
+          - suite: model-usage-core
+            command: npm run backend:test:model-usage -- --ignore=tests/model_usage/test_reporting_queries_mysql.py --durations=20
+          - suite: model-usage-reporting
+            command: cd backend && .venv/bin/python -m pytest tests/model_usage/test_reporting_queries_mysql.py -q --durations=20
     services:
       mysql:
         image: mysql:8.4
@@ -110,15 +136,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-      - name: Run complete family model settings suite with MySQL 8.4
-        run: npm run backend:test:family-model-settings
-      - name: Run focused model-usage tests with MySQL 8.4
-        run: npm run backend:test:model-usage
+      - name: Run ${{ matrix.suite }} with MySQL 8.4
+        run: ${{ matrix.command }}
+
+  backend-model-usage:
+    name: Backend Model Usage Tests
+    if: always()
+    needs: backend-mysql-suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every backend MySQL suite to pass
+        env:
+          SUITE_RESULT: ${{ needs.backend-mysql-suite.result }}
+        run: |
+          if [ "$SUITE_RESULT" != "success" ]; then
+            echo "Backend MySQL suites finished with: $SUITE_RESULT"
+            exit 1
+          fi
 
   backend-migration-smoke:
     name: Alembic Head and Migration Smoke
@@ -150,10 +193,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend dependencies
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Verify one head and upgrade disposable MySQL twice
         run: npm run backend:migrate:smoke
@@ -172,18 +218,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
       - name: Install pinned backend audit tool
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install pip-audit==2.9.0
       - name: Audit production dependency graphs
         run: npm run audit:prod
 
-  frontend-vitest:
-    name: Frontend Vitest
+  frontend-vitest-shard:
+    name: Frontend Vitest Shard ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -193,8 +244,24 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
-      - name: Run frontend tests
-        run: npm run frontend:test
+      - name: Run frontend test shard ${{ matrix.shard }}/2
+        run: npm run frontend:test -- --shard=${{ matrix.shard }}/2
+
+  frontend-vitest:
+    name: Frontend Vitest
+    if: always()
+    needs: frontend-vitest-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every frontend Vitest shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.frontend-vitest-shard.result }}
+        run: |
+          if [ "$SHARD_RESULT" != "success" ]; then
+            echo "Frontend Vitest shards finished with: $SHARD_RESULT"
+            exit 1
+          fi
 
   frontend-style-drift:
     name: Frontend Incremental Style Drift
@@ -240,7 +307,7 @@ jobs:
       - name: Install Chromium
         run: npx --prefix frontend playwright install --with-deps chromium
       - name: Build frontend
-        run: npm run frontend:build
+        run: npm --prefix frontend run build:e2e
       - name: Run blocking P0 browser tests
         run: npm run frontend:e2e:p0
       - name: Upload P0 browser evidence
@@ -272,11 +339,13 @@ jobs:
         run: npx --prefix frontend playwright install --with-deps chromium
       - name: Run media permission deployment smoke
         run: |
+          set -o pipefail
           mkdir -p .artifacts
           npm run deploy:smoke:media 2>&1 | tee .artifacts/media-permission-smoke.log
       - name: Run WebSocket deployment smoke
         if: ${{ always() && steps.browser_setup.outcome == 'success' }}
         run: |
+          set -o pipefail
           mkdir -p .artifacts
           npm run deploy:smoke:realtime 2>&1 | tee .artifacts/realtime-websocket-smoke.log
       - name: Upload deployment smoke evidence

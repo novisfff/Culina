@@ -8,6 +8,7 @@ import sys
 from dataclasses import replace
 
 from app.core.enums import ModelUsageCapability
+from app.services.model_usage import provider_registry
 from app.services.model_usage.provider_registry import (
     discover_remote_send_points,
     discover_sdk_retry_configuration_gaps,
@@ -119,3 +120,32 @@ def test_sdk_retry_inventory_requires_explicit_zero_retries(tmp_path: Path) -> N
     )
 
     assert discover_sdk_retry_configuration_gaps(app_root) == frozenset()
+
+
+def test_provider_source_analysis_is_shared_for_unchanged_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / "runtime.py").write_text(
+        "from openai import OpenAI\n\n"
+        "def send(client):\n"
+        "    client.post('https://provider.example')\n"
+        "    return OpenAI(max_retries=0)\n",
+        encoding="utf-8",
+    )
+    real_parse = provider_registry.ast.parse
+    parse_calls = 0
+
+    def counting_parse(*args, **kwargs):
+        nonlocal parse_calls
+        parse_calls += 1
+        return real_parse(*args, **kwargs)
+
+    monkeypatch.setattr(provider_registry.ast, "parse", counting_parse)
+    discover_remote_send_points(app_root)
+    discover_sdk_retry_configuration_gaps(app_root)
+    discover_remote_send_points(app_root)
+
+    assert parse_calls == 1

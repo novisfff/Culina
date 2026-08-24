@@ -4,8 +4,10 @@ import ast
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
+from typing import Iterator
 
 from app.core.enums import ModelUsageCapability, ModelUsageMeter
 from app.services.model_usage.configured_variants import (
@@ -45,6 +47,12 @@ class RemoteSendPointInventory:
     @property
     def all_points(self) -> frozenset[str]:
         return self.model_provider | self.non_model
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceFileAnalysis:
+    remote_send_points: frozenset[str]
+    sdk_retry_configuration_gaps: frozenset[str]
 
 
 class ProviderUsageRegistryError(ModelUsageContractError):
@@ -322,16 +330,11 @@ def discover_remote_send_points(app_root: Path) -> RemoteSendPointInventory:
     root = Path(app_root)
     if not root.is_dir() or root.name != "app":
         raise ProviderUsageRegistryError("model_usage_provider_inventory_root_invalid")
-    discovered: set[str] = set()
-    for source_file in sorted(root.rglob("*.py")):
-        try:
-            tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
-        except (OSError, SyntaxError) as exc:
-            raise ProviderUsageRegistryError("model_usage_provider_inventory_parse_failed") from exc
-        relative = source_file.relative_to(root.parent).as_posix()
-        visitor = _RemoteSendPointVisitor(source_path=relative)
-        visitor.visit(tree)
-        discovered.update(visitor.points)
+    discovered = {
+        point
+        for analysis in _iter_source_file_analyses(root)
+        for point in analysis.remote_send_points
+    }
     non_model = frozenset(discovered & set(_NON_MODEL_REMOTE_SEND_POINT_REASONS))
     return RemoteSendPointInventory(
         model_provider=frozenset(discovered - non_model),
@@ -350,19 +353,58 @@ def discover_sdk_retry_configuration_gaps(app_root: Path) -> frozenset[str]:
     root = Path(app_root)
     if not root.is_dir() or root.name != "app":
         raise ProviderUsageRegistryError("model_usage_provider_inventory_root_invalid")
-    gaps: set[str] = set()
+    return frozenset(
+        gap
+        for analysis in _iter_source_file_analyses(root)
+        for gap in analysis.sdk_retry_configuration_gaps
+    )
+
+
+def _iter_source_file_analyses(root: Path) -> Iterator[_SourceFileAnalysis]:
     for source_file in sorted(root.rglob("*.py")):
+        relative = source_file.relative_to(root.parent).as_posix()
         try:
-            tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
-        except (OSError, SyntaxError) as exc:
+            metadata = source_file.stat()
+            resolved_path = str(source_file.resolve())
+        except OSError as exc:
             raise ProviderUsageRegistryError(
                 "model_usage_provider_inventory_parse_failed"
             ) from exc
-        relative = source_file.relative_to(root.parent).as_posix()
-        visitor = _SdkRetryConfigurationVisitor(source_path=relative)
-        visitor.visit(tree)
-        gaps.update(visitor.gaps)
-    return frozenset(gaps)
+        yield _analyze_source_file(
+            resolved_path,
+            relative,
+            metadata.st_mtime_ns,
+            metadata.st_size,
+        )
+
+
+@lru_cache(maxsize=1024)
+def _analyze_source_file(
+    resolved_path: str,
+    relative_source_path: str,
+    modified_at_ns: int,
+    size: int,
+) -> _SourceFileAnalysis:
+    # File metadata participates in the cache key and invalidates rewritten files.
+    del modified_at_ns, size
+    try:
+        source = Path(resolved_path).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=resolved_path)
+    except (OSError, SyntaxError) as exc:
+        raise ProviderUsageRegistryError(
+            "model_usage_provider_inventory_parse_failed"
+        ) from exc
+
+    remote_send_visitor = _RemoteSendPointVisitor(source_path=relative_source_path)
+    remote_send_visitor.visit(tree)
+    retry_configuration_visitor = _SdkRetryConfigurationVisitor(
+        source_path=relative_source_path
+    )
+    retry_configuration_visitor.visit(tree)
+    return _SourceFileAnalysis(
+        remote_send_points=frozenset(remote_send_visitor.points),
+        sdk_retry_configuration_gaps=frozenset(retry_configuration_visitor.gaps),
+    )
 
 
 def _attribute_path(node: ast.AST) -> str:
