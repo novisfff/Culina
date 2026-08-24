@@ -25,11 +25,6 @@ from app.services.ai_audio.realtime import (
 )
 from app.services.ai_audio.service import AIAudioService
 
-pytestmark = pytest.mark.filterwarnings(
-    r"ignore:datetime.datetime.utcnow\(\) is deprecated:DeprecationWarning:jose.jwt"
-)
-
-
 class _Scope:
     async def finish_current_lease_once(self, **_kwargs):
         return SimpleNamespace(decision="ended", error_code=None)

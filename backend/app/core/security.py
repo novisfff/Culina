@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 
 import bcrypt
-from jose import jwt
+import jwt
 
 from app.core.config import get_settings
 from app.core.utils import utcnow

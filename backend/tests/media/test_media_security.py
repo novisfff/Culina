@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from fastapi import Header, HTTPException
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 import pytest
 from PIL import Image
 from sqlalchemy import create_engine
@@ -34,11 +34,6 @@ from app.services.family_model_settings.types import (
 )
 from app.services.media import build_media_variants, delete_media_file, read_media_asset_content
 from app.services.access_tickets import MEDIA_ACCESS_AUDIENCE
-
-pytestmark = pytest.mark.filterwarnings(
-    r"ignore:datetime.datetime.utcnow\(\) is deprecated:DeprecationWarning:jose.jwt"
-)
-
 
 def make_png_payload() -> bytes:
     output = BytesIO()
@@ -312,7 +307,7 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.access_ticket_settings_patcher = patch(
             "app.services.access_tickets.get_settings",
             return_value=SimpleNamespace(
-                jwt_secret="media-ticket-test-secret",
+                jwt_secret="media-ticket-test-secret-at-least-32-bytes",
                 media_access_url_ttl_seconds=300,
                 realtime_websocket_ticket_ttl_seconds=45,
             ),
@@ -759,7 +754,7 @@ class MediaSecurityTestCase(unittest.TestCase):
                 "iat": now - timedelta(minutes=2),
                 "exp": now - timedelta(seconds=1),
             },
-            "media-ticket-test-secret",
+            "media-ticket-test-secret-at-least-32-bytes",
             algorithm="HS256",
         )
 

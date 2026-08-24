@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "groups": {
+    "service": [
+      "account",
+      "activity",
+      "core",
+      "deployment",
+      "family",
+      "inventory",
+      "meal_logs",
+      "media",
+      "recipes",
+      "shopping"
+    ],
+    "ai": [
+      "ai_audio",
+      "ai_infra"
+    ],
+    "ai_evals": [
+      "ai_evals"
+    ],
+    "family_model_settings": [
+      "family_model_settings"
+    ],
+    "model_usage": [
+      "model_usage"
+    ],
+    "search": [
+      "search"
+    ]
+  }
+}

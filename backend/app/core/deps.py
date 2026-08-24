@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import jwt
+from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -24,7 +25,7 @@ def get_current_auth(
     settings = get_settings()
     try:
         payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=["HS256"])
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
     subject = payload.get("sub")
