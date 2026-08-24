@@ -417,13 +417,16 @@ describe('HomeDashboard three-question desktop', () => {
       /\.home-compact-meal-actions \{[^}]*grid-template-columns: 44px minmax\(0, 1fr\);/s,
     );
     expect(homeStyles).toMatch(
-      /@media \(min-width: 1181px\) \{[\s\S]*?\.home-compact-meal-item\.has-cover \{[^}]*overflow: hidden;[^}]*padding-left: 0;/,
+      /@media \(min-width: 1181px\) \{[\s\S]*?\.home-compact-meal-item\.has-cover \{[^}]*overflow: hidden;[^}]*gap: 4px;[^}]*padding-left: 0;[^}]*padding-right: 3px;/,
     );
     expect(homeStyles).toMatch(
       /\.home-compact-meal-item-media:not\(\.is-empty\) \.home-compact-meal-item-image \{[^}]*display: block;[^}]*object-fit: cover;/s,
     );
     expect(homeStyles).toMatch(
       /\.home-compact-meal-foods > \.home-compact-meal-item \{[^}]*flex: 1 1 0;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-foods > \.home-compact-meal-item \.home-compact-meal-item-label \{[^}]*flex: 1 1 0;/s,
     );
     expect(homeStyles).not.toContain('.home-compact-meal-item.is-condensed');
     expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');

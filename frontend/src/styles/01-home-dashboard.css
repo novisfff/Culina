@@ -2844,7 +2844,9 @@
 @media (min-width: 1181px) {
   .home-compact-meal-item.has-cover {
     overflow: hidden;
+    gap: 4px;
     padding-left: 0;
+    padding-right: 3px;
   }
 
   .home-compact-meal-item-media:not(.is-empty) {
@@ -2866,6 +2868,10 @@
   }
 
   .home-compact-meal-foods > .home-compact-meal-item {
+    flex: 1 1 0;
+  }
+
+  .home-compact-meal-foods > .home-compact-meal-item .home-compact-meal-item-label {
     flex: 1 1 0;
   }
 }
