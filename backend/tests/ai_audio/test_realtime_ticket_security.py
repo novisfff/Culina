@@ -113,7 +113,7 @@ def realtime_client(monkeypatch):
 
 def test_access_token_query_is_rejected_by_realtime_websocket(realtime_client: TestClient) -> None:
     realtime_voice_session_store.put(_state())
-    access_token = create_access_token("user-a")
+    access_token = create_access_token("user-a", session_id="session-a")
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
         with realtime_client.websocket_connect(

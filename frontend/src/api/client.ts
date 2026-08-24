@@ -12,7 +12,18 @@ import { modelUsageApi } from './modelUsageApi';
 import { recipesApi } from './recipesApi';
 import { searchApi } from './searchApi';
 
-export { API_BASE_URL, ApiError, getAccessToken, isApiError, setAccessToken } from './request';
+export {
+  API_BASE_URL,
+  ApiError,
+  authorizedFetch,
+  clearAuthenticatedSession,
+  getAccessToken,
+  isApiError,
+  refreshAuthSession,
+  setAccessToken,
+  setAuthenticatedSession,
+  subscribeAuthSession,
+} from './request';
 
 export const api = {
   ...authApi,

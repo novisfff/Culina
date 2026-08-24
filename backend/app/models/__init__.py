@@ -1,3 +1,4 @@
+from app.models.auth import AuthSession
 from app.models.domain import (
     ActivityLog,
     AIAgentRun,
@@ -63,6 +64,7 @@ from app.models.family_model_settings import (
 
 __all__ = [
     "ActivityLog",
+    "AuthSession",
     "AIAgentRun",
     "AIConversation",
     "AIRunLLMExchange",

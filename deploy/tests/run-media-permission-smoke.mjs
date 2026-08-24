@@ -65,7 +65,10 @@ async function login(credentials, label) {
     `${frontendOrigin}/api/auth/login`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        origin: frontendOrigin,
+      },
       body: JSON.stringify(credentials),
     },
     label,

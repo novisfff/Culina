@@ -491,6 +491,12 @@ const authResponse = {
   family,
 };
 
+const authSnapshot = {
+  user,
+  membership,
+  family,
+};
+
 function makeHighlight(id, kind, summary, createdAt) {
   return {
     id,
@@ -1502,7 +1508,7 @@ async function fulfillFamilyModelSettingsMock({
 const p0Fixtures = {
   '/api/activity-highlights': activityHighlightsFixture,
   '/api/activity-logs': [],
-  '/api/auth/me': authResponse,
+  '/api/auth/me': authSnapshot,
   '/api/family': family,
   '/api/food-plan': homePlanItems,
   '/api/food-scenes': [],
@@ -1533,6 +1539,8 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
   const familyModelScenario = options.familyModelScenario ?? 'configured';
   const requestedApiPaths = options.requestedApiPaths ?? null;
   const familyModelRequests = options.familyModelRequests ?? null;
+  let refreshSessionActive = options.authenticated ?? true;
+  let refreshGeneration = 1;
   let currentModelUsagePolicy = copyFixture(modelUsagePolicyFixture);
   let currentModelUsageAlerts = copyFixture(modelUsageAlertsFixture);
   let policyConflictIssued = false;
@@ -1544,6 +1552,10 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
       ...membership,
       role: 'Member',
     },
+  };
+  const memberSnapshot = {
+    ...authSnapshot,
+    membership: memberSession.membership,
   };
 
   await context.route('https://fonts.googleapis.com/**', async (route) => {
@@ -1574,12 +1586,40 @@ export async function installApiMocks(context, unexpectedRequests, options = {})
     }
 
     if (request.method() === 'POST' && url.pathname === '/api/auth/login') {
-      await fulfillJson(route, isMemberScenario ? memberSession : authResponse);
+      refreshSessionActive = true;
+      refreshGeneration += 1;
+      await fulfillJson(
+        route,
+        isMemberScenario ? memberSession : authResponse,
+        200,
+        refreshCookieHeaders(refreshGeneration),
+      );
+      return;
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/auth/refresh') {
+      const hasRefreshCookie = (request.headers().cookie ?? '').includes('culina-refresh=');
+      if (!refreshSessionActive || !hasRefreshCookie) {
+        await fulfillJson(
+          route,
+          { detail: { code: 'refresh_session_invalid', message: '登录已过期，请重新登录' } },
+          401,
+          clearRefreshCookieHeaders(),
+        );
+        return;
+      }
+      refreshGeneration += 1;
+      await fulfillJson(
+        route,
+        isMemberScenario ? memberSession : authResponse,
+        200,
+        refreshCookieHeaders(refreshGeneration),
+      );
       return;
     }
 
     if (request.method() === 'GET' && url.pathname === '/api/auth/me' && isMemberScenario) {
-      await fulfillJson(route, memberSession);
+      await fulfillJson(route, memberSnapshot);
       return;
     }
 
@@ -1786,11 +1826,23 @@ function corsHeaders() {
   };
 }
 
-async function fulfillJson(route, body, status = 200) {
+function refreshCookieHeaders(generation) {
+  return {
+    'Set-Cookie': `culina-refresh=smoke-refresh-${generation}; Path=/api/auth; HttpOnly; SameSite=Strict`,
+  };
+}
+
+function clearRefreshCookieHeaders() {
+  return {
+    'Set-Cookie': 'culina-refresh=; Max-Age=0; Path=/api/auth; HttpOnly; SameSite=Strict',
+  };
+}
+
+async function fulfillJson(route, body, status = 200, headers = {}) {
   await route.fulfill({
     status,
     contentType: 'application/json',
-    headers: corsHeaders(),
+    headers: { ...corsHeaders(), ...headers },
     body: JSON.stringify(body),
   });
 }
