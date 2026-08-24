@@ -8,6 +8,7 @@ from pydantic import SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
+LOCAL_DEVELOPMENT_JWT_SECRET = "culina-local-development-jwt-secret"
 
 
 class Settings(BaseSettings):
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     mysql_database: str = "culina"
     mysql_user: str = "culina"
     mysql_password: str = ""
-    jwt_secret: str = ""
+    jwt_secret: str = LOCAL_DEVELOPMENT_JWT_SECRET
     access_token_expire_minutes: int = 60 * 24 * 7
     media_max_upload_bytes: int = 30 * 1024 * 1024
     media_access_url_ttl_seconds: int = 300
@@ -181,7 +182,11 @@ class Settings(BaseSettings):
             missing.append("MYSQL_PASSWORD")
         if not self.jwt_secret:
             missing.append("JWT_SECRET")
-        if self.jwt_secret in {"change-me", "culina-local-dev-secret"}:
+        if self.jwt_secret in {
+            "change-me",
+            "culina-local-dev-secret",
+            LOCAL_DEVELOPMENT_JWT_SECRET,
+        }:
             missing.append("JWT_SECRET")
         if not self.minio_secret_key or self.minio_secret_key == "culina_local_minio_secret":
             missing.append("MINIO_SECRET_KEY")

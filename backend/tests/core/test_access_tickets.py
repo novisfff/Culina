@@ -5,15 +5,10 @@ from datetime import timedelta
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
+import jwt
 import pytest
-from jose import jwt
 
 from app.core.utils import utcnow
-
-pytestmark = pytest.mark.filterwarnings(
-    r"ignore:datetime.datetime.utcnow\(\) is deprecated:DeprecationWarning:jose.jwt"
-)
-
 
 def _ticket_module() -> ModuleType:
     try:
@@ -24,7 +19,7 @@ def _ticket_module() -> ModuleType:
 
 def _settings():
     return SimpleNamespace(
-        jwt_secret="ticket-test-secret",
+        jwt_secret="ticket-test-secret-with-at-least-32-bytes",
         media_access_url_ttl_seconds=300,
         realtime_websocket_ticket_ttl_seconds=45,
     )

@@ -13,4 +13,4 @@ def test_quality_gates_run_family_model_settings_mysql_release_suite() -> None:
 
     assert "backend-model-usage:" in workflow
     assert "CULINA_TEST_MYSQL_URL:" in workflow
-    assert ".venv/bin/python -m pytest tests/family_model_settings -q" in workflow
+    assert "npm run backend:test:family-model-settings" in workflow

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.config import Settings
+from app.core.config import LOCAL_DEVELOPMENT_JWT_SECRET, Settings
 
 
 def test_family_model_platform_limits_have_safe_defaults() -> None:
@@ -13,6 +13,13 @@ def test_family_model_platform_limits_have_safe_defaults() -> None:
     assert settings.family_model_realtime_session_max_seconds == 300
     assert settings.media_access_url_ttl_seconds == 300
     assert settings.realtime_websocket_ticket_ttl_seconds == 45
+
+
+def test_local_default_jwt_secret_is_non_empty_and_hs256_sized() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.jwt_secret == LOCAL_DEVELOPMENT_JWT_SECRET
+    assert len(settings.jwt_secret.encode("utf-8")) >= 32
 
 
 def test_security_ticket_ttls_reject_unsafe_ranges() -> None:

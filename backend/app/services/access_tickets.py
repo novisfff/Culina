@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import uuid4
 
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 
 from app.core.config import get_settings
 from app.core.utils import utcnow
@@ -70,13 +71,15 @@ def _decode(token: str, *, audience: str, ticket_type: str) -> dict:
             algorithms=[ALGORITHM],
             audience=audience,
             options={
-                "require_aud": True,
-                "require_exp": True,
-                "require_iat": True,
-                "require_sub": ticket_type == "realtime_websocket",
+                "require": [
+                    "aud",
+                    "exp",
+                    "iat",
+                    *(["sub"] if ticket_type == "realtime_websocket" else []),
+                ],
             },
         )
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         raise AccessTicketInvalid("Access ticket is invalid or expired") from exc
     if payload.get("typ") != ticket_type:
         raise AccessTicketInvalid("Access ticket type is invalid")

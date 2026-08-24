@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "allowedByRule": {
+    "radius-13px": {
+      "src/styles/04-ingredients-workspace.css": 2,
+      "src/styles/05-workspace-overlays.css": 1,
+      "src/styles/06-food-workspace.css": 1,
+      "src/styles/07-mobile.css": 6,
+      "src/styles/09-ai-workspace.css": 6,
+      "src/styles/11-inventory-maintenance.css": 2
+    },
+    "radius-17px": {
+      "src/styles/07-mobile.css": 3
+    },
+    "black-rgba": {
+      "src/styles/00-foundation.css": 1,
+      "src/styles/00-ui-kit.css": 1,
+      "src/styles/02-family-settings.css": 3,
+      "src/styles/04-ingredients-workspace.css": 4,
+      "src/styles/07-mobile.css": 10,
+      "src/styles/08-meal-log.css": 8,
+      "src/styles/09-ai-workspace.css": 2
+    }
+  }
+}

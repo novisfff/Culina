@@ -10,6 +10,7 @@ jobs:
   backend-service:
     name: Backend Service Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,13 +20,14 @@ jobs:
         run: |
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend service tests
         run: npm run backend:test:service
 
   backend-ai:
     name: Backend AI Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,13 +37,14 @@ jobs:
         run: |
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend AI tests
         run: npm run backend:test:ai
 
   ai-skill-evals:
     name: AI Skill Evaluation Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,7 +54,7 @@ jobs:
         run: |
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run deterministic AI skill evaluations
         env:
           CULINA_AI_EVAL_REPORT_PATH: .artifacts/ai-skill-eval-report.json
@@ -68,6 +71,7 @@ jobs:
   backend-search:
     name: Backend Search Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,13 +81,14 @@ jobs:
         run: |
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend search tests
         run: npm run backend:test:search
 
   backend-model-usage:
     name: Backend Model Usage Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8.4
@@ -109,15 +114,76 @@ jobs:
         run: |
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run complete family model settings suite with MySQL 8.4
-        run: cd backend && .venv/bin/python -m pytest tests/family_model_settings -q
+        run: npm run backend:test:family-model-settings
       - name: Run focused model-usage tests with MySQL 8.4
         run: npm run backend:test:model-usage
+
+  backend-migration-smoke:
+    name: Alembic Head and Migration Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: culina_migration_smoke
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      ENVIRONMENT: test
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: culina_migration_smoke
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+      - name: Verify one head and upgrade disposable MySQL twice
+        run: npm run backend:migrate:smoke
+
+  production-dependency-audit:
+    name: Production Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned backend audit tool
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install pip-audit==2.9.0
+      - name: Audit production dependency graphs
+        run: npm run audit:prod
 
   frontend-vitest:
     name: Frontend Vitest
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -130,9 +196,22 @@ jobs:
       - name: Run frontend tests
         run: npm run frontend:test
 
+  frontend-style-drift:
+    name: Frontend Incremental Style Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Block new style token drift
+        run: npm --prefix frontend run check:style-tokens
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -148,6 +227,7 @@ jobs:
   frontend-e2e-p0:
     name: Frontend E2E P0
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -169,6 +249,43 @@ jobs:
         with:
           name: frontend-e2e-p0-report
           path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  deployment-compose-smokes:
+    name: Compose Media and WebSocket Smokes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deployment-test dependencies
+        run: npm ci --prefix frontend
+      - name: Install Chromium
+        id: browser_setup
+        run: npx --prefix frontend playwright install --with-deps chromium
+      - name: Run media permission deployment smoke
+        run: |
+          mkdir -p .artifacts
+          npm run deploy:smoke:media 2>&1 | tee .artifacts/media-permission-smoke.log
+      - name: Run WebSocket deployment smoke
+        if: ${{ always() && steps.browser_setup.outcome == 'success' }}
+        run: |
+          mkdir -p .artifacts
+          npm run deploy:smoke:realtime 2>&1 | tee .artifacts/realtime-websocket-smoke.log
+      - name: Upload deployment smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-compose-smokes
+          path: |
+            .artifacts/*.log
             frontend/playwright-report/
             frontend/test-results/
           if-no-files-found: warn
