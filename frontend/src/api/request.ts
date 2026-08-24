@@ -14,7 +14,9 @@ let authToken: string | null = null;
 let refreshPromise: Promise<LoginResponse> | null = null;
 let authSessionRevision = 0;
 let authIdentity: string | null = null;
+let authIdentityEpoch = 0;
 const authSessionListeners = new Set<(payload: LoginResponse | null) => void>();
+const authorizedResponseIdentityEpochs = new WeakMap<Response, number>();
 
 type AuthRequestBehavior = {
   authCookieLockHeld?: boolean;
@@ -42,7 +44,9 @@ export function isApiError(reason: unknown): reason is ApiError {
 
 export function setAccessToken(token: string | null) {
   authToken = token;
-  if (token === null) {
+  if (token === null && authIdentity !== null) {
+    authSessionRevision += 1;
+    authIdentityEpoch += 1;
     authIdentity = null;
   }
 }
@@ -63,14 +67,21 @@ export function subscribeAuthSession(listener: (payload: LoginResponse | null) =
 }
 
 export function setAuthenticatedSession(payload: LoginResponse) {
+  const nextIdentity = `${payload.user.id}:${payload.membership.family_id}`;
   authSessionRevision += 1;
+  if (authIdentity !== nextIdentity) {
+    authIdentityEpoch += 1;
+  }
   authToken = payload.access_token;
-  authIdentity = `${payload.user.id}:${payload.membership.family_id}`;
+  authIdentity = nextIdentity;
   authSessionListeners.forEach((listener) => listener(payload));
 }
 
 export function clearAuthenticatedSession() {
   authSessionRevision += 1;
+  if (authIdentity !== null) {
+    authIdentityEpoch += 1;
+  }
   authToken = null;
   authIdentity = null;
   authSessionListeners.forEach((listener) => listener(null));
@@ -133,7 +144,7 @@ function canRefreshAfterUnauthorized(path: string) {
 export async function refreshAuthSession(
   behavior: AuthRequestBehavior = {},
 ): Promise<LoginResponse> {
-  if (!refreshPromise) {
+  const startRefresh = () => {
     const requestedRevision = authSessionRevision;
     const refreshOperation = async () => {
       if (authSessionRevision !== requestedRevision) {
@@ -160,7 +171,7 @@ export async function refreshAuthSession(
       publishAuthCookieTransition(authenticated);
       return authenticated;
     };
-    refreshPromise = (
+    return (
       behavior.authCookieLockHeld
         ? refreshOperation()
         : withAuthCookieLock(refreshOperation)
@@ -173,10 +184,16 @@ export async function refreshAuthSession(
           }
         }
         throw reason;
-      })
-      .finally(() => {
-        refreshPromise = null;
       });
+  };
+
+  if (behavior.authCookieLockHeld) {
+    return startRefresh();
+  }
+  if (!refreshPromise) {
+    refreshPromise = startRefresh().finally(() => {
+      refreshPromise = null;
+    });
   }
   return refreshPromise;
 }
@@ -201,8 +218,18 @@ async function fetchWithAccessToken(
   });
 }
 
-function assertResponseIdentity(identityUsed: string | null): void {
-  if (identityUsed !== null && authIdentity !== identityUsed) {
+function assertResponseIdentity(
+  identityUsed: string | null,
+  identityEpochUsed: number,
+): void {
+  if (identityEpochUsed !== authIdentityEpoch || authIdentity !== identityUsed) {
+    throw new Error('认证身份已切换，已忽略旧会话响应');
+  }
+}
+
+export function assertAuthorizedResponseIdentity(response: Response): void {
+  const responseIdentityEpoch = authorizedResponseIdentityEpochs.get(response);
+  if (responseIdentityEpoch !== undefined && responseIdentityEpoch !== authIdentityEpoch) {
     throw new Error('认证身份已切换，已忽略旧会话响应');
   }
 }
@@ -214,17 +241,19 @@ export async function authorizedFetch(
 ): Promise<Response> {
   let tokenUsed = authToken;
   let identityUsed = authIdentity;
+  let identityEpochUsed = authIdentityEpoch;
   let response = await fetchWithAccessToken(path, init, tokenUsed);
-  assertResponseIdentity(identityUsed);
+  assertResponseIdentity(identityUsed, identityEpochUsed);
   if (response.status === 401 && tokenUsed && canRefreshAfterUnauthorized(path)) {
     if (authToken === tokenUsed) {
       await refreshAuthSession(behavior);
     }
     tokenUsed = authToken;
     identityUsed = authIdentity;
+    identityEpochUsed = authIdentityEpoch;
     if (tokenUsed) {
       response = await fetchWithAccessToken(path, init, tokenUsed);
-      assertResponseIdentity(identityUsed);
+      assertResponseIdentity(identityUsed, identityEpochUsed);
     }
   }
   if (
@@ -234,7 +263,9 @@ export async function authorizedFetch(
     && !path.endsWith('/api/auth/login')
   ) {
     clearAuthenticatedSession();
+    identityEpochUsed = authIdentityEpoch;
   }
+  authorizedResponseIdentityEpochs.set(response, identityEpochUsed);
   return response;
 }
 
@@ -246,10 +277,12 @@ export async function request<T>(
   const response = await authorizedFetch(path, init, behavior);
 
   if (response.status === 204) {
+    assertAuthorizedResponseIdentity(response);
     return undefined as T;
   }
 
   const payload = await responsePayload(response);
+  assertAuthorizedResponseIdentity(response);
   if (!response.ok) {
     throw new ApiError({
       status: response.status,

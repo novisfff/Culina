@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as aiVoiceApi from './aiVoiceApi';
-import { setAccessToken } from './request';
+import { setAccessToken, setAuthenticatedSession } from './request';
 import type { LoginResponse } from './types';
 
 const refreshedSession: LoginResponse = {
@@ -28,6 +28,27 @@ const refreshedSession: LoginResponse = {
     created_at: '2026-08-24T00:00:00Z',
     updated_at: '2026-08-24T00:00:00Z',
     ai_recommendations: [],
+  },
+};
+
+const otherSession: LoginResponse = {
+  ...refreshedSession,
+  access_token: 'other-access-token',
+  user: {
+    ...refreshedSession.user,
+    id: 'user-b',
+    username: 'other-owner',
+  },
+  membership: {
+    ...refreshedSession.membership,
+    id: 'membership-b',
+    family_id: 'family-b',
+    user_id: 'user-b',
+  },
+  family: {
+    ...refreshedSession.family,
+    id: 'family-b',
+    name: '另一个家庭',
   },
 };
 
@@ -68,6 +89,66 @@ describe('synthesizeSpeech', () => {
     expect(fetchSpy.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true);
     expect(new Headers(fetchSpy.mock.calls[2]?.[1]?.headers).get('Authorization'))
       .toBe('Bearer fresh-access-token');
+  });
+
+  it('rejects audio that finishes after the authenticated identity changes', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    setAuthenticatedSession(refreshedSession);
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'audio/mpeg' },
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const audioRequest = aiVoiceApi.synthesizeSpeech({
+      text: '请继续下一步。',
+      surface: 'recipe_cook_page',
+    });
+    const rejection = expect(audioRequest).rejects.toThrow('认证身份已切换');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession(otherSession);
+    bodyController?.enqueue(new TextEncoder().encode('audio-bytes'));
+    bodyController?.close();
+
+    await rejection;
+  });
+
+  it('keeps reading audio when only the same identity access token rotates', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    setAuthenticatedSession(refreshedSession);
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'audio/mpeg' },
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const audioRequest = aiVoiceApi.synthesizeSpeech({
+      text: '请继续下一步。',
+      surface: 'recipe_cook_page',
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession({
+      ...refreshedSession,
+      access_token: 'rotated-access-token',
+    });
+    bodyController?.enqueue(new TextEncoder().encode('audio-bytes'));
+    bodyController?.close();
+
+    await expect(audioRequest).resolves.toMatchObject({ size: 11, type: 'audio/mpeg' });
   });
 
   it('preserves a structured API error payload for stable usage-limit handling', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AI_DRAFT_CONTRACTS_HEADER, aiApi } from './aiApi';
-import { setAccessToken } from './request';
+import { setAccessToken, setAuthenticatedSession } from './request';
 import type { AiChatResponse, LoginResponse } from './types';
 
 function streamFrom(text: string) {
@@ -71,6 +71,27 @@ const refreshedSession: LoginResponse = {
     created_at: '2026-08-24T00:00:00Z',
     updated_at: '2026-08-24T00:00:00Z',
     ai_recommendations: [],
+  },
+};
+
+const otherSession: LoginResponse = {
+  ...refreshedSession,
+  access_token: 'other-access-token',
+  user: {
+    ...refreshedSession.user,
+    id: 'user-b',
+    username: 'other-owner',
+  },
+  membership: {
+    ...refreshedSession.membership,
+    id: 'membership-b',
+    family_id: 'family-b',
+    user_id: 'user-b',
+  },
+  family: {
+    ...refreshedSession.family,
+    id: 'family-b',
+    name: '另一个家庭',
   },
 };
 
@@ -197,6 +218,56 @@ describe('aiApi', () => {
     expect(fetchSpy.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true);
     expect(new Headers(fetchSpy.mock.calls[2]?.[1]?.headers).get('Authorization'))
       .toBe('Bearer fresh-access-token');
+  });
+
+  it('stops consuming a stream after the authenticated identity changes', async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    setAuthenticatedSession(refreshedSession);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(delayedStream, { status: 200 }),
+    );
+
+    const streamRequest = aiApi.streamChatAi({ message: '你好' });
+    const rejection = expect(streamRequest).rejects.toThrow('认证身份已切换');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession(otherSession);
+    streamController?.enqueue(new TextEncoder().encode(sseBlock('response', emptyChatResponse)));
+    streamController?.close();
+
+    await rejection;
+  });
+
+  it('keeps consuming a stream when only the same identity access token rotates', async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    setAuthenticatedSession(refreshedSession);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(delayedStream, { status: 200 }),
+    );
+
+    const streamRequest = aiApi.streamChatAi({ message: '你好' });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession({
+      ...refreshedSession,
+      access_token: 'rotated-access-token',
+    });
+    streamController?.enqueue(new TextEncoder().encode(sseBlock('response', emptyChatResponse)));
+    streamController?.close();
+
+    await expect(streamRequest).resolves.toEqual(emptyChatResponse);
   });
 
   it('test_cancel_ai_run_uses_post_path', async () => {

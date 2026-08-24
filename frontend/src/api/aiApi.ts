@@ -1,4 +1,10 @@
-import { API_BASE_URL, ApiError, authorizedFetch, request } from './request';
+import {
+  API_BASE_URL,
+  ApiError,
+  assertAuthorizedResponseIdentity,
+  authorizedFetch,
+  request,
+} from './request';
 import type {
   AiApprovalDecisionResponse,
   AiApprovalRequest,
@@ -150,6 +156,7 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
   };
   while (true) {
     const { done, value } = await reader.read();
+    assertAuthorizedResponseIdentity(response);
     buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
     const blocks = buffer.split('\n\n');
     buffer = blocks.pop() ?? '';
@@ -159,6 +166,7 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
     if (done) break;
   }
   if (buffer.trim()) consumeBlock(buffer);
+  assertAuthorizedResponseIdentity(response);
   if (!finalResponse) {
     throw new Error('流式响应缺少最终结果');
   }

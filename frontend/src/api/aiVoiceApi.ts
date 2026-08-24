@@ -1,4 +1,10 @@
-import { API_BASE_URL, ApiError, authorizedFetch, request } from './request';
+import {
+  API_BASE_URL,
+  ApiError,
+  assertAuthorizedResponseIdentity,
+  authorizedFetch,
+  request,
+} from './request';
 
 export type AiVoiceSurface = 'main_ai' | 'recipe_cook_page';
 export type AiVoiceProvider = 'openai' | 'dashscope';
@@ -83,6 +89,7 @@ export async function synthesizeSpeech(args: {
   if (!response.ok) {
     const isJson = response.headers.get('Content-Type')?.includes('application/json');
     const payload = isJson ? await response.json() : await response.text();
+    assertAuthorizedResponseIdentity(response);
     throw new ApiError({
       status: response.status,
       detail: speechErrorDetail(payload, response.statusText),
@@ -90,7 +97,9 @@ export async function synthesizeSpeech(args: {
       payload,
     });
   }
-  return response.blob();
+  const audio = await response.blob();
+  assertAuthorizedResponseIdentity(response);
+  return audio;
 }
 
 export function createCookingRealtimeSession(payload: CookingRealtimeSessionRequest) {

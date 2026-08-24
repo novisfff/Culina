@@ -131,7 +131,10 @@ describe('api client errors', () => {
   });
 
   it('does not rotate refresh again when a late 401 used an older access token', async () => {
-    setAccessToken('expired-access-token');
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'expired-access-token',
+    });
     let releaseLateResponse: (() => void) | undefined;
     const lateResponse = new Promise<void>((resolve) => {
       releaseLateResponse = resolve;
@@ -166,7 +169,7 @@ describe('api client errors', () => {
       .toHaveLength(1);
   });
 
-  it('does not clear a newer session when an unauthenticated request returns a late 401', async () => {
+  it('rejects a late unauthenticated response without clearing a newer session', async () => {
     let releaseResponse: (() => void) | undefined;
     const responseGate = new Promise<void>((resolve) => {
       releaseResponse = resolve;
@@ -180,7 +183,7 @@ describe('api client errors', () => {
     setAuthenticatedSession(authPayload);
     releaseResponse?.();
 
-    await expect(staleRequest).rejects.toMatchObject({ status: 401 });
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
     expect(getAccessToken()).toBe('fresh-access-token');
   });
 
@@ -226,6 +229,115 @@ describe('api client errors', () => {
 
     await expect(staleRequest).rejects.toThrow('认证身份已切换');
     expect(getAccessToken()).toBe('other-access-token');
+  });
+
+  it('rejects delayed response headers after logout and login as the same identity', async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const fetchSpy = vi.fn(async () => {
+      await responseGate;
+      return new Response(JSON.stringify({ private: 'old-session-data' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    clearAuthenticatedSession();
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'new-login-access-token',
+    });
+    releaseResponse?.();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('new-login-access-token');
+  });
+
+  it('rejects a response body that completes after the authenticated identity changes', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession(otherAuthPayload);
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('other-access-token');
+  });
+
+  it('keeps reading a response when only the same identity access token rotates', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const requestInFlight = request<{ private: string }>('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'rotated-access-token',
+    });
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(requestInFlight).resolves.toEqual({ private: 'family-a' });
+    expect(getAccessToken()).toBe('rotated-access-token');
+  });
+
+  it('rejects a response body after the low-level token setter clears its identity', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAccessToken(null);
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBeNull();
   });
 
   it('serializes every authentication cookie writer behind one browser lock', async () => {
@@ -292,6 +404,78 @@ describe('api client errors', () => {
     expect(new Set(lockRequest.mock.calls.map(([name]) => name))).toEqual(
       new Set(['culina-auth-cookie-v1']),
     );
+  });
+
+  it('does not deadlock when a held cookie lock needs a refresh queued behind it', async () => {
+    setAccessToken('expired-access-token');
+    let lockTail = Promise.resolve<unknown>(undefined);
+    const lockRequest = vi.fn((
+      _name: string,
+      _options: LockOptions,
+      callback: (lock: Lock | null) => Promise<unknown>,
+    ) => {
+      const result = lockTail.then(() => callback(null));
+      lockTail = result.catch(() => undefined);
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request: lockRequest } });
+
+    let markPasswordStarted: (() => void) | undefined;
+    const passwordStarted = new Promise<void>((resolve) => {
+      markPasswordStarted = resolve;
+    });
+    let releasePasswordUnauthorized: (() => void) | undefined;
+    const passwordUnauthorizedGate = new Promise<void>((resolve) => {
+      releasePasswordUnauthorized = resolve;
+    });
+    const started: string[] = [];
+    let passwordAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      started.push(path);
+      if (path.endsWith('/api/auth/password')) {
+        passwordAttempts += 1;
+        if (passwordAttempts === 1) {
+          markPasswordStarted?.();
+          await passwordUnauthorizedGate;
+          return new Response(JSON.stringify({ detail: '登录已过期' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (path.endsWith('/api/auth/refresh')) {
+        return new Response(JSON.stringify(authPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    const password = api.updatePassword({
+      current_password: 'OldPass123',
+      new_password: 'ChangedPass456',
+    });
+    await passwordStarted;
+    const queuedRefresh = refreshAuthSession();
+    const settlement = Promise.allSettled([password, queuedRefresh]);
+    releasePasswordUnauthorized?.();
+
+    await vi.waitFor(() => {
+      expect(started).toContain('/api/auth/refresh');
+    });
+    const [passwordResult, queuedRefreshResult] = await settlement;
+
+    expect(passwordResult.status).toBe('fulfilled');
+    expect(queuedRefreshResult.status).toBe('rejected');
+    expect(started).toEqual([
+      '/api/auth/password',
+      '/api/auth/refresh',
+      '/api/auth/password',
+    ]);
+    expect(getAccessToken()).toBeNull();
   });
 
   it('throws ApiError with status, path, detail and payload', async () => {
