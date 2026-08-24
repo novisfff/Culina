@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -515,10 +516,13 @@ class FoodPlanItem(AuditMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="planned", nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meal_log_id: Mapped[str | None] = mapped_column(ForeignKey("meal_logs.id", ondelete="SET NULL"), nullable=True, index=True)
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="food_plan_items")
     user: Mapped["User"] = relationship(back_populates="food_plan_items")
     food: Mapped["Food"] = relationship(back_populates="plan_items")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class RecipeCookLog(AuditMixin, Base):
@@ -862,6 +866,12 @@ class AIAgentRun(Base):
     tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    auto_execution_attempted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa.false(), nullable=False
+    )
+    auto_operation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_operations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
@@ -1017,11 +1027,21 @@ class AITaskDraft(Base):
     draft_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     preview_summary: Mapped[str] = mapped_column(String(255), default="", nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending_confirmation", nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     schema_version: Mapped[str] = mapped_column(String(32), default="recipe.v1", nullable=False)
     validation_errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     ai_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    intent_clarity: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    intent_evidence_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    execution_route: Mapped[str] = mapped_column(
+        String(32), default="manual_confirmation", server_default="manual_confirmation", nullable=False, index=True
+    )
+    policy_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    policy_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    policy_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    policy_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -1083,19 +1103,88 @@ class AIOperation(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_operation"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
-    approval_request_id: Mapped[str] = mapped_column(ForeignKey("ai_approval_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    approval_request_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_approval_requests.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     draft_id: Mapped[str] = mapped_column(ForeignKey("ai_task_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_agent_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     operation_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    execution_mode: Mapped[str] = mapped_column(
+        String(32), default="manual_approval", server_default="manual_approval", nullable=False, index=True
+    )
+    authorization_source: Mapped[str] = mapped_column(
+        String(48), default="approval_request", server_default="approval_request", nullable=False
+    )
+    authorization_snapshot_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    policy_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    policy_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    policy_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    committed_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     business_entity_type: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     business_entity_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revert_adapter_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    revert_context_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    revertible_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revert_request_id: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True, index=True)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    revert_result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    revert_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revert_blocked_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="ai_operations")
+
+
+class AIAutoExecutionPreference(AuditMixin, Base):
+    __tablename__ = "ai_auto_execution_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "family_id", "user_id", "action_key", name="uq_ai_auto_execution_preference_actor_action"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai-auto-pref"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    action_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa.false(), nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    consent_notice_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+
+class AIFamilyAutoExecutionPolicy(AuditMixin, Base):
+    __tablename__ = "ai_family_auto_execution_policies"
+    __table_args__ = (
+        UniqueConstraint("family_id", "action_key", name="uq_ai_family_auto_execution_policy_action"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai-family-policy"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    action_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa.false(), nullable=False)
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    consent_notice_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consented_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class AIGraphCheckpoint(Base):

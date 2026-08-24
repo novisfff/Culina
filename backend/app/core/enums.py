@@ -71,6 +71,8 @@ class InventoryConfirmationSource(str, Enum):
 class InventoryOperationType(str, Enum):
     RECONCILIATION = "reconciliation"
     SHOPPING_INTAKE = "shopping_intake"
+    CONSUME = "consume"
+    DISPOSE = "dispose"
 
 
 class InventoryOperationStatus(str, Enum):
