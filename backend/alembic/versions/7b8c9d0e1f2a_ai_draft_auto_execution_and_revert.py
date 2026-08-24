@@ -296,18 +296,24 @@ def upgrade() -> None:
 
 
 def _drop_runs_and_plan_item_extensions() -> None:
-    op.drop_index("ix_ai_agent_runs_auto_operation_id", table_name="ai_agent_runs")
     op.drop_constraint(
         "fk_ai_agent_runs_auto_operation_id_ai_operations",
         "ai_agent_runs",
         type_="foreignkey",
     )
+    op.drop_index("ix_ai_agent_runs_auto_operation_id", table_name="ai_agent_runs")
     op.drop_column("ai_agent_runs", "auto_operation_id")
     op.drop_column("ai_agent_runs", "auto_execution_attempted")
     op.drop_column("food_plan_items", "row_version")
 
 
 def _drop_operation_extensions() -> None:
+    for constraint_name in (
+        "fk_ai_operations_reverted_by_users",
+        "fk_ai_operations_actor_user_id_users",
+        "fk_ai_operations_run_id_ai_agent_runs",
+    ):
+        op.drop_constraint(constraint_name, "ai_operations", type_="foreignkey")
     op.drop_index("ix_ai_operations_family_status_revertible", table_name="ai_operations")
     op.drop_index("ix_ai_operations_revert_request_id", table_name="ai_operations")
     op.drop_index("ix_ai_operations_error_code", table_name="ai_operations")
@@ -315,12 +321,6 @@ def _drop_operation_extensions() -> None:
     op.drop_index("ix_ai_operations_execution_mode", table_name="ai_operations")
     op.drop_index("ix_ai_operations_actor_user_id", table_name="ai_operations")
     op.drop_index("ix_ai_operations_run_id", table_name="ai_operations")
-    for constraint_name in (
-        "fk_ai_operations_reverted_by_users",
-        "fk_ai_operations_actor_user_id_users",
-        "fk_ai_operations_run_id_ai_agent_runs",
-    ):
-        op.drop_constraint(constraint_name, "ai_operations", type_="foreignkey")
     _drop_approval_request_foreign_key()
     # The pre-feature schema cannot represent policy-auto operations because it
     # requires an approval request.  Preserve every legacy/manual operation and
@@ -385,14 +385,9 @@ def _drop_task_draft_extensions() -> None:
 
 
 def _drop_preference_tables() -> None:
-    op.drop_index("ix_ai_family_auto_execution_policy_family_action", table_name="ai_family_auto_execution_policies")
-    op.drop_index("ix_ai_family_auto_execution_policies_action_key", table_name="ai_family_auto_execution_policies")
-    op.drop_index("ix_ai_family_auto_execution_policies_family_id", table_name="ai_family_auto_execution_policies")
+    # Dropping a table removes its FK constraints and supporting indexes together.
+    # MySQL rejects dropping an FK-supporting index while the FK still exists.
     op.drop_table("ai_family_auto_execution_policies")
-    op.drop_index("ix_ai_auto_execution_preference_family_action", table_name="ai_auto_execution_preferences")
-    op.drop_index("ix_ai_auto_execution_preferences_action_key", table_name="ai_auto_execution_preferences")
-    op.drop_index("ix_ai_auto_execution_preferences_user_id", table_name="ai_auto_execution_preferences")
-    op.drop_index("ix_ai_auto_execution_preferences_family_id", table_name="ai_auto_execution_preferences")
     op.drop_table("ai_auto_execution_preferences")
 
 

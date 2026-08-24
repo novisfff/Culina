@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 
 import pytest
@@ -10,6 +11,11 @@ from tests.model_usage.test_migration_mysql import (
     MySqlAlembicDatabase,
     require_model_usage_mysql_url,
 )
+
+
+LEGACY_PAYLOAD_HASH = hashlib.sha256(
+    b'{"action":"set_favorite","foodId":"legacy-food"}'
+).hexdigest()
 
 
 @pytest.fixture()
@@ -34,12 +40,7 @@ def test_models_expose_auto_execution_and_revert_columns() -> None:
     assert "dispose" in {item.value for item in InventoryOperationType}
 
 
-def seed_legacy_ai_rows(
-    database: MySqlAlembicDatabase,
-    *,
-    draft_status: str,
-    operation_status: str,
-) -> None:
+def seed_legacy_ai_rows(database: MySqlAlembicDatabase) -> None:
     database.execute(
         """
         INSERT INTO families (
@@ -54,9 +55,11 @@ def seed_legacy_ai_rows(
         """
         INSERT INTO users (
             id, username, display_name, avatar_seed, is_active, created_at, updated_at
-        ) VALUES (
-            'legacy-user', 'legacy-migration-user', '迁移成员', '', 1, UTC_TIMESTAMP(), UTC_TIMESTAMP()
-        )
+        ) VALUES
+            ('legacy-latest-approver', 'legacy-latest-approver', '最新批准人', '', 1, UTC_TIMESTAMP(), UTC_TIMESTAMP()),
+            ('legacy-old-approver', 'legacy-old-approver', '旧批准人', '', 1, UTC_TIMESTAMP(), UTC_TIMESTAMP()),
+            ('legacy-approval-editor', 'legacy-approval-editor', '审批编辑人', '', 1, UTC_TIMESTAMP(), UTC_TIMESTAMP()),
+            ('legacy-draft-creator', 'legacy-draft-creator', '草稿创建人', '', 1, UTC_TIMESTAMP(), UTC_TIMESTAMP())
         """,
         {},
     )
@@ -66,8 +69,8 @@ def seed_legacy_ai_rows(
             id, family_id, owner_user_id, visibility, mode, prompt, response, context,
             title, summary, status, last_run_status, created_at, created_by
         ) VALUES (
-            'legacy-conversation', 'legacy-family', 'legacy-user', 'PRIVATE', 'FOOD_QA', '', '', JSON_OBJECT(),
-            '', '', 'active', '', UTC_TIMESTAMP(), 'legacy-user'
+            'legacy-conversation', 'legacy-family', 'legacy-draft-creator', 'PRIVATE', 'FOOD_QA', '', '', JSON_OBJECT(),
+            '', '', 'active', '', UTC_TIMESTAMP(), 'legacy-draft-creator'
         )
         """,
         {},
@@ -78,14 +81,33 @@ def seed_legacy_ai_rows(
             id, family_id, conversation_id, draft_type, payload, preview_summary, status,
             version, schema_version, validation_errors, ai_metadata, idempotency_key,
             created_at, updated_at, created_by
-        ) VALUES (
-            'legacy-draft', 'legacy-family', 'legacy-conversation', 'food',
-            JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
-            :draft_status, 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-key',
-            UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-user'
-        )
+        ) VALUES
+            ('legacy-draft-executed', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'confirmed', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-executed-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator'),
+            ('legacy-draft-no-change', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'confirmed', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-no-change-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator'),
+            ('legacy-draft-reverted', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'confirmed', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-reverted-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator'),
+            ('legacy-draft-failed', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'confirmation_failed', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-failed-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator'),
+            ('legacy-draft-pending', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'pending', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-pending-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator'),
+            ('legacy-draft-expired', 'legacy-family', 'legacy-conversation', 'food',
+             JSON_OBJECT('action', 'set_favorite', 'foodId', 'legacy-food', 'intentEvidence', JSON_OBJECT('quote', '收藏')), '',
+             'rejected', 1, 'food.v1', JSON_ARRAY(), JSON_OBJECT(), 'legacy-draft-expired-key',
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-draft-creator')
         """,
-        {"draft_status": draft_status},
+        {},
     )
     database.execute(
         """
@@ -93,11 +115,16 @@ def seed_legacy_ai_rows(
             id, family_id, conversation_id, draft_id, draft_version, draft_schema_version,
             approval_type, status, request_payload, field_schema, initial_values, submitted_values,
             created_at, updated_at, updated_by
-        ) VALUES (
-            'legacy-approval-request', 'legacy-family', 'legacy-conversation', 'legacy-draft', 1, 'food.v1',
-            'food', 'approved', JSON_OBJECT(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT(),
-            UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-user'
-        )
+        ) VALUES
+            ('legacy-approval-primary', 'legacy-family', 'legacy-conversation', 'legacy-draft-executed', 1, 'food.v1',
+             'food', 'approved', JSON_OBJECT(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT(),
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-approval-editor'),
+            ('legacy-approval-fallback', 'legacy-family', 'legacy-conversation', 'legacy-draft-no-change', 1, 'food.v1',
+             'food', 'approved', JSON_OBJECT(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT(),
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), 'legacy-approval-editor'),
+            ('legacy-approval-draft', 'legacy-family', 'legacy-conversation', 'legacy-draft-reverted', 1, 'food.v1',
+             'food', 'approved', JSON_OBJECT(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT(),
+             UTC_TIMESTAMP(), UTC_TIMESTAMP(), NULL)
         """,
         {},
     )
@@ -106,10 +133,11 @@ def seed_legacy_ai_rows(
         INSERT INTO ai_user_approvals (
             id, family_id, approval_request_id, draft_id, approved_by, approved_at, decision,
             approval_payload, operation_summary
-        ) VALUES (
-            'legacy-user-approval', 'legacy-family', 'legacy-approval-request', 'legacy-draft',
-            'legacy-user', UTC_TIMESTAMP(), 'approved', JSON_OBJECT(), JSON_OBJECT()
-        )
+        ) VALUES
+            ('legacy-user-approval-old', 'legacy-family', 'legacy-approval-primary', 'legacy-draft-executed',
+             'legacy-old-approver', UTC_TIMESTAMP(), 'approved', JSON_OBJECT(), JSON_OBJECT()),
+            ('legacy-user-approval-latest', 'legacy-family', 'legacy-approval-primary', 'legacy-draft-executed',
+             'legacy-latest-approver', DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 SECOND), 'approved', JSON_OBJECT(), JSON_OBJECT())
         """,
         {},
     )
@@ -118,12 +146,15 @@ def seed_legacy_ai_rows(
         INSERT INTO ai_operations (
             id, family_id, approval_request_id, draft_id, operation_type, status,
             business_entity_type, business_entity_ids, idempotency_key, created_at, updated_at
-        ) VALUES (
-            'legacy-operation', 'legacy-family', 'legacy-approval-request', 'legacy-draft', 'food',
-            :operation_status, '', JSON_ARRAY(), 'legacy-operation-key', UTC_TIMESTAMP(), UTC_TIMESTAMP()
-        )
+        ) VALUES
+            ('legacy-operation-pending', 'legacy-family', 'legacy-approval-primary', 'legacy-draft-executed', 'food',
+             'running', '', JSON_ARRAY(), 'legacy-operation-pending-key', UTC_TIMESTAMP(), UTC_TIMESTAMP()),
+            ('legacy-operation-completed', 'legacy-family', 'legacy-approval-fallback', 'legacy-draft-no-change', 'food',
+             'succeeded', '', JSON_ARRAY(), 'legacy-operation-completed-key', UTC_TIMESTAMP(), UTC_TIMESTAMP()),
+            ('legacy-operation-reverted', 'legacy-family', 'legacy-approval-draft', 'legacy-draft-reverted', 'food',
+             'succeeded', '', JSON_ARRAY(), 'legacy-operation-reverted-key', UTC_TIMESTAMP(), UTC_TIMESTAMP())
         """,
-        {"operation_status": operation_status},
+        {},
     )
 
 
@@ -132,20 +163,87 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(
 ) -> None:
     database = mysql_alembic_database
     database.upgrade("6a7b8c9d0e1f")
-    seed_legacy_ai_rows(database, draft_status="confirmed", operation_status="succeeded")
+    seed_legacy_ai_rows(database)
 
     database.upgrade("7b8c9d0e1f2a")
 
-    assert database.rows("SELECT status, execution_route FROM ai_task_drafts") == [
-        ("executed", "manual_confirmation")
-    ]
-    assert len(database.scalar("SELECT payload_hash FROM ai_task_drafts LIMIT 1")) == 64
     assert database.rows(
-        "SELECT status, execution_mode, authorization_source FROM ai_operations"
-    ) == [("completed", "manual_approval", "approval_request")]
+        "SELECT id, status, execution_route, payload_hash FROM ai_task_drafts ORDER BY id"
+    ) == [
+        ("legacy-draft-executed", "executed", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-expired", "rejected", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-failed", "execution_failed", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-no-change", "executed", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-pending", "pending_confirmation", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-reverted", "executed", "manual_confirmation", LEGACY_PAYLOAD_HASH),
+    ]
+    assert database.rows(
+        "SELECT id, status, execution_mode, authorization_source, actor_user_id "
+        "FROM ai_operations ORDER BY id"
+    ) == [
+        ("legacy-operation-completed", "completed", "manual_approval", "approval_request", "legacy-approval-editor"),
+        ("legacy-operation-pending", "pending", "manual_approval", "approval_request", "legacy-latest-approver"),
+        ("legacy-operation-reverted", "completed", "manual_approval", "approval_request", "legacy-draft-creator"),
+    ]
+    assert database.scalar(
+        "SELECT IS_NULLABLE FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_operations' "
+        "AND COLUMN_NAME = 'approval_request_id'"
+    ) == "YES"
+    assert database.scalar(
+        "SELECT DELETE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS "
+        "WHERE CONSTRAINT_SCHEMA = DATABASE() "
+        "AND CONSTRAINT_NAME = 'fk_ai_operations_approval_request_id_ai_approval_requests'"
+    ) == "SET NULL"
     assert database.scalar("SELECT COUNT(*) FROM ai_auto_execution_preferences") == 0
     assert database.scalar("SELECT COUNT(*) FROM ai_family_auto_execution_policies") == 0
 
+    database.execute(
+        "UPDATE ai_task_drafts SET status = 'no_change' WHERE id = 'legacy-draft-no-change'",
+        {},
+    )
+    database.execute(
+        "UPDATE ai_task_drafts SET status = 'reverted' WHERE id = 'legacy-draft-reverted'",
+        {},
+    )
+    database.execute(
+        "UPDATE ai_task_drafts SET status = 'expired' WHERE id = 'legacy-draft-expired'",
+        {},
+    )
+    database.execute(
+        "UPDATE ai_operations SET status = 'reverted' WHERE id = 'legacy-operation-reverted'",
+        {},
+    )
+
     database.downgrade("6a7b8c9d0e1f")
+    assert database.rows("SELECT id, status FROM ai_task_drafts ORDER BY id") == [
+        ("legacy-draft-executed", "confirmed"),
+        ("legacy-draft-expired", "rejected"),
+        ("legacy-draft-failed", "confirmation_failed"),
+        ("legacy-draft-no-change", "confirmed"),
+        ("legacy-draft-pending", "pending"),
+        ("legacy-draft-reverted", "confirmed"),
+    ]
+    assert database.rows("SELECT id, status FROM ai_operations ORDER BY id") == [
+        ("legacy-operation-completed", "succeeded"),
+        ("legacy-operation-pending", "running"),
+        ("legacy-operation-reverted", "succeeded"),
+    ]
+
     database.upgrade("7b8c9d0e1f2a")
     assert database.current_revision() == "7b8c9d0e1f2a"
+    assert database.rows(
+        "SELECT id, status, payload_hash FROM ai_task_drafts ORDER BY id"
+    ) == [
+        ("legacy-draft-executed", "executed", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-expired", "rejected", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-failed", "execution_failed", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-no-change", "executed", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-pending", "pending_confirmation", LEGACY_PAYLOAD_HASH),
+        ("legacy-draft-reverted", "executed", LEGACY_PAYLOAD_HASH),
+    ]
+    assert database.rows("SELECT id, status FROM ai_operations ORDER BY id") == [
+        ("legacy-operation-completed", "completed"),
+        ("legacy-operation-pending", "pending"),
+        ("legacy-operation-reverted", "completed"),
+    ]
