@@ -4158,7 +4158,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     suffix="highlight-classifier-fault",
                 )
                 with patch(
-                    "app.services.ai_operations.approval_decisions.classify_approval_highlight",
+                    "app.services.ai_operations.commit_coordinator.classify_approval_highlight",
                     side_effect=RuntimeError("classifier fault"),
                 ):
                     result = self._approve_ai_approval_for_test(

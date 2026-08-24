@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
@@ -100,13 +101,26 @@ def create_retry_ai_approval(
     error_message: str,
     failure_summary: dict[str, Any] | None = None,
 ) -> AIApprovalRequest:
-    retry_instruction = f"上次写入失败：{error_message}。你可以调整草稿后重试。"
+    existing = db.scalar(
+        select(AIApprovalRequest)
+        .where(
+            AIApprovalRequest.family_id == family_id,
+            AIApprovalRequest.draft_id == draft.id,
+            AIApprovalRequest.draft_version == draft.version,
+            AIApprovalRequest.status == "pending",
+            AIApprovalRequest.approval_type.like("%.retry"),
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing
+    retry_instruction = f"上次写入失败：{error_message}。请确认原草稿内容后重试；如需修改，请重新生成草稿。"
     if failure_summary and failure_summary.get("failedOperationSummaries"):
         first = failure_summary["failedOperationSummaries"][0]
         retry_instruction = (
             f"上次写入失败：{error_message}。"
             f"失败项：{first.get('summary') or first.get('operationId') or '未识别操作'}。"
-            "你可以调整草稿后重试。"
+            "请确认原草稿内容后重试；如需修改，请重新生成草稿。"
         )
     config = draft_operation_registry.approval_config_for_payload(draft.draft_type, draft.payload)
     approval = AIApprovalRequest(

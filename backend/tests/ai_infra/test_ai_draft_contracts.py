@@ -680,7 +680,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             )
 
             with patch(
-                "app.services.ai_operations.approval_decisions.classify_approval_highlight",
+                "app.services.ai_operations.commit_coordinator.classify_approval_highlight",
                 side_effect=RuntimeError("post-execute artifact failure"),
             ):
                 first = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
@@ -746,7 +746,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             )
 
             with patch(
-                "app.services.ai_operations.approval_decisions.classify_approval_highlight",
+                "app.services.ai_operations.commit_coordinator.classify_approval_highlight",
                 side_effect=RuntimeError("post-execute artifact failure"),
             ):
                 first = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)

@@ -688,7 +688,11 @@ def serialize_ai_operation(item: AIOperation) -> dict:
         "status": item.status,
         "business_entity_type": item.business_entity_type,
         "business_entity_ids": item.business_entity_ids,
+        "execution_mode": item.execution_mode,
+        "error_code": item.error_code,
         "error_message": item.error_message,
+        "failed_at": _utc_datetime(item.failed_at) if item.failed_at else None,
+        "revertible_until": _utc_datetime(item.revertible_until) if item.revertible_until else None,
         "completed_at": _utc_datetime(item.completed_at),
         "created_at": _utc_datetime(item.created_at),
     }

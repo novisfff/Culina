@@ -63,14 +63,22 @@ def persist_message_artifacts(db: Session, *, message_id: str | None, artifacts:
         return
     metadata = dict(message.message_metadata or {})
     existing = [artifact for artifact in metadata.get("artifacts") or [] if isinstance(artifact, dict)]
-    seen = {str(item.get("id") or "") for item in existing}
+    positions = {
+        str(item.get("id") or ""): index
+        for index, item in enumerate(existing)
+        if str(item.get("id") or "")
+    }
     next_artifacts = list(existing)
     for artifact in artifacts:
         artifact_id = str(artifact.get("id") or "")
-        if not artifact_id or artifact_id in seen:
+        if not artifact_id:
             continue
-        next_artifacts.append(jsonable_encoder(artifact))
-        seen.add(artifact_id)
+        encoded = jsonable_encoder(artifact)
+        if artifact_id in positions:
+            next_artifacts[positions[artifact_id]] = encoded
+            continue
+        positions[artifact_id] = len(next_artifacts)
+        next_artifacts.append(encoded)
     metadata["artifacts"] = next_artifacts
     message.message_metadata = metadata
 
@@ -80,7 +88,13 @@ def append_message_result_card(db: Session, *, decision_result: dict[str, Any]) 
     if card is None:
         return None
     approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
-    message_id = str(approval.get("message_id") or "")
+    draft = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
+    message_id = str(
+        approval.get("message_id")
+        or decision_result.get("message_id")
+        or draft.get("message_id")
+        or ""
+    )
     if not message_id:
         return None
     message = db.get(AIMessage, message_id)

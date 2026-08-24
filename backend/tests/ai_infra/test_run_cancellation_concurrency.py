@@ -169,9 +169,9 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
             response_done = Event()
             response_body: dict[str, object] = {}
 
-            from app.services.ai_operations import approval_decisions
+            from app.services.ai_operations import commit_coordinator
 
-            original_execute = approval_decisions.execute_ai_operation_draft
+            original_execute = commit_coordinator.execute_ai_operation_draft
 
             def blocking_execute(db, **kwargs):
                 receipt = original_execute(db, **kwargs)
@@ -200,7 +200,7 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
                     response_body["body"] = "".join(response.iter_text())
                 response_done.set()
 
-            with patch.object(approval_decisions, "execute_ai_operation_draft", side_effect=blocking_execute):
+            with patch.object(commit_coordinator, "execute_ai_operation_draft", side_effect=blocking_execute):
                 worker = Thread(target=submit_approval)
                 worker.start()
                 self.assertTrue(business_written.wait(timeout=5))
@@ -247,9 +247,9 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
             db.commit()
         cancel_recorded.set()
 
-        from app.services.ai_operations import approval_decisions
+        from app.services.ai_operations import approval_decisions, commit_coordinator
 
-        original_execute = approval_decisions.execute_ai_operation_draft
+        original_execute = commit_coordinator.execute_ai_operation_draft
 
         def failing_execute(db, **kwargs):
             receipt = original_execute(db, **kwargs)
@@ -267,9 +267,11 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
             response_status["value"] = response.status_code
             response_done.set()
 
+        cancellation_checks = MagicMock(side_effect=[False, True])
         with (
-            patch.object(approval_decisions, "execute_ai_operation_draft", side_effect=failing_execute),
-            patch.object(approval_decisions, "cancellation_wins", side_effect=[False, True]),
+            patch.object(commit_coordinator, "execute_ai_operation_draft", side_effect=failing_execute),
+            patch.object(approval_decisions, "cancellation_wins", cancellation_checks),
+            patch.object(commit_coordinator, "cancellation_wins", cancellation_checks),
         ):
             worker = Thread(target=submit_approval)
             worker.start()

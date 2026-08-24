@@ -40,8 +40,14 @@ def build_approval_result_card(
     count = len(entities)
     workspace_label = approval_result_workspace_label(draft_type)
     count_label = approval_result_count_label(draft_type, count)
+    stable_result_id = (
+        approval.get("id")
+        or operation.get("id")
+        or draft.get("id")
+        or create_id("approval_result")
+    )
     return {
-        "id": f"operation-result:{approval.get('id') or create_id('approval_result')}",
+        "id": f"operation-result:{stable_result_id}",
         "type": "operation_result",
         "title": title,
         "data": {
@@ -65,23 +71,25 @@ def approval_decision_artifacts(
     operation: dict[str, Any],
     business_entity: Any,
 ) -> list[dict[str, Any]]:
-    artifacts = [
-        {
-            "id": f"human_in_loop:{approval.get('id') or create_id('approval_result')}",
-            "type": "approval_decision",
-            "kind": "human_in_loop_tool_result",
-            "version": 1,
-            "status": approval.get("status") or "resolved",
-            "payload": {
-                "approval": approval,
-                "draft": draft,
-                "operation": operation,
-                "business_entity": business_entity,
-            },
-            "sourceDraftId": draft.get("id"),
-            "sourceApprovalId": approval.get("id"),
-        }
-    ]
+    artifacts: list[dict[str, Any]] = []
+    if approval.get("id"):
+        artifacts.append(
+            {
+                "id": f"human_in_loop:{approval.get('id') or create_id('approval_result')}",
+                "type": "approval_decision",
+                "kind": "human_in_loop_tool_result",
+                "version": 1,
+                "status": approval.get("status") or "resolved",
+                "payload": {
+                    "approval": approval,
+                    "draft": draft,
+                    "operation": operation,
+                    "business_entity": business_entity,
+                },
+                "sourceDraftId": draft.get("id"),
+                "sourceApprovalId": approval.get("id"),
+            }
+        )
     artifacts.extend(
         business_entity_artifacts(
             approval=approval,
@@ -123,7 +131,7 @@ def business_entity_artifacts(
                 "payload": record,
                 "summary": artifact_summary(record, fallback_type=draft_type or entity_type),
                 "sourceDraftId": draft.get("id"),
-                "sourceApprovalId": approval.get("id"),
+                "sourceApprovalId": approval.get("id") or None,
                 "sourceOperationId": operation_id or None,
             }
         )
