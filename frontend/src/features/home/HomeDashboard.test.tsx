@@ -416,6 +416,15 @@ describe('HomeDashboard three-question desktop', () => {
     expect(homeStyles).toMatch(
       /\.home-compact-meal-actions \{[^}]*grid-template-columns: 44px minmax\(0, 1fr\);/s,
     );
+    expect(homeStyles).toMatch(
+      /@media \(min-width: 1181px\) \{[\s\S]*?\.home-compact-meal-item\.has-cover \{[^}]*overflow: hidden;[^}]*padding-left: 0;/,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-item-media:not\(\.is-empty\) \.home-compact-meal-item-image \{[^}]*display: block;[^}]*object-fit: cover;/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-compact-meal-item\.is-condensed \.home-compact-meal-item-label \{[^}]*width: 1em;[^}]*text-overflow: clip;/s,
+    );
     expect(homeStyles).not.toContain('.home-compact-meal-item.is-cooked::before');
   });
 
@@ -455,12 +464,28 @@ describe('HomeDashboard three-question desktop', () => {
                 created_at: '2026-07-01T00:00:00.000Z',
                 updated_at: '2026-07-01T00:00:00.000Z',
               },
+              {
+                id: 'plan-text-food',
+                family_id: 'family-1',
+                user_id: 'user-1',
+                food_id: 'food-without-cover',
+                food_name: '盒装牛奶自动测试',
+                food_type: 'dish',
+                recipe_id: null,
+                recipe_title: '',
+                plan_date: day.date,
+                meal_type: 'dinner',
+                note: '',
+                status: 'planned',
+                created_at: '2026-07-01T00:00:00.000Z',
+                updated_at: '2026-07-01T00:00:00.000Z',
+              },
             ],
           }
         : meal,
     );
     day.plannedMealCount = 1;
-    day.totalCount = 1;
+    day.totalCount = 2;
 
     const view = renderDashboard({
       foods: [picturedFood],
@@ -474,6 +499,15 @@ describe('HomeDashboard three-question desktop', () => {
         ?.querySelector<HTMLImageElement>('.home-compact-meal-item-image')
         ?.getAttribute('src'),
     ).toBe('/media/番茄炒蛋.webp');
+    expect(
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+    ).toContain('has-cover');
+    expect(
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+    ).toContain('is-condensed');
+    expect(
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="盒装牛奶自动测试，待记录"]')?.classList,
+    ).not.toContain('is-condensed');
   });
 
   it('renders desktop recommendations, compact week and the two-column lower questions', () => {
