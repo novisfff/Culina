@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 import app.api.auth as auth_routes
+import app.services.auth_credentials as auth_credentials
 from app.core.enums import MembershipStatus, UserRole
-from app.core.security import get_password_hash, verify_password
+from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import Base, Family, Membership, User, UserCredential
@@ -171,18 +172,22 @@ def test_two_concurrent_password_changes_cannot_both_accept_the_old_password(
     assert first_login.status_code == 200
     assert second_login.status_code == 200
 
-    verify_barrier = Barrier(2, timeout=20)
+    hash_barrier = Barrier(2, timeout=20)
+    hash_call_lock = Lock()
+    hash_calls = 0
 
-    def synchronized_verify(plain_password: str, hashed_password: str) -> bool:
-        result = verify_password(plain_password, hashed_password)
-        verify_barrier.wait(timeout=20)
+    def synchronized_hash(password: str) -> str:
+        nonlocal hash_calls
+        result = get_password_hash(password)
+        with hash_call_lock:
+            hash_calls += 1
+        hash_barrier.wait(timeout=20)
         return result
 
     monkeypatch.setattr(
-        auth_routes,
-        "verify_password",
-        synchronized_verify,
-        raising=False,
+        auth_credentials,
+        "get_password_hash",
+        synchronized_hash,
     )
 
     def change_password(client: TestClient, access_token: str, new_password: str) -> object:
@@ -207,6 +212,7 @@ def test_two_concurrent_password_changes_cannot_both_accept_the_old_password(
         )
         responses = [first_future.result(timeout=30), second_future.result(timeout=30)]
 
+    assert hash_calls == 2
     assert sorted(response.status_code for response in responses) == [204, 400]
     successful_password = (
         "FirstPass456" if responses[0].status_code == 204 else "SecondPass456"
