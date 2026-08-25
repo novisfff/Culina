@@ -139,14 +139,14 @@ def recover_or_replay_draft_run(
     terminal_draft_ids = {
         draft.id
         for draft in drafts
-        if draft.status in {"executed", "no_change", "reverted"}
+        if draft.status in {"executed", "no_change", "reverted", "execution_failed"}
     }
     operation_terminal_draft_ids = set(
         db.scalars(
             select(AIOperation.draft_id).where(
                 AIOperation.family_id == family_id,
                 AIOperation.run_id == run.id,
-                AIOperation.status.in_({"succeeded", "reverted"}),
+                AIOperation.status.in_({"succeeded", "reverted", "failed"}),
             )
         )
     )

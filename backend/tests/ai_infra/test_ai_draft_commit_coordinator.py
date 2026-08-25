@@ -479,12 +479,14 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                 1,
             )
 
-    def test_non_retryable_operational_error_is_not_persisted_as_pending_retry(self) -> None:
+    def test_manual_non_retryable_operational_error_still_raises(self) -> None:
         with self.SessionLocal() as db:
-            run, draft, request = self._seed_policy_draft(db, suffix="non-retryable-db")
-            run = db.get(AIAgentRun, run.id)
-            draft = db.get(AITaskDraft, draft.id)
-            assert run is not None and draft is not None
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="food_profile",
+                payload=self._favorite_payload(db),
+                suffix="manual-non-retryable-db",
+            )
             non_retryable = OperationalError(
                 "SELECT missing_column FROM foods",
                 {},
@@ -495,11 +497,10 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                 side_effect=non_retryable,
             ):
                 with self.assertRaises(OperationalError):
-                    DraftCommitCoordinator.commit_locked(
-                        db,
-                        request=request,
-                        locked_run=run,
-                        locked_draft=draft,
+                    self._approve_ai_approval_for_test(
+                        service,
+                        draft=draft,
+                        approval=approval,
                     )
             self.assertEqual(draft.status, "pending")
             self.assertEqual(db.scalar(select(func.count()).select_from(AIOperation)), 0)

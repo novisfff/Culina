@@ -292,6 +292,7 @@ def apply_ai_approval_decision(
             draft_type=committed_draft.draft_type,
             payload=submitted_payload,
             error_message=operation.error_message or "写入失败",
+            error_code=operation.error_code,
         )
         operation_summary = failure_summary
         committed_draft.status = "pending_retry"

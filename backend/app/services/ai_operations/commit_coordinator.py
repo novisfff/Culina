@@ -65,6 +65,8 @@ DOMAIN_CONFLICT_ERROR_CODE = "draft_commit_domain_conflict"
 DOMAIN_FAILURE_ERROR_CODE = "draft_commit_domain_failed"
 DATABASE_FAILURE_ERROR_CODE = "draft_commit_database_error"
 DATABASE_FAILURE_ERROR_MESSAGE = "数据库写入失败，请稍后重试"
+DOMAIN_CONFLICT_ERROR_MESSAGE = "目标状态已变化，请刷新后重新生成草稿"
+DOMAIN_FAILURE_ERROR_MESSAGE = "操作未能完成，请稍后重新生成草稿"
 REVERT_WINDOW = timedelta(hours=1)
 TRANSIENT_DATABASE_ERROR_MESSAGE = "数据库暂时不可用，请重试原草稿"
 DATABASE_CONNECTION_FAILURE_CODES = {2006, 2013, 2055}
@@ -165,14 +167,26 @@ class DraftCommitCoordinator:
                     retry_operation_id=None,
                 )
         except OperationalError as error:
-            if not _is_retryable_database_failure(error):
+            if _is_retryable_database_failure(error):
+                return cls._recover_retryable_database_failure(
+                    db,
+                    request=request,
+                    locked_run=locked_run,
+                    locked_draft=locked_draft,
+                    error=error,
+                )
+            if request.execution_mode != "policy_auto":
                 raise
-            return cls._recover_retryable_database_failure(
+            logger.exception(
+                "AI policy draft commit terminal database failure family_id=%s draft_id=%s",
+                request.family_id,
+                request.draft_id,
+            )
+            return cls._recover_terminal_database_failure(
                 db,
                 request=request,
                 locked_run=locked_run,
                 locked_draft=locked_draft,
-                error=error,
             )
 
     @classmethod
@@ -345,7 +359,17 @@ class DraftCommitCoordinator:
                     locked_draft=locked_draft,
                     error=exc,
                 )
-            raise
+            logger.exception(
+                "AI policy draft retry terminal database failure family_id=%s draft_id=%s",
+                request.family_id,
+                request.draft_id,
+            )
+            return cls._recover_terminal_database_failure(
+                db,
+                request=request,
+                locked_run=locked_run,
+                locked_draft=locked_draft,
+            )
 
     @classmethod
     def _replay_after_sqlite_recovery_lock(
@@ -647,7 +671,11 @@ class DraftCommitCoordinator:
                     if isinstance(exc, AIConflictError)
                     else DOMAIN_FAILURE_ERROR_CODE
                 ),
-                error_message=str(exc),
+                error_message=(
+                    DOMAIN_CONFLICT_ERROR_MESSAGE
+                    if isinstance(exc, AIConflictError)
+                    else DOMAIN_FAILURE_ERROR_MESSAGE
+                ),
             )
 
     @classmethod
@@ -794,6 +822,78 @@ class DraftCommitCoordinator:
                 draft=locked_draft,
                 receipt=_empty_receipt(),
             )
+
+    @classmethod
+    def _recover_terminal_database_failure(
+        cls,
+        db: Session,
+        *,
+        request: DraftCommitRequest,
+        locked_run: AIAgentRun | None,
+        locked_draft: AITaskDraft,
+    ) -> DraftCommitResult:
+        try:
+            transaction = db.get_transaction()
+            if transaction is not None and not transaction.is_active:
+                db.rollback()
+                locked_run, locked_draft = cls._relock_after_full_rollback(db, request=request)
+                if request.execution_mode == "policy_auto":
+                    resolve_effective_authorization(
+                        db,
+                        family_id=request.family_id,
+                        actor_user_id=request.actor_user_id,
+                        action_key=str(request.policy_key or ""),
+                        policy_version=str(request.policy_version or ""),
+                        for_update=True,
+                    )
+            config = draft_operation_registry.approval_config_for_payload(
+                locked_draft.draft_type,
+                request.committed_payload,
+            )
+            operation_key = derive_draft_operation_idempotency_key(
+                request.draft_id,
+                request.draft_version,
+            )
+            with db.begin_nested():
+                operation, _created = acquire_draft_operation(
+                    db,
+                    request=request,
+                    idempotency_key=operation_key,
+                    operation_type=config["operation_type"],
+                    business_entity_type=config["business_entity_type"],
+                )
+                cls._validate_operation_identity(
+                    operation,
+                    request_payload=request.committed_payload,
+                    request_mode=request.execution_mode,
+                    operation_type=config["operation_type"],
+                    family_id=request.family_id,
+                    draft_id=request.draft_id,
+                    run_id=request.run_id,
+                )
+                if operation.status == "succeeded":
+                    return cls._replay_result(db, operation=operation, draft=locked_draft)
+                _apply_operation_request_audit(operation, request=request)
+                if locked_run is not None:
+                    locked_run.auto_operation_id = operation.id
+                return cls._persist_failed_execution(
+                    db,
+                    request=request,
+                    operation=operation,
+                    draft=locked_draft,
+                    receipt=None,
+                    error_code=DATABASE_FAILURE_ERROR_CODE,
+                    error_message=DATABASE_FAILURE_ERROR_MESSAGE,
+                )
+        except AIConflictError:
+            raise
+        except Exception:
+            logger.exception(
+                "AI policy draft terminal database failure could not be persisted family_id=%s draft_id=%s",
+                request.family_id,
+                request.draft_id,
+            )
+            raise AIConflictError("数据库写入失败，自动执行结果无法安全保存") from None
 
     @classmethod
     def _relock_after_full_rollback(
@@ -1070,7 +1170,6 @@ class DraftCommitCoordinator:
         receipt: DraftExecutionReceipt,
         now: datetime,
     ) -> AIOperationResultProjection:
-        del cls
         succeeded = operation.status == "succeeded"
         entities = tuple(
             draft_operation_registry.business_entity_records(
@@ -1087,7 +1186,11 @@ class DraftCommitCoordinator:
             result_status="completed" if succeeded else "failed",
             execution_mode=operation.execution_mode,  # type: ignore[arg-type]
             operation_status="completed" if succeeded else "failed",
-            execution_explanation="已完成写入" if succeeded else (operation.error_message or "写入失败"),
+            execution_explanation=(
+                "已完成写入"
+                if succeeded
+                else cls._safe_failure_message(operation.error_code)
+            ),
             revert_availability=("available" if operation.revert_adapter_key else "unsupported"),
             revertible_until=operation.revertible_until,
             revert_blocked_code=operation.revert_blocked_code,
@@ -1095,3 +1198,16 @@ class DraftCommitCoordinator:
             entities=entities,
             cache_scopes=receipt.cache_scopes,
         )
+
+    @classmethod
+    def _safe_failure_message(cls, error_code: str | None) -> str:
+        del cls
+        if error_code in {DATABASE_FAILURE_ERROR_CODE, TRANSIENT_DATABASE_ERROR_CODE}:
+            return (
+                TRANSIENT_DATABASE_ERROR_MESSAGE
+                if error_code == TRANSIENT_DATABASE_ERROR_CODE
+                else DATABASE_FAILURE_ERROR_MESSAGE
+            )
+        if error_code == DOMAIN_CONFLICT_ERROR_CODE:
+            return DOMAIN_CONFLICT_ERROR_MESSAGE
+        return DOMAIN_FAILURE_ERROR_MESSAGE

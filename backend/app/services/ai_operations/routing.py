@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError, AIExecutionCancelled
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIApprovalRequest, AIMessage, AIOperation, AITaskDraft
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIMessage, AIOperation, AITaskDraft, Food
 from app.services.ai_auto_execution.intent_evidence import intent_evidence_validation_record
 from app.services.ai_auto_execution.policy_registry import (
     AutoExecutionPolicyRegistry,
@@ -146,8 +146,8 @@ def route_draft(
         return _route_manual(db, request=request, draft=draft, decision=preflight)
 
     # Run and Draft are already locked. The resolver locks family policy then
-    # member preference; the Coordinator subsequently locks Operation and the
-    # domain service locks its targets.
+    # member preference; no-change routing next locks its supported domain
+    # target, while auto execution delegates Operation/domain locks to the Coordinator.
     final_authorization = authorization_resolver(
         db,
         family_id=request.family_id,
@@ -178,6 +178,21 @@ def route_draft(
     draft.intent_evidence_json = intent_evidence_validation_record(final_evidence)
     if final_decision.route == "manual_confirmation" or final_authorization.source is None:
         return _route_manual(db, request=request, draft=draft, decision=final_decision)
+
+    if final_decision.route == "no_change":
+        final_evidence, final_decision = _recheck_no_change_under_target_lock(
+            db,
+            request=request,
+            policy_registry=policy_registry,
+            authorization=final_authorization,
+            decision=final_decision,
+            evidence=final_evidence,
+            registered_revert_adapters=registered_revert_adapters,
+        )
+        draft.intent_clarity = final_evidence.clarity
+        draft.intent_evidence_json = intent_evidence_validation_record(final_evidence)
+        if final_decision.route != "no_change":
+            return _route_manual(db, request=request, draft=draft, decision=final_decision)
 
     run.auto_execution_attempted = True
     draft.policy_key = final_decision.policy_key
@@ -233,12 +248,28 @@ def route_draft(
         locked_draft=draft,
     )
     status = "auto_executed" if commit.projection.result_status == "completed" else "execution_failed"
+    result_part = commit.result_part
+    if status == "execution_failed":
+        operation = db.get(AIOperation, commit.operation_id)
+        if (
+            operation is None
+            or operation.family_id != request.family_id
+            or operation.draft_id != draft.id
+            or operation.run_id != request.run_id
+        ):
+            raise AIConflictError("自动执行失败结果已丢失")
+        result_part = _persist_execution_failure_result(
+            db,
+            draft=draft,
+            operation=operation,
+            projection=commit.projection,
+        )
     outcome = DraftRouteOutcome(
         status=status,
         draft_id=draft.id,
         approval_id=None,
         operation_id=commit.operation_id,
-        published_part_ids=((str(commit.result_part.get("id")),) if commit.result_part.get("id") else ()),
+        published_part_ids=((str(result_part.get("id")),) if result_part.get("id") else ()),
         projection=commit.projection,
     )
     _store_route_outcome(draft, outcome)
@@ -304,6 +335,84 @@ def _manual_decision_with_reason(decision: Any, reason_code: str) -> Any:
         authorization_source=decision.authorization_source,
         authorization_snapshot=dict(decision.authorization_snapshot),
     )
+
+
+def _recheck_no_change_under_target_lock(
+    db: Session,
+    *,
+    request: DraftRouteRequest,
+    policy_registry: AutoExecutionPolicyRegistry,
+    authorization: EffectiveAuthorization,
+    decision: Any,
+    evidence: Any,
+    registered_revert_adapters: frozenset[str],
+) -> tuple[Any, Any]:
+    payload = request.payload
+    favorite_payload = payload.get("payload")
+    supports_locked_recheck = (
+        decision.policy_key == "food.set_favorite"
+        and request.draft_type == "food_profile"
+        and set(payload)
+        == {
+            "draftType",
+            "schemaVersion",
+            "action",
+            "targetId",
+            "baseUpdatedAt",
+            "before",
+            "payload",
+        }
+        and payload.get("draftType") == "food_profile"
+        and payload.get("schemaVersion") == "food_profile_operation.v1"
+        and payload.get("action") == "set_favorite"
+        and isinstance(payload.get("targetId"), str)
+        and bool(str(payload.get("targetId") or "").strip())
+        and isinstance(payload.get("baseUpdatedAt"), str)
+        and isinstance(payload.get("before"), dict)
+        and isinstance(favorite_payload, dict)
+        and set(favorite_payload) == {"favorite"}
+        and isinstance(favorite_payload.get("favorite"), bool)
+    )
+    if not supports_locked_recheck:
+        return evidence, _manual_decision_with_reason(
+            decision,
+            "no_change_target_lock_unavailable",
+        )
+
+    target = db.scalar(
+        select(Food)
+        .where(
+            Food.family_id == request.family_id,
+            Food.id == str(payload["targetId"]),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if target is None:
+        return evidence, _manual_decision_with_reason(decision, "target_changed_before_no_change")
+
+    evidence, locked_decision = policy_registry.evaluate_draft(
+        db=db,
+        family_id=request.family_id,
+        actor_user_id=request.actor_user_id,
+        draft_type=request.draft_type,
+        payload=request.payload,
+        evidence_input=request.intent_evidence_input,
+        current_message=request.current_message,
+        trusted_resolution_sources=request.trusted_resolution_sources,
+        authorization=authorization,
+        auto_execution_attempted=False,
+        has_continuation=bool(request.continuation),
+        is_composite=request.draft_type == "composite_operation",
+        has_external_side_effect=False,
+        registered_revert_adapters=registered_revert_adapters,
+    )
+    if locked_decision.route != "no_change":
+        locked_decision = _manual_decision_with_reason(
+            locked_decision,
+            "target_changed_before_no_change",
+        )
+    return evidence, locked_decision
 
 
 def _draft_idempotency_key(request: DraftRouteRequest) -> str:
@@ -522,6 +631,74 @@ def _persist_no_change_result(
     return projection, result_part, artifact
 
 
+def _persist_execution_failure_result(
+    db: Session,
+    *,
+    draft: AITaskDraft,
+    operation: AIOperation,
+    projection: AIOperationResultProjection,
+) -> dict[str, Any]:
+    recovery_hint = "请检查当前状态后重新生成草稿"
+    error_code = str(operation.error_code or "draft_commit_domain_failed")
+    card = {
+        "id": f"operation-failure:{operation.id}",
+        "type": "operation_result",
+        "title": "自动执行未完成",
+        "data": {
+            "actionSummary": projection.execution_explanation,
+            "entityCount": 0,
+            "entityCountLabel": "未完成",
+            "workspaceLabel": draft_operation_registry.workspace_label(draft.draft_type),
+            "workspaceHint": recovery_hint,
+            "entities": [],
+            "approvalId": None,
+            "operationId": operation.id,
+            "draftId": draft.id,
+            "errorCode": error_code,
+            "recoveryHint": recovery_hint,
+        },
+    }
+    message = db.get(AIMessage, draft.message_id)
+    result_part: dict[str, Any] = {}
+    if message is not None:
+        existing = next(
+            (
+                part
+                for part in message.parts or []
+                if isinstance(part, dict)
+                and part.get("type") == "result_card"
+                and isinstance(part.get("card"), dict)
+                and part["card"].get("id") == card["id"]
+            ),
+            None,
+        )
+        result_part = existing or {
+            "id": create_id("ai_part"),
+            "type": "result_card",
+            "card": jsonable_encoder(card),
+        }
+        if existing is None:
+            message.parts = [*(message.parts or []), result_part]
+    artifact = {
+        "id": f"draft-route-failure:{draft.id}",
+        "type": "draft_route_result",
+        "kind": "control",
+        "version": 1,
+        "status": "failed",
+        "payload": {
+            "draftId": draft.id,
+            "operationId": operation.id,
+            "errorCode": error_code,
+            "message": projection.execution_explanation,
+            "recoveryHint": recovery_hint,
+        },
+        "sourceDraftId": draft.id,
+        "sourceOperationId": operation.id,
+    }
+    persist_message_artifacts(db, message_id=draft.message_id, artifacts=[artifact])
+    return result_part
+
+
 def _replay_existing_route(
     db: Session,
     *,
@@ -546,8 +723,16 @@ def _replay_existing_route(
             else coordinator._failed_result(db, operation=operation, draft=draft)
         )
         projection = commit.projection
-        if commit.result_part.get("id"):
-            published_part_ids = (str(commit.result_part["id"]),)
+        result_part = commit.result_part
+        if status == "execution_failed":
+            result_part = _persist_execution_failure_result(
+                db,
+                draft=draft,
+                operation=operation,
+                projection=commit.projection,
+            )
+        if result_part.get("id"):
+            published_part_ids = (str(result_part["id"]),)
     elif status == "no_change":
         projection, part, artifact = _persist_no_change_result(
             db,

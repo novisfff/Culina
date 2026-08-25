@@ -503,7 +503,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_data["approval"]["approval_type"], "recipe.create.retry")
             self.assertEqual(decision_data["draft"]["status"], "pending_retry")
             self.assertEqual(decision_data["operation"]["status"], "failed")
-            self.assertIn("sync failed", decision_data["operation"]["error_message"])
+            self.assertEqual(
+                decision_data["operation"]["error_message"],
+                "操作未能完成，请稍后重新生成草稿",
+            )
+            self.assertEqual(decision_data["operation"]["error_code"], "draft_commit_domain_failed")
             pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
             self.assertEqual(pending_response.status_code, 200, pending_response.text)
             self.assertEqual(pending_response.json()[0]["id"], decision_data["approval"]["id"])
@@ -867,7 +871,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 self.assertIsNone(result["business_entity"])
                 self.assertEqual(result["operation"]["status"], "failed")
-                self.assertIn("菜单或餐食历史", result["operation"]["error_message"])
+                self.assertEqual(
+                    result["operation"]["error_message"],
+                    "目标状态已变化，请刷新后重新生成草稿",
+                )
+                self.assertEqual(result["operation"]["error_code"], "draft_commit_domain_conflict")
                 self.assertEqual(result["draft"]["status"], "pending_retry")
                 self.assertNotEqual(result["approval"]["id"], original_approval_id)
                 self.assertEqual(result["approval"]["status"], "pending")
@@ -2109,8 +2117,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         self.assertEqual(result["draft"]["status"], "pending_retry")
                         self.assertEqual(result["approval"]["status"], "pending")
                         self.assertTrue(result["approval"]["approval_type"].endswith(".retry"))
-                        self.assertIn("更新", result["operation"]["error_message"])
-                        self.assertIn("重试", result["operation"]["error_message"])
+                        self.assertEqual(
+                            result["operation"]["error_message"],
+                            "目标状态已变化，请刷新后重新生成草稿",
+                        )
+                        self.assertEqual(
+                            result["operation"]["error_code"],
+                            "draft_commit_domain_conflict",
+                        )
 
         def test_meal_plan_retry_approval_includes_failed_operation_summary(self) -> None:
             with self.SessionLocal() as db:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
+import json
 from unittest.mock import patch
 
 from sqlalchemy import func, select
@@ -12,6 +14,7 @@ from app.ai.errors import AIConflictError, AIExecutionCancelled
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.skills import SkillResult
 from app.ai.workflows.runner import WorkspaceGraphRunner
+from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
 from app.ai.workspace_service import AIApplicationService
 from app.core.utils import utcnow
 from app.models.domain import (
@@ -35,6 +38,7 @@ from app.services.ai_auto_execution.policy_types import (
 from app.services.ai_operations.routing import DraftRouteRequest, route_draft
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.executor import execute_ai_operation_draft
+from app.services.serializers import serialize_ai_operation
 
 
 REGISTERED_ADAPTERS = frozenset({"food.favorite.v1"})
@@ -312,6 +316,45 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertEqual(draft.status, "no_change")
             self.assertTrue(any(part.get("type") == "result_card" for part in message.parts))
 
+    def test_no_change_target_change_under_final_lock_downgrades_without_consuming_attempt(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            food.favorite = True
+            db.commit()
+        request, run_id = self._seed_route(suffix="no-change-target-race")
+
+        class MutatingPolicyRegistry:
+            def __init__(self) -> None:
+                self.evaluation_count = 0
+
+            def resolve_policy(self, **kwargs):
+                return auto_execution_policy_registry.resolve_policy(**kwargs)
+
+            def evaluate_draft(self, **kwargs):
+                self.evaluation_count += 1
+                result = auto_execution_policy_registry.evaluate_draft(**kwargs)
+                if self.evaluation_count == 2:
+                    food = kwargs["db"].get(Food, request.payload["targetId"])
+                    assert food is not None
+                    food.favorite = False
+                    food.updated_at = food.updated_at + timedelta(seconds=1)
+                    kwargs["db"].flush()
+                return result
+
+        outcome = self._route(request, policy_registry=MutatingPolicyRegistry())
+
+        self.assertEqual(outcome.status, "waiting_approval")
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            draft = db.get(AITaskDraft, outcome.draft_id)
+            assert run is not None and draft is not None
+            self.assertFalse(run.auto_execution_attempted)
+            self.assertEqual(draft.execution_route, "manual_confirmation")
+            self.assertIn("target_changed_before_no_change", draft.policy_reason_codes)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 1)
+
     def test_final_authorization_failure_downgrades_before_business_write(self) -> None:
         request, _run_id = self._seed_route(suffix="downgrade")
         calls = 0
@@ -374,6 +417,106 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertTrue(run.auto_execution_attempted)
             self.assertEqual(draft.status, "execution_failed")
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+
+    def test_failed_route_is_checkpointed_and_published_once_without_raw_exception(self) -> None:
+        request, _run_id = self._seed_route(suffix="failure-checkpoint")
+        sentinel = "PRIVATE-DOMAIN-FAILURE-failure-checkpoint"
+        checkpointed = False
+        emitted_events: list[tuple[bool, dict]] = []
+
+        with self.SessionLocal() as db:
+            service = AIApplicationService(db, provider=FakeChatProvider())
+
+            def commit_stream_checkpoint(_state, *, run_status):
+                nonlocal checkpointed
+                self.assertEqual(run_status, "execution_failed")
+                db.flush()
+                message = db.get(AIMessage, request.message_id)
+                assert message is not None
+                failure_parts = [
+                    part
+                    for part in message.parts
+                    if part.get("type") == "result_card"
+                    and part.get("card", {}).get("data", {}).get("errorCode")
+                ]
+                self.assertEqual(len(failure_parts), 1)
+                db.commit()
+                checkpointed = True
+                return True
+
+            def progress_writer(event: dict) -> None:
+                emitted_events.append((checkpointed, event))
+
+            publisher = ProgressiveDraftPublisher(
+                db=db,
+                service=service,
+                cancel_requested=lambda _run_id: False,
+                commit_stream_checkpoint=commit_stream_checkpoint,
+                optional_stream_writer=lambda: object(),
+                persistent_progress_writer=lambda _writer, _state: progress_writer,
+                registered_revert_adapters=REGISTERED_ADAPTERS,
+            )
+            publish = publisher.create_publisher(
+                {
+                    "family_id": request.family_id,
+                    "user_id": request.actor_user_id,
+                    "conversation_id": request.conversation_id,
+                    "run_id": request.run_id,
+                    "message": request.current_message,
+                }
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=RuntimeError(sentinel),
+            ):
+                published = publish(
+                    {
+                        "draft_type": request.draft_type,
+                        "payload": request.payload,
+                        "schema_version": request.schema_version,
+                        "tool": request.tool_name,
+                        "skill_approval_policy": request.skill_approval_policy,
+                        "intent_evidence_input": request.intent_evidence_input,
+                        "trusted_resolution_sources": request.trusted_resolution_sources,
+                        "continuation": request.continuation,
+                    }
+                )
+
+            self.assertEqual(published["route_status"], "execution_failed")
+            self.assertEqual(len(emitted_events), 1)
+            self.assertTrue(emitted_events[0][0])
+            self.assertEqual(emitted_events[0][1]["event"], "message_part")
+            message = db.get(AIMessage, request.message_id)
+            operation = db.get(AIOperation, published["operation_id"])
+            assert message is not None and operation is not None
+            failure_parts = [
+                part
+                for part in message.parts
+                if part.get("type") == "result_card"
+                and part.get("card", {}).get("data", {}).get("errorCode")
+            ]
+            failure_artifacts = [
+                artifact
+                for artifact in (message.message_metadata or {}).get("artifacts") or []
+                if artifact.get("type") == "draft_route_result" and artifact.get("status") == "failed"
+            ]
+            self.assertEqual(len(failure_parts), 1)
+            self.assertEqual(len(failure_artifacts), 1)
+            self.assertEqual(failure_parts[0]["card"]["data"]["errorCode"], "draft_commit_domain_failed")
+            self.assertTrue(failure_parts[0]["card"]["data"]["recoveryHint"])
+            public_and_persisted_surface = json.dumps(
+                {
+                    "operation": serialize_ai_operation(operation),
+                    "message_content": message.content,
+                    "message_parts": message.parts,
+                    "message_artifacts": (message.message_metadata or {}).get("artifacts"),
+                    "route_outcome": published["route_outcome"],
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            self.assertNotIn(sentinel, public_and_persisted_surface)
+            self.assertEqual(operation.error_message, "操作未能完成，请稍后重新生成草稿")
 
     def test_cancellation_wins_before_draft_or_business_write(self) -> None:
         request, run_id = self._seed_route(suffix="cancel")
@@ -601,6 +744,64 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertEqual(response["run"]["id"], run_id)
             self.assertEqual(db.get(AITaskDraft, draft.id).payload_hash, expected_hash)
             self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+
+    def test_policy_non_retryable_database_failure_is_terminal_and_never_replays_prompt(self) -> None:
+        request, run_id = self._seed_route(suffix="non-retryable-terminal")
+        sentinel = "PRIVATE-NON-RETRYABLE-SQL"
+        non_retryable = OperationalError(
+            f"SELECT {sentinel} FROM foods",
+            {},
+            Exception(1054, sentinel),
+        )
+        with patch(
+            "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+            side_effect=non_retryable,
+        ):
+            try:
+                outcome = self._route(request)
+            except OperationalError as exc:
+                self.fail(f"non-retryable OperationalError escaped auto routing: {exc.__class__.__name__}")
+
+        self.assertEqual(outcome.status, "execution_failed")
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            draft = db.get(AITaskDraft, outcome.draft_id)
+            operation = db.get(AIOperation, outcome.operation_id)
+            message = db.get(AIMessage, request.message_id)
+            assert run is not None and draft is not None and operation is not None and message is not None
+            self.assertEqual(draft.status, "execution_failed")
+            self.assertEqual(operation.status, "failed")
+            self.assertEqual(operation.error_code, "draft_commit_database_error")
+            self.assertEqual(operation.error_message, "数据库写入失败，请稍后重试")
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+            persisted_surface = json.dumps(
+                {
+                    "operation": serialize_ai_operation(operation),
+                    "message_parts": message.parts,
+                    "message_artifacts": (message.message_metadata or {}).get("artifacts"),
+                    "projection": outcome.projection,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            self.assertNotIn(sentinel, persisted_surface)
+
+            run.status = "failed"
+            db.commit()
+            service = AIApplicationService(db, provider=FakeChatProvider())
+            with patch.object(service, "chat", side_effect=AssertionError("provider replayed")):
+                response = service.retry_run(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    run_id=run_id,
+                )
+
+            self.assertEqual(response["run"]["id"], run_id)
+            self.assertEqual(response["message"]["id"], request.message_id)
+            self.assertEqual(db.scalar(select(func.count(AIAgentRun.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 1)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
 
     def test_duplicate_policy_retry_executes_domain_write_once(self) -> None:
