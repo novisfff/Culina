@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from app.core.utils import utcnow
 from app.models.domain import (
     ActivityLog,
     AIConversation,
@@ -31,6 +32,7 @@ from app.models.domain import (
     ShoppingListItem,
     User,
 )
+from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
 from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
 from app.services.media import signed_media_content_access, signed_media_variants
@@ -575,17 +577,24 @@ def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
     return normalized
 
 
-def serialize_ai_message(item: AIMessage) -> dict:
+def serialize_ai_message(item: AIMessage, *, response_now: datetime | None = None) -> dict:
+    serialized_at = response_now or utcnow()
     return {
         "id": item.id,
         "conversation_id": item.conversation_id,
         "role": item.role,
         "content": item.content,
         "content_type": item.content_type,
-        "parts": _normalize_ai_message_parts(item.parts),
+        "parts": [
+            hydrate_operation_result_server_now(part, serialized_at)
+            for part in _normalize_ai_message_parts(item.parts)
+        ],
         "run_id": item.run_id,
         "status": item.status,
-        "metadata": item.message_metadata,
+        "metadata": hydrate_operation_result_server_now(
+            item.message_metadata or {},
+            serialized_at,
+        ),
         "client_message_id": item.client_message_id,
         "created_at": _utc_datetime(item.created_at),
     }

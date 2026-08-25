@@ -29,7 +29,6 @@ from app.services.activity import log_activity
 from app.services.ai_auto_execution.policies._common import active_actor
 from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
 from app.services.ai_auto_execution.policy_types import (
-    AIOperationResultProjection,
     AutoExecutionPolicyContext,
     DraftCommitRequest,
     DraftCommitResult,
@@ -37,13 +36,18 @@ from app.services.ai_auto_execution.policy_types import (
     IntentEvidenceValidation,
 )
 from app.services.ai_auto_execution.settings import resolve_effective_authorization
-from app.services.ai_operations.artifacts import approval_decision_artifacts
+from app.services.ai_operations.artifacts import (
+    approval_decision_artifacts,
+    build_approval_result_card,
+)
 from app.services.ai_operations.common import assert_updated_at_matches, is_database_lock_conflict
 from app.services.ai_operations.executor import execute_ai_operation_draft
 from app.services.ai_operations.highlights import classify_approval_highlight
-from app.services.ai_operations.messages import (
-    append_message_result_card,
-    persist_message_artifacts,
+from app.services.ai_operations.result_projection import (
+    build_operation_result_card,
+    operation_result_artifacts,
+    project_ai_operation_result,
+    upsert_message_operation_result,
 )
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import DraftPostExecuteContext
@@ -1143,16 +1147,7 @@ class DraftCommitCoordinator:
             }
         draft_record = serialize_ai_task_draft(draft)
         operation_record = serialize_ai_operation(operation)
-        decision_result = {
-            "approval": approval_record,
-            "draft": draft_record,
-            "operation": operation_record,
-            "business_entity": receipt.business_entity or None,
-            "message_id": draft.message_id,
-            "execution_mode": operation.execution_mode,
-        }
-        result_part = append_message_result_card(db, decision_result=decision_result) or {}
-        artifacts = tuple(
+        approval_artifacts = tuple(
             approval_decision_artifacts(
                 approval=approval_record,
                 draft=draft_record,
@@ -1160,12 +1155,64 @@ class DraftCommitCoordinator:
                 business_entity=receipt.business_entity or None,
             )
         )
-        persist_message_artifacts(db, message_id=draft.message_id, artifacts=list(artifacts))
-        projection = cls._build_projection(
+        legacy_card = build_approval_result_card(
+            approval=approval_record,
+            draft=draft_record,
+            operation=operation_record,
+            draft_config=draft_operation_registry.approval_config_for_payload(
+                draft.draft_type,
+                draft.payload,
+            ),
+            business_artifacts=[
+                artifact
+                for artifact in approval_artifacts
+                if artifact.get("kind") == "business_entity"
+            ],
+        )
+        entities = tuple(
+            dict(entity)
+            for entity in (
+                legacy_card.get("data", {}).get("entities", [])
+                if isinstance(legacy_card, dict)
+                else []
+            )
+            if isinstance(entity, dict)
+        )
+        projection = project_ai_operation_result(
             operation=operation,
             draft=draft,
-            receipt=receipt,
-            now=request.committed_at,
+            entities=entities,
+            cache_scopes=receipt.cache_scopes,
+            server_now=request.committed_at,
+        )
+        workspace_label = draft_operation_registry.workspace_label(draft.draft_type)
+        recovery_hint = (
+            "请检查当前状态后重新生成草稿"
+            if projection.result_status == "failed"
+            else None
+        )
+        card = build_operation_result_card(
+            projection,
+            title=(
+                str(legacy_card.get("title") or "")
+                if isinstance(legacy_card, dict)
+                else "自动执行未完成"
+            ),
+            workspace_label=workspace_label,
+            approval_id=(str(approval_record.get("id")) if approval_record.get("id") else None),
+            workspace_hint=recovery_hint,
+            error_code=(str(operation.error_code) if operation.error_code else None),
+            recovery_hint=recovery_hint,
+        )
+        result_artifacts = operation_result_artifacts(projection, card=card)
+        artifacts = (*approval_artifacts, *result_artifacts)
+        result_part = upsert_message_operation_result(
+            db,
+            message_id=draft.message_id,
+            projection=projection,
+            card=card,
+            artifacts=artifacts,
+            approval_id=(str(approval_record.get("id")) if approval_record.get("id") else None),
         )
         return DraftCommitResult(
             operation_id=operation.id,
@@ -1173,44 +1220,6 @@ class DraftCommitCoordinator:
             projection=projection,
             result_part=result_part,
             artifacts=artifacts,
-        )
-
-    @classmethod
-    def _build_projection(
-        cls,
-        *,
-        operation: AIOperation,
-        draft: AITaskDraft,
-        receipt: DraftExecutionReceipt,
-        now: datetime,
-    ) -> AIOperationResultProjection:
-        succeeded = operation.status == "succeeded"
-        entities = tuple(
-            draft_operation_registry.business_entity_records(
-                draft.draft_type,
-                receipt.business_entity,
-                entity_type=operation.business_entity_type,
-            )
-            if succeeded
-            else ()
-        )
-        return AIOperationResultProjection(
-            draft_id=draft.id,
-            operation_id=operation.id,
-            result_status="completed" if succeeded else "failed",
-            execution_mode=operation.execution_mode,  # type: ignore[arg-type]
-            operation_status="completed" if succeeded else "failed",
-            execution_explanation=(
-                "已完成写入"
-                if succeeded
-                else cls._safe_failure_message(operation.error_code)
-            ),
-            revert_availability=("available" if operation.revert_adapter_key else "unsupported"),
-            revertible_until=operation.revertible_until,
-            revert_blocked_code=operation.revert_blocked_code,
-            server_now=now,
-            entities=entities,
-            cache_scopes=receipt.cache_scopes,
         )
 
     @classmethod

@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import AiMode, AIConversationVisibility, Difficulty
+from app.schemas.ai_auto_execution import AIOperationResultProjectionOut
 from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
 
@@ -310,6 +311,17 @@ class AIOperationResultCardDataDTO(BaseModel):
     workspaceLabel: str = Field(min_length=1)
     workspaceHint: str = Field(min_length=1)
     entities: list[AIOperationResultEntityDTO] = Field(default_factory=list)
+    draft_id: str | None = None
+    operation_id: str | None = None
+    result_status: Literal["completed", "no_change", "failed", "reverted"] | None = None
+    execution_mode: Literal["manual_approval", "policy_auto", "policy_no_change"] | None = None
+    operation_status: Literal["pending", "completed", "failed", "reverted"] | None = None
+    execution_explanation: str | None = None
+    revert_availability: Literal["available", "expired", "unsupported", "blocked", "reverted"] | None = None
+    revertible_until: datetime | None = None
+    revert_blocked_code: str | None = None
+    server_now: datetime | None = None
+    cache_scopes: list[str] = Field(default_factory=list)
 
 
 class AIUiActionDTO(BaseModel):
@@ -848,3 +860,7 @@ class AIApprovalDecisionResponse(BaseModel):
     draft: AITaskDraftDTO
     operation: dict | None = None
     business_entity: dict | None = None
+    operation_result: AIOperationResultProjectionOut | None = None
+    result_part: AIMessagePartDTO | None = None
+    artifacts: list[dict] = Field(default_factory=list)
+    cache_scopes: list[str] = Field(default_factory=list)

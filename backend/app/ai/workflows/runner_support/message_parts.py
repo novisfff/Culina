@@ -38,6 +38,19 @@ def result_card_message_part(*, part_id: str, card: dict[str, Any]) -> dict[str,
     return {"id": part_id, "type": "result_card", "card": card}
 
 
+def operation_result_message_part(
+    *,
+    draft_id: str,
+    card: dict[str, Any],
+    part_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": part_id or f"operation-result-part:{draft_id}",
+        "type": "result_card",
+        "card": card,
+    }
+
+
 def human_input_request_message_part(*, part_id: str, request: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": part_id,

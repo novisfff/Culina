@@ -14,15 +14,13 @@ from app.models.domain import AIApprovalRequest, AIConversation, AIOperation, AI
 from app.services.ai_auto_execution.policy_types import DraftCommitRequest
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
-from app.services.ai_operations.artifacts import approval_decision_artifacts
 from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator
 from app.services.ai_operations.common import is_database_lock_conflict
 from app.services.ai_operations.messages import (
     append_message_approval_part,
-    append_message_result_card,
-    persist_message_artifacts,
     sync_message_approval_parts,
 )
+from app.services.ai_operations.result_projection import serialize_ai_operation_result_projection
 from app.services.ai_operations.recovery import build_failure_summary
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.run_cancellation import (
@@ -331,18 +329,11 @@ def apply_ai_approval_decision(
         "draft": serialize_ai_task_draft(committed_draft),
         "operation": serialize_ai_operation(operation),
         "business_entity": business_entity,
+        "operation_result": serialize_ai_operation_result_projection(commit_result.projection),
+        "result_part": commit_result.result_part or None,
+        "artifacts": list(commit_result.artifacts),
+        "cache_scopes": list(commit_result.projection.cache_scopes),
     }
-    append_message_result_card(db, decision_result=decision_result)
-    persist_message_artifacts(
-        db,
-        message_id=decision_approval.message_id,
-        artifacts=approval_decision_artifacts(
-            approval=serialize_ai_approval_request(decision_approval),
-            draft=decision_result["draft"],
-            operation=decision_result["operation"],
-            business_entity=business_entity,
-        ),
-    )
 
     if run is not None and cancellation_wins(db, run=run):
         finalize_run_cancellation(db, run=run)

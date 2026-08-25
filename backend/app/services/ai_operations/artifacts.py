@@ -4,6 +4,7 @@ from typing import Any
 
 from app.core.utils import create_id
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.result_projection import operation_result_artifacts
 
 
 def build_approval_result_card(
@@ -41,9 +42,9 @@ def build_approval_result_card(
     workspace_label = approval_result_workspace_label(draft_type)
     count_label = approval_result_count_label(draft_type, count)
     stable_result_id = (
-        approval.get("id")
+        draft.get("id")
+        or approval.get("id")
         or operation.get("id")
-        or draft.get("id")
         or create_id("approval_result")
     )
     return {

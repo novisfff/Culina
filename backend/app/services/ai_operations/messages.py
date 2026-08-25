@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AIMessage, AITaskDraft
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.result_projection import upsert_message_operation_result
 from app.services.ai_operations.artifacts import (
     approval_decision_artifacts,
     build_approval_result_card,

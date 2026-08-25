@@ -16,7 +16,7 @@ from app.ai.workflows.runner_support.message_parts import (
 )
 from app.ai.workflows.runner_support.run_status import RUNNING, WAITING_APPROVAL
 from app.ai.workflows.state import WorkspaceGraphState
-from app.core.utils import create_id
+from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -24,6 +24,7 @@ from app.services.ai_operations.run_cancellation import (
     lock_run_for_transition,
 )
 from app.services.ai_operations.routing import DraftRouteRequest, route_draft
+from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
 from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
 
 
@@ -254,6 +255,7 @@ class ProgressiveDraftPublisher:
         message_id: str,
         parts: tuple[dict[str, Any], ...],
     ) -> None:
+        response_now = utcnow()
         for part in parts:
             writer = self.persistent_progress_writer(self.optional_stream_writer(), state)
             if writer is not None:
@@ -264,7 +266,7 @@ class ProgressiveDraftPublisher:
                             "message_id": message_id,
                             "conversation_id": state["conversation_id"],
                             "run_id": state["run_id"],
-                            "part": part,
+                            "part": hydrate_operation_result_server_now(part, response_now),
                         },
                     }
                 )

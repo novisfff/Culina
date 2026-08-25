@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import hashlib
 from typing import Any, cast
 
-from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +32,12 @@ from app.services.ai_operations.commit_coordinator import (
 )
 from app.services.ai_operations.drafts import draft_preview_summary
 from app.services.ai_operations.messages import persist_message_artifacts
+from app.services.ai_operations.result_projection import (
+    build_operation_result_card,
+    operation_result_artifacts,
+    project_ai_operation_result,
+    upsert_message_operation_result,
+)
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -523,66 +528,27 @@ def _persist_no_change_result(
     draft: AITaskDraft,
 ) -> tuple[AIOperationResultProjection, dict[str, Any], dict[str, Any]]:
     now = utcnow()
-    projection = AIOperationResultProjection(
-        draft_id=draft.id,
-        operation_id=None,
-        result_status="no_change",
-        execution_mode="policy_no_change",
-        operation_status=None,
-        execution_explanation="当前状态已满足，无需修改",
-        revert_availability="unsupported",
-        revertible_until=None,
-        revert_blocked_code=None,
-        server_now=now,
+    projection = project_ai_operation_result(
+        draft=draft,
+        operation=None,
         entities=(),
         cache_scopes=("ai_conversation",),
+        server_now=now,
     )
-    card = {
-        "id": f"operation-result:{draft.id}",
-        "type": "operation_result",
-        "title": "当前状态已满足",
-        "data": {
-            "actionSummary": projection.execution_explanation,
-            "entityCount": 0,
-            "entityCountLabel": "无需修改",
-            "workspaceLabel": draft_operation_registry.workspace_label(draft.draft_type),
-            "workspaceHint": "当前数据没有变化",
-            "entities": [],
-            "approvalId": None,
-            "operationId": None,
-            "draftId": draft.id,
-        },
-    }
-    message = db.get(AIMessage, request.message_id)
-    result_part: dict[str, Any] = {}
-    if message is not None:
-        existing = next(
-            (
-                part
-                for part in message.parts or []
-                if isinstance(part, dict)
-                and part.get("type") == "result_card"
-                and isinstance(part.get("card"), dict)
-                and part["card"].get("id") == card["id"]
-            ),
-            None,
-        )
-        result_part = existing or {
-            "id": create_id("ai_part"),
-            "type": "result_card",
-            "card": jsonable_encoder(card),
-        }
-        if existing is None:
-            message.parts = [*(message.parts or []), result_part]
-    artifact = {
-        "id": f"draft-route:{draft.id}",
-        "type": "draft_route_result",
-        "kind": "control",
-        "version": 1,
-        "status": "no_change",
-        "payload": jsonable_encoder(projection),
-        "sourceDraftId": draft.id,
-    }
+    card = build_operation_result_card(
+        projection,
+        title="当前状态已满足",
+        workspace_label=draft_operation_registry.workspace_label(draft.draft_type),
+        workspace_hint="当前数据没有变化",
+    )
+    artifact = operation_result_artifacts(projection, card=card)[0]
+    result_part = upsert_message_operation_result(
+        db,
+        message_id=request.message_id,
+        projection=projection,
+        card=card,
+        artifacts=(artifact,),
+    )
     return projection, result_part, artifact
 
 
@@ -595,46 +561,15 @@ def _persist_execution_failure_result(
 ) -> dict[str, Any]:
     recovery_hint = "请检查当前状态后重新生成草稿"
     error_code = str(operation.error_code or "draft_commit_domain_failed")
-    card = {
-        "id": f"operation-failure:{operation.id}",
-        "type": "operation_result",
-        "title": "自动执行未完成",
-        "data": {
-            "actionSummary": projection.execution_explanation,
-            "entityCount": 0,
-            "entityCountLabel": "未完成",
-            "workspaceLabel": draft_operation_registry.workspace_label(draft.draft_type),
-            "workspaceHint": recovery_hint,
-            "entities": [],
-            "approvalId": None,
-            "operationId": operation.id,
-            "draftId": draft.id,
-            "errorCode": error_code,
-            "recoveryHint": recovery_hint,
-        },
-    }
-    message = db.get(AIMessage, draft.message_id)
-    result_part: dict[str, Any] = {}
-    if message is not None:
-        existing = next(
-            (
-                part
-                for part in message.parts or []
-                if isinstance(part, dict)
-                and part.get("type") == "result_card"
-                and isinstance(part.get("card"), dict)
-                and part["card"].get("id") == card["id"]
-            ),
-            None,
-        )
-        result_part = existing or {
-            "id": create_id("ai_part"),
-            "type": "result_card",
-            "card": jsonable_encoder(card),
-        }
-        if existing is None:
-            message.parts = [*(message.parts or []), result_part]
-    artifact = {
+    card = build_operation_result_card(
+        projection,
+        title="自动执行未完成",
+        workspace_label=draft_operation_registry.workspace_label(draft.draft_type),
+        workspace_hint=recovery_hint,
+        error_code=error_code,
+        recovery_hint=recovery_hint,
+    )
+    route_artifact = {
         "id": f"draft-route-failure:{draft.id}",
         "type": "draft_route_result",
         "kind": "control",
@@ -650,7 +585,14 @@ def _persist_execution_failure_result(
         "sourceDraftId": draft.id,
         "sourceOperationId": operation.id,
     }
-    persist_message_artifacts(db, message_id=draft.message_id, artifacts=[artifact])
+    result_artifacts = operation_result_artifacts(projection, card=card)
+    result_part = upsert_message_operation_result(
+        db,
+        message_id=draft.message_id,
+        projection=projection,
+        card=card,
+        artifacts=(*result_artifacts, route_artifact),
+    )
     return result_part
 
 

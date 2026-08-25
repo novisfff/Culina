@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,3 +37,20 @@ class AutoExecutionSettingsOut(_StrictModel):
     family_policies: list[AutoExecutionSettingEntryOut]
     limits: dict[str, dict[str, int]]
     server_now: datetime
+
+
+class AIOperationResultProjectionOut(_StrictModel):
+    draft_id: str
+    operation_id: str | None
+    result_status: Literal["completed", "no_change", "failed", "reverted"]
+    execution_mode: Literal["manual_approval", "policy_auto", "policy_no_change"]
+    operation_status: Literal["pending", "completed", "failed", "reverted"] | None
+    execution_explanation: str
+    revert_availability: Literal["available", "expired", "unsupported", "blocked", "reverted"]
+    revertible_until: datetime | None
+    revert_blocked_code: str | None
+    server_now: datetime
+    entities: list[dict[str, Any]] = Field(default_factory=list)
+    cache_scopes: list[
+        Literal["food", "meal_log", "meal_plan", "shopping_list", "inventory", "ai_conversation"]
+    ] = Field(default_factory=list)
