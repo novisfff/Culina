@@ -124,6 +124,7 @@ describe('MessageBubble operation result replacement', () => {
         message={operationMessage({
           server_now: '2026-08-24T16:00:00.001+08:00',
           revertible_until: '2026-08-24T16:00:00+08:00',
+          revert_availability: 'expired',
         })}
         user={testUser}
         onApprovalDecision={() => undefined}

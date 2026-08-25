@@ -330,7 +330,7 @@ function OperationResultCard({
   const serverNow = projection?.server_now ?? '';
   const [clock, setClock] = useState(() => ({
     serverNow,
-    offsetMs: projection ? Date.parse(projection.server_now) - Date.now() : 0,
+    offsetMs: projection ? Date.parse(projection.server_now) - Date.now() : Number.NaN,
     clientNowMs: Date.now(),
   }));
   useEffect(() => {
@@ -339,18 +339,28 @@ function OperationResultCard({
     const clientNowMs = Date.now();
     setClock({
       serverNow: projection.server_now,
-      offsetMs: Number.isNaN(parsedServerNow) ? 0 : parsedServerNow - clientNowMs,
+      offsetMs: Number.isFinite(parsedServerNow) ? parsedServerNow - clientNowMs : Number.NaN,
       clientNowMs,
     });
-    const timer = window.setInterval(() => {
+    const updateClock = () => {
       setClock((current) => ({ ...current, clientNowMs: Date.now() }));
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [projection?.server_now]);
+    };
+    const minuteTimer = window.setInterval(updateClock, 60_000);
+    const deadlineMs = projection.revertible_until ? Date.parse(projection.revertible_until) : Number.NaN;
+    const effectiveNowMs = clientNowMs + (Number.isFinite(parsedServerNow) ? parsedServerNow - clientNowMs : Number.NaN);
+    const deadlineDelayMs = deadlineMs - effectiveNowMs + 1;
+    const deadlineTimer = Number.isFinite(deadlineDelayMs) && deadlineDelayMs >= 0
+      ? window.setTimeout(updateClock, deadlineDelayMs)
+      : undefined;
+    return () => {
+      window.clearInterval(minuteTimer);
+      if (deadlineTimer !== undefined) window.clearTimeout(deadlineTimer);
+    };
+  }, [projection?.revertible_until, projection?.server_now]);
   const parsedCurrentServerNow = Date.parse(serverNow);
   const effectiveNowMs = clock.serverNow === serverNow
     ? clock.clientNowMs + clock.offsetMs
-    : Number.isNaN(parsedCurrentServerNow) ? Date.now() : parsedCurrentServerNow;
+    : parsedCurrentServerNow;
   const viewModel = useMemo(
     () => projection ? operationResultViewModel(projection, effectiveNowMs) : null,
     [effectiveNowMs, projection],
@@ -366,12 +376,16 @@ function OperationResultCard({
     };
   }, []);
   const revert = useAiOperationRevert({
+    operationId: projection?.operation_id ?? undefined,
     conversationId: conversationId ?? '',
     onResultCard: (nextCard) => {
       setCurrentCard(nextCard);
       onResultCard?.(nextCard);
     },
   });
+  useEffect(() => {
+    if (revert.resultCard) setCurrentCard(revert.resultCard);
+  }, [revert.resultCard]);
   if (!projection || !viewModel) {
     return (
       <article className="ai-result-card ai-query-result-card ai-operation-result-card">
@@ -397,6 +411,13 @@ function OperationResultCard({
   const destinationText = workspaceHint.trim();
   const detailTarget = entities.map(navigateTargetForOperationEntity).find(Boolean) ?? null;
   const showRevert = viewModel.canRevert;
+  const keepAttemptedRevertControl = revert.hasAttempted && !showRevert;
+  const showActions = showRevert || keepAttemptedRevertControl;
+  const revertLabel = revert.isPending
+    ? '撤销中…'
+    : keepAttemptedRevertControl
+      ? projection.result_status === 'reverted' || projection.revert_availability === 'reverted' ? '已撤销' : '无法撤销'
+      : '撤销';
   const displayedStatus = showRevert && !isOnline ? '联网后可重试撤销' : viewModel.statusText;
 
   return (
@@ -464,18 +485,18 @@ function OperationResultCard({
         <span>{displayedStatus}</span>
         {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
       </div>
-      {showRevert && (
+      {showActions && (
         <div className="ai-operation-result-actions">
           <button
             className="ghost-button ai-operation-revert-button"
             type="button"
-            disabled={!conversationId || !isOnline || revert.isPending}
+            disabled={!showRevert || !conversationId || !isOnline || revert.isPending}
             aria-busy={revert.isPending}
             onClick={() => {
               if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
             }}
           >
-            {revert.isPending ? '撤销中…' : '撤销'}
+            {revertLabel}
           </button>
           <button
             className="ghost-button"

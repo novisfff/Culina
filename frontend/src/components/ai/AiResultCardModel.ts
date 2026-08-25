@@ -81,6 +81,12 @@ function isOperationResultEntity(value: unknown): value is AiOperationResultEnti
     && (entity.updatedAt === undefined || isNullableString(entity.updatedAt));
 }
 
+function parsedFiniteTime(value: string | null) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function operationResultProjection(card: AiResultCard): AiOperationResultProjection | null {
   if (card.type !== 'operation_result') return null;
   const data = card.data;
@@ -100,7 +106,13 @@ export function operationResultProjection(card: AiResultCard): AiOperationResult
     || !Array.isArray(data.cache_scopes)
     || !data.cache_scopes.every((scope) => CACHE_SCOPES.has(scope as AiCacheScope))
   ) return null;
-  return data as unknown as AiOperationResultProjection;
+  const projection = data as unknown as AiOperationResultProjection;
+  if (projection.revert_availability === 'available') {
+    const serverNowMs = parsedFiniteTime(projection.server_now);
+    const deadlineMs = parsedFiniteTime(projection.revertible_until);
+    if (serverNowMs === null || deadlineMs === null || deadlineMs < serverNowMs) return null;
+  }
+  return projection;
 }
 
 export type AiOperationResultViewModel = {
@@ -174,8 +186,27 @@ export function operationResultViewModel(
       tone: 'neutral',
     };
   }
-  const deadlineMs = projection.revertible_until ? Date.parse(projection.revertible_until) : null;
-  const locallyExpired = deadlineMs !== null && !Number.isNaN(deadlineMs) && effectiveNowMs > deadlineMs;
+  const serverNowMs = parsedFiniteTime(projection.server_now);
+  const deadlineMs = parsedFiniteTime(projection.revertible_until);
+  if (
+    projection.revert_availability === 'available'
+    && (
+      serverNowMs === null
+      || deadlineMs === null
+      || deadlineMs < serverNowMs
+      || !Number.isFinite(effectiveNowMs)
+    )
+  ) {
+    return {
+      eyebrow: OPERATION_RESULT_EYEBROWS[projection.execution_mode],
+      canRevert: false,
+      statusText: '撤销状态暂不可用，请刷新后重试',
+      deadlineText: null,
+      locallyExpired: false,
+      tone: 'danger',
+    };
+  }
+  const locallyExpired = deadlineMs !== null && effectiveNowMs > deadlineMs;
   const tone: AiOperationResultViewModel['tone'] = locallyExpired || projection.revert_availability === 'expired'
     ? 'danger'
     : projection.revert_availability === 'blocked'

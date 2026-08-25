@@ -1,5 +1,5 @@
 import React, { act } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { aiApi } from '../../api/aiApi';
@@ -44,7 +44,7 @@ function Harness({ onCard }: { onCard: (card: AiResultCard) => void }) {
   return (
     <>
       <button type="button" onClick={() => revert.mutate('operation-1')}>撤销</button>
-      <span role="status">{revert.announcement}</span>
+      <span role="status" data-paused={String(revert.isPaused)}>{revert.announcement}</span>
     </>
   );
 }
@@ -61,11 +61,39 @@ async function renderHarness(onCard: (card: AiResultCard) => void) {
 }
 
 afterEach(() => {
+  onlineManager.setOnline(true);
   vi.restoreAllMocks();
   document.body.innerHTML = '';
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
 });
 
 describe('useAiOperationRevert', () => {
+  it('fails offline without pausing or replaying the mutation on reconnect', async () => {
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    onlineManager.setOnline(false);
+    const requestIdSpy = vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation').mockResolvedValue(response());
+    const rendered = await renderHarness(() => undefined);
+
+    await act(async () => { rendered.container.querySelector<HTMLButtonElement>('button')?.click(); });
+
+    expect(apiSpy).not.toHaveBeenCalled();
+    expect(rendered.container.querySelector('[role="status"]')?.getAttribute('data-paused')).toBe('false');
+    expect(rendered.container.querySelector('[role="status"]')?.textContent).toBe('撤销失败，请重试');
+
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+    await act(async () => {
+      onlineManager.setOnline(true);
+      await Promise.resolve();
+    });
+
+    expect(apiSpy).not.toHaveBeenCalled();
+    await act(async () => { rendered.container.querySelector<HTMLButtonElement>('button')?.click(); });
+    expect(apiSpy).toHaveBeenCalledWith('operation-1', { client_request_id: '11111111-1111-4111-8111-111111111111' });
+    expect(requestIdSpy).toHaveBeenCalledTimes(1);
+    rendered.unmount();
+  });
+
   it('reuses the request id after a temporary failure and replaces from the eventual HTTP response', async () => {
     const cards: AiResultCard[] = [];
     const requestIds: string[] = [];

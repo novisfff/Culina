@@ -59,6 +59,7 @@ import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
 import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
+import { AiOperationRevertProvider } from '../../features/ai-auto-execution/useAiOperationRevert';
 import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
@@ -1480,6 +1481,7 @@ export function AiWorkspace({
   });
   return (
     <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
+    <AiOperationRevertProvider>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       {view === 'autoExecution' ? <>
         <div className="ai-desktop-view"><AiAutoExecutionDesktopPanel familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} /></div>
@@ -1770,6 +1772,7 @@ export function AiWorkspace({
       <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
       </>}
     </main>
+    </AiOperationRevertProvider>
     </AiResultCardReplacementProvider>
   );
 }

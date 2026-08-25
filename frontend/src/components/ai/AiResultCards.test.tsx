@@ -125,6 +125,30 @@ describe('AI operation result state', () => {
     expect(operationResultProjection({ ...operationCard(), type: 'inventory_summary' })).toBeNull();
   });
 
+  it.each([
+    ['missing deadline', { revertible_until: null }],
+    ['invalid deadline', { revertible_until: 'not-a-date' }],
+    ['invalid server clock', { server_now: 'not-a-date' }],
+    ['deadline before server clock', {
+      server_now: '2026-08-24T15:42:00+08:00',
+      revertible_until: '2026-08-24T15:41:59+08:00',
+    }],
+  ] as const)('fails closed for an available projection with %s', async (_label, overrides) => {
+    const card = operationCard(overrides as Partial<AiOperationResultProjection>);
+    const view = await renderCard(card);
+
+    expect(operationResultProjection(card)).toBeNull();
+    expect(view.textContent).toContain('结果详情暂不可用，请刷新后重试。');
+    expect(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).some((button) => !button.disabled && button.textContent === '撤销')).toBe(false);
+  });
+
+  it('fails closed when the effective clock is not finite', () => {
+    expect(operationResultViewModel(operationProjection(), Number.NaN)).toMatchObject({
+      canRevert: false,
+      statusText: '撤销状态暂不可用，请刷新后重试',
+    });
+  });
+
   it('keeps the inclusive deadline available and expires immediately just after it', () => {
     const projection = operationProjection();
     expect(operationResultViewModel(projection, Date.parse('2026-08-24T15:42:00+08:00'))).toMatchObject({
@@ -180,6 +204,10 @@ describe('AI operation result state', () => {
     await act(async () => { resolveRequest?.(revertedResponse()); });
 
     expect(view.textContent).toContain('已撤销');
+    expect(document.activeElement).toBe(button);
+    expect(button.isConnected).toBe(true);
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('已撤销');
     const liveRegion = view.querySelector('[role="status"]');
     expect(liveRegion?.getAttribute('aria-live')).toBe('polite');
     expect(liveRegion?.textContent).toContain('操作已撤销');
@@ -218,13 +246,18 @@ describe('AI operation result state', () => {
       payload: { detail: { ...blockedResponse, code: 'revert_target_changed', message: '相关内容后来被修改，无法安全撤销' } },
     }));
     const view = await renderCard(operationCard());
+    const revertButton = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销') as HTMLButtonElement;
+    revertButton.focus();
 
     await act(async () => {
-      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销')?.click();
+      revertButton.click();
     });
 
     expect(view.textContent).toContain('相关内容后来被修改，无法安全撤销');
-    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+    expect(document.activeElement).toBe(revertButton);
+    expect(revertButton.isConnected).toBe(true);
+    expect(revertButton.disabled).toBe(true);
+    expect(revertButton.textContent).toBe('无法撤销');
     expect(view.querySelector('[role="status"]')?.textContent).toBe('相关内容后来被修改，无法安全撤销');
   });
 
@@ -256,6 +289,22 @@ describe('AI operation result state', () => {
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+  });
+
+  it('expires at the first millisecond after a non-minute-aligned deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-24T10:30:30.250+08:00'));
+    const view = await renderCard(operationCard({
+      server_now: '2026-08-24T10:30:30.250+08:00',
+      revertible_until: '2026-08-24T11:00:00.000+08:00',
+    }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(29 * 60_000 + 29_750); });
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+    expect(view.textContent).toContain('撤销时间已过，可前往页面修改');
   });
 
   it('navigates to details and automatic execution settings with keyboard-operable buttons', async () => {

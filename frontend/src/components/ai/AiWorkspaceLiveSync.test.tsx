@@ -125,6 +125,79 @@ describe('AiWorkspace live sync and conversation migration', () => {
     rendered.unmount();
   });
 
+  it('shares pending and request identity across desktop and mobile instances through a viewport switch', async () => {
+    const initialMessage = operationResultMessage();
+    vi.spyOn(api, 'getAiMessages')
+      .mockResolvedValueOnce([initialMessage])
+      .mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const revertedProjection = operationProjection({
+      result_status: 'reverted',
+      operation_status: 'reverted',
+      execution_explanation: '已撤销自动收藏。',
+      revert_availability: 'reverted',
+      server_now: '2026-08-24T15:31:00+08:00',
+    });
+    const response: AiOperationRevertResponse = {
+      projection: revertedProjection,
+      result_card: { id: 'card-live-operation', type: 'operation_result', title: '收藏已撤销', data: revertedProjection as unknown as AiResultCard['data'] },
+      cache_scopes: ['food', 'ai_conversation'],
+      server_now: revertedProjection.server_now,
+      replayed: false,
+    };
+    let rejectFirst: ((reason?: unknown) => void) | null = null;
+    let resolveRetry: ((value: AiOperationRevertResponse) => void) | null = null;
+    const requestIds: string[] = [];
+    vi.spyOn(aiApi, 'revertAiOperation')
+      .mockImplementationOnce((_operationId, payload) => {
+        requestIds.push(payload.client_request_id);
+        return new Promise((_resolve, reject) => { rejectFirst = reject; });
+      })
+      .mockImplementationOnce((_operationId, payload) => {
+        requestIds.push(payload.client_request_id);
+        return new Promise((resolve) => { resolveRetry = resolve; });
+      });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+    const desktopButton = rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-operation-revert-button') as HTMLButtonElement;
+    const mobileButton = rendered.container.querySelector<HTMLButtonElement>('.ai-mobile-page .ai-operation-revert-button') as HTMLButtonElement;
+
+    await act(async () => { desktopButton.click(); });
+    expect(desktopButton.disabled).toBe(true);
+    expect(mobileButton.disabled).toBe(true);
+    expect(desktopButton.textContent).toBe('撤销中…');
+    expect(mobileButton.textContent).toBe('撤销中…');
+    expect(requestIds).toHaveLength(1);
+
+    await act(async () => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(mobileButton.disabled).toBe(true);
+
+    await act(async () => { rejectFirst?.(new TypeError('network unavailable')); });
+    await flushAsync();
+    expect(desktopButton.disabled).toBe(false);
+    expect(mobileButton.disabled).toBe(false);
+
+    await act(async () => { mobileButton.click(); });
+    expect(requestIds).toHaveLength(2);
+    expect(requestIds[1]).toBe(requestIds[0]);
+    expect(desktopButton.disabled).toBe(true);
+    expect(mobileButton.disabled).toBe(true);
+
+    await act(async () => { resolveRetry?.(response); });
+    await flushAsync();
+    expect(desktopButton.isConnected).toBe(true);
+    expect(mobileButton.isConnected).toBe(true);
+    expect(desktopButton.textContent).toBe('已撤销');
+    expect(mobileButton.textContent).toBe('已撤销');
+    expect(desktopButton.disabled).toBe(true);
+    expect(mobileButton.disabled).toBe(true);
+    rendered.unmount();
+  });
+
   it('replaces an active-chat operation result through the existing message_part stream path', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
