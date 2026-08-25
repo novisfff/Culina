@@ -20,6 +20,7 @@ class RegisteredDraftExecutionFixture:
     draft_type: str
     payload: dict[str, Any]
     expected_cache_scopes: tuple[str, ...]
+    expected_revert_adapter_key: str | None = None
 
 
 class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
@@ -205,6 +206,7 @@ class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
                     ],
                 },
                 ("meal_plan", "ai_conversation"),
+                expected_revert_adapter_key="meal_plan.simple_create.v1",
             ),
             RegisteredDraftExecutionFixture(
                 "recipe",
@@ -279,6 +281,7 @@ class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
                     ],
                 },
                 ("shopping_list", "ai_conversation"),
+                expected_revert_adapter_key="shopping_list.safe_write.v1",
             ),
         ]
         return fixtures
@@ -313,8 +316,15 @@ class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
                 self.assertIsInstance(receipt, DraftExecutionReceipt)
                 self.assertIsInstance(receipt.entity_ids, tuple)
                 self.assertEqual(receipt.cache_scopes, fixture.expected_cache_scopes)
-                self.assertIsNone(receipt.revert_adapter_key)
-                self.assertIsNone(receipt.revert_context)
+                self.assertEqual(
+                    receipt.revert_adapter_key,
+                    fixture.expected_revert_adapter_key,
+                )
+                if fixture.expected_revert_adapter_key is None:
+                    self.assertIsNone(receipt.revert_context)
+                else:
+                    self.assertIsInstance(receipt.revert_context, dict)
+                    self.assertEqual(receipt.revert_context.get("schema_version"), 1)
                 db.rollback()
 
     def test_registry_rejects_a_stale_tuple_executor(self) -> None:

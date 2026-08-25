@@ -11,6 +11,9 @@ from app.core.enums import ActivityAction, MealType
 from app.core.utils import create_id, utcnow
 from app.models.domain import FoodPlanItem
 from app.services.activity import log_activity
+from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
+from app.services.ai_operations.registry_types import DraftExecuteContext
 from app.services.food_plan_locking import (
     FoodPlanConflict,
     LockedFoodPlanTargets,
@@ -23,6 +26,69 @@ from app.services.serializers import serialize_food_plan_item
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+_SIMPLE_PLAN_FIELDS = {"draftType", "schemaVersion", "items", "source"}
+_SIMPLE_PLAN_ITEM_FIELDS = {
+    "date",
+    "mealType",
+    "title",
+    "foodId",
+    "recipeId",
+    "reason",
+    "usedInventory",
+    "missingIngredients",
+    "missingIngredientItems",
+    "source",
+}
+
+
+def _simple_plan_revert_eligible(
+    payload: dict[str, Any],
+    business_entity: dict[str, Any],
+) -> bool:
+    items = payload.get("items")
+    created = business_entity.get("items")
+    if (
+        set(payload) != _SIMPLE_PLAN_FIELDS
+        or payload.get("schemaVersion") != "meal_plan.v1"
+        or payload.get("draftType") != "meal_plan"
+        or not isinstance(payload.get("source"), dict)
+        or not isinstance(items, list)
+        or not items
+        or len(items) > AUTO_EXECUTION_CATALOG["meal_plan.simple_create"].limits["items"]
+        or not isinstance(created, list)
+        or len(created) != len(items)
+    ):
+        return False
+    keys: set[tuple[date, str, str]] = set()
+    for item, persisted in zip(items, created, strict=True):
+        if (
+            not isinstance(item, dict)
+            or set(item) != _SIMPLE_PLAN_ITEM_FIELDS
+            or item.get("mealType") not in {member.value for member in MealType}
+            or item.get("missingIngredients") != []
+            or item.get("missingIngredientItems") != []
+            or not isinstance(item.get("usedInventory"), list)
+            or not isinstance(item.get("source"), dict)
+            or not isinstance(persisted, dict)
+        ):
+            return False
+        try:
+            plan_date = date.fromisoformat(str(item.get("date")))
+        except ValueError:
+            return False
+        food_id = str(item.get("foodId") or "")
+        key = (plan_date, str(item["mealType"]), food_id)
+        if not food_id or key in keys:
+            return False
+        keys.add(key)
+        recipe_id = str(item.get("recipeId") or "") or None
+        if (
+            item.get("title") != persisted.get("food_name")
+            or food_id != persisted.get("food_id")
+            or recipe_id != persisted.get("recipe_id")
+        ):
+            return False
+    return True
 
 
 def execute_meal_plan_draft(
@@ -32,6 +98,7 @@ def execute_meal_plan_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     if isinstance(payload.get("operations"), list):
         return _apply_meal_plan_operations(
@@ -41,7 +108,13 @@ def execute_meal_plan_draft(
             payload=payload,
             assert_updated_at_matches=assert_updated_at_matches,
         )
-    return _create_meal_plan_items_from_payload(db, family_id=family_id, user_id=user_id, payload=payload)
+    return _create_meal_plan_items_from_payload(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        payload=payload,
+        revert_capture=revert_capture,
+    )
 
 
 def _map_food_plan_conflict(exc: FoodPlanConflict) -> Exception:
@@ -227,6 +300,7 @@ def _create_meal_plan_items_from_payload(
     user_id: str,
     payload: dict[str, Any],
     locked: LockedFoodPlanTargets | None = None,
+    revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     items_payload = list(payload.get("items") or [])
     if locked is None:
@@ -288,7 +362,43 @@ def _create_meal_plan_items_from_payload(
             entity_id=item.id,
             summary=f"AI 加入菜单计划 {item.food.name if item.food else '食物'}",
         )
+    if revert_capture is not None and created:
+        revert_capture.update(
+            {
+                "schema_version": 1,
+                "items": [
+                    {
+                        "food_plan_item_id": item.id,
+                        "after_row_version": int(item.row_version),
+                    }
+                    for item in sorted(created, key=lambda row: row.id)
+                ],
+            }
+        )
     return {"items": [serialize_food_plan_item(item) for item in created]}, [item.id for item in created]
+
+
+def execute_meal_plan_draft_receipt(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    revert_context: dict[str, Any] = {}
+    business_entity, entity_ids = execute_meal_plan_draft(
+        context.db,
+        family_id=context.family_id,
+        user_id=context.user_id,
+        payload=context.payload,
+        assert_updated_at_matches=context.assert_updated_at_matches,
+        revert_capture=revert_context,
+    )
+    eligible = _simple_plan_revert_eligible(
+        context.payload,
+        business_entity,
+    ) and bool(revert_context)
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(sorted(entity_ids)),
+        cache_scopes=("meal_plan", "ai_conversation"),
+        revert_adapter_key="meal_plan.simple_create.v1" if eligible else None,
+        revert_context=revert_context if eligible else None,
+    )
 
 
 def _operation_error_message(operation: dict[str, Any], exc: Exception) -> str:

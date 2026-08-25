@@ -15,6 +15,8 @@ from app.models.domain import MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn, UpdateMealCompositionRequest
 from app.services.activity import log_activity
+from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
+from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
 from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
 from app.services.meal_log_references import MealLogReferenceError, lock_and_validate_meal_log_references
@@ -27,9 +29,48 @@ from app.services.meal_log_versions import (
 from app.services.meal_log_writes import MealEntryWrite, create_meal_log_with_entries
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
+from app.services.ai_operations.registry_types import DraftExecuteContext
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+_RATING_FIELDS = {
+    "draftType",
+    "schemaVersion",
+    "action",
+    "targetId",
+    "baseUpdatedAt",
+    "before",
+    "payload",
+}
+
+
+def _rating_revert_eligible(items: object) -> bool:
+    if (
+        not isinstance(items, list)
+        or not items
+        or len(items) > AUTO_EXECUTION_CATALOG["meal_log.rate_food"].limits["items"]
+    ):
+        return False
+    entry_ids: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"id", "rating"}:
+            return False
+        entry_id = str(item.get("id") or "")
+        if not entry_id or entry_id in entry_ids:
+            return False
+        entry_ids.add(entry_id)
+        rating = item.get("rating")
+        if rating is None:
+            continue
+        if isinstance(rating, bool):
+            return False
+        try:
+            normalized = Decimal(str(rating))
+        except Exception:
+            return False
+        if not normalized.is_finite() or not Decimal("0.5") <= normalized <= Decimal("5"):
+            return False
+    return True
 
 
 def _serialize_meal_log(db: Session, *, family_id: str, meal_log_id: str) -> dict[str, Any]:
@@ -60,6 +101,7 @@ def execute_meal_log_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     action = str(payload.get("action") or "")
     if action == "update_composition":
@@ -172,11 +214,16 @@ def execute_meal_log_draft(
             except MealLogReferenceError as exc:
                 raise ValueError(exc.message) from exc
             entries_by_id = {entry.id: entry for entry in meal_log.food_entries}
+            changed_entries: list[tuple[MealLogFood, Decimal | None]] = []
             for item in ratings:
                 entry = entries_by_id.get(item.id)
                 if entry is None:
                     raise ValueError("评分草稿引用了不属于该餐食记录的食物项")
-                entry.rating = Decimal(str(item.rating)) if item.rating is not None else None
+                next_rating = Decimal(str(item.rating)) if item.rating is not None else None
+                before_rating = Decimal(str(entry.rating)) if entry.rating is not None else None
+                if before_rating != next_rating:
+                    changed_entries.append((entry, before_rating))
+                entry.rating = next_rating
             log_activity(
                 db,
                 family_id=family_id,
@@ -188,9 +235,29 @@ def execute_meal_log_draft(
             )
         bump_meal_log_collection(meal_log, user_id=user_id)
         db.flush()
+        if action == "rate_food" and revert_capture is not None and changed_entries:
+            revert_capture.update(
+                {
+                    "schema_version": 1,
+                    "meal_log_id": meal_log.id,
+                    "after_meal_log_row_version": int(meal_log.row_version),
+                    "entries": [
+                        {
+                            "meal_log_food_id": entry.id,
+                            "before_rating": float(before_rating) if before_rating is not None else None,
+                            "after_rating": float(entry.rating) if entry.rating is not None else None,
+                        }
+                        for entry, before_rating in sorted(changed_entries, key=lambda pair: pair[0].id)
+                    ],
+                }
+            )
         return _serialize_meal_log(db, family_id=family_id, meal_log_id=meal_log.id), [meal_log.id]
 
-    effective_payload = payload.get("payload") if action == "create" and isinstance(payload.get("payload"), dict) else payload
+    effective_payload = (
+        payload.get("payload")
+        if action == "create" and isinstance(payload.get("payload"), dict)
+        else payload
+    )
     effective_foods = [item for item in effective_payload.get("foods") or [] if isinstance(item, dict)]
     food_ids = [str(item.get("foodId") or "").strip() for item in effective_foods]
     participant_user_ids = effective_payload.get("participantUserIds") or [user_id]
@@ -324,3 +391,55 @@ def execute_meal_log_draft(
         summary="AI 创建餐食记录",
     )
     return _serialize_meal_log(db, family_id=family_id, meal_log_id=meal_log.id), [meal_log.id]
+
+
+def execute_meal_log_draft_receipt(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    revert_context: dict[str, Any] = {}
+    business_entity, entity_ids = execute_meal_log_draft(
+        context.db,
+        family_id=context.family_id,
+        user_id=context.user_id,
+        payload=context.payload,
+        assert_updated_at_matches=context.assert_updated_at_matches,
+        revert_capture=revert_context,
+    )
+    payload = context.payload
+    effective_payload = (
+        payload.get("payload")
+        if payload.get("action") == "create" and isinstance(payload.get("payload"), dict)
+        else payload
+    )
+    scopes: list[AICacheScope] = ["meal_log"]
+    if any(
+        isinstance(item, dict) and item.get("deductStock") is True
+        for item in effective_payload.get("foods") or []
+    ):
+        scopes.append("food")
+    if effective_payload.get("planItemId"):
+        scopes.append("meal_plan")
+    scopes.append("ai_conversation")
+    rating_payload = payload.get("payload")
+    rating_items = (
+        rating_payload.get("foodEntryRatings")
+        if isinstance(rating_payload, dict)
+        else None
+    )
+    eligible = (
+        set(payload) == _RATING_FIELDS
+        and payload.get("draftType") == "meal_log"
+        and payload.get("schemaVersion") == "meal_log_operation.v1"
+        and payload.get("action") == "rate_food"
+        and isinstance(payload.get("before"), dict)
+        and isinstance(rating_payload, dict)
+        and set(rating_payload) == {"foodEntryRatings"}
+        and _rating_revert_eligible(rating_items)
+        and bool(revert_context)
+        and len(revert_context["entries"]) == len(rating_items)
+    )
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(sorted(entity_ids)),
+        cache_scopes=tuple(scopes),
+        revert_adapter_key="meal_log.rating.v1" if eligible else None,
+        revert_context=revert_context if eligible else None,
+    )

@@ -27,4 +27,13 @@ class AIRevertAdapterRegistry:
         return frozenset(self._adapters)
 
 
-ai_revert_adapter_registry = AIRevertAdapterRegistry()
+def build_ai_revert_adapter_registry() -> AIRevertAdapterRegistry:
+    from app.services.ai_revert.adapters import low_risk_revert_adapters
+
+    registry = AIRevertAdapterRegistry()
+    for adapter in low_risk_revert_adapters():
+        registry.register(adapter)
+    return registry
+
+
+ai_revert_adapter_registry = build_ai_revert_adapter_registry()

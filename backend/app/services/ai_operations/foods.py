@@ -13,17 +13,30 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.core.enums import ActivityAction, FoodType
 from app.core.utils import create_id
 from app.models.domain import Food
+from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
 from app.services.activity import log_activity
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.ai_operations.image_jobs import build_food_image_request, enqueue_ai_entity_image_generation
+from app.services.ai_operations.registry_types import DraftExecuteContext
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
+from app.services.serializers import serialize_food
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
 READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+_FAVORITE_FIELDS = {
+    "draftType",
+    "schemaVersion",
+    "action",
+    "targetId",
+    "baseUpdatedAt",
+    "before",
+    "payload",
+}
 
 
 def _resolve_food_stock_quantity(value: float | None) -> Decimal | None:
@@ -41,6 +54,7 @@ def execute_food_profile_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    revert_capture: dict[str, Any] | None = None,
 ) -> Food:
     if payload.get("action") not in {"update", "set_favorite"}:
         effective_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
@@ -57,6 +71,7 @@ def execute_food_profile_draft(
     assert_updated_at_matches(actual=food.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食物 {food.name}")
     action = str(payload.get("action") or "")
     if action == "set_favorite":
+        before_favorite = bool(food.favorite)
         food.favorite = bool((payload.get("payload") or {}).get("favorite"))
         food.updated_by = user_id
         log_activity(
@@ -69,6 +84,16 @@ def execute_food_profile_draft(
             summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
         )
         db.flush()
+        if revert_capture is not None and before_favorite is not bool(food.favorite):
+            revert_capture.update(
+                {
+                    "schema_version": 1,
+                    "food_id": food.id,
+                    "before_favorite": before_favorite,
+                    "after_favorite": bool(food.favorite),
+                    "after_row_version": int(food.row_version),
+                }
+            )
         return food
 
     update_payload = payload.get("payload") or {}
@@ -119,6 +144,45 @@ def execute_food_profile_draft(
     db.flush()
     enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
     return food
+
+
+def execute_food_profile_draft_receipt(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    revert_context: dict[str, Any] = {}
+    food = execute_food_profile_draft(
+        context.db,
+        family_id=context.family_id,
+        user_id=context.user_id,
+        payload=context.payload,
+        assert_updated_at_matches=context.assert_updated_at_matches,
+        revert_capture=revert_context,
+    )
+    media_map = build_media_map(
+        get_media_assets_for_entities(
+            context.db,
+            family_id=context.family_id,
+            entity_type="food",
+            entity_ids=[food.id],
+        )
+    )
+    favorite_payload = context.payload.get("payload")
+    eligible = (
+        set(context.payload) == _FAVORITE_FIELDS
+        and context.payload.get("draftType") == "food_profile"
+        and context.payload.get("schemaVersion") == "food_profile_operation.v1"
+        and context.payload.get("action") == "set_favorite"
+        and isinstance(context.payload.get("before"), dict)
+        and isinstance(favorite_payload, dict)
+        and set(favorite_payload) == {"favorite"}
+        and type(favorite_payload.get("favorite")) is bool
+        and bool(revert_context)
+    )
+    return DraftExecutionReceipt(
+        business_entity=serialize_food(food, media_map),
+        entity_ids=(food.id,),
+        cache_scopes=("food", "ai_conversation"),
+        revert_adapter_key="food.favorite.v1" if eligible else None,
+        revert_context=revert_context if eligible else None,
+    )
 
 
 def _create_food_from_profile(db: Session, *, family_id: str, user_id: str, payload: dict[str, Any]) -> Food:
