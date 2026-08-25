@@ -2018,6 +2018,16 @@
     box-shadow: 0 8px 18px rgba(91, 62, 42, 0.08);
   }
 
+  .ai-mobile-auto-execution-trigger {
+    flex: 0 0 var(--tap-min);
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+
   .ai-mobile-menu-mark,
   .ai-mobile-menu-mark::before,
   .ai-mobile-menu-mark::after {

@@ -100,8 +100,9 @@ npm run backend:test:search
 ## AI、媒体与跨端契约
 
 - AI Skill catalog 位于 `backend/app/ai/skills/catalog/`，Tool catalog 位于 `backend/app/ai/tools/catalog/`；Orchestrator/Runner 位于 `backend/app/ai/workflows/`。
-- 模型只获得当前家庭和已注入 Skill 允许的 read/draft/control 工具，正式 write tool 不暴露给模型。
-- 正式写入固定经过 `draft -> approval -> service commit`；用户确认前不得显示或持久化成已完成。
+- 模型只获得当前家庭和已注入 Skill 允许的 read/draft/control 工具，永不获得正式 Write Tool。
+- 正式写入固定经过 `draft -> server policy commit gate -> service commit`；`draft_then_confirm` 必须等待真实用户决定，`draft_then_policy` 仅在服务端证据、当前成员/家庭授权、动作白名单、限制、版本和已注册 revert adapter 全部校验通过时直接提交，否则降级人工确认。
+- commit gate 作出人工批准或服务端策略提交决定前，不得显示或持久化成已完成；模型不参与 commit 决策。
 - continuation、artifact、会话所有权和审批恢复遵循 AI 规范与严格 schema，拒绝、冲突和失败不自动推进下一草稿。
 - 上传、绑定和 AI 生成媒体复用 `backend/app/services/media.py` 与 MinIO 流程；生成图不覆盖用户原图。
 - 修改字段、枚举、日期、媒体 URL、单位、AI mode、message part、卡片或草稿类型时，同步检查后端 schema/serializer、前端类型/client/view model 和 contract 测试。

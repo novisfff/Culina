@@ -107,9 +107,9 @@ Culina 的核心边界：
 AI 相关后端逻辑必须遵循 `docs/ai-assistant-standards.md`：
 
 - 模型只能读家庭上下文、调用白名单工具、生成草稿或卡片。
-- 正式业务写入必须经过 `draft -> approval -> commit`。
-- 模型不能直接接触 write tool。
-- 用户确认后由 service 执行正式写入，模型不参与 commit 决策。
+- 正式业务写入固定经过 `draft -> server policy commit gate -> service commit`。
+- `draft_then_confirm` 必须等待真实用户决定；`draft_then_policy` 仅在服务端对离散意图证据、当前成员/家庭授权、动作白名单、限制、版本和已注册 revert adapter 全部校验通过后直接提交，否则降级人工确认。
+- 模型永不获得正式 Write Tool，也不参与 commit 决策；正式写入只由共享领域 service 执行。
 - `backend/app/ai/workspace_service.py` 保持应用门面和兼容调度层，领域写入、审批执行、恢复信息和结果卡片逻辑优先放在 `backend/app/services/ai_operations/`。
 
 AI tool、skill、Orchestrator、agent loop、runtime、approval 的变更优先补 `backend/tests/ai_infra/` 下的相关测试，必要时运行 `npm run backend:test`。

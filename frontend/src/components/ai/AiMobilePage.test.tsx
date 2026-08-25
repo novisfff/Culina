@@ -1,6 +1,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTestDomAndMocks, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
+import { AiMobileChrome } from './AiMobileChrome';
 import { AiMobilePage } from './AiMobilePage';
 import { AiAutoExecutionMobilePage } from '../../features/ai-auto-execution/AiAutoExecutionMobilePage';
 
@@ -108,6 +109,39 @@ describe('AiMobilePage viewport', () => {
       rendered?.unmount();
       visualViewport.restore();
     }
+  });
+});
+
+describe('AiMobileChrome touch targets', () => {
+  it('gives automatic-execution settings an independent mobile target', async () => {
+    const rendered = await renderWithQuery(
+      <AiMobileChrome
+        conversations={[]}
+        isLoading={false}
+        activeConversationKey={null}
+        runningConversationKeys={new Set()}
+        waitingConversationKeys={new Set()}
+        updatingConversationId={null}
+        isMobileHistoryOpen={false}
+        onOpenMobileHistory={() => undefined}
+        onCloseMobileHistory={() => undefined}
+        onStartNewConversation={() => undefined}
+        onSelectConversation={() => undefined}
+        onChangeVisibility={() => undefined}
+        onDeleteConversation={() => undefined}
+        onOpenAutoExecution={() => undefined}
+      />,
+    );
+
+    const settings = rendered.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="AI 自动执行设置"]',
+    );
+    const history = rendered.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="打开历史记录"]',
+    );
+    expect(settings?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(true);
+    expect(history?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(false);
+    rendered.unmount();
   });
 });
 

@@ -2,10 +2,11 @@ from ._support import *
 from app.services.ai_operations.registry import draft_operation_registry
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
 
 
 def test_ai_standards_document_policy_commit_gate_and_revert_contract() -> None:
-    text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
 
     assert "draft_then_policy" in text
     assert "requires_confirmation=True" in text
@@ -18,6 +19,19 @@ def test_ai_standards_document_policy_commit_gate_and_revert_contract() -> None:
     assert "原执行人或当前 Owner" in text
     assert "inventory.operation_ref.v1" in text
     assert "Composite 与 Continuation 始终人工确认" in text
+
+    for path in (
+        REPO_ROOT / "docs" / "backend-code-standards.md",
+        REPO_ROOT / "AGENTS.md",
+    ):
+        source_text = path.read_text(encoding="utf-8")
+        assert "draft -> server policy commit gate -> service commit" in source_text
+        assert "draft_then_confirm" in source_text
+        assert "draft_then_policy" in source_text
+        assert "模型" in source_text and "Write Tool" in source_text
+        assert "draft -> approval -> commit" not in source_text
+        assert "draft -> approval -> service commit" not in source_text
+        assert "用户确认后由 service 执行正式写入" not in source_text
 
 
 def test_ai_assistant_standard_documents_cross_skill_product_loops() -> None:

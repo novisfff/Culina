@@ -389,10 +389,34 @@ async function maybeAttachAiAcceptanceScreenshot(page, testInfo, name, viewport)
   await attachCheckpointScreenshot(page, testInfo, `${name}-${viewport.width}x${viewport.height}`);
 }
 
+async function maybeAttachAiAcceptanceLocatorScreenshot(locator, testInfo, name, viewport) {
+  if (process.env.CULINA_AI_ACCEPTANCE_SCREENSHOTS !== '1') return;
+  await locator.scrollIntoViewIfNeeded();
+  await expect(locator).toBeVisible();
+  await testInfo.attach(`${name}-${viewport.width}x${viewport.height}`, {
+    body: await locator.screenshot({ animations: 'disabled', caret: 'hide' }),
+    contentType: 'image/png',
+  });
+}
+
 async function openAiWorkspace(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'AI', exact: true }).first().click();
   await expect(page.locator('.ai-workspace-shell')).toBeAttached();
+}
+
+async function expectMobileAutoExecutionTriggerGeometry(page) {
+  const trigger = page.getByRole('button', { name: 'AI 自动执行设置' });
+  await expect(trigger).toBeVisible();
+  const box = await trigger.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  const topbarOverflow = await page.locator('.ai-mobile-topbar').evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  );
+  expect(topbarOverflow, 'AI 手机顶栏不应横向溢出').toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page);
 }
 
 async function openAiAutoExecutionSettings(page, isPhone) {
@@ -507,6 +531,7 @@ test.describe('P0 authenticated family workflow', () => {
     const aiMocks = await installAiAutoExecutionMocks(context);
 
     await openAiWorkspace(page);
+    if (isPhone) await expectMobileAutoExecutionTriggerGeometry(page);
     const settingsRoot = await openAiAutoExecutionSettings(page, isPhone);
 
     await expectSettingsGeometry(settingsRoot, page, viewport, isPhone);
@@ -558,6 +583,23 @@ test.describe('P0 authenticated family workflow', () => {
     await expect(blockedCard).toContainText('相关内容后来被修改，无法安全撤销');
     await expect(revertedCard).toContainText('操作已撤销');
 
+    for (const [name, card] of [
+      ['automatic', automaticCard],
+      ['manual', manualCard],
+      ['no-change', noChangeCard],
+      ['failed', failedCard],
+      ['expired', expiredCard],
+      ['blocked', blockedCard],
+      ['reverted', revertedCard],
+    ]) {
+      await maybeAttachAiAcceptanceLocatorScreenshot(
+        card,
+        testInfo,
+        `ai-operation-result-${name}`,
+        viewport,
+      );
+    }
+
     await automaticCard.scrollIntoViewIfNeeded();
     const automaticActions = automaticCard.locator('.ai-operation-result-actions');
     const revertButton = automaticCard.getByRole('button', { name: '撤销', exact: true });
@@ -589,6 +631,18 @@ test.describe('P0 authenticated family workflow', () => {
     await expect(automaticCard.locator('.ai-query-card-eyebrow')).toHaveText('已撤销');
     await expect(conversationSurface.locator('.ai-operation-result-card')).toHaveCount(cardCountBeforeRevert);
     expect(aiMocks.revertRequestBodies).toHaveLength(1);
+    await maybeAttachAiAcceptanceLocatorScreenshot(
+      automaticCard,
+      testInfo,
+      'ai-operation-result-http-reverted',
+      viewport,
+    );
+    await maybeAttachAiAcceptanceScreenshot(
+      page,
+      testInfo,
+      'ai-operation-result-http-reverted-context',
+      viewport,
+    );
 
     const deadlineBeforeRefresh = await manualCard.locator('.ai-operation-result-status strong').innerText();
     expect(deadlineBeforeRefresh).toBe('可撤销至 19:00');
@@ -717,6 +771,7 @@ test.describe('P0 authenticated Member AI policy', () => {
     const aiMocks = await installAiAutoExecutionMocks(context);
 
     await openAiWorkspace(page);
+    if (isPhone) await expectMobileAutoExecutionTriggerGeometry(page);
     const settingsRoot = await openAiAutoExecutionSettings(page, isPhone);
     await expectSettingsGeometry(settingsRoot, page, viewport, isPhone);
 
@@ -735,8 +790,9 @@ test.describe('P0 authenticated Member AI policy', () => {
     expect(familySwitchBox.width).toBeGreaterThanOrEqual(44);
     expect(familySwitchBox.height).toBeGreaterThanOrEqual(44);
 
+    await familyShopping.scrollIntoViewIfNeeded();
     await expectNoHorizontalOverflow(page);
-    await maybeAttachAiAcceptanceScreenshot(page, testInfo, 'ai-auto-execution-member-settings', viewport);
+    await maybeAttachAiAcceptanceScreenshot(page, testInfo, 'ai-auto-execution-member-family-policy', viewport);
     expect(aiMocks.unexpectedRequests).toEqual([]);
   });
 });
