@@ -389,7 +389,7 @@ export interface FamilyModelSettings {
   version_number: number;
   active_config_revision_id: string | null;
   active_price_version_id: string | null;
-  active_search_profile_id: string | null;
+  active_search_profile_id?: string | null;
   provider_profiles: FamilyModelProviderProfile[];
   updated_at: string;
 }
