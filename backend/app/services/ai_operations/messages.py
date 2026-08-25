@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
@@ -15,6 +17,36 @@ from app.services.ai_operations.artifacts import (
     business_entity_artifacts,
 )
 from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
+
+
+def find_message_operation_result_card(
+    db: Session,
+    *,
+    message_id: str | None,
+    draft_id: str,
+    family_id: str,
+) -> dict[str, Any] | None:
+    """Return a detached public operation-result card for one Draft."""
+    if not message_id:
+        return None
+    message = db.scalar(
+        select(AIMessage)
+        .where(
+            AIMessage.id == message_id,
+            AIMessage.family_id == family_id,
+        )
+        .with_for_update()
+    )
+    if message is None:
+        return None
+    for part in message.parts or []:
+        if part.get("type") != "result_card" or not isinstance(part.get("card"), dict):
+            continue
+        card = part["card"]
+        data = card.get("data") if isinstance(card.get("data"), dict) else {}
+        if str(data.get("draft_id") or data.get("draftId") or "") == draft_id:
+            return copy.deepcopy(card)
+    return None
 
 
 def sync_message_approval_parts(db: Session, *, draft: AITaskDraft, approval: AIApprovalRequest) -> None:

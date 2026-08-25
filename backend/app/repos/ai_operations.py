@@ -9,6 +9,34 @@ from app.models.domain import AIOperation
 from app.services.ai_auto_execution.policy_types import DraftCommitRequest
 
 
+def get_family_ai_operation_for_update(
+    db: Session,
+    *,
+    family_id: str,
+    operation_id: str,
+) -> AIOperation | None:
+    return db.scalar(
+        select(AIOperation)
+        .where(
+            AIOperation.family_id == family_id,
+            AIOperation.id == operation_id,
+        )
+        .with_for_update()
+    )
+
+
+def find_ai_operation_by_revert_request_id_for_update(
+    db: Session,
+    *,
+    client_request_id: str,
+) -> AIOperation | None:
+    return db.scalar(
+        select(AIOperation)
+        .where(AIOperation.revert_request_id == client_request_id)
+        .with_for_update()
+    )
+
+
 def operation_by_idempotency_key_for_update(
     db: Session,
     *,

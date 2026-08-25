@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.ai_auto_execution.policy_types import AICacheScope
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -54,3 +56,24 @@ class AIOperationResultProjectionOut(_StrictModel):
     cache_scopes: list[
         Literal["food", "meal_log", "meal_plan", "shopping_list", "inventory", "ai_conversation"]
     ] = Field(default_factory=list)
+
+
+class AIRevertRequest(_StrictModel):
+    client_request_id: str = Field(min_length=1, max_length=120)
+
+
+class AIRevertResponseDTO(_StrictModel):
+    projection: AIOperationResultProjectionOut
+    result_card: dict[str, Any]
+    cache_scopes: list[AICacheScope]
+    server_now: datetime
+    replayed: bool
+
+
+class AIRevertConflictDetailDTO(AIRevertResponseDTO):
+    code: Literal[
+        "revert_target_changed",
+        "revert_dependency_exists",
+        "revert_adapter_version_unsupported",
+    ]
+    message: str
