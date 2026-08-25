@@ -134,6 +134,16 @@ async function advanceTimers(ms: number) {
 }
 
 describe('AiWorkspace pending approval restore', () => {
+  it('renders the desktop auto execution panel and returns through navigation', async () => {
+    const onNavigate = vi.fn();
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} view="autoExecution" onNavigate={onNavigate} />);
+    await flushAsync();
+    const back = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '返回对话');
+    expect(back).toBeTruthy();
+    await act(async () => back?.click());
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ai', view: 'conversation' });
+    rendered.unmount();
+  });
   it('defaults to collapsed history on iPad width even when desktop preference is expanded', async () => {
     setViewportWidth(1180);
     window.localStorage.setItem('ai_sidebar_collapsed', 'false');

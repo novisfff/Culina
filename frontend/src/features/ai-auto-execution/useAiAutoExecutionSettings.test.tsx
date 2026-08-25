@@ -54,4 +54,53 @@ describe('useAiAutoExecutionSettings', () => {
     });
     expect(aiApi.updateAiAutoExecutionPreference).toHaveBeenCalledTimes(2);
   });
+
+  it('retains failures for two independently failed rows', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const twoRows = { ...response(), member_preferences: [
+      response().member_preferences[0]!,
+      { ...response().member_preferences[0]!, action_key: 'meal_log.rate_food' as const },
+    ] };
+    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(twoRows);
+    vi.mocked(aiApi.updateAiAutoExecutionPreference)
+      .mockRejectedValueOnce(new Error('first failed'))
+      .mockRejectedValueOnce(new Error('second failed'));
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useAiAutoExecutionSettings('family-a'), { wrapper });
+    await waitFor(() => expect(result.current.settings?.member_preferences).toHaveLength(2));
+
+    await act(async () => {
+      void result.current.update('member', result.current.settings!.member_preferences[0]!, true);
+      void result.current.update('member', result.current.settings!.member_preferences[1]!, true);
+    });
+
+    await waitFor(() => {
+      expect(result.current.failureFor('member', 'food.set_favorite')?.message).toBe('设置保存失败，请重试。');
+      expect(result.current.failureFor('member', 'meal_log.rate_food')?.message).toBe('设置保存失败，请重试。');
+    });
+  });
+
+  it('does not let a settled A-family mutation replace B-family cached settings', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const familyA = response(false);
+    const familyB = response(false);
+    let resolveA!: (value: AiAutoExecutionSettings) => void;
+    vi.mocked(aiApi.getAiAutoExecutionSettings)
+      .mockResolvedValueOnce(familyA)
+      .mockResolvedValue(familyB);
+    vi.mocked(aiApi.updateAiAutoExecutionPreference).mockReturnValue(new Promise((done) => { resolveA = done; }));
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result, rerender } = renderHook(({ familyId }) => useAiAutoExecutionSettings(familyId), {
+      initialProps: { familyId: 'family-a' },
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.settings).not.toBeNull());
+    await act(async () => { void result.current.update('member', result.current.settings!.member_preferences[0]!, true); });
+    rerender({ familyId: 'family-b' });
+    await waitFor(() => expect(result.current.settings?.server_now).toBe(familyB.server_now));
+
+    await act(async () => { resolveA(response(true)); });
+    await waitFor(() => expect(result.current.settings?.member_preferences[0]?.enabled).toBe(false));
+    expect(client.getQueryData<AiAutoExecutionSettings>(queryKeys.aiAutoExecutionSettings('family-b'))?.member_preferences[0]?.enabled).toBe(false);
+  });
 });

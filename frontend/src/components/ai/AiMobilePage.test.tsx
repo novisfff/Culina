@@ -2,6 +2,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTestDomAndMocks, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiMobilePage } from './AiMobilePage';
+import { AiAutoExecutionMobilePage } from '../../features/ai-auto-execution/AiAutoExecutionMobilePage';
 
 function mockVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
   const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
@@ -107,5 +108,23 @@ describe('AiMobilePage viewport', () => {
       rendered?.unmount();
       visualViewport.restore();
     }
+  });
+});
+
+describe('AiAutoExecutionMobilePage', () => {
+  it('keeps settings in a labelled phone surface and returns to the conversation', async () => {
+    const onBack = vi.fn();
+    const rendered = await renderWithQuery(
+      <AiAutoExecutionMobilePage familyId="family-1" isOwner onBack={onBack} />,
+    );
+
+    expect(rendered.container.querySelector('section[aria-label="AI 自动执行设置"]')).not.toBeNull();
+    const back = Array.from(rendered.container.querySelectorAll('button')).find(
+      (button) => button.textContent === '返回',
+    );
+    expect(back).toBeTruthy();
+    back?.click();
+    expect(onBack).toHaveBeenCalledTimes(1);
+    rendered.unmount();
   });
 });

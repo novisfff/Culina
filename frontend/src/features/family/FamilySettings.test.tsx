@@ -372,6 +372,34 @@ describe('FamilySettings activity overlay control', () => {
     expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
   });
 
+  it('opens AI auto execution from the dedicated desktop and mobile family shortcuts', () => {
+    const onNavigate = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: false,
+      onNavigate,
+    });
+
+    const desktopEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('AI 自动执行'),
+    );
+    expect(desktopEntry).toBeTruthy();
+    act(() => desktopEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'ai', view: 'autoExecution' });
+
+    rerenderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      onNavigate,
+    });
+    const mobileEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('AI 自动执行'),
+    );
+    expect(mobileEntry).toBeTruthy();
+    act(() => mobileEntry?.click());
+    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'ai', view: 'autoExecution' });
+  });
+
   it('shows AI 服务 beside 模型用量 only to the Owner', () => {
     const onNavigate = vi.fn();
     const view = renderSettings({

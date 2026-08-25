@@ -66,6 +66,22 @@ describe('useAppNavigationState', () => {
     });
   });
 
+  it('persists auto execution and safely defaults old V2 records to conversation', () => {
+    const { result } = renderHook(() => useAppNavigationState());
+    act(() => result.current.navigate({ workspace: 'ai', view: 'autoExecution' }));
+    expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).toMatchObject({
+      version: 2,
+      primaryTab: 'ai',
+      aiView: 'autoExecution',
+    });
+
+    localStorage.setItem('culina-navigation-v2', JSON.stringify({
+      version: 2, primaryTab: 'ai', eatBaseView: 'discover', discoverSection: 'all',
+    }));
+    const restored = renderHook(() => useAppNavigationState());
+    expect(restored.result.current.state.ai.view).toBe('conversation');
+  });
+
   function NavigationFocusHarness({ detachTriggerOnOpen = false }: { detachTriggerOnOpen?: boolean }) {
     const navigation = useAppNavigationState();
     return (
