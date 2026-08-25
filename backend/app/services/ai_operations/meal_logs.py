@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -42,6 +42,13 @@ _RATING_FIELDS = {
     "before",
     "payload",
 }
+_RATING_QUANTUM = Decimal("0.1")
+
+
+def _canonical_rating(value: float | Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value)).quantize(_RATING_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 def _rating_revert_eligible(items: object) -> bool:
@@ -219,7 +226,7 @@ def execute_meal_log_draft(
                 entry = entries_by_id.get(item.id)
                 if entry is None:
                     raise ValueError("评分草稿引用了不属于该餐食记录的食物项")
-                next_rating = Decimal(str(item.rating)) if item.rating is not None else None
+                next_rating = _canonical_rating(item.rating)
                 before_rating = Decimal(str(entry.rating)) if entry.rating is not None else None
                 if before_rating != next_rating:
                     changed_entries.append((entry, before_rating))

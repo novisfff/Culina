@@ -1498,7 +1498,14 @@ def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> Searc
             .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
         )
         if item is None:
-            raise ValueError("索引对象不存在或已删除")
+            delete_search_document(
+                db,
+                family_id=job.family_id,
+                entity_type="meal_plan",
+                entity_id=job.entity_id,
+                delete_vector=True,
+            )
+            return None
         job.target_name = ((item.food.name if item.food is not None else "") or item.note or "餐食计划")[:255]
         return upsert_meal_plan_search_document(db, item)
 

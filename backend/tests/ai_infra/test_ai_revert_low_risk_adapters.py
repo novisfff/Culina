@@ -19,6 +19,7 @@ from app.core.enums import (
     UserRole,
 )
 from app.models.domain import (
+    ActivityLog,
     AIOperation,
     AIMessage,
     AITaskDraft,
@@ -33,6 +34,7 @@ from app.models.domain import (
     SearchIndexJob,
     ShoppingListItem,
 )
+from app.models.family_model_settings import FamilySearchProfileDocument
 from app.services.ai_operations.common import assert_updated_at_matches
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import DraftExecuteContext
@@ -45,6 +47,7 @@ from app.services.ai_operations.result_projection import (
 from app.services.ai_revert.coordinator import AIRevertCoordinator
 from app.services.ai_revert.errors import AIRevertError
 from app.services.ai_revert.registry import build_ai_revert_adapter_registry
+from app.services.search.jobs import process_search_index_job
 
 
 NOW = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
@@ -208,6 +211,165 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
         db.flush()
         return meal_log, entries
 
+    def _exercise_permission_fixture(
+        self,
+        *,
+        fixture_name: str,
+        suffix: str,
+        member_id: str,
+        revert_actor_id: str,
+    ) -> None:
+        with self.SessionLocal() as db:
+            if fixture_name == "rating":
+                meal_log, entries = self._seed_rating_target(db)
+                meal_log.created_by = member_id
+                meal_log.updated_by = member_id
+                meal_log.participant_user_ids = [member_id]
+                db.flush()
+                draft_type = "meal_log"
+                payload = {
+                    "draftType": "meal_log",
+                    "schemaVersion": "meal_log_operation.v1",
+                    "action": "rate_food",
+                    "targetId": meal_log.id,
+                    "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                    "before": {},
+                    "payload": {
+                        "foodEntryRatings": [{"id": entries[0].id, "rating": 4.0}]
+                    },
+                }
+                target_id = entries[0].id
+            elif fixture_name == "shopping_add":
+                draft_type = "shopping_list"
+                payload = {
+                    "draftType": "shopping_list",
+                    "schemaVersion": "shopping_list.v1",
+                    "sourceDraftId": None,
+                    "items": [
+                        {
+                            "title": "番茄",
+                            "quantity": 2,
+                            "unit": "个",
+                            "ingredient_id": "ingredient-tomato",
+                            "food_id": None,
+                            "quantity_mode": "track_quantity",
+                            "display_label": None,
+                            "reason": "permission matrix",
+                        }
+                    ],
+                }
+                target_id = ""
+            elif fixture_name in {"shopping_update", "shopping_restore"}:
+                item = ShoppingListItem(
+                    id=f"shopping-task-11-permission-{suffix}",
+                    family_id=self.family.id,
+                    ingredient_id="ingredient-tomato",
+                    title="番茄",
+                    quantity=Decimal("1"),
+                    unit="个",
+                    reason="before" if fixture_name == "shopping_update" else "",
+                    done=fixture_name == "shopping_restore",
+                    created_by=member_id,
+                    updated_by=member_id,
+                )
+                db.add(item)
+                db.flush()
+                draft_type = "shopping_list"
+                operation = {
+                    "operationId": f"permission-{suffix}",
+                    "action": "update" if fixture_name == "shopping_update" else "set_done",
+                    "targetId": item.id,
+                    "baseUpdatedAt": item.updated_at.isoformat(),
+                    "before": {},
+                    "payload": (
+                        {
+                            "title": item.title,
+                            "quantity": 3,
+                            "unit": "斤",
+                            "ingredient_id": item.ingredient_id,
+                            "food_id": None,
+                            "quantity_mode": "track_quantity",
+                            "display_label": None,
+                            "reason": "after",
+                        }
+                        if fixture_name == "shopping_update"
+                        else {"done": False, "reason": ""}
+                    ),
+                }
+                payload = {
+                    "draftType": "shopping_list",
+                    "schemaVersion": "shopping_list_operation.v1",
+                    "sourceDraftId": None,
+                    "operations": [operation],
+                }
+                target_id = item.id
+            else:
+                assert fixture_name == "simple_plan"
+                draft_type = "meal_plan"
+                payload = {
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "source": {},
+                    "items": [
+                        {
+                            "date": "2026-09-01",
+                            "mealType": "dinner",
+                            "title": "番茄小炒",
+                            "foodId": "food-tomato",
+                            "recipeId": None,
+                            "reason": "permission matrix",
+                            "usedInventory": [],
+                            "missingIngredients": [],
+                            "missingIngredientItems": [],
+                            "source": {},
+                        }
+                    ],
+                }
+                target_id = ""
+
+            receipt = self._execute_receipt(
+                db,
+                draft_type=draft_type,
+                payload=payload,
+                suffix=suffix,
+                user_id=member_id,
+            )
+            if not target_id:
+                target_id = receipt.entity_ids[0]
+            operation = self._persist_receipt_operation(
+                db,
+                draft_type=draft_type,
+                payload=payload,
+                receipt=receipt,
+                suffix=suffix,
+                actor_user_id=member_id,
+            )
+            response = self._revert(
+                db,
+                operation,
+                suffix=suffix,
+                actor_user_id=revert_actor_id,
+            )
+            self.assertEqual(response.projection.result_status, "reverted")
+
+            if fixture_name == "rating":
+                restored = db.get(MealLogFood, target_id)
+                assert restored is not None
+                self.assertEqual(restored.rating, Decimal("2.5"))
+            elif fixture_name in {"shopping_add", "simple_plan"}:
+                model = ShoppingListItem if fixture_name == "shopping_add" else FoodPlanItem
+                self.assertIsNone(db.get(model, target_id))
+            elif fixture_name == "shopping_update":
+                restored = db.get(ShoppingListItem, target_id)
+                assert restored is not None
+                self.assertEqual(restored.quantity, Decimal("1"))
+                self.assertEqual(restored.unit, "个")
+                self.assertEqual(restored.reason, "before")
+            else:
+                restored = db.get(ShoppingListItem, target_id)
+                assert restored is not None
+                self.assertTrue(restored.done)
+
     def test_favorite_handler_receipt_reverts_through_coordinator(self) -> None:
         with self.SessionLocal() as db:
             food = db.get(Food, "food-tomato")
@@ -314,6 +476,67 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertIsNone(restored_entries[entries[1].id].rating)
             self.assertEqual(restored_entries[entries[0].id].rating, Decimal("2.5"))
             self.assertEqual(restored.row_version, before_version + 2)
+
+    def test_rating_decimal_commit_reopens_and_reverts_without_false_conflict(self) -> None:
+        with self.SessionLocal() as db:
+            meal_log, entries = self._seed_rating_target(db)
+            before_version = meal_log.row_version
+            payload = {
+                "draftType": "meal_log",
+                "schemaVersion": "meal_log_operation.v1",
+                "action": "rate_food",
+                "targetId": meal_log.id,
+                "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                "before": {},
+                "payload": {
+                    "foodEntryRatings": [{"id": entries[0].id, "rating": 4.234}]
+                },
+            }
+            receipt = self._execute_receipt(
+                db,
+                draft_type="meal_log",
+                payload=payload,
+                suffix="rating-decimal-commit",
+            )
+            self.assertEqual(receipt.revert_context["entries"][0]["after_rating"], 4.2)
+            operation = self._persist_receipt_operation(
+                db,
+                draft_type="meal_log",
+                payload=payload,
+                receipt=receipt,
+                suffix="rating-decimal-commit",
+            )
+            operation_id = operation.id
+            meal_log_id = meal_log.id
+            entry_id = entries[0].id
+            db.commit()
+
+        with self.SessionLocal() as db:
+            operation = db.get(AIOperation, operation_id)
+            assert operation is not None
+            response = self._revert(db, operation, suffix="rating-decimal-commit")
+            self.assertEqual(response.projection.result_status, "reverted")
+            db.commit()
+
+        with self.SessionLocal() as db:
+            restored = db.get(MealLogFood, entry_id)
+            parent = db.get(MealLog, meal_log_id)
+            assert restored is not None and parent is not None
+            self.assertEqual(restored.rating, Decimal("2.5"))
+            self.assertEqual(parent.row_version, before_version + 2)
+            self.assertEqual(
+                len(
+                    list(
+                        db.scalars(
+                            select(ActivityLog).where(
+                                ActivityLog.entity_type == "MealLog",
+                                ActivityLog.entity_id == meal_log_id,
+                            )
+                        )
+                    )
+                ),
+                2,
+            )
 
     def test_shopping_add_handler_receipt_reverts_created_rows(self) -> None:
         with self.SessionLocal() as db:
@@ -446,6 +669,154 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertEqual(restored.quantity, Decimal("1"))
             self.assertEqual(restored.unit, "个")
             self.assertEqual(restored.reason, "before")
+
+    def test_shopping_update_decimal_commit_reopens_and_reverts_exactly(self) -> None:
+        with self.SessionLocal() as db:
+            item = ShoppingListItem(
+                id="shopping-task-11-update-decimal",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("1.11"),
+                unit="个",
+                reason="before",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(item)
+            db.flush()
+            payload = {
+                "draftType": "shopping_list",
+                "schemaVersion": "shopping_list_operation.v1",
+                "sourceDraftId": None,
+                "operations": [
+                    {
+                        "operationId": "shopping-update-decimal",
+                        "action": "update",
+                        "targetId": item.id,
+                        "baseUpdatedAt": item.updated_at.isoformat(),
+                        "before": {},
+                        "payload": {
+                            "title": item.title,
+                            "quantity": 1.234,
+                            "unit": "斤",
+                            "ingredient_id": item.ingredient_id,
+                            "food_id": None,
+                            "quantity_mode": "track_quantity",
+                            "display_label": None,
+                            "reason": "after",
+                        },
+                    }
+                ],
+            }
+            receipt = self._execute_receipt(
+                db,
+                draft_type="shopping_list",
+                payload=payload,
+                suffix="shopping-update-decimal",
+            )
+            self.assertEqual(receipt.revert_context["items"][0]["after"]["quantity"], 1.23)
+            operation = self._persist_receipt_operation(
+                db,
+                draft_type="shopping_list",
+                payload=payload,
+                receipt=receipt,
+                suffix="shopping-update-decimal",
+            )
+            operation_id = operation.id
+            item_id = item.id
+            db.commit()
+
+        with self.SessionLocal() as db:
+            operation = db.get(AIOperation, operation_id)
+            assert operation is not None
+            response = self._revert(db, operation, suffix="shopping-update-decimal")
+            self.assertEqual(response.projection.result_status, "reverted")
+            db.commit()
+
+        with self.SessionLocal() as db:
+            restored = db.get(ShoppingListItem, item_id)
+            assert restored is not None
+            self.assertEqual(restored.quantity, Decimal("1.11"))
+            self.assertEqual(restored.unit, "个")
+            self.assertEqual(restored.reason, "before")
+            self.assertEqual(restored.row_version, 3)
+            self.assertEqual(
+                len(
+                    list(
+                        db.scalars(
+                            select(ActivityLog).where(
+                                ActivityLog.entity_type == "ShoppingListItem",
+                                ActivityLog.entity_id == item_id,
+                            )
+                        )
+                    )
+                ),
+                2,
+            )
+
+    def test_shopping_add_decimal_commit_reopens_and_reverts_created_row(self) -> None:
+        with self.SessionLocal() as db:
+            payload = {
+                "draftType": "shopping_list",
+                "schemaVersion": "shopping_list.v1",
+                "sourceDraftId": None,
+                "items": [
+                    {
+                        "title": "番茄",
+                        "quantity": 1.234,
+                        "unit": "个",
+                        "ingredient_id": "ingredient-tomato",
+                        "food_id": None,
+                        "quantity_mode": "track_quantity",
+                        "display_label": None,
+                        "reason": "decimal add",
+                    }
+                ],
+            }
+            receipt = self._execute_receipt(
+                db,
+                draft_type="shopping_list",
+                payload=payload,
+                suffix="shopping-add-decimal",
+            )
+            self.assertEqual(receipt.revert_context["items"][0]["after"]["quantity"], 1.23)
+            operation = self._persist_receipt_operation(
+                db,
+                draft_type="shopping_list",
+                payload=payload,
+                receipt=receipt,
+                suffix="shopping-add-decimal",
+            )
+            operation_id = operation.id
+            item_id = receipt.entity_ids[0]
+            db.commit()
+
+        with self.SessionLocal() as db:
+            persisted = db.get(ShoppingListItem, item_id)
+            operation = db.get(AIOperation, operation_id)
+            assert persisted is not None and operation is not None
+            self.assertEqual(persisted.quantity, Decimal("1.23"))
+            response = self._revert(db, operation, suffix="shopping-add-decimal")
+            self.assertEqual(response.projection.result_status, "reverted")
+            db.commit()
+
+        with self.SessionLocal() as db:
+            self.assertIsNone(db.get(ShoppingListItem, item_id))
+            self.assertEqual(
+                len(
+                    list(
+                        db.scalars(
+                            select(ActivityLog).where(
+                                ActivityLog.entity_type == "ShoppingListItem",
+                                ActivityLog.entity_id == item_id,
+                            )
+                        )
+                    )
+                ),
+                2,
+            )
 
     def test_shopping_restore_handler_receipt_marks_items_done_again(self) -> None:
         with self.SessionLocal() as db:
@@ -964,7 +1335,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 (self.family.id, *tuple(sorted(item.id for item in items))),
             )
 
-    def test_simple_plan_revert_enqueues_fresh_search_cleanup(self) -> None:
+    def test_simple_plan_revert_job_processes_deletion_cleanup_to_success(self) -> None:
         with self.SessionLocal() as db:
             payload = {
                 "draftType": "meal_plan",
@@ -1005,6 +1376,18 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                     document_builder_version="test",
                 )
             )
+            db.add(
+                FamilySearchProfileDocument(
+                    id="profile-doc-task-11-plan",
+                    family_id=self.family.id,
+                    search_profile_id="profile-task-11-plan",
+                    search_document_id="search-doc-task-11-plan",
+                    content_hash="a" * 64,
+                    status="indexed",
+                    vector_json=[0.1, 0.2],
+                    vector_dimensions=2,
+                )
+            )
             operation = self._persist_receipt_operation(
                 db,
                 draft_type="meal_plan",
@@ -1014,7 +1397,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             )
 
             self._revert(db, operation, suffix="plan-search")
-            db.flush()
+            db.commit()
 
             self.assertIsNone(
                 db.scalar(
@@ -1036,6 +1419,21 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 )
             )
             self.assertEqual(len(queued), 1)
+            cleanup_job_id = queued[0].id
+
+        process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
+
+        with self.SessionLocal() as db:
+            cleanup_job = db.get(SearchIndexJob, cleanup_job_id)
+            assert cleanup_job is not None
+            self.assertEqual(cleanup_job.status, "succeeded")
+            self.assertEqual(cleanup_job.vector_status, "skipped")
+            self.assertEqual(cleanup_job.attempt_count, 0)
+            self.assertIsNone(cleanup_job.error)
+            self.assertIsNone(cleanup_job.error_code)
+            self.assertIsNone(
+                db.get(FamilySearchProfileDocument, "profile-doc-task-11-plan")
+            )
 
     def test_favorite_current_value_mismatch_blocks_without_compensation(self) -> None:
         with self.SessionLocal() as db:
@@ -1693,6 +2091,29 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 receipt=receipt,
                 suffix="plan-batch",
             )
+            db.add_all(
+                [
+                    SearchDocument(
+                        id=f"search-doc-task-11-rollback-{index}",
+                        family_id=self.family.id,
+                        entity_type="meal_plan",
+                        entity_id=item_id,
+                        content_hash=str(index) * 64,
+                        document_builder_version="test",
+                    )
+                    for index, item_id in enumerate(receipt.entity_ids, start=1)
+                ]
+            )
+            db.flush()
+            job_ids_before = set(
+                db.scalars(
+                    select(SearchIndexJob.id).where(
+                        SearchIndexJob.family_id == self.family.id,
+                        SearchIndexJob.entity_type == "meal_plan",
+                        SearchIndexJob.entity_id.in_(receipt.entity_ids),
+                    )
+                )
+            )
             changed = db.get(FoodPlanItem, receipt.entity_ids[1])
             assert changed is not None
             changed.note = "family changed it"
@@ -1705,6 +2126,30 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertEqual(
                 set(db.scalars(select(FoodPlanItem.id).where(FoodPlanItem.id.in_(receipt.entity_ids)))),
                 set(receipt.entity_ids),
+            )
+            self.assertEqual(
+                set(
+                    db.scalars(
+                        select(SearchDocument.entity_id).where(
+                            SearchDocument.family_id == self.family.id,
+                            SearchDocument.entity_type == "meal_plan",
+                            SearchDocument.entity_id.in_(receipt.entity_ids),
+                        )
+                    )
+                ),
+                set(receipt.entity_ids),
+            )
+            self.assertEqual(
+                set(
+                    db.scalars(
+                        select(SearchIndexJob.id).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "meal_plan",
+                            SearchIndexJob.entity_id.in_(receipt.entity_ids),
+                        )
+                    )
+                ),
+                job_ids_before,
             )
 
     def test_completed_simple_plan_is_dependency(self) -> None:
@@ -1805,6 +2250,33 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertEqual(owner_response.projection.result_status, "reverted")
             self.assertFalse(db.get(Food, food.id).favorite)
             self.assertEqual(membership.role, UserRole.MEMBER)
+
+    def test_original_member_and_owner_permission_matrix_for_remaining_adapters(self) -> None:
+        member, membership = self.create_family_member(
+            user_id="user-task-11-permission-matrix"
+        )
+        for fixture_name in (
+            "rating",
+            "shopping_add",
+            "shopping_update",
+            "shopping_restore",
+            "simple_plan",
+        ):
+            with self.subTest(fixture=fixture_name, actor="original_member"):
+                self._exercise_permission_fixture(
+                    fixture_name=fixture_name,
+                    suffix=f"permission-member-{fixture_name}",
+                    member_id=member.id,
+                    revert_actor_id=member.id,
+                )
+            with self.subTest(fixture=fixture_name, actor="current_owner"):
+                self._exercise_permission_fixture(
+                    fixture_name=fixture_name,
+                    suffix=f"permission-owner-{fixture_name}",
+                    member_id=member.id,
+                    revert_actor_id=self.user.id,
+                )
+        self.assertEqual(membership.role, UserRole.MEMBER)
 
 
 if __name__ == "__main__":

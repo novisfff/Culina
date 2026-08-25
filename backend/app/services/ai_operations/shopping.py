@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -43,6 +43,14 @@ _SHOPPING_MUTATION_OPERATION_FIELDS = {
     "before",
     "payload",
 }
+_SHOPPING_QUANTITY_QUANTUM = Decimal("0.01")
+
+
+def _canonical_shopping_quantity(value: float | Decimal | None) -> Decimal:
+    return Decimal(str(value or 1)).quantize(
+        _SHOPPING_QUANTITY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
 
 
 def _shopping_safe_mode(payload: dict[str, Any]) -> str | None:
@@ -138,7 +146,9 @@ def _shopping_create_payload_matches_item(
     item: ShoppingListItem,
 ) -> bool:
     try:
-        quantity_matches = Decimal(str(payload.get("quantity"))) == Decimal(str(item.quantity))
+        quantity_matches = _canonical_shopping_quantity(
+            payload.get("quantity")
+        ) == Decimal(str(item.quantity))
     except Exception:
         return False
     return (
@@ -306,7 +316,7 @@ def _apply_shopping_item_operations(
                 ingredient_id=target_values["ingredient_id"],
                 food_id=target_values["food_id"],
                 title=target_values["title"],
-                quantity=Decimal(str(item_in.quantity or 1)),
+                quantity=_canonical_shopping_quantity(item_in.quantity),
                 unit=target_values["unit"],
                 quantity_mode=target_values["quantity_mode"],
                 display_label=target_values["display_label"],
@@ -408,7 +418,7 @@ def _apply_shopping_item_operations(
         item.ingredient_id = target_values["ingredient_id"]
         item.food_id = target_values["food_id"]
         item.title = target_values["title"]
-        item.quantity = Decimal(str(item_in.quantity or 1))
+        item.quantity = _canonical_shopping_quantity(item_in.quantity)
         item.unit = target_values["unit"]
         item.quantity_mode = target_values["quantity_mode"]
         item.display_label = target_values["display_label"]
@@ -481,7 +491,7 @@ def _create_shopping_items_from_payload(
             ingredient_id=target_values["ingredient_id"],
             food_id=target_values["food_id"],
             title=target_values["title"],
-            quantity=Decimal(str(item_in.quantity or 1)),
+            quantity=_canonical_shopping_quantity(item_in.quantity),
             unit=target_values["unit"],
             quantity_mode=target_values["quantity_mode"],
             display_label=target_values["display_label"],
