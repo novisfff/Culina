@@ -1736,6 +1736,7 @@ class AIEvalContext:
     def __init__(self, owner: AIAgentInfraTestCase) -> None:
         self.owner = owner
         self.aliases: dict[str, str] = {}
+        self.last_run_id: str | None = None
         self._install_fixtures()
 
     def _install_fixtures(self) -> None:
@@ -2966,6 +2967,7 @@ class AIEvalContext:
             raise AssertionError(f"{case.id}: runtime request failed: {response.status_code} {response.text}")
         payload = response.json()
         run_id = payload["run"]["id"]
+        self.last_run_id = run_id
         with self.owner.SessionLocal() as db:
             run = db.get(AIAgentRun, run_id)
             assert run is not None

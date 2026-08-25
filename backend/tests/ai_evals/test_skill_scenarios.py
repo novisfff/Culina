@@ -1,8 +1,6 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import select
-
 from app.ai.errors import ToolExecutionError
 from app.ai.evals.loader import load_eval_cases
 from app.ai.evals.scoring import score_case, score_report
@@ -112,7 +110,7 @@ class AIScriptedSkillScenariosTestCase(AIAgentInfraTestCase):
         context.run_case(case)
 
         with self.SessionLocal() as db:
-            run = db.scalars(select(AIAgentRun).order_by(AIAgentRun.created_at.desc())).first()
+            run = db.get(AIAgentRun, context.last_run_id)
             assert run is not None
             metrics = run.context_summary["runMetrics"]
         self.assertEqual(metrics["invalidIdentityRejectedCount"], 1)
@@ -124,7 +122,7 @@ class AIScriptedSkillScenariosTestCase(AIAgentInfraTestCase):
         context.run_case(case)
 
         with self.SessionLocal() as db:
-            run = db.scalars(select(AIAgentRun).order_by(AIAgentRun.created_at.desc())).first()
+            run = db.get(AIAgentRun, context.last_run_id)
             assert run is not None
             metrics = run.context_summary["runMetrics"]
         self.assertEqual(metrics.get("invalidIdentityRejectedCount", 0), 0)
