@@ -21,7 +21,9 @@ function renderSettings(isOwner = false) {
 
 describe('AiAutoExecutionSettingsView', () => {
   it('shows family shopping policy as read-only for members', async () => {
-    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(settings());
+    vi.mocked(aiApi.getAiAutoExecutionSettings)
+      .mockResolvedValueOnce(settings())
+      .mockResolvedValue(settings({ consent_notice: { version: 'notice-1', acknowledged: true }, member_preferences: settings().member_preferences.map((row) => row.action_key === 'food.set_favorite' ? { ...row, enabled: true, effective_enabled: true } : row) }));
     renderSettings(false);
     expect(await screen.findByRole('switch', { name: '允许家庭成员在规则内自动维护购物清单' })).toBeDisabled();
     expect(screen.getByText('需要家庭 Owner 先开放此能力')).toBeVisible();
@@ -30,7 +32,9 @@ describe('AiAutoExecutionSettingsView', () => {
   it('requires consent before first enable and keeps the switch unchanged until success', async () => {
     const user = userEvent.setup();
     let resolve!: (value: AiAutoExecutionSettings) => void;
-    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(settings());
+    vi.mocked(aiApi.getAiAutoExecutionSettings)
+      .mockResolvedValueOnce(settings())
+      .mockResolvedValue(settings({ consent_notice: { version: 'notice-1', acknowledged: true }, member_preferences: settings().member_preferences.map((row) => row.action_key === 'food.set_favorite' ? { ...row, enabled: true, effective_enabled: true } : row) }));
     vi.mocked(aiApi.updateAiAutoExecutionPreference).mockReturnValue(new Promise((done) => { resolve = done; }));
     renderSettings(true);
     const control = await screen.findByRole('switch', { name: '收藏状态' });

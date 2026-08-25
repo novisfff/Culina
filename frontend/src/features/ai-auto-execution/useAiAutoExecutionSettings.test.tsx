@@ -25,7 +25,7 @@ describe('useAiAutoExecutionSettings', () => {
 
   it('does not update the cached enabled state before the server succeeds', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(response());
+    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValueOnce(response()).mockResolvedValue(response(true));
     let resolve!: (value: AiAutoExecutionSettings) => void;
     vi.mocked(aiApi.updateAiAutoExecutionPreference).mockReturnValue(new Promise((done) => { resolve = done; }));
     const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;

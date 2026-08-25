@@ -39,8 +39,8 @@ export function AiAutoExecutionSettingsView(props: { familyId: string; isOwner: 
             const row = rowFor(action.key);
             if (!row) return null;
             const shoppingPolicyOff = action.key === 'shopping_list.safe_write' && !shopping?.effective_enabled;
-            const failure = state.failure?.scope === 'member' && state.failure.actionKey === row.action_key ? state.failure : null;
-            return <AiAutoExecutionSwitchRow key={action.key} action={action} enabled={row.enabled} effectiveEnabled={row.effective_enabled} disabled={shoppingPolicyOff} pending={state.isPending('member', row.action_key)} requiresReconsent={row.requires_reconsent} readOnlyMessage={shoppingPolicyOff ? '需要家庭 Owner 先开放此能力' : undefined} errorMessage={failure?.message} onRetry={failure ? () => void state.update('member', row, failure.payload.enabled, failure.payload) : undefined} onToggle={() => runToggle('member', row)} />;
+            const failure = state.failureFor('member', row.action_key);
+            return <AiAutoExecutionSwitchRow key={action.key} action={action} enabled={row.enabled} effectiveEnabled={row.effective_enabled} disabled={shoppingPolicyOff} pending={state.isPending('member', row.action_key)} requiresReconsent={row.requires_reconsent} readOnlyMessage={shoppingPolicyOff ? '需要家庭 Owner 先开放此能力' : undefined} errorMessage={failure?.message} onRetry={failure && !failure.isConflict ? () => void state.update('member', row, failure.payload.enabled, failure.payload) : undefined} onToggle={() => runToggle('member', row)} />;
           })}
         </div>
       </section>
@@ -48,10 +48,10 @@ export function AiAutoExecutionSettingsView(props: { familyId: string; isOwner: 
         const action = findAiAutoExecutionAction(shopping.action_key)!;
         const memberReadOnly = !props.isOwner;
         const readOnlyMessage = memberReadOnly ? (shopping.effective_enabled ? '仅家庭 Owner 可修改' : '家庭 Owner 尚未开放此能力') : undefined;
-        const failure = state.failure?.scope === 'family' && state.failure.actionKey === shopping.action_key ? state.failure : null;
+        const failure = state.failureFor('family', shopping.action_key);
         return <section className="ai-auto-execution-section" aria-labelledby="ai-auto-execution-family-heading">
           <div className="ai-auto-execution-section-head"><h2 id="ai-auto-execution-family-heading">家庭共享操作</h2><p>仅影响家庭成员的购物清单安全操作。</p></div>
-          <div className="ai-auto-execution-list"><AiAutoExecutionSwitchRow action={action} ariaLabel="允许家庭成员在规则内自动维护购物清单" enabled={shopping.enabled} effectiveEnabled={shopping.effective_enabled} disabled={memberReadOnly} pending={state.isPending('family', shopping.action_key)} requiresReconsent={shopping.requires_reconsent} readOnlyMessage={readOnlyMessage} errorMessage={failure?.message} onRetry={failure ? () => void state.update('family', shopping, failure.payload.enabled, failure.payload) : undefined} onToggle={() => runToggle('family', shopping)} /></div>
+          <div className="ai-auto-execution-list"><AiAutoExecutionSwitchRow action={action} ariaLabel="允许家庭成员在规则内自动维护购物清单" enabled={shopping.enabled} effectiveEnabled={shopping.effective_enabled} disabled={memberReadOnly} pending={state.isPending('family', shopping.action_key)} requiresReconsent={shopping.requires_reconsent} readOnlyMessage={readOnlyMessage} errorMessage={failure?.message} onRetry={failure && !failure.isConflict ? () => void state.update('family', shopping, failure.payload.enabled, failure.payload) : undefined} onToggle={() => runToggle('family', shopping)} /></div>
         </section>;
       })()}
       <AiAutoExecutionConsentDialog open={Boolean(consent && consent.familyId === props.familyId)} isSubmitting={Boolean(consent && state.isPending(consent.scope, consent.row.action_key))} onCancel={() => setConsent(null)} onConfirm={() => { if (consent?.familyId === props.familyId) { void state.update(consent.scope, consent.row, true); setConsent(null); } }} />
