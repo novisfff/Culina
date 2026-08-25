@@ -1052,7 +1052,7 @@ class AIInventoryIntakeTestCase(AIAgentInfraTestCase):
                 approval=approval,
             )
             db.flush()
-            self.assertEqual(result["operation"]["status"], "succeeded")
+            self.assertEqual(result["operation"]["status"], "completed")
             self.assertTrue(item.done)
             self.assertEqual(
                 db.scalar(

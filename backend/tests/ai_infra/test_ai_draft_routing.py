@@ -42,6 +42,7 @@ from app.models.domain import (
     ShoppingListItem,
 )
 from app.services.ai_auto_execution.catalog import CONSENT_NOTICE_VERSION
+from app.services.ai_revert.registry import ai_revert_adapter_registry
 from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
 from app.services.ai_auto_execution.policy_types import (
     EffectiveAuthorization,
@@ -54,12 +55,7 @@ from app.services.ai_operations.executor import execute_ai_operation_draft
 from app.services.serializers import serialize_ai_operation
 
 
-REGISTERED_ADAPTERS = frozenset({
-    "food.favorite.v1",
-    "meal_log.rating.v1",
-    "shopping_list.safe_write.v1",
-    "meal_plan.simple_create.v1",
-})
+REGISTERED_ADAPTERS = ai_revert_adapter_registry.keys
 
 
 class PolicyFavoriteProvider(BaseChatProvider):
@@ -131,6 +127,15 @@ class PolicyFavoriteProvider(BaseChatProvider):
 
 
 class AIDraftRoutingTestCase(AIAgentInfraTestCase):
+    def test_workspace_runner_wires_the_production_revert_registry(self) -> None:
+        with self.SessionLocal() as db:
+            runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+
+            self.assertEqual(
+                runner.progressive_draft_publisher.registered_revert_adapters,
+                ai_revert_adapter_registry.keys,
+            )
+
     def _seed_route(self, *, suffix: str, favorite: bool = True) -> tuple[DraftRouteRequest, str]:
         with self.SessionLocal() as db:
             food = db.get(Food, "food-tomato")
@@ -251,11 +256,14 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
 
     def _route(self, request: DraftRouteRequest, **kwargs):
         with self.SessionLocal() as db:
+            route_kwargs = {
+                "registered_revert_adapters": REGISTERED_ADAPTERS,
+                **kwargs,
+            }
             outcome = route_draft(
                 db,
                 request,
-                registered_revert_adapters=REGISTERED_ADAPTERS,
-                **kwargs,
+                **route_kwargs,
             )
             db.commit()
             return outcome
@@ -559,6 +567,21 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertTrue(run.auto_execution_attempted)
             self.assertEqual(run.auto_operation_id, first.operation_id)
             self.assertTrue(food.favorite)
+
+    def test_missing_adapter_from_real_runner_scope_fails_closed_to_confirmation(self) -> None:
+        request, run_id = self._seed_route(suffix="missing-adapter")
+
+        outcome = self._route(request, registered_revert_adapters=frozenset())
+
+        self.assertEqual(outcome.status, "waiting_approval")
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            draft = db.get(AITaskDraft, outcome.draft_id)
+            assert run is not None and draft is not None
+            self.assertFalse(run.auto_execution_attempted)
+            self.assertIn("revert_adapter_missing", draft.policy_reason_codes)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 1)
 
     def test_terminal_route_replay_skips_policy_evaluation(self) -> None:
         request, _run_id = self._seed_route(suffix="replay-policy")
@@ -1035,7 +1058,6 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
             runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
             runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
-            runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
 
             response = runner.invoke_user_message(
                 family_id=self.family.id,
@@ -1239,7 +1261,6 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
             runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
             runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
-            runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
             terminal_error = OperationalError(
                 "UPDATE foods",
                 {},
@@ -1357,7 +1378,6 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
             runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
             runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
-            runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
             terminal_error = OperationalError(
                 "UPDATE foods",
                 {},

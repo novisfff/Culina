@@ -213,7 +213,7 @@ def _seed_operation(
         draft_id=draft_id,
         actor_user_id=actor_id,
         operation_type="food_profile.set_favorite",
-        status="succeeded",
+        status="completed",
         execution_mode="policy_auto",
         authorization_source="member_preference",
         authorization_snapshot_json={},
@@ -423,7 +423,7 @@ def test_global_request_id_race_has_one_winner_and_clean_typed_loser(
         assert winner_message.parts[0]["card"]["data"]["result_status"] == "reverted"
         assert winner_message.message_metadata["artifacts"][0]["status"] == "reverted"
 
-        assert loser.status == "succeeded"
+        assert loser.status == "completed"
         assert loser.revert_request_id is None
         assert loser.reverted_at is None
         assert loser.reverted_by is None

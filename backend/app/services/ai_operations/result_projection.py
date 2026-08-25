@@ -14,6 +14,7 @@ from app.services.ai_auto_execution.policy_types import (
     ExecutionMode,
     RevertAvailability,
 )
+from app.services.ai_operations.status import normalize_operation_status
 
 
 PUBLIC_RESULT_FIELDS = (
@@ -120,7 +121,7 @@ def _project_persisted_operation(
     server_now: datetime,
 ) -> AIOperationResultProjection:
     now = _as_utc(server_now)
-    raw_status = str(operation.status or "")
+    raw_status = normalize_operation_status(operation.status)
     execution_mode = cast(ExecutionMode, operation.execution_mode)
     if raw_status == "failed":
         result_status = "failed"
@@ -140,7 +141,7 @@ def _project_persisted_operation(
         operation_status = "pending"
         explanation = EXECUTION_EXPLANATIONS["pending"]
         availability = "unsupported"
-    elif raw_status in {"succeeded", "completed"}:
+    elif raw_status == "completed":
         result_status = "completed"
         operation_status = "completed"
         explanation = EXECUTION_EXPLANATIONS.get(

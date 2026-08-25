@@ -157,7 +157,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             draft_id=draft.id,
             actor_user_id=actor_user_id or self.user.id,
             operation_type=f"{draft_type}.task_11",
-            status="succeeded",
+            status="completed",
             execution_mode="policy_auto",
             authorization_source="member_preference",
             authorization_snapshot_json={},

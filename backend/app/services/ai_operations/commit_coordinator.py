@@ -52,6 +52,7 @@ from app.services.ai_operations.result_projection import (
 )
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import DraftPostExecuteContext
+from app.services.ai_operations.status import is_operation_completed
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     lock_run_for_transition,
@@ -269,7 +270,7 @@ class DraftCommitCoordinator:
             draft_id=locked_draft.id,
             run_id=locked_run.id,
         )
-        if operation_snapshot.status == "succeeded":
+        if is_operation_completed(operation_snapshot.status):
             return cls._replay_result(db, operation=operation_snapshot, draft=locked_draft)
 
         # Preserve the global lock order: authorization settings are locked
@@ -311,7 +312,7 @@ class DraftCommitCoordinator:
             draft_id=locked_draft.id,
             run_id=locked_run.id,
         )
-        if operation.status == "succeeded":
+        if is_operation_completed(operation.status):
             return cls._replay_result(db, operation=operation, draft=locked_draft)
         if operation.status != "failed" or operation.error_code != TRANSIENT_DATABASE_ERROR_CODE:
             raise AIConflictError("只有临时数据库失败可以重试原草稿")
@@ -407,7 +408,7 @@ class DraftCommitCoordinator:
         )
         if draft is None or operation is None or draft.source_run_id != run.id:
             raise AIConflictError("并发恢复后草稿或操作已变化")
-        if operation.status == "succeeded":
+        if is_operation_completed(operation.status):
             return cls._replay_result(db, operation=operation, draft=draft)
         raise AIConflictError("该草稿操作正在由另一请求恢复")
 
@@ -504,7 +505,7 @@ class DraftCommitCoordinator:
             draft_id=request.draft_id,
             run_id=request.run_id,
         )
-        if operation.status == "succeeded":
+        if is_operation_completed(operation.status):
             return cls._replay_result(db, operation=operation, draft=locked_draft)
         if not created and operation.status == "failed":
             retry_allowed = retry_operation_id == operation.id
@@ -525,7 +526,7 @@ class DraftCommitCoordinator:
             if not claimed:
                 db.expire(operation)
                 db.refresh(operation)
-                if operation.status == "succeeded":
+                if is_operation_completed(operation.status):
                     return cls._replay_result(db, operation=operation, draft=locked_draft)
                 raise AIConflictError("该草稿操作正在由另一请求恢复")
         elif not created and operation.status not in {"pending"}:
@@ -598,7 +599,7 @@ class DraftCommitCoordinator:
                 )
                 db.flush()
 
-            operation.status = "succeeded"
+            operation.status = "completed"
             operation.result_json = cls._receipt_to_json(receipt)
             operation.business_entity_ids = list(receipt.entity_ids)
             operation.error_code = None
@@ -824,7 +825,7 @@ class DraftCommitCoordinator:
                 draft_id=request.draft_id,
                 run_id=request.run_id,
             )
-            if operation.status == "succeeded":
+            if is_operation_completed(operation.status):
                 return cls._replay_result(db, operation=operation, draft=locked_draft)
             _apply_operation_request_audit(operation, request=request)
             operation.status = "failed"
@@ -904,7 +905,7 @@ class DraftCommitCoordinator:
                     draft_id=request.draft_id,
                     run_id=request.run_id,
                 )
-                if operation.status == "succeeded":
+                if is_operation_completed(operation.status):
                     return cls._replay_result(db, operation=operation, draft=locked_draft)
                 _apply_operation_request_audit(operation, request=request)
                 if locked_run is not None:

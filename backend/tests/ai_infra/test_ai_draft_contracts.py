@@ -700,7 +700,7 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             db.refresh(draft)
             retry = self._approve_ai_approval_for_test(service, draft=draft, approval=retry_approval)
             self.assertEqual(retry["operation"]["id"], failed_operation.id)
-            self.assertEqual(retry["operation"]["status"], "succeeded")
+            self.assertEqual(retry["operation"]["status"], "completed")
             self.assertEqual(retry["business_entity"]["meal_log_id"], cook_log.meal_log_id)
             self.assertEqual(retry["business_entity"]["cook_log_id"], cook_log.id)
             self.assertEqual(db.scalar(select(func.count()).select_from(RecipeCookLog)), 1)

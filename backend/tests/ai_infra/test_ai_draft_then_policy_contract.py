@@ -3,16 +3,22 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from sqlalchemy import func, select
 
 from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
+from app.ai.skills.base import SkillContext
 from app.ai.skills.loader import load_skill_catalog
 from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.tools.registry import ToolRegistry, build_workspace_tool_registry
 from app.ai.tools.schemas import INTENT_CLARITY_MODEL_DESCRIPTION
+from app.ai.tools.executor import ToolContext
+from app.ai.tools.executor import ToolExecutor
+from app.ai.workflows.orchestrator.payloads import OrchestratorPromptPayloadBuilder
+from app.ai.workflows.orchestrator.tools import SkillInjectionManager
 from app.services.ai_auto_execution.policy_registry import (
     AutoExecutionPolicyRegistry,
     auto_execution_policy_registry,
@@ -236,6 +242,48 @@ def test_model_visible_registry_never_contains_write_tools() -> None:
 
     for manifest in skill_registry.list_manifests():
         assert all(tool_registry.get(name).side_effect != "write" for name in manifest.tools)
+
+
+def test_model_visible_policy_prompt_distinguishes_confirm_and_server_policy_routes() -> None:
+    skill_registry = build_workspace_skill_registry()
+    tool_registry = build_workspace_tool_registry()
+    context = SkillContext(
+        db=MagicMock(),
+        family_id="family-policy-prompt",
+        user_id="user-policy-prompt",
+        conversation_id="conversation-policy-prompt",
+        run_id="run-policy-prompt",
+        conversation=[],
+        current_message="记录今天午餐",
+        tool_executor=ToolExecutor(
+            tool_registry,
+            ToolContext(
+                db=MagicMock(),
+                family_id="family-policy-prompt",
+                user_id="user-policy-prompt",
+                conversation_id="conversation-policy-prompt",
+                run_id="run-policy-prompt",
+            ),
+        ),
+    )
+    prompt = OrchestratorPromptPayloadBuilder(
+        SkillInjectionManager(skill_registry)
+    ).system_prompt(context, ["food_profile"])
+
+    assert "draft_then_confirm 等待真实用户决定" in prompt
+    assert "draft_then_policy 只生成 Draft" in prompt
+    assert "服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交" in prompt
+    assert "模型永不获得正式 Write Tool" in prompt
+    assert "Composite/Continuation 始终人工确认" in prompt
+    assert "所有写入必须等待 approval" not in prompt
+    assert "生成 draft 后必须结束当前动作并等待 approval" not in prompt
+
+    for skill_key in POLICY_SKILLS:
+        text = skill_registry.get(skill_key).instructions
+        assert "draft_then_confirm 等待真实用户决定" in text
+        assert "draft_then_policy 只生成 Draft" in text
+        assert "Composite/Continuation 始终人工确认" in text
+        assert "遵循 `draft -> approval -> commit`" not in text
 
 
 class AIDraftThenPolicyDefaultOffTestCase(AIAgentInfraTestCase):

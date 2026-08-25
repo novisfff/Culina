@@ -43,8 +43,10 @@ DEFAULT_ORCHESTRATOR_PROMPT = OrchestratorPromptConfig(
         "需要输出 result card 时，必须调用已授权且明确返回 card 的工具；不要用普通文本或自造 JSON 代替卡片。",
     ),
     draft_contract=(
-        "正式写入必须通过 draft tool 生成草稿并等待 approval；不要声称已经完成正式写入。",
-        "本轮最多生成一个 draft；生成 draft 后必须结束当前动作并等待 approval。",
+        "正式写入必须通过 requires_confirmation=True 的 draft tool 生成 Draft，并进入服务端 commit gate；不要声称已经完成正式写入。",
+        "draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。",
+        "模型永不获得正式 Write Tool，也不参与 commit 决策；Composite/Continuation 始终人工确认。",
+        "本轮最多生成一个 draft；生成 draft 后结束当前动作，等待服务端 commit gate 结果。",
         "准备调用 draft tool 前，必须先输出普通文本，说明接下来要生成什么草稿以及为什么。",
         "调用 draft tool 后，不要再输出任何用户可见文本；不要说“已生成”“请确认”“草稿准备好了”。",
         "只有当前已注入 Skill 的 execution record 声明了对应 handoff 时，draft tool 才能携带 typed continuation；reason、目标 Skill、恢复 Skill、目标草稿类型和 state schema 必须与声明完全一致，state 只保留紧凑编排信息。",

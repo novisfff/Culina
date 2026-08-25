@@ -55,7 +55,7 @@ def _draft(*, status: str = "completed", execution_route: str = "policy_auto") -
 
 def _operation(
     *,
-    status: str = "succeeded",
+    status: str = "completed",
     execution_mode: str = "policy_auto",
     revert_adapter_key: str | None = "meal_plan.v1",
     revert_context_json: dict | None = None,
@@ -204,6 +204,19 @@ class AIOperationResultProjectionTest(unittest.TestCase):
                 self.assertEqual(projection.result_status, result_status)
                 self.assertEqual(projection.operation_status, public_status)
                 self.assertEqual(projection.revert_availability, availability)
+
+    def test_legacy_succeeded_operation_status_reads_as_canonical_completed(self) -> None:
+        module = _result_projection_module()
+        projection = module.project_ai_operation_result(
+            draft=_draft(),
+            operation=_operation(status="succeeded"),
+            entities=(),
+            cache_scopes=("ai_conversation",),
+            server_now=NOW,
+        )
+
+        self.assertEqual(projection.result_status, "completed")
+        self.assertEqual(projection.operation_status, "completed")
 
     def test_unknown_operation_status_fails_closed(self) -> None:
         module = _result_projection_module()

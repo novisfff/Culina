@@ -34,6 +34,7 @@ from app.services.ai_operations.result_projection import (
     serialize_ai_operation_result_projection,
     upsert_message_operation_result,
 )
+from app.services.ai_operations.status import is_operation_completed
 from app.services.ai_revert.errors import AIRevertError, ai_revert_error
 from app.services.ai_revert.registry import (
     AIRevertAdapterRegistry,
@@ -290,7 +291,7 @@ class AIRevertCoordinator:
     @classmethod
     def _validate_revertible_state(cls, operation: AIOperation) -> None:
         del cls
-        if operation.status not in {"completed", "succeeded"}:
+        if not is_operation_completed(operation.status):
             raise ai_revert_error("operation_not_revertible")
         if operation.revert_blocked_code:
             raise ai_revert_error("operation_not_revertible")
@@ -436,7 +437,7 @@ class AIRevertCoordinator:
                 and projection.revert_availability == "reverted"
                 and projection.revert_blocked_code is None
             )
-        elif operation.status in {"completed", "succeeded"} and (
+        elif is_operation_completed(operation.status) and (
             operation.revert_blocked_code in PERMANENT_REVERT_CODES
         ):
             valid_terminal_state = (

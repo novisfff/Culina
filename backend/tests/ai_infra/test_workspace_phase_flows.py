@@ -1109,7 +1109,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(decision_response.status_code, 200, decision_response.text)
             decision_data = decision_response.json()
-            self.assertEqual(decision_data["operation"]["status"], "succeeded")
+            self.assertEqual(decision_data["operation"]["status"], "completed")
             self.assertEqual(decision_data["draft"]["status"], "confirmed")
 
             with self.SessionLocal() as db:

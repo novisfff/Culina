@@ -38,6 +38,7 @@ from app.services.ai_operations.result_projection import (
     project_ai_operation_result,
     upsert_message_operation_result,
 )
+from app.services.ai_operations.status import is_operation_completed
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -600,7 +601,7 @@ def _replay_existing_route(
             raise AIConflictError("自动执行结果已丢失")
         commit = (
             coordinator._replay_result(db, operation=operation, draft=draft)
-            if operation.status == "succeeded"
+            if is_operation_completed(operation.status)
             else coordinator._failed_result(db, operation=operation, draft=draft)
         )
         projection = commit.projection

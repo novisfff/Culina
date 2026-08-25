@@ -25,6 +25,7 @@ from app.services.ai_operations.run_blocking import (
     mark_run_auto_execution_blocked,
 )
 from app.services.ai_operations.run_cancellation import cancellation_wins, lock_run_for_transition
+from app.services.ai_operations.status import operation_status_values
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +156,9 @@ def recover_or_replay_draft_run(
             select(AIOperation.draft_id).where(
                 AIOperation.family_id == family_id,
                 AIOperation.run_id == run.id,
-                AIOperation.status.in_({"succeeded", "reverted", "failed"}),
+                AIOperation.status.in_(
+                    operation_status_values("completed") | {"reverted", "failed"}
+                ),
             )
         )
     )

@@ -124,7 +124,7 @@ class AIRevertCoordinatorTest(AIAgentInfraTestCase):
             draft_id=draft.id,
             actor_user_id=actor_user_id,
             operation_type="food_profile.set_favorite",
-            status="succeeded",
+            status="completed",
             execution_mode="policy_auto",
             authorization_source="member_preference",
             authorization_snapshot_json={},
@@ -361,7 +361,7 @@ class AIRevertCoordinatorTest(AIAgentInfraTestCase):
             self.assertEqual(raised.exception.code, "operation_not_revertible")
             self.assertEqual(db.get(Food, "food-tomato").notes, original_notes)
             stored = db.get(AIOperation, operation.id)
-            self.assertEqual(stored.status, "succeeded")
+            self.assertEqual(stored.status, "completed")
             self.assertIsNone(stored.revert_request_id)
 
     def test_permission_and_family_checks_happen_before_request_replay(self) -> None:
@@ -769,7 +769,7 @@ class AIRevertAPITest(AIRevertCoordinatorTest):
             stored = db.get(AIOperation, operation.id)
             self.assertIsNone(stored.revert_request_id)
             self.assertIsNone(stored.revert_blocked_code)
-            self.assertEqual(stored.status, "succeeded")
+            self.assertEqual(stored.status, "completed")
             self.assertEqual(db.get(Food, "food-tomato").notes, original_notes)
             self.assertEqual(db.get(AIMessage, draft.message_id).parts, original_parts)
 

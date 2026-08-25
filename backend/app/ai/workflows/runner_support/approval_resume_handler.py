@@ -25,6 +25,7 @@ from app.services.ai_operations.run_cancellation import (
     finalize_run_cancellation,
     lock_run_for_transition,
 )
+from app.services.ai_operations.status import is_operation_completed
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -184,7 +185,7 @@ class ApprovalResumeHandler:
                 approval_artifacts=approval_artifacts,
                 resume_artifact=resume_artifact,
             )
-        if operation is not None and operation.get("status") != "succeeded":
+        if operation is not None and not is_operation_completed(operation.get("status")):
             if run is not None:
                 run.status = "failed"
             if conversation is not None:
@@ -291,7 +292,7 @@ class ApprovalResumeHandler:
             return ApprovalOutcome.WAITING_APPROVAL
         if str(payload.get("decision")) == "rejected":
             return ApprovalOutcome.REJECTED
-        if not isinstance(operation, dict) or operation.get("status") != "succeeded":
+        if not isinstance(operation, dict) or not is_operation_completed(operation.get("status")):
             return ApprovalOutcome.OPERATION_FAILED
         return ApprovalOutcome.APPROVED_AND_CONTINUE
 

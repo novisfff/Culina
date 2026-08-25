@@ -602,7 +602,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 ingredient = db.get(Ingredient, "ingredient-egg")
                 assert ingredient is not None
 
-            self.assertEqual(decision["operation"]["status"], "succeeded")
+            self.assertEqual(decision["operation"]["status"], "completed")
             self.assertIn({"unit": "盒", "ratio_to_default": 10.0}, ingredient.unit_conversions)
 
         def test_workspace_unit_mismatch_unparseable_reply_keeps_clarifying(self) -> None:
@@ -1791,7 +1791,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 },
             )
             self.assertEqual(decision.status_code, 200, decision.text)
-            self.assertEqual(decision.json()["operation"]["status"], "succeeded")
+            self.assertEqual(decision.json()["operation"]["status"], "completed")
             with self.SessionLocal() as db:
                 item = db.get(InventoryItem, "inventory-tomato")
                 assert item is not None
@@ -1924,7 +1924,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 },
             )
             self.assertEqual(decision.status_code, 200, decision.text)
-            self.assertEqual(decision.json()["operation"]["status"], "succeeded")
+            self.assertEqual(decision.json()["operation"]["status"], "completed")
 
             with self.SessionLocal() as db:
                 state = db.get(IngredientInventoryState, "state-card-presence-low")

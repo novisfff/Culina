@@ -3361,7 +3361,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-compact",
-                        "status": "succeeded",
+                        "status": "completed",
                         "action_summary": "已创建番茄鸡蛋面",
                     },
                     "business_entity": {"title": "番茄鸡蛋面", "steps": [{"text": "SECRET_BUSINESS_ENTITY_STEP"}]},

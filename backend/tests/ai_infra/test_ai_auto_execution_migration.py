@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterator
 
 import pytest
+from sqlalchemy.orm import Session
 
+from app.ai.workflows.runner_support.approval_resume_handler import ApprovalOutcome, ApprovalResumeHandler
 from app.core.enums import InventoryOperationType
 from app.models.domain import AIAgentRun, AIOperation, AITaskDraft, FoodPlanItem
+from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator, derive_draft_payload_hash
+from app.services.serializers import serialize_ai_operation
 from tests.model_usage.test_migration_mysql import (
     MySqlAlembicDatabase,
     require_model_usage_mysql_url,
@@ -247,3 +252,83 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(
         ("legacy-operation-pending", "pending"),
         ("legacy-operation-reverted", "completed"),
     ]
+
+
+def test_migrated_completed_operation_replays_and_resumes_as_approved(
+    mysql_alembic_database: MySqlAlembicDatabase,
+) -> None:
+    """An upgraded legacy row follows the completed/replay runtime path."""
+
+    database = mysql_alembic_database
+    database.upgrade("6a7b8c9d0e1f")
+    seed_legacy_ai_rows(database)
+    database.upgrade("7b8c9d0e1f2a")
+
+    payload = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "legacy-food",
+        "baseUpdatedAt": "2026-08-24T10:00:00+00:00",
+        "before": {"favorite": False},
+        "payload": {"favorite": True},
+    }
+    database.execute(
+        """
+        UPDATE ai_task_drafts
+        SET draft_type='food_profile', schema_version='food_profile_operation.v1',
+            status='executed', payload=:payload, payload_hash=:payload_hash
+        WHERE id='legacy-draft-no-change'
+        """,
+        {
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "payload_hash": derive_draft_payload_hash(payload),
+        },
+    )
+    database.execute(
+        """
+        UPDATE ai_operations
+        SET operation_type='food.favorite', execution_mode='manual_approval',
+            authorization_source='approval_request', actor_user_id='legacy-approval-editor',
+            committed_payload_json=:payload, result_json=:result_json,
+            business_entity_type='Food', business_entity_ids=JSON_ARRAY('legacy-food'),
+            completed_at=UTC_TIMESTAMP()
+        WHERE id='legacy-operation-completed'
+        """,
+        {
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "result_json": json.dumps(
+                {
+                    "business_entity": {"id": "legacy-food", "name": "迁移食物"},
+                    "entity_ids": ["legacy-food"],
+                    "cache_scopes": ["food", "ai_conversation"],
+                    "revert_adapter_key": None,
+                    "revert_context": None,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    )
+
+    with Session(database.engine, expire_on_commit=False) as db:
+        operation = db.get(AIOperation, "legacy-operation-completed")
+        draft = db.get(AITaskDraft, "legacy-draft-no-change")
+        assert operation is not None and draft is not None
+        assert operation.status == "completed"
+
+        serialized = serialize_ai_operation(operation)
+        assert serialized["status"] == "completed"
+        assert (
+            ApprovalResumeHandler._outcome(
+                payload={"decision": "approved"},
+                next_approval=None,
+                operation=serialized,
+            )
+            == ApprovalOutcome.APPROVED_AND_CONTINUE
+        )
+
+        replay = DraftCommitCoordinator._replay_result(db, operation=operation, draft=draft)
+        assert replay.projection is not None
+        assert replay.projection.result_status == "completed"
+        assert replay.projection.operation_status == "completed"
+        db.rollback()

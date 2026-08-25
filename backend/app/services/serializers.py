@@ -33,6 +33,7 @@ from app.models.domain import (
     User,
 )
 from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
+from app.services.ai_operations.status import normalize_operation_status
 from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
 from app.services.media import signed_media_content_access, signed_media_variants
@@ -694,7 +695,7 @@ def serialize_ai_operation(item: AIOperation) -> dict:
         "approval_request_id": item.approval_request_id,
         "draft_id": item.draft_id,
         "operation_type": item.operation_type,
-        "status": item.status,
+        "status": normalize_operation_status(item.status),
         "business_entity_type": item.business_entity_type,
         "business_entity_ids": item.business_entity_ids,
         "execution_mode": item.execution_mode,

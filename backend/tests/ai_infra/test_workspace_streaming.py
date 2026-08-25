@@ -1932,7 +1932,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                             "decision": "approved",
                         },
                         "operation": {
-                            "status": "succeeded",
+                            "status": "completed",
                             "action_summary": "已更新菜谱。",
                         },
                     },

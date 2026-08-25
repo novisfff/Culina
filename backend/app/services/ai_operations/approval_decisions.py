@@ -15,6 +15,7 @@ from app.services.ai_auto_execution.policy_types import DraftCommitRequest
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
 from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator
+from app.services.ai_operations.status import is_operation_completed
 from app.services.ai_operations.common import is_database_lock_conflict
 from app.services.ai_operations.messages import (
     append_message_approval_part,
@@ -267,13 +268,13 @@ def apply_ai_approval_decision(
     decision_approval.updated_by = user_id
 
     response_approval = decision_approval
-    if operation.status == "succeeded":
+    if is_operation_completed(operation.status):
         operation_summary: dict[str, Any] = {
             "operationId": operation.id,
             "entityIds": list(operation.business_entity_ids or []),
         }
         logger.info(
-            "AI approval operation succeeded family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
+            "AI approval operation completed family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
             family_id,
             user_id,
             conversation_id,

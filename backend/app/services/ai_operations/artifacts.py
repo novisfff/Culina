@@ -5,6 +5,7 @@ from typing import Any
 from app.core.utils import create_id
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.result_projection import operation_result_artifacts
+from app.services.ai_operations.status import is_operation_completed
 
 
 def build_approval_result_card(
@@ -15,7 +16,7 @@ def build_approval_result_card(
     draft_config: dict[str, str],
     business_artifacts: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    if approval.get("status") != "approved" or operation.get("status") != "succeeded":
+    if approval.get("status") != "approved" or not is_operation_completed(operation.get("status")):
         return None
     draft_type = str(draft.get("draft_type") or "")
     draft_payload = draft.get("payload") if isinstance(draft.get("payload"), dict) else {}
@@ -109,7 +110,7 @@ def business_entity_artifacts(
     operation: dict[str, Any],
     business_entity: Any,
 ) -> list[dict[str, Any]]:
-    if approval.get("status") != "approved" or operation.get("status") != "succeeded":
+    if approval.get("status") != "approved" or not is_operation_completed(operation.get("status")):
         return []
     draft_type = str(draft.get("draft_type") or "")
     operation_id = str(operation.get("id") or "")

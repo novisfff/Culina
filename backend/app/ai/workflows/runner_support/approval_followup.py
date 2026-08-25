@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.ai_operations.status import is_operation_completed
+
 
 def approval_followup_fallback_text(
     decision_result: dict[str, Any],
@@ -16,7 +18,7 @@ def approval_followup_fallback_text(
         return "这次确认后的处理没有完成，请稍后重试。"
     if decision == "rejected":
         return "已取消这次草稿，不会写入正式数据。你可以继续调整后再让我整理。"
-    if operation_status == "succeeded":
+    if is_operation_completed(operation_status):
         action_summary = str(operation.get("action_summary") or operation.get("summary") or "").strip()
         if action_summary:
             return f"{action_summary} 你可以继续告诉我需要调整的内容。"

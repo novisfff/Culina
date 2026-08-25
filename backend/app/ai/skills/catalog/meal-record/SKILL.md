@@ -52,7 +52,7 @@ description: 记录或修改已经发生的早餐、午餐、晚餐和加餐，�
 
 ## 审批规则
 
-- 创建、补充详情、组成纠错和评分只通过 `meal_log.create_draft`，遵循 `draft -> approval -> commit`。
+- 创建、补充详情、组成纠错和评分只通过 `meal_log.create_draft`；模型始终只生成 Draft。draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。Composite/Continuation 始终人工确认。
 - 调用 Draft Tool 时，按 Tool schema 的四档定义填写可选 `intentEvidence`：`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
 - 事实陈述、称赞或可能的未来打算不等于写入请求；不要因为草稿合理就把它标记为执行请求。四档定义以 Tool schema 中的 `INTENT_CLARITY_MODEL_DESCRIPTION` 为准。
 - MealLog 创建和所有已选择的库存扣减必须在同一事务中；审批提交后按锁定的当前库存再次校验，任一扣减失败则 MealLog 和全部扣减一起回滚。

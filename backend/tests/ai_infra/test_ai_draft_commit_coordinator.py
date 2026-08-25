@@ -719,7 +719,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
             )
             operation = db.get(AIOperation, first.operation_id)
             assert operation is not None
-            self.assertEqual(operation.status, "succeeded")
+            self.assertEqual(operation.status, "completed")
             self.assertEqual(operation.committed_payload_json, request.committed_payload)
             self.assertEqual(operation.revert_adapter_key, "food.favorite.v1")
             self.assertEqual(
@@ -777,7 +777,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(recovered.operation_id, failed.operation_id)
             self.assertEqual(execute.call_count, 1)
-            self.assertEqual(db.get(AIOperation, recovered.operation_id).status, "succeeded")
+            self.assertEqual(db.get(AIOperation, recovered.operation_id).status, "completed")
             self.assertEqual(draft.status, "executed")
             self.assertEqual(
                 db.scalar(select(func.count()).select_from(AIApprovalRequest).where(AIApprovalRequest.draft_id == draft.id)),
@@ -1222,5 +1222,5 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                     )),
                     1,
                 )
-                self.assertEqual(db.get(AIOperation, "operation-concurrent-retry").status, "succeeded")
+                self.assertEqual(db.get(AIOperation, "operation-concurrent-retry").status, "completed")
             engine.dispose()

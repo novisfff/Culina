@@ -1007,6 +1007,25 @@ def test_compact_context_keeps_only_typed_continuation_state() -> None:
     }
 
 
+def test_compact_context_normalizes_legacy_operation_status() -> None:
+    compact = compact_artifacts(
+        [
+            {
+                "id": "human-in-loop:approval-1",
+                "type": "approval_decision",
+                "status": "approved",
+                "payload": {
+                    "approval": {"id": "approval-1", "status": "approved"},
+                    "draft": {"id": "draft-1", "draft_type": "food_profile", "payload": {}},
+                    "operation": {"id": "operation-1", "status": "succeeded"},
+                },
+            }
+        ]
+    )[0]
+
+    assert compact["payload"]["operation"]["status"] == "completed"
+
+
 def test_continuation_resume_injects_allowed_skill_exactly_once() -> None:
     state = {
         "orchestrator_profile": {
@@ -1132,7 +1151,7 @@ def test_runner_builds_typed_continuation_artifact_from_persisted_draft(
         "draft": {"id": "draft-1"},
         "approval": {"id": "approval-1", "status": decision, "decision": decision},
         "operation": {
-            "status": "succeeded" if decision == "approved" else "skipped",
+            "status": "completed" if decision == "approved" else "skipped",
             "business_entity_ids": ["ingredient-1"] if decision == "approved" else [],
         },
     }

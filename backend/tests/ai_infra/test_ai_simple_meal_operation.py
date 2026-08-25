@@ -99,7 +99,7 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
             draft_id=draft.id,
             actor_user_id=self.user.id,
             operation_type="meal_log.simple_create",
-            status="succeeded",
+            status="completed",
             execution_mode="policy_auto",
             authorization_source="member_preference",
             authorization_snapshot_json={},
@@ -513,7 +513,7 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
             self.assertIsNone(restored_ledger.reverted_at)
             self.assertIsNone(restored_ledger.reverted_by)
             self.assertIsNone(restored_ledger.revert_result_json)
-            self.assertEqual(restored_operation.status, "succeeded")
+            self.assertEqual(restored_operation.status, "completed")
             self.assertIsNone(restored_operation.revert_request_id)
             self.assertIsNone(restored_operation.reverted_at)
             self.assertIsNone(restored_operation.reverted_by)

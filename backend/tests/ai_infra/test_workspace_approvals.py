@@ -321,7 +321,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             decision_data = decision_response.json()
             self.assertEqual(decision_data["approval"]["status"], "approved")
             self.assertEqual(decision_data["draft"]["status"], "confirmed")
-            self.assertEqual(decision_data["operation"]["status"], "succeeded")
+            self.assertEqual(decision_data["operation"]["status"], "completed")
             self.assertEqual(decision_data["business_entity"]["title"], "番茄鸡蛋面（确认版）")
             with self.SessionLocal() as db:
                 stored_approval = db.get(AIApprovalRequest, approval["id"])
@@ -1357,7 +1357,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         suffix=suffix,
                     )
                     result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
-                    self.assertEqual(result["operation"]["status"], "succeeded")
+                    self.assertEqual(result["operation"]["status"], "completed")
                     self.assertEqual(db.query(AIOperation).count(), operation_count + 1)
                     self.assertEqual(db.query(AIUserApproval).count(), approval_audit_count + 1)
                     self.assertGreater(db.query(ActivityLog).count(), activity_count)
@@ -3730,7 +3730,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         "draft": {"id": "draft-1", "draft_type": "meal_plan"},
                         "operation": {
                             "id": "operation-1",
-                            "status": "succeeded",
+                            "status": "completed",
                             "business_entity_type": "FoodPlanItem",
                         },
                         "business_entity": {
@@ -3777,7 +3777,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-recipe",
-                        "status": "succeeded",
+                        "status": "completed",
                         "business_entity_type": "Recipe",
                     },
                     "business_entity": {
@@ -3823,7 +3823,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-inventory",
-                        "status": "succeeded",
+                        "status": "completed",
                         "business_entity_type": "InventoryItem",
                     },
                     "business_entity": {
@@ -3951,7 +3951,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         },
                         "operation": {
                             "id": "operation-1",
-                            "status": "succeeded",
+                            "status": "completed",
                             "business_entity_type": "FoodPlanItem",
                         },
                         "business_entity": {
@@ -4004,7 +4004,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft=draft,
                     approval=approval,
                 )
-                self.assertEqual(result["operation"]["status"], "succeeded")
+                self.assertEqual(result["operation"]["status"], "completed")
                 db.commit()
 
             with self.SessionLocal() as db:
@@ -4064,7 +4064,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft=draft,
                     approval=approval,
                 )
-                self.assertEqual(result["operation"]["status"], "succeeded")
+                self.assertEqual(result["operation"]["status"], "completed")
                 shopping_id = result["business_entity"]["operations"][0]["item"]["id"]
                 self.assertIsNotNone(db.get(ShoppingListItem, shopping_id))
                 db.commit()

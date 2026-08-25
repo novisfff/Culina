@@ -86,6 +86,8 @@ from app.services.ai_operations.run_cancellation import (
     lock_run_for_transition,
 )
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
+from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_revert.registry import ai_revert_adapter_registry
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import (
     serialize_ai_approval_request,
@@ -164,6 +166,7 @@ class WorkspaceGraphRunner:
         self.progressive_draft_publisher = ProgressiveDraftPublisher(
             db=self.db,
             service=self.service,
+            registered_revert_adapters=ai_revert_adapter_registry.keys,
             cancel_requested=self._cancel_requested,
             commit_stream_checkpoint=self._commit_stream_checkpoint,
             optional_stream_writer=self._optional_stream_writer,
@@ -807,7 +810,7 @@ class WorkspaceGraphRunner:
         next_status = COMPLETED
         if approval.get("status") == PENDING:
             next_status = WAITING_APPROVAL
-        elif operation is not None and operation.get("status") != "succeeded":
+        elif operation is not None and not is_operation_completed(operation.get("status")):
             next_status = FAILED
         elif decision == "rejected" or self._approval_resume_payload_from_decision(serialized) is not None:
             next_status = RUNNING
