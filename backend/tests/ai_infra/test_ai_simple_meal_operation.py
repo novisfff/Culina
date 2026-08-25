@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
@@ -209,6 +210,21 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
             self.assertEqual(second.entity_ids, first.entity_ids)
             self.assertEqual(second.revert_context, first.revert_context)
             self.assertEqual(int(db.scalar(select(func.count()).select_from(MealLog)) or 0), 1)
+            self.assertEqual(
+                int(db.scalar(select(func.count()).select_from(MealLogRecordOperation)) or 0),
+                1,
+            )
+
+            changed = deepcopy(payload)
+            changed["notes"] = "不同内容"
+            with self.assertRaises(MealRecordIdempotencyError) as raised:
+                self._execute(db, payload=changed, key="replay-key")
+            self.assertEqual(raised.exception.code, "idempotency_key_reused")
+            self.assertEqual(int(db.scalar(select(func.count()).select_from(MealLog)) or 0), 1)
+            self.assertEqual(
+                int(db.scalar(select(func.count()).select_from(MealLogRecordOperation)) or 0),
+                1,
+            )
 
     def test_replay_keeps_first_deadline_and_rating_uses_database_precision(self) -> None:
         with self.SessionLocal() as db:
@@ -257,14 +273,25 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
                     revertible_until=NOW - timedelta(microseconds=1),
                 )
             )
-            self.assertEqual(int(db.scalar(select(func.count()).select_from(MealLogRecordOperation)) or 0), 1)
 
-            changed = deepcopy(payload)
-            changed["notes"] = "不同内容"
-            with self.assertRaises(MealRecordIdempotencyError) as raised:
-                self._execute(db, payload=changed, key="replay-key")
-            self.assertEqual(raised.exception.code, "idempotency_key_reused")
-            self.assertEqual(int(db.scalar(select(func.count()).select_from(MealLog)) or 0), 1)
+    def test_mood_boundary_routes_only_domain_valid_payload_to_ledger(self) -> None:
+        with self.SessionLocal() as db:
+            boundary = self._payload()
+            boundary["mood"] = "好" * 120
+            receipt = self._execute(db, payload=boundary, key="mood-120")
+            self.assertEqual(receipt.revert_adapter_key, "meal_log.simple_create.v1")
+            db.rollback()
+
+        with self.SessionLocal() as db:
+            over_domain_boundary = self._payload()
+            over_domain_boundary["mood"] = "好" * 121
+            receipt = self._execute(db, payload=over_domain_boundary, key="mood-121")
+            self.assertIsNone(receipt.revert_adapter_key)
+            self.assertIsNone(receipt.revert_context)
+            self.assertEqual(int(db.scalar(select(func.count()).select_from(MealLogRecordOperation)) or 0), 0)
+            meal = db.get(MealLog, receipt.entity_ids[0])
+            assert meal is not None
+            self.assertEqual(meal.mood, "好" * 121)
 
     def test_complex_create_keeps_original_handler_without_revert_adapter(self) -> None:
         with self.SessionLocal() as db:
@@ -444,6 +471,53 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
                 self._revert(db, operation, suffix="cross-family-ledger", now=NOW + timedelta(minutes=5))
             self.assertEqual(raised.exception.code, "revert_target_changed")
             self.assertIsNotNone(db.get(MealLog, receipt.entity_ids[0]))
+
+    def test_coordinator_savepoint_rolls_back_mid_compensation_failure(self) -> None:
+        with self.SessionLocal() as db:
+            payload = self._payload()
+            receipt = self._execute(db, payload=payload, key="mid-compensation-failure")
+            operation = self._persist_ai_operation(
+                db,
+                payload=payload,
+                receipt=receipt,
+                suffix="mid-compensation-failure",
+            )
+            meal_id = receipt.entity_ids[0]
+            entry_id = db.scalar(select(MealLogFood.id).where(MealLogFood.meal_log_id == meal_id))
+            ledger_id = receipt.revert_context["meal_log_record_operation_id"]
+            operation_id = operation.id
+            assert entry_id is not None
+
+            with patch(
+                "app.services.meal_log_record_history.log_activity",
+                side_effect=RuntimeError("injected after compensation mutations"),
+            ), self.assertRaisesRegex(RuntimeError, "injected after compensation mutations"):
+                self._revert(
+                    db,
+                    operation,
+                    suffix="mid-compensation-failure",
+                    now=NOW + timedelta(minutes=5),
+                )
+
+            db.expire_all()
+            restored_meal = db.get(MealLog, meal_id)
+            restored_entry = db.get(MealLogFood, entry_id)
+            restored_ledger = db.get(MealLogRecordOperation, ledger_id)
+            restored_operation = db.get(AIOperation, operation_id)
+            assert restored_meal is not None
+            assert restored_entry is not None
+            assert restored_ledger is not None
+            assert restored_operation is not None
+            self.assertEqual({entry.id for entry in restored_meal.food_entries}, {entry_id})
+            self.assertEqual(restored_ledger.status.value, "applied")
+            self.assertIsNone(restored_ledger.reverted_at)
+            self.assertIsNone(restored_ledger.reverted_by)
+            self.assertIsNone(restored_ledger.revert_result_json)
+            self.assertEqual(restored_operation.status, "succeeded")
+            self.assertIsNone(restored_operation.revert_request_id)
+            self.assertIsNone(restored_operation.reverted_at)
+            self.assertIsNone(restored_operation.reverted_by)
+            self.assertIsNone(restored_operation.revert_result_json)
 
     def test_production_registry_adds_only_simple_meal_adapter(self) -> None:
         self.assertEqual(

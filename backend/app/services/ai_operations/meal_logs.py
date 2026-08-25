@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -149,7 +150,7 @@ def _simple_meal_ledger_eligible(context: DraftExecuteContext) -> bool:
     }
     if set(foods_by_id) != food_ids:
         return False
-    return all(
+    references_match = all(
         record.get("name") == foods_by_id[str(record["foodId"])].name
         and record.get("foodType")
         == (
@@ -159,13 +160,18 @@ def _simple_meal_ledger_eligible(context: DraftExecuteContext) -> bool:
         )
         for record in records
     )
+    if not references_match:
+        return False
+    try:
+        _simple_meal_record_request(context)
+    except ValidationError:
+        return False
+    return True
 
 
-def _execute_simple_meal_ledger(context: DraftExecuteContext) -> DraftExecutionReceipt:
+def _simple_meal_record_request(context: DraftExecuteContext) -> RecordMealRequest:
     payload = context.payload
-    assert context.committed_at is not None
-    assert context.revertible_until is not None
-    request = RecordMealRequest.model_validate(
+    return RecordMealRequest.model_validate(
         {
             "client_request_id": f"ai:{context.operation_idempotency_key}",
             "date": payload["date"],
@@ -184,6 +190,12 @@ def _execute_simple_meal_ledger(context: DraftExecuteContext) -> DraftExecutionR
             "mood": payload["mood"],
         }
     )
+
+
+def _execute_simple_meal_ledger(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    assert context.committed_at is not None
+    assert context.revertible_until is not None
+    request = _simple_meal_record_request(context)
     response = record_meal(
         context.db,
         family_id=context.family_id,

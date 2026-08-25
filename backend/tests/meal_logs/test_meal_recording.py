@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -332,9 +333,34 @@ def test_extra_fields_forbidden(seed: RecordingSeed) -> None:
     payload["media_ids"] = ["photo-1"]
     assert seed.client.post("/api/meal-logs/record", json=payload).status_code == 422
 
-    payload = _new_payload(seed, request_id="record-rating")
-    payload["entries"] = [{"food_id": seed.food_id, "servings": 1, "rating": 5}]
+    payload = _new_payload(seed, request_id="record-entry-extra")
+    payload["entries"][0]["unknown_entry_field"] = "不应接受"
     assert seed.client.post("/api/meal-logs/record", json=payload).status_code == 422
+
+
+def test_entry_rating_round_trips_and_participates_in_idempotency_hash(seed: RecordingSeed) -> None:
+    payload = _new_payload(seed, request_id="record-rating")
+    payload["new_foods"] = []
+    payload["entries"] = [{"food_id": seed.food_id, "servings": 1, "rating": "5.0"}]
+
+    first = seed.client.post("/api/meal-logs/record", json=payload)
+
+    assert first.status_code == 200, first.text
+    assert first.json()["meal_log"]["food_entries"][0]["rating"] == 5.0
+    replay = seed.client.post("/api/meal-logs/record", json=payload)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["outcome"] == "replayed"
+    changed = deepcopy(payload)
+    changed["entries"][0]["rating"] = "4.5"
+    conflict = seed.client.post("/api/meal-logs/record", json=changed)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_key_reused"
+    with seed.SessionLocal() as db:
+        assert _count(db, MealLog) == 1
+        assert _count(db, MealLogRecordOperation) == 1
+        entry = db.scalar(select(MealLogFood).where(MealLogFood.meal_log_id == first.json()["meal_log"]["id"]))
+        assert entry is not None
+        assert entry.rating == Decimal("5.0")
 
 
 def test_cross_family_food_rejected(seed: RecordingSeed) -> None:
