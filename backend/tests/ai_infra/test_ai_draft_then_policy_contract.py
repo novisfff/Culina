@@ -35,6 +35,11 @@ POLICY_SKILLS = {
     "meal_plan": "meal_plan",
     "shopping_list": "shopping_list",
 }
+POLICY_APPROVAL_CONTRACT = (
+    "draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 "
+    "evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。"
+)
+UNCONDITIONAL_CONFIRM_WRITE_PHRASE = "确认前不得写"
 
 
 def _write_skill_manifest(
@@ -280,8 +285,8 @@ def test_model_visible_policy_prompt_distinguishes_confirm_and_server_policy_rou
 
     for skill_key in POLICY_SKILLS:
         text = skill_registry.get(skill_key).instructions
-        assert "draft_then_confirm 等待真实用户决定" in text
-        assert "draft_then_policy 只生成 Draft" in text
+        assert POLICY_APPROVAL_CONTRACT in text
+        assert UNCONDITIONAL_CONFIRM_WRITE_PHRASE not in text
         assert "Composite/Continuation 始终人工确认" in text
         assert "遵循 `draft -> approval -> commit`" not in text
 
