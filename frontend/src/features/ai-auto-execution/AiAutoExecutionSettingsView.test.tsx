@@ -15,6 +15,13 @@ function settings(overrides: Partial<AiAutoExecutionSettings> = {}): AiAutoExecu
   const rows = ['food.set_favorite', 'meal_log.rate_food', 'meal_log.simple_create', 'meal_plan.simple_create', 'shopping_list.safe_write'] as const;
   return { catalog_version: '1', consent_notice: { version: 'notice-1', acknowledged: false }, member_preferences: rows.map((action_key) => ({ action_key, enabled: false, effective_enabled: false, row_version: 1, consent_notice_version: null, requires_reconsent: false })), family_policies: [{ action_key: 'shopping_list.safe_write', enabled: false, effective_enabled: false, row_version: 1, consent_notice_version: null, requires_reconsent: false }], limits: {}, server_now: '2026-08-24T00:00:00Z', ...overrides };
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 function renderSettings(isOwner = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><AiAutoExecutionSettingsView familyId="family-1" isOwner={isOwner} /></QueryClientProvider>);
@@ -86,16 +93,45 @@ describe('AiAutoExecutionSettingsView', () => {
   it('requires renewed consent even after the notice has been acknowledged', async () => {
     const user = userEvent.setup();
     const reconsent = settings({
-      consent_notice: { version: 'notice-2', acknowledged: true },
+      consent_notice: { version: 'auto-execution-consent.v2', acknowledged: true },
       member_preferences: settings().member_preferences.map((row) => row.action_key === 'food.set_favorite'
-        ? { ...row, requires_reconsent: true }
-        : row),
+        ? {
+          ...row,
+          enabled: true,
+          effective_enabled: false,
+          row_version: 2,
+          consent_notice_version: 'auto-execution-consent.v1',
+          requires_reconsent: true,
+        }
+        : row.action_key === 'meal_log.rate_food'
+          ? {
+            ...row,
+            enabled: true,
+            effective_enabled: true,
+            row_version: 2,
+            consent_notice_version: 'auto-execution-consent.v2',
+          }
+          : row),
     });
     vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(reconsent);
+    vi.mocked(aiApi.updateAiAutoExecutionPreference).mockResolvedValue(reconsent);
     renderSettings(true);
 
-    await user.click(await screen.findByRole('switch', { name: '收藏状态' }));
+    const favorite = await screen.findByRole('switch', { name: '收藏状态', checked: true });
+    await user.click(favorite);
     expect(screen.getByRole('dialog', { name: '开启自动执行' })).toBeVisible();
+    expect(favorite).toHaveAttribute('aria-checked', 'true');
+    expect(aiApi.updateAiAutoExecutionPreference).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '同意并开启' }));
+    expect(aiApi.updateAiAutoExecutionPreference).toHaveBeenCalledWith(
+      'food.set_favorite',
+      {
+        enabled: true,
+        expected_row_version: 2,
+        consent_notice_version: 'auto-execution-consent.v2',
+      },
+    );
   });
 
   it('shows a fixed conflict recovery message without replaying the stale row', async () => {
@@ -131,22 +167,34 @@ describe('AiAutoExecutionSettingsView', () => {
     expect(await screen.findByRole('switch', { name: '收藏状态' })).toBeVisible();
   });
 
-  it('keeps a second row interactive while the first save is pending', async () => {
+  it('disables each active row while keeping other settings interactive', async () => {
     const user = userEvent.setup();
-    let resolve!: (value: AiAutoExecutionSettings) => void;
+    const favoriteRequest = deferred<AiAutoExecutionSettings>();
+    const ratingRequest = deferred<AiAutoExecutionSettings>();
     const acknowledged = settings({ consent_notice: { version: 'notice-1', acknowledged: true } });
     vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(acknowledged);
     vi.mocked(aiApi.updateAiAutoExecutionPreference)
-      .mockReturnValueOnce(new Promise((done) => { resolve = done; }))
-      .mockResolvedValue(acknowledged);
+      .mockReturnValueOnce(favoriteRequest.promise)
+      .mockReturnValueOnce(ratingRequest.promise);
     renderSettings(true);
 
-    await user.click(await screen.findByRole('switch', { name: '收藏状态' }));
+    const favorite = await screen.findByRole('switch', { name: '收藏状态' });
+    await user.click(favorite);
     const rating = screen.getByRole('switch', { name: '餐食评分' });
+    expect(favorite).toBeDisabled();
+    expect(favorite).toHaveAttribute('aria-busy', 'true');
     expect(rating).toBeEnabled();
+    expect(rating).not.toHaveAttribute('aria-busy');
+
     await user.click(rating);
+    expect(favorite).toBeDisabled();
+    expect(favorite).toHaveAttribute('aria-busy', 'true');
+    expect(rating).toBeDisabled();
+    expect(rating).toHaveAttribute('aria-busy', 'true');
     expect(aiApi.updateAiAutoExecutionPreference).toHaveBeenCalledTimes(2);
-    resolve(acknowledged);
+
+    favoriteRequest.resolve(acknowledged);
+    ratingRequest.resolve(acknowledged);
   });
 
   it('exposes switch semantics and supports keyboard activation', async () => {

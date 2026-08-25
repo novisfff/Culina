@@ -18,7 +18,7 @@ export function AiAutoExecutionSettingsView(props: { familyId: string; isOwner: 
   const memberRows = new Map(state.settings.member_preferences.map((row) => [row.action_key, row]));
   const shopping = state.settings.family_policies.find((row) => row.action_key === 'shopping_list.safe_write');
   const runToggle = (scope: 'member' | 'family', row: AiAutoExecutionSettingRow) => {
-    if (!row.enabled && (!state.settings!.consent_notice.acknowledged || row.requires_reconsent)) {
+    if (row.requires_reconsent || (!row.enabled && !state.settings!.consent_notice.acknowledged)) {
       setConsent({ familyId: props.familyId, scope, row });
       return;
     }
