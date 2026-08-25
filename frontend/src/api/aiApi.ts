@@ -99,12 +99,55 @@ function isAiOperationResultProjection(value: unknown): value is AiOperationResu
   );
 }
 
-function isOperationResultCard(value: unknown): value is AiOperationRevertResponse['result_card'] {
+function isOperationResultCard(value: unknown): value is AiOperationRevertResponse['result_card'] & {
+  type: 'operation_result';
+  data: AiOperationResultProjection;
+} {
   return isRecord(value)
     && typeof value.id === 'string'
     && value.type === 'operation_result'
     && typeof value.title === 'string'
     && isAiOperationResultProjection(value.data);
+}
+
+function hasSameAiCacheScopes(
+  first: readonly AiOperationResultProjection['cache_scopes'][number][],
+  second: readonly AiOperationResultProjection['cache_scopes'][number][],
+) {
+  return first.length === second.length && first.every((scope, index) => scope === second[index]);
+}
+
+function hasSameOperationResultEntities(
+  first: readonly AiOperationResultEntity[],
+  second: readonly AiOperationResultEntity[],
+) {
+  return first.length === second.length && first.every((entity, index) => {
+    const other = second[index];
+    return other !== undefined
+      && entity.id === other.id
+      && entity.label === other.label
+      && entity.operation === other.operation
+      && entity.operationLabel === other.operationLabel
+      && entity.updatedAt === other.updatedAt;
+  });
+}
+
+function hasSameAiOperationResultProjection(
+  first: AiOperationResultProjection,
+  second: AiOperationResultProjection,
+) {
+  return first.draft_id === second.draft_id
+    && first.operation_id === second.operation_id
+    && first.result_status === second.result_status
+    && first.execution_mode === second.execution_mode
+    && first.operation_status === second.operation_status
+    && first.execution_explanation === second.execution_explanation
+    && first.revert_availability === second.revert_availability
+    && first.revertible_until === second.revertible_until
+    && first.revert_blocked_code === second.revert_blocked_code
+    && first.server_now === second.server_now
+    && hasSameOperationResultEntities(first.entities, second.entities)
+    && hasSameAiCacheScopes(first.cache_scopes, second.cache_scopes);
 }
 
 export function aiOperationRevertConflictFromError(error: unknown): AiOperationRevertConflict | null {
@@ -121,6 +164,11 @@ export function aiOperationRevertConflictFromError(error: unknown): AiOperationR
     || !detail.cache_scopes.every(isAiCacheScope)
     || typeof detail.server_now !== 'string'
     || typeof detail.replayed !== 'boolean'
+    || !hasSameAiOperationResultProjection(detail.projection, detail.result_card.data)
+    || !hasSameAiCacheScopes(detail.cache_scopes, detail.projection.cache_scopes)
+    || detail.server_now !== detail.projection.server_now
+    || detail.projection.revert_availability !== 'blocked'
+    || detail.projection.revert_blocked_code !== detail.code
   ) {
     return null;
   }

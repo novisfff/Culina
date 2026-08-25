@@ -100,19 +100,35 @@ function operationProjection(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function operationResultCard() {
+function operationResultCard(projection = operationProjection()) {
   return {
     id: 'card-1',
     type: 'operation_result',
     title: '操作已完成',
     data: {
-      ...operationProjection(),
+      ...projection,
       actionSummary: '已完成',
       entityCount: 1,
       entityCountLabel: '1 项',
       workspaceLabel: '食物',
       workspaceHint: '可前往食物查看',
     },
+  };
+}
+
+function permanentConflictDetail() {
+  const projection = operationProjection({
+    revert_availability: 'blocked',
+    revert_blocked_code: 'revert_target_changed',
+  });
+  return {
+    code: 'revert_target_changed',
+    message: '目标已变化',
+    projection,
+    result_card: operationResultCard(projection),
+    cache_scopes: projection.cache_scopes,
+    server_now: projection.server_now,
+    replayed: false,
   };
 }
 
@@ -311,13 +327,17 @@ describe('aiApi', () => {
   });
 
   it('accepts only complete permanent revert conflicts', () => {
+    const blockedProjection = operationProjection({
+      revert_availability: 'blocked',
+      revert_blocked_code: 'revert_target_changed',
+    });
     const detail = {
       code: 'revert_target_changed',
       message: '目标已变化',
-      projection: operationProjection({ revert_availability: 'blocked', revert_blocked_code: 'revert_target_changed' }),
-      result_card: operationResultCard(),
-      cache_scopes: ['food', 'ai_conversation'],
-      server_now: '2026-08-24T10:00:00Z',
+      projection: blockedProjection,
+      result_card: operationResultCard(blockedProjection),
+      cache_scopes: blockedProjection.cache_scopes,
+      server_now: blockedProjection.server_now,
       replayed: false,
     };
     const permanent = new ApiError({ status: 409, detail: '目标已变化', path: '/api/ai/operations/operation-1/revert', payload: { detail } });
@@ -329,6 +349,59 @@ describe('aiApi', () => {
     expect(aiOperationRevertConflictFromError(incomplete)).toBeNull();
     expect(aiOperationRevertConflictFromError(transient)).toBeNull();
     expect(aiOperationRevertConflictFromError(unsupportedCode)).toBeNull();
+  });
+
+  it.each([
+    ['result status', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      result_card: {
+        ...detail.result_card,
+        data: { ...detail.result_card.data, result_status: 'failed' },
+      },
+    })],
+    ['entity list', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      result_card: {
+        ...detail.result_card,
+        data: { ...detail.result_card.data, entities: [{ id: 'food-1', label: '旧番茄' }] },
+      },
+    })],
+    ['top-level scopes', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      cache_scopes: ['ai_conversation'],
+    })],
+    ['card scopes', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      result_card: {
+        ...detail.result_card,
+        data: { ...detail.result_card.data, cache_scopes: ['ai_conversation'] },
+      },
+    })],
+    ['card server time', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      result_card: {
+        ...detail.result_card,
+        data: { ...detail.result_card.data, server_now: '2026-08-24T10:00:01Z' },
+      },
+    })],
+    ['top-level server time', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      server_now: '2026-08-24T10:00:01Z',
+    })],
+    ['blocked code', (detail: ReturnType<typeof permanentConflictDetail>) => ({
+      ...detail,
+      code: 'revert_dependency_exists',
+    })],
+  ])('rejects permanent conflicts with mismatched canonical %s', (_label, mismatch) => {
+    const detail = mismatch(permanentConflictDetail());
+    const error = new ApiError({
+      status: 409,
+      detail: detail.message,
+      path: '/api/ai/operations/operation-1/revert',
+      payload: { detail },
+    });
+
+    expect(aiOperationRevertConflictFromError(error)).toBeNull();
   });
 
   it.each(CAPABILITY_METHODS)('%s sends both recipe-cook capabilities', async (method) => {
