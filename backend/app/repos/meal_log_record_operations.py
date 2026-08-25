@@ -82,6 +82,7 @@ def claim_record_operation(
     target_kind: MealLogRecordTargetKind | str,
     meal_log_id: str,
     now: datetime,
+    revertible_until: datetime | None = None,
 ) -> tuple[MealLogRecordOperation, bool]:
     """Claim a unique (family_id, client_request_id) operation with non-null meal_log_id.
 
@@ -89,6 +90,10 @@ def claim_record_operation(
     same hash replays, different hash / reverted status raise structured errors.
     Losers never continue with their preallocated meal_log_id.
     """
+    deadline = revertible_until or now + RECORD_REVERT_WINDOW
+    if _as_aware(deadline) < _as_aware(now):
+        raise ValueError("revertible_until 不能早于 applied_at")
+
     existing = find_idempotent_record_operation(
         db,
         family_id=family_id,
@@ -117,7 +122,7 @@ def claim_record_operation(
         revert_result_json=None,
         created_by=actor_user_id,
         applied_at=now,
-        revertible_until=now + RECORD_REVERT_WINDOW,
+        revertible_until=deadline,
     )
     db.add(operation)
     try:

@@ -237,6 +237,45 @@ def test_record_creates_two_food_entries_and_inline_food_atomically(seed: Record
         assert _count(db, RecipeCookLog) == 0
 
 
+def test_record_preserves_optional_details_and_keeps_default_revert_window(seed: RecordingSeed) -> None:
+    payload = {
+        "client_request_id": "record-rich-details",
+        "date": "2026-07-15",
+        "meal_type": "dinner",
+        "target": {"kind": "new"},
+        "entries": [
+            {
+                "food_id": seed.food_id,
+                "servings": "1.50",
+                "note": "少糖",
+                "rating": "4.50",
+            }
+        ],
+        "notes": "和家人一起吃",
+        "mood": "开心",
+    }
+
+    response = seed.client.post("/api/meal-logs/record", json=payload)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["meal_log"]["notes"] == "和家人一起吃"
+    assert body["meal_log"]["mood"] == "开心"
+    assert body["meal_log"]["food_entries"][0]["note"] == "少糖"
+    assert body["meal_log"]["food_entries"][0]["rating"] == 4.5
+    with seed.SessionLocal() as db:
+        operation = db.get(MealLogRecordOperation, body["operation"]["id"])
+        assert operation is not None
+        applied_at = operation.applied_at.replace(tzinfo=timezone.utc) if operation.applied_at.tzinfo is None else operation.applied_at
+        deadline = operation.revertible_until.replace(tzinfo=timezone.utc) if operation.revertible_until.tzinfo is None else operation.revertible_until
+        assert deadline == applied_at + timedelta(minutes=15)
+        entry = db.get(MealLogFood, body["meal_log"]["food_entries"][0]["id"])
+        assert entry is not None
+        assert entry.servings == Decimal("1.50")
+        assert entry.note == "少糖"
+        assert entry.rating == Decimal("4.5")
+
+
 def test_entry_requires_exactly_one_reference(seed: RecordingSeed) -> None:
     both = _new_payload(seed)
     both["entries"] = [{"food_id": seed.food_id, "client_food_id": "local-1", "servings": 1}]
@@ -286,7 +325,7 @@ def test_trimmed_and_overlong_name(seed: RecordingSeed) -> None:
 
 def test_extra_fields_forbidden(seed: RecordingSeed) -> None:
     payload = _new_payload(seed)
-    payload["notes"] = "不应接受"
+    payload["unknown_field"] = "不应接受"
     assert seed.client.post("/api/meal-logs/record", json=payload).status_code == 422
 
     payload = _new_payload(seed, request_id="record-media")

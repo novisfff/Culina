@@ -95,7 +95,7 @@ class _ProfileVectorStoreRegistry:
 
 
 class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
-    def test_production_registry_contains_only_task_11_adapters(self) -> None:
+    def test_production_registry_contains_reviewed_low_risk_adapters(self) -> None:
         self.assertEqual(
             build_ai_revert_adapter_registry().keys,
             frozenset(
@@ -104,6 +104,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                     "meal_log.rating.v1",
                     "shopping_list.safe_write.v1",
                     "meal_plan.simple_create.v1",
+                    "meal_log.simple_create.v1",
                 }
             ),
         )

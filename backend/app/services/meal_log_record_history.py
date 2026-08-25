@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -8,7 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActivityAction, ActivityHighlightKind, MealLogRecordStatus, UserRole
-from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, MealLogRecordOperation, MediaAsset
+from app.models.domain import (
+    Food,
+    FoodPlanItem,
+    InventoryDeductionSuggestion,
+    MealLog,
+    MealLogFood,
+    MealLogRecordOperation,
+    MediaAsset,
+    RecipeCookLog,
+)
 from app.repos.meal_log_record_operations import (
     get_family_record_operation,
     list_active_record_operations_for_actor,
@@ -37,6 +47,10 @@ RECORD_OPERATION_EXPIRED_CODE = "record_operation_expired"
 RECORD_OPERATION_EXPIRED_MESSAGE = "撤销时间已过，可以打开记录修改"
 RECORD_OPERATION_REVERTED_CODE = "record_operation_reverted"
 RECORD_OPERATION_REVERTED_MESSAGE = "该快速记录已被撤销"
+RECORD_OPERATION_TARGET_CHANGED_CODE = "meal_record_target_changed"
+RECORD_OPERATION_TARGET_CHANGED_MESSAGE = "餐食记录已变化，无法撤销"
+RECORD_OPERATION_DEPENDENCY_EXISTS_CODE = "meal_record_dependency_exists"
+RECORD_OPERATION_DEPENDENCY_EXISTS_MESSAGE = "餐食记录已有后续依赖，无法撤销"
 
 
 class MealRecordHistoryError(ValueError):
@@ -349,6 +363,101 @@ def _response_from_saved_revert(
     return RevertMealRecordResponse.model_validate(saved)
 
 
+def _decimal_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    return format(Decimal(str(value)).normalize(), "f")
+
+
+def _assert_pristine_record_target(
+    db: Session,
+    *,
+    family_id: str,
+    operation: MealLogRecordOperation,
+    meal_log: MealLog | None,
+) -> None:
+    """Validate the saved domain result before a compensating AI revert mutates anything."""
+    saved_result = operation.result_json if isinstance(operation.result_json, dict) else {}
+    saved_meal = saved_result.get("meal_log")
+    if meal_log is None or not isinstance(saved_meal, dict):
+        raise MealRecordHistoryError(
+            RECORD_OPERATION_TARGET_CHANGED_CODE,
+            RECORD_OPERATION_TARGET_CHANGED_MESSAGE,
+        )
+
+    dependent_plan = db.scalar(
+        select(FoodPlanItem.id).where(
+            FoodPlanItem.family_id == family_id,
+            FoodPlanItem.meal_log_id == meal_log.id,
+        ).order_by(FoodPlanItem.id.asc()).limit(1).with_for_update()
+    )
+    dependent_cook = db.scalar(
+        select(RecipeCookLog.id).where(
+            RecipeCookLog.family_id == family_id,
+            RecipeCookLog.meal_log_id == meal_log.id,
+        ).order_by(RecipeCookLog.id.asc()).limit(1).with_for_update()
+    )
+    dependent_media = db.scalar(
+        select(MediaAsset.id).where(
+            MediaAsset.family_id == family_id,
+            MediaAsset.entity_type == "meal_log",
+            MediaAsset.entity_id == meal_log.id,
+        ).order_by(MediaAsset.id.asc()).limit(1).with_for_update()
+    )
+    dependent_inventory = db.scalar(
+        select(InventoryDeductionSuggestion.id).where(
+            InventoryDeductionSuggestion.meal_log_id == meal_log.id,
+        ).order_by(InventoryDeductionSuggestion.id.asc()).limit(1).with_for_update()
+    )
+    expected_entry_ids = set(_effect_entry_ids(operation))
+    current_entry_ids = {entry.id for entry in meal_log.food_entries}
+    if (
+        dependent_plan is not None
+        or dependent_cook is not None
+        or dependent_media is not None
+        or dependent_inventory is not None
+        or current_entry_ids - expected_entry_ids
+    ):
+        raise MealRecordHistoryError(
+            RECORD_OPERATION_DEPENDENCY_EXISTS_CODE,
+            RECORD_OPERATION_DEPENDENCY_EXISTS_MESSAGE,
+        )
+    if current_entry_ids != expected_entry_ids:
+        raise MealRecordHistoryError(
+            RECORD_OPERATION_TARGET_CHANGED_CODE,
+            RECORD_OPERATION_TARGET_CHANGED_MESSAGE,
+        )
+
+    parent_fields_match = (
+        str(saved_meal.get("id") or "") == meal_log.id
+        and str(saved_meal.get("family_id") or "") == meal_log.family_id
+        and str(saved_meal.get("date") or "") == meal_log.date.isoformat()
+        and str(saved_meal.get("meal_type") or "")
+        == (meal_log.meal_type.value if hasattr(meal_log.meal_type, "value") else str(meal_log.meal_type))
+        and list(saved_meal.get("participant_user_ids") or []) == list(meal_log.participant_user_ids or [])
+        and str(saved_meal.get("notes") or "") == meal_log.notes
+        and str(saved_meal.get("mood") or "") == meal_log.mood
+        and int(saved_meal.get("row_version") or 0) == int(meal_log.row_version)
+    )
+    saved_entries = {
+        str(item.get("id") or ""): item
+        for item in (saved_meal.get("food_entries") or [])
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    entries_match = set(saved_entries) == expected_entry_ids and all(
+        str(saved_entries[entry.id].get("food_id") or "") == entry.food_id
+        and _decimal_or_none(saved_entries[entry.id].get("servings")) == _decimal_or_none(entry.servings)
+        and str(saved_entries[entry.id].get("note") or "") == entry.note
+        and _decimal_or_none(saved_entries[entry.id].get("rating")) == _decimal_or_none(entry.rating)
+        for entry in meal_log.food_entries
+    )
+    if not parent_fields_match or not entries_match:
+        raise MealRecordHistoryError(
+            RECORD_OPERATION_TARGET_CHANGED_CODE,
+            RECORD_OPERATION_TARGET_CHANGED_MESSAGE,
+        )
+
+
 def _unbind_meal_log_media(
     db: Session,
     *,
@@ -443,6 +552,7 @@ def revert_record_operation(
     user_role: UserRole | str,
     operation_id: str,
     now: datetime,
+    require_pristine_target: bool = False,
 ) -> RevertMealRecordResponse:
     """Atomically revert one meal record operation by effect IDs. Never commits."""
     operation = get_family_record_operation(
@@ -510,6 +620,13 @@ def revert_record_operation(
         if completed_plan_item_ids
         else []
     )
+    if require_pristine_target:
+        _assert_pristine_record_target(
+            db,
+            family_id=family_id,
+            operation=operation,
+            meal_log=meal_log,
+        )
     if len(completed_plan_items) != len(completed_plan_item_ids):
         raise MealRecordHistoryError(
             "meal_record_plan_changed",

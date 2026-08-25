@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.ai.errors import AIConflictError
 from app.core.enums import ActivityAction, MealType
 from app.core.utils import utcnow
-from app.models.domain import MealLog, MealLogFood
+from app.models.domain import Food, MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn, UpdateMealCompositionRequest
+from app.schemas.meal_recording import RecordMealRequest
 from app.services.activity import log_activity
 from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
 from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
@@ -27,6 +28,7 @@ from app.services.meal_log_versions import (
     lock_meal_log_write_targets,
 )
 from app.services.meal_log_writes import MealEntryWrite, create_meal_log_with_entries
+from app.services.meal_recording import record_meal
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
 from app.services.ai_operations.registry_types import DraftExecuteContext
@@ -43,6 +45,32 @@ _RATING_FIELDS = {
     "payload",
 }
 _RATING_QUANTUM = Decimal("0.1")
+_SIMPLE_MEAL_FIELDS = {
+    "draftType",
+    "schemaVersion",
+    "date",
+    "mealType",
+    "participantUserIds",
+    "foods",
+    "notes",
+    "mood",
+    "mediaIds",
+    "planItemId",
+    "planItemBaseUpdatedAt",
+}
+_SIMPLE_MEAL_FOOD_REQUIRED_FIELDS = {
+    "foodId",
+    "name",
+    "foodType",
+    "servings",
+    "note",
+    "rating",
+    "deductStock",
+}
+_SIMPLE_MEAL_FOOD_ALLOWED_FIELDS = _SIMPLE_MEAL_FOOD_REQUIRED_FIELDS | {
+    "stockCurrentQuantity",
+    "stockUnit",
+}
 
 
 def _canonical_rating(value: float | Decimal | None) -> Decimal | None:
@@ -78,6 +106,102 @@ def _rating_revert_eligible(items: object) -> bool:
         if not normalized.is_finite() or not Decimal("0.5") <= normalized <= Decimal("5"):
             return False
     return True
+
+
+def _simple_meal_ledger_eligible(context: DraftExecuteContext) -> bool:
+    payload = context.payload
+    foods = payload.get("foods")
+    if (
+        context.committed_at is None
+        or context.revertible_until is None
+        or set(payload) != _SIMPLE_MEAL_FIELDS
+        or payload.get("draftType") != "meal_log"
+        or payload.get("schemaVersion") != "meal_log.v1"
+        or payload.get("participantUserIds") != [context.user_id]
+        or payload.get("mediaIds") != []
+        or payload.get("planItemId") is not None
+        or payload.get("planItemBaseUpdatedAt") is not None
+        or not isinstance(foods, list)
+        or not foods
+        or len(foods) > AUTO_EXECUTION_CATALOG["meal_log.simple_create"].limits["foods"]
+    ):
+        return False
+    food_ids: set[str] = set()
+    records: list[dict[str, Any]] = []
+    for item in foods:
+        if (
+            not isinstance(item, dict)
+            or not _SIMPLE_MEAL_FOOD_REQUIRED_FIELDS.issubset(item)
+            or set(item) - _SIMPLE_MEAL_FOOD_ALLOWED_FIELDS
+            or item.get("deductStock") is not False
+        ):
+            return False
+        food_id = str(item.get("foodId") or "").strip()
+        if not food_id or food_id in food_ids:
+            return False
+        food_ids.add(food_id)
+        records.append(item)
+    foods_by_id = {
+        food.id: food
+        for food in context.db.scalars(
+            select(Food).where(Food.family_id == context.family_id, Food.id.in_(sorted(food_ids)))
+        )
+    }
+    if set(foods_by_id) != food_ids:
+        return False
+    return all(
+        record.get("name") == foods_by_id[str(record["foodId"])].name
+        and record.get("foodType")
+        == (
+            foods_by_id[str(record["foodId"])].type.value
+            if hasattr(foods_by_id[str(record["foodId"])].type, "value")
+            else str(foods_by_id[str(record["foodId"])].type)
+        )
+        for record in records
+    )
+
+
+def _execute_simple_meal_ledger(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    payload = context.payload
+    assert context.committed_at is not None
+    assert context.revertible_until is not None
+    request = RecordMealRequest.model_validate(
+        {
+            "client_request_id": f"ai:{context.operation_idempotency_key}",
+            "date": payload["date"],
+            "meal_type": payload["mealType"],
+            "target": {"kind": "new"},
+            "entries": [
+                {
+                    "food_id": item["foodId"],
+                    "servings": item["servings"],
+                    "note": item["note"],
+                    "rating": item["rating"],
+                }
+                for item in payload["foods"]
+            ],
+            "notes": payload["notes"],
+            "mood": payload["mood"],
+        }
+    )
+    response = record_meal(
+        context.db,
+        family_id=context.family_id,
+        actor_user_id=context.user_id,
+        request=request,
+        now=context.committed_at,
+        revertible_until=context.revertible_until,
+    )
+    return DraftExecutionReceipt(
+        business_entity=response.meal_log.model_dump(mode="json"),
+        entity_ids=(response.meal_log.id,),
+        cache_scopes=("meal_log", "ai_conversation"),
+        revert_adapter_key="meal_log.simple_create.v1",
+        revert_context={
+            "schema_version": 1,
+            "meal_log_record_operation_id": response.operation.id,
+        },
+    )
 
 
 def _serialize_meal_log(db: Session, *, family_id: str, meal_log_id: str) -> dict[str, Any]:
@@ -401,6 +525,8 @@ def execute_meal_log_draft(
 
 
 def execute_meal_log_draft_receipt(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    if _simple_meal_ledger_eligible(context):
+        return _execute_simple_meal_ledger(context)
     revert_context: dict[str, Any] = {}
     business_entity, entity_ids = execute_meal_log_draft(
         context.db,

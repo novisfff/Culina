@@ -104,6 +104,8 @@ def canonical_record_request_hash(request: RecordMealRequest) -> str:
         "new_foods": request.new_foods,
         "entries": request.entries,
         "plan_item_completions": request.plan_item_completions,
+        "notes": request.notes,
+        "mood": request.mood,
     }
     normalized = _normalize_for_hash(payload)
     canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -239,6 +241,8 @@ def _resolve_entry_writes(
             MealEntryWrite(
                 food_id=food_id,
                 servings=Decimal(str(entry.servings)),
+                note=entry.note,
+                rating=entry.rating,
             )
         )
     if len(final_food_ids) != len(set(final_food_ids)):
@@ -358,6 +362,7 @@ def record_meal(
     actor_user_id: str,
     request: RecordMealRequest,
     now: datetime,
+    revertible_until: datetime | None = None,
 ) -> RecordMealResponse:
     """Claim-first atomic meal recording. Never commits; route owns commit once."""
     request_hash = canonical_record_request_hash(request)
@@ -381,6 +386,7 @@ def record_meal(
         target_kind=target_kind,
         meal_log_id=allocated_meal_log_id,
         now=now,
+        revertible_until=revertible_until,
     )
     if not created:
         return replay_record_operation(operation, now=now)
@@ -466,6 +472,8 @@ def record_meal(
                 meal_type=request.meal_type,
                 entries=entry_writes,
                 participant_user_ids=[actor_user_id],
+                notes=request.notes,
+                mood=request.mood,
                 meal_log_id=operation.meal_log_id,
             )
             outcome = "created"
