@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AI_DRAFT_CONTRACTS_HEADER, aiApi } from './aiApi';
+import {
+  AI_DRAFT_CONTRACTS_HEADER,
+  aiApi,
+  aiOperationRevertConflictFromError,
+} from './aiApi';
+import { ApiError } from './request';
 import type { AiChatResponse } from './types';
 
 function streamFrom(text: string) {
@@ -50,6 +55,65 @@ function jsonResponse(body: unknown = {}) {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function autoExecutionSettingsResponse() {
+  const preference = {
+    action_key: 'food.set_favorite',
+    enabled: false,
+    effective_enabled: false,
+    row_version: 0,
+    consent_notice_version: null,
+    requires_reconsent: false,
+  };
+  return {
+    catalog_version: 'auto-execution.v1',
+    consent_notice: { version: 'auto-execution-consent.v1', acknowledged: true },
+    member_preferences: [
+      preference,
+      { ...preference, action_key: 'meal_log.rate_food' },
+      { ...preference, action_key: 'shopping_list.safe_write' },
+      { ...preference, action_key: 'meal_log.simple_create' },
+      { ...preference, action_key: 'meal_plan.simple_create' },
+    ],
+    family_policies: [{ ...preference, action_key: 'shopping_list.safe_write' }],
+    limits: { 'shopping_list.safe_write': { add_or_restore_items: 5, update_items: 1 } },
+    server_now: '2026-08-24T10:00:00Z',
+  };
+}
+
+function operationProjection(overrides: Record<string, unknown> = {}) {
+  return {
+    draft_id: 'draft-1',
+    operation_id: 'operation-1',
+    result_status: 'completed',
+    execution_mode: 'policy_auto',
+    operation_status: 'completed',
+    execution_explanation: '已完成',
+    revert_availability: 'available',
+    revertible_until: '2026-08-24T10:15:00Z',
+    revert_blocked_code: null,
+    server_now: '2026-08-24T10:00:00Z',
+    entities: [{ id: 'food-1', label: '番茄' }],
+    cache_scopes: ['food', 'ai_conversation'],
+    ...overrides,
+  };
+}
+
+function operationResultCard() {
+  return {
+    id: 'card-1',
+    type: 'operation_result',
+    title: '操作已完成',
+    data: {
+      ...operationProjection(),
+      actionSummary: '已完成',
+      entityCount: 1,
+      entityCountLabel: '1 项',
+      workspaceLabel: '食物',
+      workspaceHint: '可前往食物查看',
+    },
+  };
 }
 
 function lastFetchHeaders(fetchSpy: { mock: { calls: unknown[][] } }) {
@@ -187,6 +251,86 @@ describe('aiApi', () => {
     expect((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.method ?? 'GET').toBe('GET');
   });
 
+  it('sends current row version and receives the complete auto-execution settings envelope', async () => {
+    const settings = autoExecutionSettingsResponse();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(settings));
+
+    await expect(aiApi.updateAiAutoExecutionPreference('food.set_favorite', {
+      enabled: true,
+      expected_row_version: 2,
+      consent_notice_version: 'auto-execution-consent.v1',
+    })).resolves.toEqual(settings);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/api/ai/auto-execution/preferences/food.set_favorite'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: true,
+          expected_row_version: 2,
+          consent_notice_version: 'auto-execution-consent.v1',
+        }),
+      }),
+    );
+  });
+
+  it('encodes auto-execution action keys for family policy updates', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(autoExecutionSettingsResponse()));
+
+    await aiApi.updateAiAutoExecutionFamilyPolicy('shopping_list.safe_write', {
+      enabled: false,
+      expected_row_version: 3,
+    });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+      '/api/ai/auto-execution/family-policies/shopping_list.safe_write',
+    );
+    expect((fetchSpy.mock.calls[0]?.[1] as RequestInit).body).toBe(JSON.stringify({
+      enabled: false,
+      expected_row_version: 3,
+    }));
+  });
+
+  it('posts an idempotent operation revert request', async () => {
+    const response = {
+      projection: operationProjection({ result_status: 'reverted', operation_status: 'reverted' }),
+      result_card: operationResultCard(),
+      cache_scopes: ['food', 'ai_conversation'],
+      server_now: '2026-08-24T10:00:00Z',
+      replayed: false,
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(response));
+
+    await expect(aiApi.revertAiOperation('operation/1', { client_request_id: 'request-1' }))
+      .resolves.toEqual(response);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/api/ai/operations/operation%2F1/revert'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ client_request_id: 'request-1' }) }),
+    );
+  });
+
+  it('accepts only complete permanent revert conflicts', () => {
+    const detail = {
+      code: 'revert_target_changed',
+      message: '目标已变化',
+      projection: operationProjection({ revert_availability: 'blocked', revert_blocked_code: 'revert_target_changed' }),
+      result_card: operationResultCard(),
+      cache_scopes: ['food', 'ai_conversation'],
+      server_now: '2026-08-24T10:00:00Z',
+      replayed: false,
+    };
+    const permanent = new ApiError({ status: 409, detail: '目标已变化', path: '/api/ai/operations/operation-1/revert', payload: { detail } });
+    const incomplete = new ApiError({ status: 409, detail: '目标已变化', path: '/api/ai/operations/operation-1/revert', payload: { detail: { ...detail, projection: { draft_id: 'draft-1' } } } });
+    const transient = new ApiError({ status: 503, detail: '稍后重试', path: '/api/ai/operations/operation-1/revert', payload: { detail } });
+    const unsupportedCode = new ApiError({ status: 409, detail: '不可撤销', path: '/api/ai/operations/operation-1/revert', payload: { detail: { ...detail, code: 'operation_not_revertible' } } });
+
+    expect(aiOperationRevertConflictFromError(permanent)).toEqual(detail);
+    expect(aiOperationRevertConflictFromError(incomplete)).toBeNull();
+    expect(aiOperationRevertConflictFromError(transient)).toBeNull();
+    expect(aiOperationRevertConflictFromError(unsupportedCode)).toBeNull();
+  });
+
   it.each(CAPABILITY_METHODS)('%s sends both recipe-cook capabilities', async (method) => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(method === 'chatAi' || method === 'retryAiRun' || method === 'respondAiHumanInput' ? emptyChatResponse : method === 'getAiConversations' ? [] : method === 'getAiMessages' ? [] : method === 'getPendingAiApprovals' ? [] : method === 'updateAiConversationVisibility' ? {
       id: 'conversation-1',
@@ -242,6 +386,28 @@ describe('aiApi', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFrom(sseBlock('response', response)), { status: 200 }));
 
     await expect(aiApi.streamChatAi({ message: '你好' })).resolves.toEqual(response);
+  });
+
+  it('delivers persisted operation results through the existing message_part callback', async () => {
+    const persistedPart = {
+      message_id: 'message-1',
+      conversation_id: 'conversation-1',
+      run_id: 'run-1',
+      part: {
+        id: 'part-operation-1',
+        type: 'result_card',
+        card: operationResultCard(),
+      },
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      streamFrom(`${sseBlock('message_part', persistedPart)}${sseBlock('response', emptyChatResponse)}`),
+      { status: 200 },
+    ));
+    const onMessagePart = vi.fn();
+
+    await expect(aiApi.streamChatAi({ message: '收藏番茄' }, { onMessagePart })).resolves.toEqual(emptyChatResponse);
+
+    expect(onMessagePart).toHaveBeenCalledWith(persistedPart);
   });
 
   it('sends image attachments in streamed chat payloads', async () => {

@@ -2018,40 +2018,126 @@ export interface AiOperationResultEntity {
   updatedAt?: string | null;
 }
 
+export type AiAutoExecutionActionKey =
+  | 'food.set_favorite'
+  | 'meal_log.rate_food'
+  | 'shopping_list.safe_write'
+  | 'meal_log.simple_create'
+  | 'meal_plan.simple_create';
+
+export type AiCacheScope =
+  | 'food'
+  | 'meal_log'
+  | 'meal_plan'
+  | 'shopping_list'
+  | 'inventory'
+  | 'ai_conversation';
+
+export interface AiAutoExecutionSettingRow {
+  action_key: AiAutoExecutionActionKey;
+  enabled: boolean;
+  effective_enabled: boolean;
+  row_version: number;
+  consent_notice_version: string | null;
+  requires_reconsent: boolean;
+}
+
+export interface AiAutoExecutionSettings {
+  catalog_version: string;
+  consent_notice: {
+    version: string;
+    acknowledged: boolean;
+  };
+  member_preferences: AiAutoExecutionSettingRow[];
+  family_policies: AiAutoExecutionSettingRow[];
+  limits: Record<string, Record<string, number>>;
+  server_now: string;
+}
+
+export interface AiAutoExecutionUpdate {
+  enabled: boolean;
+  expected_row_version: number;
+  consent_notice_version?: string;
+}
+
+export interface AiOperationResultProjection {
+  draft_id: string;
+  operation_id: string | null;
+  result_status: 'completed' | 'no_change' | 'failed' | 'reverted';
+  execution_mode: 'manual_approval' | 'policy_auto' | 'policy_no_change';
+  operation_status: 'pending' | 'completed' | 'failed' | 'reverted' | null;
+  execution_explanation: string;
+  revert_availability: 'available' | 'expired' | 'unsupported' | 'blocked' | 'reverted';
+  revertible_until: string | null;
+  revert_blocked_code: string | null;
+  server_now: string;
+  entities: AiOperationResultEntity[];
+  cache_scopes: AiCacheScope[];
+}
+
+export interface AiOperationRevertResponse {
+  projection: AiOperationResultProjection;
+  result_card: AiResultCard;
+  cache_scopes: AiCacheScope[];
+  server_now: string;
+  replayed: boolean;
+}
+
+export interface AiOperationRevertConflict extends AiOperationRevertResponse {
+  code:
+    | 'revert_target_changed'
+    | 'revert_dependency_exists'
+    | 'revert_adapter_version_unsupported';
+  message: string;
+}
+
+export interface AiResultCardData {
+  recommendations?: AiTodayRecommendationItem[];
+  targetDate?: string | null;
+  mealType?: MealType | null;
+  contextSummary?: AiTodayRecommendationCardData['contextSummary'];
+  items?: AiInventoryResultItem[];
+  queryFocus?: AiInventoryQueryFocus;
+  availableCount?: number;
+  expiringCount?: number;
+  expiredCount?: number;
+  lowStockCount?: number;
+  foodStockCount?: number;
+  question?: string;
+  questionType?: string;
+  missingFields?: string[];
+  candidates?: AiClarificationCandidate[];
+  allowFreeText?: boolean;
+  actionSummary?: string;
+  entityCount?: number;
+  entityCountLabel?: string;
+  workspaceLabel?: string;
+  workspaceHint?: string;
+  entities?: AiOperationResultEntity[];
+  message?: string;
+  draftId?: string;
+  approvalId?: string;
+  summary?: string;
+  draft?: AiGeneratedRecipeDraft | Record<string, unknown>;
+  draft_id?: string;
+  operation_id?: string | null;
+  result_status?: AiOperationResultProjection['result_status'];
+  execution_mode?: AiOperationResultProjection['execution_mode'];
+  operation_status?: AiOperationResultProjection['operation_status'];
+  execution_explanation?: string;
+  revert_availability?: AiOperationResultProjection['revert_availability'];
+  revertible_until?: string | null;
+  revert_blocked_code?: string | null;
+  server_now?: string;
+  cache_scopes?: AiCacheScope[];
+  [key: string]: unknown;
+}
+
 export interface AiResultCard {
   id: string;
   type: AiResultCardType;
   title: string;
-  data: {
-    recommendations?: AiTodayRecommendationItem[];
-    targetDate?: string | null;
-    mealType?: MealType | null;
-    contextSummary?: AiTodayRecommendationCardData['contextSummary'];
-    items?: AiInventoryResultItem[];
-    queryFocus?: AiInventoryQueryFocus;
-    availableCount?: number;
-    expiringCount?: number;
-    expiredCount?: number;
-    lowStockCount?: number;
-    foodStockCount?: number;
-    question?: string;
-    questionType?: string;
-    missingFields?: string[];
-    candidates?: AiClarificationCandidate[];
-    allowFreeText?: boolean;
-    actionSummary?: string;
-    entityCount?: number;
-    entityCountLabel?: string;
-    workspaceLabel?: string;
-    workspaceHint?: string;
-    entities?: AiOperationResultEntity[];
-    message?: string;
-    draftId?: string;
-    approvalId?: string;
-    summary?: string;
-    draft?: AiGeneratedRecipeDraft | Record<string, unknown>;
-    [key: string]: unknown;
-  };
+  data: AiResultCardData;
 }
 
 export interface AiTaskDraft {
