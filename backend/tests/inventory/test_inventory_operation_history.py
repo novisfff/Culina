@@ -373,6 +373,61 @@ def test_claim_same_request_same_hash_returns_existing(db: Session) -> None:
     assert found.id == first.id
 
 
+def test_claim_explicit_one_hour_window_and_replay_preserves_original_timing(db: Session) -> None:
+    applied_at = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    revertible_until = applied_at + timedelta(hours=1)
+    summary = InventoryOperationDisplaySummary(title="AI 库存处理", description="消耗 1 项")
+
+    first, created = claim_inventory_operation(
+        db,
+        family_id="family-ops",
+        actor_id="user-ops",
+        operation_type=InventoryOperationType.CONSUME,
+        client_request_id="req-ai-one-hour",
+        request_hash="hash-ai-one-hour",
+        summary=summary,
+        applied_at=applied_at,
+        revertible_until=revertible_until,
+    )
+    db.flush()
+
+    replay, replay_created = claim_inventory_operation(
+        db,
+        family_id="family-ops",
+        actor_id="user-ops",
+        operation_type=InventoryOperationType.CONSUME,
+        client_request_id="req-ai-one-hour",
+        request_hash="hash-ai-one-hour",
+        summary=summary,
+        applied_at=applied_at + timedelta(days=1),
+        revertible_until=applied_at + timedelta(days=1, hours=1),
+    )
+
+    assert created is True
+    assert replay_created is False
+    assert replay.id == first.id
+    assert first.applied_at.replace(tzinfo=timezone.utc) == applied_at
+    assert first.revertible_until.replace(tzinfo=timezone.utc) == revertible_until
+    assert replay.applied_at.replace(tzinfo=timezone.utc) == applied_at
+    assert replay.revertible_until.replace(tzinfo=timezone.utc) == revertible_until
+
+
+def test_claim_rejects_revert_deadline_before_applied_at(db: Session) -> None:
+    applied_at = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="revertible_until 不能早于 applied_at"):
+        claim_inventory_operation(
+            db,
+            family_id="family-ops",
+            actor_id="user-ops",
+            operation_type=InventoryOperationType.DISPOSE,
+            client_request_id="req-invalid-window",
+            request_hash="hash-invalid-window",
+            summary=InventoryOperationDisplaySummary(title="AI 库存处理", description="销毁 1 项"),
+            applied_at=applied_at,
+            revertible_until=applied_at - timedelta(microseconds=1),
+        )
+
+
 def test_claim_same_request_different_hash_raises_idempotency_conflict(db: Session) -> None:
     summary = InventoryOperationDisplaySummary(title="采购入库", description="完成 1 项")
     claim_inventory_operation(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -11,7 +12,12 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.ai.errors import AIConflictError
 from app.core.utils import utcnow
 from app.ai.tools.catalog.common import entity_media_map
-from app.models.domain import AIMessage, IngredientInventoryState, InventoryItem
+from app.models.domain import (
+    AIMessage,
+    IngredientInventoryState,
+    InventoryItem,
+    InventoryOperation,
+)
 from app.ai.tools.catalog.inventory import inventory_record, inventory_state_record
 from app.services.clock import today_for_family
 from app.services.ingredient_inventory_state import PresenceStateRequiredError
@@ -21,7 +27,11 @@ from app.services.inventory_operation_locking import (
     LockedInventoryTargets,
     lock_inventory_targets,
 )
-from app.services.inventory_operations import consume_ingredient_inventory, dispose_inventory_quantity
+from app.services.inventory_operations import (
+    apply_inventory_quantity_operations,
+    consume_ingredient_inventory,
+    dispose_inventory_quantity,
+)
 from app.services.inventory_usage import tracks_quantity
 from app.services.inventory_versions import InventoryConflictError, require_expected_version
 
@@ -248,6 +258,84 @@ def execute_inventory_operation_draft(
     except StaleDataError as exc:
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     return {"operations": results}, list(dict.fromkeys(entity_ids))
+
+
+def execute_inventory_operation_draft_with_ledger(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    payload: dict[str, Any],
+    client_request_id: str,
+    committed_at: datetime | None,
+    revertible_until: datetime | None,
+) -> tuple[dict[str, Any], list[str], InventoryOperation | None]:
+    operations = payload.get("operations")
+    actions = {
+        str(item.get("action") or "")
+        for item in operations or []
+        if isinstance(item, dict)
+    }
+    # Mixed consume/dispose is a composite inventory mutation. Preserve the
+    # existing confirmed behavior but do not pretend one typed ledger can
+    # represent both operation kinds.
+    if len(actions) != 1 or not actions <= {"consume", "dispose"}:
+        business_entity, entity_ids = execute_inventory_operation_draft(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            payload=payload,
+        )
+        return business_entity, entity_ids, None
+
+    today = today_for_family(family_id)
+    quantity_operations = [
+        {
+            "operation_type": str(item["action"]),
+            "ingredient_id": str(item["ingredientId"]),
+            "inventory_item_id": item.get("inventoryItemId"),
+            "quantity": Decimal(str(item["quantity"])) if item.get("quantity") is not None else None,
+            "unit": str(item.get("unit") or ""),
+            "reason": str(item.get("reason") or ""),
+            "today": today,
+        }
+        for item in operations
+    ]
+    try:
+        ledger = apply_inventory_quantity_operations(
+            db,
+            family_id=family_id,
+            actor_user_id=user_id,
+            operations=quantity_operations,
+            client_request_id=client_request_id,
+            now=committed_at or utcnow(),
+            revertible_until=revertible_until,
+            lock_and_validate=lambda: _lock_and_validate_inventory_boundaries(
+                db,
+                family_id=family_id,
+                operations=operations,
+            ),
+        )
+        result_payload = ledger.summary_json.get("result_payload") or {"operations": []}
+        results = [item for item in result_payload.get("operations") or [] if isinstance(item, dict)]
+        entity_ids = list(
+            dict.fromkeys(
+                str(entity_id)
+                for result in results
+                for entity_id in [
+                    result.get("inventory_item_id"),
+                    *(result.get("affected_item_ids") or []),
+                ]
+                if entity_id
+            )
+        )
+        return {"operations": results}, entity_ids, ledger
+    except PresenceStateRequiredError as exc:
+        raise ValueError(str(exc)) from exc
+    except InventoryConflictError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
+    except StaleDataError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
 
 
 def refresh_inventory_result_card(

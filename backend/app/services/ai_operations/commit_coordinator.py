@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -572,6 +573,12 @@ class DraftCommitCoordinator:
                     committed_at=request.committed_at,
                     revertible_until=revertible_until,
                 )
+                if (draft.ai_metadata or {}).get("continuation") and receipt.revert_adapter_key:
+                    receipt = replace(
+                        receipt,
+                        revert_adapter_key=None,
+                        revert_context=None,
+                    )
                 if not recipe_cook_effect:
                     cls._run_post_execute(
                         db,

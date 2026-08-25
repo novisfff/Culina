@@ -529,6 +529,7 @@ class AISimpleMealOperationTest(AIAgentInfraTestCase):
                     "shopping_list.safe_write.v1",
                     "meal_plan.simple_create.v1",
                     "meal_log.simple_create.v1",
+                    "inventory.operation_ref.v1",
                 }
             ),
         )

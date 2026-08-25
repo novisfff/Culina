@@ -4,6 +4,7 @@ from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecu
 from app.services.ai_operations.draft_specs.common import _spec
 from app.services.ai_operations.inventory_intake import (
     execute_inventory_intake_draft,
+    is_pure_inventory_intake_payload,
     normalize_inventory_intake_draft,
     validate_inventory_intake_approval_value,
 )
@@ -19,12 +20,23 @@ def _execute(context: DraftExecuteContext) -> DraftExecutionReceipt:
     if any(item.get("shopping_item_id") for item in items):
         scopes.append("shopping_list")
     scopes.extend(("inventory", "ai_conversation"))
+    pure_inventory = is_pure_inventory_intake_payload(context.payload)
+    inventory_operation_id = business_entity.get("operation_id")
     return DraftExecutionReceipt(
         business_entity=business_entity,
-        entity_ids=tuple(entity_ids),
+        entity_ids=tuple(sorted(entity_ids)),
         cache_scopes=tuple(scopes),
-        revert_adapter_key=None,
-        revert_context=None,
+        revert_adapter_key=(
+            "inventory.operation_ref.v1" if pure_inventory and inventory_operation_id else None
+        ),
+        revert_context=(
+            {
+                "schema_version": 1,
+                "inventory_operation_id": inventory_operation_id,
+            }
+            if pure_inventory and inventory_operation_id
+            else None
+        ),
     )
 
 

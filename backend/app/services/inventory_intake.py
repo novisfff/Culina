@@ -381,6 +381,9 @@ def apply_inventory_intake(
     request: InventoryIntakeRequest,
     business_date: date,
     user_role: UserRole = UserRole.MEMBER,
+    applied_at: datetime | None = None,
+    revertible_until: datetime | None = None,
+    operation_type: InventoryOperationType = InventoryOperationType.SHOPPING_INTAKE,
 ) -> InventoryIntakeResult:
     """Validate and mutate one complete intake operation; never commit."""
     del business_date  # intake_date comes from the request; business_date reserved for callers
@@ -390,18 +393,26 @@ def apply_inventory_intake(
         _raise_validation("请求中包含重复的采购项", code="duplicate_request_item", field="items")
 
     request_hash = canonical_request_hash(request)
+    if operation_type != InventoryOperationType.SHOPPING_INTAKE:
+        request_hash = canonical_request_hash(
+            {"operation_type": operation_type, "request": request}
+        )
+    is_reconciliation = operation_type == InventoryOperationType.RECONCILIATION
+    operation_title = "完成了一次库存盘点" if is_reconciliation else "登记本次购买"
     provisional_summary = InventoryOperationDisplaySummary(
-        title="登记本次购买",
+        title=operation_title,
         description="处理中",
     )
     operation, created = claim_inventory_operation(
         db,
         family_id=family_id,
         actor_id=user_id,
-        operation_type=InventoryOperationType.SHOPPING_INTAKE,
+        operation_type=operation_type,
         client_request_id=request.client_request_id,
         request_hash=request_hash,
         summary=provisional_summary,
+        applied_at=applied_at,
+        revertible_until=revertible_until,
     )
     if not created:
         existing = _load_operation_with_lines(db, operation.id)
@@ -1109,7 +1120,7 @@ def apply_inventory_intake(
     if partial_only:
         description = f"{description}，部分买到 {partial_only} 项"
     summary = InventoryOperationDisplaySummary(
-        title="登记本次购买",
+        title=operation_title,
         description=description,
         completed_count=full_completed,
         partial_count=partial_only,
@@ -1132,10 +1143,22 @@ def apply_inventory_intake(
         action=ActivityAction.UPDATE,
         entity_type="InventoryOperation",
         entity_id=operation.id,
-        summary=f"登记了本次购买：{description}",
+        summary=(
+            f"完成了一次库存盘点：{description}"
+            if is_reconciliation
+            else f"登记了本次购买：{description}"
+        ),
         highlight=ActivityHighlight(
-            kind=ActivityHighlightKind.SHOPPING,
-            summary=f"完成 {highlight_count} 项采购入库",
+            kind=(
+                ActivityHighlightKind.INVENTORY
+                if is_reconciliation
+                else ActivityHighlightKind.SHOPPING
+            ),
+            summary=(
+                f"完成库存盘点并确认 {highlight_count} 项"
+                if is_reconciliation
+                else f"完成 {highlight_count} 项采购入库"
+            ),
         ),
     )
     db.flush()

@@ -1,14 +1,25 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import ActivityAction, InventoryStatus
+from app.core.enums import (
+    ActivityAction,
+    InventoryOperationChangeType,
+    InventoryOperationEntityType,
+    InventoryOperationStatus,
+    InventoryOperationType,
+    InventoryStatus,
+)
 from app.core.utils import create_id
-from app.models.domain import Ingredient, InventoryItem
+from app.models.domain import Ingredient, InventoryItem, InventoryOperation
+from app.repos.inventory_operations import claim_inventory_operation
+from app.schemas.inventory_operations import InventoryOperationDisplaySummary
 from app.services.activity import log_activity
 from app.services.ingredient_units import (
     UnitConversionError,
@@ -16,7 +27,13 @@ from app.services.ingredient_units import (
     convert_quantity_to_default_unit,
     normalize_unit_label,
 )
-from app.services.inventory_operation_locking import lock_inventory_targets
+from app.services.inventory_operation_locking import LockedInventoryTargets, lock_inventory_targets
+from app.services.inventory_operation_history import (
+    canonical_request_hash,
+    record_ingredient_collection_guard,
+    record_operation_line,
+    snapshot_inventory_item,
+)
 from app.services.ingredient_inventory_state import PresenceStateRequiredError
 from app.services.inventory_usage import (
     build_ingredient_consumption_plan,
@@ -385,3 +402,269 @@ def dispose_inventory_quantity(
         "reason": reason,
         "remaining_quantity": float(remaining),
     }
+
+
+def hash_inventory_quantity_request(
+    *,
+    operation_type: Literal["consume", "dispose"],
+    ingredient_id: str,
+    inventory_item_id: str | None,
+    quantity: Decimal | None,
+    unit: str | None,
+    reason: str = "",
+) -> str:
+    return canonical_request_hash(
+        {
+            "operation_type": operation_type,
+            "ingredient_id": ingredient_id,
+            "inventory_item_id": inventory_item_id,
+            "quantity": quantity,
+            "unit": normalize_unit_label(unit or "") or None,
+            "reason": reason.strip(),
+        }
+    )
+
+
+def build_quantity_operation_summary(
+    operation_type: Literal["consume", "dispose"],
+    quantity: Decimal | None,
+    unit: str | None,
+) -> InventoryOperationDisplaySummary:
+    label = "消耗" if operation_type == "consume" else "销毁"
+    amount = "全部" if quantity is None else f"{float(quantity):g}{normalize_unit_label(unit or '')}"
+    return InventoryOperationDisplaySummary(
+        title=f"{label}库存",
+        description=f"{label} {amount}",
+        adjusted_count=1,
+    )
+
+
+def _quantity_batch_request_hash(operations: list[dict[str, Any]]) -> str:
+    normalized: list[dict[str, Any]] = []
+    for operation in operations:
+        normalized.append(
+            {
+                "operation_type": str(operation["operation_type"]),
+                "ingredient_id": str(operation["ingredient_id"]),
+                "inventory_item_id": operation.get("inventory_item_id"),
+                "quantity": operation.get("quantity"),
+                "unit": normalize_unit_label(str(operation.get("unit") or "")) or None,
+                "reason": str(operation.get("reason") or "").strip(),
+            }
+        )
+    return canonical_request_hash({"operations": normalized})
+
+
+def apply_inventory_quantity_operations(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    operations: list[dict[str, Any]],
+    client_request_id: str,
+    now: datetime,
+    revertible_until: datetime | None = None,
+    lock_and_validate: Callable[[], LockedInventoryTargets] | None = None,
+) -> InventoryOperation:
+    """Apply one homogeneous consume/dispose batch and record one snapshot ledger."""
+    if not operations:
+        raise ValueError("库存数量操作不能为空")
+    action_values = {str(item.get("operation_type") or "") for item in operations}
+    if len(action_values) != 1 or not action_values <= {"consume", "dispose"}:
+        raise ValueError("一笔库存快照账本只能包含同一种数量操作")
+    action = cast(Literal["consume", "dispose"], next(iter(action_values)))
+    operation_type = InventoryOperationType(action)
+    if len(operations) == 1:
+        only = operations[0]
+        quantity = only.get("quantity")
+        parsed_summary_quantity = (
+            quantity if isinstance(quantity, Decimal) or quantity is None else Decimal(str(quantity))
+        )
+        summary = build_quantity_operation_summary(
+            action,
+            parsed_summary_quantity,
+            str(only.get("unit") or "") or None,
+        )
+        request_hash = hash_inventory_quantity_request(
+            operation_type=action,
+            ingredient_id=str(only["ingredient_id"]),
+            inventory_item_id=(
+                str(only["inventory_item_id"]) if only.get("inventory_item_id") else None
+            ),
+            quantity=parsed_summary_quantity,
+            unit=str(only.get("unit") or "") or None,
+            reason=str(only.get("reason") or ""),
+        )
+    else:
+        summary = InventoryOperationDisplaySummary(
+            title="消耗库存" if action == "consume" else "销毁库存",
+            description=f"处理 {len(operations)} 项",
+            adjusted_count=len(operations),
+        )
+        request_hash = _quantity_batch_request_hash(operations)
+    ledger, created = claim_inventory_operation(
+        db,
+        family_id=family_id,
+        actor_id=actor_user_id,
+        operation_type=operation_type,
+        client_request_id=client_request_id,
+        request_hash=request_hash,
+        summary=summary,
+        applied_at=now,
+        revertible_until=revertible_until,
+    )
+    if not created:
+        return ledger
+
+    ingredient_ids = sorted({str(item["ingredient_id"]) for item in operations})
+    inventory_item_ids = sorted(
+        {str(item["inventory_item_id"]) for item in operations if item.get("inventory_item_id")}
+    )
+    locked = None
+    if lock_and_validate is not None:
+        locked = lock_and_validate()
+    if locked is None:
+        locked = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            ingredient_ids=ingredient_ids,
+            inventory_item_ids=inventory_item_ids,
+        )
+
+    # Consume without an explicit batch may span several rows. Lock and snapshot
+    # every current child under the already locked parents, then persist only rows
+    # whose snapshot actually changed.
+    all_items = list(
+        db.scalars(
+            select(InventoryItem)
+            .where(
+                InventoryItem.family_id == family_id,
+                InventoryItem.ingredient_id.in_(ingredient_ids),
+            )
+            .order_by(InventoryItem.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+    for item in all_items:
+        locked.inventory_items[item.id] = item
+
+    ingredient_before_versions = {
+        ingredient_id: int(locked.ingredients[ingredient_id].row_version)
+        for ingredient_id in ingredient_ids
+    }
+    item_before = {item.id: snapshot_inventory_item(item) for item in all_items}
+    results: list[dict[str, Any]] = []
+    for item in operations:
+        ingredient = locked.ingredients[str(item["ingredient_id"])]
+        quantity = item.get("quantity")
+        parsed_quantity = (
+            quantity
+            if isinstance(quantity, Decimal) or quantity is None
+            else Decimal(str(quantity))
+        )
+        if action == "consume":
+            result = consume_ingredient_inventory(
+                db,
+                family_id=family_id,
+                user_id=actor_user_id,
+                ingredient=ingredient,
+                quantity=parsed_quantity,
+                unit=str(item.get("unit") or ingredient.default_unit),
+                today=item.get("today") or now.date(),
+                inventory_item_id=item.get("inventory_item_id"),
+            )
+        else:
+            inventory_item_id = str(item.get("inventory_item_id") or "")
+            inventory_item = locked.inventory_items.get(inventory_item_id)
+            if inventory_item is None or inventory_item.ingredient_id != ingredient.id:
+                raise ValueError("库存批次不存在或不属于当前家庭")
+            inventory_item.ingredient = ingredient
+            result = dispose_inventory_quantity(
+                db,
+                family_id=family_id,
+                user_id=actor_user_id,
+                item=inventory_item,
+                quantity=parsed_quantity,
+                unit=str(item.get("unit") or inventory_item.unit),
+                reason=str(item.get("reason") or "库存处理"),
+                already_locked=True,
+            )
+        results.append(result)
+
+    db.flush()
+    sequence = 1
+    changed_ingredient_ids: set[str] = set()
+    for item in sorted(all_items, key=lambda value: value.id):
+        before = item_before[item.id]
+        after = snapshot_inventory_item(item)
+        if before == after:
+            continue
+        changed_ingredient_ids.add(item.ingredient_id)
+        record_operation_line(
+            db,
+            operation=ledger,
+            sequence=sequence,
+            entity_type=InventoryOperationEntityType.INVENTORY_ITEM,
+            entity_id=item.id,
+            change_type=InventoryOperationChangeType.UPDATE,
+            before_snapshot=before,
+            after_snapshot=after,
+            before_row_version=int(before["row_version"]),
+            after_row_version=int(after["row_version"]),
+        )
+        sequence += 1
+    for ingredient_id in sorted(changed_ingredient_ids):
+        ingredient = locked.ingredients[ingredient_id]
+        record_ingredient_collection_guard(
+            db,
+            operation=ledger,
+            sequence=sequence,
+            ingredient=ingredient,
+            before_row_version=ingredient_before_versions[ingredient_id],
+            after_row_version=int(ingredient.row_version),
+        )
+        sequence += 1
+
+    ledger.status = InventoryOperationStatus.APPLIED
+    ledger.summary_json = {
+        **summary.model_dump(mode="json"),
+        "result_payload": {"operations": results},
+    }
+    db.flush()
+    return ledger
+
+
+def apply_inventory_quantity_operation(
+    db: Session,
+    *,
+    family_id: str,
+    actor_user_id: str,
+    operation_type: Literal["consume", "dispose"],
+    ingredient_id: str,
+    inventory_item_id: str | None,
+    quantity: Decimal | None,
+    unit: str | None,
+    client_request_id: str,
+    now: datetime,
+    revertible_until: datetime | None = None,
+    reason: str = "",
+) -> InventoryOperation:
+    return apply_inventory_quantity_operations(
+        db,
+        family_id=family_id,
+        actor_user_id=actor_user_id,
+        operations=[
+            {
+                "operation_type": operation_type,
+                "ingredient_id": ingredient_id,
+                "inventory_item_id": inventory_item_id,
+                "quantity": quantity,
+                "unit": unit,
+                "reason": reason,
+            }
+        ],
+        client_request_id=client_request_id,
+        now=now,
+        revertible_until=revertible_until,
+    )

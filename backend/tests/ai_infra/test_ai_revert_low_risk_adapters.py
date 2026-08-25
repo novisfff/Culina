@@ -101,6 +101,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             frozenset(
                 {
                     "food.favorite.v1",
+                    "inventory.operation_ref.v1",
                     "meal_log.rating.v1",
                     "shopping_list.safe_write.v1",
                     "meal_plan.simple_create.v1",

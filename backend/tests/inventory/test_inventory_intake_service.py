@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -776,6 +776,7 @@ def test_direct_exact_ingredient_creates_batch_without_shopping_change(context: 
         request=request,
     )
     assert [item.result for item in result.items] == ["direct_stocked"]
+    assert result.revertible_until - result.applied_at == timedelta(minutes=15)
     assert result.items[0].inventory_item_id
     assert context.db.get(ShoppingListItem, context.egg_shopping.id).done is False
     assert context.db.get(ShoppingListItem, context.egg_shopping.id).quantity == Decimal("6")

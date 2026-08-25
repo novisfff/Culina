@@ -60,6 +60,10 @@ from app.services.inventory_operation_history import (
     start_operation,
 )
 from app.services.inventory_versions import InventoryConflictError
+from app.services.inventory_operations import (
+    apply_inventory_quantity_operation,
+    apply_inventory_quantity_operations,
+)
 from app.schemas.inventory_operations import InventoryOperationDisplaySummary
 from tests._transaction_failure import fail_next_commit
 
@@ -329,6 +333,214 @@ def _create_exact_batch_operation(
     )
     db.flush()
     return operation, item
+
+
+def _seed_quantity_batch(
+    db: Session,
+    *,
+    family_id: str,
+    ingredient_id: str,
+    actor_id: str,
+) -> tuple[InventoryItem, InventoryItem]:
+    first = InventoryItem(
+        id="inventory-quantity-a",
+        family_id=family_id,
+        ingredient_id=ingredient_id,
+        quantity=Decimal("3"),
+        consumed_quantity=Decimal("0"),
+        disposed_quantity=Decimal("0"),
+        unit="个",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 8, 24),
+        storage_location="冷藏",
+        low_stock_threshold=Decimal("0"),
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    second = InventoryItem(
+        id="inventory-quantity-b",
+        family_id=family_id,
+        ingredient_id=ingredient_id,
+        quantity=Decimal("4"),
+        consumed_quantity=Decimal("0"),
+        disposed_quantity=Decimal("0"),
+        unit="个",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 8, 24),
+        storage_location="冷藏",
+        low_stock_threshold=Decimal("0"),
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    db.add_all((first, second))
+    db.flush()
+    return first, second
+
+
+def test_quantity_batch_uses_one_stable_snapshot_ledger_and_replays_without_second_mutation(
+    revert_ctx: RevertCtx,
+) -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    with revert_ctx.SessionLocal() as db:
+        first, second = _seed_quantity_batch(
+            db,
+            family_id=revert_ctx.family_id,
+            ingredient_id=revert_ctx.exact_ingredient_id,
+            actor_id=revert_ctx.member_id,
+        )
+        operations = [
+            {
+                "operation_type": "consume",
+                "ingredient_id": revert_ctx.exact_ingredient_id,
+                "inventory_item_id": first.id,
+                "quantity": Decimal("1"),
+                "unit": "个",
+                "reason": "",
+            },
+            {
+                "operation_type": "consume",
+                "ingredient_id": revert_ctx.exact_ingredient_id,
+                "inventory_item_id": second.id,
+                "quantity": Decimal("2"),
+                "unit": "个",
+                "reason": "",
+            },
+        ]
+        ledger = apply_inventory_quantity_operations(
+            db,
+            family_id=revert_ctx.family_id,
+            actor_user_id=revert_ctx.member_id,
+            operations=operations,
+            client_request_id="quantity-batch-replay",
+            now=now,
+            revertible_until=now + timedelta(hours=1),
+        )
+        db.flush()
+        db.refresh(ledger, attribute_names=["lines"])
+
+        assert ledger.operation_type == InventoryOperationType.CONSUME
+        assert [line.sequence for line in ledger.lines] == [1, 2, 3]
+        assert [line.entity_id for line in ledger.lines] == [
+            first.id,
+            second.id,
+            revert_ctx.exact_ingredient_id,
+        ]
+        assert ledger.lines[0].before_snapshot["consumed_quantity"] == "0"
+        assert ledger.lines[0].after_snapshot["consumed_quantity"] == "1"
+        assert ledger.lines[1].before_snapshot["consumed_quantity"] == "0"
+        assert ledger.lines[1].after_snapshot["consumed_quantity"] == "2"
+
+        replay = apply_inventory_quantity_operations(
+            db,
+            family_id=revert_ctx.family_id,
+            actor_user_id=revert_ctx.member_id,
+            operations=operations,
+            client_request_id="quantity-batch-replay",
+            now=now + timedelta(minutes=5),
+            revertible_until=now + timedelta(hours=2),
+        )
+        assert replay.id == ledger.id
+        assert first.consumed_quantity == Decimal("1")
+        assert second.consumed_quantity == Decimal("2")
+        assert _as_utc(replay.applied_at) == now
+        assert _as_utc(replay.revertible_until) == now + timedelta(hours=1)
+
+        changed = [dict(item) for item in operations]
+        changed[1]["quantity"] = Decimal("1")
+        with pytest.raises(InventoryConflictError) as raised:
+            apply_inventory_quantity_operations(
+                db,
+                family_id=revert_ctx.family_id,
+                actor_user_id=revert_ctx.member_id,
+                operations=changed,
+                client_request_id="quantity-batch-replay",
+                now=now,
+            )
+        assert raised.value.code == "idempotency_key_reused"
+
+
+def test_quantity_batch_failure_rolls_back_ledger_and_every_mutation(revert_ctx: RevertCtx) -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    with revert_ctx.SessionLocal() as db:
+        first, second = _seed_quantity_batch(
+            db,
+            family_id=revert_ctx.family_id,
+            ingredient_id=revert_ctx.exact_ingredient_id,
+            actor_id=revert_ctx.member_id,
+        )
+        db.commit()
+        with pytest.raises(ValueError, match="当前最多只能消费"):
+            with db.begin_nested():
+                apply_inventory_quantity_operations(
+                    db,
+                    family_id=revert_ctx.family_id,
+                    actor_user_id=revert_ctx.member_id,
+                    operations=[
+                        {
+                            "operation_type": "consume",
+                            "ingredient_id": revert_ctx.exact_ingredient_id,
+                            "inventory_item_id": first.id,
+                            "quantity": Decimal("1"),
+                            "unit": "个",
+                        },
+                        {
+                            "operation_type": "consume",
+                            "ingredient_id": revert_ctx.exact_ingredient_id,
+                            "inventory_item_id": second.id,
+                            "quantity": Decimal("99"),
+                            "unit": "个",
+                        },
+                    ],
+                    client_request_id="quantity-batch-failure",
+                    now=now,
+                )
+        db.expire_all()
+        assert db.get(InventoryItem, first.id).consumed_quantity == Decimal("0")
+        assert db.get(InventoryItem, second.id).consumed_quantity == Decimal("0")
+        assert db.scalar(
+            select(InventoryOperation).where(
+                InventoryOperation.family_id == revert_ctx.family_id,
+                InventoryOperation.client_request_id == "quantity-batch-failure",
+            )
+        ) is None
+
+
+def test_page_quantity_helpers_keep_fifteen_minute_windows(revert_ctx: RevertCtx) -> None:
+    now = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    with revert_ctx.SessionLocal() as db:
+        first, second = _seed_quantity_batch(
+            db,
+            family_id=revert_ctx.family_id,
+            ingredient_id=revert_ctx.exact_ingredient_id,
+            actor_id=revert_ctx.member_id,
+        )
+        consume = apply_inventory_quantity_operation(
+            db,
+            family_id=revert_ctx.family_id,
+            actor_user_id=revert_ctx.member_id,
+            operation_type="consume",
+            ingredient_id=revert_ctx.exact_ingredient_id,
+            inventory_item_id=first.id,
+            quantity=Decimal("1"),
+            unit="个",
+            client_request_id="page-consume-window",
+            now=now,
+        )
+        dispose = apply_inventory_quantity_operation(
+            db,
+            family_id=revert_ctx.family_id,
+            actor_user_id=revert_ctx.member_id,
+            operation_type="dispose",
+            ingredient_id=revert_ctx.exact_ingredient_id,
+            inventory_item_id=second.id,
+            quantity=Decimal("1"),
+            unit="个",
+            reason="坏了",
+            client_request_id="page-dispose-window",
+            now=now,
+        )
+        assert _as_utc(consume.revertible_until) == now + timedelta(minutes=15)
+        assert _as_utc(dispose.revertible_until) == now + timedelta(minutes=15)
 
 
 def test_member_reverts_own_operation_within_window(revert_ctx: RevertCtx) -> None:

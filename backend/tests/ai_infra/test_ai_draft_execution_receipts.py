@@ -150,6 +150,7 @@ class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
                     "ignoredItems": [],
                 },
                 ("inventory", "ai_conversation"),
+                expected_revert_adapter_key="inventory.operation_ref.v1",
             ),
             RegisteredDraftExecutionFixture(
                 "inventory_operation",
@@ -167,6 +168,7 @@ class AIDraftExecutionReceiptTestCase(AIAgentInfraTestCase):
                     ],
                 },
                 ("inventory", "ai_conversation"),
+                expected_revert_adapter_key="inventory.operation_ref.v1",
             ),
             RegisteredDraftExecutionFixture(
                 "meal_log",

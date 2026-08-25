@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +22,12 @@ def _idempotency_conflict() -> InventoryConflictError:
         code=IDEMPOTENCY_KEY_REUSED_CODE,
         conflicts=[],
     )
+
+
+def _as_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def find_idempotent_operation(
@@ -58,6 +64,8 @@ def claim_inventory_operation(
     client_request_id: str,
     request_hash: str,
     summary: InventoryOperationDisplaySummary,
+    applied_at: datetime | None = None,
+    revertible_until: datetime | None = None,
 ) -> tuple[InventoryOperation, bool]:
     """Claim a unique (family_id, client_request_id) operation row.
 
@@ -73,7 +81,10 @@ def claim_inventory_operation(
     if existing is not None:
         return existing, False
 
-    applied_at = utcnow()
+    effective_applied_at = applied_at or utcnow()
+    deadline = revertible_until or effective_applied_at + timedelta(minutes=15)
+    if _as_aware(deadline) < _as_aware(effective_applied_at):
+        raise ValueError("revertible_until 不能早于 applied_at")
     operation = InventoryOperation(
         id=create_id("inventory-operation"),
         family_id=family_id,
@@ -82,8 +93,8 @@ def claim_inventory_operation(
         client_request_id=client_request_id,
         request_hash=request_hash,
         actor_id=actor_id,
-        applied_at=applied_at,
-        revertible_until=applied_at + timedelta(minutes=15),
+        applied_at=effective_applied_at,
+        revertible_until=deadline,
         summary_json=summary.model_dump(mode="json"),
     )
 
@@ -162,4 +173,3 @@ def get_family_operation_with_lines(
     if for_update:
         stmt = stmt.with_for_update()
     return db.scalar(stmt)
-

@@ -622,6 +622,8 @@ def apply_inventory_reconciliation(
     request: InventoryReconciliationRequest,
     business_date: date,
     user_role: UserRole = UserRole.MEMBER,
+    applied_at: datetime | None = None,
+    revertible_until: datetime | None = None,
 ) -> InventoryOperationResult:
     """Validate and mutate the full reconciliation; never commit."""
     del business_date  # reserved for callers; scope validation uses locked current rows
@@ -658,6 +660,8 @@ def apply_inventory_reconciliation(
         client_request_id=request.client_request_id,
         request_hash=request_hash,
         summary=provisional_summary,
+        applied_at=applied_at,
+        revertible_until=revertible_until,
     )
     if not created:
         existing = _load_operation(db, operation.id)
