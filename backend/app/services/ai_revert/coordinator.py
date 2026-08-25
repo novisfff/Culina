@@ -6,18 +6,25 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi.encoders import jsonable_encoder
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActivityAction, MembershipStatus, UserRole
 from app.models.domain import AIOperation, AITaskDraft, Membership
+from app.schemas.ai import AIPublicOperationResultCardDTO
+from app.schemas.ai_auto_execution import AIRevertResponseDTO
 from app.repos.ai_operations import (
+    find_ai_operation_by_revert_request_id,
     find_ai_operation_by_revert_request_id_for_update,
     get_family_ai_operation_for_update,
 )
 from app.services.activity import log_activity
-from app.services.ai_auto_execution.policy_types import AICacheScope
+from app.services.ai_auto_execution.policy_types import (
+    AICacheScope,
+    AIOperationResultProjection,
+)
 from app.services.ai_operations.messages import find_message_operation_result_card
 from app.services.ai_operations.result_projection import (
     build_operation_result_card,
@@ -85,6 +92,7 @@ class AIRevertCoordinator:
         client_request_id: str,
         now: datetime,
     ) -> AIRevertResponse:
+        del actor_role  # The locked Membership row is the authorization authority.
         operation = get_family_ai_operation_for_update(
             db,
             family_id=family_id,
@@ -97,15 +105,18 @@ class AIRevertCoordinator:
                 message="未找到该操作",
             )
 
-        cls._authorize_current_actor(
+        current_actor_role = cls._authorize_current_actor(
             db,
             operation=operation,
             family_id=family_id,
             actor_user_id=actor_user_id,
-            actor_role=actor_role,
         )
 
-        request_owner = find_ai_operation_by_revert_request_id_for_update(
+        # A locking miss on MySQL takes a gap lock. Two concurrent misses can
+        # then deadlock while claiming the same unique request ID. The unique
+        # constraint is the write authority; only the post-conflict current
+        # read below needs FOR UPDATE.
+        request_owner = find_ai_operation_by_revert_request_id(
             db,
             client_request_id=client_request_id,
         )
@@ -114,7 +125,6 @@ class AIRevertCoordinator:
 
         if operation.revert_request_id == client_request_id:
             return cls._replay_existing_result(
-                db,
                 operation=operation,
                 now=now,
             )
@@ -161,7 +171,7 @@ class AIRevertCoordinator:
                         operation=operation,
                         family_id=family_id,
                         actor_user_id=actor_user_id,
-                        actor_role=actor_role,
+                        actor_role=current_actor_role,
                         now=_as_utc(now),
                     )
                 )
@@ -260,8 +270,7 @@ class AIRevertCoordinator:
         operation: AIOperation,
         family_id: str,
         actor_user_id: str,
-        actor_role: UserRole,
-    ) -> None:
+    ) -> UserRole:
         del cls
         membership = db.scalar(
             select(Membership).where(
@@ -269,12 +278,14 @@ class AIRevertCoordinator:
                 Membership.user_id == actor_user_id,
                 Membership.status == MembershipStatus.ACTIVE,
             )
+            .execution_options(populate_existing=True)
             .with_for_update()
         )
-        if membership is None or membership.role != actor_role:
+        if membership is None:
             raise ai_revert_error("revert_forbidden")
         if operation.actor_user_id != actor_user_id and membership.role != UserRole.OWNER:
             raise ai_revert_error("revert_forbidden")
+        return membership.role
 
     @classmethod
     def _validate_revertible_state(cls, operation: AIOperation) -> None:
@@ -352,20 +363,13 @@ class AIRevertCoordinator:
     @classmethod
     def _replay_existing_result(
         cls,
-        db: Session,
         *,
         operation: AIOperation,
         now: datetime,
     ) -> AIRevertResponse:
-        if not isinstance(operation.revert_result_json, dict):
-            raise ai_revert_error("operation_not_revertible")
-        response = cls._build_public_response(
-            db,
-            operation=operation,
-            entities=cls._existing_public_entities(db, operation=operation),
-            cache_scopes=cls._stored_revert_cache_scopes(operation),
-            now=now,
-            replayed=True,
+        response = cls.hydrate_response(
+            cls._load_stored_public_response(operation=operation),
+            server_now=now,
         )
         if operation.status == "reverted" and not operation.revert_blocked_code:
             return response
@@ -373,6 +377,102 @@ class AIRevertCoordinator:
             error = ai_revert_error(operation.revert_blocked_code, response=response)
             raise error
         raise ai_revert_error("operation_not_revertible")
+
+    @classmethod
+    def _load_stored_public_response(
+        cls,
+        *,
+        operation: AIOperation,
+    ) -> AIRevertResponse:
+        stored_result = operation.revert_result_json
+        if not isinstance(stored_result, dict):
+            raise ai_revert_error("operation_not_revertible")
+        raw_response = stored_result.get("public_response")
+        if not isinstance(raw_response, dict):
+            raise ai_revert_error("operation_not_revertible")
+        try:
+            parsed = AIRevertResponseDTO.model_validate(raw_response)
+            parsed_card = AIPublicOperationResultCardDTO.model_validate(parsed.result_card)
+        except ValidationError as exc:
+            raise ai_revert_error("operation_not_revertible") from exc
+
+        projection = parsed.projection
+        card_data = parsed_card.data
+        expected_card_id = f"operation-result:{operation.draft_id}"
+        projection_fields = tuple(type(projection).model_fields)
+        card_projection = card_data.model_dump(
+            mode="python",
+            include=set(projection_fields),
+        )
+        card_projection["entities"] = [
+            entity.model_dump(mode="python", exclude_none=True)
+            for entity in card_data.entities
+        ]
+        if (
+            parsed.replayed is not False
+            or projection.draft_id != operation.draft_id
+            or projection.operation_id != operation.id
+            or parsed_card.id != expected_card_id
+            or card_data.draft_id != operation.draft_id
+            or card_data.draftId != operation.draft_id
+            or card_data.operation_id != operation.id
+            or card_data.operationId != operation.id
+            or card_projection != projection.model_dump(mode="python")
+            or parsed.cache_scopes != projection.cache_scopes
+            or parsed.cache_scopes != card_data.cache_scopes
+            or parsed.server_now != projection.server_now
+            or parsed.server_now != card_data.server_now
+            or parsed.server_now.tzinfo is None
+            or stored_result.get("cache_scopes") != parsed.cache_scopes
+        ):
+            raise ai_revert_error("operation_not_revertible")
+
+        if operation.status == "reverted" and not operation.revert_blocked_code:
+            valid_terminal_state = (
+                stored_result.get("status") == "reverted"
+                and stored_result.get("code") is None
+                and projection.result_status == "reverted"
+                and projection.operation_status == "reverted"
+                and projection.revert_availability == "reverted"
+                and projection.revert_blocked_code is None
+            )
+        elif operation.status in {"completed", "succeeded"} and (
+            operation.revert_blocked_code in PERMANENT_REVERT_CODES
+        ):
+            valid_terminal_state = (
+                stored_result.get("status") == "blocked"
+                and stored_result.get("code") == operation.revert_blocked_code
+                and projection.result_status == "completed"
+                and projection.operation_status == "completed"
+                and projection.revert_availability == "blocked"
+                and projection.revert_blocked_code == operation.revert_blocked_code
+            )
+        else:
+            valid_terminal_state = False
+        if not valid_terminal_state:
+            raise ai_revert_error("operation_not_revertible")
+
+        response_projection = AIOperationResultProjection(
+            draft_id=projection.draft_id,
+            operation_id=projection.operation_id,
+            result_status=projection.result_status,
+            execution_mode=projection.execution_mode,
+            operation_status=projection.operation_status,
+            execution_explanation=projection.execution_explanation,
+            revert_availability=projection.revert_availability,
+            revertible_until=projection.revertible_until,
+            revert_blocked_code=projection.revert_blocked_code,
+            server_now=_as_utc(projection.server_now),
+            entities=tuple(copy.deepcopy(projection.entities)),
+            cache_scopes=tuple(parsed.cache_scopes),
+        )
+        return AIRevertResponse(
+            projection=response_projection,
+            result_card=copy.deepcopy(raw_response["result_card"]),
+            cache_scopes=tuple(parsed.cache_scopes),
+            server_now=_as_utc(parsed.server_now),
+            replayed=True,
+        )
 
     @classmethod
     def _build_public_response(
@@ -437,12 +537,6 @@ class AIRevertCoordinator:
     def _stored_cache_scopes(cls, operation: AIOperation) -> tuple[AICacheScope, ...]:
         del cls
         result = operation.result_json if isinstance(operation.result_json, dict) else {}
-        return _normalize_cache_scopes(result.get("cache_scopes"))
-
-    @classmethod
-    def _stored_revert_cache_scopes(cls, operation: AIOperation) -> tuple[AICacheScope, ...]:
-        del cls
-        result = operation.revert_result_json if isinstance(operation.revert_result_json, dict) else {}
         return _normalize_cache_scopes(result.get("cache_scopes"))
 
     @classmethod

@@ -37,6 +37,16 @@ def find_ai_operation_by_revert_request_id_for_update(
     )
 
 
+def find_ai_operation_by_revert_request_id(
+    db: Session,
+    *,
+    client_request_id: str,
+) -> AIOperation | None:
+    return db.scalar(
+        select(AIOperation).where(AIOperation.revert_request_id == client_request_id)
+    )
+
+
 def operation_by_idempotency_key_for_update(
     db: Session,
     *,

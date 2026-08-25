@@ -4,17 +4,26 @@ from datetime import UTC, datetime, timedelta
 import json
 from unittest.mock import patch
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import OperationalError
 
 from ._support import AIAgentInfraTestCase
 
 from app.core.enums import ActivityAction, MembershipStatus, UserRole
-from app.models.domain import ActivityLog, AIMessage, AIOperation, AITaskDraft, Food
+from app.models.domain import (
+    ActivityLog,
+    AIMessage,
+    AIOperation,
+    AITaskDraft,
+    Food,
+    Membership,
+)
 from app.services.ai_operations.result_projection import (
     build_operation_result_card,
+    hydrate_operation_result_server_now,
     operation_result_artifacts,
     project_ai_operation_result,
+    serialize_ai_operation_result_projection,
     upsert_message_operation_result,
 )
 from app.services.ai_revert.coordinator import AIRevertCoordinator
@@ -221,6 +230,72 @@ class AIRevertCoordinatorTest(AIAgentInfraTestCase):
             self.assertEqual(second.result_card["data"]["result_status"], "reverted")
             self.assertEqual(self.adapter.call_count, 1)
 
+    def test_same_request_replays_stored_public_response_without_message_writes(self) -> None:
+        with self.SessionLocal() as db:
+            draft, operation = self._seed_operation(db, suffix="stored-replay")
+            first = self._revert(db, operation.id, "request-stored-replay")
+            db.commit()
+
+            stored = db.get(AIOperation, operation.id)
+            message = db.get(AIMessage, draft.message_id)
+            assert stored is not None and message is not None
+            stored_public_response = json.loads(
+                json.dumps(stored.revert_result_json["public_response"])
+            )
+            message.parts = [
+                {
+                    "id": f"operation-result-part:{draft.id}",
+                    "type": "result_card",
+                    "card": {
+                        "id": f"operation-result:{draft.id}",
+                        "type": "operation_result",
+                        "title": "PRIVATE_SENTINEL",
+                        "data": {"draftId": draft.id, "entities": [{"raw": "PRIVATE_SENTINEL"}]},
+                    },
+                }
+            ]
+            message.message_metadata = {
+                "artifacts": [{"raw": "PRIVATE_SENTINEL"}],
+            }
+            db.commit()
+
+            statements: list[str] = []
+
+            def record_statement(_conn, _cursor, statement, _parameters, _context, _many) -> None:
+                statements.append(statement)
+
+            event.listen(self.engine, "before_cursor_execute", record_statement)
+            try:
+                replay_now = NOW + timedelta(seconds=1)
+                second = self._revert(
+                    db,
+                    operation.id,
+                    "request-stored-replay",
+                    now=replay_now,
+                )
+            finally:
+                event.remove(self.engine, "before_cursor_execute", record_statement)
+
+            expected_card = hydrate_operation_result_server_now(
+                stored_public_response["result_card"],
+                replay_now,
+            )
+            expected_projection = dict(stored_public_response["projection"])
+            expected_projection["server_now"] = replay_now.isoformat()
+            self.assertEqual(
+                serialize_ai_operation_result_projection(second.projection),
+                expected_projection,
+            )
+            self.assertEqual(second.result_card, expected_card)
+            self.assertEqual(second.cache_scopes, tuple(stored_public_response["cache_scopes"]))
+            self.assertEqual(second.server_now, replay_now)
+            self.assertTrue(second.replayed)
+            self.assertNotIn("PRIVATE_SENTINEL", json.dumps(second.result_card))
+            self.assertEqual(self.adapter.call_count, 1)
+            self.assertFalse(db.dirty)
+            self.assertFalse(any(statement.lstrip().upper().startswith("UPDATE") for statement in statements))
+            self.assertFalse(first.replayed)
+
     def test_request_id_cannot_move_between_operations(self) -> None:
         with self.SessionLocal() as db:
             _draft1, operation1 = self._seed_operation(db, suffix="request-one")
@@ -383,6 +458,48 @@ class AIRevertCoordinatorTest(AIAgentInfraTestCase):
                 )
             self.assertEqual(left.exception.code, "revert_forbidden")
 
+    def test_cached_owner_role_is_refreshed_before_permission_and_request_lookup(self) -> None:
+        original_actor, _actor_membership = self.create_family_member(
+            user_id="user-stale-owner-original-actor"
+        )
+        with self.SessionLocal() as auth_session, self.SessionLocal() as role_session:
+            _replayed_draft, replayed_operation = self._seed_operation(
+                auth_session,
+                suffix="stale-owner-request-owner",
+            )
+            self._revert(auth_session, replayed_operation.id, "request-stale-owner-secret")
+            auth_session.commit()
+            self.adapter.call_count = 0
+
+            _target_draft, target_operation = self._seed_operation(
+                auth_session,
+                suffix="stale-owner-target",
+                actor_user_id=original_actor.id,
+            )
+            cached_membership = auth_session.get(Membership, self.membership.id)
+            assert cached_membership is not None
+            self.assertEqual(cached_membership.role, UserRole.OWNER)
+
+            current_membership = role_session.get(Membership, self.membership.id)
+            assert current_membership is not None
+            current_membership.role = UserRole.MEMBER
+            role_session.commit()
+
+            with self.assertRaises(AIRevertError) as raised:
+                self._revert(
+                    auth_session,
+                    target_operation.id,
+                    "request-stale-owner-secret",
+                    actor_role=UserRole.OWNER,
+                )
+            auth_session.rollback()
+
+            self.assertEqual(raised.exception.code, "revert_forbidden")
+            self.assertIsNone(raised.exception.response)
+            self.assertEqual(self.adapter.call_count, 0)
+            stored = auth_session.get(AIOperation, target_operation.id)
+            self.assertIsNone(stored.revert_request_id)
+
     def test_expired_missing_adapter_schema_and_already_blocked_fail_closed(self) -> None:
         with self.SessionLocal() as db:
             _draft1, expired = self._seed_operation(db, suffix="expired")
@@ -476,6 +593,74 @@ class AIRevertCoordinatorTest(AIAgentInfraTestCase):
                 )
             self.assertEqual(forbidden.exception.code, "revert_forbidden")
             self.assertIsNone(forbidden.exception.response)
+
+    def test_permanent_conflict_replays_stored_response_after_message_tampering(self) -> None:
+        with self.SessionLocal() as db:
+            draft, operation = self._seed_operation(
+                db,
+                suffix="blocked-stored-replay",
+                context={"schema_version": 1, "mode": "dependency_exists"},
+            )
+            with self.assertRaises(AIRevertDependencyExists) as first:
+                self._revert(db, operation.id, "request-blocked-stored-replay")
+            db.commit()
+            first_response = first.exception.response
+            assert first_response is not None
+
+            message = db.get(AIMessage, draft.message_id)
+            assert message is not None
+            message.parts = [{"type": "result_card", "card": {"raw": "PRIVATE_SENTINEL"}}]
+            message.message_metadata = {"artifacts": [{"raw": "PRIVATE_SENTINEL"}]}
+            db.commit()
+
+            with self.assertRaises(AIRevertDependencyExists) as replay:
+                self._revert(
+                    db,
+                    operation.id,
+                    "request-blocked-stored-replay",
+                    now=NOW + timedelta(seconds=1),
+                )
+
+            replay_response = replay.exception.response
+            assert replay_response is not None
+            self.assertTrue(replay_response.replayed)
+            self.assertEqual(replay_response.projection.entities, first_response.projection.entities)
+            self.assertEqual(replay_response.result_card["title"], first_response.result_card["title"])
+            self.assertNotIn("PRIVATE_SENTINEL", json.dumps(replay_response.result_card))
+            self.assertEqual(self.adapter.call_count, 1)
+            self.assertFalse(db.dirty)
+
+    def test_malformed_stored_public_response_fails_closed_without_replay_payload(self) -> None:
+        mutations = {
+            "private_projection_field": lambda response: response["projection"].update(
+                {"raw": "PRIVATE_SENTINEL"}
+            ),
+            "draft_identity_mismatch": lambda response: response["result_card"]["data"].update(
+                {"draftId": "other-draft"}
+            ),
+            "cache_scope_mismatch": lambda response: response.update(
+                {"cache_scopes": ["inventory", "ai_conversation"]}
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), self.SessionLocal() as db:
+                _draft, operation = self._seed_operation(db, suffix=f"malformed-{name}")
+                self._revert(db, operation.id, f"request-malformed-{name}")
+                db.commit()
+
+                stored = db.get(AIOperation, operation.id)
+                assert stored is not None
+                stored_result = json.loads(json.dumps(stored.revert_result_json))
+                mutate(stored_result["public_response"])
+                stored.revert_result_json = stored_result
+                db.commit()
+
+                with self.assertRaises(AIRevertError) as raised:
+                    self._revert(db, operation.id, f"request-malformed-{name}")
+
+                self.assertEqual(raised.exception.code, "operation_not_revertible")
+                self.assertIsNone(raised.exception.response)
+                self.assertFalse(db.dirty)
 
 
 class AIRevertAPITest(AIRevertCoordinatorTest):
