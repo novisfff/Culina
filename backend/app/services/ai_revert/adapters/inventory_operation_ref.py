@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -10,7 +11,13 @@ from app.core.enums import (
     InventoryOperationEntityType,
     InventoryOperationStatus,
 )
-from app.models.domain import ActivityLog, InventoryItem, InventoryOperation, InventoryOperationLine
+from app.models.domain import (
+    Food,
+    IngredientInventoryState,
+    InventoryItem,
+    InventoryOperation,
+    InventoryOperationLine,
+)
 from app.services.ai_revert.errors import (
     AIRevertAdapterVersionUnsupported,
     AIRevertDependencyExists,
@@ -21,6 +28,8 @@ from app.services.inventory_operation_history import (
     InventoryOperationNotFoundError,
     InventoryOperationPermissionError,
     revert_inventory_operation,
+    snapshot_food_inventory,
+    snapshot_inventory_state,
 )
 from app.services.inventory_versions import InventoryConflictError
 
@@ -31,23 +40,93 @@ def _decimal(value) -> Decimal:
 
 def _changed_inventory_is_dependency(context: AIRevertContext, operation: InventoryOperation) -> bool:
     for line in operation.lines:
-        if line.entity_type != InventoryOperationEntityType.INVENTORY_ITEM:
-            continue
-        item = context.db.scalar(
-            select(InventoryItem).where(
-                InventoryItem.family_id == context.family_id,
-                InventoryItem.id == line.entity_id,
-            )
-        )
-        if item is None:
-            continue
         after = line.after_snapshot or {}
-        if (
-            _decimal(item.consumed_quantity) > _decimal(after.get("consumed_quantity"))
-            or _decimal(item.disposed_quantity) > _decimal(after.get("disposed_quantity"))
-        ):
-            return True
+        if line.entity_type == InventoryOperationEntityType.INVENTORY_ITEM:
+            item = context.db.scalar(
+                select(InventoryItem).where(
+                    InventoryItem.family_id == context.family_id,
+                    InventoryItem.id == line.entity_id,
+                )
+            )
+            if item is not None and (
+                _decimal(item.consumed_quantity) > _decimal(after.get("consumed_quantity"))
+                or _decimal(item.disposed_quantity) > _decimal(after.get("disposed_quantity"))
+            ):
+                return True
+        elif line.entity_type == InventoryOperationEntityType.FOOD:
+            food = context.db.scalar(
+                select(Food).where(
+                    Food.family_id == context.family_id,
+                    Food.id == line.entity_id,
+                )
+            )
+            if food is not None and _snapshot_fields_changed(
+                snapshot_food_inventory(food),
+                after,
+                fields=_FOOD_INVENTORY_FIELDS,
+            ):
+                return True
+        elif line.entity_type == InventoryOperationEntityType.NON_TRACKED_INGREDIENT_STATE:
+            state = context.db.scalar(
+                select(IngredientInventoryState).where(
+                    IngredientInventoryState.family_id == context.family_id,
+                    IngredientInventoryState.id == line.entity_id,
+                )
+            )
+            if state is not None and _snapshot_fields_changed(
+                snapshot_inventory_state(state),
+                after,
+                fields=_PRESENCE_INVENTORY_FIELDS,
+            ):
+                return True
     return False
+
+
+_FOOD_INVENTORY_FIELDS = (
+    "stock_quantity",
+    "stock_unit",
+    "storage_location",
+    "expiry_date",
+    "inventory_last_confirmed_at",
+    "inventory_last_confirmed_by",
+    "inventory_confirmation_source",
+)
+
+_PRESENCE_INVENTORY_FIELDS = (
+    "availability_level",
+    "inventory_status",
+    "purchase_date",
+    "expiry_date",
+    "storage_location",
+    "expiry_alert_snoozed_until",
+    "expiry_reviewed_at",
+    "expiry_reviewed_by",
+    "last_confirmed_at",
+    "last_confirmed_by",
+    "last_confirmation_source",
+)
+
+
+def _snapshot_fields_changed(
+    current: dict[str, object],
+    after: dict,
+    *,
+    fields: tuple[str, ...],
+) -> bool:
+    return any(
+        _normalized_snapshot_value(field, current.get(field))
+        != _normalized_snapshot_value(field, after.get(field))
+        for field in fields
+    )
+
+
+def _normalized_snapshot_value(field: str, value: object) -> object:
+    if value is None or not field.endswith("_at"):
+        return value
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _later_inventory_operation_is_dependency(
@@ -83,50 +162,6 @@ def _later_inventory_operation_is_dependency(
         if expected_after is None or line.before_row_version is None:
             continue
         if int(line.before_row_version) >= expected_after:
-            return True
-    return False
-
-
-def _later_domain_activity_is_dependency(
-    context: AIRevertContext,
-    operation: InventoryOperation,
-) -> bool:
-    food_ids = {
-        line.entity_id
-        for line in operation.lines
-        if line.entity_type == InventoryOperationEntityType.FOOD
-    }
-    state_ids = {
-        line.entity_id
-        for line in operation.lines
-        if line.entity_type == InventoryOperationEntityType.NON_TRACKED_INGREDIENT_STATE
-    }
-    if not food_ids and not state_ids:
-        return False
-
-    activities = context.db.scalars(
-        select(ActivityLog).where(
-            ActivityLog.family_id == context.family_id,
-            ActivityLog.created_at > operation.created_at,
-        )
-    )
-    food_inventory_prefixes = (
-        "补充食物库存 ",
-        "采购入库食物 ",
-        "记录食用 ",
-        "处理食物库存 ",
-        "确认食物库存 ",
-        "调整食物库存 ",
-        "确认没有 ",
-    )
-    for activity in activities:
-        if activity.entity_type == "IngredientInventoryState" and activity.entity_id in state_ids:
-            return True
-        if (
-            activity.entity_type == "Food"
-            and activity.entity_id in food_ids
-            and str(activity.summary or "").startswith(food_inventory_prefixes)
-        ):
             return True
     return False
 
@@ -177,7 +212,6 @@ class InventoryOperationRefAdapter:
                 exc.code == "food_has_history"
                 or "consumed_or_disposed" in dependency_reasons
                 or _later_inventory_operation_is_dependency(context, operation)
-                or _later_domain_activity_is_dependency(context, operation)
                 or _changed_inventory_is_dependency(context, operation)
             ):
                 raise AIRevertDependencyExists() from exc

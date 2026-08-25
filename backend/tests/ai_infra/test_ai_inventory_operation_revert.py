@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.ai.errors import AIConflictError
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.core.enums import (
+    ActivityAction,
     FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
@@ -20,6 +21,7 @@ from app.core.enums import (
     UserRole,
 )
 from app.models.domain import (
+    ActivityLog,
     Food,
     Ingredient,
     IngredientInventoryState,
@@ -724,6 +726,123 @@ class AIInventoryOperationRevertTest(AIAgentInfraTestCase):
             db.flush()
 
             with self.assertRaises(AIRevertDependencyExists):
+                InventoryOperationRefAdapter().revert(
+                    self._adapter_context(
+                        db,
+                        receipt=receipt,
+                        actor_user_id=self.user.id,
+                        actor_role=UserRole.OWNER,
+                        now=COMMITTED_AT + timedelta(minutes=10),
+                    )
+                )
+
+    def test_reference_adapter_ignores_clock_skewed_food_activity_for_profile_drift(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            food.type = FoodType.READY_MADE
+            db.flush()
+            original_payload = self._normalize_target_intake(
+                db,
+                source_type="reconciliation",
+                suffix="food-clock-skew-profile-drift",
+                target_kind="food",
+                target_id=food.id,
+            )
+            receipt = self._execute(
+                db,
+                draft_type="inventory_intake",
+                payload=original_payload,
+                suffix="food-clock-skew-profile-drift",
+            )
+            operation = db.get(
+                InventoryOperation,
+                str((receipt.revert_context or {})["inventory_operation_id"]),
+            )
+            assert operation is not None
+            db.add(
+                ActivityLog(
+                    id="activity-task-13-food-clock-skew",
+                    family_id=self.family.id,
+                    actor_id=self.user.id,
+                    action=ActivityAction.UPDATE,
+                    entity_type="Food",
+                    entity_id=food.id,
+                    summary="记录食用 番茄小炒 1份",
+                    created_at=operation.created_at + timedelta(hours=2),
+                )
+            )
+            food.notes = "只修改食物档案说明"
+            db.flush()
+
+            with self.assertRaises(AIRevertTargetChanged):
+                InventoryOperationRefAdapter().revert(
+                    self._adapter_context(
+                        db,
+                        receipt=receipt,
+                        actor_user_id=self.user.id,
+                        actor_role=UserRole.OWNER,
+                        now=COMMITTED_AT + timedelta(minutes=10),
+                    )
+                )
+
+    def test_reference_adapter_ignores_presence_non_inventory_activity_and_metadata_drift(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = Ingredient(
+                id="ingredient-task-13-presence-metadata",
+                family_id=self.family.id,
+                name="花椒",
+                category="调味",
+                default_unit="袋",
+                unit_conversions=[],
+                default_storage="常温",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                notes="",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(ingredient)
+            db.flush()
+            original_payload = self._normalize_target_intake(
+                db,
+                source_type="initial_inventory",
+                suffix="presence-metadata-drift",
+                target_kind="presence_ingredient",
+                target_id=ingredient.id,
+            )
+            receipt = self._execute(
+                db,
+                draft_type="inventory_intake",
+                payload=original_payload,
+                suffix="presence-metadata-drift",
+            )
+            operation = db.get(
+                InventoryOperation,
+                str((receipt.revert_context or {})["inventory_operation_id"]),
+            )
+            state = db.scalar(
+                select(IngredientInventoryState).where(
+                    IngredientInventoryState.ingredient_id == ingredient.id
+                )
+            )
+            assert operation is not None and state is not None
+            db.add(
+                ActivityLog(
+                    id="activity-task-13-presence-metadata",
+                    family_id=self.family.id,
+                    actor_id=self.user.id,
+                    action=ActivityAction.UPDATE,
+                    entity_type="IngredientInventoryState",
+                    entity_id=state.id,
+                    summary="只更新展示元数据",
+                    created_at=operation.created_at + timedelta(hours=2),
+                )
+            )
+            state.notes = "不影响有无或库存状态的备注"
+            db.flush()
+
+            with self.assertRaises(AIRevertTargetChanged):
                 InventoryOperationRefAdapter().revert(
                     self._adapter_context(
                         db,
