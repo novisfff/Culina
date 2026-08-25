@@ -190,7 +190,7 @@ describe('AI operation result state', () => {
   it('reverts directly without a dialog or optimistic success and politely announces the HTTP replacement', async () => {
     vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
     let resolveRequest: ((value: AiOperationRevertResponse) => void) | null = null;
-    vi.spyOn(aiApi, 'revertAiOperation').mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation').mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
     const user = userEvent.setup();
     const view = await renderCard(operationCard());
     const button = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === '撤销') as HTMLButtonElement;
@@ -206,8 +206,16 @@ describe('AI operation result state', () => {
     expect(view.textContent).toContain('已撤销');
     expect(document.activeElement).toBe(button);
     expect(button.isConnected).toBe(true);
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(button.textContent).toBe('已撤销');
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    await user.click(button);
+    expect(apiSpy).toHaveBeenCalledTimes(1);
+    expect(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).some((item) => (
+      item.textContent === '撤销' && !item.disabled && item.getAttribute('aria-disabled') !== 'true'
+    ))).toBe(false);
     const liveRegion = view.querySelector('[role="status"]');
     expect(liveRegion?.getAttribute('aria-live')).toBe('polite');
     expect(liveRegion?.textContent).toContain('操作已撤销');
@@ -239,7 +247,7 @@ describe('AI operation result state', () => {
       server_now: blockedProjection.server_now,
       replayed: false,
     };
-    vi.spyOn(aiApi, 'revertAiOperation').mockRejectedValue(new ApiError({
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation').mockRejectedValue(new ApiError({
       status: 409,
       detail: '相关内容后来被修改，无法安全撤销',
       path: '/api/ai/operations/operation-1/revert',
@@ -256,8 +264,17 @@ describe('AI operation result state', () => {
     expect(view.textContent).toContain('相关内容后来被修改，无法安全撤销');
     expect(document.activeElement).toBe(revertButton);
     expect(revertButton.isConnected).toBe(true);
-    expect(revertButton.disabled).toBe(true);
+    expect(revertButton.disabled).toBe(false);
+    expect(revertButton.getAttribute('aria-disabled')).toBe('true');
     expect(revertButton.textContent).toBe('无法撤销');
+    const user = userEvent.setup();
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    await user.click(revertButton);
+    expect(apiSpy).toHaveBeenCalledTimes(1);
+    expect(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).some((item) => (
+      item.textContent === '撤销' && !item.disabled && item.getAttribute('aria-disabled') !== 'true'
+    ))).toBe(false);
     expect(view.querySelector('[role="status"]')?.textContent).toBe('相关内容后来被修改，无法安全撤销');
   });
 

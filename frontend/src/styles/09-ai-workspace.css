@@ -9408,6 +9408,18 @@
   white-space: normal;
 }
 
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true'],
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true']:hover,
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true']:active {
+  border-color: var(--line-soft);
+  background: var(--surface);
+  color: var(--text-soft);
+  box-shadow: none;
+  opacity: 0.58;
+  transform: none;
+  cursor: not-allowed;
+}
+
 .ai-operation-result-announcement:not(:empty) {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--info-line);

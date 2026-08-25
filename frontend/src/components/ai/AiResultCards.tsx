@@ -413,6 +413,7 @@ function OperationResultCard({
   const showRevert = viewModel.canRevert;
   const keepAttemptedRevertControl = revert.hasAttempted && !showRevert;
   const showActions = showRevert || keepAttemptedRevertControl;
+  const terminalRevertControl = keepAttemptedRevertControl;
   const revertLabel = revert.isPending
     ? '撤销中…'
     : keepAttemptedRevertControl
@@ -490,9 +491,14 @@ function OperationResultCard({
           <button
             className="ghost-button ai-operation-revert-button"
             type="button"
-            disabled={!showRevert || !conversationId || !isOnline || revert.isPending}
+            disabled={!terminalRevertControl && (!showRevert || !conversationId || !isOnline || revert.isPending)}
+            aria-disabled={terminalRevertControl || undefined}
             aria-busy={revert.isPending}
+            onKeyDown={(event) => {
+              if (terminalRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+            }}
             onClick={() => {
+              if (terminalRevertControl) return;
               if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
             }}
           >

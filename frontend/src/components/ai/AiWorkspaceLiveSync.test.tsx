@@ -193,8 +193,10 @@ describe('AiWorkspace live sync and conversation migration', () => {
     expect(mobileButton.isConnected).toBe(true);
     expect(desktopButton.textContent).toBe('已撤销');
     expect(mobileButton.textContent).toBe('已撤销');
-    expect(desktopButton.disabled).toBe(true);
-    expect(mobileButton.disabled).toBe(true);
+    expect(desktopButton.disabled).toBe(false);
+    expect(mobileButton.disabled).toBe(false);
+    expect(desktopButton.getAttribute('aria-disabled')).toBe('true');
+    expect(mobileButton.getAttribute('aria-disabled')).toBe('true');
     rendered.unmount();
   });
 
