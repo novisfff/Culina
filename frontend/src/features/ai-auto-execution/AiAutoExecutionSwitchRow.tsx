@@ -1,4 +1,5 @@
 import type { AiAutoExecutionActionDefinition } from './aiAutoExecutionModel';
+import { StatusBadge } from '../../components/ui-kit';
 
 export function AiAutoExecutionSwitchRow(props: {
   action: AiAutoExecutionActionDefinition;
@@ -9,6 +10,8 @@ export function AiAutoExecutionSwitchRow(props: {
   requiresReconsent?: boolean;
   readOnlyMessage?: string;
   ariaLabel?: string;
+  errorMessage?: string;
+  onRetry?: () => void;
   onToggle: () => void;
 }) {
   const descriptionId = `ai-auto-execution-${props.action.key.replace(/\./g, '-')}-description`;
@@ -17,8 +20,9 @@ export function AiAutoExecutionSwitchRow(props: {
       <div className="ai-auto-execution-row-copy">
         <strong>{props.action.label}</strong>
         <p id={descriptionId}>{props.action.description}</p>
-        {props.requiresReconsent ? <span className="ai-auto-execution-row-note">需要重新确认规则</span> : null}
+        {props.requiresReconsent ? <StatusBadge tone="warning" size="compact">需要重新确认规则</StatusBadge> : null}
         {props.readOnlyMessage ? <span className="ai-auto-execution-row-note">{props.readOnlyMessage}</span> : null}
+        {props.errorMessage ? <p className="ai-auto-execution-row-error" role="alert">{props.errorMessage} {props.onRetry ? <button type="button" onClick={props.onRetry}>重试</button> : null}</p> : null}
       </div>
       <button
         type="button"

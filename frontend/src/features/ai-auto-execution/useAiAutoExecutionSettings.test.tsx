@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi } from '../../api/aiApi';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiAutoExecutionSettings } from '../../api/types';
 import { useAiAutoExecutionSettings } from './useAiAutoExecutionSettings';
 
 vi.mock('../../api/aiApi', () => ({ aiApi: { getAiAutoExecutionSettings: vi.fn(), updateAiAutoExecutionPreference: vi.fn(), updateAiAutoExecutionFamilyPolicy: vi.fn() } }));
+beforeEach(() => vi.clearAllMocks());
 const response = (enabled = false): AiAutoExecutionSettings => ({ catalog_version: '1', consent_notice: { version: 'n1', acknowledged: true }, member_preferences: [{ action_key: 'food.set_favorite', enabled, effective_enabled: enabled, row_version: 1, consent_notice_version: 'n1', requires_reconsent: false }], family_policies: [], limits: {}, server_now: '2026-08-24T00:00:00Z' });
 
 describe('useAiAutoExecutionSettings', () => {
@@ -34,5 +35,23 @@ describe('useAiAutoExecutionSettings', () => {
     expect(result.current.settings?.member_preferences[0]?.enabled).toBe(false);
     await act(async () => { resolve(response(true)); });
     await waitFor(() => expect(result.current.settings?.member_preferences[0]?.enabled).toBe(true));
+  });
+
+  it('allows a second setting row to save while the first row is pending', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const twoRows = { ...response(), member_preferences: [
+      response().member_preferences[0]!,
+      { ...response().member_preferences[0]!, action_key: 'meal_log.rate_food' as const },
+    ] };
+    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(twoRows);
+    vi.mocked(aiApi.updateAiAutoExecutionPreference).mockReturnValue(new Promise(() => undefined));
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useAiAutoExecutionSettings('family-a'), { wrapper });
+    await waitFor(() => expect(result.current.settings?.member_preferences).toHaveLength(2));
+    await act(async () => {
+      void result.current.update('member', result.current.settings!.member_preferences[0]!, true);
+      void result.current.update('member', result.current.settings!.member_preferences[1]!, true);
+    });
+    expect(aiApi.updateAiAutoExecutionPreference).toHaveBeenCalledTimes(2);
   });
 });
