@@ -141,6 +141,15 @@ export function FamilyMobileView(props: {
               : '查看个人费用和当前家庭额度'}
           </small>
         </button>
+        <button
+          className="mobile-family-model-usage-entry"
+          type="button"
+          onClick={() => props.onNavigate({ workspace: 'ai', view: 'autoExecution' })}
+        >
+          <span aria-hidden="true"><DashboardIcon name="shield" /></span>
+          <strong>AI 自动执行</strong>
+          <small>管理个人的低风险自动执行规则</small>
+        </button>
         {props.isOwner ? (
           <button
             className="mobile-family-model-usage-entry mobile-family-ai-services-entry"

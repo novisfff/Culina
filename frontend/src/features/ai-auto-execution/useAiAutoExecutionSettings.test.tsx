@@ -1,0 +1,38 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { aiApi } from '../../api/aiApi';
+import { queryKeys } from '../../api/queryKeys';
+import type { AiAutoExecutionSettings } from '../../api/types';
+import { useAiAutoExecutionSettings } from './useAiAutoExecutionSettings';
+
+vi.mock('../../api/aiApi', () => ({ aiApi: { getAiAutoExecutionSettings: vi.fn(), updateAiAutoExecutionPreference: vi.fn(), updateAiAutoExecutionFamilyPolicy: vi.fn() } }));
+const response = (enabled = false): AiAutoExecutionSettings => ({ catalog_version: '1', consent_notice: { version: 'n1', acknowledged: true }, member_preferences: [{ action_key: 'food.set_favorite', enabled, effective_enabled: enabled, row_version: 1, consent_notice_version: 'n1', requires_reconsent: false }], family_policies: [], limits: {}, server_now: '2026-08-24T00:00:00Z' });
+
+describe('useAiAutoExecutionSettings', () => {
+  it('keeps family query data isolated when family changes', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.mocked(aiApi.getAiAutoExecutionSettings).mockImplementation(() => Promise.resolve(response()));
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result, rerender } = renderHook(({ familyId }) => useAiAutoExecutionSettings(familyId), { initialProps: { familyId: 'family-a' }, wrapper });
+    await waitFor(() => expect(result.current.settings).not.toBeNull());
+    rerender({ familyId: 'family-b' });
+    expect(result.current.settings).toBeNull();
+    await waitFor(() => expect(client.getQueryData(queryKeys.aiAutoExecutionSettings('family-b'))).toBeTruthy());
+    expect(client.getQueryData(queryKeys.aiAutoExecutionSettings('family-a'))).toBeTruthy();
+  });
+
+  it('does not update the cached enabled state before the server succeeds', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.mocked(aiApi.getAiAutoExecutionSettings).mockResolvedValue(response());
+    let resolve!: (value: AiAutoExecutionSettings) => void;
+    vi.mocked(aiApi.updateAiAutoExecutionPreference).mockReturnValue(new Promise((done) => { resolve = done; }));
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useAiAutoExecutionSettings('family-a'), { wrapper });
+    await waitFor(() => expect(result.current.settings).not.toBeNull());
+    await act(async () => { void result.current.update('member', result.current.settings!.member_preferences[0]!, true); });
+    expect(result.current.settings?.member_preferences[0]?.enabled).toBe(false);
+    await act(async () => { resolve(response(true)); });
+    await waitFor(() => expect(result.current.settings?.member_preferences[0]?.enabled).toBe(true));
+  });
+});

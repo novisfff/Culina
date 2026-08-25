@@ -68,6 +68,7 @@ function createNavigationService(
       discoverSection: 'all',
       ...stateOverrides.eat,
     },
+    ai: { view: 'conversation' },
     family: { view: 'profile', period: null },
   };
 

@@ -342,8 +342,8 @@ export function FamilySettings(props: FamilySettingsProps) {
 
         <section className="family-model-usage-entry-card" aria-labelledby="family-model-usage-heading">
           <h2 id="family-model-usage-heading" className="family-model-usage-entry-heading">家庭工具</h2>
-          <button
-            className="family-model-usage-entry"
+        <button
+          className="family-model-usage-entry"
             type="button"
             onClick={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
           >
@@ -358,7 +358,15 @@ export function FamilySettings(props: FamilySettingsProps) {
                 : '查看个人费用和当前家庭额度'}
               </small>
             </span>
-          </button>
+        </button>
+        <button
+          className="family-model-usage-entry"
+          type="button"
+          onClick={() => props.onNavigate({ workspace: 'ai', view: 'autoExecution' })}
+        >
+          <span className="family-model-usage-entry-icon" aria-hidden="true"><DashboardIcon name="shield" /></span>
+          <span className="family-model-usage-entry-copy"><strong>AI 自动执行</strong><small>查看并管理个人的低风险自动执行规则</small></span>
+        </button>
           {props.isOwner ? (
             <button
               className="family-model-usage-entry family-ai-services-entry"

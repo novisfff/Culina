@@ -23,6 +23,7 @@ function eatState(
       discoverSection: 'all',
       ...eat,
     },
+    ai: initialNavigationState.ai,
     family: initialNavigationState.family,
   };
 }
@@ -60,6 +61,17 @@ describe('appNavigationModel', () => {
       primaryTab: 'home',
       eat: { baseView: 'discover', task: null, discoverSection: 'all' },
     });
+  });
+
+  it('navigates the family shortcut to the AI settings view', () => {
+    const next = reduceNavigation(initialNavigationState, {
+      type: 'navigate',
+      target: { workspace: 'ai', view: 'autoExecution' },
+    });
+
+    expect(next.primaryTab).toBe('ai');
+    expect(next.ai.view).toBe('autoExecution');
+    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(next))).ai.view).toBe('autoExecution');
   });
 
   it('falls back to home for corrupt v2 input', () => {
@@ -103,6 +115,7 @@ describe('appNavigationModel', () => {
     expect(restored).toEqual({
       primaryTab: 'eat',
       eat: { baseView: 'discover', task: null, discoverSection: 'selfMade' },
+      ai: { view: 'conversation' },
       family: { view: 'profile', period: null },
     });
   });
@@ -579,17 +592,17 @@ describe('appNavigationModel', () => {
     },
     {
       name: 'ingredients',
-      state: { primaryTab: 'ingredients' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
+      state: { primaryTab: 'ingredients' as const, eat: initialNavigationState.eat, ai: initialNavigationState.ai, family: initialNavigationState.family },
       expected: ['needsIngredients', 'needsInventory', 'needsShopping', 'needsRecipes'],
     },
     {
       name: 'ai',
-      state: { primaryTab: 'ai' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
+      state: { primaryTab: 'ai' as const, eat: initialNavigationState.eat, ai: initialNavigationState.ai, family: initialNavigationState.family },
       expected: ['needsAiConversations'],
     },
     {
       name: 'family',
-      state: { primaryTab: 'family' as const, eat: initialNavigationState.eat, family: initialNavigationState.family },
+      state: { primaryTab: 'family' as const, eat: initialNavigationState.eat, ai: initialNavigationState.ai, family: initialNavigationState.family },
       expected: ['needsMembers', 'needsRecipes', 'needsFoods', 'needsMealLogs', 'needsActivityLogs'],
     },
   ])('derives query scope for $name', ({ state, expected }) => {
