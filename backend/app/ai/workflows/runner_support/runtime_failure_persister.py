@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.errors import AIRuntimeFailurePersistenceError, AutoExecutionBlockRequired
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner_support.run_status import (
     FAILED,
@@ -15,6 +16,7 @@ from app.ai.workflows.runner_support.run_status import (
 )
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
+from app.services.ai_operations.run_blocking import mark_run_auto_execution_blocked
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     finalize_run_cancellation,
@@ -36,10 +38,20 @@ class RuntimeFailurePersister:
         conversation_id: str,
         family_id: str,
         user_id: str,
-        error: str,
+        error: BaseException | str,
     ) -> None:
+        requires_auto_execution_block = isinstance(error, AutoExecutionBlockRequired)
         try:
             self.db.rollback()
+            if requires_auto_execution_block:
+                self._persist_auto_execution_block(
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    family_id=family_id,
+                    error=error,
+                )
+                live_ai_stream_cache.clear_run(run_id)
+                return
             try:
                 run = lock_run_for_transition(
                     self.db,
@@ -58,7 +70,7 @@ class RuntimeFailurePersister:
                 live_ai_stream_cache.clear_run(run_id)
                 return
             text = "AI 服务暂时不可用，请稍后重试。"
-            message = self._get_or_create_failed_assistant_message(
+            self._get_or_create_failed_assistant_message(
                 run=run,
                 run_id=run_id,
                 conversation_id=conversation_id,
@@ -70,14 +82,13 @@ class RuntimeFailurePersister:
                 run_id=run_id,
                 conversation_id=conversation_id,
                 family_id=family_id,
-                error=error,
+                error=str(error),
                 text=text,
             )
-            self._mark_run_failed(run, error=error, text=text)
+            self._mark_run_failed(run, error=str(error), text=text)
             self._mark_conversation_failed(conversation_id=conversation_id, text=text)
             self.db.commit()
             live_ai_stream_cache.clear_run(run_id)
-            _ = message
         except Exception:
             self.db.rollback()
             logger.exception(
@@ -86,6 +97,35 @@ class RuntimeFailurePersister:
                 conversation_id,
                 family_id,
             )
+            if requires_auto_execution_block:
+                raise AIRuntimeFailurePersistenceError(
+                    "AI 运行失败状态无法安全保存，请稍后重试"
+                ) from None
+
+    def _persist_auto_execution_block(
+        self,
+        *,
+        run_id: str,
+        conversation_id: str,
+        family_id: str,
+        error: AutoExecutionBlockRequired,
+    ) -> None:
+        run = mark_run_auto_execution_blocked(
+            self.db,
+            family_id=family_id,
+            run_id=run_id,
+        )
+        if run is None:
+            raise LookupError("AI Run 不存在，无法持久化自动执行阻断结果")
+        self._append_runtime_error_event(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            family_id=family_id,
+            error=error.message,
+            text=error.message,
+            internal_code=error.error_code,
+        )
+        self.db.commit()
 
     def _get_or_create_failed_assistant_message(
         self,
@@ -142,6 +182,7 @@ class RuntimeFailurePersister:
         family_id: str,
         error: str,
         text: str,
+        internal_code: str = "runtime_exception",
     ) -> None:
         event = AIRunEvent(
             id=create_id("ai_run_event"),
@@ -149,7 +190,7 @@ class RuntimeFailurePersister:
             conversation_id=conversation_id,
             run_id=run_id,
             type="error",
-            internal_code="runtime_exception",
+            internal_code=internal_code,
             user_message=text,
             status=FAILED,
             payload={"error": error[:1000]},

@@ -2,7 +2,7 @@ from ._support import *
 
 from typing import Any
 
-from app.ai.errors import ApprovalRequired, HumanInputRequired, ToolExecutionError
+from app.ai.errors import AutoExecutionBlockRequired, ApprovalRequired, HumanInputRequired, ToolExecutionError
 from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput
 from app.ai.tools import ToolRegistry
 from app.ai.tools.base import ToolDefinition
@@ -1430,6 +1430,46 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     tool_handler=lambda name, payload: (_ for _ in ()).throw(ApprovalRequired("approval required")),
                 )
 
+        def test_openai_compatible_provider_propagates_auto_execution_block_control_flow(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-auto-draft",
+                        "name": "recipe_create_draft",
+                        "args": {"draft": {"title": "番茄炒蛋"}},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
+            stream_client.stream.return_value = [ToolCallChunk()]
+            tool = build_workspace_tool_registry().get("recipe.create_draft")
+            control_flow = AutoExecutionBlockRequired(
+                error_code="draft_terminalization_failed",
+                message="自动执行结果未能安全保存，已停止继续重试",
+                recovery_hint="retry_later_or_contact_support",
+            )
+
+            with self.assertRaises(AutoExecutionBlockRequired) as raised:
+                provider.generate_with_tools(
+                    system="s",
+                    user="u",
+                    tools=lambda: [tool],
+                    tool_handler=lambda _name, _payload: (_ for _ in ()).throw(control_flow),
+                )
+
+            self.assertIs(raised.exception, control_flow)
+
         def test_openai_compatible_provider_retries_stream_failure_before_output(self) -> None:
             class TextChunk:
                 tool_calls: list[dict[str, Any]] = []
@@ -2101,6 +2141,48 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             output_item = next(item for item in second_input if item.get("type") == "function_call_output")
             self.assertEqual(output_item["call_id"], "call-read-items")
             self.assertIn("\"items\": []", output_item["output"])
+
+        def test_openai_responses_provider_propagates_auto_execution_block_control_flow(self) -> None:
+            function_call = {
+                "type": "function_call",
+                "call_id": "call-auto-draft",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 5}",
+                "status": "completed",
+            }
+
+            class FakeResponses:
+                def create(self, **_request):
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_item.done", item=function_call),
+                            SimpleNamespace(
+                                type="response.completed",
+                                response=SimpleNamespace(output=[function_call], usage=None),
+                            ),
+                        ]
+                    )
+
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=FakeResponses())
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            control_flow = AutoExecutionBlockRequired(
+                error_code="draft_terminalization_failed",
+                message="自动执行结果未能安全保存，已停止继续重试",
+                recovery_hint="retry_later_or_contact_support",
+            )
+
+            with self.assertRaises(AutoExecutionBlockRequired) as raised:
+                provider.generate_with_tools(
+                    system="system prompt",
+                    user=ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                    tools=lambda: [tool],
+                    tool_handler=lambda _name, _payload: (_ for _ in ()).throw(control_flow),
+                )
+
+            self.assertIs(raised.exception, control_flow)
 
         def test_openai_responses_provider_soft_finalizes_at_max_rounds(self) -> None:
             function_call = {

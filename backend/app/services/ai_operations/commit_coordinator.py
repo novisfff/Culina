@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.ai.errors import AIConflictError
+from app.ai.errors import AIConflictError, AutoExecutionBlockRequired
 from app.core.enums import ActivityAction
 from app.core.utils import utcnow
 from app.models.domain import (
@@ -52,6 +52,7 @@ from app.services.ai_operations.run_cancellation import (
     lock_run_for_transition,
 )
 from app.services.ai_operations.run_blocking import (
+    auto_execution_blocked_record,
     persist_run_auto_execution_blocked_after_rollback,
 )
 from app.services.serializers import (
@@ -894,11 +895,18 @@ class DraftCommitCoordinator:
                 request.family_id,
                 request.draft_id,
             )
-            persist_run_auto_execution_blocked_after_rollback(
+            blocker_persisted = persist_run_auto_execution_blocked_after_rollback(
                 db,
                 family_id=request.family_id,
                 run_id=request.run_id,
             )
+            if not blocker_persisted:
+                blocked = auto_execution_blocked_record()
+                raise AutoExecutionBlockRequired(
+                    error_code=blocked["errorCode"],
+                    message=blocked["message"],
+                    recovery_hint=blocked["recoveryHint"],
+                ) from None
             raise AIConflictError("数据库写入失败，自动执行结果无法安全保存") from None
 
     @classmethod

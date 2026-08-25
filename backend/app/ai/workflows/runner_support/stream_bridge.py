@@ -132,16 +132,22 @@ def handle_stream_worker_exception(
     is_disconnected: Callable[[], bool],
     on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
 ) -> None:
+    reported_exc = exc
     try:
         worker_runner.db.rollback()
         if on_worker_exception is not None:
             on_worker_exception(worker_runner, exc)
-    except Exception:
+    except Exception as persistence_exc:
         logger.exception("AI graph background worker failed while recording stream error")
+        reported_exc = persistence_exc
     if is_disconnected():
-        logger.warning("AI graph background worker failed after subscriber disconnect: %s", exc, exc_info=True)
+        logger.warning(
+            "AI graph background worker failed after subscriber disconnect: %s",
+            reported_exc,
+            exc_info=True,
+        )
     else:
-        event_queue.put(exc)
+        event_queue.put(reported_exc)
 
 
 def consume_stream_graph_worker(

@@ -14,6 +14,28 @@ class AIExecutionCancelled(RuntimeError):
     """The current AI run was cancelled and should stop cooperatively."""
 
 
+class AutoExecutionBlockRequired(RuntimeError):
+    """An uncertain policy-auto write must be fenced before the run can close."""
+
+    def __init__(
+        self,
+        *,
+        error_code: str,
+        message: str,
+        recovery_hint: str,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.recovery_hint = recovery_hint
+
+
+class AIRuntimeFailurePersistenceError(RuntimeError):
+    """The runtime could not durably close a failed Run."""
+
+    code = "ai_runtime_failure_persistence_failed"
+
+
 class HumanInputRequired(Exception):
     """The current AI run needs a user response before it can continue."""
 

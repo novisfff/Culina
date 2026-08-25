@@ -67,6 +67,7 @@ class PolicyFavoriteProvider(BaseChatProvider):
 
     def __init__(self, *, base_updated_at: str) -> None:
         self.base_updated_at = base_updated_at
+        self.calls = 0
 
     def generate(self, *, system: str, user: str) -> ChatProviderResult:
         raise AssertionError("workspace route must use tool calling")
@@ -83,6 +84,7 @@ class PolicyFavoriteProvider(BaseChatProvider):
         **kwargs,
     ) -> ChatProviderResult:
         del system, user, max_rounds, kwargs
+        self.calls += 1
         tool_handler("skill.inject", {"skills": ["food_profile"], "reason": "收藏食物"})
         self.assert_tool_available(tools, "food_profile.create_draft")
         if message_handler is not None:
@@ -1013,6 +1015,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
         with self.SessionLocal() as db:
             food = db.get(Food, "food-tomato")
             assert food is not None
+            base_updated_at = food.updated_at.isoformat()
             db.add(
                 AIAutoExecutionPreference(
                     id="route-pref-full-runner",
@@ -1027,7 +1030,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                 )
             )
             db.commit()
-            provider = PolicyFavoriteProvider(base_updated_at=food.updated_at.isoformat())
+            provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
             runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
             runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
             runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
@@ -1210,6 +1213,237 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             run_id=run_id,
             expected_draft_count=0,
         )
+
+    def test_full_runner_fences_auto_execution_when_independent_blocker_write_fails(self) -> None:
+        run_id = "route-run-full-terminalization-fallback"
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            base_updated_at = food.updated_at.isoformat()
+            db.add(
+                AIAutoExecutionPreference(
+                    id="route-pref-full-terminalization-fallback",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    action_key="food.set_favorite",
+                    enabled=True,
+                    consent_notice_version=CONSENT_NOTICE_VERSION,
+                    consented_at=utcnow(),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+            )
+            db.commit()
+            provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
+            runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
+            runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
+            runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
+            terminal_error = OperationalError(
+                "UPDATE foods",
+                {},
+                Exception(1054, "terminal write failed"),
+            )
+            terminalization_error = OperationalError(
+                "INSERT ai_operations",
+                {},
+                Exception(1054, "terminalization failed"),
+            )
+
+            def fail_independent_blocker_write(session, **_kwargs):
+                session.rollback()
+                return False
+
+            with (
+                patch(
+                    "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                    side_effect=terminal_error,
+                ),
+                patch.object(
+                    DraftCommitCoordinator,
+                    "_persist_failed_execution",
+                    side_effect=terminalization_error,
+                ),
+                patch(
+                    "app.services.ai_operations.commit_coordinator.persist_run_auto_execution_blocked_after_rollback",
+                    side_effect=fail_independent_blocker_write,
+                ),
+            ):
+                response = runner.invoke_user_message(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    message="收藏这个",
+                    client_run_id=run_id,
+                    subject={"source": "food_page", "food_id": food.id},
+                )
+
+            self.assertEqual(provider.calls, 1)
+            assistant_message_id = response["message"]["id"]
+            persisted_run = db.get(AIAgentRun, run_id)
+            assistant_message = db.get(AIMessage, assistant_message_id)
+            conversation = db.get(AIConversation, persisted_run.conversation_id) if persisted_run else None
+            assert persisted_run is not None and assistant_message is not None and conversation is not None
+            blocked = (persisted_run.context_summary or {}).get("autoExecutionBlocked")
+            blocked_parts = [
+                part
+                for part in assistant_message.parts or []
+                if isinstance(part, dict)
+                and isinstance(part.get("card"), dict)
+                and part["card"].get("data", {}).get("errorCode") == "draft_terminalization_failed"
+            ]
+            self.assertTrue(persisted_run.auto_execution_attempted)
+            self.assertEqual(persisted_run.status, "failed")
+            self.assertEqual(persisted_run.error_code, "draft_terminalization_failed")
+            self.assertEqual(
+                blocked,
+                {
+                    "errorCode": "draft_terminalization_failed",
+                    "message": "自动执行结果未能安全保存，已停止继续重试",
+                    "recoveryHint": "retry_later_or_contact_support",
+                },
+            )
+            self.assertEqual((persisted_run.output or {}).get("autoExecutionBlocked"), blocked)
+            self.assertEqual(len((persisted_run.output or {}).get("cards", [])), 1)
+            self.assertEqual(assistant_message.status, "failed")
+            self.assertEqual(len(blocked_parts), 1)
+            self.assertEqual(conversation.last_run_status, "failed")
+            self.assertNotIn("activeRunId", conversation.context or {})
+            self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+
+            counts_before = {
+                model.__name__: db.scalar(select(func.count(model.id)))
+                for model in (AIAgentRun, AIMessage, AITaskDraft, AIApprovalRequest, AIOperation)
+            }
+            provider.calls = 0
+            retry_response = AIApplicationService(db, provider=provider).retry_run(
+                family_id=self.family.id,
+                user_id=self.user.id,
+                run_id=run_id,
+            )
+            counts_after = {
+                model.__name__: db.scalar(select(func.count(model.id)))
+                for model in (AIAgentRun, AIMessage, AITaskDraft, AIApprovalRequest, AIOperation)
+            }
+            self.assertEqual(provider.calls, 0)
+            self.assertEqual(retry_response["run"]["id"], run_id)
+            self.assertEqual(retry_response["message"]["id"], assistant_message_id)
+            self.assertEqual(counts_after, counts_before)
+
+    def test_full_runner_keeps_prepared_run_active_when_failure_fence_commit_fails(self) -> None:
+        run_id = "route-run-full-terminalization-fallback-rollback"
+        conversation_id: str | None = None
+        commit_patcher = None
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            base_updated_at = food.updated_at.isoformat()
+            db.add(
+                AIAutoExecutionPreference(
+                    id="route-pref-full-terminalization-fallback-rollback",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    action_key="food.set_favorite",
+                    enabled=True,
+                    consent_notice_version=CONSENT_NOTICE_VERSION,
+                    consented_at=utcnow(),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+            )
+            db.commit()
+            provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
+            runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
+            runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
+            runner.progressive_draft_publisher.registered_revert_adapters = REGISTERED_ADAPTERS
+            terminal_error = OperationalError(
+                "UPDATE foods",
+                {},
+                Exception(1054, "terminal write failed"),
+            )
+            terminalization_error = OperationalError(
+                "INSERT ai_operations",
+                {},
+                Exception(1054, "terminalization failed"),
+            )
+            fence_commit_error = OperationalError(
+                "UPDATE ai_agent_runs",
+                {},
+                Exception(2006, "failure fence commit unavailable"),
+            )
+
+            def fail_independent_blocker_write(session, **_kwargs):
+                nonlocal commit_patcher
+                session.rollback()
+                commit_patcher = patch.object(session, "commit", side_effect=fence_commit_error)
+                commit_patcher.start()
+                return False
+
+            try:
+                with (
+                    patch(
+                        "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                        side_effect=terminal_error,
+                    ),
+                    patch.object(
+                        DraftCommitCoordinator,
+                        "_persist_failed_execution",
+                        side_effect=terminalization_error,
+                    ),
+                    patch(
+                        "app.services.ai_operations.commit_coordinator.persist_run_auto_execution_blocked_after_rollback",
+                        side_effect=fail_independent_blocker_write,
+                    ),
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        "AI 运行失败状态无法安全保存，请稍后重试",
+                    ),
+                ):
+                    runner.invoke_user_message(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        message="收藏这个",
+                        client_run_id=run_id,
+                        subject={"source": "food_page", "food_id": food.id},
+                    )
+            finally:
+                if commit_patcher is not None:
+                    commit_patcher.stop()
+
+        with self.SessionLocal() as db:
+            persisted_run = db.get(AIAgentRun, run_id)
+            assert persisted_run is not None and persisted_run.conversation_id is not None
+            conversation_id = persisted_run.conversation_id
+            self.assertEqual(persisted_run.status, "running")
+            self.assertFalse(persisted_run.auto_execution_attempted)
+            self.assertNotIn("autoExecutionBlocked", persisted_run.context_summary or {})
+            self.assertEqual(db.scalar(select(func.count(AIAgentRun.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+
+            recovered_provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
+            service = AIApplicationService(db, provider=recovered_provider)
+            with self.assertRaisesRegex(ValueError, "只有失败、fallback 或已取消的任务可以重试"):
+                service.retry_run(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    run_id=run_id,
+                )
+            with self.assertRaisesRegex(AIConflictError, "当前会话已有 AI 任务正在处理中"):
+                service.chat(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation_id,
+                    message="再试一次",
+                )
+            self.assertEqual(recovered_provider.calls, 0)
+            self.assertEqual(db.scalar(select(func.count(AIAgentRun.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
 
     def _assert_terminalization_blocked_retry(
         self,

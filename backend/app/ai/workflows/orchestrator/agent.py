@@ -4,7 +4,14 @@ import logging
 import inspect
 from time import perf_counter
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, DraftRouted, HumanInputRequired, ToolBudgetHardStop
+from app.ai.errors import (
+    AIExecutionCancelled,
+    ApprovalRequired,
+    AutoExecutionBlockRequired,
+    DraftRouted,
+    HumanInputRequired,
+    ToolBudgetHardStop,
+)
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.runtime.provider import BaseChatProvider
 from app.ai.runtime.types import provider_control_flow_metadata
@@ -294,7 +301,7 @@ class WorkspaceOrchestratorAgent:
             )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
-        except AIExecutionCancelled:
+        except (AIExecutionCancelled, AutoExecutionBlockRequired):
             raise
         except Exception as exc:
             logger.warning(

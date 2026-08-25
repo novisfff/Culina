@@ -296,7 +296,7 @@ class WorkspaceGraphRunner:
                 conversation_id=conversation_id,
                 family_id=family_id,
                 user_id=user_id,
-                error=str(exc),
+                error=exc,
             )
             return self._chat_response(conversation_id, prepared["run_id"])
         run_id = str(output.get("run_id") or "")
@@ -525,7 +525,7 @@ class WorkspaceGraphRunner:
                     conversation_id=conversation_id,
                     family_id=family_id,
                     user_id=user_id,
-                    error=str(exc),
+                    error=exc,
                 )
             if discard_history_on_terminal:
                 purge_ai_conversation_user_data(

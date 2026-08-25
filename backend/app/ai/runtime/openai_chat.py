@@ -7,7 +7,13 @@ import logging
 from collections.abc import Iterator
 from typing import Any, Callable
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
+from app.ai.errors import (
+    AIExecutionCancelled,
+    ApprovalRequired,
+    AutoExecutionBlockRequired,
+    HumanInputRequired,
+    ToolBudgetHardStop,
+)
 from app.ai.runtime.messages import field_value, openai_chat_content, openai_chat_messages
 from app.ai.runtime.family_transport import DeferredBindingTransport
 from app.ai.runtime.prompt_cache import (
@@ -879,7 +885,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
-                except AIExecutionCancelled:
+                except (AIExecutionCancelled, AutoExecutionBlockRequired):
                     raise
                 except (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
                     attach_provider_control_flow_metadata(
