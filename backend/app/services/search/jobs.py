@@ -1617,12 +1617,21 @@ def _handoff_profile_pending_vector(
     try:
         write_profile_vector_handoff(handoff, vector_store=vector_store)
     except VectorStoreUnavailableError:
+        cleanup_required = False
         with session_factory() as db:
             job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
             if job is None:
                 return
             resolved = _profile_job_document(db, job=job, for_update=True)
-            if resolved is not None:
+            if _profile_vector_write_requires_cleanup(
+                db,
+                job=job,
+                resolved=resolved,
+            ):
+                _mark_profile_point_deletion_pending_in_session(job, now=utcnow())
+                db.commit()
+                cleanup_required = True
+            elif resolved is not None:
                 live_profile, profile_document, _document = resolved
                 if profile_pending_vector_is_current(profile_document, snapshot):
                     _mark_job_failure_in_session(
@@ -1635,6 +1644,12 @@ def _handoff_profile_pending_vector(
                     )
                     refresh_profile_progress(db, profile=live_profile)
                     db.commit()
+        if cleanup_required:
+            _process_search_profile_point_deletion_job(
+                job_id,
+                session_factory=session_factory,
+                vector_store=vector_store,
+            )
         return
     cleanup_required = False
     with session_factory() as db:
@@ -1642,21 +1657,10 @@ def _handoff_profile_pending_vector(
         if job is None:
             return
         resolved = _profile_job_document(db, job=job, for_update=True)
-        deletion_intent = _search_document_deletion_is_fenced(
+        if _profile_vector_write_requires_cleanup(
             db,
-            family_id=job.family_id,
-            entity_type=job.entity_type,
-            entity_id=job.entity_id,
-        ) or _search_document_deletion_was_completed(
-            db,
-            family_id=job.family_id,
-            entity_type=job.entity_type,
-            entity_id=job.entity_id,
-        )
-        if (
-            resolved is None
-            or deletion_intent
-            or not _search_entity_still_exists(db, job=job)
+            job=job,
+            resolved=resolved,
         ):
             _mark_profile_point_deletion_pending_in_session(job, now=utcnow())
             db.commit()
@@ -1701,6 +1705,35 @@ def _handoff_profile_pending_vector(
             profile_id=provisioning_profile_id,
             session_factory=session_factory,
         )
+
+
+def _profile_vector_write_requires_cleanup(
+    db: Session,
+    *,
+    job: SearchIndexJob,
+    resolved: tuple[
+        FamilySearchProfile,
+        FamilySearchProfileDocument,
+        SearchDocument,
+    ]
+    | None,
+) -> bool:
+    return (
+        resolved is None
+        or _search_document_deletion_is_fenced(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        )
+        or _search_document_deletion_was_completed(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        )
+        or not _search_entity_still_exists(db, job=job)
+    )
 
 
 def _mark_profile_job_failure(

@@ -43,11 +43,13 @@ class ControlledVectorStore:
         self.release_upsert: Barrier | None = None
         self.upsert_written: Barrier | None = None
         self.release_upsert_return: Barrier | None = None
+        self.fail_upsert_after_write_count = 0
         self.delete_written: Barrier | None = None
         self.release_delete_return: Barrier | None = None
         self.block_delete_call: int | None = None
         self.fail_delete_count = 0
         self.fail_delete_calls: set[int] = set()
+        self.fail_delete_after_write_calls: set[int] = set()
         self.delete_calls = 0
 
     def ensure_collection(self, *, vector_size: int) -> None:
@@ -66,20 +68,26 @@ class ControlledVectorStore:
             self.release_upsert.wait()
         with self.lock:
             self.points[point_id] = (list(vector), dict(payload))
+            fail_after_write = self.fail_upsert_after_write_count > 0
+            if fail_after_write:
+                self.fail_upsert_after_write_count -= 1
         if self.upsert_written is not None:
             self.upsert_written.wait()
         if self.release_upsert_return is not None:
             self.release_upsert_return.wait()
+        if fail_after_write:
+            raise VectorStoreUnavailableError("qdrant upsert response timed out")
 
     def delete_point(self, *, point_id: str) -> None:
         with self.lock:
             self.delete_calls += 1
             call_number = self.delete_calls
-            should_fail = (
+            fail_before_write = (
                 call_number in self.fail_delete_calls
                 or self.fail_delete_count > 0
             )
-            if should_fail:
+            fail_after_write = call_number in self.fail_delete_after_write_calls
+            if fail_before_write:
                 if call_number not in self.fail_delete_calls:
                     self.fail_delete_count -= 1
             else:
@@ -89,7 +97,7 @@ class ControlledVectorStore:
             assert self.release_delete_return is not None
             self.delete_written.wait()
             self.release_delete_return.wait()
-        if should_fail:
+        if fail_before_write or fail_after_write:
             raise VectorStoreUnavailableError("qdrant unavailable")
 
 
@@ -452,6 +460,273 @@ def test_partial_delete_failure_keeps_fence_while_concurrent_handoff_is_compensa
                 vector_store=first_store,  # type: ignore[arg-type]
             )
             assert POINT_ID not in first_store.points
+            process_search_index_job(
+                deletion_job_id,
+                session_factory=factory,
+            )
+
+        assert POINT_ID not in first_store.points
+        assert POINT_ID not in second_store.points
+        _assert_cleanup_finished(factory, deletion_job_id)
+
+
+def test_ambiguous_upsert_timeout_while_deletion_is_fenced_keeps_cleanup_obligation(
+    tmp_path: Path,
+) -> None:
+    with _session_factory(tmp_path / "ambiguous-upsert-fenced.db") as factory:
+        state = _seed_state(factory, profile_count=1)
+        store = ControlledVectorStore()
+        store.points[POINT_ID] = ([0.5, 0.6], {"content_hash": "old"})
+        store.upsert_entered = Barrier(2, timeout=10)
+        store.release_upsert = Barrier(2, timeout=10)
+        store.fail_upsert_after_write_count = 1
+        store.fail_delete_calls = {1}
+
+        handoff_thread, handoff_errors = _start_thread(
+            lambda: process_search_index_job(
+                state.profile_job_id,
+                session_factory=factory,
+                vector_store=store,  # type: ignore[arg-type]
+            )
+        )
+        store.upsert_entered.wait()
+        deletion_job_id = _enqueue_deletion(factory)
+        store.release_upsert.wait()
+        _join(handoff_thread, handoff_errors)
+
+        with factory() as db:
+            deletion_job = db.get(SearchIndexJob, deletion_job_id)
+            profile_job = db.get(SearchIndexJob, state.profile_job_id)
+            assert deletion_job is not None and deletion_job.status == "queued"
+            assert deletion_job.vector_status == "delete_pending"
+            assert profile_job is not None and profile_job.status == "failed"
+            assert profile_job.vector_status == "point_delete_pending"
+            assert profile_job.error_code == "search_vector_unavailable"
+            assert db.get(SearchDocument, state.document_id) is not None
+            assert db.get(
+                FamilySearchProfileDocument,
+                state.profile_document_ids[0],
+            ) is not None
+
+        process_search_index_job(
+            deletion_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        assert POINT_ID not in store.points
+        with factory() as db:
+            deletion_job = db.get(SearchIndexJob, deletion_job_id)
+            assert deletion_job is not None and deletion_job.status == "queued"
+            assert db.get(SearchDocument, state.document_id) is not None
+            retried_profile = retry_failed_search_index_job(
+                db,
+                family_id="family-concurrency",
+                job_id=state.profile_job_id,
+            )
+            assert retried_profile is not None
+            db.commit()
+
+        process_search_index_job(
+            state.profile_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            state.profile_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            deletion_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            deletion_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+
+        assert POINT_ID not in store.points
+        _assert_cleanup_finished(factory, deletion_job_id)
+
+
+def test_ambiguous_upsert_after_delete_side_effect_waits_for_idempotent_cleanup(
+    tmp_path: Path,
+) -> None:
+    with _session_factory(tmp_path / "ambiguous-upsert-after-delete.db") as factory:
+        state = _seed_state(factory, profile_count=1)
+        store = ControlledVectorStore()
+        store.points[POINT_ID] = ([0.5, 0.6], {"content_hash": "old"})
+        store.upsert_entered = Barrier(2, timeout=10)
+        store.release_upsert = Barrier(2, timeout=10)
+        store.fail_upsert_after_write_count = 1
+        store.block_delete_call = 1
+        store.delete_written = Barrier(2, timeout=10)
+        store.release_delete_return = Barrier(2, timeout=10)
+        store.fail_delete_after_write_calls = {2}
+
+        handoff_thread, handoff_errors = _start_thread(
+            lambda: process_search_index_job(
+                state.profile_job_id,
+                session_factory=factory,
+                vector_store=store,  # type: ignore[arg-type]
+            )
+        )
+        store.upsert_entered.wait()
+        deletion_job_id = _enqueue_deletion(factory)
+        deletion_thread, deletion_errors = _start_thread(
+            lambda: process_search_index_job(
+                deletion_job_id,
+                session_factory=factory,
+                vector_store=store,  # type: ignore[arg-type]
+            )
+        )
+        store.delete_written.wait()
+        assert POINT_ID not in store.points
+        store.release_upsert.wait()
+        _join(handoff_thread, handoff_errors)
+        store.release_delete_return.wait()
+        _join(deletion_thread, deletion_errors)
+
+        assert POINT_ID not in store.points
+        with factory() as db:
+            deletion_job = db.get(SearchIndexJob, deletion_job_id)
+            profile_job = db.get(SearchIndexJob, state.profile_job_id)
+            assert deletion_job is not None and deletion_job.status == "queued"
+            assert deletion_job.vector_status == "delete_pending"
+            assert profile_job is not None and profile_job.status == "failed"
+            assert profile_job.vector_status == "point_delete_pending"
+            assert profile_job.error_code == "search_vector_unavailable"
+            assert db.get(SearchDocument, state.document_id) is not None
+            assert db.get(
+                FamilySearchProfileDocument,
+                state.profile_document_ids[0],
+            ) is not None
+            retried_profile = retry_failed_search_index_job(
+                db,
+                family_id="family-concurrency",
+                job_id=state.profile_job_id,
+            )
+            assert retried_profile is not None
+            db.commit()
+
+        process_search_index_job(
+            state.profile_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            state.profile_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            deletion_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+        process_search_index_job(
+            deletion_job_id,
+            session_factory=factory,
+            vector_store=store,  # type: ignore[arg-type]
+        )
+
+        assert POINT_ID not in store.points
+        _assert_cleanup_finished(factory, deletion_job_id)
+
+
+def test_partial_delete_failure_keeps_ambiguous_upsert_cleanup_markers(
+    tmp_path: Path,
+) -> None:
+    with _session_factory(tmp_path / "ambiguous-upsert-partial-delete.db") as factory:
+        state = _seed_state(factory, profile_count=2)
+        registry = VectorStoreRegistry()
+        first_store = registry.store(state.collections[0])
+        second_store = registry.store(state.collections[1])
+        first_store.points[POINT_ID] = ([0.5, 0.6], {"content_hash": "old"})
+        second_store.points[POINT_ID] = ([0.7, 0.8], {"content_hash": "old"})
+        first_store.upsert_entered = Barrier(2, timeout=10)
+        first_store.release_upsert = Barrier(2, timeout=10)
+        first_store.fail_upsert_after_write_count = 1
+        first_store.block_delete_call = 1
+        first_store.delete_written = Barrier(2, timeout=10)
+        first_store.release_delete_return = Barrier(2, timeout=10)
+        first_store.fail_delete_calls = {2}
+        second_store.fail_delete_count = 1
+
+        handoff_thread, handoff_errors = _start_thread(
+            lambda: process_search_index_job(
+                state.profile_job_id,
+                session_factory=factory,
+                vector_store=first_store,  # type: ignore[arg-type]
+            )
+        )
+        first_store.upsert_entered.wait()
+        deletion_job_id = _enqueue_deletion(factory)
+        with patch(
+            "app.services.search.jobs.build_vector_store",
+            side_effect=registry.build,
+        ):
+            deletion_thread, deletion_errors = _start_thread(
+                lambda: process_search_index_job(
+                    deletion_job_id,
+                    session_factory=factory,
+                )
+            )
+            first_store.delete_written.wait()
+            first_store.release_upsert.wait()
+            _join(handoff_thread, handoff_errors)
+            first_store.release_delete_return.wait()
+            _join(deletion_thread, deletion_errors)
+
+            assert POINT_ID in first_store.points
+            assert POINT_ID in second_store.points
+            with factory() as db:
+                deletion_job = db.get(SearchIndexJob, deletion_job_id)
+                profile_job = db.get(SearchIndexJob, state.profile_job_id)
+                assert deletion_job is not None and deletion_job.status == "failed"
+                assert deletion_job.vector_status == "delete_pending"
+                assert deletion_job.error_code == "search_vector_unavailable"
+                assert profile_job is not None and profile_job.status == "failed"
+                assert profile_job.vector_status == "point_delete_pending"
+                assert profile_job.error_code == "search_vector_unavailable"
+                assert db.get(SearchDocument, state.document_id) is not None
+                assert all(
+                    db.get(FamilySearchProfileDocument, row_id) is not None
+                    for row_id in state.profile_document_ids
+                )
+                retried_profile = retry_failed_search_index_job(
+                    db,
+                    family_id="family-concurrency",
+                    job_id=state.profile_job_id,
+                )
+                assert retried_profile is not None
+                db.commit()
+
+            process_search_index_job(
+                state.profile_job_id,
+                session_factory=factory,
+                vector_store=first_store,  # type: ignore[arg-type]
+            )
+            process_search_index_job(
+                state.profile_job_id,
+                session_factory=factory,
+                vector_store=first_store,  # type: ignore[arg-type]
+            )
+            assert POINT_ID not in first_store.points
+            with factory() as db:
+                retried_deletion = retry_failed_search_index_job(
+                    db,
+                    family_id="family-concurrency",
+                    job_id=deletion_job_id,
+                )
+                assert retried_deletion is not None
+                db.commit()
+            process_search_index_job(
+                deletion_job_id,
+                session_factory=factory,
+            )
             process_search_index_job(
                 deletion_job_id,
                 session_factory=factory,
