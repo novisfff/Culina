@@ -143,3 +143,7 @@ class SimpleMealPolicy:
         if not requirements_verified(context, requirements):
             return denied("intent_evidence_missing")
         return allowed()
+
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        del context
+        return False

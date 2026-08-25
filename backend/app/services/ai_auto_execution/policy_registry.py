@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,9 @@ from app.services.ai_auto_execution.policy_types import (
     IntentEvidenceValidation,
     TrustedResolutionSource,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _deduplicate_reason_codes(reason_codes: Iterable[str]) -> tuple[str, ...]:
@@ -102,6 +106,64 @@ class AutoExecutionPolicyRegistry:
             **decision_kwargs,
         )
 
+    def recheck_no_change_under_lock(
+        self,
+        *,
+        context: AutoExecutionPolicyContext,
+        expected_policy_key: str | None,
+        expected_policy_version: str | None,
+    ) -> AutoExecutionDecision:
+        """Let the resolved action policy lock its targets, then rerun the same decision."""
+        policy = self.resolve_policy(
+            draft_type=context.draft_type,
+            payload=context.payload,
+        )
+        if (
+            policy is None
+            or policy.key != expected_policy_key
+            or policy.version != expected_policy_version
+        ):
+            return _manual_no_change_decision(
+                policy_key=expected_policy_key,
+                policy_version=expected_policy_version,
+                authorization=context.authorization,
+                reason_code="no_change_target_lock_unavailable",
+            )
+        try:
+            locked = policy.lock_no_change_targets(context)
+        except Exception:
+            logger.warning(
+                "AI no-change target lock failed closed family_id=%s policy_key=%s",
+                context.family_id,
+                policy.key,
+                exc_info=True,
+            )
+            locked = False
+        if not locked:
+            return _manual_no_change_decision(
+                policy_key=policy.key,
+                policy_version=policy.version,
+                authorization=context.authorization,
+                reason_code="target_changed_before_no_change",
+            )
+        decision = self.evaluate(context)
+        if (
+            decision.route == "no_change"
+            and decision.policy_key == expected_policy_key
+            and decision.policy_version == expected_policy_version
+        ):
+            return decision
+        return AutoExecutionDecision(
+            route="manual_confirmation",
+            policy_key=policy.key,
+            policy_version=policy.version,
+            reason_codes=_deduplicate_reason_codes(
+                (*decision.reason_codes, "target_changed_before_no_change")
+            ),
+            authorization_source=decision.authorization_source,
+            authorization_snapshot=dict(decision.authorization_snapshot),
+        )
+
     def evaluate_draft(
         self,
         *,
@@ -155,3 +217,20 @@ class AutoExecutionPolicyRegistry:
 
 
 auto_execution_policy_registry = AutoExecutionPolicyRegistry(build_action_policies())
+
+
+def _manual_no_change_decision(
+    *,
+    policy_key: str | None,
+    policy_version: str | None,
+    authorization: EffectiveAuthorization,
+    reason_code: str,
+) -> AutoExecutionDecision:
+    return AutoExecutionDecision(
+        route="manual_confirmation",
+        policy_key=policy_key,
+        policy_version=policy_version,
+        reason_codes=(reason_code,),
+        authorization_source=authorization.source,
+        authorization_snapshot=dict(authorization.snapshot),
+    )

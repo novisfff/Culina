@@ -20,7 +20,11 @@ from app.services.ai_operations.commit_coordinator import (
     DraftCommitCoordinator,
     derive_draft_payload_hash,
 )
-from app.services.ai_operations.run_cancellation import lock_run_for_transition
+from app.services.ai_operations.run_blocking import (
+    is_run_auto_execution_blocked,
+    mark_run_auto_execution_blocked,
+)
+from app.services.ai_operations.run_cancellation import cancellation_wins, lock_run_for_transition
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +139,12 @@ def recover_or_replay_draft_run(
         )
     )
     if not drafts:
-        return None
+        return _blocked_attempt_resolution(
+            db,
+            run=run,
+            family_id=family_id,
+            actor_user_id=actor_user_id,
+        )
     terminal_draft_ids = {
         draft.id
         for draft in drafts
@@ -156,7 +165,42 @@ def recover_or_replay_draft_run(
             run_id=run.id,
             kind="persisted_result_replay",
         )
-    return None
+    return _blocked_attempt_resolution(
+        db,
+        run=run,
+        family_id=family_id,
+        actor_user_id=actor_user_id,
+    )
+
+
+def _blocked_attempt_resolution(
+    db: Session,
+    *,
+    run: AIAgentRun,
+    family_id: str,
+    actor_user_id: str,
+) -> DraftRetryResolution | None:
+    if not run.auto_execution_attempted:
+        return None
+    if run.created_by != actor_user_id:
+        raise AIConflictError("只能由原执行人恢复自动执行结果")
+    if cancellation_wins(db, run=run, lock_request=False):
+        raise AIConflictError("运行任务已取消，不能恢复自动执行结果")
+    if not run.conversation_id or not run.message_id:
+        raise AIConflictError("自动执行结果缺少原运行或消息归属")
+    if not is_run_auto_execution_blocked(run):
+        run = mark_run_auto_execution_blocked(
+            db,
+            family_id=family_id,
+            run_id=run.id,
+        )
+        if run is None:
+            raise AIConflictError("自动执行结果缺少安全恢复记录")
+    return DraftRetryResolution(
+        conversation_id=run.conversation_id,
+        run_id=run.id,
+        kind="auto_execution_blocked",
+    )
 
 
 def _validate_retry_draft_identity(*, run: AIAgentRun, draft: AITaskDraft) -> None:

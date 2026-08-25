@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.models.domain import Food, FoodPlanItem
@@ -19,6 +19,7 @@ from app.services.ai_auto_execution.policy_types import (
     AutoExecutionPolicyContext,
     CriticalEvidenceRequirement,
 )
+from app.services.inventory_operation_locking import lock_inventory_targets
 
 
 _MEAL_TYPES = {"breakfast", "lunch", "dinner", "snack"}
@@ -147,3 +148,51 @@ class SimplePlanPolicy:
         if any(satisfaction) and not all(satisfaction):
             return denied()
         return allowed(all_targets_satisfied=all(satisfaction))
+
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        items = context.payload.get("items")
+        if not isinstance(items, list) or not items:
+            return False
+        keys: set[tuple[date, str, str]] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                return False
+            food_id = str(item.get("foodId") or "").strip()
+            meal_type = str(item.get("mealType") or "").strip()
+            try:
+                plan_date = date.fromisoformat(str(item.get("date") or ""))
+            except ValueError:
+                return False
+            if not food_id or meal_type not in _MEAL_TYPES:
+                return False
+            keys.add((plan_date, meal_type, food_id))
+        if len(keys) != len(items):
+            return False
+        food_ids = tuple(sorted({food_id for _, _, food_id in keys}))
+        lock_inventory_targets(
+            context.db,
+            family_id=context.family_id,
+            food_ids=food_ids,
+        )
+        locked_items = list(
+            context.db.scalars(
+                select(FoodPlanItem)
+                .where(
+                    FoodPlanItem.family_id == context.family_id,
+                    FoodPlanItem.user_id == context.actor_user_id,
+                    tuple_(
+                        FoodPlanItem.plan_date,
+                        FoodPlanItem.meal_type,
+                        FoodPlanItem.food_id,
+                    ).in_(tuple(sorted(keys))),
+                )
+                .order_by(FoodPlanItem.id.asc())
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        locked_keys = {
+            (item.plan_date, str(getattr(item.meal_type, "value", item.meal_type)), item.food_id)
+            for item in locked_items
+        }
+        return len(locked_items) == len(keys) and locked_keys == keys

@@ -51,6 +51,9 @@ from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     lock_run_for_transition,
 )
+from app.services.ai_operations.run_blocking import (
+    persist_run_auto_execution_blocked_after_rollback,
+)
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_operation,
@@ -885,13 +888,16 @@ class DraftCommitCoordinator:
                     error_code=DATABASE_FAILURE_ERROR_CODE,
                     error_message=DATABASE_FAILURE_ERROR_MESSAGE,
                 )
-        except AIConflictError:
-            raise
         except Exception:
             logger.exception(
                 "AI policy draft terminal database failure could not be persisted family_id=%s draft_id=%s",
                 request.family_id,
                 request.draft_id,
+            )
+            persist_run_auto_execution_blocked_after_rollback(
+                db,
+                family_id=request.family_id,
+                run_id=request.run_id,
             )
             raise AIConflictError("数据库写入失败，自动执行结果无法安全保存") from None
 

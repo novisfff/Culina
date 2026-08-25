@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
+from decimal import Decimal
 import json
 from unittest.mock import patch
 
@@ -13,14 +14,21 @@ from ._support import AIAgentInfraTestCase, FakeChatProvider
 from app.ai.errors import AIConflictError, AIExecutionCancelled
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.skills import SkillResult
+from app.ai.tools.draft_validation import (
+    normalize_meal_log_draft,
+    normalize_meal_plan_draft,
+    normalize_shopping_list_draft,
+)
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
 from app.ai.workspace_service import AIApplicationService
 from app.core.utils import utcnow
+from app.core.enums import IngredientQuantityTrackingMode, MealType
 from app.models.domain import (
     AIAgentRun,
     AIApprovalRequest,
     AIAutoExecutionPreference,
+    AIFamilyAutoExecutionPolicy,
     AIConversation,
     AIMessage,
     AIOperation,
@@ -28,6 +36,10 @@ from app.models.domain import (
     AITaskDraft,
     AIUserApproval,
     Food,
+    FoodPlanItem,
+    MealLog,
+    MealLogFood,
+    ShoppingListItem,
 )
 from app.services.ai_auto_execution.catalog import CONSENT_NOTICE_VERSION
 from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
@@ -36,12 +48,18 @@ from app.services.ai_auto_execution.policy_types import (
     TrustedResolutionSource,
 )
 from app.services.ai_operations.routing import DraftRouteRequest, route_draft
+from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.executor import execute_ai_operation_draft
 from app.services.serializers import serialize_ai_operation
 
 
-REGISTERED_ADAPTERS = frozenset({"food.favorite.v1"})
+REGISTERED_ADAPTERS = frozenset({
+    "food.favorite.v1",
+    "meal_log.rating.v1",
+    "shopping_list.safe_write.v1",
+    "meal_plan.simple_create.v1",
+})
 
 
 class PolicyFavoriteProvider(BaseChatProvider):
@@ -240,6 +258,273 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             db.commit()
             return outcome
 
+    def _policy_request(
+        self,
+        *,
+        suffix: str,
+        draft_type: str,
+        payload: dict,
+        action_key: str,
+        current_message: str,
+    ) -> tuple[DraftRouteRequest, str]:
+        request, run_id = self._seed_route(suffix=suffix)
+        source_id = f"route-policy-source-{suffix}"
+        subject_id = f"route-policy-subject-{suffix}"
+        with self.SessionLocal() as db:
+            policy = auto_execution_policy_registry.resolve_policy(
+                draft_type=draft_type,
+                payload=payload,
+            )
+            assert policy is not None
+            db.add(
+                AIAutoExecutionPreference(
+                    id=f"route-policy-pref-{suffix}",
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    action_key=action_key,
+                    enabled=True,
+                    consent_notice_version=CONSENT_NOTICE_VERSION,
+                    consented_at=utcnow(),
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+            )
+            if action_key == "shopping_list.safe_write":
+                db.add(
+                    AIFamilyAutoExecutionPolicy(
+                        id=f"route-family-policy-{suffix}",
+                        family_id=self.family.id,
+                        action_key=action_key,
+                        enabled=True,
+                        consent_notice_version=CONSENT_NOTICE_VERSION,
+                        consented_at=utcnow(),
+                        consented_by=self.user.id,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+            requirements = policy.evidence_requirements(
+                db=db,
+                family_id=self.family.id,
+                actor_user_id=self.user.id,
+                payload=payload,
+            )
+            db.commit()
+        action_fields = [item.field for item in requirements if item.matcher_key == "explicit_action"]
+        fact_requirements = [item for item in requirements if item.matcher_key != "explicit_action"]
+        facts = {item.field: item.expected_value for item in fact_requirements}
+        evidence = {
+            "intentClarity": "explicit_complete",
+            "sourceQuotes": [{"fields": action_fields, "text": current_message}],
+            "resolutionSources": [{
+                "fields": [item.field for item in fact_requirements],
+                "kind": "conversation_artifact",
+                "referenceId": source_id,
+                "entityId": subject_id,
+                "rowVersion": 1,
+            }],
+            "ambiguityCodes": [],
+            "defaultedFields": [],
+        }
+        return replace(
+            request,
+            draft_type=draft_type,
+            payload=payload,
+            intent_evidence_input=evidence,
+            schema_version=str(payload.get("schemaVersion") or ""),
+            tool_name=f"{action_key}.create_draft",
+            current_message=current_message,
+            trusted_resolution_sources={
+                source_id: TrustedResolutionSource(
+                    kind="conversation_artifact",
+                    reference_id=source_id,
+                    family_id=self.family.id,
+                    entity_versions={subject_id: 1},
+                    entity_values={subject_id: facts},
+                )
+            },
+        ), run_id
+
+    def _seed_rating_no_change_request(self, *, suffix: str) -> tuple[DraftRouteRequest, str, str]:
+        with self.SessionLocal() as db:
+            meal = MealLog(
+                id=f"route-rating-meal-{suffix}",
+                family_id=self.family.id,
+                date=date.today(),
+                meal_type=MealType.DINNER,
+                participant_user_ids=[self.user.id],
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            entry = MealLogFood(
+                id=f"route-rating-entry-{suffix}",
+                meal_log_id=meal.id,
+                food_id="food-tomato",
+                servings=Decimal("1"),
+                rating=Decimal("3"),
+            )
+            db.add_all([meal, entry])
+            db.flush()
+            payload = normalize_meal_log_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload={
+                    "draftType": "meal_log",
+                    "schemaVersion": "meal_log_operation.v1",
+                    "action": "rate_food",
+                    "targetId": meal.id,
+                    "baseUpdatedAt": meal.updated_at.isoformat(),
+                    "payload": {"foodEntryRatings": [{"id": entry.id, "rating": 3}]},
+                },
+            )
+            db.commit()
+        request, run_id = self._policy_request(
+            suffix=suffix,
+            draft_type="meal_log",
+            payload=payload,
+            action_key="meal_log.rate_food",
+            current_message="给这些食物打 3 分",
+        )
+        return request, run_id, entry.id
+
+    def _seed_shopping_no_change_request(self, *, suffix: str) -> tuple[DraftRouteRequest, str, str]:
+        with self.SessionLocal() as db:
+            item = ShoppingListItem(
+                id=f"route-shopping-item-{suffix}",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("2"),
+                unit="个",
+                quantity_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                reason="晚餐",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(item)
+            db.flush()
+            payload = normalize_shopping_list_draft(
+                db,
+                family_id=self.family.id,
+                conversation_id=f"route-shopping-conversation-{suffix}",
+                payload={
+                    "draftType": "shopping_list",
+                    "schemaVersion": "shopping_list_operation.v1",
+                    "operations": [{
+                        "operationId": f"route-shopping-operation-{suffix}",
+                        "action": "update",
+                        "targetId": item.id,
+                        "baseUpdatedAt": item.updated_at.isoformat(),
+                        "payload": {
+                            "title": item.title,
+                            "ingredient_id": item.ingredient_id,
+                            "food_id": item.food_id,
+                            "quantity": 2,
+                            "unit": item.unit,
+                            "reason": item.reason,
+                        },
+                    }],
+                },
+            )
+            db.commit()
+        request, run_id = self._policy_request(
+            suffix=suffix,
+            draft_type="shopping_list",
+            payload=payload,
+            action_key="shopping_list.safe_write",
+            current_message="修改购物项",
+        )
+        return request, run_id, item.id
+
+    def _seed_plan_no_change_request(self, *, suffix: str) -> tuple[DraftRouteRequest, str, str]:
+        plan_date = date.today() + timedelta(days=7)
+        with self.SessionLocal() as db:
+            payload = normalize_meal_plan_draft(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                payload={
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "items": [{
+                        "date": plan_date.isoformat(),
+                        "mealType": "dinner",
+                        "title": "番茄小炒",
+                        "foodId": "food-tomato",
+                    }],
+                },
+            )
+            plan = FoodPlanItem(
+                id=f"route-plan-item-{suffix}",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food_id="food-tomato",
+                plan_date=plan_date,
+                meal_type=MealType.DINNER,
+                status="planned",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(plan)
+            db.commit()
+        request, run_id = self._policy_request(
+            suffix=suffix,
+            draft_type="meal_plan",
+            payload=payload,
+            action_key="meal_plan.simple_create",
+            current_message="把这些安排到计划",
+        )
+        return request, run_id, plan.id
+
+    def _assert_no_change_route(self, request: DraftRouteRequest, run_id: str) -> None:
+        outcome = self._route(request)
+        self.assertEqual(outcome.status, "no_change")
+        self.assertIsNone(outcome.operation_id)
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            assert run is not None
+            self.assertTrue(run.auto_execution_attempted)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+
+    def _route_after_final_evaluation_mutation(
+        self,
+        request: DraftRouteRequest,
+        *,
+        mutate,
+    ):
+        class MutatingPolicyRegistry:
+            def __init__(self) -> None:
+                self.evaluation_count = 0
+
+            def resolve_policy(self, **kwargs):
+                return auto_execution_policy_registry.resolve_policy(**kwargs)
+
+            def evaluate_draft(self, **kwargs):
+                self.evaluation_count += 1
+                result = auto_execution_policy_registry.evaluate_draft(**kwargs)
+                if self.evaluation_count == 2:
+                    mutate(kwargs["db"])
+                    kwargs["db"].flush()
+                return result
+
+            def recheck_no_change_under_lock(self, **kwargs):
+                return auto_execution_policy_registry.recheck_no_change_under_lock(**kwargs)
+
+        return self._route(request, policy_registry=MutatingPolicyRegistry())
+
+    def _assert_race_routes_manual(self, request: DraftRouteRequest, run_id: str, *, mutate) -> None:
+        outcome = self._route_after_final_evaluation_mutation(request, mutate=mutate)
+        self.assertEqual(outcome.status, "waiting_approval")
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            assert run is not None
+            self.assertFalse(run.auto_execution_attempted)
+            self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
+            self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 1)
+
     def test_manual_policy_creates_exactly_one_approval(self) -> None:
         request, _run_id = self._seed_route(suffix="manual")
         request = replace(request, skill_approval_policy="draft_then_confirm")
@@ -342,6 +627,9 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                     kwargs["db"].flush()
                 return result
 
+            def recheck_no_change_under_lock(self, **kwargs):
+                return auto_execution_policy_registry.recheck_no_change_under_lock(**kwargs)
+
         outcome = self._route(request, policy_registry=MutatingPolicyRegistry())
 
         self.assertEqual(outcome.status, "waiting_approval")
@@ -354,6 +642,51 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertIn("target_changed_before_no_change", draft.policy_reason_codes)
             self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 1)
+
+    def test_rating_no_change_is_proven_under_target_lock(self) -> None:
+        request, run_id, _entry_id = self._seed_rating_no_change_request(suffix="rating-no-change")
+
+        self._assert_no_change_route(request, run_id)
+
+    def test_rating_no_change_race_routes_manual_without_consuming_attempt(self) -> None:
+        request, run_id, entry_id = self._seed_rating_no_change_request(suffix="rating-race")
+
+        def mutate(db) -> None:
+            entry = db.get(MealLogFood, entry_id)
+            assert entry is not None
+            entry.rating = Decimal("4")
+
+        self._assert_race_routes_manual(request, run_id, mutate=mutate)
+
+    def test_shopping_no_change_is_proven_under_target_lock(self) -> None:
+        request, run_id, _item_id = self._seed_shopping_no_change_request(suffix="shopping-no-change")
+
+        self._assert_no_change_route(request, run_id)
+
+    def test_shopping_no_change_race_routes_manual_without_consuming_attempt(self) -> None:
+        request, run_id, item_id = self._seed_shopping_no_change_request(suffix="shopping-race")
+
+        def mutate(db) -> None:
+            item = db.get(ShoppingListItem, item_id)
+            assert item is not None
+            item.quantity = Decimal("3")
+
+        self._assert_race_routes_manual(request, run_id, mutate=mutate)
+
+    def test_simple_plan_no_change_is_proven_under_target_lock(self) -> None:
+        request, run_id, _plan_id = self._seed_plan_no_change_request(suffix="plan-no-change")
+
+        self._assert_no_change_route(request, run_id)
+
+    def test_simple_plan_no_change_race_routes_manual_without_consuming_attempt(self) -> None:
+        request, run_id, plan_id = self._seed_plan_no_change_request(suffix="plan-race")
+
+        def mutate(db) -> None:
+            plan = db.get(FoodPlanItem, plan_id)
+            assert plan is not None
+            plan.status = "cooked"
+
+        self._assert_race_routes_manual(request, run_id, mutate=mutate)
 
     def test_final_authorization_failure_downgrades_before_business_write(self) -> None:
         request, _run_id = self._seed_route(suffix="downgrade")
@@ -803,6 +1136,134 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 1)
             self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 1)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+
+    def test_terminalization_second_failure_blocks_retry_when_pending_draft_survives(self) -> None:
+        request, run_id = self._seed_route(suffix="terminalization-pending-blocked")
+        terminal_error = OperationalError(
+            "UPDATE foods",
+            {},
+            Exception(1054, "terminal write failed"),
+        )
+        second_error = OperationalError(
+            "INSERT ai_operations",
+            {},
+            Exception(1054, "terminalization failed"),
+        )
+        from app.services.ai_operations import routing
+
+        real_create_draft = routing._create_draft
+
+        def create_and_commit_draft(db, **kwargs):
+            draft = real_create_draft(db, **kwargs)
+            db.commit()
+            return draft
+
+        with (
+            patch.object(routing, "_create_draft", side_effect=create_and_commit_draft),
+            patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=terminal_error,
+            ),
+            patch.object(
+                routing.DraftCommitCoordinator,
+                "_persist_failed_execution",
+                side_effect=second_error,
+            ),
+            self.assertRaises(AIConflictError),
+        ):
+            self._route(request)
+
+        self._assert_terminalization_blocked_retry(
+            request=request,
+            run_id=run_id,
+            expected_draft_count=1,
+        )
+
+    def test_terminalization_second_failure_blocks_retry_after_draft_rollback(self) -> None:
+        request, run_id = self._seed_route(suffix="terminalization-rollback-blocked")
+        terminal_error = OperationalError(
+            "UPDATE foods",
+            {},
+            Exception(1054, "terminal write failed"),
+        )
+        second_error = OperationalError(
+            "INSERT ai_operations",
+            {},
+            Exception(1054, "terminalization failed"),
+        )
+        with (
+            patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=terminal_error,
+            ),
+            patch.object(
+                DraftCommitCoordinator,
+                "_persist_failed_execution",
+                side_effect=second_error,
+            ),
+            self.assertRaises(AIConflictError),
+        ):
+            self._route(request)
+
+        self._assert_terminalization_blocked_retry(
+            request=request,
+            run_id=run_id,
+            expected_draft_count=0,
+        )
+
+    def _assert_terminalization_blocked_retry(
+        self,
+        *,
+        request: DraftRouteRequest,
+        run_id: str,
+        expected_draft_count: int,
+    ) -> None:
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            assert run is not None
+            run.status = "failed"
+            db.commit()
+            counts_before = {
+                model.__name__: db.scalar(select(func.count(model.id)))
+                for model in (AIAgentRun, AIMessage, AITaskDraft, AIApprovalRequest, AIOperation)
+            }
+            service = AIApplicationService(db, provider=FakeChatProvider())
+            with patch.object(service, "chat", side_effect=AssertionError("provider replayed")) as replay:
+                response = service.retry_run(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    run_id=run_id,
+                )
+            replay.assert_not_called()
+            db.commit()
+
+            persisted_run = db.get(AIAgentRun, run_id)
+            assert persisted_run is not None
+            blocked = (persisted_run.context_summary or {}).get("autoExecutionBlocked")
+            self.assertTrue(persisted_run.auto_execution_attempted)
+            self.assertEqual(persisted_run.status, "failed")
+            self.assertEqual(persisted_run.error_code, "draft_terminalization_failed")
+            self.assertEqual(blocked.get("errorCode"), "draft_terminalization_failed")
+            self.assertEqual(blocked.get("recoveryHint"), "retry_later_or_contact_support")
+            self.assertEqual(response["run"]["id"], run_id)
+            self.assertEqual(response["message"]["id"], request.message_id)
+            cards = response["included"]["result_cards"]
+            blocked_cards = [
+                card
+                for card in cards
+                if card.get("data", {}).get("errorCode") == "draft_terminalization_failed"
+            ]
+            self.assertEqual(len(blocked_cards), 1)
+            self.assertEqual(
+                blocked_cards[0]["data"]["recoveryHint"],
+                "retry_later_or_contact_support",
+            )
+            self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), expected_draft_count)
+            counts_after = {
+                model.__name__: db.scalar(select(func.count(model.id)))
+                for model in (AIAgentRun, AIMessage, AITaskDraft, AIApprovalRequest, AIOperation)
+            }
+            self.assertEqual(counts_after, counts_before)
 
     def test_duplicate_policy_retry_executes_domain_write_once(self) -> None:
         request, run_id = self._seed_route(suffix="retry-duplicate")

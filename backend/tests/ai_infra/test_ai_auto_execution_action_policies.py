@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
@@ -369,6 +370,25 @@ def _evaluate(
     )
 
 
+def _no_change_context(seed: PolicySeed, *, draft_type: str, payload: dict[str, Any]) -> AutoExecutionPolicyContext:
+    evidence, decision = _evaluate(seed, draft_type=draft_type, payload=payload)
+    assert decision.route == "no_change"
+    return AutoExecutionPolicyContext(
+        db=seed.db,
+        family_id=seed.family_id,
+        actor_user_id=seed.actor_id,
+        draft_type=draft_type,
+        payload=payload,
+        evidence=evidence,
+        authorization=_authorization(),
+        auto_execution_attempted=False,
+        has_continuation=False,
+        is_composite=False,
+        has_external_side_effect=False,
+        registered_revert_adapters=REVERT_ADAPTER_KEYS,
+    )
+
+
 def _favorite(seed: PolicySeed, *, favorite: bool, target_id: str | None = None) -> dict[str, Any]:
     food = seed.db.get(Food, target_id or seed.food_ids[0])
     assert food is not None
@@ -657,6 +677,24 @@ def test_rating_policy_returns_no_change_only_when_every_rating_is_satisfied(pol
     assert partial_decision.route == "manual_confirmation"
 
 
+def test_rating_no_change_lock_is_family_scoped_and_uses_meal_log_lock_order(policy_seed: PolicySeed) -> None:
+    payload = _rating(policy_seed, count=1, value=3)
+    policy = auto_execution_policy_registry.resolve_policy(draft_type="meal_log", payload=payload)
+    assert policy is not None
+    context = _no_change_context(policy_seed, draft_type="meal_log", payload=payload)
+    from app.services.ai_auto_execution.policies import meal_rating
+
+    real_lock = meal_rating.lock_meal_log_write_targets
+    with patch.object(meal_rating, "lock_meal_log_write_targets", wraps=real_lock) as lock:
+        assert policy.lock_no_change_targets(context)
+
+    lock.assert_called_once_with(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        meal_log_id=policy_seed.meal_log_id,
+    )
+
+
 def test_rating_policy_domain_allows_explicit_cancellation(policy_seed: PolicySeed) -> None:
     payload = _rating(policy_seed, count=1, value=None)
     _, decision = _evaluate(
@@ -768,6 +806,34 @@ def test_shopping_update_and_restore_no_change_are_all_or_nothing(policy_seed: P
     assert partial_decision.route == "manual_confirmation"
 
 
+def test_shopping_no_change_lock_collects_family_targets_in_stable_id_order(policy_seed: PolicySeed) -> None:
+    second = policy_seed.db.get(ShoppingListItem, policy_seed.shopping_done_id)
+    first = policy_seed.db.get(ShoppingListItem, policy_seed.shopping_pending_id)
+    assert first is not None and second is not None
+    second.done = False
+    policy_seed.db.commit()
+    payload = _shopping_restore(
+        policy_seed,
+        target_ids=[second.id, first.id],
+    )
+    policy = auto_execution_policy_registry.resolve_policy(draft_type="shopping_list", payload=payload)
+    assert policy is not None
+    context = _no_change_context(policy_seed, draft_type="shopping_list", payload=payload)
+    from app.services.ai_auto_execution.policies import shopping_safe_write
+
+    real_lock = shopping_safe_write.lock_inventory_targets
+    with patch.object(shopping_safe_write, "lock_inventory_targets", wraps=real_lock) as lock:
+        assert policy.lock_no_change_targets(context)
+
+    lock.assert_called_once_with(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        ingredient_ids=tuple(sorted((first.ingredient_id, second.ingredient_id))),
+        food_ids=(),
+        shopping_item_ids=tuple(sorted((first.id, second.id))),
+    )
+
+
 def test_non_tracked_shopping_uses_server_fixed_representation_without_quantity_evidence(policy_seed: PolicySeed) -> None:
     payload = _plain_shopping(policy_seed, count=1, non_tracked=True)
     policy = auto_execution_policy_registry.resolve_policy(draft_type="shopping_list", payload=payload)
@@ -863,6 +929,30 @@ def test_simple_meal_hard_limits_and_indexed_requirements(policy_seed: PolicySee
     assert all(f"foods[{index}].foodId" in fields and f"foods[{index}].servings" in fields for index in range(count))
     _, decision = _evaluate(policy_seed, draft_type="meal_log", payload=payload)
     assert decision.route == expected
+
+
+def test_simple_meal_never_claims_no_change_or_a_target_lock_contract(policy_seed: PolicySeed) -> None:
+    payload = _simple_meal(policy_seed, count=1)
+    policy = auto_execution_policy_registry.resolve_policy(draft_type="meal_log", payload=payload)
+    assert policy is not None
+    evidence, decision = _evaluate(policy_seed, draft_type="meal_log", payload=payload)
+    context = AutoExecutionPolicyContext(
+        db=policy_seed.db,
+        family_id=policy_seed.family_id,
+        actor_user_id=policy_seed.actor_id,
+        draft_type="meal_log",
+        payload=payload,
+        evidence=evidence,
+        authorization=_authorization(),
+        auto_execution_attempted=False,
+        has_continuation=False,
+        is_composite=False,
+        has_external_side_effect=False,
+        registered_revert_adapters=REVERT_ADAPTER_KEYS,
+    )
+
+    assert decision.route == "auto_execute"
+    assert not policy.lock_no_change_targets(context)
 
 
 def test_simple_meal_rejects_stock_media_plan_participants_and_operation_create(policy_seed: PolicySeed) -> None:
@@ -963,6 +1053,37 @@ def test_simple_plan_no_change_requires_all_unique_planned_items(policy_seed: Po
     assert all_satisfied.route == "no_change"
     assert partial.route == "manual_confirmation"
     assert duplicate_decision.route == "manual_confirmation"
+
+
+def test_simple_plan_no_change_lock_is_family_scoped_and_parent_first(policy_seed: PolicySeed) -> None:
+    payload = _simple_plan(policy_seed, count=2, start_offset=90)
+    for index, item in enumerate(reversed(payload["items"])):
+        policy_seed.db.add(FoodPlanItem(
+            id=f"locked-plan-{index}",
+            family_id=policy_seed.family_id,
+            user_id=policy_seed.actor_id,
+            food_id=item["foodId"],
+            plan_date=date.fromisoformat(item["date"]),
+            meal_type=MealType(item["mealType"]),
+            status="planned",
+            created_by=policy_seed.actor_id,
+            updated_by=policy_seed.actor_id,
+        ))
+    policy_seed.db.commit()
+    policy = auto_execution_policy_registry.resolve_policy(draft_type="meal_plan", payload=payload)
+    assert policy is not None
+    context = _no_change_context(policy_seed, draft_type="meal_plan", payload=payload)
+    from app.services.ai_auto_execution.policies import simple_plan
+
+    real_lock = simple_plan.lock_inventory_targets
+    with patch.object(simple_plan, "lock_inventory_targets", wraps=real_lock) as lock:
+        assert policy.lock_no_change_targets(context)
+
+    lock.assert_called_once_with(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        food_ids=tuple(sorted(item["foodId"] for item in payload["items"])),
+    )
 
 
 def test_simple_plan_rejects_operation_status_and_user_override(policy_seed: PolicySeed) -> None:

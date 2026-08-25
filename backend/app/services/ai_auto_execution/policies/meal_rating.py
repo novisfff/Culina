@@ -21,6 +21,7 @@ from app.services.ai_auto_execution.policy_types import (
     AutoExecutionPolicyContext,
     CriticalEvidenceRequirement,
 )
+from app.services.meal_log_versions import lock_meal_log_write_targets
 
 
 class MealRatingPolicy:
@@ -138,3 +139,14 @@ class MealRatingPolicy:
         if any(satisfied) and not all(satisfied):
             return denied()
         return allowed(all_targets_satisfied=all(satisfied))
+
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        meal_log_id = str(context.payload.get("targetId") or "").strip()
+        if not meal_log_id:
+            return False
+        locked = lock_meal_log_write_targets(
+            context.db,
+            family_id=context.family_id,
+            meal_log_id=meal_log_id,
+        )
+        return locked.meal_log.id == meal_log_id

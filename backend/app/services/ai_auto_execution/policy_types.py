@@ -140,6 +140,10 @@ class AutoExecutionActionPolicy(Protocol):
 
     def evaluate(self, context: AutoExecutionPolicyContext) -> ActionPolicyEvaluation: ...
 
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        """Lock every domain row needed to prove an action-owned no-change result."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class DraftExecutionReceipt:

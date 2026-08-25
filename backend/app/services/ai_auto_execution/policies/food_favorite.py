@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.domain import Food
+from app.services.inventory_operation_locking import lock_inventory_targets
 from app.services.ai_auto_execution.policies._common import (
     active_actor,
     allowed,
@@ -80,3 +81,13 @@ class FoodFavoritePolicy:
         if not requirements_verified(context, requirements):
             return denied("intent_evidence_missing")
         return allowed(all_targets_satisfied=food.favorite is favorite_payload["favorite"])
+
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        target_id = str(context.payload.get("targetId") or "").strip()
+        if not target_id:
+            return False
+        return target_id in lock_inventory_targets(
+            context.db,
+            family_id=context.family_id,
+            food_ids=(target_id,),
+        ).foods

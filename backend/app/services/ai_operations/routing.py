@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError, AIExecutionCancelled
 from app.core.utils import create_id, utcnow
-from app.models.domain import AIAgentRun, AIApprovalRequest, AIMessage, AIOperation, AITaskDraft, Food
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIMessage, AIOperation, AITaskDraft
 from app.services.ai_auto_execution.intent_evidence import intent_evidence_validation_record
 from app.services.ai_auto_execution.policy_registry import (
     AutoExecutionPolicyRegistry,
@@ -19,6 +19,7 @@ from app.services.ai_auto_execution.policy_registry import (
 )
 from app.services.ai_auto_execution.policy_types import (
     AIOperationResultProjection,
+    AutoExecutionPolicyContext,
     DraftCommitRequest,
     DraftRouteStatus,
     DraftRouteOutcome,
@@ -347,59 +348,13 @@ def _recheck_no_change_under_target_lock(
     evidence: Any,
     registered_revert_adapters: frozenset[str],
 ) -> tuple[Any, Any]:
-    payload = request.payload
-    favorite_payload = payload.get("payload")
-    supports_locked_recheck = (
-        decision.policy_key == "food.set_favorite"
-        and request.draft_type == "food_profile"
-        and set(payload)
-        == {
-            "draftType",
-            "schemaVersion",
-            "action",
-            "targetId",
-            "baseUpdatedAt",
-            "before",
-            "payload",
-        }
-        and payload.get("draftType") == "food_profile"
-        and payload.get("schemaVersion") == "food_profile_operation.v1"
-        and payload.get("action") == "set_favorite"
-        and isinstance(payload.get("targetId"), str)
-        and bool(str(payload.get("targetId") or "").strip())
-        and isinstance(payload.get("baseUpdatedAt"), str)
-        and isinstance(payload.get("before"), dict)
-        and isinstance(favorite_payload, dict)
-        and set(favorite_payload) == {"favorite"}
-        and isinstance(favorite_payload.get("favorite"), bool)
-    )
-    if not supports_locked_recheck:
-        return evidence, _manual_decision_with_reason(
-            decision,
-            "no_change_target_lock_unavailable",
-        )
-
-    target = db.scalar(
-        select(Food)
-        .where(
-            Food.family_id == request.family_id,
-            Food.id == str(payload["targetId"]),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if target is None:
-        return evidence, _manual_decision_with_reason(decision, "target_changed_before_no_change")
-
-    evidence, locked_decision = policy_registry.evaluate_draft(
+    context = AutoExecutionPolicyContext(
         db=db,
         family_id=request.family_id,
         actor_user_id=request.actor_user_id,
         draft_type=request.draft_type,
         payload=request.payload,
-        evidence_input=request.intent_evidence_input,
-        current_message=request.current_message,
-        trusted_resolution_sources=request.trusted_resolution_sources,
+        evidence=evidence,
         authorization=authorization,
         auto_execution_attempted=False,
         has_continuation=bool(request.continuation),
@@ -407,11 +362,11 @@ def _recheck_no_change_under_target_lock(
         has_external_side_effect=False,
         registered_revert_adapters=registered_revert_adapters,
     )
-    if locked_decision.route != "no_change":
-        locked_decision = _manual_decision_with_reason(
-            locked_decision,
-            "target_changed_before_no_change",
-        )
+    locked_decision = policy_registry.recheck_no_change_under_lock(
+        context=context,
+        expected_policy_key=decision.policy_key,
+        expected_policy_version=decision.policy_version,
+    )
     return evidence, locked_decision
 
 

@@ -24,6 +24,7 @@ from app.services.ai_auto_execution.policy_types import (
     AutoExecutionPolicyContext,
     CriticalEvidenceRequirement,
 )
+from app.services.inventory_operation_locking import lock_inventory_targets
 
 
 _READY_FOOD_TYPES = {
@@ -321,3 +322,56 @@ class ShoppingSafeWritePolicy:
                 return denied()
             return allowed(all_targets_satisfied=all(satisfied))
         return allowed()
+
+    def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
+        ingredient_ids: set[str] = set()
+        food_ids: set[str] = set()
+        shopping_item_ids: set[str] = set()
+        raw_items: list[Any] = []
+        items = context.payload.get("items")
+        if isinstance(items, list):
+            raw_items.extend(items)
+        operations = context.payload.get("operations")
+        if isinstance(operations, list):
+            for operation in operations:
+                if not isinstance(operation, dict):
+                    return False
+                target_id = str(operation.get("targetId") or "").strip()
+                if target_id:
+                    shopping_item_ids.add(target_id)
+                raw_items.append(operation.get("payload"))
+        if shopping_item_ids:
+            discovered_items = list(
+                context.db.scalars(
+                    select(ShoppingListItem)
+                    .where(
+                        ShoppingListItem.family_id == context.family_id,
+                        ShoppingListItem.id.in_(tuple(sorted(shopping_item_ids))),
+                    )
+                    .order_by(ShoppingListItem.id.asc())
+                )
+            )
+            for item in discovered_items:
+                if item.ingredient_id:
+                    ingredient_ids.add(item.ingredient_id)
+                if item.food_id:
+                    food_ids.add(item.food_id)
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            ingredient_id = str(item.get("ingredient_id") or "").strip()
+            food_id = str(item.get("food_id") or "").strip()
+            if ingredient_id:
+                ingredient_ids.add(ingredient_id)
+            if food_id:
+                food_ids.add(food_id)
+        if not shopping_item_ids:
+            return False
+        locked = lock_inventory_targets(
+            context.db,
+            family_id=context.family_id,
+            ingredient_ids=tuple(sorted(ingredient_ids)),
+            food_ids=tuple(sorted(food_ids)),
+            shopping_item_ids=tuple(sorted(shopping_item_ids)),
+        )
+        return set(locked.shopping_items) == shopping_item_ids
