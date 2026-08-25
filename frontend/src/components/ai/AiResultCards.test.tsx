@@ -1,7 +1,12 @@
 import React, { act } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import type { AiResultCard } from '../../api/types';
+import { aiApi } from '../../api/aiApi';
+import { ApiError } from '../../api/request';
+import type { AiOperationResultProjection, AiOperationRevertResponse, AiResultCard } from '../../api/types';
+import { operationResultProjection, operationResultViewModel } from './AiResultCardModel';
 import { ResultCard, targetForAiEntity } from './AiResultCards';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,22 +20,71 @@ async function renderCard(
   onInventoryAction?: Parameters<typeof ResultCard>[0]['onInventoryAction'],
   onPromptAction?: (prompt: string) => void,
   onNavigate?: Parameters<typeof ResultCard>[0]['onNavigate'],
+  onResultCard?: Parameters<typeof ResultCard>[0]['onResultCard'],
 ) {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
     root?.render(
-      <ResultCard
-        card={card}
-        onAddToPlan={onAddToPlan}
-        onInventoryAction={onInventoryAction}
-        onPromptAction={onPromptAction}
-        onNavigate={onNavigate}
-      />,
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })}>
+        <ResultCard
+          card={card}
+          conversationId="conversation-1"
+          onAddToPlan={onAddToPlan}
+          onInventoryAction={onInventoryAction}
+          onPromptAction={onPromptAction}
+          onNavigate={onNavigate}
+          onResultCard={onResultCard}
+        />
+      </QueryClientProvider>,
     );
   });
   return container;
+}
+
+function operationProjection(overrides: Partial<AiOperationResultProjection> = {}): AiOperationResultProjection {
+  return {
+    draft_id: 'draft-1',
+    operation_id: 'operation-1',
+    result_status: 'completed',
+    execution_mode: 'policy_auto',
+    operation_status: 'completed',
+    execution_explanation: '已自动收藏番茄炒蛋。',
+    revert_availability: 'available',
+    revertible_until: '2026-08-24T15:42:00+08:00',
+    revert_blocked_code: null,
+    server_now: '2026-08-24T15:00:00+08:00',
+    entities: [{ id: 'food-1', label: '食物', operation: 'food', operationLabel: '收藏' }],
+    cache_scopes: ['food', 'ai_conversation'],
+    ...overrides,
+  };
+}
+
+function operationCard(overrides: Partial<AiOperationResultProjection> = {}): AiResultCard {
+  return {
+    id: 'operation-card-1',
+    type: 'operation_result',
+    title: '已收藏番茄炒蛋',
+    data: operationProjection(overrides) as unknown as AiResultCard['data'],
+  };
+}
+
+function revertedResponse(): AiOperationRevertResponse {
+  const projection = operationProjection({
+    result_status: 'reverted',
+    operation_status: 'reverted',
+    execution_explanation: '已撤销自动收藏。',
+    revert_availability: 'reverted',
+    server_now: '2026-08-24T15:01:00+08:00',
+  });
+  return {
+    projection,
+    result_card: { ...operationCard(), title: '收藏已撤销', data: projection as unknown as AiResultCard['data'] },
+    cache_scopes: projection.cache_scopes,
+    server_now: projection.server_now,
+    replayed: false,
+  };
 }
 
 function countText(value: string, target: string) {
@@ -42,6 +96,181 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+});
+
+describe('AI operation result state', () => {
+  it.each([
+    ['manual_approval', 'completed', '已按你的确认执行'],
+    ['policy_auto', 'completed', '已自动执行'],
+    ['policy_no_change', 'no_change', '已是目标状态'],
+    ['policy_auto', 'failed', '未完成操作'],
+    ['policy_auto', 'reverted', '已撤销'],
+  ] as const)('renders the controlled eyebrow for %s/%s', async (executionMode, resultStatus, eyebrow) => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    const view = await renderCard(operationCard({
+      execution_mode: executionMode,
+      result_status: resultStatus,
+      operation_status: resultStatus === 'no_change' ? null : resultStatus,
+      revert_availability: resultStatus === 'reverted' ? 'reverted' : resultStatus === 'completed' ? 'available' : 'unsupported',
+    }));
+    expect(view.textContent).toContain(eyebrow);
+  });
+
+  it('validates projection fields before controlled rendering', () => {
+    expect(operationResultProjection(operationCard())).toEqual(operationProjection());
+    expect(operationResultProjection({ ...operationCard(), data: { ...operationProjection(), cache_scopes: ['not-a-scope'] } as unknown as AiResultCard['data'] })).toBeNull();
+    expect(operationResultProjection({ ...operationCard(), type: 'inventory_summary' })).toBeNull();
+  });
+
+  it('keeps the inclusive deadline available and expires immediately just after it', () => {
+    const projection = operationProjection();
+    expect(operationResultViewModel(projection, Date.parse('2026-08-24T15:42:00+08:00'))).toMatchObject({
+      canRevert: true,
+      deadlineText: '可撤销至 15:42',
+    });
+    expect(operationResultViewModel(projection, Date.parse('2026-08-24T15:42:00.001+08:00'))).toMatchObject({
+      canRevert: false,
+      statusText: '撤销时间已过，可前往页面修改',
+    });
+  });
+
+  it('does not style blocked or unsupported results as success', () => {
+    expect(operationResultViewModel(operationProjection({
+      revert_availability: 'blocked',
+      revert_blocked_code: 'revert_target_changed',
+    }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('danger');
+    expect(operationResultViewModel(operationProjection({
+      revert_availability: 'unsupported',
+      revertible_until: null,
+    }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('neutral');
+  });
+
+  it.each([
+    [{ result_status: 'no_change', execution_mode: 'policy_no_change', execution_explanation: '相关内容已经是你要求的状态。' }, '相关内容已经是你要求的状态。'],
+    [{ result_status: 'failed', execution_explanation: '数据库暂时不可用。' }, '本次操作未完成'],
+    [{ revert_availability: 'expired' }, '撤销时间已过，可前往页面修改'],
+    [{ revert_availability: 'unsupported' }, '此操作需要前往页面修正'],
+    [{ revert_availability: 'blocked', revert_blocked_code: 'revert_target_changed' }, '相关内容后来被修改，无法安全撤销'],
+    [{ revert_availability: 'blocked', revert_blocked_code: 'revert_dependency_exists' }, '该内容已被后续操作使用'],
+    [{ result_status: 'reverted', operation_status: 'reverted', revert_availability: 'reverted' }, '操作已撤销'],
+  ] as const)('renders controlled terminal copy', async (overrides, copy) => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    const view = await renderCard(operationCard(overrides as Partial<AiOperationResultProjection>));
+    expect(view.textContent).toContain(copy);
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+  });
+
+  it('reverts directly without a dialog or optimistic success and politely announces the HTTP replacement', async () => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    let resolveRequest: ((value: AiOperationRevertResponse) => void) | null = null;
+    vi.spyOn(aiApi, 'revertAiOperation').mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
+    const user = userEvent.setup();
+    const view = await renderCard(operationCard());
+    const button = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === '撤销') as HTMLButtonElement;
+
+    await user.click(button);
+    expect(view.querySelector('[role="dialog"]')).toBeNull();
+    expect(view.textContent).toContain('已自动执行');
+    expect(button.disabled).toBe(true);
+    expect(document.activeElement).toBe(button);
+    expect(view.textContent).not.toContain('已撤销');
+    await act(async () => { resolveRequest?.(revertedResponse()); });
+
+    expect(view.textContent).toContain('已撤销');
+    const liveRegion = view.querySelector('[role="status"]');
+    expect(liveRegion?.getAttribute('aria-live')).toBe('polite');
+    expect(liveRegion?.textContent).toContain('操作已撤销');
+  });
+
+  it('disables offline revert without queuing a request', async () => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation');
+    const view = await renderCard(operationCard());
+
+    const button = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === '撤销');
+    expect(button?.disabled).toBe(true);
+    expect(view.textContent).toContain('联网后可重试撤销');
+    expect(apiSpy).not.toHaveBeenCalled();
+  });
+
+  it('replaces an available card with the persisted blocked card from a permanent conflict', async () => {
+    const blockedProjection = operationProjection({
+      execution_explanation: '相关内容后来被修改，无法安全撤销。',
+      revert_availability: 'blocked',
+      revert_blocked_code: 'revert_target_changed',
+      server_now: '2026-08-24T15:01:00+08:00',
+    });
+    const blockedResponse: AiOperationRevertResponse = {
+      projection: blockedProjection,
+      result_card: { ...operationCard(), data: blockedProjection as unknown as AiResultCard['data'] },
+      cache_scopes: blockedProjection.cache_scopes,
+      server_now: blockedProjection.server_now,
+      replayed: false,
+    };
+    vi.spyOn(aiApi, 'revertAiOperation').mockRejectedValue(new ApiError({
+      status: 409,
+      detail: '相关内容后来被修改，无法安全撤销',
+      path: '/api/ai/operations/operation-1/revert',
+      payload: { detail: { ...blockedResponse, code: 'revert_target_changed', message: '相关内容后来被修改，无法安全撤销' } },
+    }));
+    const view = await renderCard(operationCard());
+
+    await act(async () => {
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销')?.click();
+    });
+
+    expect(view.textContent).toContain('相关内容后来被修改，无法安全撤销');
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+    expect(view.querySelector('[role="status"]')?.textContent).toBe('相关内容后来被修改，无法安全撤销');
+  });
+
+  it('keeps the server-projected available card retryable after a temporary failure', async () => {
+    vi.spyOn(aiApi, 'revertAiOperation').mockRejectedValue(new TypeError('network unavailable'));
+    const view = await renderCard(operationCard());
+
+    await act(async () => {
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销')?.click();
+    });
+
+    const retryButton = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销');
+    expect(retryButton?.disabled).toBe(false);
+    expect(view.querySelector('[role="status"]')?.textContent).toBe('撤销失败，请重试');
+    expect(view.textContent).toContain('已自动执行');
+  });
+
+  it('updates the server-aligned clock once per minute without resetting a delayed refresh window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-24T10:30:00+08:00'));
+    const view = await renderCard(operationCard({
+      server_now: '2026-08-24T10:30:00+08:00',
+      revertible_until: '2026-08-24T11:00:00+08:00',
+    }));
+    expect(view.textContent).toContain('可撤销至 11:00');
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(30 * 60_000); });
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+  });
+
+  it('navigates to details and automatic execution settings with keyboard-operable buttons', async () => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    const targets: unknown[] = [];
+    const view = await renderCard(operationCard(), undefined, undefined, undefined, (target) => targets.push(target));
+    const user = userEvent.setup();
+    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置') as HTMLButtonElement;
+    settings.focus();
+    await user.keyboard('{Enter}');
+    expect(targets).toContainEqual({ workspace: 'ai', view: 'autoExecution' });
+    expect(document.activeElement).toBe(settings);
+    await user.click(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情') as HTMLButtonElement);
+    expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
+  });
 });
 
 describe('AI query result cards', () => {
@@ -337,6 +566,12 @@ describe('AI query result cards', () => {
       type: 'operation_result',
       title: '已修改餐食计划',
       data: {
+        ...operationProjection({
+          execution_mode: 'manual_approval',
+          execution_explanation: '已按你的确认修改餐食计划。',
+          revert_availability: 'unsupported',
+          revertible_until: null,
+        }),
         actionSummary: '已修改餐食计划',
         entityCount: 1,
         entityCountLabel: '1 条计划',
@@ -354,7 +589,7 @@ describe('AI query result cards', () => {
       },
     });
 
-    expect(view.textContent).toContain('已按确认执行');
+    expect(view.textContent).toContain('已按你的确认执行');
     expect(countText(view.textContent ?? '', '已修改餐食计划')).toBe(1);
     expect(view.textContent).toContain('影响 1 条计划');
     expect(view.textContent).toContain('查看位置');
@@ -362,7 +597,7 @@ describe('AI query result cards', () => {
     expect(view.textContent).toContain('2026-06-18 晚餐');
     expect(view.textContent).toContain('新增');
     expect(view.textContent).not.toContain('MealType.DINNER');
-    expect(view.querySelector('.ai-query-reason')).toBeNull();
+    expect(view.querySelector('.ai-query-reason')?.textContent).toBe('已按你的确认修改餐食计划。');
     expect(view.querySelector('.ai-operation-result-footer')).not.toBeNull();
   });
 
@@ -372,6 +607,12 @@ describe('AI query result cards', () => {
       type: 'operation_result',
       title: '已入库',
       data: {
+        ...operationProjection({
+          execution_mode: 'manual_approval',
+          execution_explanation: '已按你的确认完成入库。',
+          revert_availability: 'unsupported',
+          revertible_until: null,
+        }),
         actionSummary: '已入库',
         entityCount: 2,
         entityCountLabel: '2 项入库',
@@ -409,6 +650,12 @@ describe('AI query result cards', () => {
       type: 'operation_result',
       title: '已处理库存',
       data: {
+        ...operationProjection({
+          execution_mode: 'manual_approval',
+          execution_explanation: '已按你的确认处理库存。',
+          revert_availability: 'unsupported',
+          revertible_until: null,
+        }),
         entityCount: 1,
         entityCountLabel: '1 项库存变更',
         workspaceLabel: '库存页',

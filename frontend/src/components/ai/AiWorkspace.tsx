@@ -33,7 +33,7 @@ import {
 } from './AiConversationHistory';
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiMobilePage } from './AiMobilePage';
-import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { AiResultCardReplacementProvider, MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
@@ -1420,6 +1420,28 @@ export function AiWorkspace({
     setRecommendationPlanRequest(null);
     setPlanFeedback(`${name} 已加入菜单计划`);
   }
+  function replaceOperationResultCard(
+    card: AiResultCard,
+    messageId: string,
+  ) {
+    const replaceInMessages = (items: AiMessage[]) => items.map((message) => {
+      if (message.id !== messageId && !message.parts.some((part) => part.card?.id === card.id)) return message;
+      let changed = false;
+      const parts = message.parts.map((part) => {
+        if (part.type !== 'result_card' || part.card?.id !== card.id) return part;
+        changed = true;
+        return { ...part, card };
+      });
+      return changed ? { ...message, parts } : message;
+    });
+    const conversationId = activeConversationId;
+    if (conversationId) {
+      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => replaceInMessages(items));
+    }
+    setLocalMessagesByConversationKey((current) => Object.fromEntries(
+      Object.entries(current).map(([conversationKey, items]) => [conversationKey, replaceInMessages(items)]),
+    ));
+  }
   async function cancelStreamingChat() {
     const runId = activeCancellableRunId;
     if (!runId) return;
@@ -1457,6 +1479,7 @@ export function AiWorkspace({
     forceScrollKey: latestUserMessageScrollKey(displayedMessages),
   });
   return (
+    <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       {view === 'autoExecution' ? <>
         <div className="ai-desktop-view"><AiAutoExecutionDesktopPanel familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} /></div>
@@ -1646,6 +1669,7 @@ export function AiWorkspace({
                     isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
                     onNavigate={onNavigate}
+                    onResultCard={replaceOperationResultCard}
                   />
                 ))}
               </>
@@ -1746,5 +1770,6 @@ export function AiWorkspace({
       <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
       </>}
     </main>
+    </AiResultCardReplacementProvider>
   );
 }

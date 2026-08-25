@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react';
 import type {
   AiHumanInputRequest,
   AiHumanInputResponse,
@@ -41,6 +41,24 @@ export type AiHumanInputResponseSubmit = (
   request: AiHumanInputRequest,
   response: { selected_option_ids?: string[]; text?: string },
 ) => Promise<void>;
+
+type AiResultCardReplacement = (card: AiResultCard, messageId: string, partId: string) => void;
+
+const AiResultCardReplacementContext = createContext<AiResultCardReplacement | undefined>(undefined);
+
+export function AiResultCardReplacementProvider({
+  children,
+  onResultCard,
+}: {
+  children: ReactNode;
+  onResultCard: AiResultCardReplacement;
+}) {
+  return (
+    <AiResultCardReplacementContext.Provider value={onResultCard}>
+      {children}
+    </AiResultCardReplacementContext.Provider>
+  );
+}
 
 const MarkdownMessage = lazy(() => import('./MarkdownMessage'));
 
@@ -654,6 +672,7 @@ export function MessageBubble({
   onHumanInputResponse,
   onOpenRunDebug,
   onNavigate,
+  onResultCard,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -682,7 +701,10 @@ export function MessageBubble({
   onHumanInputResponse?: AiHumanInputResponseSubmit;
   onOpenRunDebug?: (runId: string) => void;
   onNavigate?: (target: AppNavigationTarget) => void;
+  onResultCard?: (card: AiResultCard, messageId: string, partId: string) => void;
 }) {
+  const inheritedResultCardReplacement = useContext(AiResultCardReplacementContext);
+  const replaceResultCard = onResultCard ?? inheritedResultCardReplacement;
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
   const userAvatarUrl = resolveAiAvatarUrl(user?.avatar_image?.url);
@@ -795,6 +817,7 @@ export function MessageBubble({
                 <div key={item.key} className="ai-message-part">
                   <ResultCard
                     card={part.card}
+                    conversationId={message.conversation_id}
                     onAddToPlan={(item, card) => onAddRecommendationToPlan?.(item, card, message.id, part.id)}
                     onInventoryAction={(item, action, card) => onInventoryAction?.(item, action, card, message.id, part.id)}
                     isInventoryActionPending={isInventoryActionPending}
@@ -802,6 +825,7 @@ export function MessageBubble({
                     onProductLoopPrompt={onProductLoopPrompt}
                     isPromptActionPending={isPromptActionPending}
                     onNavigate={onNavigate}
+                    onResultCard={(card) => replaceResultCard?.(card, message.id, part.id)}
                   />
                 </div>
               );

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import type {
   AiGeneratedRecipeDraft,
   AiInventoryCardAction,
@@ -12,6 +13,7 @@ import type {
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+import { useAiOperationRevert } from '../../features/ai-auto-execution/useAiOperationRevert';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
 import { AiMealIdeaProposal } from './AiMealIdeaProposal';
@@ -24,6 +26,8 @@ import {
   operationResultEntityLabel,
   operationResultEntities,
   operationResultOperationLabel,
+  operationResultProjection,
+  operationResultViewModel,
   recommendationItems,
   recommendationMeta,
   targetForAiEntity,
@@ -311,28 +315,96 @@ function ClarificationCard({ card }: { card: AiResultCard }) {
 
 function OperationResultCard({
   card,
+  conversationId,
   onNavigate,
+  onResultCard,
 }: {
   card: AiResultCard;
+  conversationId?: string;
   onNavigate?: NavigateTarget;
+  onResultCard?: (card: AiResultCard) => void;
 }) {
-  const entities = operationResultEntities(card);
-  const actionSummary = typeof card.data.actionSummary === 'string' ? card.data.actionSummary.trim() : '';
-  const entityCountLabel = typeof card.data.entityCountLabel === 'string' ? card.data.entityCountLabel : `${entities.length} 个实体`;
-  const workspaceLabel = typeof card.data.workspaceLabel === 'string' ? card.data.workspaceLabel : '对应页面';
-  const workspaceHint = typeof card.data.workspaceHint === 'string' ? card.data.workspaceHint : `可前往${workspaceLabel}查看`;
-  const normalizedTitle = card.title.replace(/\s+/g, '');
+  const [currentCard, setCurrentCard] = useState(card);
+  useEffect(() => setCurrentCard(card), [card]);
+  const projection = operationResultProjection(currentCard);
+  const serverNow = projection?.server_now ?? '';
+  const [clock, setClock] = useState(() => ({
+    serverNow,
+    offsetMs: projection ? Date.parse(projection.server_now) - Date.now() : 0,
+    clientNowMs: Date.now(),
+  }));
+  useEffect(() => {
+    if (!projection) return undefined;
+    const parsedServerNow = Date.parse(projection.server_now);
+    const clientNowMs = Date.now();
+    setClock({
+      serverNow: projection.server_now,
+      offsetMs: Number.isNaN(parsedServerNow) ? 0 : parsedServerNow - clientNowMs,
+      clientNowMs,
+    });
+    const timer = window.setInterval(() => {
+      setClock((current) => ({ ...current, clientNowMs: Date.now() }));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [projection?.server_now]);
+  const parsedCurrentServerNow = Date.parse(serverNow);
+  const effectiveNowMs = clock.serverNow === serverNow
+    ? clock.clientNowMs + clock.offsetMs
+    : Number.isNaN(parsedCurrentServerNow) ? Date.now() : parsedCurrentServerNow;
+  const viewModel = useMemo(
+    () => projection ? operationResultViewModel(projection, effectiveNowMs) : null,
+    [effectiveNowMs, projection],
+  );
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const updateOnlineState = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnlineState);
+    window.addEventListener('offline', updateOnlineState);
+    return () => {
+      window.removeEventListener('online', updateOnlineState);
+      window.removeEventListener('offline', updateOnlineState);
+    };
+  }, []);
+  const revert = useAiOperationRevert({
+    conversationId: conversationId ?? '',
+    onResultCard: (nextCard) => {
+      setCurrentCard(nextCard);
+      onResultCard?.(nextCard);
+    },
+  });
+  if (!projection || !viewModel) {
+    return (
+      <article className="ai-result-card ai-query-result-card ai-operation-result-card">
+        <header className="ai-query-card-head">
+          <div className="ai-query-card-head-main">
+            <span className="ai-query-card-eyebrow">操作结果</span>
+            <h3>{currentCard.title}</h3>
+          </div>
+        </header>
+        <p className="ai-operation-result-status tone-danger">结果详情暂不可用，请刷新后重试。</p>
+      </article>
+    );
+  }
+  const entities = operationResultEntities(currentCard);
+  const actionSummary = typeof currentCard.data.actionSummary === 'string' ? currentCard.data.actionSummary.trim() : '';
+  const entityCountLabel = typeof currentCard.data.entityCountLabel === 'string' ? currentCard.data.entityCountLabel : `${entities.length} 个实体`;
+  const workspaceLabel = typeof currentCard.data.workspaceLabel === 'string' ? currentCard.data.workspaceLabel : '对应页面';
+  const workspaceHint = typeof currentCard.data.workspaceHint === 'string' ? currentCard.data.workspaceHint : `可前往${workspaceLabel}查看`;
+  const normalizedTitle = currentCard.title.replace(/\s+/g, '');
   const normalizedSummary = actionSummary.replace(/\s+/g, '');
   const shouldShowActionSummary = Boolean(actionSummary) && normalizedSummary !== normalizedTitle;
-  const shouldShowEntityCount = entities.length > 0 || (typeof card.data.entityCount === 'number' && card.data.entityCount > 0);
+  const shouldShowEntityCount = entities.length > 0 || (typeof currentCard.data.entityCount === 'number' && currentCard.data.entityCount > 0);
   const destinationText = workspaceHint.trim();
+  const detailTarget = entities.map(navigateTargetForOperationEntity).find(Boolean) ?? null;
+  const showRevert = viewModel.canRevert;
+  const displayedStatus = showRevert && !isOnline ? '联网后可重试撤销' : viewModel.statusText;
 
   return (
     <article className="ai-result-card ai-query-result-card ai-operation-result-card">
       <header className="ai-query-card-head">
         <div className="ai-query-card-head-main">
-          <span className="ai-query-card-eyebrow">已按确认执行</span>
-          <h3>{card.title}</h3>
+          <span className="ai-query-card-eyebrow">{viewModel.eyebrow}</span>
+          <h3>{currentCard.title}</h3>
         </div>
         {shouldShowEntityCount && (
           <div className="ai-query-card-context-badges">
@@ -343,6 +415,9 @@ function OperationResultCard({
         )}
       </header>
       {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
+      {projection.execution_explanation && projection.execution_explanation !== displayedStatus && (
+        <p className="ai-query-reason">{projection.execution_explanation}</p>
+      )}
       {entities.length > 0 && (
         <div className="ai-query-recommendation-list" aria-label="已执行实体">
           {entities.map((item) => {
@@ -385,6 +460,49 @@ function OperationResultCard({
           {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
         </div>
       )}
+      <div className={`ai-operation-result-status tone-${viewModel.tone}`}>
+        <span>{displayedStatus}</span>
+        {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
+      </div>
+      {showRevert && (
+        <div className="ai-operation-result-actions">
+          <button
+            className="ghost-button ai-operation-revert-button"
+            type="button"
+            disabled={!conversationId || !isOnline || revert.isPending}
+            aria-busy={revert.isPending}
+            onClick={() => {
+              if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
+            }}
+          >
+            {revert.isPending ? '撤销中…' : '撤销'}
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            disabled={!detailTarget || !onNavigate}
+            onClick={() => detailTarget && onNavigate?.(detailTarget)}
+          >
+            查看详情
+          </button>
+          <button
+            className="ghost-button ai-operation-settings-button"
+            type="button"
+            disabled={!onNavigate}
+            onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
+          >
+            管理自动执行设置
+          </button>
+        </div>
+      )}
+      <div
+        className={`ai-operation-result-announcement ${revert.isError ? 'tone-danger' : 'tone-success'}`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {revert.announcement}
+      </div>
     </article>
   );
 }
@@ -474,6 +592,8 @@ export function ResultCard({
   isPromptActionPending,
   onProductLoopPrompt,
   onNavigate,
+  conversationId,
+  onResultCard,
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
@@ -483,6 +603,8 @@ export function ResultCard({
   isPromptActionPending?: boolean;
   onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
   onNavigate?: NavigateTarget;
+  conversationId?: string;
+  onResultCard?: (card: AiResultCard) => void;
 }) {
   if (card.type === 'inventory_summary') {
     return (
@@ -497,7 +619,16 @@ export function ResultCard({
     return <RecommendationCard card={card} onAddToPlan={onAddToPlan} onNavigate={onNavigate} />;
   }
   if ((card.type as string) === 'clarification_request') return <ClarificationCard card={card} />;
-  if (card.type === 'operation_result') return <OperationResultCard card={card} onNavigate={onNavigate} />;
+  if (card.type === 'operation_result') {
+    return (
+      <OperationResultCard
+        card={card}
+        conversationId={conversationId}
+        onNavigate={onNavigate}
+        onResultCard={onResultCard}
+      />
+    );
+  }
   if (card.type === 'ui_actions') return <UiActionsCard card={card} />;
   if (card.type === 'recipe_shortage') {
     return (

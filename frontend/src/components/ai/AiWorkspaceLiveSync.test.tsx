@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi } from '../../api/aiApi';
 import { api, ApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiOperationResultProjection, AiOperationRevertResponse, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiWorkspace } from './AiWorkspace';
 import { approval, conversation, mealPlanApproval, qualityMetrics } from './aiWorkspaceTestFixtures';
@@ -51,7 +51,163 @@ async function advanceTimers(ms: number) {
   });
 }
 
+function operationProjection(overrides: Partial<AiOperationResultProjection> = {}): AiOperationResultProjection {
+  return {
+    draft_id: 'draft-live-operation',
+    operation_id: 'operation-live-1',
+    result_status: 'completed',
+    execution_mode: 'policy_auto',
+    operation_status: 'completed',
+    execution_explanation: '已自动收藏番茄炒蛋。',
+    revert_availability: 'available',
+    revertible_until: '2026-08-24T16:00:00+08:00',
+    revert_blocked_code: null,
+    server_now: '2026-08-24T15:30:00+08:00',
+    entities: [{ id: 'food-1', label: '食物', operation: 'food', operationLabel: '收藏' }],
+    cache_scopes: ['food', 'ai_conversation'],
+    ...overrides,
+  };
+}
+
+function operationResultMessage(projection = operationProjection()): AiMessage {
+  return {
+    id: 'message-live-operation',
+    conversation_id: 'conversation-1',
+    role: 'assistant',
+    content: '',
+    content_type: 'parts',
+    parts: [{
+      id: 'part-live-operation',
+      type: 'result_card',
+      card: { id: 'card-live-operation', type: 'operation_result', title: '已收藏番茄炒蛋', data: projection as unknown as AiResultCard['data'] },
+    }],
+    run_id: 'run-live-operation',
+    status: 'completed',
+    metadata: {},
+    created_at: '2026-08-24T15:30:00+08:00',
+  };
+}
+
 describe('AiWorkspace live sync and conversation migration', () => {
+  it('replaces the matching local and query message part after the revert HTTP response', async () => {
+    const initialMessage = operationResultMessage();
+    vi.spyOn(api, 'getAiMessages')
+      .mockResolvedValueOnce([initialMessage])
+      .mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const revertedProjection = operationProjection({
+      result_status: 'reverted',
+      operation_status: 'reverted',
+      execution_explanation: '已撤销自动收藏。',
+      revert_availability: 'reverted',
+      server_now: '2026-08-24T15:31:00+08:00',
+    });
+    const response: AiOperationRevertResponse = {
+      projection: revertedProjection,
+      result_card: { id: 'card-live-operation', type: 'operation_result', title: '收藏已撤销', data: revertedProjection as unknown as AiResultCard['data'] },
+      cache_scopes: ['food', 'ai_conversation'],
+      server_now: revertedProjection.server_now,
+      replayed: false,
+    };
+    vi.spyOn(aiApi, 'revertAiOperation').mockResolvedValue(response);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    await act(async () => {
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-mobile-page button')).find((button) => button.textContent === '撤销')?.click();
+    });
+    await flushAsync();
+
+    const cached = rendered.queryClient.getQueryData<AiMessage[]>(queryKeys.aiMessages('conversation-1'));
+    expect(cached?.[0]?.parts[0]?.card?.data.result_status).toBe('reverted');
+    expect((rendered.container.querySelector('.ai-desktop-view') as HTMLElement).textContent).toContain('已撤销');
+    expect(cached?.[0]?.parts).toHaveLength(1);
+    rendered.unmount();
+  });
+
+  it('replaces an active-chat operation result through the existing message_part stream path', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let emitReplacement: (() => void) | null = null;
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      const runId = payload.client_run_id ?? 'run-live-operation';
+      const baseEvent = {
+        message_id: 'message-live-operation',
+        conversation_id: 'conversation-1',
+        run_id: runId,
+      };
+      handlers?.onMessagePart?.({
+        ...baseEvent,
+        part: {
+          id: 'part-live-operation-available',
+          type: 'result_card',
+          card: {
+            id: 'card-live-operation',
+            type: 'operation_result',
+            title: '已收藏番茄炒蛋',
+            data: operationProjection() as unknown as AiResultCard['data'],
+          },
+        },
+      });
+      emitReplacement = () => handlers?.onMessagePart?.({
+        ...baseEvent,
+        part: {
+          id: 'part-live-operation-reverted',
+          type: 'result_card',
+          card: {
+            id: 'card-live-operation',
+            type: 'operation_result',
+            title: '收藏已撤销',
+            data: operationProjection({
+              result_status: 'reverted',
+              operation_status: 'reverted',
+              execution_explanation: '已撤销自动收藏。',
+              revert_availability: 'reverted',
+              server_now: '2026-08-24T15:31:00+08:00',
+            }) as unknown as AiResultCard['data'],
+          },
+        },
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '收藏番茄炒蛋');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flushAsync();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('已自动执行');
+    expect(Array.from(desktopView.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
+
+    await act(async () => { emitReplacement?.(); });
+    await flushAsync();
+
+    expect(desktopView.querySelectorAll('.ai-operation-result-card')).toHaveLength(1);
+    expect(desktopView.textContent).toContain('已撤销');
+    expect(Array.from(desktopView.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+    rendered.unmount();
+  });
+
+  it('hydrates the response-level server clock from refreshed messages instead of resetting the persisted window', async () => {
+    const revertSpy = vi.spyOn(aiApi, 'revertAiOperation');
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([operationResultMessage(operationProjection({
+      server_now: '2026-08-24T10:30:00+08:00',
+      revertible_until: '2026-08-24T11:00:00+08:00',
+    }))]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('可撤销至 11:00');
+    expect(Array.from(desktopView.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(true);
+    expect(revertSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
   it('keeps streamed local messages visible while the new conversation history query loads', async () => {
     vi.spyOn(api, 'getAiMessages').mockImplementation(() => new Promise(() => undefined));
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
@@ -524,6 +680,14 @@ describe('AiWorkspace live sync and conversation migration', () => {
               type: 'operation_result',
               title: '已创建菜谱',
               data: {
+                ...operationProjection({
+                  draft_id: 'draft-server-structural',
+                  operation_id: 'operation-server-structural',
+                  execution_mode: 'manual_approval',
+                  execution_explanation: '已按你的确认创建菜谱。',
+                  revert_availability: 'unsupported',
+                  revertible_until: null,
+                }),
                 actionSummary: '番茄菜谱已写入菜谱库。',
                 entityCount: 1,
                 entityCountLabel: '1 道菜谱',

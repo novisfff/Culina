@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiMessage, AiMessagePart, AiRunEvent } from '../../api/types';
+import { aiApi } from '../../api/aiApi';
+import type { AiMessage, AiMessagePart, AiOperationResultProjection, AiOperationRevertResponse, AiResultCard, AiRunEvent } from '../../api/types';
 import { changeInputValue, cleanupTestDomAndMocks, flushAsync, renderWithQuery } from '../../test/renderWithQuery';
 import { MessageBubble } from './AiConversationThread';
 import { approval, mealPlanApproval, shoppingApproval } from './aiWorkspaceTestFixtures';
@@ -43,6 +44,98 @@ function humanInputMessage(overrides: Partial<AiMessagePart> = {}): AiMessage {
     created_at: '2026-05-30T00:00:00Z',
   };
 }
+
+function operationMessage(projectionOverrides: Partial<AiOperationResultProjection> = {}): AiMessage {
+  const projection: AiOperationResultProjection = {
+    draft_id: 'draft-auto-1',
+    operation_id: 'operation-auto-1',
+    result_status: 'completed',
+    execution_mode: 'policy_auto',
+    operation_status: 'completed',
+    execution_explanation: '已自动收藏番茄炒蛋。',
+    revert_availability: 'available',
+    revertible_until: '2026-08-24T16:00:00+08:00',
+    revert_blocked_code: null,
+    server_now: '2026-08-24T15:30:00+08:00',
+    entities: [{ id: 'food-1', label: '食物', operation: 'food', operationLabel: '收藏' }],
+    cache_scopes: ['food', 'ai_conversation'],
+    ...projectionOverrides,
+  };
+  return {
+    id: 'message-operation-result',
+    conversation_id: 'conversation-1',
+    role: 'assistant',
+    content: '',
+    content_type: 'parts',
+    parts: [{
+      id: 'operation-result-part',
+      type: 'result_card',
+      card: { id: 'operation-result-card', type: 'operation_result', title: '已收藏番茄炒蛋', data: projection as unknown as AiResultCard['data'] },
+    }],
+    run_id: 'run-operation-result',
+    status: 'completed',
+    metadata: {},
+    created_at: '2026-08-24T15:30:00+08:00',
+  };
+}
+
+describe('MessageBubble operation result replacement', () => {
+  it('passes stable message/part context when the HTTP response replaces the result card', async () => {
+    const updated = operationMessage({
+      result_status: 'reverted',
+      operation_status: 'reverted',
+      execution_explanation: '已撤销自动收藏。',
+      revert_availability: 'reverted',
+      server_now: '2026-08-24T15:31:00+08:00',
+    });
+    const resultCard = updated.parts[0]?.card;
+    const response: AiOperationRevertResponse = {
+      projection: resultCard?.data as AiOperationResultProjection,
+      result_card: resultCard!,
+      cache_scopes: ['food', 'ai_conversation'],
+      server_now: '2026-08-24T15:31:00+08:00',
+      replayed: false,
+    };
+    vi.spyOn(aiApi, 'revertAiOperation').mockResolvedValue(response);
+    const replacements: unknown[] = [];
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={operationMessage()}
+        user={testUser}
+        onApprovalDecision={() => undefined}
+        onResultCard={(card, messageId, partId) => replacements.push({ card, messageId, partId })}
+      />,
+    );
+
+    await act(async () => {
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '撤销')?.click();
+    });
+    await flushAsync();
+
+    expect(replacements).toEqual([{ card: resultCard, messageId: 'message-operation-result', partId: 'operation-result-part' }]);
+    expect(rendered.container.textContent).toContain('已撤销');
+    rendered.unmount();
+  });
+
+  it('hydrates an already expired persisted card without calling the mutation', async () => {
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation');
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={operationMessage({
+          server_now: '2026-08-24T16:00:00.001+08:00',
+          revertible_until: '2026-08-24T16:00:00+08:00',
+        })}
+        user={testUser}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.textContent).toContain('撤销时间已过，可前往页面修改');
+    expect(Array.from(rendered.container.querySelectorAll('button')).some((button) => button.textContent === '撤销')).toBe(false);
+    expect(apiSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+});
 
 describe('MessageBubble footer and media rendering', () => {
   it('hides assistant footer actions until the message finishes loading', async () => {

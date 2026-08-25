@@ -9355,6 +9355,81 @@
   line-height: 1.35;
 }
 
+.ai-operation-result-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+}
+
+.ai-operation-result-status span,
+.ai-operation-result-status strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-operation-result-status strong {
+  color: inherit;
+  font-weight: 700;
+}
+
+.ai-operation-result-status.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-status.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-operation-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-operation-result-actions .ghost-button {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding-inline: var(--space-5);
+  border-radius: var(--radius-sm);
+  white-space: normal;
+}
+
+.ai-operation-result-announcement:not(:empty) {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--info-line);
+  border-radius: var(--radius-sm);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+}
+
+.ai-operation-result-announcement.tone-success:not(:empty) {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-announcement.tone-danger:not(:empty) {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .ai-clarification-options {
   display: grid;
   gap: 10px;
@@ -9960,6 +10035,23 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     min-height: 34px;
     padding: 4px 9px;
     font-size: 0.78rem;
+  }
+
+  .ai-operation-result-status {
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4);
+  }
+
+  .ai-operation-result-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .ai-operation-result-actions .ghost-button {
+    width: 100%;
+    min-height: var(--control-height-touch);
   }
 
   .ai-query-item,
