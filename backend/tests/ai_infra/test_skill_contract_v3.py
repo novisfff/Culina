@@ -378,7 +378,7 @@ def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> N
             draft_type,
             state_schema,
         )
-        assert registry.get(target_key).manifest.approval_policy == "draft_then_confirm"
+        assert registry.get(target_key).manifest.requires_approval is True
         assert set(policy.to_record()) == {
             "reasonCode",
             "targetSkill",

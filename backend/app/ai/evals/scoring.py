@@ -88,6 +88,13 @@ def score_case(*, case: SkillEvalCase, observation: SkillEvalObservation) -> Ski
         if actual != expected:
             draft_passed = False
             failures.append(f"draft value {path} expected {expected!r} got {actual!r}")
+    for path, expected in sorted(case.expectedIntentEvidenceValues.items()):
+        actual = _value_at_path(observation.intentEvidence, path)
+        if actual != expected:
+            draft_passed = False
+            failures.append(
+                f"intent evidence value {path} expected {expected!r} got {actual!r}"
+            )
 
     continuation_passed = observation.continuationSchema == case.expectedContinuationSchema
     if not continuation_passed:

@@ -25,7 +25,7 @@ route_hints:
 - food_profile
 - 安排外卖晚餐
 - 外卖安排
-approval_policy: draft_then_confirm
+approval_policy: draft_then_policy
 tool_budget:
   max_tool_calls: 10
   max_same_read_calls: 2

@@ -46,6 +46,9 @@ class AutoExecutionPolicyRegistry:
         )
         return matches[0] if len(matches) == 1 else None
 
+    def supports_draft_type(self, draft_type: str) -> bool:
+        return any(draft_type in policy.draft_types for policy in self._policies)
+
     def evaluate(self, context: AutoExecutionPolicyContext) -> AutoExecutionDecision:
         policy = self.resolve_policy(
             draft_type=context.draft_type,

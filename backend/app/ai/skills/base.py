@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,9 @@ from app.ai.runtime.provider import BaseChatProvider, ProviderImageInput
 from app.ai.skills.contracts import SkillAttachmentPolicy, SkillHandoffPolicy, SkillRoutingPolicy
 from app.ai.tools.executor import ToolExecutor
 from app.core.utils import create_id, utcnow
+
+
+SkillApprovalPolicy = Literal["none", "draft_then_confirm", "draft_then_policy"]
 
 
 @dataclass(slots=True)
@@ -46,7 +49,7 @@ class SkillManifest:
     tool_budget: dict[str, int] = field(default_factory=dict)
     completion_policy: SkillCompletionPolicy = field(default_factory=SkillCompletionPolicy)
     draft_contract: dict[str, dict[str, str]] = field(default_factory=dict)
-    approval_policy: str = "none"
+    approval_policy: SkillApprovalPolicy = "none"
     intent: str = ""
     agent_key: str = ""
     contract_version: int = 2
@@ -56,6 +59,10 @@ class SkillManifest:
 
     def handoffs_record(self) -> dict[str, dict[str, str]]:
         return {reason: policy.to_record() for reason, policy in self.handoffs.items()}
+
+    @property
+    def requires_approval(self) -> bool:
+        return self.approval_policy in {"draft_then_confirm", "draft_then_policy"}
 
     def to_routing_record(self) -> dict[str, Any]:
         return {
@@ -68,7 +75,7 @@ class SkillManifest:
             "outputs": self.output_types,
             "draftTypes": self.draft_types,
             "routeHints": self.route_hints,
-            "requiresApproval": self.approval_policy == "draft_then_confirm",
+            "requiresApproval": self.requires_approval,
         }
 
     def to_execution_record(self) -> dict[str, Any]:

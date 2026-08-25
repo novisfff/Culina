@@ -79,7 +79,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 self.assertTrue(set(declared_tool_names).issubset(tool_names), f"{key} declares unknown tools")
                 declared_tools = [tool_registry.get(name) for name in declared_tool_names]
                 approval_policy = runtime.get("approval_policy")
-                self.assertIn(approval_policy, {"none", "draft_then_confirm"})
+                self.assertIn(approval_policy, {"none", "draft_then_confirm", "draft_then_policy"})
                 if approval_policy == "none":
                     self.assertTrue(all(tool.side_effect in {"read", "control"} for tool in declared_tools), f"{key} exposes unsupported tools without approval")
                     self.assertEqual(runtime.get("draft_types", []), [])
