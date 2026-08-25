@@ -4,6 +4,22 @@ from app.services.ai_operations.registry import draft_operation_registry
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
+def test_ai_standards_document_policy_commit_gate_and_revert_contract() -> None:
+    text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
+
+    assert "draft_then_policy" in text
+    assert "requires_confirmation=True" in text
+    assert "模型不获得正式 Write Tool" in text
+    assert "每条用户消息最多一个免确认 Draft" in text
+    assert "逐值验证" in text
+    assert "pending_retry 不重新调用模型" in text
+    assert "撤销通过 HTTP 响应" in text
+    assert "1 小时" in text
+    assert "原执行人或当前 Owner" in text
+    assert "inventory.operation_ref.v1" in text
+    assert "Composite 与 Continuation 始终人工确认" in text
+
+
 def test_ai_assistant_standard_documents_cross_skill_product_loops() -> None:
     text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
 
