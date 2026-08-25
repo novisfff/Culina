@@ -41,6 +41,26 @@ def test_nginx_rate_limits_auth_sensitive_and_general_api_traffic() -> None:
     assert '"code":"rate_limited"' in config
 
 
+def test_nginx_isolates_bursty_media_reads_from_the_general_api_budget() -> None:
+    config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text()
+    rate_map = config[config.index('map "$request_method:$uri"'):config.index("log_format culina_access")]
+    content_location = config[
+        config.index("location ~ ^/api/media/[^/]+/content$"):config.index("location /api/")
+    ]
+    api_location_start = config.index("location /api/")
+    api_location = config[api_location_start:config.index("\n    location / {", api_location_start)]
+
+    assert "~^GET:/api/media/[^/]+/access$ media_access;" in rate_map
+    assert "~^GET:/api/media/[^/]+/content$ media_content;" in rate_map
+    assert rate_map.index("media_access;") < rate_map.index("~^[A-Z]+:/api/ general;")
+    assert rate_map.index("media_content;") < rate_map.index("~^[A-Z]+:/api/ general;")
+    assert "zone=culina_media_access:10m" in rate_map
+    assert "zone=culina_media_content:10m" in rate_map
+    assert "limit_req zone=culina_media_content" in content_location
+    assert "limit_req zone=culina_api" not in content_location
+    assert "limit_req zone=culina_media_access" in api_location
+
+
 def test_nginx_emits_browser_security_headers() -> None:
     config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text()
 
