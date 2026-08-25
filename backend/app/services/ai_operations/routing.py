@@ -569,29 +569,13 @@ def _persist_execution_failure_result(
         error_code=error_code,
         recovery_hint=recovery_hint,
     )
-    route_artifact = {
-        "id": f"draft-route-failure:{draft.id}",
-        "type": "draft_route_result",
-        "kind": "control",
-        "version": 1,
-        "status": "failed",
-        "payload": {
-            "draftId": draft.id,
-            "operationId": operation.id,
-            "errorCode": error_code,
-            "message": projection.execution_explanation,
-            "recoveryHint": recovery_hint,
-        },
-        "sourceDraftId": draft.id,
-        "sourceOperationId": operation.id,
-    }
     result_artifacts = operation_result_artifacts(projection, card=card)
     result_part = upsert_message_operation_result(
         db,
         message_id=draft.message_id,
         projection=projection,
         card=card,
-        artifacts=(*result_artifacts, route_artifact),
+        artifacts=result_artifacts,
     )
     return result_part
 

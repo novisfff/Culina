@@ -265,6 +265,10 @@ def upsert_message_operation_result(
     artifacts: tuple[dict[str, Any], ...],
     approval_id: str | None = None,
 ) -> dict[str, Any]:
+    _validate_public_operation_result_artifacts(
+        artifacts,
+        draft_id=projection.draft_id,
+    )
     if not message_id:
         return {}
     message = db.get(AIMessage, message_id)
@@ -301,6 +305,23 @@ def upsert_message_operation_result(
     message.parts = parts
     _upsert_message_artifacts(message, artifacts=artifacts)
     return result_part
+
+
+def _validate_public_operation_result_artifacts(
+    artifacts: tuple[dict[str, Any], ...],
+    *,
+    draft_id: str,
+) -> None:
+    if len(artifacts) != 1:
+        raise ValueError("公开操作结果必须且只能包含一个 Artifact")
+    artifact = artifacts[0]
+    if (
+        artifact.get("id") != f"ai_operation_result:{draft_id}"
+        or artifact.get("type") != "ai_operation_result"
+        or artifact.get("kind") != "operation_result"
+        or artifact.get("sourceDraftId") != draft_id
+    ):
+        raise ValueError("公开操作结果 Artifact 与草稿不匹配")
 
 
 def _part_draft_id(part: dict[str, Any]) -> str:

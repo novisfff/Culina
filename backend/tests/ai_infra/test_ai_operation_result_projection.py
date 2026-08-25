@@ -9,8 +9,14 @@ from unittest.mock import patch
 
 from fastapi import Response
 
-from app.models.domain import AIMessage
-from app.services.ai_auto_execution.policy_types import AIOperationResultProjection
+from ._support import AIAgentInfraTestCase
+
+from app.models.domain import AIMessage, Food
+from app.services.ai_auto_execution.policy_types import (
+    AIOperationResultProjection,
+    DraftExecutionReceipt,
+)
+from app.services.serializers import serialize_ai_message
 
 
 PUBLIC_RESULT_FIELDS = {
@@ -527,6 +533,162 @@ class AIOperationResultProjectionTest(unittest.TestCase):
             "2026-08-24T10:30:00+00:00",
         )
         self.assertEqual(response["cache_scopes"], ["meal_plan", "ai_conversation"])
+
+
+class AIOperationResultPublicBoundaryTest(AIAgentInfraTestCase):
+    def _favorite_payload(self, db) -> dict:  # noqa: ANN001
+        food = db.get(Food, "food-tomato")
+        assert food is not None
+        return {
+            "draftType": "food_profile",
+            "schemaVersion": "food_profile_operation.v1",
+            "action": "set_favorite",
+            "targetId": food.id,
+            "baseUpdatedAt": food.updated_at.isoformat(),
+            "before": {"favorite": bool(food.favorite)},
+            "payload": {"favorite": not bool(food.favorite)},
+        }
+
+    def _assert_only_public_artifact(self, artifacts: list[dict], *, draft_id: str) -> None:
+        self.assertEqual(len(artifacts), 1)
+        artifact = artifacts[0]
+        self.assertEqual(artifact["id"], f"ai_operation_result:{draft_id}")
+        self.assertEqual(artifact["type"], "ai_operation_result")
+        self.assertEqual(artifact["kind"], "operation_result")
+        self.assertEqual(
+            set(artifact),
+            {
+                "id",
+                "type",
+                "kind",
+                "version",
+                "status",
+                "sourceDraftId",
+                "sourceOperationId",
+                "payload",
+            },
+        )
+
+    def test_manual_success_exposes_only_public_result_artifact_but_keeps_internal_facts(self) -> None:
+        sentinel = "PRIVATE-RECEIPT-NOTES-SENTINEL"
+        with self.SessionLocal() as db:
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="food_profile",
+                payload=self._favorite_payload(db),
+                suffix="task9-public-artifact-success",
+            )
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            receipt = DraftExecutionReceipt(
+                business_entity={
+                    "id": food.id,
+                    "name": food.name,
+                    "notes": sentinel,
+                    "_operation": "update",
+                },
+                entity_ids=(food.id,),
+                cache_scopes=("food", "ai_conversation"),
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                return_value=receipt,
+            ):
+                result = self._approve_ai_approval_for_test(
+                    service,
+                    draft=draft,
+                    approval=approval,
+                )
+
+            message = db.get(AIMessage, draft.message_id)
+            assert message is not None
+            response_artifacts = [item for item in result["artifacts"] if isinstance(item, dict)]
+            metadata_artifacts = [
+                item
+                for item in (message.message_metadata or {}).get("artifacts") or []
+                if isinstance(item, dict)
+            ]
+            serialized = serialize_ai_message(message, response_now=NOW)
+            serialized_artifacts = [
+                item
+                for item in serialized["metadata"].get("artifacts") or []
+                if isinstance(item, dict)
+            ]
+
+            self._assert_only_public_artifact(response_artifacts, draft_id=draft.id)
+            self._assert_only_public_artifact(metadata_artifacts, draft_id=draft.id)
+            self._assert_only_public_artifact(serialized_artifacts, draft_id=draft.id)
+            public_surface = json.dumps(
+                {
+                    "http_artifacts": response_artifacts,
+                    "message_metadata": metadata_artifacts,
+                    "serialized_message": serialized,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            self.assertNotIn(sentinel, public_surface)
+            for private_key in (
+                "authorization_snapshot_json",
+                "intent_evidence_json",
+                "committed_payload_json",
+                "revert_context_json",
+            ):
+                self.assertNotIn(private_key, public_surface)
+
+            internal_artifacts = service._approval_decision_artifacts(result)
+            self.assertTrue(any(item.get("type") == "approval_decision" for item in internal_artifacts))
+            self.assertTrue(any(item.get("kind") == "business_entity" for item in internal_artifacts))
+            self.assertIn(sentinel, json.dumps(internal_artifacts, ensure_ascii=False, default=str))
+
+    def test_manual_failure_exposes_only_safe_result_artifact(self) -> None:
+        sentinel = "PRIVATE-RAW-DOMAIN-FAILURE-SENTINEL"
+        with self.SessionLocal() as db:
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="food_profile",
+                payload=self._favorite_payload(db),
+                suffix="task9-public-artifact-failure",
+            )
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=RuntimeError(sentinel),
+            ):
+                result = self._approve_ai_approval_for_test(
+                    service,
+                    draft=draft,
+                    approval=approval,
+                )
+
+            message = db.get(AIMessage, draft.message_id)
+            assert message is not None
+            response_artifacts = [item for item in result["artifacts"] if isinstance(item, dict)]
+            metadata_artifacts = [
+                item
+                for item in (message.message_metadata or {}).get("artifacts") or []
+                if isinstance(item, dict)
+            ]
+            serialized = serialize_ai_message(message, response_now=NOW)
+            serialized_artifacts = [
+                item
+                for item in serialized["metadata"].get("artifacts") or []
+                if isinstance(item, dict)
+            ]
+
+            self._assert_only_public_artifact(response_artifacts, draft_id=draft.id)
+            self._assert_only_public_artifact(metadata_artifacts, draft_id=draft.id)
+            self._assert_only_public_artifact(serialized_artifacts, draft_id=draft.id)
+            public_surface = json.dumps(
+                {
+                    "http_artifacts": response_artifacts,
+                    "message_metadata": metadata_artifacts,
+                    "serialized_message": serialized,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            self.assertNotIn(sentinel, public_surface)
+            self.assertNotIn("RuntimeError", public_surface)
 
 
 if __name__ == "__main__":

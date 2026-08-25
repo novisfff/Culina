@@ -614,7 +614,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
             persisted_surface = json.dumps(
                 {
                     "result_part": result.result_part,
-                    "artifacts": result.artifacts,
+                    "public_artifacts": result.public_artifacts,
                     "message_parts": message.parts,
                     "message_artifacts": (message.message_metadata or {}).get("artifacts"),
                     "operation_error": operation.error_message,

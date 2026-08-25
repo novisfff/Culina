@@ -833,10 +833,12 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             failure_artifacts = [
                 artifact
                 for artifact in (message.message_metadata or {}).get("artifacts") or []
-                if artifact.get("type") == "draft_route_result" and artifact.get("status") == "failed"
+                if artifact.get("type") == "ai_operation_result" and artifact.get("status") == "failed"
             ]
             self.assertEqual(len(failure_parts), 1)
             self.assertEqual(len(failure_artifacts), 1)
+            self.assertEqual(failure_artifacts[0]["id"], f"ai_operation_result:{published['draft_id']}")
+            self.assertEqual(failure_artifacts[0]["kind"], "operation_result")
             self.assertEqual(failure_parts[0]["card"]["data"]["errorCode"], "draft_commit_domain_failed")
             self.assertTrue(failure_parts[0]["card"]["data"]["recoveryHint"])
             public_and_persisted_surface = json.dumps(

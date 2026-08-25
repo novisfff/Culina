@@ -331,7 +331,7 @@ def apply_ai_approval_decision(
         "business_entity": business_entity,
         "operation_result": serialize_ai_operation_result_projection(commit_result.projection),
         "result_part": commit_result.result_part or None,
-        "artifacts": list(commit_result.artifacts),
+        "artifacts": list(commit_result.public_artifacts),
         "cache_scopes": list(commit_result.projection.cache_scopes),
     }
 

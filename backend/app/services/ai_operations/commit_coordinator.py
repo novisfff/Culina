@@ -1147,7 +1147,7 @@ class DraftCommitCoordinator:
             }
         draft_record = serialize_ai_task_draft(draft)
         operation_record = serialize_ai_operation(operation)
-        approval_artifacts = tuple(
+        internal_artifacts = tuple(
             approval_decision_artifacts(
                 approval=approval_record,
                 draft=draft_record,
@@ -1165,7 +1165,7 @@ class DraftCommitCoordinator:
             ),
             business_artifacts=[
                 artifact
-                for artifact in approval_artifacts
+                for artifact in internal_artifacts
                 if artifact.get("kind") == "business_entity"
             ],
         )
@@ -1205,13 +1205,12 @@ class DraftCommitCoordinator:
             recovery_hint=recovery_hint,
         )
         result_artifacts = operation_result_artifacts(projection, card=card)
-        artifacts = (*approval_artifacts, *result_artifacts)
         result_part = upsert_message_operation_result(
             db,
             message_id=draft.message_id,
             projection=projection,
             card=card,
-            artifacts=artifacts,
+            artifacts=result_artifacts,
             approval_id=(str(approval_record.get("id")) if approval_record.get("id") else None),
         )
         return DraftCommitResult(
@@ -1219,7 +1218,8 @@ class DraftCommitCoordinator:
             receipt=receipt,
             projection=projection,
             result_part=result_part,
-            artifacts=artifacts,
+            internal_artifacts=internal_artifacts,
+            public_artifacts=result_artifacts,
         )
 
     @classmethod

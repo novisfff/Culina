@@ -411,6 +411,64 @@ class AIResultCardDTO(BaseModel):
         return self
 
 
+class AIPublicOperationResultEntityDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    operation: str | None = None
+    operationLabel: str | None = None
+    updatedAt: str | None = None
+
+
+class AIPublicOperationResultCardDataDTO(AIOperationResultProjectionOut):
+    entities: list[AIPublicOperationResultEntityDTO] = Field(default_factory=list)
+    actionSummary: str = Field(min_length=1)
+    entityCount: int = Field(ge=0)
+    entityCountLabel: str = Field(min_length=1)
+    workspaceLabel: str = Field(min_length=1)
+    workspaceHint: str = Field(min_length=1)
+    approvalId: str | None = None
+    operationId: str | None = None
+    draftId: str
+    errorCode: str | None = None
+    recoveryHint: str | None = None
+
+
+class AIPublicOperationResultCardDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: Literal["operation_result"]
+    title: str
+    data: AIPublicOperationResultCardDataDTO
+
+
+class AIOperationResultArtifactDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: Literal["ai_operation_result"]
+    kind: Literal["operation_result"]
+    version: Literal[1]
+    status: Literal["completed", "no_change", "failed", "reverted"]
+    sourceDraftId: str
+    sourceOperationId: str | None = None
+    payload: AIPublicOperationResultCardDTO
+
+    @model_validator(mode="after")
+    def validate_stable_identity(self) -> "AIOperationResultArtifactDTO":
+        if self.id != f"ai_operation_result:{self.sourceDraftId}":
+            raise ValueError("operation result artifact id must be Draft-keyed")
+        if self.payload.id != f"operation-result:{self.sourceDraftId}":
+            raise ValueError("operation result card id must be Draft-keyed")
+        if self.payload.data.draft_id != self.sourceDraftId:
+            raise ValueError("operation result payload draft id must match artifact")
+        if self.payload.data.operation_id != self.sourceOperationId:
+            raise ValueError("operation result operation id must match artifact")
+        return self
+
+
 class AIRecommendationSelectionRequest(BaseModel):
     part_id: str
     card_id: str
@@ -862,5 +920,5 @@ class AIApprovalDecisionResponse(BaseModel):
     business_entity: dict | None = None
     operation_result: AIOperationResultProjectionOut | None = None
     result_part: AIMessagePartDTO | None = None
-    artifacts: list[dict] = Field(default_factory=list)
+    artifacts: list[AIOperationResultArtifactDTO] = Field(default_factory=list)
     cache_scopes: list[str] = Field(default_factory=list)

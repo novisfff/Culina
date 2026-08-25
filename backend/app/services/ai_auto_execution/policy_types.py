@@ -195,7 +195,8 @@ class DraftCommitResult:
     receipt: DraftExecutionReceipt
     projection: AIOperationResultProjection
     result_part: dict[str, Any]
-    artifacts: tuple[dict[str, Any], ...]
+    internal_artifacts: tuple[dict[str, Any], ...]
+    public_artifacts: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True, slots=True)

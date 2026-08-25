@@ -711,8 +711,12 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     for artifact in (assistant_message.message_metadata or {}).get("artifacts", [])
                     if isinstance(artifact, dict)
                 ]
-                self.assertTrue(any(str(artifact.get("id") or "").startswith("entity:") for artifact in metadata_artifacts))
-                self.assertTrue(any(artifact.get("type") == "meal_plan" and artifact.get("kind") == "business_entity" for artifact in metadata_artifacts))
+                self.assertEqual(
+                    [artifact.get("id") for artifact in metadata_artifacts],
+                    [f"ai_operation_result:{meal_plan_approval['draft_id']}"],
+                )
+                self.assertEqual(metadata_artifacts[0].get("type"), "ai_operation_result")
+                self.assertEqual(metadata_artifacts[0].get("kind"), "operation_result")
                 card_types = [
                     part["card"]["type"]
                     for part in assistant_message.parts
