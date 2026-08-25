@@ -34,9 +34,11 @@ from app.services.inventory_operations import (
 )
 from app.services.inventory_usage import tracks_quantity
 from app.services.inventory_versions import InventoryConflictError, require_expected_version
+from app.repos.inventory_operations import IDEMPOTENCY_KEY_REUSED_CODE
 
 
 MISSING_INVENTORY_BOUNDARY_DETAIL = "库存草稿缺少并发校验信息，请重新生成后确认"
+IDEMPOTENCY_KEY_REUSED_RECOVERY_HINT = "请重新生成新的草稿后再提交"
 
 
 def _required_row_version(operation: dict[str, Any], key: str) -> int:
@@ -254,6 +256,12 @@ def execute_inventory_operation_draft(
     except PresenceStateRequiredError as exc:
         raise ValueError(str(exc)) from exc
     except InventoryConflictError as exc:
+        if exc.code == IDEMPOTENCY_KEY_REUSED_CODE:
+            raise AIConflictError(
+                exc.message,
+                code=exc.code,
+                recovery_hint=IDEMPOTENCY_KEY_REUSED_RECOVERY_HINT,
+            ) from exc
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     except StaleDataError as exc:
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
@@ -333,6 +341,12 @@ def execute_inventory_operation_draft_with_ledger(
     except PresenceStateRequiredError as exc:
         raise ValueError(str(exc)) from exc
     except InventoryConflictError as exc:
+        if exc.code == IDEMPOTENCY_KEY_REUSED_CODE:
+            raise AIConflictError(
+                exc.message,
+                code=exc.code,
+                recovery_hint=IDEMPOTENCY_KEY_REUSED_RECOVERY_HINT,
+            ) from exc
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     except StaleDataError as exc:
         raise AIConflictError(STALE_INVENTORY_DETAIL) from exc

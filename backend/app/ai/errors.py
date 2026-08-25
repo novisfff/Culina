@@ -9,6 +9,17 @@ if TYPE_CHECKING:
 class AIConflictError(ValueError):
     """The requested AI state transition conflicts with persisted state."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        recovery_hint: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.recovery_hint = recovery_hint
+
 
 class AIExecutionCancelled(RuntimeError):
     """The current AI run was cancelled and should stop cooperatively."""

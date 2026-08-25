@@ -51,6 +51,7 @@ SAFE_FAILURE_EXPLANATIONS = {
     "draft_commit_transient_database_error": "数据库暂时不可用，请重试原草稿",
     "draft_commit_database_error": "数据库写入失败，请稍后重试",
     "draft_commit_domain_conflict": "目标状态已变化，请刷新后重新生成草稿",
+    "idempotency_key_reused": "相同操作标识已用于不同内容，请重新生成草稿",
 }
 DEFAULT_FAILURE_EXPLANATION = "操作未能完成，请稍后重新生成草稿"
 

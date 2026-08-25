@@ -6,15 +6,26 @@ from types import SimpleNamespace
 
 from sqlalchemy import select
 
+from app.ai.errors import AIConflictError
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.core.enums import (
+    FoodType,
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
+    InventoryAvailabilityLevel,
+    InventoryConfirmationSource,
     InventoryOperationEntityType,
     InventoryOperationType,
+    InventoryStatus,
     UserRole,
 )
-from app.models.domain import Ingredient, InventoryItem, InventoryOperation
+from app.models.domain import (
+    Food,
+    Ingredient,
+    IngredientInventoryState,
+    InventoryItem,
+    InventoryOperation,
+)
 from app.services.ai_operations.common import assert_updated_at_matches
 from app.services.ai_operations.inventory_intake import normalize_inventory_intake_draft
 from app.services.ai_operations.registry import draft_operation_registry
@@ -26,7 +37,12 @@ from app.services.ai_revert.registry import build_ai_revert_adapter_registry
 from app.services.ai_revert.adapters.inventory_operation_ref import InventoryOperationRefAdapter
 from app.services.ai_revert.errors import AIRevertDependencyExists, AIRevertTargetChanged
 from app.services.ai_revert.types import AIRevertContext
-from app.services.inventory_operations import consume_ingredient_inventory
+from app.services.inventory_operations import (
+    apply_inventory_quantity_operation,
+    consume_ingredient_inventory,
+)
+from app.services.food_stock import apply_food_stock_consume
+from app.services.ingredient_inventory_state import upsert_inventory_state
 from app.services.clock import today_for_family
 
 from ._support import AIAgentInfraTestCase
@@ -85,6 +101,54 @@ class AIInventoryOperationRevertTest(AIAgentInfraTestCase):
                             "notes": "",
                         }
                     ],
+                },
+            )
+        )
+
+    def _normalize_target_intake(
+        self,
+        db,
+        *,
+        source_type: str,
+        suffix: str,
+        target_kind: str,
+        target_id: str,
+    ) -> dict:
+        item = {
+            "lineId": f"line-{suffix}",
+            "sourceLineId": f"source-{suffix}",
+            "sourceText": "补充库存",
+            "sourceKind": "direct",
+            "action": "stock_only",
+            "targetKind": target_kind,
+            "targetId": target_id,
+            "enteredQuantity": "1",
+            "enteredUnit": "份" if target_kind == "food" else "袋",
+            "inventoryStatus": "fresh",
+            "storageLocation": "冷藏" if target_kind == "food" else "常温",
+            "notes": "",
+        }
+        if target_kind == "presence_ingredient":
+            item.pop("enteredQuantity")
+            item.pop("enteredUnit")
+            item["resultingAvailabilityLevel"] = "sufficient"
+        return normalize_inventory_intake_draft(
+            DraftNormalizeContext(
+                db=db,
+                draft_type="inventory_intake",
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id=f"conversation-task-13-{suffix}",
+                payload={
+                    "draftType": "inventory_intake",
+                    "schemaVersion": "inventory_intake.v1",
+                    "sourceType": source_type,
+                    "sourceReference": {"kind": "test", "id": suffix},
+                    "intakeDate": "2026-08-24",
+                    "intakeDateSource": "user_explicit",
+                    "clientRequestId": f"task-13-intake:{suffix}",
+                    "ignoredItems": [],
+                    "items": [item],
                 },
             )
         )
@@ -251,6 +315,29 @@ class AIInventoryOperationRevertTest(AIAgentInfraTestCase):
             self.assertEqual(item.consumed_quantity, Decimal("1"))
             self.assertEqual(first.revert_context, replay.revert_context)
             self.assertEqual(first.business_entity, replay.business_entity)
+
+    def test_confirmed_ai_consume_same_key_different_payload_preserves_idempotency_conflict(self) -> None:
+        with self.SessionLocal() as db:
+            payload = self._normalize_quantity(db, action="consume")
+            self._execute(db, draft_type="inventory_operation", payload=payload, suffix="consume-key-conflict")
+            conflicting_payload = {
+                **payload,
+                "operations": [{**payload["operations"][0], "quantity": "2"}],
+            }
+
+            with self.assertRaises(AIConflictError) as raised:
+                self._execute(
+                    db,
+                    draft_type="inventory_operation",
+                    payload=conflicting_payload,
+                    suffix="consume-key-conflict",
+                )
+
+            item = db.get(InventoryItem, "inventory-tomato")
+            assert item is not None
+            self.assertEqual(item.consumed_quantity, Decimal("1"))
+            self.assertEqual(raised.exception.code, "idempotency_key_reused")
+            self.assertIn("新的草稿", raised.exception.recovery_hint)
 
     def test_confirmed_ai_dispose_uses_one_hour_snapshot_ledger(self) -> None:
         with self.SessionLocal() as db:
@@ -438,6 +525,204 @@ class AIInventoryOperationRevertTest(AIAgentInfraTestCase):
                 today=today_for_family(self.family.id),
             )
             db.flush()
+            with self.assertRaises(AIRevertDependencyExists):
+                InventoryOperationRefAdapter().revert(
+                    self._adapter_context(
+                        db,
+                        receipt=receipt,
+                        actor_user_id=self.user.id,
+                        actor_role=UserRole.OWNER,
+                        now=COMMITTED_AT + timedelta(minutes=10),
+                    )
+                )
+
+    def test_reference_adapter_translates_later_sibling_batch_disposal_to_dependency(self) -> None:
+        with self.SessionLocal() as db:
+            sibling = InventoryItem(
+                id="inventory-task-13-sibling",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                quantity=Decimal("3"),
+                consumed_quantity=Decimal("0"),
+                disposed_quantity=Decimal("0"),
+                unit="个",
+                status="fresh",
+                purchase_date=date(2026, 8, 25),
+                storage_location="冷藏",
+                low_stock_threshold=Decimal("0"),
+            )
+            db.add(sibling)
+            db.flush()
+            payload = self._normalize_quantity(db, action="consume")
+            receipt = self._execute(db, draft_type="inventory_operation", payload=payload, suffix="sibling-dependency")
+            apply_inventory_quantity_operation(
+                db,
+                family_id=self.family.id,
+                actor_user_id=self.user.id,
+                operation_type="dispose",
+                ingredient_id="ingredient-tomato",
+                inventory_item_id=sibling.id,
+                quantity=Decimal("1"),
+                unit="个",
+                reason="变质",
+                client_request_id="task-13:sibling-dispose",
+                now=COMMITTED_AT + timedelta(minutes=1),
+            )
+
+            with self.assertRaises(AIRevertDependencyExists):
+                InventoryOperationRefAdapter().revert(
+                    self._adapter_context(
+                        db,
+                        receipt=receipt,
+                        actor_user_id=self.user.id,
+                        actor_role=UserRole.OWNER,
+                        now=COMMITTED_AT + timedelta(minutes=10),
+                    )
+                )
+
+    def test_reference_adapter_translates_later_sibling_intake_to_dependency(self) -> None:
+        for original_kind in ("consume", "intake"):
+            with self.subTest(original_kind=original_kind), self.SessionLocal() as db:
+                if original_kind == "consume":
+                    original_payload = self._normalize_quantity(db, action="consume")
+                    receipt = self._execute(
+                        db,
+                        draft_type="inventory_operation",
+                        payload=original_payload,
+                        suffix=f"later-intake-{original_kind}-original",
+                    )
+                else:
+                    original_payload = self._normalize_direct_intake(
+                        db,
+                        source_type="gift",
+                        suffix=f"later-intake-{original_kind}-original",
+                    )
+                    receipt = self._execute(
+                        db,
+                        draft_type="inventory_intake",
+                        payload=original_payload,
+                        suffix=f"later-intake-{original_kind}-original",
+                    )
+                later_payload = self._normalize_direct_intake(
+                    db,
+                    source_type="gift",
+                    suffix=f"later-intake-{original_kind}-later",
+                )
+                self._execute(
+                    db,
+                    draft_type="inventory_intake",
+                    payload=later_payload,
+                    suffix=f"later-intake-{original_kind}-later",
+                )
+
+                with self.assertRaises(AIRevertDependencyExists):
+                    InventoryOperationRefAdapter().revert(
+                        self._adapter_context(
+                            db,
+                            receipt=receipt,
+                            actor_user_id=self.user.id,
+                            actor_role=UserRole.OWNER,
+                            now=COMMITTED_AT + timedelta(minutes=10),
+                        )
+                    )
+
+    def test_reference_adapter_translates_later_food_stock_operation_to_dependency(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            food.type = FoodType.READY_MADE
+            db.flush()
+            original_payload = self._normalize_target_intake(
+                db,
+                source_type="reconciliation",
+                suffix="food-dependency-original",
+                target_kind="food",
+                target_id="food-tomato",
+            )
+            receipt = self._execute(
+                db,
+                draft_type="inventory_intake",
+                payload=original_payload,
+                suffix="food-dependency-original",
+            )
+            apply_food_stock_consume(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food=food,
+                quantity=Decimal("1"),
+                unit="份",
+                note="餐食记录扣减",
+            )
+
+            with self.assertRaises(AIRevertDependencyExists):
+                InventoryOperationRefAdapter().revert(
+                    self._adapter_context(
+                        db,
+                        receipt=receipt,
+                        actor_user_id=self.user.id,
+                        actor_role=UserRole.OWNER,
+                        now=COMMITTED_AT + timedelta(minutes=10),
+                    )
+                )
+
+    def test_reference_adapter_translates_later_presence_operation_to_dependency(self) -> None:
+        with self.SessionLocal() as db:
+            ingredient = Ingredient(
+                id="ingredient-task-13-presence-dependency",
+                family_id=self.family.id,
+                name="胡椒",
+                category="调味",
+                default_unit="袋",
+                unit_conversions=[],
+                default_storage="常温",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                notes="",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(ingredient)
+            db.flush()
+            original_payload = self._normalize_target_intake(
+                db,
+                source_type="initial_inventory",
+                suffix="presence-dependency-original",
+                target_kind="presence_ingredient",
+                target_id=ingredient.id,
+            )
+            receipt = self._execute(
+                db,
+                draft_type="inventory_intake",
+                payload=original_payload,
+                suffix="presence-dependency-original",
+            )
+            state_id = db.scalar(
+                select(IngredientInventoryState.id).where(
+                    IngredientInventoryState.ingredient_id == ingredient.id
+                )
+            )
+            assert state_id is not None
+            state = upsert_inventory_state(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                ingredient=ingredient,
+                expected_ingredient_row_version=ingredient.row_version,
+                state_id=state_id,
+                expected_state_row_version=1,
+                availability_level=InventoryAvailabilityLevel.LOW,
+                inventory_status=InventoryStatus.FRESH,
+                purchase_date=None,
+                expiry_date=None,
+                storage_location="常温",
+                notes="",
+                confirmation_source=InventoryConfirmationSource.RECONCILIATION,
+                record_activity=True,
+            )
+            self.assertEqual(state.id, state_id)
+            db.flush()
+
             with self.assertRaises(AIRevertDependencyExists):
                 InventoryOperationRefAdapter().revert(
                     self._adapter_context(

@@ -664,7 +664,28 @@ class DraftCommitCoordinator:
                 error_code=DATABASE_FAILURE_ERROR_CODE,
                 error_message=DATABASE_FAILURE_ERROR_MESSAGE,
             )
-        except Exception as exc:
+        except AIConflictError as exc:
+            if request.execution_mode == "manual_approval" and locked_run is not None:
+                if cancellation_wins(db, run=locked_run):
+                    raise
+            logger.exception(
+                "AI draft commit conflicted family_id=%s draft_id=%s operation_id=%s mode=%s",
+                request.family_id,
+                request.draft_id,
+                operation.id,
+                request.execution_mode,
+            )
+            return cls._persist_failed_execution(
+                db,
+                request=request,
+                operation=operation,
+                draft=draft,
+                receipt=receipt,
+                error_code=exc.code or DOMAIN_CONFLICT_ERROR_CODE,
+                error_message=DOMAIN_CONFLICT_ERROR_MESSAGE,
+                recovery_hint=exc.recovery_hint,
+            )
+        except Exception:
             if request.execution_mode == "manual_approval" and locked_run is not None:
                 if cancellation_wins(db, run=locked_run):
                     raise
@@ -681,16 +702,8 @@ class DraftCommitCoordinator:
                 operation=operation,
                 draft=draft,
                 receipt=receipt,
-                error_code=(
-                    DOMAIN_CONFLICT_ERROR_CODE
-                    if isinstance(exc, AIConflictError)
-                    else DOMAIN_FAILURE_ERROR_CODE
-                ),
-                error_message=(
-                    DOMAIN_CONFLICT_ERROR_MESSAGE
-                    if isinstance(exc, AIConflictError)
-                    else DOMAIN_FAILURE_ERROR_MESSAGE
-                ),
+                error_code=DOMAIN_FAILURE_ERROR_CODE,
+                error_message=DOMAIN_FAILURE_ERROR_MESSAGE,
             )
 
     @classmethod
@@ -704,9 +717,14 @@ class DraftCommitCoordinator:
         receipt: DraftExecutionReceipt | None,
         error_code: str,
         error_message: str,
+        recovery_hint: str | None = None,
     ) -> DraftCommitResult:
         operation.status = "failed"
-        operation.result_json = None
+        operation.result_json = (
+            {"failure": {"recovery_hint": recovery_hint}}
+            if recovery_hint is not None
+            else None
+        )
         operation.business_entity_ids = []
         operation.error_code = error_code
         operation.error_message = error_message
@@ -1193,10 +1211,21 @@ class DraftCommitCoordinator:
             server_now=request.committed_at,
         )
         workspace_label = draft_operation_registry.workspace_label(draft.draft_type)
+        failure = (
+            operation.result_json.get("failure")
+            if isinstance(operation.result_json, dict)
+            and isinstance(operation.result_json.get("failure"), dict)
+            else {}
+        )
+        explicit_recovery_hint = failure.get("recovery_hint")
         recovery_hint = (
-            "请检查当前状态后重新生成草稿"
-            if projection.result_status == "failed"
-            else None
+            str(explicit_recovery_hint)
+            if explicit_recovery_hint
+            else (
+                "请检查当前状态后重新生成草稿"
+                if projection.result_status == "failed"
+                else None
+            )
         )
         card = build_operation_result_card(
             projection,

@@ -859,6 +859,43 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
             self.assertEqual(draft.status, "execution_failed")
             self.assertEqual(db.scalar(select(func.count()).select_from(AIApprovalRequest)), 0)
 
+    def test_policy_structured_domain_conflict_persists_code_and_recovery_hint(self) -> None:
+        with self.SessionLocal() as db:
+            run, draft, request = self._seed_policy_draft(db, suffix="structured-domain-conflict")
+            run = db.get(AIAgentRun, run.id)
+            draft = db.get(AITaskDraft, draft.id)
+            assert run is not None and draft is not None
+            with patch(
+                "app.services.ai_operations.commit_coordinator.execute_ai_operation_draft",
+                side_effect=AIConflictError(
+                    "相同请求标识已用于不同内容",
+                    code="idempotency_key_reused",
+                    recovery_hint="请重新生成新的草稿后再提交",
+                ),
+            ):
+                result = DraftCommitCoordinator.commit_locked(
+                    db,
+                    request=request,
+                    locked_run=run,
+                    locked_draft=draft,
+                )
+
+            operation = db.get(AIOperation, result.operation_id)
+            assert operation is not None
+            self.assertEqual(operation.error_code, "idempotency_key_reused")
+            self.assertEqual(
+                operation.result_json,
+                {"failure": {"recovery_hint": "请重新生成新的草稿后再提交"}},
+            )
+            self.assertEqual(
+                result.result_part["card"]["data"]["errorCode"],
+                "idempotency_key_reused",
+            )
+            self.assertEqual(
+                result.result_part["card"]["data"]["recoveryHint"],
+                "请重新生成新的草稿后再提交",
+            )
+
     def test_policy_retry_rechecks_original_actor_membership_authorization_target_and_attempt(self) -> None:
         scenarios = ("actor", "membership", "authorization", "target", "attempt")
         for scenario in scenarios:
