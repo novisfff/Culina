@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import event, select, update
@@ -10,6 +11,7 @@ from sqlalchemy import event, select, update
 from ._support import AIAgentInfraTestCase
 
 from app.core.enums import (
+    FamilyModelSearchProfileStatus,
     FoodType,
     InventoryOperationChangeType,
     InventoryOperationEntityType,
@@ -34,7 +36,10 @@ from app.models.domain import (
     SearchIndexJob,
     ShoppingListItem,
 )
-from app.models.family_model_settings import FamilySearchProfileDocument
+from app.models.family_model_settings import (
+    FamilySearchProfile,
+    FamilySearchProfileDocument,
+)
 from app.services.ai_operations.common import assert_updated_at_matches
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import DraftExecuteContext
@@ -47,10 +52,46 @@ from app.services.ai_operations.result_projection import (
 from app.services.ai_revert.coordinator import AIRevertCoordinator
 from app.services.ai_revert.errors import AIRevertError
 from app.services.ai_revert.registry import build_ai_revert_adapter_registry
-from app.services.search.jobs import process_search_index_job
+from app.services.search.jobs import (
+    process_search_index_job,
+    retry_failed_search_index_job,
+)
+from app.services.search.vector_store import VectorStoreUnavailableError
 
 
 NOW = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+
+
+class _InMemoryVectorStore:
+    def __init__(self) -> None:
+        self.points: dict[str, tuple[list[float], dict[str, object]]] = {}
+        self.fail_delete_count = 0
+
+    def upsert_point(
+        self,
+        *,
+        point_id: str,
+        vector: list[float],
+        payload: dict[str, object],
+    ) -> None:
+        self.points[point_id] = (list(vector), dict(payload))
+
+    def delete_point(self, *, point_id: str) -> None:
+        if self.fail_delete_count:
+            self.fail_delete_count -= 1
+            raise VectorStoreUnavailableError("qdrant unavailable")
+        self.points.pop(point_id, None)
+
+
+class _ProfileVectorStoreRegistry:
+    def __init__(self) -> None:
+        self.stores: dict[str, _InMemoryVectorStore] = {}
+
+    def store(self, collection: str) -> _InMemoryVectorStore:
+        return self.stores.setdefault(collection, _InMemoryVectorStore())
+
+    def build(self, _settings, *, qdrant_collection: str):
+        return self.store(qdrant_collection)
 
 
 class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
@@ -210,6 +251,131 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
         db.add_all((second_food, meal_log, *entries))
         db.flush()
         return meal_log, entries
+
+    def _simple_plan_payload(self, *, reason: str) -> dict:
+        return {
+            "draftType": "meal_plan",
+            "schemaVersion": "meal_plan.v1",
+            "source": {},
+            "items": [
+                {
+                    "date": "2026-08-28",
+                    "mealType": "dinner",
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
+                    "recipeId": None,
+                    "reason": reason,
+                    "usedInventory": [],
+                    "missingIngredients": [],
+                    "missingIngredientItems": [],
+                    "source": {},
+                }
+            ],
+        }
+
+    def _seed_plan_vector_state(
+        self,
+        db,
+        *,
+        plan_id: str,
+        suffix: str,
+        registry: _ProfileVectorStoreRegistry,
+    ) -> tuple[str, str, str, str]:
+        profile_id = f"profile-task-11-{suffix}"
+        other_profile_id = f"profile-task-11-{suffix}-other"
+        collection = f"culina_fsp_task_11_{suffix}"
+        other_collection = f"culina_fsp_task_11_{suffix}_other"
+        document_id = f"search-doc-task-11-{suffix}"
+        other_document_id = f"search-doc-task-11-{suffix}-other"
+        profile_document_id = f"profile-doc-task-11-{suffix}"
+        other_profile_document_id = f"profile-doc-task-11-{suffix}-other"
+        db.add_all(
+            (
+                FamilySearchProfile(
+                    id=profile_id,
+                    family_id=self.family.id,
+                    provider_profile_id=f"provider-{suffix}",
+                    provider_profile_version_id=f"provider-version-{suffix}",
+                    adapter_kind="openai_compatible_http",
+                    embedding_model="embedding-test",
+                    dimensions=2,
+                    distance="Cosine",
+                    document_builder_version="test",
+                    index_identity_checksum=f"identity-{suffix}",
+                    qdrant_collection=collection,
+                    status=FamilyModelSearchProfileStatus.ACTIVE,
+                ),
+                FamilySearchProfile(
+                    id=other_profile_id,
+                    family_id=self.other_family.id,
+                    provider_profile_id=f"provider-{suffix}-other",
+                    provider_profile_version_id=f"provider-version-{suffix}-other",
+                    adapter_kind="openai_compatible_http",
+                    embedding_model="embedding-test",
+                    dimensions=2,
+                    distance="Cosine",
+                    document_builder_version="test",
+                    index_identity_checksum=f"identity-{suffix}-other",
+                    qdrant_collection=other_collection,
+                    status=FamilyModelSearchProfileStatus.ACTIVE,
+                ),
+                SearchDocument(
+                    id=document_id,
+                    family_id=self.family.id,
+                    entity_type="meal_plan",
+                    entity_id=plan_id,
+                    content_hash="a" * 64,
+                    document_builder_version="test",
+                ),
+                SearchDocument(
+                    id=other_document_id,
+                    family_id=self.other_family.id,
+                    entity_type="meal_plan",
+                    entity_id=plan_id,
+                    content_hash="b" * 64,
+                    document_builder_version="test",
+                ),
+                FamilySearchProfileDocument(
+                    id=profile_document_id,
+                    family_id=self.family.id,
+                    search_profile_id=profile_id,
+                    search_document_id=document_id,
+                    content_hash="a" * 64,
+                    status="indexed",
+                ),
+                FamilySearchProfileDocument(
+                    id=other_profile_document_id,
+                    family_id=self.other_family.id,
+                    search_profile_id=other_profile_id,
+                    search_document_id=other_document_id,
+                    content_hash="b" * 64,
+                    status="indexed",
+                ),
+            )
+        )
+        point_id = f"meal_plan:{plan_id}"
+        registry.store(collection).upsert_point(
+            point_id=point_id,
+            vector=[0.1, 0.2],
+            payload={
+                "family_id": self.family.id,
+                "search_profile_id": profile_id,
+                "entity_type": "meal_plan",
+                "entity_id": plan_id,
+            },
+        )
+        registry.store(other_collection).upsert_point(
+            point_id=point_id,
+            vector=[0.3, 0.4],
+            payload={
+                "family_id": self.other_family.id,
+                "search_profile_id": other_profile_id,
+                "entity_type": "meal_plan",
+                "entity_id": plan_id,
+            },
+        )
+        db.flush()
+        return profile_document_id, other_profile_document_id, collection, other_collection
 
     def _exercise_permission_fixture(
         self,
@@ -1336,26 +1502,9 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             )
 
     def test_simple_plan_revert_job_processes_deletion_cleanup_to_success(self) -> None:
+        registry = _ProfileVectorStoreRegistry()
         with self.SessionLocal() as db:
-            payload = {
-                "draftType": "meal_plan",
-                "schemaVersion": "meal_plan.v1",
-                "source": {},
-                "items": [
-                    {
-                        "date": "2026-08-28",
-                        "mealType": "dinner",
-                        "title": "番茄小炒",
-                        "foodId": "food-tomato",
-                        "recipeId": None,
-                        "reason": "search cleanup",
-                        "usedInventory": [],
-                        "missingIngredients": [],
-                        "missingIngredientItems": [],
-                        "source": {},
-                    }
-                ],
-            }
+            payload = self._simple_plan_payload(reason="search cleanup")
             receipt = self._execute_receipt(db, draft_type="meal_plan", payload=payload, suffix="plan-search")
             plan_id = receipt.entity_ids[0]
             for job in db.scalars(
@@ -1366,27 +1515,16 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 )
             ):
                 job.status = "completed"
-            db.add(
-                SearchDocument(
-                    id="search-doc-task-11-plan",
-                    family_id=self.family.id,
-                    entity_type="meal_plan",
-                    entity_id=plan_id,
-                    content_hash="a" * 64,
-                    document_builder_version="test",
-                )
-            )
-            db.add(
-                FamilySearchProfileDocument(
-                    id="profile-doc-task-11-plan",
-                    family_id=self.family.id,
-                    search_profile_id="profile-task-11-plan",
-                    search_document_id="search-doc-task-11-plan",
-                    content_hash="a" * 64,
-                    status="indexed",
-                    vector_json=[0.1, 0.2],
-                    vector_dimensions=2,
-                )
+            (
+                profile_document_id,
+                other_profile_document_id,
+                collection,
+                other_collection,
+            ) = self._seed_plan_vector_state(
+                db,
+                plan_id=plan_id,
+                suffix="plan-success",
+                registry=registry,
             )
             operation = self._persist_receipt_operation(
                 db,
@@ -1399,7 +1537,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self._revert(db, operation, suffix="plan-search")
             db.commit()
 
-            self.assertIsNone(
+            self.assertIsNotNone(
                 db.scalar(
                     select(SearchDocument).where(
                         SearchDocument.family_id == self.family.id,
@@ -1408,6 +1546,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                     )
                 )
             )
+            self.assertIsNotNone(db.get(FamilySearchProfileDocument, profile_document_id))
             queued = list(
                 db.scalars(
                     select(SearchIndexJob).where(
@@ -1420,8 +1559,14 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             )
             self.assertEqual(len(queued), 1)
             cleanup_job_id = queued[0].id
+            self.assertEqual(queued[0].vector_status, "delete_pending")
 
-        process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
+        point_id = f"meal_plan:{plan_id}"
+        self.assertIn(point_id, registry.store(collection).points)
+        self.assertIn(point_id, registry.store(other_collection).points)
+        with patch("app.services.search.jobs.build_vector_store", side_effect=registry.build):
+            process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
+            process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
 
         with self.SessionLocal() as db:
             cleanup_job = db.get(SearchIndexJob, cleanup_job_id)
@@ -1431,9 +1576,109 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertEqual(cleanup_job.attempt_count, 0)
             self.assertIsNone(cleanup_job.error)
             self.assertIsNone(cleanup_job.error_code)
-            self.assertIsNone(
-                db.get(FamilySearchProfileDocument, "profile-doc-task-11-plan")
+            self.assertIsNone(db.get(FamilySearchProfileDocument, profile_document_id))
+            self.assertIsNotNone(
+                db.get(FamilySearchProfileDocument, other_profile_document_id)
             )
+            self.assertIsNone(
+                db.scalar(
+                    select(SearchDocument).where(
+                        SearchDocument.family_id == self.family.id,
+                        SearchDocument.entity_type == "meal_plan",
+                        SearchDocument.entity_id == plan_id,
+                    )
+                )
+            )
+        self.assertNotIn(point_id, registry.store(collection).points)
+        self.assertIn(point_id, registry.store(other_collection).points)
+
+    def test_simple_plan_vector_delete_failure_retries_without_losing_cleanup_identity(self) -> None:
+        registry = _ProfileVectorStoreRegistry()
+        with self.SessionLocal() as db:
+            payload = self._simple_plan_payload(reason="search cleanup retry")
+            receipt = self._execute_receipt(
+                db,
+                draft_type="meal_plan",
+                payload=payload,
+                suffix="plan-search-retry",
+            )
+            plan_id = receipt.entity_ids[0]
+            for job in db.scalars(
+                select(SearchIndexJob).where(
+                    SearchIndexJob.family_id == self.family.id,
+                    SearchIndexJob.entity_type == "meal_plan",
+                    SearchIndexJob.entity_id == plan_id,
+                )
+            ):
+                job.status = "completed"
+            profile_document_id, _, collection, _ = self._seed_plan_vector_state(
+                db,
+                plan_id=plan_id,
+                suffix="plan-retry",
+                registry=registry,
+            )
+            operation = self._persist_receipt_operation(
+                db,
+                draft_type="meal_plan",
+                payload=payload,
+                receipt=receipt,
+                suffix="plan-search-retry",
+            )
+            self._revert(db, operation, suffix="plan-search-retry")
+            db.commit()
+            cleanup_job = db.scalar(
+                select(SearchIndexJob).where(
+                    SearchIndexJob.family_id == self.family.id,
+                    SearchIndexJob.entity_type == "meal_plan",
+                    SearchIndexJob.entity_id == plan_id,
+                    SearchIndexJob.status == "queued",
+                )
+            )
+            assert cleanup_job is not None
+            cleanup_job_id = cleanup_job.id
+
+        point_id = f"meal_plan:{plan_id}"
+        registry.store(collection).fail_delete_count = 1
+        with patch("app.services.search.jobs.build_vector_store", side_effect=registry.build):
+            process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
+
+        with self.SessionLocal() as db:
+            failed_job = db.get(SearchIndexJob, cleanup_job_id)
+            assert failed_job is not None
+            self.assertEqual(failed_job.status, "failed")
+            self.assertEqual(failed_job.vector_status, "delete_pending")
+            self.assertEqual(failed_job.error_code, "search_vector_unavailable")
+            self.assertEqual(failed_job.attempt_count, 0)
+            self.assertIsNotNone(db.get(FamilySearchProfileDocument, profile_document_id))
+            self.assertIsNotNone(
+                db.scalar(
+                    select(SearchDocument).where(
+                        SearchDocument.family_id == self.family.id,
+                        SearchDocument.entity_type == "meal_plan",
+                        SearchDocument.entity_id == plan_id,
+                    )
+                )
+            )
+            retried = retry_failed_search_index_job(
+                db,
+                family_id=self.family.id,
+                job_id=cleanup_job_id,
+            )
+            assert retried is not None
+            self.assertEqual(retried.vector_status, "delete_pending")
+            db.commit()
+        self.assertIn(point_id, registry.store(collection).points)
+
+        with patch("app.services.search.jobs.build_vector_store", side_effect=registry.build):
+            process_search_index_job(cleanup_job_id, session_factory=self.SessionLocal)
+
+        with self.SessionLocal() as db:
+            succeeded_job = db.get(SearchIndexJob, cleanup_job_id)
+            assert succeeded_job is not None
+            self.assertEqual(succeeded_job.status, "succeeded")
+            self.assertEqual(succeeded_job.vector_status, "skipped")
+            self.assertIsNone(db.get(FamilySearchProfileDocument, profile_document_id))
+        self.assertNotIn(point_id, registry.store(collection).points)
 
     def test_favorite_current_value_mismatch_blocks_without_compensation(self) -> None:
         with self.SessionLocal() as db:

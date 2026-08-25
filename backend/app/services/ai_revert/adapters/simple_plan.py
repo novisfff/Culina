@@ -12,8 +12,7 @@ from app.services.ai_revert.errors import (
 )
 from app.services.ai_revert.types import AIRevertContext, AIRevertResult
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
-from app.services.search.indexing import delete_search_document
-from app.services.search.jobs import enqueue_search_index_job
+from app.services.search.jobs import enqueue_search_document_deletion_job
 
 
 class SimplePlanRevertAdapter:
@@ -90,14 +89,7 @@ class SimplePlanRevertAdapter:
         )
         for item_id in item_ids:
             item = items[item_id]
-            delete_search_document(
-                context.db,
-                family_id=context.family_id,
-                entity_type="meal_plan",
-                entity_id=item.id,
-                delete_vector=True,
-            )
-            enqueue_search_index_job(
+            enqueue_search_document_deletion_job(
                 context.db,
                 family_id=context.family_id,
                 user_id=context.actor_user_id,

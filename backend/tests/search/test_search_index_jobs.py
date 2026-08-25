@@ -223,6 +223,27 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
             )
             self.assertIsNone(document)
 
+    def test_missing_meal_plan_refresh_job_fails_without_deletion_marker(self) -> None:
+        self._create_job(
+            job_id="job-missing-meal-plan-refresh",
+            entity_type="meal_plan",
+            entity_id="meal-plan-missing",
+            target_name="已删除餐食计划",
+        )
+
+        process_search_index_job(
+            "job-missing-meal-plan-refresh",
+            session_factory=self.SessionLocal,
+        )
+
+        with self.SessionLocal() as db:
+            job = db.get(SearchIndexJob, "job-missing-meal-plan-refresh")
+            assert job is not None
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.vector_status, "failed")
+            self.assertEqual(job.error_code, "search_index_target_missing")
+            self.assertEqual(job.attempt_count, 1)
+
     def test_budget_blocked_job_is_requeued_only_when_period_or_policy_changes(self) -> None:
         blocked_period = datetime(2026, 7, 1, tzinfo=timezone.utc)
         self._create_job(
