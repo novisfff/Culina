@@ -198,9 +198,14 @@ describe('AI operation result state', () => {
     await user.click(button);
     expect(view.querySelector('[role="dialog"]')).toBeNull();
     expect(view.textContent).toContain('已自动执行');
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
     expect(document.activeElement).toBe(button);
     expect(view.textContent).not.toContain('已撤销');
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    await user.click(button);
+    expect(apiSpy).toHaveBeenCalledTimes(1);
     await act(async () => { resolveRequest?.(revertedResponse()); });
 
     expect(view.textContent).toContain('已撤销');

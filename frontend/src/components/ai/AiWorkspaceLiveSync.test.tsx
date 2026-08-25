@@ -164,17 +164,22 @@ describe('AiWorkspace live sync and conversation migration', () => {
     const mobileButton = rendered.container.querySelector<HTMLButtonElement>('.ai-mobile-page .ai-operation-revert-button') as HTMLButtonElement;
 
     await act(async () => { desktopButton.click(); });
-    expect(desktopButton.disabled).toBe(true);
-    expect(mobileButton.disabled).toBe(true);
+    expect(desktopButton.disabled).toBe(false);
+    expect(mobileButton.disabled).toBe(false);
+    expect(desktopButton.getAttribute('aria-disabled')).toBe('true');
+    expect(mobileButton.getAttribute('aria-disabled')).toBe('true');
     expect(desktopButton.textContent).toBe('撤销中…');
     expect(mobileButton.textContent).toBe('撤销中…');
+    expect(requestIds).toHaveLength(1);
+    await act(async () => { mobileButton.click(); });
     expect(requestIds).toHaveLength(1);
 
     await act(async () => {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
       window.dispatchEvent(new Event('resize'));
     });
-    expect(mobileButton.disabled).toBe(true);
+    expect(mobileButton.disabled).toBe(false);
+    expect(mobileButton.getAttribute('aria-disabled')).toBe('true');
 
     await act(async () => { rejectFirst?.(new TypeError('network unavailable')); });
     await flushAsync();
@@ -184,8 +189,10 @@ describe('AiWorkspace live sync and conversation migration', () => {
     await act(async () => { mobileButton.click(); });
     expect(requestIds).toHaveLength(2);
     expect(requestIds[1]).toBe(requestIds[0]);
-    expect(desktopButton.disabled).toBe(true);
-    expect(mobileButton.disabled).toBe(true);
+    expect(desktopButton.disabled).toBe(false);
+    expect(mobileButton.disabled).toBe(false);
+    expect(desktopButton.getAttribute('aria-disabled')).toBe('true');
+    expect(mobileButton.getAttribute('aria-disabled')).toBe('true');
 
     await act(async () => { resolveRetry?.(response); });
     await flushAsync();
