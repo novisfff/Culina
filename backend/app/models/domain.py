@@ -869,8 +869,17 @@ class AIAgentRun(Base):
     auto_execution_attempted: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=sa.false(), nullable=False
     )
+    # This reverse marker forms a FK cycle with AIOperation.run_id; emit it via ALTER
+    # so MySQL metadata create/drop can order the tables and constraints safely.
     auto_operation_id: Mapped[str | None] = mapped_column(
-        ForeignKey("ai_operations.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey(
+            "ai_operations.id",
+            name="fk_ai_agent_runs_auto_operation_id_ai_operations",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1108,7 +1117,13 @@ class AIOperation(Base):
     )
     draft_id: Mapped[str] = mapped_column(ForeignKey("ai_task_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
     run_id: Mapped[str | None] = mapped_column(
-        ForeignKey("ai_agent_runs.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey(
+            "ai_agent_runs.id",
+            name="fk_ai_operations_run_id_ai_agent_runs",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
     )
     actor_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

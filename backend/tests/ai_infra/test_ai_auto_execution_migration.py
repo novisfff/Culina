@@ -5,11 +5,12 @@ import json
 from collections.abc import Iterator
 
 import pytest
+from sqlalchemy import create_mock_engine
 from sqlalchemy.orm import Session
 
 from app.ai.workflows.runner_support.approval_resume_handler import ApprovalOutcome, ApprovalResumeHandler
 from app.core.enums import InventoryOperationType
-from app.models.domain import AIAgentRun, AIOperation, AITaskDraft, FoodPlanItem
+from app.models.domain import AIAgentRun, AIOperation, AITaskDraft, Base, FoodPlanItem
 from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator, derive_draft_payload_hash
 from app.services.serializers import serialize_ai_operation
 from tests.model_usage.test_migration_mysql import (
@@ -43,6 +44,18 @@ def test_models_expose_auto_execution_and_revert_columns() -> None:
     assert "row_version" in FoodPlanItem.__table__.c
     assert "consume" in {item.value for item in InventoryOperationType}
     assert "dispose" in {item.value for item in InventoryOperationType}
+
+
+def test_ai_run_operation_foreign_keys_are_drop_safe_for_mysql_metadata() -> None:
+    auto_operation_fk = next(iter(AIAgentRun.__table__.c.auto_operation_id.foreign_keys))
+    operation_run_fk = next(iter(AIOperation.__table__.c.run_id.foreign_keys))
+
+    assert auto_operation_fk.constraint.name == "fk_ai_agent_runs_auto_operation_id_ai_operations"
+    assert auto_operation_fk.constraint.use_alter is True
+    assert operation_run_fk.constraint.name == "fk_ai_operations_run_id_ai_agent_runs"
+
+    engine = create_mock_engine("mysql+pymysql://", lambda *_args, **_kwargs: None)
+    Base.metadata.drop_all(engine)
 
 
 def seed_legacy_ai_rows(database: MySqlAlembicDatabase) -> None:
