@@ -342,6 +342,27 @@ describe('AI operation result state', () => {
     await user.click(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情') as HTMLButtonElement);
     expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
   });
+
+  it.each(['expired', 'blocked', 'unsupported'] as const)('keeps navigation actions for a non-revertible %s result', async (revert_availability) => {
+    const targets: unknown[] = [];
+    const view = await renderCard(
+      operationCard({ revert_availability }),
+      undefined,
+      undefined,
+      undefined,
+      (target) => targets.push(target),
+    );
+
+    const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情');
+    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置');
+    expect(detail).toBeDefined();
+    expect(settings).toBeDefined();
+    expect(detail).toBeEnabled();
+    expect(settings).toBeEnabled();
+
+    await userEvent.setup().click(detail!);
+    expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
+  });
 });
 
 describe('AI query result cards', () => {

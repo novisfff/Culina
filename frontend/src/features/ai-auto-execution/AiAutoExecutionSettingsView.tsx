@@ -18,11 +18,16 @@ export function AiAutoExecutionSettingsView(props: { familyId: string; isOwner: 
   const memberRows = new Map(state.settings.member_preferences.map((row) => [row.action_key, row]));
   const shopping = state.settings.family_policies.find((row) => row.action_key === 'shopping_list.safe_write');
   const runToggle = (scope: 'member' | 'family', row: AiAutoExecutionSettingRow) => {
-    if (row.requires_reconsent || (!row.enabled && !state.settings!.consent_notice.acknowledged)) {
+    // `enabled` is the stored preference; only `effective_enabled` describes
+    // whether the current notice/version actually authorizes execution.  A
+    // stale consent therefore renders as off and is treated as an enable
+    // action (with consent), while an effectively enabled row can be turned
+    // off immediately.
+    if (!row.effective_enabled && (row.requires_reconsent || !state.settings!.consent_notice.acknowledged)) {
       setConsent({ familyId: props.familyId, scope, row });
       return;
     }
-    void state.update(scope, row, !row.enabled);
+    void state.update(scope, row, !row.effective_enabled);
   };
   const rowFor = (key: AiAutoExecutionActionKey) => memberRows.get(key);
 

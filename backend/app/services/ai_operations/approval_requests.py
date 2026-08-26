@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AITaskDraft
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.status import DRAFT_PENDING_CONFIRMATION
 
 
 def create_ai_draft_approval(
@@ -38,7 +39,7 @@ def create_ai_draft_approval(
         draft_type=draft_type,
         payload=payload,
         preview_summary=preview_summary,
-        status="pending",
+        status=DRAFT_PENDING_CONFIRMATION,
         version=1,
         schema_version=schema_version or f"{draft_type}.v1",
         validation_errors=[],

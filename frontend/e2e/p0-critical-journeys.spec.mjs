@@ -488,7 +488,7 @@ function operationCardByTitle(surface, title) {
 test.describe('P0 unauthenticated entry', () => {
   test.use({ authenticated: false });
 
-  test('@p0 signs in and restores the family kitchen session', async ({ app }, testInfo) => {
+  test('@p0 signs in and restores the family kitchen session', async ({ app, context }, testInfo) => {
     const { page } = app;
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -513,9 +513,13 @@ test.describe('P0 unauthenticated entry', () => {
       password: 'p0-password',
     });
     await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
-    expect(
-      await page.evaluate(() => localStorage.getItem('culina-access-token')),
-    ).toBe('smoke-token');
+    expect(await page.evaluate(() => localStorage.getItem('culina-access-token'))).toBeNull();
+    const refreshCookie = (await context.cookies()).find((cookie) => cookie.name === 'culina-refresh');
+    expect(refreshCookie).toMatchObject({
+      httpOnly: true,
+      path: '/api/auth',
+      sameSite: 'Strict',
+    });
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();

@@ -157,6 +157,11 @@ class AIRunCancellationConcurrencyTestCase(AIAgentInfraTestCase):
         self.assertEqual(after_operation_count, before_operation_count)
         self.assertEqual(after_food_count, before_food_count)
         self.assertEqual(cancel_count, 1)
+        with self.SessionLocal() as db:
+            draft = db.get(AITaskDraft, approval["draft_id"])
+            self.assertIsNotNone(draft)
+            assert draft is not None
+            self.assertEqual(draft.status, "cancelled")
 
     def test_approval_business_write_commits_once_then_cancel_stops_continuation(self) -> None:
         provider = FollowupCountingProvider()

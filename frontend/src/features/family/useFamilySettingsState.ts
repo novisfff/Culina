@@ -280,9 +280,6 @@ export function useFamilySettingsState(input: {
         current_password: passwordForm.currentPassword,
         new_password: passwordForm.newPassword,
       });
-      resetPasswordForm();
-      closeOverlay();
-      input.showNotice({ tone: 'success', title: '密码已更新', message: '下次登录请使用新密码。' });
     } catch (reason) {
       input.showNotice({ tone: 'danger', title: '修改密码失败', message: reason instanceof Error ? reason.message : '修改密码失败' });
     }

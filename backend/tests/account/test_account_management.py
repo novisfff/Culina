@@ -115,12 +115,14 @@ class AccountManagementTestCase(unittest.TestCase):
     def test_update_password_requires_current_password(self) -> None:
         bad_response = self.client.patch(
             "/api/auth/password",
+            headers={"Origin": "http://localhost:5173"},
             json={"current_password": "WrongPass123", "new_password": "NewPass123"},
         )
         self.assertEqual(bad_response.status_code, 400)
 
         response = self.client.patch(
             "/api/auth/password",
+            headers={"Origin": "http://localhost:5173"},
             json={"current_password": "OldPass123", "new_password": "NewPass123"},
         )
         self.assertEqual(response.status_code, 204)

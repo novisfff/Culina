@@ -141,7 +141,17 @@ AITaskDraftType = Literal[
     "inventory_operation",
     "composite_operation",
 ]
-AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
+AITaskDraftStatus = Literal[
+    "pending_confirmation",
+    "executed",
+    "no_change",
+    "rejected",
+    "expired",
+    "execution_failed",
+    "pending_retry",
+    "reverted",
+    "cancelled",
+]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
 

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.enums import UserRole
+from app.core.security import AccessTokenInvalid, decode_access_token
 from app.db.session import get_db
 from app.models.domain import Membership, User
 from app.repos.auth import get_active_membership, get_user_by_id
+from app.services.auth_sessions import get_active_auth_session
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -21,20 +21,28 @@ def get_current_auth(
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    settings = get_settings()
     try:
-        payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=["HS256"])
-    except JWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
+        claims = decode_access_token(credentials.credentials)
+    except AccessTokenInvalid as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "access_token_invalid", "message": "登录已失效，请重新登录"},
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
-    subject = payload.get("sub")
-    if not subject:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
-
-    user = get_user_by_id(db, subject)
-    membership = get_active_membership(db, subject)
-    if user is None or membership is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User or membership missing")
+    auth_session = get_active_auth_session(
+        db,
+        session_id=claims.session_id,
+        user_id=claims.user_id,
+    )
+    user = get_user_by_id(db, claims.user_id)
+    membership = get_active_membership(db, claims.user_id)
+    if auth_session is None or user is None or membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "auth_session_invalid", "message": "登录已失效，请重新登录"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return user, membership
 

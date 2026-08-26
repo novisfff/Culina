@@ -25,7 +25,7 @@
 - `inventory.operation_ref.v1` 只覆盖 AI 人工确认的库存入库、盘点、单独消耗和单独丢弃；做菜、硬删除、复杂媒体/参与人、Composite 整组和 Continuation 整链不实现撤销。
 - 不实现 Shadow Mode、灰度、事件溯源框架、通用 JSON 回滚器、任务队列或新微服务；系统未上线，直接迁移到目标状态。
 - 所有设置、Draft、Run、Approval、Operation、领域实体和撤销查询都以当前 membership 的 `family_id` 隔离；actor 固定为当前消息/Run 创建人，公开会话不继承会话 Owner 权限。
-- 数据迁移基于现有 Alembic head `6a7b8c9d0e1f`，新 migration 使用 revision `7b8c9d0e1f2a`，必须支持 MySQL upgrade/downgrade 并保持单一 head。
+- 数据迁移基于当前 Alembic head `7b8c9d0e1f2a`（auth sessions），新 migration 使用 revision `7c8d9e0f1a2b`，必须支持 MySQL upgrade/downgrade 并保持单一 head。
 - 前端只使用现有视觉 token、按钮、`StateBlock`、`StatusBadge` 和 overlay；不新增任意色值、阴影或圆角；switch 点击区至少 44px，使用 `role="switch"`、`aria-checked` 和关联说明。
 - 人工视觉验收必须覆盖 `375×812`、`390×844`、`430×932`、`768×1024`、`1024×768`、`1440×900`。
 
@@ -35,7 +35,7 @@
 
 ### Backend persistence and public contracts
 
-- Create `backend/alembic/versions/7b8c9d0e1f2a_ai_draft_auto_execution_and_revert.py`: tables, columns, indexes, status/data backfill, MySQL-safe FK replacement and downgrade.
+- Create `backend/alembic/versions/7c8d9e0f1a2b_ai_draft_auto_execution_and_revert.py`: tables, columns, indexes, status/data backfill, MySQL-safe FK replacement and downgrade.
 - Modify `backend/app/core/enums.py`: add `consume` and `dispose` to `InventoryOperationType`.
 - Modify `backend/app/models/domain.py`: settings models, Draft/Run/Operation audit fields and `FoodPlanItem.row_version`.
 - Create `backend/app/schemas/ai_auto_execution.py`: settings PUT/GET, operation projection and revert request/response DTOs.
@@ -308,18 +308,18 @@ export interface AiOperationResultProjection {
 ### Task 1: Persistence model and complete Alembic migration
 
 **Files:**
-- Create: `backend/alembic/versions/7b8c9d0e1f2a_ai_draft_auto_execution_and_revert.py`
+- Create: `backend/alembic/versions/7c8d9e0f1a2b_ai_draft_auto_execution_and_revert.py`
 - Create: `backend/tests/ai_infra/test_ai_auto_execution_migration.py`
 - Modify: `backend/app/core/enums.py`
 - Modify: `backend/app/models/domain.py`
 
 **Interfaces:**
-- Consumes: existing head `6a7b8c9d0e1f`, existing `AuditMixin`, `AIAgentRun`, `AITaskDraft`, `AIOperation`, `FoodPlanItem`, `InventoryOperationType`.
-- Produces: ORM fields/tables named exactly as the confirmed spec; new migration head `7b8c9d0e1f2a`; new operation statuses `pending | completed | failed | reverted`.
+- Consumes: existing head `7b8c9d0e1f2a`, existing `AuditMixin`, `AIAgentRun`, `AITaskDraft`, `AIOperation`, `FoodPlanItem`, `InventoryOperationType`.
+- Produces: ORM fields/tables named exactly as the confirmed spec; new migration head `7c8d9e0f1a2b`; new operation statuses `pending | completed | failed | reverted`.
 
 - [ ] **Step 1: Write failing ORM and MySQL migration tests**
 
-Add a model-shape test and a MySQL round-trip test. Seed legacy Draft/Operation rows at `6a7b8c9d0e1f`, upgrade, and assert exact mappings; then downgrade and upgrade again.
+Add a model-shape test and a MySQL round-trip test. Seed legacy Draft/Operation rows at `7b8c9d0e1f2a`, upgrade, and assert exact mappings; then downgrade and upgrade again.
 
 ```python
 def test_models_expose_auto_execution_and_revert_columns(self) -> None:
@@ -335,9 +335,9 @@ def test_models_expose_auto_execution_and_revert_columns(self) -> None:
 
 def test_ai_auto_execution_migration_backfills_and_round_trips(mysql_alembic_database) -> None:
     db = mysql_alembic_database
-    db.upgrade("6a7b8c9d0e1f")
-    seed_legacy_ai_rows(db, draft_status="confirmed", operation_status="succeeded")
     db.upgrade("7b8c9d0e1f2a")
+    seed_legacy_ai_rows(db, draft_status="confirmed", operation_status="succeeded")
+    db.upgrade("7c8d9e0f1a2b")
     assert db.rows("SELECT status, execution_route FROM ai_task_drafts") == [
         ("executed", "manual_confirmation")
     ]
@@ -347,9 +347,9 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(mysql_alembic_dat
     ) == [("completed", "manual_approval", "approval_request")]
     assert db.scalar("SELECT COUNT(*) FROM ai_auto_execution_preferences") == 0
     assert db.scalar("SELECT COUNT(*) FROM ai_family_auto_execution_policies") == 0
-    db.downgrade("6a7b8c9d0e1f")
-    db.upgrade("7b8c9d0e1f2a")
-    assert db.current_revision() == "7b8c9d0e1f2a"
+    db.downgrade("7b8c9d0e1f2a")
+    db.upgrade("7c8d9e0f1a2b")
+    assert db.current_revision() == "7c8d9e0f1a2b"
 ```
 
 - [ ] **Step 2: Run the tests to verify failure**
@@ -421,12 +421,12 @@ Expected: ORM test PASS; MySQL test PASS when configured, otherwise only that ca
 
 Run: `cd backend && .venv/bin/alembic heads`
 
-Expected: exactly `7b8c9d0e1f2a (head)`.
+Expected: exactly `7c8d9e0f1a2b (head)`.
 
 - [ ] **Step 5: Commit the persistence foundation**
 
 ```bash
-git add backend/app/core/enums.py backend/app/models/domain.py backend/alembic/versions/7b8c9d0e1f2a_ai_draft_auto_execution_and_revert.py backend/tests/ai_infra/test_ai_auto_execution_migration.py
+git add backend/app/core/enums.py backend/app/models/domain.py backend/alembic/versions/7c8d9e0f1a2b_ai_draft_auto_execution_and_revert.py backend/tests/ai_infra/test_ai_auto_execution_migration.py
 git commit -m "feat: add AI operation policy and revert persistence"
 ```
 
@@ -2972,7 +2972,7 @@ npm --prefix frontend run check:style-tokens
 npm run frontend:e2e:p0
 ```
 
-Expected: all commands PASS; Alembic reports the single head `7b8c9d0e1f2a`. Run a real MySQL `6a7b8c9d0e1f -> 7b8c9d0e1f2a -> 6a7b8c9d0e1f -> 7b8c9d0e1f2a` round trip with `CULINA_TEST_MYSQL_URL`; a skipped MySQL case is not migration acceptance.
+Expected: all commands PASS; Alembic reports the single head `7c8d9e0f1a2b`. Run a real MySQL `7b8c9d0e1f2a -> 7c8d9e0f1a2b -> 7b8c9d0e1f2a -> 7c8d9e0f1a2b` round trip with `CULINA_TEST_MYSQL_URL`; a skipped MySQL case is not migration acceptance.
 
 Manually inspect `375×812`, `390×844`, `430×932`, `768×1024`, `1024×768` and `1440×900`. Record:
 

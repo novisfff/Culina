@@ -170,7 +170,7 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(
     database.upgrade("6a7b8c9d0e1f")
     seed_legacy_ai_rows(database)
 
-    database.upgrade("7b8c9d0e1f2a")
+    database.upgrade("7c8d9e0f1a2b")
 
     assert database.rows(
         "SELECT id, status, execution_route, payload_hash FROM ai_task_drafts ORDER BY id"
@@ -235,8 +235,8 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(
         ("legacy-operation-reverted", "succeeded"),
     ]
 
-    database.upgrade("7b8c9d0e1f2a")
-    assert database.current_revision() == "7b8c9d0e1f2a"
+    database.upgrade("7c8d9e0f1a2b")
+    assert database.current_revision() == "7c8d9e0f1a2b"
     assert database.rows(
         "SELECT id, status, payload_hash FROM ai_task_drafts ORDER BY id"
     ) == [
@@ -262,7 +262,7 @@ def test_migrated_completed_operation_replays_and_resumes_as_approved(
     database = mysql_alembic_database
     database.upgrade("6a7b8c9d0e1f")
     seed_legacy_ai_rows(database)
-    database.upgrade("7b8c9d0e1f2a")
+    database.upgrade("7c8d9e0f1a2b")
 
     payload = {
         "draftType": "food_profile",

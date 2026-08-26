@@ -1110,7 +1110,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_response.status_code, 200, decision_response.text)
             decision_data = decision_response.json()
             self.assertEqual(decision_data["operation"]["status"], "completed")
-            self.assertEqual(decision_data["draft"]["status"], "confirmed")
+            self.assertEqual(decision_data["draft"]["status"], "executed")
 
             with self.SessionLocal() as db:
                 self.assertEqual(db.query(ShoppingListItem).count(), len(approval["initial_values"]["draft"]["items"]))

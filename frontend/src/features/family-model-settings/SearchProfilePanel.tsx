@@ -78,21 +78,21 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
   );
   const embedding = findEmbedding(workingDraft);
   const busy = props.busyAction !== null;
-  const activeSearchProfileId = props.settings.active_search_profile_id;
+  const activeSearchProfileId = props.settings.active_search_profile_id ?? null;
   const configuredSearchProfileId = props.draft.search_profile_id ?? activeSearchProfileId;
   const replacement = props.searchReplacement;
   const rates = props.draft.price_rates.filter((rate) => rate.capability === 'embedding');
   const isInitialReady = !configuredSearchProfileId && embeddingReady(embedding);
 
   const summary = (() => {
-    if (replacement?.profile_id === configuredSearchProfileId && replacement.status === 'provisioning') {
+    if (replacement && replacement.profile_id === configuredSearchProfileId && replacement.status === 'provisioning') {
       return {
         title: '正在建立搜索索引',
         description: '向量模型已经确认，系统正在为现有家庭内容建立索引。',
         tone: 'is-progress',
       };
     }
-    if (replacement?.profile_id === configuredSearchProfileId && replacement.status === 'failed') {
+    if (replacement && replacement.profile_id === configuredSearchProfileId && replacement.status === 'failed') {
       return {
         title: '搜索索引建立失败',
         description: '向量模型配置仍被保留，可以在下方重试，不会重复创建索引身份。',

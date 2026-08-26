@@ -25,7 +25,16 @@ from app.services.ai_operations.run_blocking import (
     mark_run_auto_execution_blocked,
 )
 from app.services.ai_operations.run_cancellation import cancellation_wins, lock_run_for_transition
-from app.services.ai_operations.status import operation_status_values
+from app.services.ai_operations.status import (
+    DRAFT_EXECUTION_FAILED,
+    DRAFT_EXECUTED,
+    DRAFT_NO_CHANGE,
+    DRAFT_PENDING_RETRY,
+    DRAFT_REVERTED,
+    draft_status_values,
+    normalize_draft_status,
+    operation_status_values,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +79,7 @@ def recover_or_replay_draft_run(
             .where(
                 AITaskDraft.family_id == family_id,
                 AITaskDraft.source_run_id == run.id,
-                AITaskDraft.status == "pending_retry",
+                AITaskDraft.status.in_(draft_status_values(DRAFT_PENDING_RETRY)),
             )
             .order_by(AITaskDraft.created_at.asc(), AITaskDraft.id.asc())
             .with_for_update()
@@ -149,7 +158,8 @@ def recover_or_replay_draft_run(
     terminal_draft_ids = {
         draft.id
         for draft in drafts
-        if draft.status in {"executed", "no_change", "reverted", "execution_failed"}
+        if normalize_draft_status(draft.status)
+        in {DRAFT_EXECUTED, DRAFT_NO_CHANGE, DRAFT_REVERTED, DRAFT_EXECUTION_FAILED}
     }
     operation_terminal_draft_ids = set(
         db.scalars(

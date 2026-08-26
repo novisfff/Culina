@@ -548,6 +548,10 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 1)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 1)
             self.assertEqual(db.scalar(select(func.count(AIUserApproval.id))), 0)
+            draft = db.scalar(select(AITaskDraft))
+            self.assertIsNotNone(draft)
+            assert draft is not None
+            self.assertEqual(draft.status, "pending_confirmation")
 
     def test_auto_route_creates_no_approval_and_commits_once(self) -> None:
         request, run_id = self._seed_route(suffix="auto")

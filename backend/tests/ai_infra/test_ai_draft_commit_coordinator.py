@@ -502,7 +502,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                         draft=draft,
                         approval=approval,
                     )
-            self.assertEqual(draft.status, "pending")
+            self.assertEqual(draft.status, "pending_confirmation")
             self.assertEqual(db.scalar(select(func.count()).select_from(AIOperation)), 0)
 
     def test_manual_dbapi_failures_are_redacted_across_retry_response_and_artifacts(self) -> None:

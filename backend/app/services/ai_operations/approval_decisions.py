@@ -15,7 +15,12 @@ from app.services.ai_auto_execution.policy_types import DraftCommitRequest
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
 from app.services.ai_operations.commit_coordinator import DraftCommitCoordinator
-from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_operations.status import (
+    DRAFT_PENDING_RETRY,
+    DRAFT_REJECTED,
+    is_draft_pending,
+    is_operation_completed,
+)
 from app.services.ai_operations.common import is_database_lock_conflict
 from app.services.ai_operations.messages import (
     append_message_approval_part,
@@ -162,7 +167,7 @@ def apply_ai_approval_decision(
     )
     if approval.status != "pending":
         raise AIConflictError("确认请求已处理，不能重复提交")
-    if draft.status not in {"pending", "pending_retry"}:
+    if not is_draft_pending(draft.status):
         raise AIConflictError("草稿已处理，不能重复提交")
     if draft_version != draft.version or approval.draft_version != draft.version:
         raise AIConflictError("草稿已更新，请重新确认")
@@ -202,7 +207,7 @@ def apply_ai_approval_decision(
             draft.id,
             draft.draft_type,
         )
-        draft.status = "rejected"
+        draft.status = DRAFT_REJECTED
         draft.updated_by = user_id
         _record_user_approval_once(
             db,
@@ -294,7 +299,7 @@ def apply_ai_approval_decision(
             error_code=operation.error_code,
         )
         operation_summary = failure_summary
-        committed_draft.status = "pending_retry"
+        committed_draft.status = DRAFT_PENDING_RETRY
         response_approval = create_retry_ai_approval(
             db,
             family_id=family_id,

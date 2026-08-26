@@ -34,7 +34,7 @@ from app.services.ai_operations.result_projection import (
     serialize_ai_operation_result_projection,
     upsert_message_operation_result,
 )
-from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_operations.status import DRAFT_REVERTED, is_operation_completed
 from app.services.ai_revert.errors import AIRevertError, ai_revert_error
 from app.services.ai_revert.registry import (
     AIRevertAdapterRegistry,
@@ -184,7 +184,7 @@ class AIRevertCoordinator:
                 operation.revert_blocked_at = None
                 operation.revert_blocked_code = None
                 draft = cls._require_draft(db, operation=operation)
-                draft.status = "reverted"
+                draft.status = DRAFT_REVERTED
                 draft.updated_by = actor_user_id
                 response = cls._build_public_response(
                     db,

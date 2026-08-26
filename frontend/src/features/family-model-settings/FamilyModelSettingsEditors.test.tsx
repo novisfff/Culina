@@ -373,6 +373,28 @@ describe('Family model settings editors', () => {
     expect(screen.getByRole('heading', { name: '搜索重排 · 默认' })).toBeVisible();
   });
 
+  it('shows the unconfigured state when the API omits a null active search profile', () => {
+    const draft = createEmptyFamilyModelDraft();
+    const { active_search_profile_id: _omitted, ...settingsWithoutActiveSearchProfile } = settings;
+    render(
+      <SearchProfilePanel
+        settings={settingsWithoutActiveSearchProfile}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={null}
+        replacementProfileId={null}
+        actions={{} as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByText('尚未配置搜索索引')).toBeVisible();
+  });
+
   it('confirms the first vector identity before saving it', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();

@@ -1,7 +1,7 @@
 """Add AI auto-execution policy and revert persistence.
 
-Revision ID: 7b8c9d0e1f2a
-Revises: 6a7b8c9d0e1f
+Revision ID: 7c8d9e0f1a2b
+Revises: 7b8c9d0e1f2a
 Create Date: 2026-08-25 10:00:00.000000
 """
 
@@ -15,8 +15,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "7b8c9d0e1f2a"
-down_revision = "6a7b8c9d0e1f"
+revision = "7c8d9e0f1a2b"
+down_revision = "7b8c9d0e1f2a"
 branch_labels = None
 depends_on = None
 

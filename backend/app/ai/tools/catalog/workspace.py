@@ -8,6 +8,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
 from app.models.domain import AIApprovalRequest, AITaskDraft
+from app.services.ai_operations.status import normalize_draft_status
 
 
 WORKSPACE_READ_ARTIFACT_INPUT = {
@@ -72,7 +73,7 @@ def _serialize_draft_artifact(draft: AITaskDraft) -> dict[str, Any]:
         "draftType": draft.draft_type,
         "payload": draft.payload,
         "previewSummary": draft.preview_summary,
-        "status": draft.status,
+        "status": normalize_draft_status(draft.status),
         "version": draft.version,
         "schemaVersion": draft.schema_version,
         "validationErrors": draft.validation_errors,

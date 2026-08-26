@@ -639,7 +639,7 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                 )
 
                 self.assertEqual(decision["operation"]["status"], "completed")
-                self.assertEqual(decision["draft"]["status"], "confirmed")
+                self.assertEqual(decision["draft"]["status"], "executed")
                 self.assertEqual(decision["business_entity"]["schemaVersion"], "composite_operation.v1")
                 ingredient_id = decision["business_entity"]["stepResults"]["create-ingredient"]["entityId"]
                 inventory_ids = decision["business_entity"]["stepResults"]["consume-stock"]["entityIds"]

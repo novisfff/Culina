@@ -16,6 +16,8 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
+ENV TRUSTED_PROXY_CIDR=127.0.0.1/32
+
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 

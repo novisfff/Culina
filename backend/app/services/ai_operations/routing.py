@@ -38,7 +38,11 @@ from app.services.ai_operations.result_projection import (
     project_ai_operation_result,
     upsert_message_operation_result,
 )
-from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_operations.status import (
+    DRAFT_NO_CHANGE,
+    DRAFT_PENDING_CONFIRMATION,
+    is_operation_completed,
+)
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -209,7 +213,7 @@ def route_draft(
     draft.updated_by = request.actor_user_id
     if final_decision.route == "no_change":
         draft.execution_route = "policy_no_change"
-        draft.status = "no_change"
+        draft.status = DRAFT_NO_CHANGE
         db.flush()
         projection, result_part, artifact = _persist_no_change_result(
             db,
@@ -230,7 +234,10 @@ def route_draft(
         return outcome
 
     draft.execution_route = "policy_auto"
-    draft.status = "pending"
+    # Keep the persisted state canonical even while the coordinator is about
+    # to perform the policy-authorized write.  A failure or concurrent gate
+    # change can then be represented by the canonical terminal/retry status.
+    draft.status = DRAFT_PENDING_CONFIRMATION
     db.flush()
     commit = coordinator.commit_locked(
         db,
@@ -428,7 +435,7 @@ def _create_draft(
         draft_type=request.draft_type,
         payload=dict(request.payload),
         preview_summary=draft_preview_summary(request.draft_type, request.payload),
-        status="pending",
+        status=DRAFT_PENDING_CONFIRMATION,
         version=1,
         schema_version=request.schema_version,
         validation_errors=[],
@@ -450,7 +457,7 @@ def _create_draft(
 
 
 def _route_manual(db: Session, *, request: DraftRouteRequest, draft: AITaskDraft, decision: Any) -> DraftRouteOutcome:
-    draft.status = "pending"
+    draft.status = DRAFT_PENDING_CONFIRMATION
     draft.execution_route = "manual_confirmation"
     draft.policy_key = decision.policy_key
     draft.policy_version = decision.policy_version

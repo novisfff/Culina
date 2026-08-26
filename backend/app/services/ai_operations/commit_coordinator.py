@@ -52,7 +52,13 @@ from app.services.ai_operations.result_projection import (
 )
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.registry_types import DraftPostExecuteContext
-from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_operations.status import (
+    DRAFT_EXECUTION_FAILED,
+    DRAFT_EXECUTED,
+    DRAFT_PENDING_RETRY,
+    is_operation_completed,
+    normalize_draft_status,
+)
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     lock_run_for_transition,
@@ -217,7 +223,7 @@ class DraftCommitCoordinator:
             raise AIConflictError("重试草稿关联的运行已变化")
         if locked_draft.execution_route != "policy_auto":
             raise AIConflictError("人工确认草稿必须通过原重试确认处理")
-        if locked_draft.status != "pending_retry":
+        if normalize_draft_status(locked_draft.status) != DRAFT_PENDING_RETRY:
             raise AIConflictError("草稿不处于可重试状态")
         if db.scalar(
             select(AIApprovalRequest.id).where(
@@ -611,7 +617,10 @@ class DraftCommitCoordinator:
                 dict(receipt.revert_context) if receipt.revert_context is not None else None
             )
             operation.revertible_until = revertible_until if receipt.revert_adapter_key else None
-            draft.status = "confirmed" if request.execution_mode == "manual_approval" else "executed"
+            # Both manual approval and policy authorization produce the same
+            # canonical Draft outcome.  Approval provenance lives on the
+            # Approval/Operation rows, not in a legacy ``confirmed`` spelling.
+            draft.status = DRAFT_EXECUTED
             draft.payload = dict(request.committed_payload)
             draft.payload_hash = derive_draft_payload_hash(request.committed_payload)
             draft.updated_by = request.actor_user_id
@@ -734,7 +743,7 @@ class DraftCommitCoordinator:
         operation.revert_adapter_key = None
         operation.revert_context_json = None
         operation.revertible_until = None
-        draft.status = "pending_retry" if request.execution_mode == "manual_approval" else "execution_failed"
+        draft.status = DRAFT_PENDING_RETRY if request.execution_mode == "manual_approval" else DRAFT_EXECUTION_FAILED
         draft.payload = dict(request.committed_payload)
         draft.payload_hash = derive_draft_payload_hash(request.committed_payload)
         draft.updated_by = request.actor_user_id
@@ -842,7 +851,7 @@ class DraftCommitCoordinator:
             operation.completed_at = None
             operation.result_json = None
             operation.business_entity_ids = []
-            locked_draft.status = "pending_retry"
+            locked_draft.status = DRAFT_PENDING_RETRY
             locked_draft.payload = dict(request.committed_payload)
             locked_draft.payload_hash = derive_draft_payload_hash(request.committed_payload)
             locked_draft.updated_by = request.actor_user_id

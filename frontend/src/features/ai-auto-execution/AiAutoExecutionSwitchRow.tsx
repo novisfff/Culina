@@ -29,7 +29,7 @@ export function AiAutoExecutionSwitchRow(props: {
         className="ai-auto-execution-switch"
         role="switch"
         aria-label={props.ariaLabel ?? props.action.label}
-        aria-checked={props.enabled}
+        aria-checked={props.effectiveEnabled}
         aria-describedby={descriptionId}
         aria-busy={props.pending || undefined}
         disabled={props.disabled || props.pending}

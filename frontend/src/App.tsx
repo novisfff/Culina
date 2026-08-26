@@ -229,7 +229,14 @@ function WorkspaceLoadingFallback() {
 }
 
 function App() {
-  const { isAuthenticated, isLoading: authLoading, user, membership, logout } = useAuth();
+  const {
+    isAuthenticated,
+    isInitializing: authInitializing,
+    isLoading: authLoading,
+    user,
+    membership,
+    logout,
+  } = useAuth();
   const isPhoneViewport = useIsPhoneViewport();
   const navigation = useAppNavigationState();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
@@ -884,6 +891,15 @@ function App() {
     setSelectedRecipePlanDate(foodPlanDetail.plan_date);
   }, [foodPlanDetail, navigation.state.eat.task]);
 
+  if (authInitializing) {
+    return (
+      <AuthStatusScreen
+        title="正在连接家庭厨房..."
+        description="正在恢复登录状态..."
+      />
+    );
+  }
+
   if (!isAuthenticated) {
     return <LoginScreen />;
   }
@@ -1195,7 +1211,15 @@ function App() {
       onTabChange={handlePrimaryTabChange}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
-      onLogout={() => void logout()}
+      onLogout={() => {
+        void logout().catch((reason) => {
+          showNotice({
+            tone: 'danger',
+            title: '退出失败',
+            message: reason instanceof Error ? reason.message : '暂时无法退出，请稍后重试。',
+          });
+        });
+      }}
     >
 
           {navigation.state.primaryTab === 'home' && (

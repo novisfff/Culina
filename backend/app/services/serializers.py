@@ -33,7 +33,7 @@ from app.models.domain import (
     User,
 )
 from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
-from app.services.ai_operations.status import normalize_operation_status
+from app.services.ai_operations.status import normalize_draft_status, normalize_operation_status
 from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
 from app.services.media import signed_media_content_access, signed_media_variants
@@ -650,7 +650,7 @@ def serialize_ai_task_draft(item: AITaskDraft) -> dict:
         "draft_type": item.draft_type,
         "payload": item.payload,
         "preview_summary": item.preview_summary,
-        "status": item.status,
+        "status": normalize_draft_status(item.status),
         "version": item.version,
         "schema_version": item.schema_version,
         "validation_errors": item.validation_errors,

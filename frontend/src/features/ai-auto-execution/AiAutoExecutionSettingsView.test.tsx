@@ -117,10 +117,11 @@ describe('AiAutoExecutionSettingsView', () => {
     vi.mocked(aiApi.updateAiAutoExecutionPreference).mockResolvedValue(reconsent);
     renderSettings(true);
 
-    const favorite = await screen.findByRole('switch', { name: '收藏状态', checked: true });
+    const favorite = await screen.findByRole('switch', { name: '收藏状态', checked: false });
     await user.click(favorite);
     expect(screen.getByRole('dialog', { name: '开启自动执行' })).toBeVisible();
-    expect(favorite).toHaveAttribute('aria-checked', 'true');
+    expect(favorite).toHaveAttribute('aria-checked', 'false');
+    expect(favorite).toHaveTextContent('未开启');
     expect(aiApi.updateAiAutoExecutionPreference).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '同意并开启' }));

@@ -14,7 +14,7 @@ from app.services.ai_auto_execution.policy_types import (
     ExecutionMode,
     RevertAvailability,
 )
-from app.services.ai_operations.status import normalize_operation_status
+from app.services.ai_operations.status import normalize_draft_status, normalize_operation_status
 
 
 PUBLIC_RESULT_FIELDS = (
@@ -86,7 +86,7 @@ def project_ai_operation_result(
     cache_scopes: tuple[AICacheScope, ...],
     server_now: datetime,
 ) -> AIOperationResultProjection:
-    if draft.status == "no_change":
+    if normalize_draft_status(draft.status) == "no_change":
         return AIOperationResultProjection(
             draft_id=draft.id,
             operation_id=None,

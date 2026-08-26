@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from functools import lru_cache
 import re
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from pydantic import SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
+LOCAL_DEVELOPMENT_JWT_SECRET = "culina-local-development-jwt-secret"
 
 
 class Settings(BaseSettings):
@@ -19,8 +20,10 @@ class Settings(BaseSettings):
     mysql_database: str = "culina"
     mysql_user: str = "culina"
     mysql_password: str = ""
-    jwt_secret: str = ""
-    access_token_expire_minutes: int = 60 * 24 * 7
+    jwt_secret: str = LOCAL_DEVELOPMENT_JWT_SECRET
+    access_token_expire_minutes: int = 15
+    refresh_session_expire_days: int = 30
+    refresh_rotation_grace_seconds: int = 10
     media_max_upload_bytes: int = 30 * 1024 * 1024
     media_access_url_ttl_seconds: int = 300
     realtime_websocket_ticket_ttl_seconds: int = 45
@@ -102,6 +105,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
+        if self.access_token_expire_minutes <= 0:
+            raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be positive")
+        if not 1 <= self.refresh_session_expire_days <= 30:
+            raise ValueError("REFRESH_SESSION_EXPIRE_DAYS must be between 1 and 30")
+        if not 1 <= self.refresh_rotation_grace_seconds <= 60:
+            raise ValueError(
+                "REFRESH_ROTATION_GRACE_SECONDS must be between 1 and 60"
+            )
         provider_timeouts = (
             self.family_model_provider_connect_timeout_seconds,
             self.family_model_provider_request_timeout_seconds,
@@ -175,13 +186,38 @@ class Settings(BaseSettings):
             return self
 
         missing: list[str] = []
+        if self.access_token_expire_minutes > 30:
+            missing.append("ACCESS_TOKEN_EXPIRE_MINUTES<=30")
+        frontend_origin = urlparse(self.frontend_origin.strip())
+        try:
+            origin_port_is_valid = frontend_origin.port is None or frontend_origin.port > 0
+        except ValueError:
+            origin_port_is_valid = False
+        if (
+            frontend_origin.scheme != "https"
+            or not frontend_origin.hostname
+            or frontend_origin.username is not None
+            or frontend_origin.password is not None
+            or frontend_origin.path not in {"", "/"}
+            or frontend_origin.params
+            or frontend_origin.query
+            or frontend_origin.fragment
+            or not origin_port_is_valid
+        ):
+            missing.append("FRONTEND_ORIGIN with https://")
+        if self.initial_admin_password == "CulinaAdmin123!":
+            missing.append("INITIAL_ADMIN_PASSWORD without the documented default")
         if not self.model_usage_required:
             missing.append("MODEL_USAGE_REQUIRED=true")
         if not self.mysql_password:
             missing.append("MYSQL_PASSWORD")
         if not self.jwt_secret:
             missing.append("JWT_SECRET")
-        if self.jwt_secret in {"change-me", "culina-local-dev-secret"}:
+        if self.jwt_secret in {
+            "change-me",
+            "culina-local-dev-secret",
+            LOCAL_DEVELOPMENT_JWT_SECRET,
+        }:
             missing.append("JWT_SECRET")
         if not self.minio_secret_key or self.minio_secret_key == "culina_local_minio_secret":
             missing.append("MINIO_SECRET_KEY")

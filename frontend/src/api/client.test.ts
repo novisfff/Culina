@@ -1,6 +1,68 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './client';
-import { ApiError, getAccessToken, isApiError, setAccessToken } from './request';
+import {
+  ApiError,
+  clearAuthenticatedSession,
+  getAccessToken,
+  isApiError,
+  purgeLegacyAccessToken,
+  refreshAuthSession,
+  request,
+  setAccessToken,
+  setAuthenticatedSession,
+  subscribeAuthSession,
+} from './request';
+import type { LoginResponse } from './types';
+
+const authPayload: LoginResponse = {
+  access_token: 'fresh-access-token',
+  user: {
+    id: 'user-a',
+    username: 'owner',
+    display_name: 'Owner',
+    avatar_seed: 'Owner',
+  },
+  membership: {
+    id: 'membership-a',
+    family_id: 'family-a',
+    user_id: 'user-a',
+    role: 'Owner',
+    status: 'active',
+  },
+  family: {
+    id: 'family-a',
+    name: '测试家庭',
+    motto: '',
+    location: '',
+    food_preferences: [],
+    food_avoidances: [],
+    created_at: '2026-08-24T00:00:00Z',
+    updated_at: '2026-08-24T00:00:00Z',
+    ai_recommendations: [],
+  },
+};
+
+const otherAuthPayload: LoginResponse = {
+  ...authPayload,
+  access_token: 'other-access-token',
+  user: {
+    ...authPayload.user,
+    id: 'user-b',
+    username: 'other-owner',
+    display_name: 'Other Owner',
+  },
+  membership: {
+    ...authPayload.membership,
+    id: 'membership-b',
+    family_id: 'family-b',
+    user_id: 'user-b',
+  },
+  family: {
+    ...authPayload.family,
+    id: 'family-b',
+    name: '另一个家庭',
+  },
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -8,6 +70,414 @@ afterEach(() => {
 });
 
 describe('api client errors', () => {
+  it('keeps access tokens in memory without writing localStorage', () => {
+    setAccessToken('short-lived-access-token');
+
+    expect(getAccessToken()).toBe('short-lived-access-token');
+    expect(localStorage.getItem('culina-access-token')).toBeNull();
+  });
+
+  it('removes the legacy persisted access token during migration', () => {
+    localStorage.setItem('culina-access-token', 'legacy-seven-day-token');
+
+    purgeLegacyAccessToken();
+
+    expect(localStorage.getItem('culina-access-token')).toBeNull();
+  });
+
+  it('uses one refresh for concurrent unauthorized requests and retries each once', async () => {
+    setAccessToken('expired-access-token');
+    const sessionChanges: Array<LoginResponse | null> = [];
+    const unsubscribe = subscribeAuthSession((payload) => sessionChanges.push(payload));
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/auth/refresh')) {
+        return new Response(JSON.stringify(authPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const authorization = new Headers(init?.headers).get('Authorization');
+      if (authorization === 'Bearer expired-access-token') {
+        return new Response(JSON.stringify({ detail: '登录已过期' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    try {
+      await expect(Promise.all([
+        request<{ ok: boolean }>('/api/foods'),
+        request<{ ok: boolean }>('/api/ingredients'),
+      ])).resolves.toEqual([{ ok: true }, { ok: true }]);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(fetchSpy.mock.calls.filter(([input]) => String(input).endsWith('/api/auth/refresh'))).toHaveLength(1);
+    expect(fetchSpy.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true);
+    expect(getAccessToken()).toBe('fresh-access-token');
+    expect(sessionChanges).toEqual([authPayload]);
+    const retriedCalls = fetchSpy.mock.calls.filter(([, init]) => (
+      new Headers(init?.headers).get('Authorization') === 'Bearer fresh-access-token'
+    ));
+    expect(retriedCalls).toHaveLength(2);
+  });
+
+  it('does not rotate refresh again when a late 401 used an older access token', async () => {
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'expired-access-token',
+    });
+    let releaseLateResponse: (() => void) | undefined;
+    const lateResponse = new Promise<void>((resolve) => {
+      releaseLateResponse = resolve;
+    });
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/auth/refresh')) {
+        return new Response(JSON.stringify(authPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const authorization = new Headers(init?.headers).get('Authorization');
+      if (authorization === 'Bearer expired-access-token') {
+        if (path.endsWith('/api/ingredients')) await lateResponse;
+        return new Response(null, { status: 401 });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const firstRequest = request<{ ok: boolean }>('/api/foods');
+    const lateRequest = request<{ ok: boolean }>('/api/ingredients');
+    await expect(firstRequest).resolves.toEqual({ ok: true });
+    releaseLateResponse?.();
+    await expect(lateRequest).resolves.toEqual({ ok: true });
+
+    expect(fetchSpy.mock.calls.filter(([input]) => String(input).endsWith('/api/auth/refresh')))
+      .toHaveLength(1);
+  });
+
+  it('rejects a late unauthenticated response without clearing a newer session', async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await responseGate;
+      return new Response(null, { status: 401 });
+    }));
+
+    const staleRequest = request('/api/foods');
+    setAuthenticatedSession(authPayload);
+    releaseResponse?.();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('fresh-access-token');
+  });
+
+  it('does not restore an older refresh when a newer session wins the race', async () => {
+    let releaseRefresh: (() => void) | undefined;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await refreshGate;
+      return new Response(JSON.stringify(authPayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }));
+
+    const staleRefresh = refreshAuthSession();
+    clearAuthenticatedSession();
+    setAuthenticatedSession({ ...authPayload, access_token: 'newer-access-token' });
+    releaseRefresh?.();
+
+    await expect(staleRefresh).rejects.toThrow('认证状态已更新');
+    expect(getAccessToken()).toBe('newer-access-token');
+  });
+
+  it('rejects a successful response that belongs to a previous identity', async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await responseGate;
+      return new Response(JSON.stringify({ private: 'family-a' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }));
+
+    const staleRequest = request('/api/private-family-data');
+    setAuthenticatedSession(otherAuthPayload);
+    releaseResponse?.();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('other-access-token');
+  });
+
+  it('rejects delayed response headers after logout and login as the same identity', async () => {
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const fetchSpy = vi.fn(async () => {
+      await responseGate;
+      return new Response(JSON.stringify({ private: 'old-session-data' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    clearAuthenticatedSession();
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'new-login-access-token',
+    });
+    releaseResponse?.();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('new-login-access-token');
+  });
+
+  it('rejects a response body that completes after the authenticated identity changes', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession(otherAuthPayload);
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBe('other-access-token');
+  });
+
+  it('keeps reading a response when only the same identity access token rotates', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const requestInFlight = request<{ private: string }>('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAuthenticatedSession({
+      ...authPayload,
+      access_token: 'rotated-access-token',
+    });
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(requestInFlight).resolves.toEqual({ private: 'family-a' });
+    expect(getAccessToken()).toBe('rotated-access-token');
+  });
+
+  it('rejects a response body after the low-level token setter clears its identity', async () => {
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const delayedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+      },
+    });
+    const fetchSpy = vi.fn(async () => new Response(delayedBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    setAuthenticatedSession(authPayload);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const staleRequest = request('/api/private-family-data');
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+    setAccessToken(null);
+    bodyController?.enqueue(new TextEncoder().encode(JSON.stringify({ private: 'family-a' })));
+    bodyController?.close();
+
+    await expect(staleRequest).rejects.toThrow('认证身份已切换');
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it('serializes every authentication cookie writer behind one browser lock', async () => {
+    let lockTail = Promise.resolve<unknown>(undefined);
+    const lockRequest = vi.fn((
+      _name: string,
+      _options: LockOptions,
+      callback: (lock: Lock | null) => Promise<unknown>,
+    ) => {
+      const result = lockTail.then(() => callback(null));
+      lockTail = result.catch(() => undefined);
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request: lockRequest } });
+
+    const started: string[] = [];
+    let releaseRefresh: (() => void) | undefined;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      started.push(path);
+      if (path.endsWith('/api/auth/refresh')) {
+        await refreshGate;
+        return new Response(JSON.stringify(authPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (path.endsWith('/api/auth/login')) {
+        return new Response(JSON.stringify(otherAuthPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(null, { status: 204 });
+    }));
+
+    const refresh = api.refresh();
+    await vi.waitFor(() => expect(started).toEqual(['/api/auth/refresh']));
+    const login = api.login('other-owner', 'OtherPass123');
+    const logout = api.logout();
+    const password = api.updatePassword({
+      current_password: 'OtherPass123',
+      new_password: 'ChangedPass456',
+    });
+
+    try {
+      await Promise.resolve();
+      expect(started).toEqual(['/api/auth/refresh']);
+    } finally {
+      releaseRefresh?.();
+      await Promise.allSettled([refresh, login, logout, password]);
+    }
+
+    expect(started).toEqual([
+      '/api/auth/refresh',
+      '/api/auth/login',
+      '/api/auth/logout',
+      '/api/auth/password',
+    ]);
+    expect(lockRequest).toHaveBeenCalledTimes(4);
+    expect(new Set(lockRequest.mock.calls.map(([name]) => name))).toEqual(
+      new Set(['culina-auth-cookie-v1']),
+    );
+  });
+
+  it('does not deadlock when a held cookie lock needs a refresh queued behind it', async () => {
+    setAccessToken('expired-access-token');
+    let lockTail = Promise.resolve<unknown>(undefined);
+    const lockRequest = vi.fn((
+      _name: string,
+      _options: LockOptions,
+      callback: (lock: Lock | null) => Promise<unknown>,
+    ) => {
+      const result = lockTail.then(() => callback(null));
+      lockTail = result.catch(() => undefined);
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request: lockRequest } });
+
+    let markPasswordStarted: (() => void) | undefined;
+    const passwordStarted = new Promise<void>((resolve) => {
+      markPasswordStarted = resolve;
+    });
+    let releasePasswordUnauthorized: (() => void) | undefined;
+    const passwordUnauthorizedGate = new Promise<void>((resolve) => {
+      releasePasswordUnauthorized = resolve;
+    });
+    const started: string[] = [];
+    let passwordAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      started.push(path);
+      if (path.endsWith('/api/auth/password')) {
+        passwordAttempts += 1;
+        if (passwordAttempts === 1) {
+          markPasswordStarted?.();
+          await passwordUnauthorizedGate;
+          return new Response(JSON.stringify({ detail: '登录已过期' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (path.endsWith('/api/auth/refresh')) {
+        return new Response(JSON.stringify(authPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    const password = api.updatePassword({
+      current_password: 'OldPass123',
+      new_password: 'ChangedPass456',
+    });
+    await passwordStarted;
+    const queuedRefresh = refreshAuthSession();
+    const settlement = Promise.allSettled([password, queuedRefresh]);
+    releasePasswordUnauthorized?.();
+
+    await vi.waitFor(() => {
+      expect(started).toContain('/api/auth/refresh');
+    });
+    const [passwordResult, queuedRefreshResult] = await settlement;
+
+    expect(passwordResult.status).toBe('fulfilled');
+    expect(queuedRefreshResult.status).toBe('rejected');
+    expect(started).toEqual([
+      '/api/auth/password',
+      '/api/auth/refresh',
+      '/api/auth/password',
+    ]);
+    expect(getAccessToken()).toBeNull();
+  });
+
   it('throws ApiError with status, path, detail and payload', async () => {
     const payload = { detail: [{ msg: '字段不能为空' }, { msg: '格式不正确' }] };
     vi.stubGlobal(

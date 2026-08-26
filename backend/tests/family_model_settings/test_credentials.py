@@ -31,6 +31,7 @@ def _keyring_json() -> SecretStr:
 def _production_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "environment": "production",
+        "frontend_origin": "https://culina.example.com",
         "model_usage_required": True,
         "mysql_password": "test-mysql-password",
         "jwt_secret": "test-jwt-secret",

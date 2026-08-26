@@ -282,7 +282,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             approval = data["included"]["approvals"][0]
             draft = data["included"]["drafts"][0]
             self.assertEqual(approval["status"], "pending")
-            self.assertEqual(draft["status"], "pending")
+            self.assertEqual(draft["status"], "pending_confirmation")
             self.assertIsNone(draft["payload"].get("pending_image_job_id"))
 
             with self.SessionLocal() as db:
@@ -320,7 +320,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_response.status_code, 200, decision_response.text)
             decision_data = decision_response.json()
             self.assertEqual(decision_data["approval"]["status"], "approved")
-            self.assertEqual(decision_data["draft"]["status"], "confirmed")
+            self.assertEqual(decision_data["draft"]["status"], "executed")
             self.assertEqual(decision_data["operation"]["status"], "completed")
             self.assertEqual(decision_data["business_entity"]["title"], "番茄鸡蛋面（确认版）")
             with self.SessionLocal() as db:
@@ -3210,7 +3210,12 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                 )
                 self.assertEqual(approval.approval_type, "food.favorite")
-                service._apply_approval_decision(
+                # Rows created before the canonical Draft status migration may
+                # still carry the legacy ``pending`` value.  The approval path
+                # must accept that row and persist the canonical outcome.
+                draft.status = "pending"
+                db.flush()
+                decision_result = service._apply_approval_decision(
                     family_id=self.family.id,
                     user_id=self.user.id,
                     conversation_id=conversation.id,
@@ -3219,6 +3224,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft_version=draft.version,
                     values=approval.initial_values,
                 )
+                self.assertEqual(decision_result["draft"]["status"], "executed")
                 db.refresh(food)
                 self.assertTrue(food.favorite)
                 index_job = db.scalar(

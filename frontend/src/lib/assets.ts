@@ -8,6 +8,7 @@ export type MediaAccessReference = { mediaId: string; variant: MediaDisplaySize 
 
 const MEDIA_ACCESS_RENEWAL_WINDOW_MS = 15_000;
 const MEDIA_VARIANTS = new Set<MediaDisplaySize>(['thumb', 'card', 'large', 'original']);
+const inFlightMediaAccessRenewals = new Map<string, Promise<MediaAsset>>();
 
 function parsedMediaUrl(url: string): URL | undefined {
   try {
@@ -41,7 +42,18 @@ export function shouldRenewMediaUrl(url?: string | null, now = Date.now()): bool
 export async function renewMediaUrl(url?: string | null): Promise<string | undefined> {
   const reference = mediaAccessReferenceFromUrl(url);
   if (!reference) return undefined;
-  const asset = await mediaApi.getMediaAccess(reference.mediaId);
+  let renewal = inFlightMediaAccessRenewals.get(reference.mediaId);
+  if (!renewal) {
+    renewal = mediaApi.getMediaAccess(reference.mediaId);
+    inFlightMediaAccessRenewals.set(reference.mediaId, renewal);
+    const clearRenewal = () => {
+      if (inFlightMediaAccessRenewals.get(reference.mediaId) === renewal) {
+        inFlightMediaAccessRenewals.delete(reference.mediaId);
+      }
+    };
+    void renewal.then(clearRenewal, clearRenewal);
+  }
+  const asset = await renewal;
   return resolveMediaUrl(asset, reference.variant);
 }
 

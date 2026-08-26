@@ -412,7 +412,13 @@ function OperationResultCard({
   const detailTarget = entities.map(navigateTargetForOperationEntity).find(Boolean) ?? null;
   const showRevert = viewModel.canRevert;
   const keepAttemptedRevertControl = revert.hasAttempted && !showRevert;
-  const showActions = showRevert || keepAttemptedRevertControl;
+  const showRevertControl = showRevert || keepAttemptedRevertControl;
+  // Navigation remains useful after a revert window expires or an adapter is
+  // blocked/unsupported.  `no_change` is intentionally the one terminal
+  // result with no detail/settings action because there is no persisted write
+  // to inspect or manage.
+  const showNavigationActions = projection.result_status !== 'no_change';
+  const showActions = showRevertControl || showNavigationActions;
   const terminalRevertControl = keepAttemptedRevertControl;
   const guardedRevertControl = revert.isPending || terminalRevertControl;
   const revertLabel = revert.isPending
@@ -489,22 +495,24 @@ function OperationResultCard({
       </div>
       {showActions && (
         <div className="ai-operation-result-actions">
-          <button
-            className="ghost-button ai-operation-revert-button"
-            type="button"
-            disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
-            aria-disabled={guardedRevertControl || undefined}
-            aria-busy={revert.isPending}
-            onKeyDown={(event) => {
-              if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
-            }}
-            onClick={() => {
-              if (guardedRevertControl) return;
-              if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
-            }}
-          >
-            {revertLabel}
-          </button>
+          {showRevertControl && (
+            <button
+              className="ghost-button ai-operation-revert-button"
+              type="button"
+              disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
+              aria-disabled={guardedRevertControl || undefined}
+              aria-busy={revert.isPending}
+              onKeyDown={(event) => {
+                if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+              }}
+              onClick={() => {
+                if (guardedRevertControl) return;
+                if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
+              }}
+            >
+              {revertLabel}
+            </button>
+          )}
           <button
             className="ghost-button"
             type="button"
