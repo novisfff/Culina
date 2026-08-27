@@ -430,6 +430,8 @@ git add frontend/e2e docs/plans/2026-08-27-frontend-code-governance-assessment.m
 git commit -m "governance(css): verify phase 1 exit"
 ~~~
 
+Rollback: 只回滚集成验收提交或最近失败的 CSS batch；保留 token/owner registry 和截图/trace 作为诊断证据。
+
 ## Phase 1 Definition of Done
 
 - [ ] canonical token contract、runtime allow-list、alias 和 exception registry 可从干净 checkout 重现；未分类 undefined variable 为 0。

@@ -615,6 +615,8 @@ git add docs/plans/2026-08-27-frontend-code-governance-assessment.md docs/superp
 git commit -m "governance(metrics): verify phase 0 gates"
 ~~~
 
+Rollback: 保留本阶段失败 artifact，回滚集成文档提交不会撤销已验证的度量/manifest脚本；若 ratchet 失败，回滚最近一个脚本或 workflow 提交。
+
 ## Phase 0 Definition of Done
 
 - [ ] clean B0-derived checkout 可重复生成 health JSON、Markdown 和 manifest，SHA-256 对同一输入稳定。

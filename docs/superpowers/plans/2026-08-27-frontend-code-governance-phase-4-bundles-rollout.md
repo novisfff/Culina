@@ -590,6 +590,8 @@ git add frontend/scripts/release-governance-check.mjs frontend/scripts/release-g
 git commit -m "governance(release): verify frontend rollout evidence"
 ~~~
 
+Rollback: 逐 entry 将 target 降回 ratchet，必要时启用 VITE_LEGACY_GLOBAL_STYLES=1 并恢复上一份 manifest；不删除用户状态或服务端数据。
+
 ## Phase 4/5 Definition of Done
 
 - [ ] AiWorkspace 只做 route/port 组合；selection、local migration、stream reducer、approval、human-input、cancel、composer、message View 和 debug host 职责可从依赖图解释。

@@ -620,6 +620,8 @@ git add docs/plans/2026-08-27-frontend-code-governance-assessment.md docs/superp
 git commit -m "governance(frontend): verify phases 2 and 3"
 ~~~
 
+Rollback: 按最后一个失败域回滚，不恢复或删除用户 localStorage、AI 草稿、cook session、缓存或服务端数据；保留已通过的 domain hook 与 contract tests。
+
 ## Phase 2/3 Definition of Done
 
 - [ ] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
