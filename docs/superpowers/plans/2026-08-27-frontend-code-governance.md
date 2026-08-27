@@ -1,6 +1,25 @@
 # Culina 前端代码治理总执行计划
 
-> 这是基于 `origin/main` 最新提交的治理路线图，不是一次性重构任务。每个工作包都必须保持行为契约、可独立验证、可独立回滚。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox ( - [ ] ) syntax for tracking.
+
+**Goal:** 以可重现的指标和小步可回滚提交，降低 Culina 前端复杂度、CSS 债务和首屏/路由资源体积，同时保持现有行为契约。
+
+**Architecture:** Phase 0 先建立 health、manifest 和 fail-closed ratchet；Phase 1 固定 token、selector owner、cascade layer 与响应式边界；Phase 2/3 以 typed port 拆 App、query/mutation 和工作台；Phase 4/5 再拆 AI 二级入口、route-owned CSS 并逐 entry 启用硬预算。每个详细阶段文档都是可独立执行的 task runbook。
+
+**Tech Stack:** React 18、TypeScript、Vite/Rollup、TanStack React Query、Vitest/Testing Library、Playwright、Node.js 20、GitHub Actions。
+
+**Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
+
+## Global Constraints
+
+- 基线为 b559246669dd3fd9ec463658ce2ed4504df2a1ba；工作区为 /Users/zyf/IdeaProjects/Culina/.worktrees/frontend-code-governance，原始 dirty main 不修改。
+- 不改变 API、导航 union、React Query key/cache invalidation、家庭隔离、AI draft/approval/run/cancel、库存 OCC、localStorage key/version 或移动端行为。
+- 每个 task 先写失败测试、运行最小失败命令、做最小实现、运行风险匹配的验证，然后独立提交；不 push、不创建 PR。
+- 报告、单测、构建和浏览器视觉证据不可相互替代；未执行项必须在交付记录中明确。
+- 所有新增 entry、exception、selector owner、baseline 更新和预算 phase 变更都必须有 owner、原因、测试、expiry 或可回滚提交。
+
+---
+
 
 关联文档：
 
@@ -10,6 +29,22 @@
 - 详细 Phase 1：[2026-08-27-frontend-code-governance-phase-1-css.md](2026-08-27-frontend-code-governance-phase-1-css.md)
 - 详细 Phase 2/3：[2026-08-27-frontend-code-governance-phase-2-workspaces.md](2026-08-27-frontend-code-governance-phase-2-workspaces.md)
 - 详细 Phase 4/5：[2026-08-27-frontend-code-governance-phase-4-bundles-rollout.md](2026-08-27-frontend-code-governance-phase-4-bundles-rollout.md)
+
+## 0. 执行索引与检查点
+
+| 顺序 | 任务卡 | 必须先有 | 独立出口 | 回滚边界 |
+| --- | --- | --- | --- | --- |
+| 1 | Phase 0: 0.0–0.2 | clean B0 checkout | health schema、B0 baseline、source/dynamic edge report | metrics/baseline 提交 |
+| 2 | Phase 0: 0.3–0.5 | baseline 可读 | logical manifest、三态 checker、fail-closed CI artifact | manifest/checker/workflow 分开 |
+| 3 | Phase 0: 0.6–0.7 | coverage reporter 可运行 | coverage topology、ratchet fixture、集成记录 | report 与文档提交 |
+| 4 | Phase 1: 1.0–1.3 | Phase 0 ratchet | token/owner/layer contract | 每个 registry/layer 提交 |
+| 5 | Phase 1: 1.4–1.6 | layer contract | 07-mobile 分批归属、debt ratchet、六视口证据 | 每个 CSS batch 提交 |
+| 6 | Phase 2: 2.0–2.3 | query/cache contract | typed ports、query/mutation facade、Router/OverlayHost | 每个 domain/app 提交 |
+| 7 | Phase 3: 3.1–3.5 | App ports | Ingredient/Food/Eat/Inventory/types 拆分 | 每个工作区提交 |
+| 8 | Phase 4: 4.0–4.5 | AI state matrix | reducer、controllers、shell 和二级入口 | 每个 AI boundary 提交 |
+| 9 | Phase 5: 5.1–5.4 | manifest 完整且 route CSS 可回滚 | route CSS、transfer report、hard target、发布演练 | CSS/Vite/budget/CI 分开 |
+
+阶段切换规则：当前阶段的 Definition of Done、focused tests、typecheck/build、health/manifest diff 和必要的六视口证据全部完成后，才能勾选下一阶段；任何停止条件触发时保留失败 artifact，回滚最近一个阶段提交，不跨阶段“先做资源优化”。
 
 ## 1. 目标、基线与执行规则
 
@@ -118,9 +153,9 @@ Phase 1 验收：legacy CSS 行数≤67,000、`!important≤650`、`@media≤180
 
 详细步骤见 [Phase 2/3](2026-08-27-frontend-code-governance-phase-2-workspaces.md) 的前半部分。主任务：
 
-- [ ] 新增 `WorkspacePort<Data, Actions>` 及 Home/Eat/Ingredients/AI/Family 的明确 contract 测试。
+- [ ] 新增 WorkspacePort<Data, Actions> 及 Home/Eat/Ingredients/AI/Family 的明确 contract 测试。
 - [ ] 将 21 个 app query 按 shell/home/eat/ingredients/family/AI 分组；保留 facade 兼容字段，禁止新增字段。
-- [ ] 将 37 个 app mutation 按 ingredient/inventory/recipe/food/meal/AI 分组；缓存失效仍集中在 `cacheInvalidation.ts`。
+- [ ] 将 37 个 app mutation 按 ingredient/inventory/recipe/food/meal/AI 分组（含 shopping 和 food-plan）；缓存失效仍集中在 cacheInvalidation.ts。
 - [ ] 提取 `AppWorkspaceRouter`、`AppOverlayHost`、`useAppInventoryOperations`、`useAppHomeController`，让 `App.tsx` 只负责组合。
 - [ ] 将 Home、库存操作历史/盘点/购物入库和 Eat task adapter 的 payload/副作用从入口移到域 action/controller。
 - [ ] 为首次 loading、后台 refresh、错误保留、冲突、重复提交和导航 focus 添加行为测试。
@@ -169,7 +204,7 @@ Phase 5 验收：主 JS≤110 kB gzip、主 CSS≤100 kB；AI/Ingredient/Family 
 ### 每个代码工作包
 
 ```bash
-npm --prefix frontend test -- <focused-tests>
+npm --prefix frontend run test -- src/app src/components/ingredients src/components/foods src/features/eat src/features/inventory src/components/ai
 npm --prefix frontend run typecheck
 npm --prefix frontend run check:style-tokens
 npm run frontend:quality
