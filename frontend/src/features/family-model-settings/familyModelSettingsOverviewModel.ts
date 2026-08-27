@@ -14,8 +14,8 @@ export type FamilyModelSetupStep = {
   status: FamilyModelSetupStepStatus;
 };
 
-export type FamilyModelPublication = {
-  kind: 'unpublished' | 'local_changes' | 'published';
+export type FamilyModelConfigurationStatus = {
+  kind: 'unconfigured' | 'saving' | 'active';
   label: string;
   description: string;
 };
@@ -25,7 +25,7 @@ export type FamilyModelSettingsOverview = {
   providerCount: number;
   enabledCapabilityCount: number;
   pricedCapabilityCount: number;
-  publication: FamilyModelPublication;
+  configurationStatus: FamilyModelConfigurationStatus;
   steps: FamilyModelSetupStep[];
   primarySection: FamilyModelSettingsSection;
   primaryLabel: string;
@@ -71,24 +71,29 @@ function pricedCapabilityCount(draft: FamilyModelSettingsDraft, enabled: Set<Fam
   return count;
 }
 
-function publicationFor(settings: FamilyModelSettings, dirty: boolean): FamilyModelPublication {
-  const hasPublishedRevision = Boolean(settings.active_config_revision_id && settings.active_price_version_id);
-  if (!hasPublishedRevision) {
+function configurationStatusFor(
+  settings: FamilyModelSettings,
+  dirty: boolean,
+): FamilyModelConfigurationStatus {
+  const hasActiveConfiguration = Boolean(
+    settings.active_config_revision_id && settings.active_price_version_id,
+  );
+  if (!hasActiveConfiguration) {
     return {
-      kind: dirty ? 'local_changes' : 'unpublished',
+      kind: dirty ? 'saving' : 'unconfigured',
       label: dirty ? '正在保存' : '等待配置',
       description: dirty ? '修改会自动保存；信息完整后立即生效。' : '连接服务并绑定需要的能力后即可使用。',
     };
   }
   if (dirty) {
     return {
-      kind: 'local_changes',
+      kind: 'saving',
       label: '正在保存',
       description: '修改会自动保存；保存完成后立即切换到新配置。',
     };
   }
   return {
-    kind: 'published',
+    kind: 'active',
     label: '配置已生效',
     description: '当前家庭正在使用这份配置，后续修改也会自动保存并生效。',
   };
@@ -147,7 +152,7 @@ export function deriveFamilyModelSettingsOverview(
     providerCount,
     enabledCapabilityCount,
     pricedCapabilityCount: pricedCount,
-    publication: publicationFor(input.settings, input.dirty),
+    configurationStatus: configurationStatusFor(input.settings, input.dirty),
     steps: STEP_CONTENT.map((step) => ({
       ...step,
       status: completed[step.id] ? 'complete' : step.id === primarySection ? 'current' : 'upcoming',

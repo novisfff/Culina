@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { ModelPriceEditor } from './ModelPriceEditor';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
-import { PublishReview } from './PublishReview';
+import { ConfigurationCheck } from './ConfigurationCheck';
 import { SearchProfilePanel } from './SearchProfilePanel';
 import type { FamilyModelSettingsSection } from './useFamilyModelSettingsState';
 import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewTypes';
@@ -74,13 +74,13 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
     <>
       <section className="family-model-settings-mobile-summary" aria-labelledby="family-model-settings-mobile-summary-title">
         <div className="family-model-settings-mobile-summary-top">
-          <span className={`family-model-settings-publication is-${props.overview.publication.kind}`}>
+          <span className={`family-model-settings-configuration-status is-${props.overview.configurationStatus.kind}`}>
             <span className="family-model-settings-status-dot" aria-hidden="true" />
-            {props.overview.publication.label}
+            {props.overview.configurationStatus.label}
           </span>
         </div>
         <h1 id="family-model-settings-mobile-summary-title">{props.overview.title}</h1>
-        <p className="family-model-settings-mobile-summary-desc">{props.overview.publication.description}</p>
+        <p className="family-model-settings-mobile-summary-desc">{props.overview.configurationStatus.description}</p>
         <div className="family-model-settings-mobile-metrics">
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.providerCount}</strong>
@@ -184,7 +184,7 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
     case 'search':
       return <SearchProfilePanel {...props} />;
     case 'review':
-      return <PublishReview {...props} />;
+      return <ConfigurationCheck {...props} />;
     case 'overview':
       return <MobileOverview {...props} />;
     default: {

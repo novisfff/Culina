@@ -109,6 +109,8 @@ describe('familyModelSettingsApi transport', () => {
 
     await familyModelSettingsApi.getSearchReplacement(replacementId);
     expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/search/replacements/search%20%2F%20one');
+    await familyModelSettingsApi.getCurrentSearchReplacement();
+    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/search/replacements/current');
     await familyModelSettingsApi.retrySearchReplacement(replacementId, {
       base_settings_version_number: 2,
       idempotency_key: 'retry-key-1',
@@ -127,7 +129,7 @@ describe('familyModelSettingsApi transport', () => {
     });
   });
 
-  it('saves, validates and publishes draft and price data without family or actor fields', async () => {
+  it('saves and validates draft data without family or actor fields', async () => {
     mockRequest.mockResolvedValue({});
     const draft = {
       base_config_revision_id: null,
@@ -149,42 +151,9 @@ describe('familyModelSettingsApi transport', () => {
       method: 'POST',
       body: JSON.stringify({ base_draft_version_number: 1 }),
     });
-    await familyModelSettingsApi.publish({
-      base_settings_version_number: 2,
-      base_draft_version_number: 1,
-      idempotency_key: 'publish-key-1',
-      config_checksum: 'a'.repeat(64),
-      price_checksum: 'b'.repeat(64),
-      current_password: 'owner-password',
-    });
-    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/publish', {
-      method: 'POST',
-      body: expect.any(String),
-    });
-
-    await familyModelSettingsApi.savePricesDraft({
-      base_price_version_id: 'price-1',
-      rates: [rate],
-      change_note: '调价',
-      base_draft_version_number: 0,
-      idempotency_key: 'price-draft-1',
-    });
-    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/prices/draft', {
-      method: 'PUT',
-      body: expect.any(String),
-    });
-    await familyModelSettingsApi.publishPrices({
-      base_settings_version_number: 2,
-      base_price_version_id: 'price-1',
-      idempotency_key: 'price-publish-1',
-      confirm_checksum: 'c'.repeat(64),
-      change_note: '调价',
-      rates: [rate],
-    });
-    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/prices/publish', {
-      method: 'POST',
-      body: expect.any(String),
-    });
+    expect('publish' in familyModelSettingsApi).toBe(false);
+    expect('publishPrices' in familyModelSettingsApi).toBe(false);
+    expect('savePricesDraft' in familyModelSettingsApi).toBe(false);
   });
 
   it('supports explicitly billable capability tests and search replacement lifecycle', async () => {

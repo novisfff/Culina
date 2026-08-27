@@ -502,6 +502,16 @@ class SearchReplacementPreviewOut(BaseModel):
     confirmation_checksum: str
 
 
+class SearchReplacementFailureOut(BaseModel):
+    code: str
+    detail: str
+    provider_http_status: int | None = Field(default=None, ge=100, le=599)
+    provider_error_code: str | None = None
+    provider_error_message: str | None = None
+    request_sent: bool | None = None
+    execution_certainty: Literal["confirmed_executed", "confirmed_not_executed", "unknown"] | None = None
+
+
 class SearchReplacementOut(BaseModel):
     profile_id: str
     status: Literal["provisioning", "failed", "active", "cancelled", "superseded", "retired"]
@@ -512,6 +522,7 @@ class SearchReplacementOut(BaseModel):
     retryable: bool
     created_at: datetime
     activated_at: datetime | None = None
+    failure: SearchReplacementFailureOut | None = None
 
 
 class SaveFamilyModelPricesDraftRequest(FamilyModelPriceDraftPayload):

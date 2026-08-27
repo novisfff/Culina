@@ -81,22 +81,40 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
   const activeSearchProfileId = props.settings.active_search_profile_id ?? null;
   const configuredSearchProfileId = props.draft.search_profile_id ?? activeSearchProfileId;
   const replacement = props.searchReplacement;
+  const replacementIsCandidate = Boolean(
+    replacement
+      && replacement.status !== 'active'
+      && replacement.status !== 'cancelled'
+      && replacement.profile_id !== activeSearchProfileId,
+  );
+  const replacementWasCancelled = Boolean(
+    replacement
+      && replacement.status === 'cancelled'
+      && replacement.profile_id !== activeSearchProfileId,
+  );
   const rates = props.draft.price_rates.filter((rate) => rate.capability === 'embedding');
   const isInitialReady = !configuredSearchProfileId && embeddingReady(embedding);
 
   const summary = (() => {
-    if (replacement && replacement.profile_id === configuredSearchProfileId && replacement.status === 'provisioning') {
+    if (replacementIsCandidate && replacement?.status === 'provisioning') {
       return {
         title: '正在建立搜索索引',
         description: '向量模型已经确认，系统正在为现有家庭内容建立索引。',
         tone: 'is-progress',
       };
     }
-    if (replacement && replacement.profile_id === configuredSearchProfileId && replacement.status === 'failed') {
+    if (replacementIsCandidate && replacement?.status === 'failed') {
       return {
         title: '搜索索引建立失败',
         description: '向量模型配置仍被保留，可以在下方重试，不会重复创建索引身份。',
         tone: 'is-danger',
+      };
+    }
+    if (replacementWasCancelled) {
+      return {
+        title: '搜索索引重建已取消',
+        description: '当前仍继续使用原有搜索索引；如需更换向量模型，可以重新开始重建。',
+        tone: 'is-warning',
       };
     }
     if (activeSearchProfileId) {
@@ -235,14 +253,27 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
         <span>{summary.description}</span>
       </div>
 
-      {replacement && replacement.status !== 'active' && replacement.status !== 'cancelled' ? (
+      {replacement && (replacementIsCandidate || replacementWasCancelled) ? (
         <section className="family-model-settings-search-progress" aria-live="polite">
           <div>
             <h3>{activeSearchProfileId ? '替换索引进度' : '首次索引进度'}</h3>
-            <p>{replacement.status === 'provisioning' ? '正在完整建立索引，可继续使用当前可用的搜索方式。' : replacement.status === 'failed' ? '索引建立失败，现有可用索引没有被替换。' : `当前状态：${replacement.status}`}</p>
+            <p>{replacement.status === 'provisioning'
+              ? '正在完整建立索引，可继续使用当前可用的搜索方式。'
+              : replacement.status === 'failed'
+                ? '索引建立失败，现有可用索引没有被替换。'
+                : '重建已取消，现有可用索引保持不变。'}</p>
           </div>
           <strong>{replacement.indexed_documents} / {replacement.total_documents}</strong>
           {replacement.failed_documents > 0 ? <span>失败 {replacement.failed_documents} 项</span> : null}
+          {replacement.failure ? (
+            <div className="family-model-settings-search-failure" role="alert">
+              <strong>{replacement.failure.detail}</strong>
+              {replacement.failure.provider_http_status ? <span>Provider HTTP {replacement.failure.provider_http_status}</span> : null}
+              {replacement.failure.provider_error_code ? <span>错误码：{replacement.failure.provider_error_code}</span> : null}
+              {replacement.failure.provider_error_message ? <span>{replacement.failure.provider_error_message}</span> : null}
+              {replacement.failure.execution_certainty === 'unknown' ? <span>请求执行结果暂时无法确认，请先检查用量记录后再重试。</span> : null}
+            </div>
+          ) : null}
           <div className="family-model-settings-editor-actions">
             {replacement.status === 'failed' && replacement.retryable ? <button className="ghost-button" type="button" disabled={busy} onClick={() => { void retryReplacement(); }}>重试建立索引</button> : null}
             {activeSearchProfileId && (replacement.status === 'provisioning' || replacement.status === 'failed') ? <button className="tertiary-button" type="button" disabled={busy} onClick={() => { void cancelReplacement(); }}>取消重建</button> : null}

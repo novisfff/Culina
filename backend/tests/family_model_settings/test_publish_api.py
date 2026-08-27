@@ -4,7 +4,7 @@ import json
 
 from sqlalchemy import func, select
 
-from app.models.family_model_settings import FamilyModelOperationReceipt
+from app.models.family_model_settings import FamilyModelOperationReceipt, FamilyModelSettings
 
 from tests.family_model_settings._support import (
     SECRET_MARKER,
@@ -156,4 +156,31 @@ def test_legacy_publish_route_reports_that_the_saved_configuration_is_already_ac
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "family_model_configuration_already_published"
+    assert _publish_receipt_count(family_model_api) == 0
+
+
+def test_legacy_publish_route_cannot_activate_an_initial_configuration(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    """The retired unified endpoint must never become an activation backdoor."""
+
+    response = _publish(
+        family_model_api,
+        {
+            "base_settings_version_number": 1,
+            "base_draft_version_number": 1,
+            "idempotency_key": "legacy-initial-publish-1",
+            "config_checksum": "0" * 64,
+            "price_checksum": "0" * 64,
+            "current_password": "OwnerPass123",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "family_model_configuration_already_published"
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        assert settings is not None
+        assert settings.active_config_revision_id is None
+        assert settings.active_price_version_id is None
     assert _publish_receipt_count(family_model_api) == 0

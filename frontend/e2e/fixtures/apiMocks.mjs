@@ -1154,7 +1154,7 @@ function configuredFamilyModelState() {
         purpose: 'active',
         version_number: 1,
         checksum: 'fixture-price-checksum-v1',
-        change_note: 'fixture published price',
+        change_note: 'fixture active price',
         published_by: user.id,
         published_at: now,
       }],
@@ -1271,6 +1271,17 @@ function familyModelReplacement(status) {
     retryable: status === 'failed',
     created_at: now,
     activated_at: status === 'active' ? now : null,
+    ...(status === 'failed' ? {
+      failure: {
+        code: 'search_embedding_provider_rejected',
+        detail: '嵌入服务拒绝了请求（HTTP 400）',
+        provider_http_status: 400,
+        provider_error_code: 'invalid_request',
+        provider_error_message: 'dimensions is not supported',
+        request_sent: true,
+        execution_certainty: 'confirmed_not_executed',
+      },
+    } : {}),
   };
 }
 
@@ -1370,21 +1381,6 @@ async function fulfillFamilyModelSettingsMock({
     });
     return true;
   }
-  if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/publish`) {
-    state.settings.active_config_revision_id = 'family-model-config-v2';
-    state.settings.active_price_version_id = 'family-model-price-v2';
-    bumpFamilyModelSettingsVersion(state);
-    await fulfillJson(route, {
-      config_revision_id: state.settings.active_config_revision_id,
-      price_version_id: state.settings.active_price_version_id,
-      settings_version_number: state.settings.version_number,
-      config_checksum: body.config_checksum,
-      price_checksum: body.price_checksum,
-      search_profile_id: state.settings.active_search_profile_id,
-    });
-    return true;
-  }
-
   if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles`) {
     await fulfillJson(route, copyFixture(createMockProviderProfile(state, body)));
     return true;
@@ -1476,6 +1472,10 @@ async function fulfillFamilyModelSettingsMock({
   if (request.method() === 'POST' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements`) {
     state.replacement = familyModelReplacement(scenario === 'search-failed' ? 'failed' : 'provisioning');
     await fulfillJson(route, copyFixture(state.replacement));
+    return true;
+  }
+  if (request.method() === 'GET' && url.pathname === `${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/current`) {
+    await fulfillJson(route, state.replacement ? copyFixture(state.replacement) : null);
     return true;
   }
   const replacementPath = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/([^/]+)(?:/(retry|cancel))?$`).exec(url.pathname);

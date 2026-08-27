@@ -7,7 +7,6 @@ import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
   FamilyModelPrices,
-  FamilyModelPricesDraft,
   FamilyModelProviderConnectionCheckPayload,
   FamilyModelProviderConnectionCheckResult,
   FamilyModelProviderProfile,
@@ -18,14 +17,9 @@ import type {
   FamilyModelSearchReplacementPreview,
   FamilyModelSearchReplacementPreviewResult,
   FamilyModelSettings,
-  PublishFamilyModelPricesPayload,
-  PublishFamilyModelSettingsPayload,
-  PublishedFamilyModelConfiguration,
-  PublishedFamilyModelPrices,
   RotateFamilyModelProviderProfileKeyPayload,
   RotateFamilyModelProviderProfileKeyResult,
   SaveFamilyModelConfigDraftPayload,
-  SaveFamilyModelPricesDraftPayload,
 } from './types';
 
 const FAMILY_MODEL_SETTINGS_PREFIX = '/api/family/model-settings';
@@ -53,16 +47,7 @@ export const familyModelSettingsApi = {
     }),
   validateDraft: (payload: { base_draft_version_number: number }) =>
     post<FamilyModelDraftValidation>(`${FAMILY_MODEL_SETTINGS_PREFIX}/draft/validate`, payload),
-  publish: (payload: PublishFamilyModelSettingsPayload) =>
-    post<PublishedFamilyModelConfiguration>(`${FAMILY_MODEL_SETTINGS_PREFIX}/publish`, payload),
   getPrices: () => request<FamilyModelPrices>(`${FAMILY_MODEL_SETTINGS_PREFIX}/prices`),
-  savePricesDraft: (payload: SaveFamilyModelPricesDraftPayload) =>
-    request<FamilyModelPricesDraft>(`${FAMILY_MODEL_SETTINGS_PREFIX}/prices/draft`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-  publishPrices: (payload: PublishFamilyModelPricesPayload) =>
-    post<PublishedFamilyModelPrices>(`${FAMILY_MODEL_SETTINGS_PREFIX}/prices/publish`, payload),
   createProviderProfile: (payload: FamilyModelProviderProfileCreate) =>
     post<FamilyModelProviderProfile>(`${FAMILY_MODEL_SETTINGS_PREFIX}/provider-profiles`, payload),
   patchProviderProfile: (profileId: string, payload: FamilyModelProviderProfilePatch) =>
@@ -88,6 +73,9 @@ export const familyModelSettingsApi = {
     ),
   createSearchReplacement: (payload: CreateFamilyModelSearchReplacementPayload) =>
     post<FamilyModelSearchReplacement>(`${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements`, payload),
+  getCurrentSearchReplacement: () => request<FamilyModelSearchReplacement | null>(
+    `${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/current`,
+  ),
   getSearchReplacement: (profileId: string) => request<FamilyModelSearchReplacement>(replacementPath(profileId)),
   retrySearchReplacement: (profileId: string, payload: FamilyModelSearchReplacementMutationPayload) =>
     post<FamilyModelSearchReplacement>(`${replacementPath(profileId)}/retry`, payload),

@@ -35,6 +35,7 @@ from app.core.enums import (
 )
 from app.core.utils import create_id, utcnow
 from app.models.domain import SearchDocument, SearchIndexJob
+from app.models.model_usage import ModelUsageEvent
 from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigRevision,
@@ -102,6 +103,19 @@ _LIVE_REBUILD_STATUSES = frozenset(
         FamilyModelSearchProfileStatus.FAILED,
     }
 )
+_SAFE_PROGRESS_TEXT_RE = re.compile(
+    r"(?i)(?:bearer\s+|api[_ -]?key\s*[:=]\s*|token\s*[:=]\s*|secret\s*[:=]\s*|password\s*[:=]\s*)[^\s,;]+"
+)
+_SAFE_PROGRESS_URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+_SAFE_PROGRESS_SECRET_VALUE_RE = re.compile(
+    r"(?i)\b(?:sk|rk|pk|api)[-_][A-Za-z0-9_-]{8,}\b"
+)
+_SAFE_PROGRESS_COLLECTION_RE = re.compile(r"\bculina_fsp_[A-Za-z0-9_-]+\b")
+_SAFE_PROGRESS_REQUEST_RE = re.compile(
+    r"(?i)(?:\"?(?:input|prompt|messages|text)\"?\s*[:=]\s*)"
+    r"(?:\[[^\]]*\]|\{[^}]*\}|\"[^\"]*\"|[^,;]+)"
+)
+_SAFE_PROGRESS_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +205,30 @@ class SearchReplacementMutationCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchReplacementFailure:
+    """Owner-safe summary of the most recent failed replacement job."""
+
+    code: str
+    detail: str
+    provider_http_status: int | None = None
+    provider_error_code: str | None = None
+    provider_error_message: str | None = None
+    request_sent: bool | None = None
+    execution_certainty: str | None = None
+
+    def response_record(self) -> dict[str, object]:
+        return {
+            "code": self.code,
+            "detail": self.detail,
+            "provider_http_status": self.provider_http_status,
+            "provider_error_code": self.provider_error_code,
+            "provider_error_message": self.provider_error_message,
+            "request_sent": self.request_sent,
+            "execution_certainty": self.execution_certainty,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SearchReplacementProgress:
     profile_id: str
     status: str
@@ -201,6 +239,7 @@ class SearchReplacementProgress:
     retryable: bool
     created_at: datetime
     activated_at: datetime | None
+    failure: SearchReplacementFailure | None = None
 
     def response_record(self) -> dict[str, object]:
         return {
@@ -216,6 +255,7 @@ class SearchReplacementProgress:
             # FastAPI's response encoder, which is not involved in a replay.
             "created_at": _response_datetime(self.created_at),
             "activated_at": _response_datetime(self.activated_at) if self.activated_at else None,
+            "failure": self.failure.response_record() if self.failure is not None else None,
         }
 
 
@@ -511,6 +551,144 @@ def _profile_progress(
         retryable=retryable,
         created_at=profile.created_at,
         activated_at=profile.activated_at,
+        failure=_latest_profile_failure(db, profile=profile),
+    )
+
+
+def _safe_progress_text(
+    value: object,
+    *,
+    fallback: str,
+    sensitive_values: Sequence[str] = (),
+) -> str:
+    if not isinstance(value, str):
+        return fallback
+    text = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+    text = _SAFE_PROGRESS_TEXT_RE.sub("[redacted]", text)
+    text = _SAFE_PROGRESS_URL_RE.sub("[provider-url]", text)
+    text = _SAFE_PROGRESS_SECRET_VALUE_RE.sub("[redacted]", text)
+    text = _SAFE_PROGRESS_COLLECTION_RE.sub("[collection]", text)
+    text = _SAFE_PROGRESS_REQUEST_RE.sub("request=[redacted]", text)
+    for sensitive in sensitive_values:
+        if sensitive:
+            text = text.replace(sensitive, "[redacted]")
+    return text[:240] or fallback
+
+
+def _safe_progress_code(value: object, *, fallback: str | None = None) -> str | None:
+    if not isinstance(value, str):
+        return fallback
+    value = value.strip()
+    if not _SAFE_PROGRESS_CODE_RE.fullmatch(value):
+        return fallback
+    if _SAFE_PROGRESS_SECRET_VALUE_RE.fullmatch(value):
+        return fallback
+    return value
+
+
+def _profile_failure_detail(job: SearchIndexJob) -> str:
+    if job.status == "budget_blocked":
+        return "模型用量受当前家庭预算限制，条件允许后可重试。"
+    if job.error_code == "search_embedding_provider_rejected":
+        if isinstance(job.provider_http_status, int):
+            return f"嵌入服务拒绝了请求（HTTP {job.provider_http_status}），现有索引未被替换。"
+        return "嵌入服务拒绝了请求，现有索引未被替换。"
+    if job.error_code == "search_embedding_transport_uncertain":
+        return "嵌入服务连接中断，执行结果暂时无法确认，现有索引未被替换。"
+    if job.error_code == "search_embedding_response_invalid":
+        return "嵌入服务返回了无法解析的响应，现有索引未被替换。"
+    if job.error_code == "family_model_secret_unavailable":
+        return "当前嵌入服务的凭据不可用，现有索引未被替换。"
+    return "搜索索引建立失败，现有可用索引没有被替换。请检查向量模型配置后重试。"
+
+
+def _latest_profile_failure(
+    db: Session,
+    *,
+    profile: FamilySearchProfile,
+) -> SearchReplacementFailure | None:
+    """Project the newest failed job into an Owner-safe replacement summary."""
+
+    job = db.scalar(
+        select(SearchIndexJob)
+        .where(
+            SearchIndexJob.family_id == profile.family_id,
+            SearchIndexJob.search_profile_id == profile.id,
+            SearchIndexJob.status.in_(("failed", "budget_blocked")),
+        )
+        .order_by(SearchIndexJob.updated_at.desc(), SearchIndexJob.id.desc())
+        .limit(1)
+    )
+    if job is None:
+        if profile.status is not FamilyModelSearchProfileStatus.FAILED:
+            return None
+        return SearchReplacementFailure(
+            code="search_rebuild_failed",
+            detail="搜索索引建立失败，现有可用索引没有被替换。请检查向量模型配置后重试。",
+        )
+
+    code = _safe_progress_code(job.error_code, fallback="search_rebuild_failed")
+    detail = _profile_failure_detail(job)
+    provider_http_status = getattr(job, "provider_http_status", None)
+    provider_error_code = getattr(job, "provider_error_code", None)
+    provider_error_message = getattr(job, "provider_error_message", None)
+    request_sent = getattr(job, "request_sent", None)
+    execution_certainty = getattr(job, "execution_certainty", None)
+
+    # Rows created before the diagnostic columns/migration can still be
+    # rendered safely.  The usage event is the authoritative fallback for the
+    # execution certainty; it never exposes its provider/model identities.
+    event = None
+    if job.usage_event_id:
+        event = db.get(ModelUsageEvent, job.usage_event_id)
+    if event is None and job.usage_attempt_key:
+        event = db.scalar(
+            select(ModelUsageEvent)
+            .where(
+                ModelUsageEvent.family_id == profile.family_id,
+                ModelUsageEvent.attempt_key == job.usage_attempt_key,
+            )
+            .order_by(ModelUsageEvent.completed_at.desc(), ModelUsageEvent.id.desc())
+            .limit(1)
+        )
+    if execution_certainty not in {
+        "confirmed_executed",
+        "confirmed_not_executed",
+        "unknown",
+    } and event is not None:
+        execution_certainty = event.execution_certainty.value
+    if request_sent is not True and request_sent is not False and event is not None:
+        # An event exists only after the dispatch boundary.  A confirmed
+        # no-send credential failure is represented by a null request id and
+        # remains deliberately unknown here rather than being over-claimed.
+        request_sent = True if event.provider_request_id else None
+
+    return SearchReplacementFailure(
+        code=code or "search_rebuild_failed",
+        detail=detail,
+        provider_http_status=(
+            provider_http_status
+            if isinstance(provider_http_status, int) and not isinstance(provider_http_status, bool)
+            else None
+        ),
+        provider_error_code=(
+            _safe_progress_code(provider_error_code)
+        ),
+        provider_error_message=(
+            _safe_progress_text(
+                provider_error_message,
+                fallback="",
+                sensitive_values=(profile.qdrant_collection, job.target_name),
+            )
+            if isinstance(provider_error_message, str) and provider_error_message
+            else None
+        ),
+        request_sent=request_sent if isinstance(request_sent, bool) else None,
+        execution_certainty=(
+            execution_certainty
+            if execution_certainty in {"confirmed_executed", "confirmed_not_executed", "unknown"}
+            else None
+        ),
     )
 
 
@@ -524,6 +702,36 @@ def search_replacement_progress(
         db, family_id=family_id, search_profile_id=profile_id
     )
     return _profile_progress(db, profile=profile)
+
+
+def current_search_replacement_progress(
+    db: Session,
+    *,
+    family_id: str,
+) -> SearchReplacementProgress | None:
+    """Return the latest visible search profile for a family.
+
+    The UI can be refreshed or reopened while a replacement is running.  Its
+    profile id is not reliable client state, so resolve the live or failed
+    candidate on the server.  Active, cancelled and historical profiles are
+    not replacement work and are intentionally hidden.
+    """
+
+    profile = db.scalar(
+        select(FamilySearchProfile)
+        .where(
+            FamilySearchProfile.family_id == family_id,
+            FamilySearchProfile.status.in_(
+                (
+                    FamilyModelSearchProfileStatus.PROVISIONING,
+                    FamilyModelSearchProfileStatus.FAILED,
+                )
+            ),
+        )
+        .order_by(FamilySearchProfile.created_at.desc(), FamilySearchProfile.id.desc())
+        .limit(1)
+    )
+    return _profile_progress(db, profile=profile) if profile is not None else None
 
 
 def _result_for_profile(db: Session, *, profile: FamilySearchProfile) -> SearchReplacementResult:
@@ -858,6 +1066,9 @@ def create_search_replacement(
     settings.version_number += 1
     settings.updated_by = command.actor_user_id
     settings.updated_at = utcnow()
+    # Repository sessions use ``autoflush=False``.  Make the new document rows
+    # visible to the progress recount returned by this same request.
+    db.flush()
     result = _result_for_profile(db, profile=profile)
     complete_operation(
         claim,
@@ -953,6 +1164,8 @@ def retry_search_replacement(
         row.vector_json = None
         row.vector_dimensions = None
         row.error_code = None
+        row.attempt_count = 0
+        row.last_attempt_at = None
     jobs = tuple(
         db.scalars(
             select(SearchIndexJob)
@@ -969,7 +1182,18 @@ def retry_search_replacement(
         job.vector_status = "pending"
         job.error = None
         job.error_code = None
+        job.attempt_count = 0
+        for field in (
+            "provider_http_status",
+            "provider_error_code",
+            "provider_error_message",
+            "request_sent",
+            "execution_certainty",
+        ):
+            if hasattr(job, field):
+                setattr(job, field, None)
         job.locked_at = None
+        job.started_at = None
         job.completed_at = None
         job.budget_blocked_period_start = None
         job.budget_blocked_policy_version_id = None
@@ -977,6 +1201,9 @@ def retry_search_replacement(
     settings.version_number += 1
     settings.updated_by = command.actor_user_id
     settings.updated_at = utcnow()
+    # Make the reset document/job states visible to the progress recount in
+    # this response before the transaction is committed by the API boundary.
+    db.flush()
     result = _result_for_profile(db, profile=profile)
     complete_operation(claim, result_id=profile.id, response_json=result.response_record())
     log_activity(
