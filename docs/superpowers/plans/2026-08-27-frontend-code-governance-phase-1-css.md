@@ -363,10 +363,10 @@ Expected: FAIL，因为当前检查只报告 style-token drift。
 ~~~bash
 cd frontend
 npm run test -- scripts/css-ratchet.test.mjs
-mkdir -p .artifacts
-npm run check:css-governance -- --mode=ratchet --output .artifacts/css-governance.json
 cd ..
-node -e "const r=require('./frontend/.artifacts/css-governance.json'); if(r.css.important>650||r.css.media>180||r.css.drift>25) process.exit(1)"
+mkdir -p .artifacts
+npm --prefix frontend run check:css-governance -- --mode=ratchet --output "$PWD/.artifacts/css-governance.json"
+node -e "const r=require('./.artifacts/css-governance.json'); if(r.css.important>650||r.css.media>180||r.css.drift>25) process.exit(1)"
 ~~~
 
 Expected: Phase 1 exit 不超过 67,000 CSS 行、650 important、180 media、25 drift、1,100 duplicate selector；新 debt 立即非零。

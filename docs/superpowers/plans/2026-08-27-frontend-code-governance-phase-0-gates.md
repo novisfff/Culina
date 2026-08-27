@@ -433,7 +433,8 @@ Rollback: CI 可先切回 --mode=report；不得恢复 prefix matching 或删除
 
 - runFrontendGovernance({ healthPath, manifestPath, resultPaths, mode }) => { checks, violations, exitCode }
 - CI job id 固定为 frontend-governance；显示名固定为 Frontend Governance。
-- artifact 路径固定为 .artifacts/frontend-health.json、.artifacts/frontend-health-manifest.json、.artifacts/frontend-governance-result.json。
+- 仓库根目录 `.artifacts/` 是唯一 CI artifact root；路径固定为 `.artifacts/frontend-health.json`、`.artifacts/frontend-health-manifest.json`、`.artifacts/frontend-governance-result.json`。
+- `frontend/dist/.vite/frontend-health-manifest.json` 只属于本地构建的中间产物；构建后必须从仓库根目录执行 `cp` 到 `.artifacts/frontend-health-manifest.json`，聚合器和上传步骤只读取/上传 `.artifacts/` 下的 canonical 文件。
 
 - [ ] **Step 1: 写 workflow contract 失败测试**
 
@@ -445,10 +446,13 @@ health:report
 check:governance
 frontend-health.json
 frontend-health-manifest.json
+.artifacts/frontend-health-manifest.json
+mkdir -p .artifacts
+cp frontend/dist/.vite/frontend-health-manifest.json
 if: always()
 ~~~
 
-另写聚合器 fixture：一个子结果为 failure 时 exitCode 必须为 1；所有 success 才为 0。
+另写聚合器 fixture：一个子结果为 failure 时 exitCode 必须为 1；所有 success 才为 0。再加入路径契约 fixture，断言生成器的 dist 中间路径、聚合器输入和 upload-artifact 路径最终都指向同一个 `.artifacts/frontend-health-manifest.json`，禁止直接上传或读取未归档的 dist 路径。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -458,24 +462,27 @@ Expected: workflow assertion FAIL，因为当前 YAML 没有 frontend-governance
 
 - [ ] **Step 3: 增加一次 build、报告、ratchet 和 artifact 上传**
 
-在 frontend-governance job 按以下顺序执行：
+在 frontend-governance job（所有步骤 `working-directory: ${{ github.workspace }}`）按以下顺序执行：
 
 ~~~yaml
 - run: npm ci --prefix frontend
-- run: npm --prefix frontend run health:report -- --format json --output .artifacts/frontend-health.json
+- run: mkdir -p .artifacts
+- run: npm --prefix frontend run health:report -- --format json --output "$GITHUB_WORKSPACE/.artifacts/frontend-health.json"
 - run: npm --prefix frontend run build:manifest
-- run: npm --prefix frontend run check:governance -- --mode=ratchet --manifest dist/.vite/frontend-health-manifest.json
+- run: test -s frontend/dist/.vite/frontend-health-manifest.json
+- run: cp frontend/dist/.vite/frontend-health-manifest.json "$GITHUB_WORKSPACE/.artifacts/frontend-health-manifest.json"
+- run: npm --prefix frontend run check:governance -- --mode=ratchet --manifest "$GITHUB_WORKSPACE/.artifacts/frontend-health-manifest.json" --result "$GITHUB_WORKSPACE/.artifacts/frontend-governance-result.json"
 - if: always()
   uses: actions/upload-artifact@v4
   with:
     name: frontend-governance
     path: |
       .artifacts/frontend-health.json
-      frontend/dist/.vite/frontend-health-manifest.json
+      .artifacts/frontend-health-manifest.json
       .artifacts/frontend-governance-result.json
 ~~~
 
-build 只能执行一次；若复用现有 Frontend Build 产物，必须通过 needs 和 artifact 明确传递，不得假定共享 workspace。
+build 只能执行一次；若复用现有 Frontend Build 产物，必须通过 needs 和 artifact 明确传递，并在本 job 恢复到 `frontend/dist/.vite/frontend-health-manifest.json` 后再复制到 canonical root，不得假定共享 workspace。`mkdir -p .artifacts` 必须在所有写入步骤之前执行。
 
 - [ ] **Step 4: 实现 fail-closed 聚合器**
 
@@ -586,13 +593,15 @@ Rollback: 删除 report hook 不影响 Vitest 测试；不得通过改 include/e
 ~~~bash
 npm --prefix frontend run test -- scripts/frontend-health-metrics.test.mjs scripts/frontend-health-baseline.test.mjs scripts/bundle-manifest.test.mjs scripts/check-bundle-budgets.test.mjs scripts/check-frontend-governance.test.mjs
 npm --prefix frontend run typecheck
-npm --prefix frontend run health:report -- --format json --output .artifacts/frontend-health.json
+mkdir -p .artifacts
+npm --prefix frontend run health:report -- --format json --output "$PWD/.artifacts/frontend-health.json"
 npm --prefix frontend run build:manifest
-npm --prefix frontend run check:governance -- --mode=ratchet
+cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
+npm --prefix frontend run check:governance -- --mode=ratchet --manifest "$PWD/.artifacts/frontend-health-manifest.json" --result "$PWD/.artifacts/frontend-governance-result.json"
 git diff --check
 ~~~
 
-Expected: 每条命令都记录实际 exit code；ratchet 通过，report/manifest artifact 存在。Phase 0 不宣称已完成视觉/P0 smoke。
+Expected: 每条命令都记录实际 exit code；ratchet 通过，三个 canonical artifact 均存在且可解析。Phase 0 不宣称已完成视觉/P0 smoke。
 
 - [ ] **Step 2: 检查不变差和未登记入口**
 

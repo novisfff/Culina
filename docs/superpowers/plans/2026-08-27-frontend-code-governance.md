@@ -59,7 +59,7 @@
 - Commit：`b559246669dd3fd9ec463658ce2ed4504df2a1ba`。
 - Worktree：`/Users/zyf/IdeaProjects/Culina/.worktrees/frontend-code-governance`。
 - Branch：`codex/frontend-code-governance`，跟踪 `origin/main`。
-- B0 构建：主 JS 263.20 kB gzip、主 CSS 189.83 kB、AI 85.84 kB、Ingredient 52.44 kB、Food 25.21 kB、FamilySettings 10.13 kB。
+- B0 构建：主 JS 263.20 KiB gzip、主 CSS 189.83 KiB、AI 85.84 KiB、Ingredient 52.44 KiB、Food 25.21 KiB、FamilySettings 10.13 KiB；预算比较以整数 bytes 为准。
 - B0 CSS：73,489 行、837 个 `!important`、214 个 `@media`、50 个 baseline-gated drift 命中。
 - B0 测试：214 个文件、1,786 个测试；V8 行/分支/函数 71.11%/75.84%/66.58%。
 
@@ -184,7 +184,7 @@ Phase 3 验收：Ingredient/Food/Eat 关键文件达到设计规格阶段目标�
 - [ ] 将 `react-markdown`/`remark-gfm` 及大型 approval editor 从 AI 首屏 shell 移到按需 chunk；加载态不能遮挡已显示消息。
 - [ ] 对 AI run/approval/human-input/cancelled/partial-success 建立状态表和跨端 contract 测试。
 
-Phase 4 验收：AI shell `entryCritical≤10.5 kB` 的路径可解释，routeTotal 已进入 manifest；AI 现有测试和 P0 视口通过，覆盖率不靠降低阈值达标。
+Phase 4 验收：AI shell `entryCritical≤10.5 KiB` 的路径可解释，routeTotal 已进入 manifest；AI 现有测试和 P0 视口通过，覆盖率不靠降低阈值达标。
 
 ## 9. Phase 5：route-owned CSS、chunk 与硬预算
 
@@ -197,7 +197,7 @@ Phase 4 验收：AI shell `entryCritical≤10.5 kB` 的路径可解释，routeTo
 - [ ] 当某 entry 连续两个版本达到目标并通过视口验证后，将其从 ratchet 切为 target hard failure；保留 routeTotal 防止转移超限。
 - [ ] 完成发布前回归、artifact 保存、回滚构建和旧 alias 清理。
 
-Phase 5 验收：主 JS≤110 kB gzip、主 CSS≤100 kB；AI/Ingredient/Family entry 达到目标；所有动态 entry 均有 manifest 记录，预算超限使 CI 非零退出。
+Phase 5 验收：主 JS≤110 KiB gzip、主 CSS≤100 KiB；AI/Ingredient/Family entry 达到目标；所有动态 entry 均有 manifest 记录，预算超限使 CI 非零退出。
 
 ## 10. 统一验证矩阵
 
@@ -216,7 +216,7 @@ git diff --check
 
 - CSS/token/响应式：`npm run frontend:e2e:p0`，视口 375×812、390×844、430×932、768×1024、1024×768、1440×900。
 - AI message/draft/approval：对应 AI 测试 + `npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts`。
-- route/chunk：构建后检查 `frontend-health-manifest.json`、gzip/routeTotal diff 和 lazy 首次加载。
+- route/chunk：构建后检查 `frontend-health-manifest.json`、gzip/routeTotal diff 和 lazy 首次加载；CI 统一从 `frontend/dist/.vite/frontend-health-manifest.json` 归档到 `.artifacts/frontend-health-manifest.json`，后续聚合只读 canonical artifact。
 - 覆盖率基线：`npm run frontend:test:coverage`，只在阶段报告中比较域 floor。
 
 ### 最终门禁

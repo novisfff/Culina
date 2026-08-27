@@ -157,11 +157,11 @@ B0 固定为 `b559246669dd3fd9ec4636582ed4504df2a1ba`，由脚本写入 `fronten
 | token drift baseline 命中 | 50 |
 | 全量测试文件 / 测试数 | 214 / 1,786 |
 | V8 行 / 分支 / 函数覆盖率 | 71.11% / 75.84% / 66.58% |
-| 主 JS gzip / 主 CSS gzip | 263.20 kB / 189.83 kB |
-| AI / Ingredient / Food entry gzip | 85.84 / 52.44 / 25.21 kB |
-| FamilySettings entry gzip | 10.13 kB |
+| 主 JS gzip / 主 CSS gzip | 263.20 KiB / 189.83 KiB |
+| AI / Ingredient / Food entry gzip | 85.84 / 52.44 / 25.21 KiB |
+| FamilySettings entry gzip | 10.13 KiB |
 
-用户提供的 71,713 行 CSS、260.39 kB 主 JS 等数字来自较早快照；治理以 B0 的新鲜构建数字为唯一比较基线，避免把不同 commit 混成一个门槛。
+用户提供的 71,713 行 CSS、260.39 kB 主 JS 等数字来自较早快照（原脚本单位沿用 kB）；治理以 B0 的新鲜构建数字为唯一比较基线，文档中的预算统一使用 KiB，避免把不同 commit 或单位混成一个门槛。
 
 ### 4.2 检查模式
 
@@ -196,28 +196,28 @@ baseline 更新只能通过独立治理 PR/提交完成，并同时提交报告 
 
 ### 4.4 Bundle 定义与目标
 
-构建插件/脚本输出 `frontend-health-manifest.json`，每个 entry 记录 `source`、`js`、`css`、`imports`、`dynamicImports`、模块 raw bytes、gzip bytes 和去重后的传递依赖。
+构建插件/脚本输出 `frontend-health-manifest.json`，每个 entry 记录 `source`、`js`、`css`、`imports`、`dynamicImports`、模块 raw bytes、gzip bytes 和去重后的传递依赖。所有预算字段和比较值以整数 bytes 存储；文档中的人类可读单位统一写作 KiB（1 KiB = 1024 bytes），不再使用含义不明确的 kB。CI 将本地构建中间文件 `frontend/dist/.vite/frontend-health-manifest.json` 复制到仓库根目录 `.artifacts/frontend-health-manifest.json`，聚合器和上传步骤只使用后者。
 
 - `initial`: `main` entry 首次加载所需的唯一 JS/CSS 资产。
 - `entryCritical`: 某 route 自己的 entry chunk（不重复计算已加载 shell）。
 - `routeTotal`: route entry 的完整静态/动态传递依赖去重总和；动态按可达分支分别列出。
-- gzip 使用 Node `gzipSync`、固定压缩级别和 1024 进制格式；报告同时保留 raw bytes。
+- gzip 使用 Node `gzipSync`、固定压缩级别和 1024 进制格式；报告同时保留 raw bytes，所有展示值都能由 bytes 无损换算回去。
 - 所有 dynamic entry 都必须出现在配置中；新增 entry、孤儿 chunk、无法解析的 import 或 CSS 都是失败，不允许默认忽略。
 
 阶段/最终目标：
 
 | 入口 | 当前 entry gzip | Phase 0 ratchet | 迁移后硬目标 |
 | --- | ---: | ---: | ---: |
-| main JS | 263.20 kB | 不增加 | ≤110 kB |
-| main CSS | 189.83 kB | 不增加 | ≤100 kB |
-| AI `entryCritical` | 85.84 kB | 不增加 | ≤10.5 kB |
-| AI `routeTotal` | 待 manifest 首次测量 | 报告并不增加 | ≤55 kB；Markdown 单独 ≤32 kB |
-| Ingredient `entryCritical` | 52.44 kB | 不增加 | ≤37 kB |
-| Food `entryCritical` | 25.21 kB | 不增加 | ≤26 kB |
-| Family profile | 10.13 kB | 不增加 | ≤7 kB |
-| Family model settings | 24.95 kB | 纳入报告 | 按独立 entry 设 ≤20 kB，再按真实 routeTotal 校准 |
+| main JS | 263.20 KiB | 不增加 | ≤110 KiB |
+| main CSS | 189.83 KiB | 不增加 | ≤100 KiB |
+| AI `entryCritical` | 85.84 KiB | 不增加 | ≤10.5 KiB |
+| AI `routeTotal` | 待 manifest 首次测量 | 报告并不增加 | ≤55 KiB；Markdown 单独 ≤32 KiB |
+| Ingredient `entryCritical` | 52.44 KiB | 不增加 | ≤37 KiB |
+| Food `entryCritical` | 25.21 KiB | 不增加 | ≤26 KiB |
+| Family profile | 10.13 KiB | 不增加 | ≤7 KiB |
+| Family model settings | 24.95 KiB | 纳入报告 | 按独立 entry 设 ≤20 KiB，再按真实 routeTotal 校准 |
 
-AI 的 10.5 kB 只表示首屏 orchestrator/shell；若把完整对话、Markdown、审批编辑器都定义为同一个 chunk，必须在 manifest 中明确新的 routeTotal，而不能用改名掩盖体积。
+AI 的 10.5 KiB 只表示首屏 orchestrator/shell；若把完整对话、Markdown、审批编辑器都定义为同一个 chunk，必须在 manifest 中明确新的 routeTotal，而不能用改名掩盖体积。
 
 ## 5. 查询、mutation 与异步状态规则
 

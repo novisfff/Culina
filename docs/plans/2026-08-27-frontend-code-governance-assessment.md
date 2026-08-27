@@ -30,7 +30,7 @@ P1 的根因不是单个“超长文件”，而是四个相互放大的结构�
 3. CSS 是 append-only 级联。19 个文件共 73,489 行（不含 `styles.css` 的 22 行），`07-mobile.css` 是全局末端覆盖层，`09-ai-workspace.css` 已达 10,253 行。token 检查只覆盖三种模式，既不能验证 canonical 值，也不能解释运行时 CSS 变量，导致现有 50 个漂移命中长期 report-only。
 4. 预算脚本把 bundle 超限放进 `warnings`，只有缺失产物和图片问题进入 `violations`。当前主 JS/CSS、AI、家庭设置和食材工作台均超预算却仍通过；脚本还没有覆盖 `FamilyModelSettingsWorkspace`、Model Usage、Markdown 等实际动态 chunk。
 
-因此执行顺序应先建立可信度量和 fail-closed ratchet，再进行 CSS/入口拆分，最后才把历史预算改成硬目标。直接把现有 110KB/100KB 数字改成硬失败会让所有正常 PR 立即变红，反而无法持续迁移。
+因此执行顺序应先建立可信度量和 fail-closed ratchet，再进行 CSS/入口拆分，最后才把历史预算改成硬目标。直接把现有 110 KiB/100 KiB 数字改成硬失败会让所有正常 PR 立即变红，反而无法持续迁移。
 
 ## 3. 可复现基线
 
@@ -93,22 +93,22 @@ P1 的根因不是单个“超长文件”，而是四个相互放大的结构�
 
 ### 3.3 生产构建与实际依赖边界
 
-`npm run frontend:build`（Vite 5.4.21，640 modules transformed）产物如下。脚本显示的 gzip 使用 1024 进制字节并标为 kB；这里保留脚本原样的数字。
+`npm run frontend:build`（Vite 5.4.21，640 modules transformed）产物如下。现有脚本输出虽标为 kB，实际按 1024 进制计算；本治理文档统一将人类可读值标为 KiB，预算和 ratchet 始终比较整数 bytes。
 
 | 逻辑/当前文件 | raw | gzip | 当前脚本预算 | 结果 |
 | --- | ---: | ---: | ---: | --- |
-| 主 JS `index-DwWZ_wgr.js` | 920.83 kB | 263.20 kB | 110 kB | warning，退出 0 |
-| 主 CSS `index-t1_sx1i4.css` | 1,316.10 kB | 189.83 kB | 100 kB | warning，退出 0 |
-| `AiWorkspace` | 300.62 kB | 85.84 kB | 10.5 kB | warning，退出 0 |
-| `IngredientWorkspace` | 209.82 kB | 52.44 kB | 37 kB | warning，退出 0 |
-| `FamilySettings` | 44.27 kB | 10.13 kB | 7 kB | warning，退出 0 |
-| `FoodWorkspace` | 80.46 kB | 25.21 kB | 26 kB | 当前通过 |
-| `MarkdownMessage` | 158.43 kB | 48.08 kB | 未跟踪 | 未纳入预算 |
-| `FamilyModelSettingsWorkspace` | 94.05 kB | 24.95 kB | 未跟踪 | 未纳入预算 |
-| `ModelUsageWorkspace` | 42.11 kB | 11.64 kB | 未跟踪 | 未纳入预算 |
-| `ModelUsageRequestLogsPage` | 14.82 kB | 5.26 kB | 未跟踪 | 未纳入预算 |
+| 主 JS `index-DwWZ_wgr.js` | 920.83 KiB | 263.20 KiB | 110 KiB | warning，退出 0 |
+| 主 CSS `index-t1_sx1i4.css` | 1,316.10 KiB | 189.83 KiB | 100 KiB | warning，退出 0 |
+| `AiWorkspace` | 300.62 KiB | 85.84 KiB | 10.5 KiB | warning，退出 0 |
+| `IngredientWorkspace` | 209.82 KiB | 52.44 KiB | 37 KiB | warning，退出 0 |
+| `FamilySettings` | 44.27 KiB | 10.13 KiB | 7 KiB | warning，退出 0 |
+| `FoodWorkspace` | 80.46 KiB | 25.21 KiB | 26 KiB | 当前通过 |
+| `MarkdownMessage` | 158.43 KiB | 48.08 KiB | 未跟踪 | 未纳入预算 |
+| `FamilyModelSettingsWorkspace` | 94.05 KiB | 24.95 KiB | 未跟踪 | 未纳入预算 |
+| `ModelUsageWorkspace` | 42.11 KiB | 11.64 KiB | 未跟踪 | 未纳入预算 |
+| `ModelUsageRequestLogsPage` | 14.82 KiB | 5.26 KiB | 未跟踪 | 未纳入预算 |
 
-`frontend/src/styles.css` 同步 `@import` 19 个 CSS 文件，所以所有路由共享 189.83 kB gzip 主 CSS；JS lazy 边界只覆盖部分工作台，Home、Eat、Inventory 对话框和 `EatTaskBodies` 仍在静态入口闭包。
+`frontend/src/styles.css` 同步 `@import` 19 个 CSS 文件，所以所有路由共享 189.83 KiB gzip 主 CSS；JS lazy 边界只覆盖部分工作台，Home、Eat、Inventory 对话框和 `EatTaskBodies` 仍在静态入口闭包。
 
 `check-bundle-budgets.mjs:84-88` 把超限推入 `warnings`，`102-108` 只对 `violations` 退出 1。它按哈希文件名前缀取第一个匹配文件，不能表达入口的传递依赖，也不能防止把代码挪到未跟踪 chunk。
 
@@ -138,7 +138,7 @@ P1 的根因不是单个“超长文件”，而是四个相互放大的结构�
 
 **触发场景：** 用户只打开首页或家庭页，或只切换到 AI/食材工作台。
 
-**证据与影响：** `styles.css` 同步导入全部 19 个 CSS；`App.tsx` 虽然 lazy 了八个组件，但静态导入 HomeDashboard、EatWorkspace、EatTaskBodies、MealLogWorkspace、InventoryMaintenanceDialogs 等大型闭包。主 JS 263.20 kB gzip、主 CSS 189.83 kB gzip，且 `MarkdownMessage`、Family Model Settings、Model Usage 等 chunk 未受当前预算覆盖。首屏网络、缓存失效和浏览器解析成本持续拖慢迭代与真实加载。
+**证据与影响：** `styles.css` 同步导入全部 19 个 CSS；`App.tsx` 虽然 lazy 了八个组件，但静态导入 HomeDashboard、EatWorkspace、EatTaskBodies、MealLogWorkspace、InventoryMaintenanceDialogs 等大型闭包。主 JS 263.20 KiB gzip、主 CSS 189.83 KiB gzip，且 `MarkdownMessage`、Family Model Settings、Model Usage 等 chunk 未受当前预算覆盖。首屏网络、缓存失效和浏览器解析成本持续拖慢迭代与真实加载。
 
 **修复方向：** 以 Home/Eat/Ingredients/AI/Family 为逻辑 route entry，查询和呈现按入口加载；为 AI 消息/Markdown/审批、Eat task kind 和 Family model usage 建立二级边界。用 manifest 计算去重后的 initial/route-total 传输，不按哈希前缀猜文件。
 
