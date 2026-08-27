@@ -51,7 +51,7 @@ function CookingAssistantTypingCue() {
 }
 
 function isFixedCookingSkillToolCard(part: RecipeCookAssistantMessagePart) {
-  return part.type === 'tool_card' && part.label === '技能调用';
+  return part.type === 'tool_card' && (part.label === '步骤建议' || part.label === '处理步骤');
 }
 
 function cookingAssistantPartScrollKey(part: RecipeCookAssistantMessagePart) {
@@ -374,7 +374,7 @@ export function CookingAssistantPanel({
               const hasLegacyLabel = lines.length >= 3;
               const label = hasLegacyLabel ? lines[0] : '';
               const detail = hasLegacyLabel ? lines[1] : lines[0] || message.text;
-              const status = hasLegacyLabel ? lines[2] : lines[1] || '已处理';
+              const status = hasLegacyLabel ? lines[2] : lines[1] || '已完成';
               return (
                 <div key={message.id} className={`recipe-cook-ai-tool-card ${message.tone ?? 'normal'}`} role="status">
                   {label ? <span>{label}</span> : null}
@@ -438,7 +438,7 @@ export function CookingAssistantPanel({
                   先不做
                 </ActionButton>
                 <ActionButton tone="primary" type="button" onClick={confirmPendingAction}>
-                  确认执行
+                  确认
                 </ActionButton>
               </div>
             </div>
@@ -471,7 +471,7 @@ export function CookingAssistantPanel({
             <input
               value={assistantState.draftMessage}
               onChange={(event) => assistantState.setDraftMessage(event.target.value)}
-              placeholder="问这一步、食材或计时..."
+              placeholder="问这一步、食材或计时…"
               disabled={assistant.isSending || isCancellationInFlight}
             />
             <AiVoiceInputButton

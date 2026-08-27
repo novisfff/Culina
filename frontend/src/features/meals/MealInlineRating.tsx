@@ -29,7 +29,7 @@ function InlineStars(props: {
       aria-valuemin={0}
       aria-valuemax={5}
       aria-valuenow={rating}
-      aria-valuetext={rating > 0 ? `${rating} 分` : '尚未填写'}
+      aria-valuetext={rating > 0 ? `${rating} 分` : '未评分'}
       aria-disabled={props.disabled ? true : undefined}
       tabIndex={props.disabled ? -1 : 0}
       style={{ ['--rating-width' as string]: fill }}
@@ -93,7 +93,7 @@ export function MealInlineRating(props: MealInlineRatingProps) {
       <div className="meal-inline-rating-list">
         {props.meal.food_entries.map((entry) => (
           <div key={entry.id} className="meal-inline-rating-row">
-            <strong>{entry.food_name || '未命名菜品'}</strong>
+            <strong>{entry.food_name || '未命名食物'}</strong>
             <InlineStars
               value={entryRatings[entry.id] ?? ''}
               disabled={props.busy}

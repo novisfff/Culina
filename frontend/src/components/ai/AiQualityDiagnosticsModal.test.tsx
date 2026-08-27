@@ -40,8 +40,8 @@ describe('AiQualityDiagnosticsModal', () => {
     const { onClose, view } = renderModal();
 
     expect(view.querySelector('.workspace-overlay-root.ai-quality-modal-root')).not.toBeNull();
-    expect(view.textContent).toContain('AI 质量诊断');
-    expect(view.textContent).toContain('还没有运行记录');
+    expect(view.textContent).toContain('AI 使用情况');
+    expect(view.textContent).toContain('还没有 AI 处理记录');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());

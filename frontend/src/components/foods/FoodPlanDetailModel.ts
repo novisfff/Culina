@@ -15,7 +15,7 @@ export type FoodPlanDetailFact = {
 };
 
 function describeExpiryFrom(food: Food, today: string): string {
-  if (!food.expiry_date) return '未记录';
+  if (!food.expiry_date) return '未填写到期日';
   const targetTime = new Date(`${food.expiry_date}T00:00:00`).getTime();
   const todayTime = new Date(`${today}T00:00:00`).getTime();
   const days = Math.round((targetTime - todayTime) / 86_400_000);
@@ -26,7 +26,7 @@ function describeExpiryFrom(food: Food, today: string): string {
 }
 
 function formatPrice(price: number | null | undefined): string {
-  if (price == null) return '未记录';
+  if (price == null) return '还没有记录';
   return `¥${Number.isInteger(price) ? price : price.toFixed(2)}`;
 }
 
@@ -43,10 +43,10 @@ export function getFoodPlanDetailFacts(
     return [
       { label: '分类', value: category },
       {
-        label: '适合餐次',
+        label: '适合餐别',
         value: food.suitable_meal_types.map((mealType) => MEAL_TYPE_LABELS[mealType]).join('、') || '未设置',
       },
-      { label: '关联菜谱', value: food.recipe_id ? '已关联' : '未关联' },
+      { label: '关联菜谱', value: food.recipe_id ? '已关联' : '还没有关联' },
     ];
   }
 
@@ -55,10 +55,10 @@ export function getFoodPlanDetailFacts(
       { label: '分类', value: category },
       {
         label: normalizedType === 'takeout' ? '店铺' : '餐厅',
-        value: food.source_name || food.purchase_source || '未记录',
+        value: food.source_name || food.purchase_source || (normalizedType === 'takeout' ? '未填写店铺' : '未填写餐厅'),
       },
       { label: '价格', value: formatPrice(food.price) },
-      { label: '复购', value: getRepurchaseLabel(food) },
+      { label: '还想再吃吗', value: getRepurchaseLabel(food) },
     ];
   }
 
@@ -66,8 +66,8 @@ export function getFoodPlanDetailFacts(
     return [
       { label: '分类', value: category },
       { label: '库存', value: formatFoodStockQuantity(food) },
-      { label: '存放', value: food.storage_location || '未记录' },
-      { label: '到期', value: describeExpiryFrom(food, today) },
+      { label: '存放位置', value: food.storage_location || '未填写存放位置' },
+      { label: '到期日', value: describeExpiryFrom(food, today) },
     ];
   }
 

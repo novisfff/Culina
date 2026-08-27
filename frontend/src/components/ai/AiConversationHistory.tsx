@@ -102,7 +102,7 @@ export function AiDesktopConversationHistory(props: {
       </button>
       <div className="ai-conversation-list">
         {props.isLoading ? (
-          <p className="subtle">正在加载会话...</p>
+          <p className="subtle">正在加载会话…</p>
         ) : props.conversations.length > 0 ? (
           groupedConversations.map((group) => (
             <div key={group.title} className="ai-history-group">

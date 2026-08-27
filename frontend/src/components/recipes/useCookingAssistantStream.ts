@@ -61,7 +61,7 @@ function progressStatusText(status: AiRunEvent['status']) {
   if (status === 'cancelled') return '已取消';
   if (status === 'failed') return '失败';
   if (status === 'waiting') return '等待中';
-  return '调用中';
+  return '处理中';
 }
 
 function progressTone(status: AiRunEvent['status']): CookingAssistantMessage['tone'] {
@@ -73,14 +73,14 @@ function progressTone(status: AiRunEvent['status']): CookingAssistantMessage['to
 }
 
 function progressLabel(event: AiRunEvent) {
-  if (event.type === 'skill') return '技能调用';
-  if (event.type === 'script') return '脚本调用';
+  if (event.type === 'skill') return '步骤建议';
+  if (event.type === 'script') return '小灶动作';
   return '';
 }
 
 function progressDetail(event: AiRunEvent) {
   const message = event.user_message.trim();
-  return message || event.internal_code || '调用工具';
+  return message || '正在准备';
 }
 
 function isAiRunEvent(event: AiRunEvent | { user_message?: string }): event is AiRunEvent {
@@ -248,7 +248,7 @@ export function useCookingAssistantStream({
         id: `assistant-action-${card.id}`,
         type: 'tool_card',
         detail: result.status === 'rejected' ? result.message : buildCookingActionTaskText(result.data),
-        status: result.status === 'executed' ? '已执行' : result.status === 'needs_confirmation' ? '等待确认' : '未执行',
+        status: result.status === 'executed' ? '已完成' : result.status === 'needs_confirmation' ? '等待确认' : '未完成',
         tone: resultTone(result),
       }, resultTone(result));
     }

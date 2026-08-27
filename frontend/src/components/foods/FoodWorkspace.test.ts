@@ -382,7 +382,7 @@ describe('FoodWorkspace editor composition', () => {
 
     const form = view.querySelector<HTMLFormElement>('#food-editor-form');
     const submit = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.includes('保存菜谱和资料'));
+      .find((button) => button.textContent?.includes('保存菜谱及食物信息'));
 
     expect(form).not.toBeNull();
     expect(submit?.getAttribute('form')).toBe('food-editor-form');
@@ -524,7 +524,7 @@ describe('FoodWorkspace meal recording ownership', () => {
     expect(payload).not.toHaveProperty('stock_unit');
     expect(payload).not.toHaveProperty('food_plan_item_id');
 
-    const bar = view.querySelector('[aria-label="记录结果"]');
+    const bar = view.querySelector('[aria-label="餐食记录结果"]');
     expect(bar).not.toBeNull();
     expect(bar?.textContent).toContain('已记下');
     expect(bar?.textContent).toContain('撤销');
@@ -553,17 +553,17 @@ describe('FoodWorkspace meal recording ownership', () => {
 });
 
 describe('food workspace helpers', () => {
-  it('uses 编辑档案 for the edit-information action across every food type', () => {
+  it('uses 编辑食物 for the edit-information action across every food type', () => {
     const foodTypes: Food['type'][] = ['selfMade', 'takeout', 'diningOut', 'readyMade', 'instant'];
 
     foodTypes.forEach((type) => {
-      expect(getSecondaryFoodActionLabel({ ...baseFood, type })).toBe('编辑档案');
+      expect(getSecondaryFoodActionLabel({ ...baseFood, type })).toBe('编辑食物');
     });
   });
 
   it('formats food stock display with at most one decimal place', () => {
-    expect(formatFoodStockQuantity({ stock_quantity: 13.991, stock_unit: '盒' })).toBe('13.9盒');
-    expect(formatFoodStockQuantity({ stock_quantity: 13.94, stock_unit: '盒' })).toBe('13.9盒');
+    expect(formatFoodStockQuantity({ stock_quantity: 13.991, stock_unit: '盒' })).toBe('13.9 盒');
+    expect(formatFoodStockQuantity({ stock_quantity: 13.94, stock_unit: '盒' })).toBe('13.9 盒');
     expect(formatFoodStockQuantity({ stock_quantity: null, stock_unit: '盒' })).toBe('未记录');
   });
 
@@ -595,7 +595,7 @@ describe('food workspace helpers', () => {
 
   it('offers home-cooked food as a guided create type', () => {
     expect(FOOD_CREATE_TYPE_OPTIONS.map((item) => item.value)).toEqual(['selfMade', 'takeout', 'diningOut', 'readyMade', 'instant']);
-    expect(FOOD_CREATE_TYPE_OPTIONS[0].label).toBe('自做');
+    expect(FOOD_CREATE_TYPE_OPTIONS[0].label).toBe('自己做');
   });
 
   it('filters by normalized type, meal type, and text fields', () => {
@@ -762,11 +762,11 @@ describe('food workspace helpers', () => {
 
     expect(getFoodGovernanceIssues(missingAll)).toEqual(['image', 'meal', 'note', 'source', 'stock']);
     expect(getFoodGovernanceIssueLabels(missingAll)).toEqual([
-      '缺库存/到期',
-      '缺餐别',
-      '缺来源',
-      '缺图片',
-      '缺备注',
+      '需要补充库存或到期日',
+      '需要补充餐别',
+      '需要补充来源',
+      '需要补充图片',
+      '需要补充备注',
     ]);
     expect(getFoodGovernanceIssues(completeFood)).toEqual([]);
   });
@@ -817,7 +817,7 @@ describe('food workspace helpers', () => {
     });
 
     expect(recommendations[0].food.name).toBe('今天换个炒饭');
-    expect(recommendations.find((item) => item.food.id === 'food-recent')?.reasons).toContain('最近吃过已降权');
+    expect(recommendations.find((item) => item.food.id === 'food-recent')?.reasons).toContain('最近吃过，暂不优先推荐');
   });
 
   it('keeps expiring foods high priority even when they were eaten recently', () => {
@@ -830,7 +830,7 @@ describe('food workspace helpers', () => {
     });
 
     expect(recommendations[0].food.name).toBe('今天到期酸奶');
-    expect(recommendations[0].reasons).toContain('今天需处理');
+    expect(recommendations[0].reasons).toContain('今天需要处理');
   });
 
   it('builds home-cooked recipe relation with availability and shortages', () => {
@@ -847,9 +847,9 @@ describe('food workspace helpers', () => {
 
     const relation = buildFoodRelationViewModel(food, [linkedRecipe], [tomato, egg], [tomatoInventory], [], [food]);
 
-    expect(relation.linkedRecipeCard?.availabilityLabel).toBe('缺 1 项');
-    expect(relation.relationFacts).toContainEqual({ label: '可做程度', value: '缺 1 项' });
-    expect(relation.shortagePreview).toEqual(['鸡蛋 2个']);
+    expect(relation.linkedRecipeCard?.availabilityLabel).toBe('缺少 1 项');
+    expect(relation.relationFacts).toContainEqual({ label: '可做情况', value: '缺少 1 项' });
+    expect(relation.shortagePreview).toEqual(['鸡蛋 2 个']);
   });
 
   it('summarizes home-cooked food cooking state for mobile food cards', () => {
@@ -871,9 +871,9 @@ describe('food workspace helpers', () => {
 
     expect(buildFoodCookingSummaryFromRecipeCards(food, cards)).toMatchObject({
       title: '家常番茄炒蛋',
-      availabilityLabel: '缺 1 项',
-      metaLabel: '2原料 · 2步',
-      shortagePreview: ['鸡蛋 2个'],
+      availabilityLabel: '缺少 1 项',
+      metaLabel: '2 种食材 · 2 步',
+      shortagePreview: ['鸡蛋 2 个'],
       isReady: false,
     });
     expect(buildFoodCookingSummaryFromRecipeCards(baseFood, cards)).toBeNull();
@@ -896,8 +896,8 @@ describe('food workspace helpers', () => {
 
     const relation = buildFoodRelationViewModel(readyFood, [], [tomato], [], [], [readyFood]);
 
-    expect(relation.relationFacts).toContainEqual({ label: '库存剩余', value: '3盒' });
-    expect(relation.relationFacts).toContainEqual({ label: '到期', value: '今天到期' });
+    expect(relation.relationFacts).toContainEqual({ label: '库存剩余', value: '3 盒' });
+    expect(relation.relationFacts).toContainEqual({ label: '到期日', value: '今天到期' });
     expect(relation.detail).toContain('盒马');
   });
 
@@ -908,7 +908,7 @@ describe('food workspace helpers', () => {
     const relation = buildFoodRelationViewModel(outsideFood, [], [], [], [mealLog], [outsideFood]);
 
     expect(relation.relationFacts).toContainEqual({ label: '餐食记录', value: '1 次' });
-    expect(relation.relationFacts).toContainEqual({ label: '复购评分', value: '4.5 分 · 愿意复购' });
+    expect(relation.relationFacts).toContainEqual({ label: '评分与再吃意愿', value: '4.5 分 · 想再吃' });
     expect(relation.detail).toContain('楼下咖喱');
   });
 });
@@ -935,7 +935,7 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
     act(() => card?.click());
 
     const confirmation = view.querySelector('.food-detail-inventory-confirmation');
-    expect(confirmation?.textContent).toContain('从未确认');
+    expect(confirmation?.textContent).toContain('未确认');
     expect(confirmation?.closest('.food-detail-status-row')).not.toBeNull();
   });
 
@@ -980,7 +980,7 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
   it('opens a confirmation dialog before creating a desktop food shopping item', async () => {
     const createShoppingItem = vi.fn();
     const { view, food } = renderWorkspace({ navigationRequest: null, createShoppingItem });
-    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购：${food.name}"]`);
+    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购清单：${food.name}"]`);
 
     await act(async () => trigger?.click());
 
@@ -992,14 +992,14 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
   it('exposes the food shopping confirmation entry on mobile cards', () => {
     const { view, food } = renderWorkspace({ isPhoneViewport: true, navigationRequest: null });
 
-    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购：${food.name}"]`)).not.toBeNull();
+    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购清单：${food.name}"]`)).not.toBeNull();
   });
 
   it('exposes the recipe ingredient shopping entry on mobile self-made food cards', () => {
     const selfMadeFood: Food = { ...baseFood, id: 'food-mobile-self-made', type: 'selfMade', recipe_id: recipe.id };
     const { view } = renderWorkspace({ food: selfMadeFood, isPhoneViewport: true, navigationRequest: null });
 
-    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购：${selfMadeFood.name}"]`)).not.toBeNull();
+    expect(view.querySelector(`.mobile-food-library-card [aria-label="加入采购清单：${selfMadeFood.name}"]`)).not.toBeNull();
   });
 
   it('opens editable recipe ingredient drafts from a self-made food shopping action', async () => {
@@ -1025,7 +1025,7 @@ describe('FoodWorkspace shopping-origin restock cutover', () => {
       ingredients: [tomato],
       createShoppingItem,
     });
-    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购：${selfMadeFood.name}"]`);
+    const trigger = view.querySelector<HTMLButtonElement>(`[aria-label="加入采购清单：${selfMadeFood.name}"]`);
 
     await act(async () => trigger?.click());
 
@@ -1113,11 +1113,11 @@ describe('FoodWorkspace week navigation presentation', () => {
         target: 'week', planDate: '2026-07-15', requestId: 3,
       },
     });
-    expect(view.querySelector('main[aria-label="手机周菜单"]')).not.toBeNull();
+    expect(view.querySelector('main[aria-label="周餐食计划"]')).not.toBeNull();
     expect(view.querySelector('[role="dialog"][aria-label*="菜单详情"]')).toBeNull();
     const back = view.querySelector<HTMLButtonElement>('button[aria-label="返回食物页"]');
     if (!back) throw new Error('mobile week back button missing');
     act(() => back.click());
-    expect(view.querySelector('main[aria-label="手机周菜单"]')).toBeNull();
+    expect(view.querySelector('main[aria-label="周餐食计划"]')).toBeNull();
   });
 });

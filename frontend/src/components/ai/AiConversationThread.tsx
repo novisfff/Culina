@@ -129,19 +129,13 @@ function collapseRunActivityEntries(entries: RunActivityEventEntry[]) {
 
 function runActivitySkillLabel(event: AiRunEvent) {
   const skillName = extractSkillName(event);
-  return `调用技能：${skillName}`;
-}
-
-function extractScriptName(event: AiRunEvent) {
-  const match = event.user_message.match(/脚本「(.+?)」/);
-  if (match?.[1]) return match[1];
-  return event.internal_code.replace(/^script\./, '') || event.user_message;
+  return event.status === 'completed' ? `已完成：${skillName}` : `正在处理：${skillName}`;
 }
 
 function runActivityScriptLabel(event: AiRunEvent) {
-  const scriptName = extractScriptName(event);
-  if (event.status === 'failed') return `脚本「${scriptName}」执行失败`;
-  return `调用脚本「${scriptName}」`;
+  if (event.status === 'failed') return '自动处理失败';
+  if (event.status === 'completed') return '自动处理已完成';
+  return '正在自动处理';
 }
 
 function normalizeToolMessage(message: string) {
@@ -150,11 +144,15 @@ function normalizeToolMessage(message: string) {
 
 function runActivityToolLabel(event: AiRunEvent) {
   if (event.type === 'script') return runActivityScriptLabel(event);
-  if (event.status === 'waiting') return `等待补充：${event.user_message}`;
-  if (event.status === 'failed') return `执行失败：${event.user_message}`;
-  if (isDraftToolEvent(event)) return event.user_message.startsWith('生成「') ? event.user_message : `生成「${event.user_message}」`;
+  if (event.status === 'waiting') return `等你补充：${event.user_message}`;
+  if (event.status === 'failed') return `处理失败：${event.user_message}`;
+  if (isDraftToolEvent(event)) {
+    const message = event.user_message.startsWith('生成「') ? event.user_message : `生成「${event.user_message}」`;
+    return event.status === 'completed' ? `已${message}` : `正在${message}`;
+  }
   const message = normalizeToolMessage(event.user_message);
-  return message.startsWith('调用「') ? message : `调用「${message}」`;
+  const normalized = message.replace(/^处理：/, '').trim();
+  return event.status === 'completed' ? `已完成：${normalized}` : `正在处理：${normalized}`;
 }
 
 function runActivityKind(event: AiRunEvent): RunActivityItem['kind'] {
@@ -259,7 +257,7 @@ function RunActivityInline({
   const newestKey = isLive ? visibleActivityItems[visibleActivityItems.length - 1]?.key : null;
 
   return (
-    <section className="ai-run-activity" aria-label="AI 执行过程">
+    <section className="ai-run-activity" aria-label="AI 处理过程">
       <div className="ai-run-activity-summary">
         {visibleActivityItems.map((item) => {
           const movementClass = item.key === newestKey ? ' is-newest' : '';
@@ -521,7 +519,7 @@ function HumanInputRequestPanel({
             </div>
             {request.reason ? <p>{request.reason}</p> : null}
             {isCancelled ? (
-              <p className="ai-human-input-cancelled-summary">任务已取消，未提交回答</p>
+              <p className="ai-human-input-cancelled-summary">这次处理已取消，回答未提交</p>
             ) : isResolved ? (
               <p className="ai-human-input-answer-summary">
                 <span>回答</span>
@@ -579,7 +577,7 @@ function HumanInputRequestPanel({
                     <span className="ai-clarification-option-index">{request.options.length + 1}</span>
                     <span>
                       <strong>手动输入</strong>
-                      <p>自己补充处理方式。</p>
+                      <p>自己补充希望 AI 处理的内容。</p>
                     </span>
                   </button>
                 ) : null}
@@ -614,12 +612,12 @@ function HumanInputRequestPanel({
                       setText(event.target.value);
                       setPendingOption(null);
                     }}
-                    placeholder="写下你的处理方式，AI 会按这条继续。"
+                    placeholder="告诉 AI 你希望怎么处理，AI 会按你的要求继续。"
                   />
                 </label>
                 <div className="ai-approval-actions">
                   <button className="solid-button ai-human-input-submit" type="button" onClick={submitManual} disabled={isDisabled || !hasManualAnswer}>
-                    {isSubmitting ? '提交中...' : '提交回答'}
+                    {isSubmitting ? '正在提交…' : '提交回答'}
                   </button>
                 </div>
               </div>
@@ -780,7 +778,7 @@ export function MessageBubble({
               );
             }
             if (part.type === 'error_recovery' && !part.card) {
-              const upgradeText = part.text?.trim() || '当前应用版本不支持新的做菜确认，请刷新并更新后继续。原草稿仍会安全保留。';
+              const upgradeText = part.text?.trim() || '当前版本暂不支持新的做菜确认，请刷新后再试。原草稿已安全保留。';
               return (
                 <div key={item.key} className="ai-message-part ai-error-recovery-part" role="status">
                   <div className="ai-recipe-danger-impact">
@@ -823,9 +821,9 @@ export function MessageBubble({
                 && part.approval.id === firstPendingApprovalId
                 && isApprovalResumeReady;
               const submitDisabledReason = isPendingApproval && part.approval.id !== firstPendingApprovalId
-                  ? '请先处理上一个草稿，再确认这一项。'
+                  ? '请先完成上一个草稿的确认，再处理这一项。'
                   : isPendingApproval && !isApprovalResumeReady
-                    ? '确认入口正在准备，稍后即可确认。'
+                    ? '确认功能暂时不可用，请稍后再试。'
                   : !isLatestAssistant && isPendingApproval
                     ? '请先处理最新的待确认草稿。'
                     : undefined;
@@ -880,7 +878,7 @@ export function MessageBubble({
                 </svg>
               </span>
               <span>
-                <strong>正在准备可确认草稿</strong>
+                <strong>正在准备待确认草稿</strong>
                 <small>生成后会在这里等你核对，确认前不会保存到家庭数据。</small>
               </span>
             </div>

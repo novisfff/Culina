@@ -174,8 +174,8 @@ describe('ModelUsagePolicySettings', () => {
     const summary = screen.getByRole('region', { name: '当前预算策略' });
     expect(summary).toHaveTextContent('¥80.01');
     expect(summary).toHaveTextContent('预算提醒已开启');
-    expect(summary).toHaveTextContent('硬限制未开启');
-    expect(summary).toHaveTextContent('0 项护栏');
+    expect(summary).toHaveTextContent('超额停止未开启');
+    expect(summary).toHaveTextContent('0 项功能限额');
     expect(screen.getByLabelText('家庭月预算（元）')).toHaveValue('80.005');
     view.unmount();
   });
@@ -210,10 +210,10 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    expect(screen.queryByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).not.toBeInTheDocument();
+    expect(screen.queryByText('保存后，新发起的模型请求会按新额度检查；已经开始的请求，以及用量记录服务异常期间已经允许的请求，仍可能完成并计入本月用量。')).not.toBeInTheDocument();
     expect(screen.queryByText(/Decimal|持久化发送授权|放行凭证/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
-    expect(screen.getByText('保存后，新发起的模型调用会按新额度检查；已经开始的调用，以及计量服务异常期间已经允许的调用，仍可能完成并计入本月用量。')).toBeVisible();
+    await user.click(screen.getByRole('checkbox', { name: '达到上限后暂停新请求' }));
+    expect(screen.getByText('保存后，新发起的模型请求会按新额度检查；已经开始的请求，以及用量记录服务异常期间已经允许的请求，仍可能完成并计入本月用量。')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
     expect(screen.getByText('开启限制前，请先填写大于 0 的家庭月预算。')).toBeVisible();
@@ -229,15 +229,15 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    expect(screen.getByRole('button', { name: '展开文本与视觉理解护栏设置' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByLabelText('文本与视觉理解护栏类型')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: '文本与视觉理解护栏' }));
-    expect(screen.getByRole('button', { name: '收起文本与视觉理解护栏设置' })).toHaveAttribute('aria-expanded', 'true');
-    await user.selectOptions(screen.getByLabelText('文本与视觉理解护栏类型'), 'meter');
+    expect(screen.getByRole('button', { name: '展开文本与图片理解限额设置' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('文本与图片理解限额类型')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: '文本与图片理解限额' }));
+    expect(screen.getByRole('button', { name: '收起文本与图片理解限额设置' })).toHaveAttribute('aria-expanded', 'true');
+    await user.selectOptions(screen.getByLabelText('文本与图片理解限额类型'), 'meter');
 
-    expect(screen.getByLabelText('文本与视觉理解计量项')).toHaveValue('input_tokens');
+    expect(screen.getByLabelText('文本与图片理解用量类型')).toHaveValue('input_tokens');
     expect(screen.queryByRole('option', { name: '生成图片' })).not.toBeInTheDocument();
-    const limit = screen.getByLabelText('文本与视觉理解护栏上限');
+    const limit = screen.getByLabelText('文本与图片理解限额上限');
     await user.clear(limit);
     await user.type(limit, '120.005000000000');
     await user.click(screen.getByRole('button', { name: '保存设置' }));
@@ -270,10 +270,10 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
+    await user.click(screen.getByRole('checkbox', { name: '达到上限后暂停新请求' }));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
-    const confirmation = await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新调用会被阻止。' });
+    const confirmation = await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新请求会被阻止。' });
     expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled();
     expect(modelUsageApi.updateFamilyModelUsagePolicy).toHaveBeenCalledWith(expect.objectContaining({
       hard_limit_enabled: true,
@@ -306,9 +306,9 @@ describe('ModelUsagePolicySettings', () => {
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
     await user.click(screen.getByRole('button', { name: '预算设置' }));
-    await user.click(screen.getByRole('checkbox', { name: '开启家庭硬限制' }));
+    await user.click(screen.getByRole('checkbox', { name: '达到上限后暂停新请求' }));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
-    await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新调用会被阻止。' });
+    await screen.findByRole('checkbox', { name: '我知道保存后，没有价格信息的新请求会被阻止。' });
 
     fireEvent.submit(screen.getByLabelText('家庭月预算（元）').closest('form')!);
 
@@ -333,7 +333,7 @@ describe('ModelUsagePolicySettings', () => {
     await waitFor(() => expect(budget).toHaveValue('95.005000000000'));
     await user.click(screen.getByRole('button', { name: '保存设置' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('保存未完成');
+    expect(await screen.findByRole('alert')).toHaveTextContent('设置还没有保存');
     expect(screen.getByText('当前修改已保留，请检查设置后重试。')).toBeVisible();
     expect(screen.getByLabelText('家庭月预算（元）')).toHaveValue('95.005000000000');
     expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled();
@@ -386,10 +386,10 @@ describe('ModelUsagePolicySettings', () => {
     const conflict = await screen.findByRole('status', { name: '预算设置冲突' });
     expect(conflict).toHaveTextContent('预算设置已被更新');
     expect(conflict).toHaveTextContent('你的修改仍然保留。先查看最新设置，再决定是否重新应用。');
-    expect(conflict).toHaveTextContent('当前版本：4');
+    expect(conflict).not.toHaveTextContent('当前版本：4');
     expect(conflict).toHaveTextContent('家庭月预算：¥90.00');
-    expect(conflict).toHaveTextContent('已开启家庭硬限制');
-    expect(conflict).toHaveTextContent('1 项能力护栏');
+    expect(conflict).toHaveTextContent('已开启超额停止');
+    expect(conflict).toHaveTextContent('1 项功能限额');
     expect(screen.getByLabelText('家庭月预算（元）')).toHaveValue('95.005000000000');
 
     await user.click(screen.getByRole('button', { name: '查看最新设置' }));
@@ -421,7 +421,7 @@ describe('ModelUsagePolicySettings', () => {
 
     expect(await screen.findByRole('button', { name: '正在保存设置…' })).toBeDisabled();
     expect(screen.getByLabelText('家庭月预算（元）')).toBeDisabled();
-    expect(screen.getByRole('checkbox', { name: '开启家庭硬限制' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: '达到上限后暂停新请求' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '关闭弹窗' })).toBeDisabled();
 
     fireEvent.click(document.querySelector('.workspace-overlay-backdrop')!);

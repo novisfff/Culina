@@ -95,7 +95,7 @@ export function FoodPlanDetailModal(props: Props) {
   ) : (
     <FormActions
       className={`recipe-plan-detail-actions ${isRecorded ? 'is-recorded' : props.item.recipe_id ? 'is-recipe' : 'is-standard'}`}
-      primaryLabel={isRecorded ? '餐食记录' : props.item.recipe_id ? '开始做' : '记录已吃'}
+      primaryLabel={isRecorded ? '餐食记录' : props.item.recipe_id ? '开始做' : '记录这餐'}
       primaryPlacement="before-extra"
       primaryDisabled={Boolean(isBusy || (isRecorded && !props.item.meal_log_id))}
       isSubmitting={Boolean(props.isCompleting)}
@@ -103,7 +103,7 @@ export function FoodPlanDetailModal(props: Props) {
     >
       {!isRecorded && props.item.recipe_id && props.onRecordEaten ? (
         <ActionButton tone="secondary" type="button" onClick={props.onRecordEaten} disabled={isBusy}>
-          直接记录已吃
+          直接记录这餐
         </ActionButton>
       ) : null}
       {!isRecorded ? (
@@ -125,9 +125,9 @@ export function FoodPlanDetailModal(props: Props) {
       busy={isBusy}
     >
       <WorkspaceModal
-        title="这餐计划"
+        title="这餐安排"
         description={`${formatDate(props.item.plan_date)} · ${MEAL_TYPE_LABELS[props.item.meal_type]}${props.item.status === 'cooked' ? ' · 已完成' : ''}`}
-        eyebrow="菜单计划详情"
+        eyebrow="餐食计划详情"
         onClose={closeIfAllowed}
         busy={isBusy}
         className="recipe-plan-detail-modal food-plan-detail-modal"
@@ -145,7 +145,7 @@ export function FoodPlanDetailModal(props: Props) {
         >
           <OperationLoadingOverlay
             active={isBusy}
-            title={props.isCompleting ? '正在准备这餐' : '正在保存菜单变更'}
+            title={props.isCompleting ? '正在准备这餐' : '正在保存餐食计划变更'}
           />
           <section className="food-plan-detail-hero">
             <div className="recipe-plan-detail-cover">
@@ -166,7 +166,7 @@ export function FoodPlanDetailModal(props: Props) {
                 {props.item.status === 'cooked' ? '已完成' : '计划中'}
               </span>
               <strong>{props.item.food_name}</strong>
-              <p>{(props.item.note ?? '').trim() || '暂无备注'}</p>
+              <p>{(props.item.note ?? '').trim() || '还没有备注'}</p>
             </div>
           </section>
 
@@ -174,7 +174,7 @@ export function FoodPlanDetailModal(props: Props) {
             <section className="food-plan-detail-record-summary">
               <div>
                 <strong>已关联餐食记录</strong>
-                <span>{props.item.completed_at ? `记录于 ${formatDateTime(props.item.completed_at)}` : '已经记录到这顿饭'}</span>
+                <span>{props.item.completed_at ? `记录于 ${formatDateTime(props.item.completed_at)}` : '已记录这餐'}</span>
               </div>
               <span aria-hidden="true">✓</span>
             </section>

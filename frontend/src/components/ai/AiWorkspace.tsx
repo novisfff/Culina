@@ -237,12 +237,12 @@ export function AiWorkspace({
         is_owner: true,
         mode: 'recommendation' as const,
         prompt: getConversationTitleFromMessages(messages),
-        response: 'AI 正在后台回复',
+        response: 'AI 正在回复',
         created_at: messages[0]?.created_at ?? new Date().toISOString(),
         created_by: currentUser?.id ?? null,
         context: {},
         title: getConversationTitleFromMessages(messages),
-        summary: 'AI 正在后台回复',
+        summary: 'AI 正在回复',
         status: 'active',
         last_message_at: messages[messages.length - 1]?.created_at ?? messages[0]?.created_at ?? new Date().toISOString(),
         last_run_status: 'running',
@@ -576,14 +576,14 @@ export function AiWorkspace({
     ? '暂时无法确认 AI 服务状态，请稍后重试'
     : isAiUnavailable
     ? aiStatusQuery.data?.configured === false
-      ? '该能力尚未由家庭主理人配置'
+      ? '该功能还没有由家庭主理人配置'
       : llmCapabilityState === 'provisioning'
         ? '主对话模型正在准备中'
         : llmCapabilityState === 'budget_blocked'
           ? '主对话模型已达到用量限制'
           : llmCapabilityState === 'failed' || aiStatusQuery.data?.status === 'degraded'
             ? aiStatusQuery.data?.detail || '主对话模型暂时不可用'
-            : '主对话模型尚未启用'
+            : '主对话模型未启用'
     : hasPendingApproval
       ? '请先确认上面的草稿，确认后可以继续对话。'
       : hasPendingHumanInput
@@ -592,7 +592,7 @@ export function AiWorkspace({
   const aiStatusLabel = aiStatusQuery.isLoading
     ? 'AI 检查中'
     : isAiStatusUnknown
-      ? 'AI 状态未知'
+      ? '暂时无法确认 AI 状态'
     : !isAiUnavailable
       ? 'AI 已就绪'
       : aiStatusQuery.data?.configured === false
@@ -962,7 +962,7 @@ export function AiWorkspace({
     }
   }
   function streamFailureMessage(error: unknown) {
-    return error instanceof Error && error.message.trim() ? error.message : 'AI 后续处理失败，请稍后重试。';
+    return error instanceof Error && error.message.trim() ? error.message : 'AI 处理失败，请稍后重试。';
   }
   const runCancellation = useAiRunCancellation({
     onConfirmed: (runId, response) => {
@@ -1389,7 +1389,7 @@ export function AiWorkspace({
   }
   async function submitRecommendationPlan(payload: CreateFoodPlanItemPayload) {
     if (!createFoodPlanItem || !recommendationPlanRequest) {
-      throw new Error('菜单计划功能暂不可用。');
+      throw new Error('餐食计划功能暂不可用。');
     }
     const name = recommendationPlanRequest.recommendation.name;
     const planItem = await createFoodPlanItem(payload);
@@ -1412,7 +1412,7 @@ export function AiWorkspace({
     });
     await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
     setRecommendationPlanRequest(null);
-    setPlanFeedback(`${name} 已加入菜单计划`);
+    setPlanFeedback(`${name} 已加入餐食计划`);
   }
   async function cancelStreamingChat() {
     const runId = activeCancellableRunId;
@@ -1577,14 +1577,14 @@ export function AiWorkspace({
                 )}
                 <span>AI 厨房助手</span>
               </div>
-              <button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 质量诊断" title="查看 AI 质量诊断">
+              <button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
                 <span />{aiStatusLabel}
               </button>
             </div>
           </div>
           <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
             {isMessageHistoryLoading ? (
-              <p className="subtle">正在加载消息...</p>
+              <p className="subtle">正在加载消息…</p>
             ) : messagesQuery.isError && activeConversationId ? (
               <div className="ai-query-empty ai-message-load-error">
                 <strong>历史消息加载失败</strong>
@@ -1689,7 +1689,7 @@ export function AiWorkspace({
                 className="text-input"
                 rows={1}
                 value={draft}
-                placeholder={effectiveComposerPaused ? effectiveComposerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+                placeholder={effectiveComposerPaused ? effectiveComposerPauseMessage ?? '等待你确认草稿…' : '输入你的问题，或让 AI 帮你安排一餐…'}
                 disabled={effectiveComposerPaused}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={handleKeyDown}

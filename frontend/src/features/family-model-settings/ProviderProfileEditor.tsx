@@ -59,14 +59,14 @@ const INITIAL_CREATE_FORM: CreateForm = {
 };
 
 const PROVIDER_STATUS_OPTIONS = [
-  { value: 'active', label: '启用', description: '可继续用于能力绑定和模型调用。' },
+  { value: 'active', label: '启用', description: '可继续用于功能设置和模型处理。' },
   { value: 'disabled', label: '停用', description: '暂时停止使用，保留服务配置。' },
   { value: 'archived', label: '归档', description: '从日常配置中隐藏，仅保留历史记录。' },
 ] as const;
 
 const AUTH_MODE_OPTIONS = [
-  { value: 'api_key', label: 'API Key', description: '请求时使用服务凭据认证。' },
-  { value: 'no_auth', label: '无认证（仅受控内网）', description: '仅用于受部署安全策略保护的内网服务。' },
+  { value: 'api_key', label: 'API 密钥', description: '请求时使用密钥连接服务。' },
+  { value: 'no_auth', label: '无需密钥（仅限内网）', description: '仅用于受部署安全策略保护的内网服务。' },
 ] as const;
 
 function ProfileScopeSummary(props: { profile: FamilyModelProviderProfile }) {
@@ -77,7 +77,7 @@ function ProfileScopeSummary(props: { profile: FamilyModelProviderProfile }) {
   return (
     <div className="family-model-settings-provider-scope">
       <div className="family-model-settings-scope-tile">
-        <span className="family-model-settings-scope-label">适配协议</span>
+        <span className="family-model-settings-scope-label">连接方式</span>
         <strong className="family-model-settings-scope-value">{adapterLabel}</strong>
       </div>
       <div className="family-model-settings-scope-tile">
@@ -87,10 +87,10 @@ function ProfileScopeSummary(props: { profile: FamilyModelProviderProfile }) {
         </strong>
       </div>
       <div className="family-model-settings-scope-tile">
-        <span className="family-model-settings-scope-label">凭据状态</span>
+        <span className="family-model-settings-scope-label">密钥状态</span>
         <span className={`family-model-settings-scope-badge ${props.profile.credential.configured ? 'is-configured' : 'is-missing'}`}>
           <span className="family-model-settings-status-dot" aria-hidden="true" />
-          {props.profile.credential.configured ? '已配置 API Key' : '未配置凭据'}
+          {props.profile.credential.configured ? '已配置 API 密钥' : '未配置密钥'}
         </span>
       </div>
     </div>
@@ -237,11 +237,11 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     try {
       const result = await props.onCheck(selectedProfile.id);
       if (result.status === 'not_supported') {
-        setConnectionMessage(result.detail ?? '此服务不支持免费连接检查，请在能力配置中手动填写模型。');
+        setConnectionMessage(result.detail ?? '此服务不支持自动检查连接，请在功能设置中手动填写模型。');
       } else if (result.models.length > 0) {
         setConnectionMessage(`服务连接正常，已读取 ${result.models.length} 个模型。`);
       } else {
-        setConnectionMessage('服务连接正常，但没有返回模型列表；你仍可在能力配置中手动填写模型。');
+        setConnectionMessage('服务连接正常，但没有返回模型列表；你仍可在功能设置中手动填写模型。');
       }
     } catch {
       setConnectionMessage('连接检查失败，请稍后重试。');
@@ -252,21 +252,21 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     <section className="family-model-settings-editor family-model-settings-provider-editor" aria-labelledby="family-model-provider-editor-title">
       <div className="family-model-settings-section-head">
         <div>
-          <h2 id="family-model-provider-editor-title">Provider 服务</h2>
-          <p>每个服务对应一种连接方式、认证方式和账号范围；API Key 只在提交时使用。</p>
+          <h2 id="family-model-provider-editor-title">模型服务</h2>
+  <p>每个服务都有自己的连接方式、验证方式和适用范围；API 密钥会安全保存，仅用于连接当前服务。</p>
         </div>
         <button type="button" className="ghost-button" disabled={props.busy || retryingRebind} onClick={beginCreate}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16, marginRight: 6 }} aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          新建服务
+          新增服务
         </button>
       </div>
 
       {props.profiles.length > 0 ? (
         <>
-          <nav className="family-model-settings-provider-list" aria-label="Provider 服务列表">
+          <nav className="family-model-settings-provider-list" aria-label="模型服务列表">
             {creating ? (
               <button
                 type="button"
@@ -275,10 +275,10 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                 onClick={() => props.onSelectProfile(null)}
               >
                 <span className="family-model-settings-provider-list-info">
-                  <strong>新建服务</strong>
-                  <small>尚未保存</small>
+                  <strong>新增服务</strong>
+                  <small>未保存</small>
                 </span>
-                <span className="family-model-settings-provider-status">新建</span>
+                <span className="family-model-settings-provider-status">新增</span>
               </button>
             ) : null}
             {props.profiles.map((profile) => (
@@ -304,7 +304,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
             <DropdownSelect
               ariaLabel="当前服务选项"
               triggerAriaLabel="当前服务"
-              placeholder="新建 Provider 服务"
+              placeholder="新增模型服务"
               value={selectedProfile?.id ?? ''}
               options={props.profiles.map((profile) => ({
                 value: profile.id,
@@ -314,8 +314,8 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               }))}
               clearOption={{
                 value: '',
-                label: '新建 Provider 服务',
-                description: '创建新的连接地址与凭据范围。',
+                label: '新增模型服务',
+                description: '添加新的连接地址和密钥。',
               }}
               disabled={props.busy || retryingRebind}
               className="family-model-settings-dropdown"
@@ -329,8 +329,8 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
         <div className="family-model-settings-provider-existing">
           <StateBlock
             status="error"
-            title="新服务已创建，能力改绑未完成"
-            description="再次尝试只会更新能力绑定，不会重复创建 Provider 服务。"
+            title="新服务已创建，但还没有关联功能"
+            description="再次尝试只会完成功能关联，不会重复创建模型服务。"
           />
           <div className="family-model-settings-editor-actions">
             <button
@@ -339,7 +339,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               disabled={props.busy || retryingRebind}
               onClick={() => { void retryPendingRebind(); }}
             >
-              {props.busy || retryingRebind ? '正在改绑' : '重试改绑'}
+                {props.busy || retryingRebind ? '正在重新关联' : '重试关联'}
             </button>
           </div>
         </div>
@@ -351,7 +351,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <span>更换连接地址或账号需要创建新服务，再重新绑定能力。</span>
+            <span>更换连接地址或账号需要创建新服务，再重新关联功能。</span>
           </div>
           <form className="family-model-settings-form" onSubmit={submitPatch}>
             <div className="family-model-settings-form-grid">
@@ -399,20 +399,20 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                 </svg>
               </div>
               <div>
-                <strong>修改 API Key</strong>
-                <p>新 Key 保存后立即用于当前服务，不会更换地址、账号或模型绑定。</p>
+                <strong>修改 API 密钥</strong>
+                <p>新密钥保存后立即用于当前服务，不会更换地址、账号或功能设置。</p>
               </div>
             </div>
             <button className="tertiary-button" type="button" disabled={props.busy} onClick={() => { if (showRotation) cancelRotation(); else setShowRotation(true); }}>
-              {showRotation ? '收起' : '修改 Key'}
+              {showRotation ? '收起' : '修改密钥'}
             </button>
           </div>
           {showRotation ? (
             <form className="family-model-settings-form family-model-settings-key-update-form" onSubmit={submitRotation}>
               <div className="family-model-settings-form-grid">
                 <label className="family-model-settings-field">
-                  <span>新的 API Key</span>
-                  <input type="password" autoComplete="new-password" placeholder="输入同一服务范围的新 API Key" value={rotationKey} disabled={props.busy} onChange={(event) => setRotationKey(event.target.value)} required />
+                  <span>新的 API 密钥</span>
+                  <input type="password" autoComplete="new-password" placeholder="输入同一服务范围的新 API 密钥" value={rotationKey} disabled={props.busy} onChange={(event) => setRotationKey(event.target.value)} required />
                 </label>
               </div>
               <div className="family-model-settings-editor-actions">
@@ -432,11 +432,11 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                 <input value={createForm.displayName} disabled={props.busy} placeholder="例如：家庭主服务" onChange={(event) => setCreateForm((current) => ({ ...current, displayName: event.target.value }))} required />
               </label>
               <div className="family-model-settings-field">
-                <span>协议适配器</span>
+                <span>连接方式</span>
                 <DropdownSelect
-                  ariaLabel="协议适配器选项"
-                  triggerAriaLabel="协议适配器"
-                  placeholder="选择协议适配器"
+                  ariaLabel="连接方式选项"
+                  triggerAriaLabel="连接方式"
+                  placeholder="选择连接方式"
                   value={createForm.adapterKind}
                   options={FAMILY_MODEL_ADAPTER_OPTIONS}
                   disabled={props.busy}
@@ -458,18 +458,18 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           </div>
 
           <div className="family-model-settings-form-section">
-            <h3 className="family-model-settings-form-section-title">连接与认证</h3>
+          <h3 className="family-model-settings-form-section-title">连接与验证</h3>
             <div className="family-model-settings-form-grid">
               <label className="family-model-settings-field">
                 <span>{isRealtime ? '实时地址' : 'API 地址'}</span>
                 <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
               </label>
               <div className="family-model-settings-field">
-                <span>认证方式</span>
+                <span>验证方式</span>
                 <DropdownSelect
-                  ariaLabel="认证方式选项"
-                  triggerAriaLabel="认证方式"
-                  placeholder="选择认证方式"
+                  ariaLabel="验证方式选项"
+                  triggerAriaLabel="验证方式"
+                  placeholder="选择验证方式"
                   value={createForm.authMode}
                   options={isRealtime ? AUTH_MODE_OPTIONS.slice(0, 1) : AUTH_MODE_OPTIONS}
                   disabled={props.busy || isRealtime}
@@ -486,8 +486,8 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               </div>
               {createForm.authMode === 'api_key' ? (
                 <label className="family-model-settings-field">
-                  <span>API Key</span>
-                  <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API Key" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
+                  <span>API 密钥</span>
+                  <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API 密钥" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
                 </label>
               ) : null}
             </div>
@@ -498,10 +498,10 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            API Key 不会再次显示、复制或保存到浏览器。
+            API 密钥不会再次显示、复制或保存到浏览器。
           </p>
           <div className="family-model-settings-editor-actions">
-            <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在创建' : '创建服务'}</button>
+            <button className="solid-button" type="submit" disabled={props.busy}>{props.busy ? '正在保存…' : '保存服务'}</button>
           </div>
         </form>
       )}

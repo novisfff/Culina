@@ -147,7 +147,7 @@ export function MealLogWorkspace(props: Props) {
     <main className="meal-log-desktop-view meal-log-center-page">
       <PageHeader
         variant="compact"
-        title="吃过的"
+        title="用餐记录"
         description="回看家里吃过什么，随时记一餐。"
         actions={
           <div className="meal-log-header-actions">
@@ -179,7 +179,7 @@ export function MealLogWorkspace(props: Props) {
             </span>
             <input
               value={searchQuery}
-              placeholder="搜索菜品或备注"
+              placeholder="搜索食物或备注"
               onChange={(event) => setSearchQuery(event.target.value)}
             />
           </label>

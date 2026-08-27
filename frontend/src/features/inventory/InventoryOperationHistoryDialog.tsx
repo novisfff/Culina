@@ -117,8 +117,8 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
       secondaryLabel={
         canRevertSelected
           ? confirmingOperationId === selectedId
-            ? '确认撤销整次操作'
-            : '撤销本次操作'
+            ? '确认撤销本次变更'
+            : '撤销本次变更'
           : undefined
       }
       onSecondary={
@@ -148,12 +148,12 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
-        title="库存操作历史"
+        title="库存变更记录"
         titleId="inventory-operation-history-title"
-        description="查看最近 20 次家庭库存操作；撤销会回退整次操作。"
-        eyebrow="操作历史"
+        description="查看最近 20 次家庭库存变更；撤销会恢复本次变更的全部内容。"
+        eyebrow="变更记录"
         closeLabel="关闭"
-        closeAriaLabel="关闭操作历史"
+        closeAriaLabel="关闭变更记录"
         className={[
           'workspace-modal-wide',
           'inventory-maintenance-modal',
@@ -167,7 +167,7 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           <div className="inventory-maintenance-footer-summary">
             <span>最近记录</span>
             <strong>{props.operations.length} 条</strong>
-            <p>{canRevertSelected ? '撤销作用于整次操作' : '仅可查看历史详情'}</p>
+            <p>{canRevertSelected ? '撤销会恢复整次变更' : '当前仅可查看详情'}</p>
           </div>
         ) : undefined}
         footerActions={
@@ -186,7 +186,7 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           ].filter(Boolean).join(' ')}
           aria-busy={busy}
         >
-          <OperationLoadingOverlay active={busy} title="正在撤销库存操作" />
+          <OperationLoadingOverlay active={busy} title="正在撤销库存变更" />
           <div className="inventory-maintenance-live" aria-live="polite">
             {props.conflictMessage || props.errorMessage || props.detailError || ''}
           </div>
@@ -212,8 +212,8 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           {loading ? (
             <StateBlock
               status="loading"
-              title="正在加载操作历史"
-              description="稍等一下，正在读取最近的家庭库存操作。"
+              title="正在加载变更记录"
+              description="稍等一下，正在读取最近的家庭库存变更。"
               className="inventory-maintenance-state"
             />
           ) : null}
@@ -221,15 +221,15 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
           {!loading && props.operations.length === 0 ? (
             <StateBlock
               status="empty"
-              title="暂无库存操作记录"
-              description="完成采购入库或快速盘点后，操作记录会自动保存在这里。"
+              title="还没有库存变更记录"
+              description="记录购买或完成快速盘点后，内容会自动保存在这里。"
               className="inventory-maintenance-state inventory-operation-history-empty"
             />
           ) : null}
 
           {!loading && props.operations.length > 0 ? (
             <div className="inventory-operation-history-columns">
-              <section className="inventory-maintenance-section" aria-label="最近操作">
+              <section className="inventory-maintenance-section" aria-label="最近变更">
                 <div className="inventory-maintenance-section-head">
                   <span>最近 20 次</span>
                   <em>{props.operations.length}</em>
@@ -269,21 +269,21 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
                 </div>
               </section>
 
-              <section className="inventory-maintenance-section" aria-label="操作详情">
+                <section className="inventory-maintenance-section" aria-label="变更详情">
                 <div className="inventory-maintenance-section-head">
                   <span>详情</span>
                   <em>{selectedSummary ? statusLabel(selectedSummary, nowMs) : '未选择'}</em>
                 </div>
 
                 {!selectedId ? (
-                  <p className="subtle">选择左侧一条操作，查看变更明细。</p>
+                  <p className="subtle">选择左侧一条记录，查看变更明细。</p>
                 ) : null}
 
                 {selectedId && props.detailLoading ? (
                   <StateBlock
                     status="loading"
                     title="正在加载详情"
-                    description="正在读取这次操作的变更明细。"
+                    description="正在读取这次变更的明细。"
                     className="inventory-maintenance-state"
                   />
                 ) : null}
@@ -298,23 +298,23 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
                   <div className="inventory-operation-history-detail">
                     <div className="inventory-maintenance-summary-card">
                       <p className="eyebrow">
-                        {selectedSummary.operation_type === 'shopping_intake' ? '采购入库' : '快速盘点'}
+                        {selectedSummary.operation_type === 'shopping_intake' ? '购买记录' : '快速盘点'}
                       </p>
                       <h4>{selectedSummary.summary.title || operationTypeLabel(selectedSummary.operation_type)}</h4>
                       <p className="subtle">{selectedSummary.summary.description}</p>
                       <p className="subtle">
-                        {selectedSummary.actor_display_name} · 生效于 {compactTimeLabel(selectedSummary.applied_at)}
+                        {selectedSummary.actor_display_name} · 记录于 {compactTimeLabel(selectedSummary.applied_at)}
                       </p>
                       <p className="inventory-maintenance-revert-copy" aria-live="polite">
                         {selectedSummary.status === 'reverted'
-                          ? '这次操作已撤销'
+                          ? '这次变更已撤销'
                           : canRevertSelected
-                            ? `可在 ${compactTimeLabel(selectedSummary.revertible_until)} 前撤销整次操作`
-                            : '撤销窗口已过或当前无权撤销'}
+                            ? `可在 ${compactTimeLabel(selectedSummary.revertible_until)} 前撤销整次变更`
+                            : '已超过可撤销时间，或你没有撤销权限'}
                       </p>
                       {confirmingOperationId === selectedId ? (
                         <p className="inventory-operation-history-confirm subtle" role="status">
-                          撤销会回退这次操作涉及的全部变更，请再次点击确认。
+                          撤销会恢复这次变更涉及的全部内容，请再次点击确认。
                         </p>
                       ) : null}
                     </div>
@@ -334,7 +334,7 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
                           ))}
                       </ul>
                     ) : selectedId && !props.detailLoading && !props.detailError ? (
-                      <p className="subtle">这次操作没有可展示的明细行。</p>
+                      <p className="subtle">这次变更没有可展示的明细。</p>
                     ) : null}
                   </div>
                 ) : null}

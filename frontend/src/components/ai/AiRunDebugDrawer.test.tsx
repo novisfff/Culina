@@ -188,24 +188,24 @@ describe('AiRunDebugDrawer', () => {
 
     expect(rendered.container.textContent).toContain('触发条件');
     expect(rendered.container.textContent).toContain('执行结果');
-    expect(rendered.container.textContent).toContain('工具: ingredient.search');
-    expect(rendered.container.textContent).toContain('原始触发摘要');
+    expect(rendered.container.textContent).toContain('工具处理：ingredient.search');
+    expect(rendered.container.textContent).toContain('触发信息');
     expect(exchangesSpy).toHaveBeenCalledWith('run-debug-1', { includePayload: false });
     expect(detailSpy).not.toHaveBeenCalled();
 
-    const modelSummary = Array.from(rendered.container.querySelectorAll('summary')).find((summary) => summary.textContent?.includes('模型 1 · 模型轮次 1'));
+    const modelSummary = Array.from(rendered.container.querySelectorAll('summary')).find((summary) => summary.textContent?.includes('模型处理 1 · 第 1 轮处理'));
     expect(modelSummary).toBeTruthy();
     await act(async () => {
       modelSummary?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await flushQueries();
 
-    expect(rendered.container.textContent).toContain('请求可用工具 1');
-    expect(rendered.container.textContent).toContain('模型返回调用 1');
-    expect(rendered.container.textContent).toContain('模型返回 tool calls');
+    expect(rendered.container.textContent).toContain('可用处理方式 1');
+    expect(rendered.container.textContent).toContain('AI 生成的操作 1');
+    expect(rendered.container.textContent).toContain('AI 生成的操作');
     expect(detailSpy).not.toHaveBeenCalled();
 
-    const rawRequestSummary = Array.from(rendered.container.querySelectorAll('summary')).find((summary) => summary.textContent === '请求消息原文');
+    const rawRequestSummary = Array.from(rendered.container.querySelectorAll('summary')).find((summary) => summary.textContent === '请求消息');
     expect(rawRequestSummary).toBeTruthy();
     await act(async () => {
       rawRequestSummary?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

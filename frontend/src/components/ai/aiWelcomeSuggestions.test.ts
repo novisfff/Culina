@@ -6,9 +6,9 @@ describe('AI welcome suggestions', () => {
     expect(AI_WELCOME_SUGGESTIONS).toHaveLength(7);
     expect(AI_WELCOME_SUGGESTIONS.map((item) => item.title)).toEqual([
       '🥬 新增食材',
-      '📦 食材入库',
+      '📦 记录购买的食材',
       '🗓️ 修改计划',
-      '🛒 完成购物项',
+      '🛒 完成待买内容',
       '🍲 修改菜谱',
       '🍽️ 记录餐食',
       '🔥 开始烹饪',

@@ -76,7 +76,7 @@ export type StorageGroupViewModel = {
 export type InventoryCardTone = 'stable' | 'warning' | 'danger' | 'empty';
 
 export type InventoryCardStatusViewModel = {
-  label: '平稳' | '库存偏低' | '临期或过期' | '已空或未登记';
+  label: '库存正常' | '库存偏低' | '临期或过期' | '还没有可用库存';
   tone: InventoryCardTone;
   detail: string;
   priority: number;
@@ -179,7 +179,7 @@ export type ShoppingCardViewModel = {
   footerNote: string;
   statusLabel: string;
   statusTone: ShoppingCardStatusTone;
-  sourceLabel: '档案关联' | '食物档案' | '自由项';
+  sourceLabel: '关联食材' | '成品速食' | '其他采购';
   tone: ShoppingCardTone;
   isLinked: boolean;
   hasAttention: boolean;
@@ -200,7 +200,7 @@ export type SeasoningStatus = 'stocked' | 'needsRestock' | 'unconfigured';
 export type SeasoningSummaryViewModel = {
   summary: IngredientSummaryViewModel;
   status: SeasoningStatus;
-  statusLabel: '已有' | '需补充' | '未配置';
+  statusLabel: '有库存' | '需要补充库存' | '还没有库存记录';
   detail: string;
 };
 
@@ -225,7 +225,7 @@ export const ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS = 30;
 export const PRESENCE_INGREDIENT_STALE_AFTER_DAYS = 30;
 
 export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, string> = {
-  never_confirmed: '从未确认',
+  never_confirmed: '未确认',
   current: '刚确认过',
   stale: '建议再确认',
 };
@@ -377,7 +377,7 @@ export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
   { label: '主食', defaultUnit: '份', defaultStorage: '常温', icon: 'staple' },
   { label: '干货', defaultUnit: '袋', defaultStorage: '常温', icon: 'dryGoods' },
   { label: '坚果果干', defaultUnit: '袋', defaultStorage: '常温', icon: 'nuts' },
-  { label: '烘焙原料', defaultUnit: '袋', defaultStorage: '常温', icon: 'baking' },
+  { label: '烘焙食材', defaultUnit: '袋', defaultStorage: '常温', icon: 'baking' },
   { label: '调料', defaultUnit: '瓶', defaultStorage: '常温', quantityTrackingMode: 'not_track_quantity', icon: 'seasoning' },
   { label: '调味料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
   { label: '酱料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
@@ -439,10 +439,10 @@ function formatQuantityValue(value: number) {
 }
 
 function presenceAvailabilityLabel(level: IngredientInventoryState['availability_level'] | null | undefined) {
-  if (level === 'sufficient' || level === 'present_unknown') return '已有';
+  if (level === 'sufficient' || level === 'present_unknown') return '有库存';
   if (level === 'low') return '少量';
-  if (level === 'absent') return '没有';
-  return '未配置';
+  if (level === 'absent') return '没有库存';
+  return '未确认';
 }
 
 function isPresentAvailability(level: IngredientInventoryState['availability_level'] | null | undefined) {
@@ -460,9 +460,9 @@ function buildSummaryQuantityLabel(summary: IngredientSummaryViewModel) {
       .join(' · ');
   }
   if (summary.inventoryItems.length > 0) {
-    return '当前已空';
+    return '当前无可用库存';
   }
-  return '未登记库存';
+  return '还没有库存';
 }
 
 function getInventoryStatusPriority(summary: IngredientSummaryViewModel) {
@@ -627,12 +627,9 @@ export function buildPriorityGroupStatus(group: InventoryActionGroup): Inventory
 
 export function getPriorityGroupPrimaryLabel(group: InventoryActionGroup) {
   if (group.kind === 'low_stock') {
-    return '加入采购';
+    return '加入采购清单';
   }
-  if (group.severity === 'expired') {
-    return '处理';
-  }
-  return '查看处理';
+  return group.severity === 'expired' ? '处理过期库存' : '处理临期库存';
 }
 
 export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
@@ -650,7 +647,7 @@ export function buildQuantitySummaries(inventoryItems: InventoryItem[]): Quantit
     .map(([unit, total]) => ({
       unit,
       total,
-      label: `${Number(total.toFixed(2)).toString().replace(/\.0+$/, '')}${unit}`,
+      label: `${Number(total.toFixed(2)).toString().replace(/\.0+$/, '')} ${unit}`,
     }));
 }
 
@@ -720,7 +717,7 @@ export function buildIngredientSummaries(args: {
               {
                 unit: ingredient.default_unit,
                 total: totalAvailableInDefault,
-                label: `${Number(totalAvailableInDefault.toFixed(2)).toString().replace(/\.0+$/, '')}${ingredient.default_unit}`,
+                label: `${Number(totalAvailableInDefault.toFixed(2)).toString().replace(/\.0+$/, '')} ${ingredient.default_unit}`,
               },
             ]
           : [];
@@ -810,23 +807,23 @@ export function buildInventoryCardStatus(summary: IngredientSummaryViewModel): I
     return {
       label: '临期或过期',
       tone: 'danger',
-      detail: summary.alerts[0]?.detail ?? '有临期或过期的批次需要优先处理。',
+      detail: summary.alerts[0]?.detail ?? '有临期或过期的库存需要优先处理。',
       priority: 3,
     };
   }
 
   if (summary.quantitySummaries.length === 0) {
     return {
-      label: '已空或未登记',
+      label: '还没有可用库存',
       tone: 'empty',
       detail:
         !tracksIngredientQuantity(summary.ingredient)
           ? summary.inventoryState?.availability_level === 'absent'
-            ? '家庭状态为没有，需要补充。'
-            : '还没有登记库存状态，适合先补一批常用量。'
+            ? '家里没有库存，需要补充。'
+          : '还没有确认家里是否有库存，建议先确认库存状态。'
           : summary.inventoryItems.length > 0
-            ? '当前可用库存已空，先处理到期批次或补一批新的。'
-            : '还没有登记库存，适合先补一批常用量。',
+            ? '当前可用库存已空，可以处理到期库存，或补充新的库存。'
+            : '还没有库存，适合先补充一些常用量。',
       priority: hasWarningAlert ? 2 : 1,
     };
   }
@@ -837,24 +834,24 @@ export function buildInventoryCardStatus(summary: IngredientSummaryViewModel): I
       tone: 'warning',
       detail:
         summary.alerts[0]?.detail ??
-        (summary.inventoryState?.availability_level === 'low' ? '家庭状态为少量，建议尽快补货。' : '当前库存偏低，建议尽快补货。'),
+        (summary.inventoryState?.availability_level === 'low' ? '家里库存不多，建议尽快补货。' : '当前库存偏低，建议尽快补货。'),
       priority: 2,
     };
   }
 
   return {
-    label: '平稳',
+      label: '库存正常',
     tone: 'stable',
     detail: summary.latestPurchaseDate
-      ? `最近补货 ${formatDate(summary.latestPurchaseDate)}，库存平稳。`
-      : '库存平稳，可正常使用。',
+      ? `最近补货 ${formatDate(summary.latestPurchaseDate)}，库存正常。`
+      : '库存正常，可正常使用。',
     priority: 0,
   };
 }
 
 function buildInventoryCardSummaryLine(summary: IngredientSummaryViewModel) {
   if (summary.quantitySummaries.length === 0) {
-    return '未登记库存';
+    return '还没有库存';
   }
 
   return summary.quantitySummaries
@@ -939,7 +936,7 @@ export function buildDisposableExpiredInventoryItems(
         ingredientId: item.ingredient_id,
         ingredientName: item.ingredient_name,
         remainingQuantity,
-        remainingLabel: `${formatQuantityValue(remainingQuantity)}${item.unit}`,
+        remainingLabel: `${formatQuantityValue(remainingQuantity)} ${item.unit}`,
         unit: item.unit,
         purchaseDate: item.purchase_date,
         expiryDate: item.expiry_date!,
@@ -1011,7 +1008,7 @@ export function buildInventoryCardPresentation(
 
   if (summary.quantitySummaries.length > 0) {
     const secondaryParts = latestRestockLabel ? [`最近补货 ${latestRestockLabel}`] : [];
-    secondaryParts.push(resolvedExpiry.hasExpiryInfo ? `最早 ${resolvedExpiry.expiryDateLabel} 到期` : '未设保质期');
+    secondaryParts.push(resolvedExpiry.hasExpiryInfo ? `最早 ${resolvedExpiry.expiryDateLabel} 到期` : '没有设置保质期');
 
     return {
       headline: buildInventoryCardSummaryLine(summary),
@@ -1025,11 +1022,11 @@ export function buildInventoryCardPresentation(
   if (!tracksIngredientQuantity(summary.ingredient)) {
     // State absent/default: no current presence fact.
     return {
-      headline: summary.inventoryState?.availability_level === 'absent' ? '没有' : '未登记',
+      headline: summary.inventoryState?.availability_level === 'absent' ? '没有库存' : '未确认',
       secondary:
         summary.inventoryState?.availability_level === 'absent'
-          ? '家庭状态为没有'
-          : '还没有登记库存状态，适合先补一批',
+          ? '家里没有库存'
+          : '还没有确认家里是否有库存，建议先确认库存状态',
       footerNote,
       ...resolvedExpiry,
       ...confirmation,
@@ -1038,8 +1035,8 @@ export function buildInventoryCardPresentation(
 
   if (summary.inventoryItems.length > 0) {
     return {
-      headline: '当前已空',
-      secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前已空` : '当前已空',
+      headline: '当前无可用库存',
+      secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前无可用库存` : '当前无可用库存',
       footerNote,
       ...resolvedExpiry,
       ...confirmation,
@@ -1047,8 +1044,8 @@ export function buildInventoryCardPresentation(
   }
 
   return {
-    headline: '未登记',
-    secondary: '还没有库存记录，适合先登记首批',
+    headline: '还没有库存',
+    secondary: '还没有库存，适合先补充第一批',
     footerNote,
     ...resolvedExpiry,
     ...confirmation,
@@ -1080,12 +1077,12 @@ export function buildInventoryStorageOverview(
               : 'stable',
       statusLabel:
         items.length === 0
-          ? '当前位置暂无食材'
+          ? '这里还没有食材'
           : alertCount > 0
-            ? `${alertCount} 条提醒待处理`
+            ? `${alertCount} 条提醒需要处理`
             : totalBatches > 0
-              ? '库存状态平稳'
-              : '优先登记首批',
+              ? '库存正常'
+              : '建议加入库存',
     };
   });
 }
@@ -1156,7 +1153,7 @@ export function buildInventoryBatchGroups(args: {
       ingredientId: item.ingredient_id,
       ingredientName: item.ingredient_name,
       ingredientImageUrl: ingredient?.image?.url ?? undefined,
-      quantityLabel: `${Number(normalizedBatchQuantity.toFixed(2)).toString().replace(/\.0+$/, '')}${ingredient?.default_unit ?? item.unit}`,
+      quantityLabel: `${Number(normalizedBatchQuantity.toFixed(2)).toString().replace(/\.0+$/, '')} ${ingredient?.default_unit ?? item.unit}`,
       status: item.status,
       purchaseDate: item.purchase_date,
       expiryDate: item.expiry_date,
@@ -1346,12 +1343,12 @@ export function buildShoppingCards(
       const linkedFood = shoppingItem.food_id ? foodById.get(shoppingItem.food_id) ?? null : null;
       const hasAttention = Boolean(linkedSummary && linkedSummary.alerts.length > 0);
       const status = linkedSummary ? buildInventoryCardStatus(linkedSummary) : null;
-      const reasonLabel = shoppingItem.reason.trim() || (linkedSummary ? '纳入近期采购计划' : '待补货');
+      const reasonLabel = shoppingItem.reason.trim() || (linkedSummary ? '加入近期采购清单' : '需要补货');
       const inventoryLabel = linkedFood
         ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0
-          ? `${formatQuantityValue(linkedFood.stock_quantity)}${linkedFood.stock_unit || shoppingItem.unit || '份'}`
-          : '未入库'
-        : linkedSummary ? buildSummaryQuantityLabel(linkedSummary) : '未关联档案';
+          ? `${formatQuantityValue(linkedFood.stock_quantity)} ${linkedFood.stock_unit || shoppingItem.unit || '份'}`
+          : '还没有库存'
+        : linkedSummary ? buildSummaryQuantityLabel(linkedSummary) : '还没有选择食材';
       const inventoryNote = linkedSummary
         ? linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.title
@@ -1359,8 +1356,8 @@ export function buildShoppingCards(
             ? `最近补货 ${formatDate(linkedSummary.latestPurchaseDate)}`
             : `常放 ${linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温'}`
         : linkedFood
-          ? `成品存放位置 ${linkedFood.storage_location || '常温'}，买回后补库存。`
-          : '自由采购项，买完后可直接补录入库。';
+          ? `成品存放位置 ${linkedFood.storage_location || '常温'}，买回后补充库存。`
+          : '还没有选择食材，买回后可选择食材并加入库存。';
       const footerNote = linkedSummary
         ? linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.detail
@@ -1368,10 +1365,10 @@ export function buildShoppingCards(
             ? `最近补货 ${formatDate(linkedSummary.latestPurchaseDate)}，当前库存 ${inventoryLabel}。`
             : `当前库存 ${inventoryLabel}，默认放在 ${linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温'}。`
         : linkedFood
-          ? `买回后为 ${linkedFood.name} 补库存，默认单位 ${linkedFood.stock_unit || shoppingItem.unit || '份'}。`
+          ? `买回后为 ${linkedFood.name} 补充库存，默认单位 ${linkedFood.stock_unit || shoppingItem.unit || '份'}。`
           : shoppingItem.reason.trim()
           ? `采购备注：${shoppingItem.reason.trim()}`
-          : '这是一个未关联档案的自由采购项，买完后可以直接补录入库。';
+        : '还没有选择食材，买回后可选择食材并加入库存。';
       const contextTags = linkedFood
         ? [
             linkedFood.category || '成品速食',
@@ -1384,7 +1381,7 @@ export function buildShoppingCards(
             linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温',
             `库存 ${inventoryLabel}`,
           ]
-        : ['自由项', '未关联档案', '买完后可补录'];
+        : ['其他采购', '还没有选择食材', '买回后可补充库存'];
       const contextLine = linkedFood
         ? [
             linkedFood.category || '成品速食',
@@ -1395,16 +1392,16 @@ export function buildShoppingCards(
             linkedSummary.ingredient.category || '未分类',
             linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温',
           ].join(' · ')
-        : '自由项 · 未关联档案';
+        : '其他采购 · 还没有选择食材';
       const statusLabel = linkedFood
         ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0
-          ? '成品在库'
-          : '待补库存'
+          ? '有库存'
+          : '需要补充库存'
         : linkedSummary
         ? linkedSummary.quantitySummaries.length === 0
           ? status!.label
-          : linkedSummary.alerts[0]?.title ?? '库存平稳'
-        : '暂不读取库存';
+          : linkedSummary.alerts[0]?.title ?? '库存正常'
+        : '还没有加入库存';
       const statusTone: ShoppingCardStatusTone = linkedFood
         ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0 ? 'stable' : 'muted'
         : linkedSummary
@@ -1413,7 +1410,7 @@ export function buildShoppingCards(
           : status!.tone
         : 'muted';
       const tone: ShoppingCardTone = hasAttention ? 'attention' : (linkedSummary || linkedFood) ? 'linked' : 'freeform';
-      const sourceLabel: ShoppingCardViewModel['sourceLabel'] = linkedFood ? '食物档案' : linkedSummary ? '档案关联' : '自由项';
+      const sourceLabel: ShoppingCardViewModel['sourceLabel'] = linkedFood ? '成品速食' : linkedSummary ? '关联食材' : '其他采购';
       const searchText = [
         shoppingItem.title,
         shoppingItem.reason,
@@ -1439,10 +1436,10 @@ export function buildShoppingCards(
         title: normalizedTitle || shoppingItem.title,
         headline: usesPresenceQuantity
           ? shoppingQuantityLabel
-          : `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
+          : `${formatQuantityValue(shoppingItem.quantity)} ${shoppingItem.unit}`,
         quantityLabel: usesPresenceQuantity
           ? shoppingQuantityLabel
-          : `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
+          : `${formatQuantityValue(shoppingItem.quantity)} ${shoppingItem.unit}`,
         subline,
         contextTags,
         reasonLabel,
@@ -1494,29 +1491,29 @@ export function buildShoppingOverview(cards: ShoppingCardViewModel[]): ShoppingO
         cards.length === 0
           ? '当前采购清单为空'
           : attentionCount > 0
-            ? `${attentionCount} 项需要优先处理`
-            : '当前待买项节奏平稳',
+            ? `${attentionCount} 项需要优先购买`
+            : '当前没有需要优先购买的内容',
     },
     {
       key: 'attention',
-      label: '需优先处理',
+      label: '优先购买',
       count: attentionCount,
       tone: attentionCount > 0 ? 'warning' : 'muted',
-      detail: attentionCount > 0 ? '关联食材已有提醒' : '当前没有紧急采购项',
+      detail: attentionCount > 0 ? '关联食材有库存提醒' : '当前没有需要优先购买的内容',
     },
     {
       key: 'linked',
-      label: '档案关联',
+      label: '关联食材',
       count: linkedCount,
       tone: linkedCount > 0 ? 'linked' : 'muted',
-      detail: linkedCount > 0 ? '可直接看到库存与提醒' : '当前没有关联档案的待买项',
+      detail: linkedCount > 0 ? '可直接看到库存与提醒' : '当前没有关联食材的待买内容',
     },
     {
       key: 'freeform',
-      label: '自由项',
+      label: '其他采购',
       count: freeformCount,
       tone: freeformCount > 0 ? 'freeform' : 'muted',
-      detail: freeformCount > 0 ? '临时采购或未建档项目' : '当前没有自由采购项',
+      detail: freeformCount > 0 ? '其他采购或还没有加入食材库的内容' : '当前没有其他采购',
     },
   ];
 }
@@ -1534,13 +1531,13 @@ export function buildSeasoningSummaries(summaries: IngredientSummaryViewModel[])
             ? 'needsRestock'
             : 'unconfigured';
       const statusLabel: SeasoningSummaryViewModel['statusLabel'] =
-        status === 'stocked' ? '已有' : status === 'needsRestock' ? '需补充' : '未配置';
+        status === 'stocked' ? '有库存' : status === 'needsRestock' ? '需要补充库存' : '还没有库存记录';
       const detail =
         status === 'stocked'
           ? `常放 ${summary.primaryStorage || summary.ingredient.default_storage || '常温'}`
           : status === 'needsRestock'
             ? '这类常备品需要补充'
-            : '还没有登记库存';
+            : '还没有库存记录';
       return { summary, status, statusLabel, detail };
     })
     .sort((left, right) => {
@@ -1560,13 +1557,13 @@ export function buildShoppingCardGroups(cards: ShoppingCardViewModel[]): Shoppin
     {
       key: 'regular' as const,
       title: '普通食材',
-      detail: '按数量补齐的食材采购项',
+      detail: '按数量补充的食材',
       cards: regularCards,
     },
     {
       key: 'seasoning' as const,
       title: '调料常备',
-      detail: '只看是否需要补充，不强制精确数量',
+      detail: '只记录有无库存，不用填写具体数量',
       cards: seasoningCards,
     },
   ].filter((group) => group.cards.length > 0);

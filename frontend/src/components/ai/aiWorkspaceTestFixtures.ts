@@ -54,8 +54,8 @@ export function shoppingApproval(overrides: Partial<AiApprovalRequest> = {}): Ai
   };
   return approval({
     approval_type: 'shopping_list.create',
-    title: '确认创建购物清单',
-    approve_label: '加入购物清单',
+    title: '确认创建采购清单',
+    approve_label: '加入采购清单',
     reject_label: '暂不加入',
     draft_schema_version: 'shopping_list.v1',
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],

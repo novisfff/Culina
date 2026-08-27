@@ -203,10 +203,10 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
 
   const description =
     props.step === 'result'
-      ? '库存记录已同步更新。'
+      ? '库存已更新。'
       : props.step === 'summary'
-        ? '只提交你确认或调整过的项目；未触碰项保持原状。'
-        : `${scopeLabel(props.scope)}范围 · 逐项核对当前库存，未操作的项目不会被修改。`;
+        ? '只提交你确认或调整过的内容；没有改动的库存不会变化。'
+        : `核对${scopeLabel(props.scope)}范围内的库存；没有改动的内容不会变化。`;
 
   const remainingErrorCount = fieldErrors.length;
   const isLoadError =
@@ -218,14 +218,14 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
   const canRevertResult = isOperationStillRevertible(props.result, Date.now());
   const liveMessage =
     props.errorMessage ||
-    (remainingErrorCount > 0 ? `还有 ${remainingErrorCount} 处需要确认` : null) ||
+    (remainingErrorCount > 0 ? `还有 ${remainingErrorCount} 项需要确认` : null) ||
     (props.step === 'result' && props.result
       ? canRevertResult
         ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
         : props.result.status === 'reverted'
-          ? '这次操作已撤销'
-          : '撤销窗口已过或当前无权撤销'
-      : `已检查 ${checkedCount} / ${totalCount}`);
+          ? '这次盘点已撤销'
+          : '已超过可撤销时间，或你没有撤销权限'
+      : `已核对 ${checkedCount} / ${totalCount}`);
 
   let footerActions: ReactNode = null;
   if (props.step === 'review') {
@@ -244,7 +244,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
     footerActions = (
       <FormActions
         className="inventory-maintenance-actions"
-        primaryLabel={busy ? '提交中…' : '确认提交盘点'}
+        primaryLabel={busy ? '正在保存…' : '确认并完成盘点'}
         isSubmitting={busy}
         primaryDisabled={busy || loading || !props.canSubmit}
         onPrimary={props.onSubmit}
@@ -277,13 +277,13 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
             {canRevertResult
               ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
               : props.result.status === 'reverted'
-                ? '这次操作已撤销'
-                : '撤销窗口已过或当前无权撤销'}
+                ? '这次盘点已撤销'
+                : '已超过可撤销时间，或你没有撤销权限'}
           </p>
         </>
       ) : (
         <>
-          <span>已检查</span>
+          <span>已核对</span>
           <strong>
             {checkedCount}/{totalCount}
           </strong>
@@ -347,7 +347,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
               <div className="inventory-maintenance-section-head">
                 <span>盘点范围</span>
                 <em>
-                  {checkedCount}/{totalCount} 已检查
+                  {checkedCount}/{totalCount} 已核对
                 </em>
               </div>
               <OptionChipGroup
@@ -413,7 +413,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           {!loading && !isLoadError && props.step !== 'result' && props.groups.length === 0 ? (
             <StateBlock
               status="empty"
-              title="这个范围没有需要盘点的项目"
+              title="这个范围里没有需要盘点的库存"
               description="可以换一个范围，或稍后再来。"
               className="inventory-maintenance-state"
             />
@@ -480,9 +480,9 @@ function ReviewLayout(props: {
           <div className="inventory-reconciliation-summary-empty">
             <span className="inventory-reconciliation-summary-icon" aria-hidden="true">✓</span>
             <strong>从库存卡片开始确认</strong>
-            <p className="subtle">只记录你确认、调整或清空的项目。</p>
+            <p className="subtle">只记录你确认、调整或清空的内容。</p>
             <span className="inventory-reconciliation-summary-remaining">
-              待检查 {props.totalGroupCount} 项
+              还有 {props.totalGroupCount} 项未确认
             </span>
           </div>
         ) : (
@@ -506,8 +506,8 @@ function ReviewLayout(props: {
           <div className="inventory-reconciliation-list-loading" role="status" aria-live="polite">
             <span aria-hidden="true" />
             <div>
-              <strong>正在整理库存卡片</strong>
-              <p>弹层可以继续操作，清单会马上显示。</p>
+              <strong>正在准备库存卡片</strong>
+              <p>盘点清单马上就好，请稍等片刻。</p>
             </div>
           </div>
         ) : (
@@ -576,7 +576,7 @@ function GroupCard(props: {
           </span>
           {actionLabel ? <span className="inventory-maintenance-chip is-action">{actionLabel}</span> : null}
           {headline.hasExpiredPhysicalBatch && props.group.kind !== 'exact_ingredient' ? (
-            <span className="inventory-maintenance-chip is-warning">含过期批次</span>
+            <span className="inventory-maintenance-chip is-warning">含过期库存</span>
           ) : null}
         </div>
         {props.group.kind === 'presence_ingredient' ? <p className="subtle">{headline.detail}</p> : null}
@@ -743,10 +743,10 @@ function ExactGroupActions(props: {
   if (props.intent && mode === 'idle') {
     const summary =
       props.intent.action === 'confirm_all'
-        ? `数量没问题 · 记录库存 ${formatQuantity(recordedQuantity)} ${primaryUnit}`
+        ? `数量没问题 · 当前库存 ${formatQuantity(recordedQuantity)} ${primaryUnit}`
         : props.intent.action === 'set_absent'
-          ? `将清空 ${physicalBatches.length} 个批次 · 最终库存 0 ${primaryUnit}`
-          : `将按批次修正库存 · 共 ${physicalBatches.length} 个批次`;
+          ? `将清空 ${physicalBatches.length} 批库存 · 最终库存 0 ${primaryUnit}`
+          : `将按库存明细修正 · 共 ${physicalBatches.length} 批库存`;
     return (
       <div className="inventory-reconciliation-selection-summary">
         <div>
@@ -768,7 +768,7 @@ function ExactGroupActions(props: {
       <div className="inventory-reconciliation-total-editor">
         <div className="inventory-maintenance-field-head">
           <span>家里实际还有多少？</span>
-          <p className="subtle">先确认总量，系统再建议如何处理批次。</p>
+        <p className="subtle">先确认总量，系统再建议如何调整库存。</p>
         </div>
         <QuantityUnitField
           quantity={actualQuantity}
@@ -782,14 +782,14 @@ function ExactGroupActions(props: {
         <div className={['inventory-reconciliation-suggestion', suggestion?.ok ? 'is-ready' : ''].filter(Boolean).join(' ')}>
           <span>系统建议</span>
           {!suggestion ? (
-            <p>填写实际总量后，我会先处理过期和较早到期的批次。</p>
+            <p>填写实际总量后，系统会优先处理过期和较早到期的库存。</p>
           ) : suggestion.ok ? (
             <>
               <strong>
-                建议处理 {suggestion.processedBatchIds.length} 个批次，保留 {suggestion.retainedBatchIds.length} 个批次
+                建议处理 {suggestion.processedBatchIds.length} 批库存，保留 {suggestion.retainedBatchIds.length} 批库存
               </strong>
               <p>
-                记录库存 {formatQuantity(suggestion.recordedQuantityInDefaultUnit)} {primaryUnit}
+                当前库存 {formatQuantity(suggestion.recordedQuantityInDefaultUnit)} {primaryUnit}
                 {' → '}实际库存 {formatQuantity(suggestion.actualQuantityInDefaultUnit)} {primaryUnit}
               </p>
             </>
@@ -818,7 +818,7 @@ function ExactGroupActions(props: {
             disabled={props.busy}
             onClick={() => openManualEditor(suggestion?.ok ? suggestion.intent : null)}
           >
-            手动调整批次
+            手动调整库存
           </ActionButton>
           <ActionButton tone="tertiary" size="compact" type="button" onClick={() => setMode('idle')}>
             返回
@@ -828,7 +828,7 @@ function ExactGroupActions(props: {
               props.onClearIntent();
               setMode('idle');
             }}>
-              移出本次盘点
+              取消这项盘点
             </ActionButton>
           ) : null}
         </div>
@@ -845,7 +845,7 @@ function ExactGroupActions(props: {
             返回盘点
           </ActionButton>
           <div>
-            <strong>调整{props.group.ingredient_name}批次</strong>
+            <strong>调整{props.group.ingredient_name}库存</strong>
             <span>逐批确认数量，需要时再修改日期和位置。</span>
           </div>
         </div>
@@ -874,7 +874,7 @@ function ExactGroupActions(props: {
             props.onSetIntent(manualIntent);
             setMode('idle');
           }}>
-            确认批次调整
+            确认库存调整
           </ActionButton>
         </div>
       </div>
@@ -890,7 +890,7 @@ function ExactGroupActions(props: {
         ].join(' ')}
       >
         <div className="inventory-reconciliation-compact-stat">
-          <span>{hasExpiredBatches ? '记录库存' : '系统记录'}</span>
+          <span>库存总量</span>
           <strong>{formatQuantity(recordedQuantity)} {primaryUnit}</strong>
         </div>
         <div className="inventory-reconciliation-compact-stat">
@@ -899,10 +899,10 @@ function ExactGroupActions(props: {
         </div>
         <p>
           {allExpired
-            ? `${physicalBatches.length} 个批次全部过期`
+            ? `${physicalBatches.length} 批库存全部过期`
             : expiredBatchCount > 0
-              ? `${expiredBatchCount} 个过期批次待处理`
-              : `${physicalBatches.length} 个批次`}
+              ? `${expiredBatchCount} 批库存已过期`
+              : `${physicalBatches.length} 批库存`}
         </p>
       </div>
       <div className="inventory-reconciliation-card-actions">
@@ -926,10 +926,10 @@ function ExactGroupActions(props: {
             }}
           >
             {allExpired
-              ? '这些已经处理'
+              ? '确认没有库存'
               : hasExpiredBatches
-                ? '处理过期批次'
-                : `确认还是 ${formatQuantity(recordedQuantity)} ${primaryUnit}`}
+                ? '处理过期库存'
+                : `确认库存为 ${formatQuantity(recordedQuantity)} ${primaryUnit}`}
           </ActionButton>
           <ActionButton
             tone="secondary"
@@ -943,7 +943,7 @@ function ExactGroupActions(props: {
           </ActionButton>
         </div>
         <ActionButton tone="tertiary" size="compact" type="button" disabled={props.busy} onClick={() => openManualEditor()}>
-          批次明细（{physicalBatches.length}）
+          库存详情（{physicalBatches.length}）
         </ActionButton>
       </div>
     </div>
@@ -1000,7 +1000,7 @@ function ExactBatchEditor(props: {
   };
 
   return (
-    <div className="inventory-reconciliation-batch-list" aria-label={`${props.group.ingredient_name} 批次`}>
+    <div className="inventory-reconciliation-batch-list" aria-label={`${props.group.ingredient_name} 库存详情`}>
       {sortedBatches.map((batch, index) => {
           const previousBatch = sortedBatches[index - 1];
           const groupLabel = suggestedProcessIds.has(batch.inventory_item_id) ? '建议处理' : '建议保留';
@@ -1023,7 +1023,7 @@ function ExactBatchEditor(props: {
               {groupLabel !== previousGroupLabel ? (
                 <div className={`inventory-reconciliation-batch-group-label is-${groupLabel === '建议处理' ? 'process' : 'retain'}`}>
                   <strong>{groupLabel}</strong>
-                  <span>{groupLabel === '建议处理' ? '优先处理过期或较早批次' : '建议保留较新批次'}</span>
+                  <span>{groupLabel === '建议处理' ? '优先处理过期或较早的库存' : '建议保留较新的库存'}</span>
                 </div>
               ) : null}
             <div
@@ -1033,7 +1033,7 @@ function ExactBatchEditor(props: {
             >
               <div className="inventory-maintenance-item-title-row">
                 <strong>
-                  {batch.purchase_date.slice(5).replace('-', ' 月 ')} 日购买 · {batch.storage_location || '未设位置'}
+                  {batch.purchase_date.slice(5).replace('-', ' 月 ')} 日购买 · {batch.storage_location || '未填写存放位置'}
                 </strong>
                 {expired ? <span className="inventory-maintenance-chip is-warning">已过期</span> : null}
               </div>
@@ -1145,7 +1145,7 @@ function ExactBatchEditor(props: {
         return (
         <div key={create.clientLineId} className="inventory-reconciliation-batch-row is-create">
           <div className="inventory-maintenance-item-title-row">
-            <strong>新增漏记批次</strong>
+            <strong>新增库存</strong>
           </div>
           <QuantityUnitField
             quantity={create.actualRemainingQuantity}
@@ -1250,7 +1250,7 @@ function ExactBatchEditor(props: {
               )
             }
           >
-            移除新增批次
+            移除这批库存
           </ActionButton>
         </div>
         );
@@ -1280,7 +1280,7 @@ function ExactBatchEditor(props: {
           ]);
         }}
       >
-        增加漏记批次
+        补充库存
       </ActionButton>
     </div>
   );
@@ -1302,11 +1302,11 @@ function PresenceGroupActions(props: {
   return (
     <div className="inventory-reconciliation-group-actions">
       <div className="inventory-maintenance-field-head">
-        <span>家庭有无</span>
-        <p className="subtle">只记录整体状态，不区分多个批次。</p>
+        <span>家庭库存状态</span>
+        <p className="subtle">这里只记录是否有库存，不区分每次购买。</p>
       </div>
       <OptionChipGroup
-        ariaLabel={`${props.group.ingredient_name} 有无状态`}
+        ariaLabel={`${props.group.ingredient_name} 库存状态`}
         value={(selectedLevel ?? '') as InventoryAvailabilityLevel}
         size="large"
         className="inventory-maintenance-chip-group"
@@ -1373,9 +1373,9 @@ function PresenceGroupActions(props: {
         </div>
       ) : null}
       {props.group.pending_shopping_item_id ? (
-        <p className="subtle">已在采购清单</p>
+        <p className="subtle">已加入采购清单</p>
       ) : selectedLevel === 'low' ? (
-        <p className="subtle">标记少量后可一键加入采购（不会自动写入）。</p>
+        <p className="subtle">标记少量后可一键加入采购清单（不会自动保存）。</p>
       ) : null}
       {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}
       {props.intent ? (
@@ -1436,7 +1436,7 @@ function FoodGroupActions(props: {
         ? `数量没问题 · 当前 ${props.group.stock_quantity} ${props.group.stock_unit || '份'}`
         : props.intent.stockQuantity === '0'
           ? `确认家里没有 · 最终库存 0 ${props.group.stock_unit || '份'}`
-          : `修正为 ${props.intent.stockQuantity} ${props.intent.stockUnit || props.group.stock_unit || '份'} · ${props.intent.storageLocation || '未设位置'}`;
+          : `修正为 ${props.intent.stockQuantity} ${props.intent.stockUnit || props.group.stock_unit || '份'} · ${props.intent.storageLocation || '未填写存放位置'}`;
     return (
       <div className="inventory-reconciliation-selection-summary">
         <div>
@@ -1524,7 +1524,7 @@ function FoodGroupActions(props: {
               props.onClearIntent();
               setEditing(false);
             }}>
-              移出本次盘点
+              取消这项盘点
             </ActionButton>
           ) : null}
         </div>
@@ -1537,7 +1537,7 @@ function FoodGroupActions(props: {
       <div className="inventory-reconciliation-food-question" role="note">
         <span>按总量记录</span>
         <strong>家里现在还有{props.group.food_name}吗？</strong>
-        <p>系统当前记录 {props.group.stock_quantity} {props.group.stock_unit || '份'}，只需要确认家里的实际总量。</p>
+        <p>当前库存为 {props.group.stock_quantity} {props.group.stock_unit || '份'}，只需要确认家里的实际总量。</p>
       </div>
       <div className="inventory-reconciliation-primary-decisions">
         <ActionButton
@@ -1597,11 +1597,11 @@ function SummaryStep(props: {
       return sum + (normalized ?? 0);
     }, 0);
     if (intent.action === 'confirm_all') {
-      return `数量没问题 · 记录库存 ${Number(recorded.toFixed(2))} ${unitProfile.default_unit}`;
+      return `数量没问题 · 当前库存 ${Number(recorded.toFixed(2))} ${unitProfile.default_unit}`;
     }
     if (intent.action === 'set_absent') {
       const batchCount = group.batches.filter((batch) => batch.remaining_quantity > 0).length;
-      return `清空 ${batchCount} 个批次 · ${Number(recorded.toFixed(2))} → 0 ${unitProfile.default_unit}`;
+      return `清空 ${batchCount} 批库存 · ${Number(recorded.toFixed(2))} → 0 ${unitProfile.default_unit}`;
     }
     const updatesById = new Map(intent.updates.map((update) => [update.inventoryItemId, update]));
     const actualFromBatches = group.batches.reduce((sum, batch) => {
@@ -1624,13 +1624,13 @@ function SummaryStep(props: {
     const clearedCount = intent.updates.filter(
       (update) => Number(update.actualRemainingQuantity) === 0,
     ).length;
-    return `${Number(recorded.toFixed(2))} → ${Number((actualFromBatches + actualFromCreates).toFixed(2))} ${unitProfile.default_unit} · ${clearedCount > 0 ? `清空 ${clearedCount} 个批次` : '按批次修正'}`;
+    return `${Number(recorded.toFixed(2))} → ${Number((actualFromBatches + actualFromCreates).toFixed(2))} ${unitProfile.default_unit} · ${clearedCount > 0 ? `清空 ${clearedCount} 批库存` : '按库存明细修正'}`;
   }
 
   return (
-    <section className="inventory-maintenance-section" aria-label="提交摘要">
+    <section className="inventory-maintenance-section" aria-label="确认摘要">
       <div className="inventory-maintenance-section-head">
-        <span>将提交这些改动</span>
+        <span>确认这些库存调整</span>
         <em>{props.summary.totalTouched} 项</em>
       </div>
       {lines.length === 0 ? (
@@ -1692,8 +1692,8 @@ function ResultStep(props: {
       <div className={['inventory-reconciliation-result-head', applied ? 'is-applied' : 'is-reverted'].join(' ')}>
         <span className="inventory-reconciliation-result-mark" aria-hidden="true">✓</span>
         <div>
-          <span>{applied ? '操作成功' : '操作已撤销'}</span>
-          <strong>{applied ? '家庭库存已经更新' : '库存已经恢复到操作前'}</strong>
+          <span>{applied ? '盘点已完成' : '盘点已撤销'}</span>
+          <strong>{applied ? '家庭库存已经更新' : '库存已经恢复到变更前'}</strong>
           <p>{props.result.summary.description}</p>
         </div>
       </div>
@@ -1711,16 +1711,16 @@ function ResultStep(props: {
         </article>
         <article className="inventory-reconciliation-result-metric is-status">
           <span>状态</span>
-          <strong>{applied ? '已生效' : '已撤销'}</strong>
+          <strong>{applied ? '已完成' : '已撤销'}</strong>
         </article>
       </div>
 
       <p className="inventory-reconciliation-result-notice" aria-live="polite">
         {props.result.status === 'reverted'
-          ? '这次操作已撤销'
+          ? '这次盘点已撤销'
           : canRevert
-            ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
-            : '撤销窗口已过或当前无权撤销'}
+            ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次盘点`
+            : '已超过可撤销时间，或你没有撤销权限'}
       </p>
       {(props.onViewResult || (canRevert && props.onRevertResult)) ? (
         <div className="inventory-operation-result-actions inventory-reconciliation-result-actions">
@@ -1744,7 +1744,7 @@ function ResultStep(props: {
               disabled={Boolean(props.busy)}
               onClick={() => props.onRevertResult?.(props.result.operation_id)}
             >
-              撤销本次操作
+              撤销本次盘点
             </ActionButton>
           ) : null}
         </div>

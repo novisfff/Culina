@@ -49,7 +49,7 @@ describe('RecipeDraftDialog', () => {
 
     expect(view.querySelector('.workspace-overlay-root')).not.toBeNull();
     expect(view.querySelector('.recipe-ai-draft-modal')).not.toBeNull();
-    expect(view.textContent).toContain('AI 补全菜谱');
+    expect(view.textContent).toContain('AI 补充菜谱');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());

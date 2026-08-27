@@ -46,7 +46,7 @@ export function FoodShoppingDialog(props: FoodShoppingDialogProps) {
     >
       <WorkspaceModal
         title="确认采购"
-        description={props.existingItem ? '正在编辑已有采购项，数量表示确认后的最终总量。' : '确认后再加入采购清单。'}
+        description={props.existingItem ? '正在编辑已有待买内容，数量表示确认后的最终总量。' : '确认后加入采购清单。'}
         closeLabel="关闭"
         closeAriaLabel="关闭采购确认"
         className="food-shopping-modal"
@@ -54,11 +54,11 @@ export function FoodShoppingDialog(props: FoodShoppingDialogProps) {
         onClose={closeIfAllowed}
         footerActions={
           <FormActions
-            primaryLabel={props.existingItem ? '确认更新' : '确认加入'}
+            primaryLabel={props.existingItem ? '确认更新' : '确认加入采购清单'}
             primaryType="submit"
             primaryForm={formId}
             isSubmitting={Boolean(props.busy)}
-            submittingLabel="正在保存..."
+            submittingLabel="正在保存…"
             secondaryLabel="取消"
             onSecondary={closeIfAllowed}
           />

@@ -46,7 +46,7 @@ describe('getFoodPlanDetailFacts', () => {
       ),
     ).toEqual([
       { label: '分类', value: '家常菜' },
-      { label: '适合餐次', value: '午餐、晚餐' },
+      { label: '适合餐别', value: '午餐、晚餐' },
       { label: '关联菜谱', value: '已关联' },
     ]);
   });
@@ -66,16 +66,16 @@ describe('getFoodPlanDetailFacts', () => {
       { label: '分类', value: '粉面' },
       { label: '店铺', value: '巷口米粉' },
       { label: '价格', value: '¥26' },
-      { label: '复购', value: '愿意复购' },
+      { label: '还想再吃吗', value: '想再吃' },
     ]);
   });
 
   it('shows inventory facts for ready-made food', () => {
     expect(getFoodPlanDetailFacts(buildFood(), '2026-07-14')).toEqual([
       { label: '分类', value: '乳制品' },
-      { label: '库存', value: '2盒' },
-      { label: '存放', value: '冷藏' },
-      { label: '到期', value: '4 天后到期' },
+      { label: '库存', value: '2 盒' },
+      { label: '存放位置', value: '冷藏' },
+      { label: '到期日', value: '4 天后到期' },
     ]);
   });
 });

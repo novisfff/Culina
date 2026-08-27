@@ -28,7 +28,7 @@ function SearchLoadingIndicator(props: { active: boolean; className?: string }) 
   return (
     <span
       className={props.className ? `search-loading-indicator ${props.className}` : 'search-loading-indicator'}
-      aria-label="正在检索"
+      aria-label="正在搜索"
       role="status"
     />
   );

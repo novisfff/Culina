@@ -65,9 +65,9 @@ export const FAMILY_ACTIVITY_ENTITY_LABELS: Record<string, string> = {
   User: '成员',
   Ingredient: '食材',
   InventoryItem: '库存',
-  ShoppingListItem: '购物清单',
+  ShoppingListItem: '采购清单',
   Recipe: '菜谱',
-  FoodPlanItem: '菜单计划',
+  FoodPlanItem: '餐食计划',
   MealLog: '餐食记录',
   Food: '食物',
 };
@@ -162,9 +162,9 @@ export function groupFamilyActivitiesByDate(logs: ActivityLog[]): FamilyActivity
 
 export function familyActivityEmptyDescription(hasFilters: boolean) {
   if (hasFilters) {
-    return '没有符合筛选条件的家庭活动，可以换个日期或操作人看看。';
+    return '没有符合筛选条件的家庭活动，可以换个日期或记录人看看。';
   }
-  return '记录餐食、采购、食材和家庭资料后，这里会展示协作动态。';
+  return '记录餐食、采购、食材和家庭信息后，这里会展示协作动态。';
 }
 
 export function hasFamilyActivityFilters(filters: FamilyActivityFilters) {

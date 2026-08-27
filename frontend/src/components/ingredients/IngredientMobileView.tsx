@@ -35,8 +35,8 @@ type MobileInventoryListItem =
 
 const MOBILE_INVENTORY_ENTRY_FILTER_OPTIONS: readonly OptionChip<InventoryEntryFilter>[] = [
   { value: 'all', label: '全部' },
-  { value: 'stocked', label: '在库' },
-  { value: 'pending', label: '待录入' },
+  { value: 'stocked', label: '有库存' },
+  { value: 'pending', label: '需要补充' },
 ];
 
 const MOBILE_INVENTORY_QUICK_FILTER_OPTIONS: readonly OptionChip<MobileIngredientFilter>[] = [
@@ -213,10 +213,13 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
   function getFoodStockExpiryLine(item: InventoryOverviewItem) {
     if (item.days_until_expiry == null) {
-      return '未记录到期';
+      return '未填写到期日';
     }
-    if (item.days_until_expiry <= 0) {
-      return '今天需处理';
+    if (item.days_until_expiry < 0) {
+      return `已过期 ${Math.abs(item.days_until_expiry)} 天`;
+    }
+    if (item.days_until_expiry === 0) {
+      return '今天到期';
     }
     return `${item.days_until_expiry} 天后到期`;
   }
@@ -228,7 +231,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
   }
 
   return (
-    <section className="mobile-ingredient-page" aria-label="手机食材页">
+    <section className="mobile-ingredient-page" aria-label="食材">
       <div className="mobile-ingredient-topbar">
         <div className="mobile-ingredient-brand">
           <span className="mobile-ingredient-logo">{props.renderIcon('logo')}</span>
@@ -270,7 +273,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             <span className="metric-btn-icon">{props.renderIcon('stocked')}</span>
             <div className="metric-btn-content">
               <strong>{props.stockedIngredientCount + stockedFoodCount}</strong>
-              <span>在库</span>
+              <span>有库存</span>
             </div>
           </button>
           <button
@@ -309,11 +312,11 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             onClick={() => props.openInventoryOverlay()}
           >
             {props.renderIcon('plus')}
-            快速入库
+            快速加入库存
           </button>
           <button className="mobile-ingredient-secondary" type="button" onClick={() => props.openShoppingOverlay()}>
             {props.renderIcon('shopping')}
-            加采购
+            加入采购清单
           </button>
         </div>
       </header>
@@ -322,10 +325,10 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         id="mobile-ingredient-priority"
         className="mobile-ingredient-panel"
         tabIndex={-1}
-        aria-label="今天先处理"
+        aria-label="今天需要处理"
       >
         <div className="mobile-ingredient-section-head">
-          <h2>今天先处理 <span>{priorityItemCount} 项</span></h2>
+          <h2>今天需要处理 <span>{priorityItemCount} 项</span></h2>
         </div>
         {hasPriorityItems ? (
           <div className="mobile-ingredient-priority-scroller">
@@ -366,7 +369,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           ? group.quantityLabels.join(' · ') || (summary ? props.buildInventorySummaryLine(summary) : '')
                           : summary
                             ? props.buildInventorySummaryLine(summary)
-                            : `${group.availableQuantity}${group.unit}`}
+                            : `${group.availableQuantity} ${group.unit}`}
                       </span>
                     </div>
                     <div className="mobile-ingredient-card-actions">
@@ -389,7 +392,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             {primaryLabel}
                           </button>
                           <button type="button" onClick={() => props.openDetailView(group.ingredientId)}>
-                            查看
+                            查看详情
                           </button>
                         </>
                       ) : (
@@ -402,7 +405,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             {primaryLabel}
                           </button>
                           <button type="button" onClick={() => props.openDetailView(group.ingredientId)}>
-                            查看批次
+                            查看详情
                           </button>
                         </>
                       )}
@@ -415,7 +418,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         ) : (
           <div className="mobile-ingredient-empty">
             <strong>当前没有需要优先处理的食材</strong>
-            <span>可以继续浏览库存，或直接登记一批新库存。</span>
+            <span>可以继续浏览库存，或为常用食材加入库存。</span>
           </div>
         )}
       </section>
@@ -515,7 +518,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         </div>
         {mobileInventoryItems.length > 0 ? (
           <>
-            <div className="mobile-ingredient-library-scroller" aria-label="库存横向分页" onScroll={catalogPager.handleScroll}>
+            <div className="mobile-ingredient-library-scroller" aria-label="库存列表" onScroll={catalogPager.handleScroll}>
               {mobileCatalogPages.map((page, pageIndex) => (
                 <div className="mobile-ingredient-library-grid" key={`ingredient-library-page-${pageIndex}`}>
                   {page.map((inventoryItem) => {
@@ -542,7 +545,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             <p>{item.category || '未分类'} · {item.storage_location || '常温'}</p>
                             <div className="mobile-ingredient-meta-row">
                               <span>{item.quantity_label}</span>
-                              <span>{isPending ? '待补库存' : getFoodStockExpiryLine(item)}</span>
+                            <span>{isPending ? '需要补充库存' : getFoodStockExpiryLine(item)}</span>
                             </div>
                             <div className="mobile-ingredient-library-actions">
                               {!isPending ? (
@@ -551,7 +554,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openFoodStockMeal(item.source_id)}
                                 >
-                                  减扣
+                                  扣减
                                 </button>
                               ) : null}
                               <button
@@ -563,7 +566,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                 type="button"
                                 onClick={() => props.openFoodStockEditor(item.source_id)}
                               >
-                                补库存
+                                补充库存
                               </button>
                               {shouldShowFoodShoppingAction ? (
                                 <button
@@ -571,7 +574,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openFoodShopping(item.source_id)}
                                 >
-                                  采购
+                                加入采购清单
                                 </button>
                               ) : null}
                             </div>
@@ -584,8 +587,8 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
                     const status = props.buildCatalogStatus(summary);
                     const inventorySummaryLine = props.buildInventorySummaryLine(summary);
-                    const compactInventorySummaryLine = inventorySummaryLine === '未登记库存' ? '未登记' : inventorySummaryLine;
-                    const compactConfirmationLabel = summary.confirmationLabel === '从未确认' ? '未确认' : summary.confirmationLabel;
+                    const compactInventorySummaryLine = inventorySummaryLine;
+                    const compactConfirmationLabel = summary.confirmationLabel === '尚未确认' ? '未确认库存' : summary.confirmationLabel;
                     const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
                     const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
                     return (
@@ -610,7 +613,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                               title={
                                 summary.lastConfirmedAt
                                   ? `上次确认 ${summary.lastConfirmedAt.slice(0, 10)}`
-                                  : '还没有人工确认过库存'
+                                  : '未确认库存'
                               }
                             >
                               {compactConfirmationLabel}
@@ -624,13 +627,13 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
                                 >
-                                  处理
+                                  处理过期库存
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => props.openDetailView(summary.ingredient.id)}
                                 >
-                                  查看批次
+                                  查看详情
                                 </button>
                               </>
                             ) : canConsume ? (
@@ -640,7 +643,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
                                 >
-                                  消费
+                                  记录用量
                                 </button>
                                 <button
                                   type="button"
@@ -656,7 +659,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
                                 >
-                                  {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                                  {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
                                 </button>
                                 <button
                                   type="button"
@@ -667,7 +670,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                     })
                                   }
                                 >
-                                  采购
+                                  加入采购清单
                                 </button>
                               </>
                             )}
@@ -682,8 +685,8 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </>
         ) : (
           <div className="mobile-ingredient-empty">
-            <strong>{props.summariesCount === 0 && props.mobileFoodStockItems.length === 0 ? '还没有库存档案' : '没有匹配的库存'}</strong>
-            <span>{props.summariesCount === 0 && props.mobileFoodStockItems.length === 0 ? '先新增常用食材，后续补货、消费和采购都会更快。' : '换个关键词或清空筛选后再试。'}</span>
+            <strong>{props.summariesCount === 0 && props.mobileFoodStockItems.length === 0 ? '还没有库存' : '没有匹配的库存'}</strong>
+            <span>{props.summariesCount === 0 && props.mobileFoodStockItems.length === 0 ? '先新增常用食材，后续补货、记录用量和采购都会更快。' : '换个关键词或清空筛选后再试。'}</span>
             <button
               type="button"
               onClick={
@@ -705,11 +708,11 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
       <section id="mobile-ingredient-shopping" className="mobile-ingredient-panel">
         <div className="mobile-ingredient-section-head">
-          <h2>采购待办 <span>{props.pendingShoppingCount} 项</span></h2>
+          <h2>采购清单 <span>{props.pendingShoppingCount} 项</span></h2>
           <div className="mobile-ingredient-section-actions">
             {props.openShoppingIntake ? (
               <button type="button" onClick={() => props.openShoppingIntake?.()}>
-                登记本次购买
+                记录本次购买
               </button>
             ) : null}
             <button type="button" onClick={() => props.openShoppingOverlay()}>
@@ -735,7 +738,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}
                       role="button"
                       tabIndex={0}
-                      aria-label={`查看采购待办：${card.title}`}
+                      aria-label={`查看待买内容：${card.title}`}
                       onClick={() => openShoppingCard(card)}
                       onKeyDown={(event) => handleShoppingCardKeyDown(event, card)}
                     >
@@ -759,7 +762,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           props.openInventoryFromShopping(card.shoppingItem);
                         }}
                       >
-                        入库
+                        加入库存
                       </button>
                     </article>
                   );
@@ -769,8 +772,8 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </div>
         ) : (
           <div className="mobile-ingredient-empty">
-            <strong>当前没有待买项</strong>
-            <span>可以从低库存食材一键加入采购，或手动添加。</span>
+            <strong>当前没有待买内容</strong>
+            <span>可以从低库存食材一键加入采购清单，或手动添加。</span>
           </div>
         )}
       </section>
@@ -787,7 +790,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             title={selectedShoppingCard.title}
             description={`${selectedShoppingCard.quantityLabel} · ${selectedShoppingCard.reasonLabel}`}
             closeLabel="关闭"
-            closeAriaLabel="关闭采购待办详情"
+            closeAriaLabel="关闭待买内容详情"
             className={`mobile-ingredient-shopping-drawer tone-${selectedShoppingCard.statusTone}`}
             onClose={closeShoppingCardIfAllowed}
           >
@@ -816,7 +819,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                 <strong>{selectedShoppingCard.inventoryLabel}</strong>
               </div>
               <div>
-                <span>存放信息</span>
+                <span>存放位置</span>
                 <strong>{selectedShoppingCard.contextLine}</strong>
               </div>
             </div>
@@ -841,7 +844,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     props.openDetailView(selectedShoppingCard.linkedSummary!.ingredient.id);
                   }}
                 >
-                  看档案
+                  查看详情
                 </button>
               )}
               <button
@@ -850,7 +853,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                 disabled={props.isUpdatingShopping || props.isCreatingInventory}
                 onClick={() => restockShoppingCard(selectedShoppingCard)}
               >
-                入库
+                加入库存
               </button>
               <button
                 className="danger"

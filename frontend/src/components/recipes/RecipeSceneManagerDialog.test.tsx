@@ -55,7 +55,7 @@ describe('RecipeSceneManagerDialog', () => {
     expect(view.querySelector('.workspace-overlay-root')).not.toBeNull();
     expect(view.querySelector('.recipe-scene-modal')).not.toBeNull();
     expect(view.textContent).toContain('场景管理');
-    expect(view.textContent).toContain('暂无可管理场景。');
+    expect(view.textContent).toContain('还没有可管理的场景。');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());

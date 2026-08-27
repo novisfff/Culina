@@ -201,7 +201,7 @@ describe('cookingAssistantModel', () => {
 
     expect(result.status).toBe('executed');
     expect(setTimer).toHaveBeenCalledWith('timer-main', 180, '炒蛋');
-    expect(result.message).toBe('页面操作已执行。');
+    expect(result.message).toBe('已完成。');
   });
 
   it('builds compact action tool card text without generic page-operation prefixes', () => {
@@ -215,9 +215,9 @@ describe('cookingAssistantModel', () => {
       requiresConfirmation: false,
     };
 
-    expect(buildCookingActionToolCardMessage(data, 'executed')).toBe('设置 05:00 倒计时\n已执行');
+    expect(buildCookingActionToolCardMessage(data, 'executed')).toBe('设置 05:00 倒计时\n已完成');
     expect(buildCookingActionToolCardMessage(data, 'needs_confirmation')).toBe('设置 05:00 倒计时\n等待确认');
-    expect(buildCookingActionToolCardMessage(data, 'rejected', '页面状态刚更新了一下，请再说一遍。')).toBe('页面状态刚更新了一下，请再说一遍。\n未执行');
+    expect(buildCookingActionToolCardMessage(data, 'rejected', '页面内容刚更新，请再试一次。')).toBe('页面内容刚更新，请再试一次。\n未完成');
   });
 
   it('rejects next step actions when already on the final step', () => {

@@ -28,7 +28,7 @@ describe('ModelUsageDegradationNotice', () => {
   it('maps only stable model-usage error codes to capability-specific safe copy', () => {
     expect(onsiteModelUsageOption('model_usage_capability_limit_exceeded', 'rerank')).toMatchObject({
       tone: 'warning',
-      message: '模型排序额度达到限制，本次已改用基础排序。',
+      message: '搜索排序额度达到限制，本次已改用基础排序。',
     });
     expect(onsiteModelUsageOption('provider_429', 'rerank')).toBeNull();
     expect(onsiteModelUsageOption(null, 'rerank')).toBeNull();

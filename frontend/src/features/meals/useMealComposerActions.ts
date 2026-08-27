@@ -46,9 +46,9 @@ export function useMealComposerActions(args: UseMealComposerActionsArgs) {
     }
     if (candidateResolution && !canSubmitWithCandidateResolution(candidateResolution)) {
       if (candidateResolution.status === 'error') {
-        state.setError(candidateResolution.message || '加载候选失败，请重试');
+        state.setError(candidateResolution.message || '暂时无法加载可选餐食，请重试');
       } else {
-        state.setError('正在确认是否有可加入的餐食…');
+        state.setError('正在查找可加入的餐食…');
       }
       return;
     }
@@ -97,7 +97,7 @@ export function useMealComposerActions(args: UseMealComposerActionsArgs) {
         );
         return;
       }
-      state.setError(messageFromMealRecordReason(reason, '记录失败，请重试'));
+      state.setError(messageFromMealRecordReason(reason, '餐食记录失败，请重试'));
     } finally {
       state.setBusy(false);
     }

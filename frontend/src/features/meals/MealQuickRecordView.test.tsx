@@ -97,7 +97,7 @@ describe('MealQuickRecordView', () => {
       target: { kind: 'existing', meal_log_id: 'meal-1', expected_row_version: 2 },
     });
 
-    expect(screen.getByText('和今晚这顿一起记吗？')).toBeVisible();
+    expect(screen.getByText('要和这顿晚餐记在一起吗？')).toBeVisible();
     expect(screen.getByText('番茄炒蛋、青菜')).toBeVisible();
     expect(screen.getByText(/这顿会记成/)).toBeVisible();
     expect(screen.getByText(/番茄炒蛋、青菜、青椒肉丝/)).toBeVisible();

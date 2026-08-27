@@ -52,7 +52,7 @@ export type InventoryActionOutcome =
 function successMessageFor(outcome: InventoryActionOutcome, presenceOnly = false): string {
   switch (outcome) {
     case 'dispose':
-      return presenceOnly ? '已标记为没有' : '过期批次已销毁';
+      return presenceOnly ? '已确认没有库存' : '过期库存已处理';
     case 'retain_expired':
       return '已暂时保留，到提醒日会再出现';
     case 'snooze_upcoming':
@@ -77,7 +77,7 @@ function buildSuccessSummary(
     message: successMessageFor(outcome, presenceOnly),
     ...(lowStock
       ? {
-          secondaryActionLabel: `${ingredientName}库存已不足，加入采购`,
+          secondaryActionLabel: `${ingredientName}库存已不足，加入采购清单`,
           secondaryActionIngredientId: ingredientId,
         }
       : {}),
@@ -182,8 +182,8 @@ export function useHomeDashboardActions(input: {
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
-        title: '完成菜单计划失败',
-        message: messageOf(reason, '完成菜单计划失败'),
+        title: '完成餐食计划失败',
+        message: messageOf(reason, '完成餐食计划失败'),
       });
     }
   }
@@ -198,7 +198,7 @@ export function useHomeDashboardActions(input: {
     } catch (reason) {
       // Conflict is real; recovery refresh failed — keep dialog open with actionable guidance.
       input.setActionDialogConflict('review_again');
-      input.setActionDialogError('家人可能改动了这批库存，但刷新失败，请稍后重试。');
+      input.setActionDialogError('家人可能刚改动了库存，但页面暂时无法更新，请稍后重试。');
       return;
     }
     const surviving = refreshed.find(
@@ -207,7 +207,7 @@ export function useHomeDashboardActions(input: {
     if (surviving) {
       // Surviving group: keep dialog open, clear selection/confirmation via conflictState, require review.
       input.setActionDialogConflict('review_again');
-      input.setActionDialogError('家人刚刚改动了这批库存，请重新选择后再提交。');
+      input.setActionDialogError('家人刚刚改动了库存，请重新选择后再提交。');
       return;
     }
     input.setActionDialogConflict('none');
@@ -215,7 +215,7 @@ export function useHomeDashboardActions(input: {
     input.closeActionGroup();
     input.showNotice({
       tone: 'success',
-      title: '这批库存已由家人处理',
+      title: '库存已由家人处理',
       message: `${args.ingredientName} 已不在今天要处理列表中。`,
     });
   }
@@ -272,8 +272,8 @@ export function useHomeDashboardActions(input: {
       input.closeActionGroup();
       input.showNotice({
         tone: 'warning',
-        title: '操作已完成，但数据刷新失败',
-        message: messageOf(reason, '请下拉刷新首页后再继续处理。'),
+        title: '处理已完成',
+        message: messageOf(reason, '首页暂时没有更新，请下拉刷新后再试。'),
       });
     } finally {
       input.setActionDialogBusy(false);
@@ -292,7 +292,7 @@ export function useHomeDashboardActions(input: {
     }
     if (items.length === 0) {
       const presenceOnly = group.targetKind === 'ingredient_inventory_state';
-      input.setActionDialogError(presenceOnly ? '请先确认这份食材是否还在。' : '请先选择要销毁的过期批次。');
+      input.setActionDialogError(presenceOnly ? '请先确认这份食材是否有库存。' : '请先选择要丢弃的过期库存。');
       return;
     }
 
@@ -300,7 +300,7 @@ export function useHomeDashboardActions(input: {
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
-      failureTitle: presenceOnly ? '标记为没有失败' : '销毁过期批次失败',
+      failureTitle: presenceOnly ? '更新库存状态失败' : '处理过期库存失败',
       outcome: 'dispose',
       presenceOnly,
       mutate: () => {
@@ -338,7 +338,7 @@ export function useHomeDashboardActions(input: {
     }
     if (args.items.length === 0) {
       input.setActionDialogError(
-        args.action === 'retain_expired' ? '请先选择要暂时保留的过期批次。' : '请先选择要稍后提醒的批次。',
+        args.action === 'retain_expired' ? '请先选择要暂时保留的过期库存。' : '请先选择要稍后提醒的库存。',
       );
       return;
     }
@@ -429,7 +429,7 @@ export function useHomeDashboardActions(input: {
       });
       input.setIsHomePlanDetailEditing(false);
     } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '更新菜单计划失败', message: messageOf(reason, '更新菜单计划失败') });
+      input.showNotice({ tone: 'danger', title: '更新餐食计划失败', message: messageOf(reason, '更新餐食计划失败') });
     }
   }
 
@@ -438,14 +438,14 @@ export function useHomeDashboardActions(input: {
       await input.deleteFoodPlanItem(item.id);
       input.closeHomePlanDetail();
     } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '删除菜单计划失败', message: messageOf(reason, '删除菜单计划失败') });
+      input.showNotice({ tone: 'danger', title: '删除餐食计划失败', message: messageOf(reason, '删除餐食计划失败') });
     }
   }
 
   async function submitHomePlanAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!input.homePlanAddFood) {
-      input.showNotice({ tone: 'warning', title: '还不能加入菜单', message: '请选择要加入菜单的食物。' });
+      input.showNotice({ tone: 'warning', title: '还不能加入餐食计划', message: '请选择要加入餐食计划的食物。' });
       return;
     }
     try {
@@ -457,7 +457,7 @@ export function useHomeDashboardActions(input: {
       });
       input.closeHomePlanAddDialog();
     } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '加入菜单失败', message: messageOf(reason, '加入菜单失败') });
+      input.showNotice({ tone: 'danger', title: '加入餐食计划失败', message: messageOf(reason, '加入餐食计划失败') });
     }
   }
 

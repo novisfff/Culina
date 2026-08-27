@@ -171,7 +171,7 @@ describe('EatWorkspace', () => {
         })}
       />,
     );
-    expect(screen.getByText('这份做法与家常菜的关联需要修复')).toBeInTheDocument();
+    expect(screen.getByText('这份做法对应的家常菜信息不完整')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '开始做' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回发现' })).toBeInTheDocument();
   });
@@ -279,7 +279,7 @@ describe('EatWorkspace', () => {
       />,
     );
     expect(navigation.registerTaskHeading).toHaveBeenCalled();
-    const heading = screen.getByRole('heading', { name: '这份做法与家常菜的关联需要修复' });
+    const heading = screen.getByRole('heading', { name: '这份做法对应的家常菜信息不完整' });
     expect(heading).toHaveAttribute('tabindex', '-1');
     // Shell must not steal focus onto 关闭; Task 2 focuses the registered heading.
     expect(heading).not.toHaveFocus();
@@ -302,9 +302,9 @@ describe('EatWorkspace', () => {
         })}
       />,
     );
-    const dialog = screen.getByRole('dialog', { name: '这份做法与家常菜的关联需要修复' });
+    const dialog = screen.getByRole('dialog', { name: '这份做法对应的家常菜信息不完整' });
     expect(dialog).toBeInTheDocument();
-    const heading = screen.getByRole('heading', { name: '这份做法与家常菜的关联需要修复' });
+    const heading = screen.getByRole('heading', { name: '这份做法对应的家常菜信息不完整' });
     expect(dialog.getAttribute('aria-labelledby')).toBe(heading.id);
     expect(dialog.getAttribute('aria-label')).toBeNull();
   });
@@ -367,7 +367,7 @@ describe('EatWorkspace', () => {
       />,
     );
 
-    expect(screen.getByText('家常菜任务内容将由上层装配。')).toBeInTheDocument();
+    expect(screen.getByText('暂时无法显示详细内容，请返回后重试。')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(navigation.closeTask).not.toHaveBeenCalled();
 
@@ -457,7 +457,7 @@ describe('EatWorkspace', () => {
       />,
     );
     expect(screen.getByText('食物详情内容')).toBeInTheDocument();
-    expect(screen.queryByText('家常菜任务内容将由上层装配。')).not.toBeInTheDocument();
+    expect(screen.queryByText('暂时无法显示详细内容，请返回后重试。')).not.toBeInTheDocument();
   });
 
   it('shows recipe-not-found recoverably without write actions', () => {

@@ -68,7 +68,7 @@ function makeResult(overrides: Partial<ShoppingIntakeResult> = {}): ShoppingInta
     revertible_until: '2026-07-11T08:16:00.000Z',
     can_revert: true,
     summary: {
-      title: '本次购买已登记',
+      title: '本次购买已记录',
       description: '完成 1 项',
       confirmed_count: 0,
       adjusted_count: 0,
@@ -192,7 +192,7 @@ describe('useShoppingIntakeActions', () => {
     expect(latest!.state.draft?.clientRequestId).toBe(requestId);
     expect(latest!.state.busy).toBe(false);
     expect(showNotice).toHaveBeenCalledWith(
-      expect.objectContaining({ tone: 'success', title: '本次购买已登记' }),
+      expect.objectContaining({ tone: 'success', title: '本次购买已记录' }),
     );
   });
 

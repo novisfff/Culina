@@ -103,7 +103,7 @@ export class MealComposerValidationError extends Error {
   readonly issues: MealComposerValidationIssue[];
 
   constructor(issues: MealComposerValidationIssue[]) {
-    super(issues.map((issue) => issue.message).join('; ') || '餐食记录草稿无效');
+    super(issues.map((issue) => issue.message).join('；') || '餐食记录内容无效');
     this.name = 'MealComposerValidationError';
     this.issues = issues;
   }
@@ -190,7 +190,7 @@ function validateFoods(foods: MealComposerFood[]): MealComposerValidationIssue[]
   if (foods.length === 0) {
     issues.push({
       code: 'empty_entries',
-      message: '至少选择一道食物',
+      message: '请至少添加一种食物',
       field: 'entries',
     });
     return issues;
@@ -205,7 +205,7 @@ function validateFoods(foods: MealComposerFood[]): MealComposerValidationIssue[]
       if (!foodId) {
         issues.push({
           code: 'missing_food_id',
-          message: '已有食物缺少 food_id',
+          message: '已有食物信息不完整，请重新选择',
           field: 'food_id',
         });
         continue;
@@ -229,13 +229,13 @@ function validateFoods(foods: MealComposerFood[]): MealComposerValidationIssue[]
     if (!clientFoodId) {
       issues.push({
         code: 'missing_client_food_id',
-        message: '临时食物缺少 client_food_id',
+        message: '临时食物信息不完整，请重新填写',
         field: 'client_food_id',
       });
     } else if (seenClientFoodIds.has(clientFoodId)) {
       issues.push({
         code: 'duplicate_client_food',
-        message: '临时食物 ID 不能重复',
+        message: '临时食物不能重复添加',
         field: 'client_food_id',
         client_food_id: clientFoodId,
       });
@@ -246,7 +246,7 @@ function validateFoods(foods: MealComposerFood[]): MealComposerValidationIssue[]
     if (name.length < 1 || name.length > 120) {
       issues.push({
         code: 'invalid_food_name',
-        message: '食物名称需为 1 至 120 个字符',
+        message: '食物名称需要填写 1 至 120 个字符',
         field: 'name',
         client_food_id: clientFoodId || undefined,
       });
@@ -255,7 +255,7 @@ function validateFoods(foods: MealComposerFood[]): MealComposerValidationIssue[]
     if (!ALLOWED_FOOD_TYPE_SET.has(type)) {
       issues.push({
         code: 'invalid_food_type',
-        message: '快速记录仅支持家里做、外卖、外食或买来即食',
+        message: '快速记录仅支持自己做、外卖、外食或买来即食',
         field: 'type',
         client_food_id: clientFoodId || undefined,
       });

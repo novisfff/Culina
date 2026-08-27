@@ -75,6 +75,6 @@ describe('SearchField', () => {
       />,
     );
 
-    expect(view.querySelector('[aria-label="正在检索"]')).not.toBeNull();
+    expect(view.querySelector('[aria-label="正在搜索"]')).not.toBeNull();
   });
 });

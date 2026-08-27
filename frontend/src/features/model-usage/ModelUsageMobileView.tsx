@@ -37,11 +37,11 @@ function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'sc
           </div>
         ) : null}
         <label>
-          <span>账期</span>
+          <span>统计周期</span>
           <div className="model-usage-period-input-wrapper">
             <DashboardIcon name="calendar" />
             <input
-              aria-label="选择账期"
+              aria-label="选择统计周期"
               type="month"
               value={props.period}
               onChange={(event) => {
@@ -63,15 +63,15 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
     <section className="model-usage-mobile-breakdown model-usage-breakdown-ledger" aria-labelledby="model-usage-mobile-breakdown-heading">
         <div className="model-usage-mobile-section-head">
           <div>
-            <h2 id="model-usage-mobile-breakdown-heading">费用细分</h2>
-            <p>选择方式查看费用和计量明细</p>
+            <h2 id="model-usage-mobile-breakdown-heading">费用明细</h2>
+            <p>选择方式查看费用和用量明细</p>
           </div>
           <div className="model-usage-group-field">
-            <span className="sr-only">细分方式</span>
+            <span className="sr-only">查看方式</span>
             <div className="model-usage-group-select-wrapper">
               <DropdownSelect
-                ariaLabel="细分方式"
-                placeholder="选择细分方式"
+                ariaLabel="查看方式"
+                placeholder="选择查看方式"
                 value={props.groupBy}
                 options={options}
                 onChange={(value) => {
@@ -79,7 +79,7 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
                 }}
               />
               <select
-                aria-label="细分方式"
+                aria-label="查看方式"
                 tabIndex={-1}
                 className="model-usage-test-select-fallback"
                 value={props.groupBy}
@@ -94,8 +94,8 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
             </div>
           </div>
         </div>
-        {props.isBreakdownLoading && !props.items ? <p role="status">正在加载细分数据。</p> : null}
-        {!props.isBreakdownLoading && !props.items?.length ? <p>这个账期暂无可展示的细分数据。</p> : null}
+        {props.isBreakdownLoading && !props.items ? <p role="status">正在加载费用明细。</p> : null}
+        {!props.isBreakdownLoading && !props.items?.length ? <p>这个统计周期还没有可展示的费用明细。</p> : null}
         {props.items?.length ? (
           props.scope === 'family' ? (
             <ModelUsageBreakdownTable
@@ -117,7 +117,7 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
 
 export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
   if (props.model.state === 'loading') {
-    return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="loading" title="正在加载模型用量" description="正在核对本账期的费用和计量状态。" /></main>;
+    return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="loading" title="正在加载模型用量" description="正在核对本统计周期的费用和用量明细。" /></main>;
   }
   if (props.model.state === 'error') {
     return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="error" title="模型用量加载失败" description={props.model.errorMessage} actionLabel="重新加载" onAction={props.actions.retry} /></main>;
@@ -129,7 +129,7 @@ export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
       <CompactHeader {...props} />
       {props.isOffline || props.model.refreshError ? (
         <p className="model-usage-refresh-error" role="status">
-          {props.isOffline ? '当前离线，正在显示已缓存的数据。' : `刷新失败，正在显示上次成功的数据：${props.model.refreshError}`}
+          {props.isOffline ? '当前离线，以下显示已缓存的数据。' : `暂时无法刷新，以下显示最近一次成功加载的数据：${props.model.refreshError}`}
         </p>
       ) : null}
       <ModelUsageSummary overview={overview} />
@@ -158,7 +158,7 @@ export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
             items={breakdown?.items ?? null}
           />
           <button className="model-usage-request-logs-entry" type="button" onClick={props.onOpenRequestLogs}>
-            <span><strong>请求日志</strong><small>按日期、模型和状态查看</small></span>
+            <span><strong>请求记录</strong><small>按日期、模型和状态查看</small></span>
             <DashboardIcon name="arrow-right" />
           </button>
         </>

@@ -138,7 +138,7 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
   const goToReview = useCallback(() => {
     const current = draftRef.current;
     if (!current || !canAdvanceToReview(current)) {
-      setErrorMessage('请先勾选本次买到的项目。');
+      setErrorMessage('请先勾选本次买到的内容。');
       return false;
     }
     setErrorMessage(null);
@@ -216,7 +216,7 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
           shoppingItemId: '',
           field: 'items',
           code: 'empty_operation',
-          message: '请先勾选本次买到的项目。',
+          message: '请先勾选本次买到的内容。',
         },
       ];
       setFieldErrors(empty);
@@ -234,7 +234,7 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
         );
       }
       setErrorMessage(
-        errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能入库。`,
+        errors.length === 1 ? first.message : `还有 ${errors.length} 项需要确认后才能保存。`,
       );
     } else {
       setFocusFieldKey(null);

@@ -208,7 +208,7 @@ describe('buildMealInsightPresentation', () => {
         }),
       ),
     ).toEqual({
-      title: '值得再点',
+      title: '还想再点',
       evidence: '2 次评分，平均 4.5 分',
     });
   });

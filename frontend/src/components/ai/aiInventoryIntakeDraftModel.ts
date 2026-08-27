@@ -94,10 +94,10 @@ const VALID_ACTIONS_BY_SOURCE: Record<InventoryIntakeSourceKind, InventoryIntake
 };
 
 const ACTION_LABELS: Record<InventoryIntakeAction, string> = {
-  stock_and_fulfill: '完成并登记库存',
-  fulfill_without_stock: '仅完成采购项，不入库',
-  stock_only: '直接入库',
-  skip: '跳过本行',
+  stock_and_fulfill: '完成购买并加入库存',
+  fulfill_without_stock: '只记录已购买，不加入库存',
+  stock_only: '直接加入库存',
+  skip: '跳过这项',
 };
 
 function isSourceKind(value: string): value is InventoryIntakeSourceKind {
@@ -141,7 +141,7 @@ function displayQuantity(value: number) {
 }
 
 function itemTitle(item: InventoryIntakeDraftItem) {
-  return item.title.trim() || '该项';
+  return item.title.trim() || '这项内容';
 }
 
 function packageConversionFromUnknown(value: unknown): InventoryIntakePackageConversion | null {
@@ -343,16 +343,16 @@ function canonicalActual(item: InventoryIntakeDraftItem) {
 }
 
 export function inventoryIntakeItemSummary(item: InventoryIntakeDraftItem): string {
-  if (item.action === 'skip') return '已跳过，不写入库存或采购清单';
-  if (item.action === 'fulfill_without_stock') return '仅完成采购项，不登记库存';
+  if (item.action === 'skip') return '已跳过，不会保存到库存或采购清单';
+  if (item.action === 'fulfill_without_stock') return '已记录购买，不加入库存';
   if (item.targetKind === 'presence_ingredient') {
-    if (item.sourceKind === 'direct') return '直接入库并更新为有库存';
-    return '完成采购项并更新为有库存';
+    if (item.sourceKind === 'direct') return '直接加入库存并标记为有库存';
+    return '完成购买并标记为有库存';
   }
 
   const canonical = canonicalActual(item);
   if (!canonical) {
-    return quantityText(item.enteredQuantity) ? '实际数量无效' : '待补实际入库数量';
+    return quantityText(item.enteredQuantity) ? '实际数量无效' : '请补充实际数量';
   }
 
   const actualText = displayQuantity(canonical.quantity);
@@ -361,22 +361,22 @@ export function inventoryIntakeItemSummary(item: InventoryIntakeDraftItem): stri
   const plannedUnit = asText(item.plannedUnit);
 
   if (item.sourceKind === 'direct') {
-    return `直接入库 ${actualText}${unit ? ` ${unit}` : ''}，只增加库存`;
+    return `直接补充 ${actualText}${unit ? ` ${unit}` : ''}，只会新增一批库存`;
   }
 
   if (Number.isFinite(planned ?? NaN) && plannedUnit && unit && unit !== plannedUnit) {
     if (item.targetKind === 'exact_ingredient') {
-      return `实际入库 ${actualText} ${unit}；计划 ${displayQuantity(planned!)} ${plannedUnit}，提交时按食材单位换算`;
+      return `实际购买 ${actualText} ${unit}；计划 ${displayQuantity(planned!)} ${plannedUnit}，提交时会按食材单位换算`;
     }
-    return `实际入库 ${actualText} ${unit}；计划单位为 ${plannedUnit}，提交前需确认单位`;
+    return `实际购买 ${actualText} ${unit}；计划单位为 ${plannedUnit}，提交前需要确认单位`;
   }
   if (Number.isFinite(planned ?? NaN) && planned !== null && canonical.quantity < planned) {
-    return `入库 ${actualText} ${unit}，保留 ${displayQuantity(planned - canonical.quantity)} ${plannedUnit || unit}待买`;
+    return `实际购买 ${actualText} ${unit}，还需要购买 ${displayQuantity(planned - canonical.quantity)} ${plannedUnit || unit}`;
   }
   if (Number.isFinite(planned ?? NaN) && planned !== null && canonical.quantity > planned) {
-    return `实际入库 ${actualText} ${unit}，超过计划 ${displayQuantity(planned)} ${plannedUnit || unit}`;
+    return `实际购买 ${actualText} ${unit}，超过计划 ${displayQuantity(planned)} ${plannedUnit || unit}`;
   }
-  return `完成并入库 ${actualText}${unit ? ` ${unit}` : ''}`;
+  return `已记录 ${actualText}${unit ? ` ${unit}` : ''}`;
 }
 
 function isStockAction(action: string) {
@@ -391,15 +391,15 @@ export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unkn
   const parsed = inventoryIntakeDraftFromRecord(draft);
 
   if (!isIsoDateText(parsed.intakeDate)) {
-    return '请填写有效的入库日期';
+    return '请填写有效的记录日期';
   }
   if (parsed.items.length === 0) {
-    return '本次没有可处理的入库项';
+    return '本次没有可处理的内容';
   }
 
   const activeItems = parsed.items.filter((item) => item.action && item.action !== 'skip');
   if (activeItems.length === 0) {
-    return '至少选择一项可提交的入库内容，不能全部跳过';
+    return '请至少保留一项需要处理的内容，不能全部跳过';
   }
 
   for (const item of parsed.items) {
@@ -410,60 +410,60 @@ export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unkn
     }
 
     if (!item.sourceKind || !isSourceKind(item.sourceKind)) {
-      return `「${title}」的来源类型不正确`;
+      return `无法识别「${title}」的来源，请重新生成库存建议`;
     }
     if (!VALID_ACTIONS_BY_SOURCE[item.sourceKind].includes(item.action as InventoryIntakeAction)) {
-      return `「${title}」的处理方式不正确`;
+      return `「${title}」的处理方式无法使用，请重新选择`;
     }
 
     if (item.sourceKind === 'shopping_item') {
       if (!item.shoppingItemId || item.expectedShoppingItemRowVersion === null) {
-        return `「${title}」缺少采购项身份信息，请重新生成草稿`;
+        return `「${title}」缺少采购信息，请重新生成库存建议`;
       }
     }
     if (isStockAction(item.action)) {
       if (!item.targetKind || item.targetKind === 'none' || !item.targetId) {
-        return `「${title}」缺少库存目标身份信息，请重新生成草稿`;
+        return `「${title}」缺少库存对象，请重新生成库存建议`;
       }
       if (
         (item.targetKind === 'exact_ingredient' || item.targetKind === 'presence_ingredient')
         && item.expectedIngredientRowVersion === null
       ) {
-        return `「${title}」缺少食材版本信息，请重新生成草稿`;
+        return `「${title}」的食材信息已更新，请重新生成库存建议`;
       }
       if (item.targetKind === 'food' && item.expectedFoodRowVersion === null) {
-        return `「${title}」缺少食物版本信息，请重新生成草稿`;
+        return `「${title}」的食物信息已更新，请重新生成库存建议`;
       }
       if (
         item.targetKind === 'presence_ingredient'
         && item.stateId
         && item.expectedStateRowVersion === null
       ) {
-        return `「${title}」缺少库存状态版本信息，请重新生成草稿`;
+        return `「${title}」的库存状态已更新，请重新生成库存建议`;
       }
     }
 
     if (requiresQuantity(item)) {
       const quantity = Number(quantityText(item.enteredQuantity));
       if (!Number.isFinite(quantity) || quantity <= 0) {
-        return `请填写「${title}」的实际入库数量`;
+        return `请填写「${title}」的实际数量`;
       }
       if (!asText(item.enteredUnit)) {
-        return `请填写「${title}」的实际入库单位`;
+        return `请填写「${title}」的实际数量单位`;
       }
     }
 
     if (item.packageConversion && isStockAction(item.action) && item.targetKind !== 'presence_ingredient') {
       const ratio = Number(item.packageConversion.ratio);
       if (!Number.isFinite(ratio) || ratio <= 0 || !asText(item.packageConversion.targetUnit) || !asText(item.packageConversion.evidence)) {
-        return `请补全「${title}」的包装换算倍率、目标单位和证据`;
+        return `请补全「${title}」的包装换算比例、目标单位和换算依据`;
       }
     }
 
     if (isStockAction(item.action) && item.targetKind === 'presence_ingredient') {
       const level = asText(item.resultingAvailabilityLevel);
       if (!PRESENCE_LEVELS.has(level)) {
-        return `请选择「${title}」入库后的库存状态`;
+        return `请选择「${title}」加入库存后的状态`;
       }
     }
 
@@ -481,13 +481,13 @@ export function validateInventoryIntakeDraftForSubmit(draft: Record<string, unkn
         return `「${title}」的到期日格式不正确`;
       }
       if (expiry < parsed.intakeDate) {
-        return `「${title}」的到期日不能早于入库日期`;
+        return `「${title}」的到期日不能早于记录日期`;
       }
     }
   }
 
   if (parsed.draftType !== 'inventory_intake' || parsed.schemaVersion !== 'inventory_intake.v1') {
-    return '入库草稿类型或版本不正确，请重新生成草稿';
+    return '库存建议格式不正确，请重新生成后再试';
   }
 
   return '';
@@ -528,9 +528,9 @@ export function inventoryIntakeSubmitSummary(draft: InventoryIntakeDraft): strin
   const shoppingCount = draft.items.filter((item) => item.sourceKind === 'shopping_item' && item.action && item.action !== 'skip').length;
   const directCount = draft.items.filter((item) => item.sourceKind === 'direct' && item.action && item.action !== 'skip').length;
   const parts = [
-    `${stockCount} 项入库`,
-    shoppingCount > 0 ? `${shoppingCount} 项关联采购` : '',
-    directCount > 0 ? `${directCount} 项直接入库` : '',
+    `${stockCount} 项加入库存`,
+    shoppingCount > 0 ? `${shoppingCount} 项来自采购清单` : '',
+    directCount > 0 ? `${directCount} 项直接加入库存` : '',
     fulfillOnlyCount > 0 ? `${fulfillOnlyCount} 项仅完成采购` : '',
     skipCount > 0 ? `${skipCount} 项跳过` : '',
   ].filter(Boolean);
@@ -540,7 +540,7 @@ export function inventoryIntakeSubmitSummary(draft: InventoryIntakeDraft): strin
 export function intakeDateSourceLabel(source: string): string {
   if (source === 'receipt') return '来自小票';
   if (source === 'user' || source === 'user_explicit') return '用户指定';
-  if (source === 'family_business_date' || source === 'family_today') return '家庭业务日';
+  if (source === 'family_business_date' || source === 'family_today') return '按家庭日期';
   if (source === 'historical') return '历史补录';
-  return source || '日期来源未知';
+  return '未提供';
 }

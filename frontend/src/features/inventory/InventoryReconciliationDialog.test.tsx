@@ -261,12 +261,12 @@ describe('InventoryReconciliationDialog', () => {
     };
     renderDialog({ groups: [expiredOnly], orderedGroups: [expiredOnly] });
 
-    expect(container!.textContent).toContain('记录库存');
+    expect(container!.textContent).toContain('库存总量');
     expect(container!.textContent).toContain('4 个');
     expect(container!.textContent).toContain('可用库存');
     expect(container!.textContent).toContain('0 个');
-    expect(container!.textContent).toContain('2 个批次全部过期');
-    expect(container!.textContent).toContain('这些已经处理');
+    expect(container!.textContent).toContain('2 批库存全部过期');
+    expect(container!.textContent).toContain('确认没有库存');
     expect(container!.textContent).toContain('家里实际还有');
     expect(container!.querySelector('.inventory-reconciliation-batch-list')).toBeNull();
   });
@@ -308,7 +308,7 @@ describe('InventoryReconciliationDialog', () => {
       orderedGroups: [{ ...exactGroup, default_unit: '个', unit_conversions: [] }],
     });
     const processExpired = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent === '处理过期批次',
+      (button) => button.textContent === '处理过期库存',
     );
     expect(processExpired).toBeTruthy();
     act(() => {
@@ -326,7 +326,7 @@ describe('InventoryReconciliationDialog', () => {
       orderedGroups: [{ ...exactGroup, default_unit: '个', unit_conversions: [] }],
     });
     const viewBatches = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('批次明细（2）'),
+      button.textContent?.includes('库存详情（2）'),
     );
     act(() => {
       viewBatches?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -361,10 +361,10 @@ describe('InventoryReconciliationDialog', () => {
     expect(container!.textContent).toContain('盐');
     expect(container!.textContent).toContain('卤牛肉');
     expect(container!.querySelector('table')).toBeNull();
-    expect(container!.textContent).toContain('处理过期批次');
+    expect(container!.textContent).toContain('处理过期库存');
     expect(container!.textContent).toContain('修正实际库存');
-    expect(container!.textContent).toContain('没有了');
-    expect(container!.textContent).toContain('还在');
+    expect(container!.textContent).toContain('没有库存');
+    expect(container!.textContent).toContain('有库存');
     expect(container!.textContent).toContain('少量');
     expect(container!.textContent).toContain('充足');
     expect(container!.textContent).toContain('按总量记录');
@@ -377,7 +377,7 @@ describe('InventoryReconciliationDialog', () => {
     };
     const props = renderDialog({ groups: [normalGroup], orderedGroups: [normalGroup] });
     const confirm = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent === '确认还是 5 个',
+      button.textContent === '确认库存为 5 个',
     );
     expect(container!.textContent).toContain('待确认');
     expect(container!.textContent).toContain('实际数量不同');
@@ -393,7 +393,7 @@ describe('InventoryReconciliationDialog', () => {
 
   it('renders presence four-state chips and food aggregate warning', () => {
     const props = renderDialog();
-    expect(container!.textContent).toContain('只记录整体状态');
+    expect(container!.textContent).toContain('家庭库存状态');
     expect(container!.textContent).toContain('按总量记录');
 
     // Presence chips stay unselected until explicit intent (current state is sufficient).
@@ -477,7 +477,7 @@ describe('InventoryReconciliationDialog', () => {
       draft: makeDraft([buildExactConfirmAllIntent(exactGroup)]),
     });
     expect(container!.textContent).toContain('已过期');
-    expect(container!.textContent).toContain('增加漏记批次');
+    expect(container!.textContent).toContain('补充库存');
   });
 
   it('renders mapped exact-batch date and unit errors next to the editable batch controls', () => {
@@ -529,14 +529,14 @@ describe('InventoryReconciliationDialog', () => {
       draft: makeDraft(),
     });
     const create = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent === '增加漏记批次',
+      (button) => button.textContent === '补充库存',
     );
     expect(create).toBeTruthy();
     act(() => {
       create!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     const confirm = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent === '确认批次调整',
+      (button) => button.textContent === '确认库存调整',
     );
     act(() => {
       confirm!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -576,7 +576,7 @@ describe('InventoryReconciliationDialog', () => {
     expect(container!.textContent).toContain('确认本次变更');
     expect(container!.textContent).toContain('确认无误');
     expect(container!.textContent).toContain('标记少量');
-    expect(container!.textContent).toContain('确认提交盘点');
+    expect(container!.textContent).toContain('确认并完成盘点');
 
     act(() => root?.unmount());
     container?.remove();
@@ -587,7 +587,7 @@ describe('InventoryReconciliationDialog', () => {
     act(() => root?.unmount());
     container?.remove();
     renderDialog({ groups: [], orderedGroups: [], draft: makeDraft() });
-    expect(container!.textContent).toContain('这个范围没有需要盘点的项目');
+    expect(container!.textContent).toContain('这个范围里没有需要盘点的库存');
 
     act(() => root?.unmount());
     container?.remove();
@@ -626,7 +626,7 @@ describe('InventoryReconciliationDialog', () => {
     expect(container!.querySelector('.inventory-reconciliation-result-mark')).not.toBeNull();
     expect(container!.querySelectorAll('.inventory-reconciliation-result-metric')).toHaveLength(3);
     expect(container!.querySelector('.workspace-overlay-footer-info')).toBeNull();
-    expect(container!.textContent).toContain('库存记录已同步');
+    expect(container!.textContent).toContain('库存已更新');
 
     const viewDetail = Array.from(container!.querySelectorAll('button')).find(
       (button) => button.textContent === '查看详情',
@@ -676,7 +676,7 @@ describe('InventoryReconciliationDialog', () => {
       ).IS_REACT_ACT_ENVIRONMENT = true;
     }
 
-    expect(container!.textContent).toContain('正在整理库存卡片');
+    expect(container!.textContent).toContain('正在准备库存卡片');
     expect(container!.querySelectorAll('[data-group-key]')).toHaveLength(0);
 
     await act(async () => undefined);

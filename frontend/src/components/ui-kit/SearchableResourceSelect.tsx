@@ -56,7 +56,7 @@ export function SearchableResourceSelect<T extends string>({
   loading = false,
   loadingMore = false,
   hasMore = false,
-  emptyText = '没有找到匹配项',
+  emptyText = '没有匹配结果',
   disabled = false,
   listOpen = true,
   showSearch = true,
@@ -70,7 +70,7 @@ export function SearchableResourceSelect<T extends string>({
   listClassName,
   optionClassName,
   loadMoreText = '加载更多',
-  loadingMoreText = '正在加载更多...',
+  loadingMoreText = '正在加载更多…',
   leadingIcon,
   onLoadMore,
   onSearchFocus,
@@ -190,7 +190,7 @@ export function SearchableResourceSelect<T extends string>({
         />
       ) : null}
       {listOpen && inlineLoadingOnly ? (
-        <p className="ui-searchable-resource-select-loading" role="status">正在加载候选项…</p>
+        <p className="ui-searchable-resource-select-loading" role="status">正在加载选项…</p>
       ) : null}
       {listOpen && !inlineLoadingOnly ? (
         <div
@@ -201,7 +201,7 @@ export function SearchableResourceSelect<T extends string>({
         >
           {options.length === 0 ? (
             loading ? (
-              <p className="ui-searchable-resource-select-empty" role="status">正在加载候选项…</p>
+              <p className="ui-searchable-resource-select-empty" role="status">正在加载选项…</p>
             ) : (
               <p className="ui-searchable-resource-select-empty">{emptyText}</p>
             )

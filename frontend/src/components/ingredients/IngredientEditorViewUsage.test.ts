@@ -40,8 +40,8 @@ describe('IngredientEditorView tracking transition guard', () => {
     const mutationsSource = readFileSync(resolve(__dirname, '../../app/useAppMutations.ts'), 'utf8');
 
     expect(editorSource).toContain('ingredients-tracking-transition-modal');
-    expect(editorSource).toContain('切换为只记录有无');
-    expect(editorSource).toContain('切换为记录数量');
+    expect(editorSource).toContain('切换为只记录库存状态');
+    expect(editorSource).toContain('切换为记录具体数量');
     expect(editorSource).toContain('onConfirmTrackingTransition');
     expect(editorStateSource).toContain('transitionIngredientTrackingMode');
     expect(editorStateSource).toContain('trackingTransitionDraft');
@@ -50,7 +50,7 @@ describe('IngredientEditorView tracking transition guard', () => {
     expect(editorStateSource).toContain('exact_resolution');
     expect(editorStateSource).toContain('// Transition first; never silently submit the generic profile update for mode changes.');
     // Dual-write recovery: transition success + profile failure must not re-run transition.
-    expect(editorStateSource).toContain('数量记录方式已切换，资料未全部保存');
+    expect(editorStateSource).toContain('库存数量记录方式已切换，信息未全部保存');
     expect(editorStateSource).toContain('setTrackingTransitionDraft(null)');
     expect(editorStateSource).toContain('onTrackingTransitionSettled');
     // Mutation must not invalidate inventory queries before the editor dual-write finishes.

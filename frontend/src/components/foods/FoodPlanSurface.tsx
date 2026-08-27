@@ -77,7 +77,7 @@ function TabletMealGroup(props: {
     <section className="food-tablet-plan-meal">
       <div className="food-tablet-plan-meal-head">
         <strong>{MEAL_TYPE_LABELS[props.mealType]}</strong>
-        <span>{props.items.length > 0 ? `${props.items.length} 项` : '未安排'}</span>
+        <span>{props.items.length > 0 ? `${props.items.length} 项` : '还没有安排'}</span>
       </div>
       {visibleItems.map((item) => {
         const coverAsset = props.getPlanItemCoverAsset?.(item);
@@ -108,7 +108,7 @@ function TabletMealGroup(props: {
             </span>
             <span className="food-tablet-plan-item-copy">
               <strong>{item.food_name}</strong>
-              <small>{item.status === 'cooked' ? '已完成' : item.recipe_id ? '家常菜' : '待记录'}</small>
+              <small>{item.status === 'cooked' ? '已完成' : item.recipe_id ? '家常菜' : '还没有记录'}</small>
             </span>
           </article>
         );
@@ -130,7 +130,7 @@ function TabletMealGroup(props: {
           onClick={() => props.onCreatePlan({ planDate: props.date, mealType: props.mealType })}
         >
           <FoodUiIcon name="plus" />
-          未安排
+          还没有安排
         </button>
       )}
     </section>
@@ -151,13 +151,13 @@ function FoodTabletPlanSurface(props: FoodPlanSurfaceProps) {
     : TABLET_MEAL_TYPES;
 
   return (
-    <section className="food-tablet-plan-section" aria-label="菜单">
+    <section className="food-tablet-plan-section" aria-label="餐食计划">
       <div className="food-tablet-plan-toolbar">
         <div className="food-tablet-plan-title">
-          <strong>本周菜单</strong>
+          <strong>本周餐食计划</strong>
           <span>{props.weekRange.start.slice(5).replace('-', '/')} - {props.weekRange.end.slice(5).replace('-', '/')}</span>
         </div>
-        <div className="recipe-plan-switcher food-tablet-plan-switcher" aria-label="切换菜单周">
+        <div className="recipe-plan-switcher food-tablet-plan-switcher" aria-label="切换餐食计划周">
           <button type="button" onClick={props.onPreviousWeek}><FoodUiIcon name="arrowLeft" />上一周</button>
           <button type="button" onClick={props.onCurrentWeek}>本周</button>
           <button type="button" onClick={props.onNextWeek}>下一周<FoodUiIcon name="arrowRight" /></button>
@@ -170,10 +170,10 @@ function FoodTabletPlanSurface(props: FoodPlanSurfaceProps) {
           disabled={props.isUpdatingPlan || props.canCreatePlan === false}
         >
           <FoodUiIcon name="plus" />
-          加食物
+          添加餐食
         </ActionButton>
       </div>
-      <div className="food-tablet-plan-date-rail" aria-label="选择菜单日期">
+      <div className="food-tablet-plan-date-rail" aria-label="选择餐食计划日期">
         {props.days.map((day) => {
           const label = getTabletDateLabel(day, currentDate);
           return (
@@ -235,11 +235,11 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
   return (
     <section
       className="eat-plan-surface food-sidebar-section food-sidebar-plan-section"
-      aria-label="菜单"
+      aria-label="餐食计划"
     >
       <div className="food-sidebar-plan-heading">
         <div className="food-sidebar-plan-title">
-          <strong>菜单计划</strong>
+          <strong>餐食计划</strong>
           <span>
             {props.weekRange.start.slice(5).replace('-', '/')} - {props.weekRange.end.slice(5).replace('-', '/')}
             {' · '}
@@ -255,10 +255,10 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
           disabled={props.isUpdatingPlan || props.canCreatePlan === false}
         >
           <FoodUiIcon name="plus" />
-          加食物
+          添加餐食
         </ActionButton>
       </div>
-      <div className="food-sidebar-plan-switcher" aria-label="切换菜单周">
+      <div className="food-sidebar-plan-switcher" aria-label="切换餐食计划周">
         <button type="button" aria-label="上一周" onClick={props.onPreviousWeek}>
           <FoodUiIcon name="arrowLeft" />
         </button>
@@ -290,7 +290,7 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
                 className="food-sidebar-plan-day-head"
                 type="button"
                 aria-expanded={isEmpty ? undefined : isExpanded}
-                aria-label={isEmpty ? `添加${label.weekday} ${label.shortDate}的菜单` : undefined}
+                aria-label={isEmpty ? `添加${label.weekday} ${label.shortDate}的餐食计划` : undefined}
                 onClick={() => {
                   if (isEmpty) {
                     props.onCreatePlan({ planDate: day.date });
@@ -304,7 +304,7 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
                   {day.date === currentDate && <small>今天</small>}
                 </span>
                 <span className={`food-sidebar-plan-day-count${isEmpty ? '' : ' has-items'}`}>
-                  {isEmpty ? '未安排' : `${day.items.length} 项`}
+                  {isEmpty ? '还没有安排' : `${day.items.length} 项`}
                 </span>
                 <FoodUiIcon name={isEmpty ? 'plus' : 'arrowRight'} />
               </button>
@@ -352,7 +352,7 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
                           <button
                             className="food-sidebar-plan-item-action"
                             type="button"
-                            aria-label={`${item.recipe_id ? '开始做' : '记到今天'}：${item.food_name}`}
+                            aria-label={`${item.recipe_id ? '开始做' : '记录这顿'}：${item.food_name}`}
                             disabled={props.isStartingPlanItem}
                             onClick={(event) => {
                               event.stopPropagation();

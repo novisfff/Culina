@@ -19,8 +19,8 @@ type InventoryDraftRequest = {
 
 const ACTION_LABELS: Record<AiInventoryCardAction, string> = {
   restock: '补货',
-  consume: '消耗',
-  dispose: '销毁',
+  consume: '扣减库存',
+  dispose: '丢弃',
 };
 
 export function useAiInventoryDraftAction({

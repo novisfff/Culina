@@ -20,7 +20,7 @@ import { AiDraftSummaryCard } from '../AiDraftSummaryCard';
 
 const QUANTITY_MODE_OPTIONS = [
   { value: 'track_quantity', label: '记录数量' },
-  { value: 'not_track_quantity', label: '只提醒需要补充' },
+  { value: 'not_track_quantity', label: '只记录是否有库存' },
 ];
 
 const DONE_OPTIONS = [
@@ -41,11 +41,11 @@ function actionLabel(action: string) {
     case 'update':
       return '修改';
     case 'set_done':
-      return '状态变更';
+      return '更新状态';
     case 'delete':
       return '删除';
     default:
-      return action || '采购项';
+      return action || '待买内容';
   }
 }
 
@@ -98,22 +98,22 @@ function summaryItems(items: Record<string, unknown>[], operations: Record<strin
   }, {});
   const changeSummary = operations.length > 0
     ? Object.entries(actionCounts).map(([label, count]) => `${label}${count}`).join('、')
-    : '新增采购项';
+    : '新增待买内容';
 
   return [
-    { label: '采购项', value: `${operations.length > 0 ? operations.length : items.length} 项` },
-    { label: '已绑定食材', value: `${records.filter((item) => item.ingredientId).length} 项` },
-    { label: '只提醒补充', value: `${records.filter((item) => item.quantityMode === 'not_track_quantity').length} 项` },
-    { label: '状态变更', value: `${operations.filter((item) => asText(item.action) === 'set_done').length} 项` },
+    { label: '待买内容', value: `${operations.length > 0 ? operations.length : items.length} 项` },
+    { label: '已选择食材', value: `${records.filter((item) => item.ingredientId).length} 项` },
+    { label: '只记录是否有库存', value: `${records.filter((item) => item.quantityMode === 'not_track_quantity').length} 项` },
+    { label: '状态更新', value: `${operations.filter((item) => asText(item.action) === 'set_done').length} 项` },
     { label: '变更', value: changeSummary },
   ];
 }
 
 function resolvedTitle(status: AiApprovalRequest['status'], hasOperations: boolean) {
-  if (status === 'approved') return hasOperations ? '购物清单变更已确认' : '购物清单已确认';
-  if (status === 'rejected') return '未写入的购物清单草稿';
-  if (status === 'expired') return '已过期的购物清单草稿';
-  return hasOperations ? '待确认清单变更' : '待确认购物清单';
+  if (status === 'approved') return hasOperations ? '采购清单变更已确认' : '采购清单已确认';
+  if (status === 'rejected') return '未保存的采购清单草稿';
+  if (status === 'expired') return '已过期的采购清单草稿';
+  return hasOperations ? '待确认采购清单变更' : '待确认采购清单';
 }
 
 function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -185,7 +185,7 @@ export function AiShoppingListDraftView(props: {
         status={badge}
         className="ai-shopping-list-preview-card"
       >
-        <p>{record.ingredientId ? '已绑定食材库' : '需要从食材库选择'}</p>
+        <p>{record.ingredientId ? '已选择食材' : '请选择食材'}</p>
         {record.reason ? <p>{record.reason}</p> : null}
       </AiDraftItemCard>
     );
@@ -212,15 +212,15 @@ export function AiShoppingListDraftView(props: {
         className="ai-shopping-list-item-card"
         footer={options.removable && !props.readonly ? (
           <button className="ghost-button ai-draft-remove-button" type="button" onClick={options.onRemove}>
-            删除采购项
+            移除待买内容
           </button>
         ) : undefined}
       >
-        <p>{selectedIngredient?.description || (record.ingredientId ? '已绑定食材库' : '需要从食材库选择')}</p>
+        <p>{selectedIngredient?.description || (record.ingredientId ? '已选择食材' : '请选择食材')}</p>
         {options.before ? (
-          <AiDraftImpactNote tone="plan" title="当前与调整后">
-            <p>当前：{[asText(options.before.title), quantitySummary(options.before)].filter(Boolean).join(' · ') || '未记录'}</p>
-            <p>调整后：{[record.title, quantitySummary(record)].filter(Boolean).join(' · ') || '待填写'}</p>
+          <AiDraftImpactNote tone="plan" title="原内容与调整后">
+            <p>当前：{[asText(options.before.title), quantitySummary(options.before)].filter(Boolean).join(' · ') || '还没有记录'}</p>
+            <p>调整后：{[record.title, quantitySummary(record)].filter(Boolean).join(' · ') || '还没有填写'}</p>
           </AiDraftImpactNote>
         ) : null}
         <AiSearchableResourceSelect
@@ -228,7 +228,7 @@ export function AiShoppingListDraftView(props: {
           label="采购食材"
           value={record.ingredientId}
           selectedLabel={record.title}
-          placeholder="从食材库选择"
+          placeholder="选择食材"
           disabled={props.readonly}
           selectedOption={selectedIngredient}
           loadOptions={props.onLoadResourceOptions}
@@ -240,7 +240,7 @@ export function AiShoppingListDraftView(props: {
           })}
         />
         <ApprovalSelectField
-          label="数量模式"
+          label="数量填写方式"
           value={record.quantityMode}
           disabled={props.readonly}
           options={QUANTITY_MODE_OPTIONS}
@@ -248,7 +248,7 @@ export function AiShoppingListDraftView(props: {
         />
         {usesPresenceQuantity ? (
           <label className="ai-resource-field">
-            <span>采购表达</span>
+            <span>补充内容</span>
             <input
               className="text-input"
               value={record.displayLabel}
@@ -305,7 +305,7 @@ export function AiShoppingListDraftView(props: {
         <AiDraftResolvedSummary
           status={resolvedStatus(props.status)}
           title={resolvedTitle(props.status, hasOperations)}
-          summary={hasOperations ? `${operations.length} 条清单操作` : `${items.length} 条采购项`}
+          summary={hasOperations ? `${operations.length} 项采购清单变更` : `${items.length} 项采购内容`}
           className="ai-shopping-list-summary-card"
         >
           <dl className="ai-draft-summary-items">
@@ -318,8 +318,8 @@ export function AiShoppingListDraftView(props: {
           </dl>
         </AiDraftResolvedSummary>
         <AiDraftSection
-          title="采购项预览"
-          description="已处理状态只保留核对摘要，不展示禁用长表单。"
+          title="采购内容预览"
+          description="下面展示本次建议的采购内容。"
         >
           {entries.map((entry, index) => (
             hasOperations
@@ -328,7 +328,7 @@ export function AiShoppingListDraftView(props: {
                   index,
                   actionLabel(asText(entry.action)),
                 )
-              : renderShoppingPreviewCard(entry, index, '采购项')
+              : renderShoppingPreviewCard(entry, index, '采购内容')
           ))}
         </AiDraftSection>
       </div>
@@ -344,12 +344,12 @@ export function AiShoppingListDraftView(props: {
       />
       <AiDraftImpactNote tone="plan" title="确认后">
         {hasOperations
-          ? '会按下方操作创建、修改、删除或更新采购状态。'
-          : '会写入购物清单，缺失食材需要先创建食材档案。'}
+          ? '会按下方内容新增、修改、删除或更新采购状态。'
+          : '确认后会保存到采购清单；还没有的食材请先添加。'}
       </AiDraftImpactNote>
       <AiDraftSection
-        title={hasOperations ? '清单操作' : '采购项'}
-        description={hasOperations ? '按操作逐项核对会写入的购物清单变更。' : '每个采购项都需要绑定食材库中的食材。'}
+        title={hasOperations ? '采购清单变更' : '采购内容'}
+        description={hasOperations ? '逐项核对将保存的采购清单变更。' : '每项采购内容都需要选择食材。'}
         action={!hasOperations && !props.readonly ? (
           <button
             className="ghost-button ai-draft-add-button"
@@ -364,7 +364,7 @@ export function AiShoppingListDraftView(props: {
               reason: '',
             })}
           >
-            添加采购项
+            添加待买内容
           </button>
         ) : null}
       >
@@ -378,7 +378,7 @@ export function AiShoppingListDraftView(props: {
             return (
               <AiDraftItemCard
                 key={`${action}-${asText(operation.targetId)}-${index}`}
-                title={beforeRecord.title || asText(operation.targetId) || '采购项'}
+                title={beforeRecord.title || asText(operation.targetId) || '待买内容'}
                 summary={quantitySummary(beforeRecord)}
                 status={actionLabel(action)}
                 className="ai-shopping-list-item-card"
@@ -392,13 +392,13 @@ export function AiShoppingListDraftView(props: {
                   onChange={(done) => updateOperationPayloadItem(index, { done: done === 'true' })}
                 />
                 <label className="ai-resource-field ai-confirmation-copy-field">
-                  <span>状态说明</span>
+                  <span>补充说明</span>
                   <textarea
                     className="text-input"
                     rows={2}
                     value={asText(payload.reason)}
                     disabled={props.readonly}
-                    placeholder="可选，说明状态变更"
+                    placeholder="可选，补充完成或跳过原因"
                     onChange={(event) => updateOperationPayloadItem(index, { reason: event.target.value })}
                   />
                 </label>
@@ -410,16 +410,16 @@ export function AiShoppingListDraftView(props: {
             return (
               <AiDraftItemCard
                 key={`${action}-${asText(operation.targetId)}-${index}`}
-                title={beforeRecord.title || asText(operation.targetId) || '采购项'}
+                title={beforeRecord.title || asText(operation.targetId) || '待买内容'}
                 summary={quantitySummary(beforeRecord)}
                 status={actionLabel(action)}
                 tone="danger"
                 className="ai-shopping-list-item-card is-danger"
               >
-                <p>确认后只删除这条采购项，不影响食材档案和库存。</p>
+                <p>确认后只删除这份待买内容，不影响食材和库存。</p>
                 <AiDraftImpactNote tone="danger" title="删除影响">
-                  <p>删除采购项：{[beforeRecord.title, quantitySummary(beforeRecord), doneLabel(before.done)].filter(Boolean).join(' · ')}</p>
-                  <p>不会删除食材档案，也不会调整库存数量。</p>
+                  <p>删除待买内容：{[beforeRecord.title, quantitySummary(beforeRecord), doneLabel(before.done)].filter(Boolean).join(' · ')}</p>
+                  <p>不会删除食材，也不会调整库存数量。</p>
                 </AiDraftImpactNote>
               </AiDraftItemCard>
             );

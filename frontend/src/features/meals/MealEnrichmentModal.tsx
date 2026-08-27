@@ -47,12 +47,12 @@ export function MealEnrichmentModal(props: MealEnrichmentModalProps) {
     >
       <WorkspaceModal
         title={props.title ?? `评价这顿${props.meal.meal_type === 'breakfast' ? '早餐' : props.meal.meal_type === 'lunch' ? '午餐' : props.meal.meal_type === 'dinner' ? '晚餐' : '加餐'}`}
-        description={props.description ?? '评价属于整餐，星级记录每个食物的家庭共享感受'}
+        description={props.description ?? '评分针对整餐；每项食物的评分会作为家人共享的感受记录。'}
         className="meal-log-modal meal-log-enrich-modal"
         closeAriaLabel="关闭"
         onClose={closeIfAllowed}
         busy={props.isUpdating}
-        footerInfo={<span>餐食已经记录；关闭评价不会撤销这顿</span>}
+        footerInfo={<span>餐食已经记录；关闭此处不会撤销这顿饭。</span>}
         footerActions={
           <FormActions
             primaryLabel={props.primaryLabel ?? '保存'}

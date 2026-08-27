@@ -74,7 +74,7 @@ test.describe('P0 authenticated family workflow', () => {
 
     const homeSurface = page.locator(isPhone ? '.mobile-dashboard-page' : '.dashboard-page');
     await expect(homeSurface.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
-    await expect(homeSurface.getByRole('heading', { name: '今天必须处理什么' })).toBeVisible();
+    await expect(homeSurface.getByRole('heading', { name: '今天需要处理什么' })).toBeVisible();
     await expect(homeSurface.getByRole('heading', { name: '家里发生了什么' })).toBeVisible();
     await expect
       .poll(() => requestedApiPaths.includes('/api/activity-highlights'))
@@ -99,18 +99,18 @@ test.describe('P0 authenticated family workflow', () => {
       await expect(page.locator('.mobile-ingredient-page')).toBeVisible();
       await expect(page.locator('.mobile-ingredient-page').getByRole('heading', { name: '食材' })).toBeVisible();
     } else {
-      await expect(page.getByText('管理家庭食材档案、库存状态以及采购清单。', { exact: true })).toBeVisible();
+      await expect(page.getByText('管理家庭食材、库存和采购清单。', { exact: true })).toBeVisible();
     }
     await expectNoHorizontalOverflow(page);
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-ingredient-page');
 
     await page.getByRole('button', { name: '吃什么' }).first().click();
     if (isPhone) {
-      await page.locator('.food-mobile-view').getByRole('button', { name: '吃过的' }).click();
+      await page.locator('.food-mobile-view').getByRole('button', { name: '用餐记录' }).click();
       await expect(page.locator('.mobile-log-page')).toBeVisible();
       await page.locator('.mobile-log-primary-cta').click();
     } else {
-      await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '吃过的' }).click();
+      await page.locator('.food-workspace .hero-actions').getByRole('button', { name: '用餐记录' }).click();
       await expect(page.getByText('家庭时间线', { exact: true })).toBeVisible();
       await page.locator('.meal-log-header-actions').getByRole('button', { name: '记一餐' }).click();
     }

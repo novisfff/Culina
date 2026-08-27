@@ -227,9 +227,9 @@ describe('inventoryOverviewModel', () => {
       pendingCount: 0,
       stockedCount: 2,
     });
-    expect(getUnifiedInventoryActionLabel(foodItem)).toBe('减扣');
-    expect(getUnifiedInventoryActionLabel(pendingFoodItem)).toBe('补库存');
-    expect(getUnifiedInventoryActionLabel(ingredientItem)).toBe('消费');
+    expect(getUnifiedInventoryActionLabel(foodItem)).toBe('扣减');
+    expect(getUnifiedInventoryActionLabel(pendingFoodItem)).toBe('加入库存');
+    expect(getUnifiedInventoryActionLabel(ingredientItem)).toBe('记录用量');
     expect(getUnifiedInventoryFoodPrimaryActionKind(foodItem)).toBe('recordMeal');
     expect(getUnifiedInventoryFoodPrimaryActionKind(pendingFoodItem)).toBe('editStock');
   });
@@ -241,18 +241,18 @@ describe('inventoryOverviewModel', () => {
     });
     expect(resolveUnifiedFoodStockDeductQuantity(141, 140.95, '盒')).toEqual({
       quantity: null,
-      error: '当前最多只能减扣 140.9盒。',
+      error: '当前最多只能扣减 140.9 盒。',
     });
   });
 
   it('limits food stock quantities to one decimal place', () => {
-    expect(parseUnifiedFoodStockQuantity('13.9', '减扣数量')).toEqual({
+    expect(parseUnifiedFoodStockQuantity('13.9', '扣减数量')).toEqual({
       quantity: 13.9,
       error: null,
     });
-    expect(parseUnifiedFoodStockQuantity('13.99', '减扣数量')).toEqual({
+    expect(parseUnifiedFoodStockQuantity('13.99', '扣减数量')).toEqual({
       quantity: null,
-      error: '减扣数量最多保留 1 位小数。',
+      error: '扣减数量最多保留 1 位小数。',
     });
   });
 });

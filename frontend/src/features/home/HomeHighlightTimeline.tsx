@@ -48,8 +48,8 @@ export function HomeHighlightTimeline(props: {
       {props.viewModel.phase === 'empty' && (
         <StateBlock
           status="empty"
-          title="还没有家庭高亮"
-          description="新的采购、盘点、菜单和餐食结果会出现在这里。"
+          title="还没有家庭动态"
+          description="新的采购、盘点、餐食安排和记录会出现在这里。"
         />
       )}
       {items.length > 0 && (
@@ -70,7 +70,7 @@ export function HomeHighlightTimeline(props: {
       )}
       {props.viewModel.hasRefreshError && (
         <button className="home-highlight-refresh-warning" type="button" onClick={props.onRetry}>
-          刷新失败，重试
+          暂时无法更新，请重试
         </button>
       )}
     </section>

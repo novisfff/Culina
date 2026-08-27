@@ -78,7 +78,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         footerActions={
           <FormActions
             className="recipe-shopping-actions"
-            primaryLabel="确认加入清单"
+            primaryLabel="确认加入采购清单"
             primaryDisabled={validDraftCount === 0}
             isSubmitting={isCreatingShopping}
             secondaryLabel="取消"
@@ -92,7 +92,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             <div className="recipe-shopping-section-head">
               <div>
                 <h3>待加入采购清单</h3>
-                <p>确认数量和单位后加入清单。</p>
+                <p>确认数量和单位后，再加入采购清单。</p>
               </div>
               <Badge>{props.drafts.length} 项</Badge>
             </div>
@@ -109,8 +109,8 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                       <div className="recipe-shopping-media">
                         <MediaWithPlaceholder
                           src={linkedIngredient?.image ? props.resolveIngredientImageUrl(linkedIngredient, item.title) : null}
-                          alt={item.title || '采购项'}
-                          emptyLabel="暂无图片"
+                          alt={item.title || '待买内容'}
+                          emptyLabel="还没有图片"
                           showLabel={false}
                         />
                       </div>
@@ -119,12 +119,12 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                           <strong>{item.title || '未命名食材'}</strong>
                           <span className={`recipe-shopping-pill tone-${item.requirement}`}>{buildShoppingRequirementLabel(item.requirement)}</span>
                           <span className="recipe-shopping-pill">{buildShoppingDraftSourceLabel(item.source)}</span>
-                          {usesPresenceQuantity && <span className="recipe-shopping-pill tone-presence">只记录有无</span>}
+                          {usesPresenceQuantity && <span className="recipe-shopping-pill tone-presence">只记录是否有库存</span>}
                         </div>
                         <input
                           className="text-input"
                           value={item.title}
-                          placeholder="采购项名称"
+                          placeholder="待买内容名称"
                           disabled={isCreatingShopping}
                           onChange={(event) => props.onUpdateDraft(item.id, { title: event.target.value })}
                         />
@@ -132,7 +132,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                       <div className="recipe-shopping-draft-controls">
                         {usesPresenceQuantity ? (
                           <label className="recipe-shopping-presence-control">
-                            <span>采购表达</span>
+                            <span>需要补充</span>
                             <input
                               value={item.displayLabel ?? '需要补充'}
                               placeholder="需要补充"
@@ -159,15 +159,15 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 })}
               </div>
             ) : (
-              <EmptyState title="还没有待加入项" description="可以从下方已有食材点加号，或从食材库选择要补买的食材。" />
+              <EmptyState title="还没有待买内容" description="可以点击下方已有食材的加号，或从食材库选择要补买的食材。" />
             )}
           </section>
 
           <section className="recipe-shopping-candidate-section">
             <div className="recipe-shopping-section-head compact">
               <div>
-                <h3>菜谱已有食材</h3>
-                <p>点加号补进待买项。</p>
+                <h3>菜谱中的食材</h3>
+                <p>点击加号加入采购清单。</p>
               </div>
             </div>
             <div className="recipe-shopping-candidate-list">
@@ -183,25 +183,25 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                       <MediaWithPlaceholder
                         src={linkedIngredient?.image ? props.resolveIngredientImageUrl(linkedIngredient, item.ingredient_name) : null}
                         alt={item.ingredient_name}
-                        emptyLabel="暂无图片"
+                        emptyLabel="还没有图片"
                         showLabel={false}
                       />
                     </div>
                     <div>
                       <strong>{item.ingredient_name}</strong>
                       <span>
-                        {formatShoppingQuantity(item.quantity)}{item.unit} · {buildShoppingRequirementLabel(requirement)} ·{' '}
+                        {formatShoppingQuantity(item.quantity)} {item.unit} · {buildShoppingRequirementLabel(requirement)} ·{' '}
                         {availability?.ready
-                          ? '已有'
+                          ? '已备齐'
                           : availability?.shortageType === 'presence'
-                            ? '需补充'
+                            ? '需要补充'
                             : availability
-                              ? `缺 ${formatShoppingQuantity(availability.missingQuantity)}${availability.unit}`
-                              : '未匹配库存'}
+                              ? `缺少 ${formatShoppingQuantity(availability.missingQuantity)} ${availability.unit}`
+                              : '还没有库存信息'}
                       </span>
                     </div>
                     <button type="button" disabled={isCreatingShopping || alreadyAdded || !canAddIngredient} onClick={() => props.onAddRecipeIngredient(item)}>
-                      {alreadyAdded ? '已加入' : canAddIngredient ? <RecipeUiIcon name="plus" /> : '先建档'}
+                      {alreadyAdded ? '已加入' : canAddIngredient ? <RecipeUiIcon name="plus" /> : '先创建食材'}
                     </button>
                   </article>
                 );
@@ -228,14 +228,14 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 hasMore={ingredientSearch.hasMore}
                 disabled={isCreatingShopping}
                 loadMoreText="加载更多食材"
-                loadingMoreText="正在加载更多食材..."
+                loadingMoreText="正在加载更多食材…"
                 options={ingredientSearch.ingredients.map((ingredient) => ({
                   id: ingredient.id,
                   label: ingredient.name,
                   description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
                   image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                 }))}
-                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材，请先去食材库建档。'}
+                emptyText={ingredientSearch.isSearching ? '正在搜索…' : '没有匹配的食材，请先到食材库添加。'}
                 onSearchCompositionStart={ingredientSearch.onCompositionStart}
                 onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextTitle) => {

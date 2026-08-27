@@ -61,10 +61,10 @@ type RecipeCookFinishDialogProps = {
 };
 
 const COOK_FINISH_STEPS: Array<{ id: CookFinishStepId; label: string; description: string }> = [
-  { id: 'inventory', label: '库存核对', description: '确认份量和扣减预览' },
+  { id: 'inventory', label: '库存核对', description: '确认份量和库存扣减' },
   { id: 'meal', label: '这餐的信息', description: '选择日期和餐次' },
   { id: 'feedback', label: '本次反馈', description: '留下评分、调整和结果' },
-  { id: 'summary', label: '确认完成', description: '复核本次写入内容' },
+  { id: 'summary', label: '确认完成', description: '复核本次记录内容' },
 ];
 
 function addUniqueStep(items: CookFinishStepId[], stepId: CookFinishStepId) {
@@ -77,7 +77,7 @@ function removeStep(items: CookFinishStepId[], stepId: CookFinishStepId) {
 
 function PreviewItemsList(props: { items: CookRecipePreviewItem[] }) {
   if (props.items.length === 0) {
-    return <p className="subtle">当前没有可扣减的库存批次。</p>;
+    return <p className="subtle">当前没有可扣减的库存。</p>;
   }
 
   return (
@@ -93,9 +93,9 @@ function PreviewItemsList(props: { items: CookRecipePreviewItem[] }) {
             <div className="recipe-cook-preview-batches">
               {item.batches.map((batch) => (
                 <p key={batch.inventory_item_id}>
-                  <strong>{formatCookQuantity(batch.quantity)}{batch.unit}</strong>
+                  <strong>{formatCookQuantity(batch.quantity)} {batch.unit}</strong>
                   <span>{batch.storage_location}</span>
-                  <span>{batch.expiry_date ? `到期 ${formatDate(batch.expiry_date)}` : '未设到期'}</span>
+                  <span>{batch.expiry_date ? `到期 ${formatDate(batch.expiry_date)}` : '未填写到期日'}</span>
                 </p>
               ))}
             </div>
@@ -195,8 +195,8 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
   function renderInventoryStep() {
     return (
       <StepPanel
-        title="先核对库存处理"
-        description="确认本次份量后，系统会先扣减现有库存；缺少的部分只保留提醒，不阻止完成烹饪。"
+        title="确认库存扣减"
+        description="确认本次份量后，系统会扣减现有库存；缺少的食材会保留提醒，不影响完成烹饪。"
       >
         <label className="recipe-cook-finish-field">
           <span>本次份量</span>
@@ -211,10 +211,10 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
         </label>
         <div className="recipe-cook-finish-preview">
           {props.isCookPreviewLoading ? (
-            <p className="subtle">正在计算扣减预览...</p>
+            <p className="subtle">正在计算扣减预览…</p>
           ) : props.cookPreviewError ? (
             <article className="alert-card warning">
-              <h3>预览暂不可用</h3>
+              <h3>暂时无法预览</h3>
               <p>{props.cookPreviewError}</p>
             </article>
           ) : (
@@ -246,7 +246,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
     return (
       <StepPanel
         title="填写这餐的信息"
-        description="日期和餐次会用于本次做菜记录；完成后会自动记入吃过的。"
+        description="日期和餐次会用于本次做菜记录；完成后会自动记入用餐记录。"
       >
         <div className="form-grid compact-grid">
           <label>
@@ -282,7 +282,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
             props.onTargetChange?.(nextTarget, nextSelectedId ?? null);
           }}
         />
-        <p className="subtle recipe-cook-finish-auto-record">完成后会自动记入吃过的</p>
+        <p className="subtle recipe-cook-finish-auto-record">完成后会自动记入用餐记录</p>
       </StepPanel>
     );
   }
@@ -317,14 +317,14 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
   function renderSummaryStep() {
     return (
       <StepPanel
-        title="最后确认写入内容"
-        description="确认后会记录这次烹饪，扣减可用库存；缺料项目会留作后续提醒。"
+        title="最后确认记录内容"
+        description="确认后会记录这次烹饪，扣减可用库存；缺少的食材会留作后续提醒。"
       >
         <div className="recipe-cook-finish-summary-grid">
           <article>
-            <span>库存处理</span>
-            <strong>{previewItems.length > 0 ? `将处理 ${previewItems.length} 项库存` : '没有可扣减库存'}</strong>
-            <small>{shortages.length > 0 ? `${shortages.length} 项缺料会保留提醒` : '库存预览正常'}</small>
+            <span>库存扣减</span>
+            <strong>{previewItems.length > 0 ? `将扣减 ${previewItems.length} 项库存` : '没有可扣减库存'}</strong>
+            <small>{shortages.length > 0 ? `${shortages.length} 项食材不足，会保留提醒` : '库存充足'}</small>
           </article>
           <article>
             <span>餐食记录</span>
@@ -396,7 +396,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
     >
       <WorkspaceModal
         title={`完成烹饪：${props.recipeTitle}`}
-        description="按步骤核对本次写入内容；不想处理的步骤可以先跳过，确认前也能切回修改。"
+        description="按步骤核对本次记录内容；暂时跳过的步骤可以稍后补充，确认前也能切回修改。"
         eyebrow="完成确认"
         onClose={closeIfAllowed}
         closeAriaLabel="关闭完成烹饪确认"

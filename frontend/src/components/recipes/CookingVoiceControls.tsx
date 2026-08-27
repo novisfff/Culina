@@ -23,10 +23,10 @@ const STATUS_LABELS: Record<CookingRealtimeVoiceStatus, string> = {
   idle: '未连接',
   connecting: '连接中',
   listening: '正在听',
-  recording: '正在听',
+  recording: '正在录音',
   transcribing: '正在识别',
-  thinking: '小灶在想',
-  speaking: '小灶在说',
+  thinking: '思考中',
+  speaking: '回复中',
   stopping: '正在停止',
   muted: '已静音',
   closed: '已挂断',
@@ -70,7 +70,7 @@ export function CookingVoiceControls({
       <div className="recipe-cook-ai-call-copy">
         <span>{STATUS_LABELS[status]}</span>
         <strong>{elapsed}</strong>
-        <small>{error || (lastTranscript ? `识别到：${lastTranscript}` : '我会自动听你说完')}</small>
+        <small>{error || (lastTranscript ? `识别到：${lastTranscript}` : '说完后会自动识别')}</small>
       </div>
       <AiVoiceInputButton
         surface="recipe_cook_page"

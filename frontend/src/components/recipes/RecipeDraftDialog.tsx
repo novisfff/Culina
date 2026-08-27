@@ -25,8 +25,8 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
   return (
     <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
-        title="AI 补全菜谱"
-        description="AI 会基于当前编辑表单里的信息生成完整菜谱，确认后覆盖左侧表单内容。"
+        title="AI 补充菜谱"
+        description="AI 会根据当前表单里的信息补充完整菜谱，确认后替换当前表单内容。"
         eyebrow="AI 生成"
         onClose={props.onClose}
         className="recipe-ai-draft-modal"
@@ -44,7 +44,7 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
       >
         <div className="recipe-ai-draft-modal-body">
           <section className="recipe-ai-source-panel">
-            <h3>将基于这些信息生成</h3>
+            <h3>将根据这些信息补充</h3>
             <div className="recipe-ai-source-grid">
               {props.aiSourceSummary.map((item) => (
                 <div key={item.label}>

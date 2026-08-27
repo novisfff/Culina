@@ -50,7 +50,7 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
     event.preventDefault();
     const foodId = activeRequest.recommendation.foodId;
     if (!foodId) {
-      setError('这条推荐还没有关联食物，暂时不能加入菜单计划。');
+      setError('这条推荐还没有选定食物，暂时不能加入餐食计划。');
       return;
     }
     try {
@@ -62,7 +62,7 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
         note: note.trim(),
       });
     } catch (reason) {
-      setError(reason instanceof Error && reason.message ? reason.message : '加入菜单计划失败，请稍后重试。');
+      setError(reason instanceof Error && reason.message ? reason.message : '加入餐食计划失败，请稍后重试。');
     }
   }
 
@@ -73,14 +73,14 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
-        title="加入菜单计划"
-        description="日期和餐次已按你的提问预填，确认后写入家庭菜单。"
+        title="加入餐食计划"
+        description="日期和餐次已按你的提问预填，确认后会保存到家庭餐食计划。"
         eyebrow="AI 推荐"
         className="ai-recommendation-plan-modal"
         onClose={closeIfAllowed}
         footerActions={
           <FormActions
-            primaryLabel="加入菜单计划"
+            primaryLabel="加入餐食计划"
             primaryType="submit"
             primaryForm={planFormId}
             primaryDisabled={!activeRequest.recommendation.foodId}

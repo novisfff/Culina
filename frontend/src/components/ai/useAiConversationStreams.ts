@@ -161,7 +161,7 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       context.stopThinking(payload.client_run_id);
       context.markStreamingAssistantStopped(
         payload.client_run_id,
-        `AI 后续处理失败：${message}`,
+        `AI 处理失败：${message}`,
       );
       throw error;
     } finally {
@@ -264,7 +264,7 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
         if (!handleInaccessibleStreamError(context, error, payload.approval.conversation_id)) {
           const message = context.streamFailureMessage(error);
           context.stopThinking(runId);
-          context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+          context.markStreamingAssistantStopped(runId ?? null, `AI 处理失败：${message}`);
         }
         void context.refreshAfterApprovalSettled();
         rejectDecisionVisible(error);
@@ -339,7 +339,7 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       if (!handleInaccessibleStreamError(context, error, conversationKey)) {
         const message = context.streamFailureMessage(error);
         context.stopThinking(runId);
-        context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+        context.markStreamingAssistantStopped(runId ?? null, `AI 处理失败：${message}`);
       }
       throw error;
     } finally {

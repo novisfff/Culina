@@ -427,8 +427,8 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
   const sendRecording = useCallback(async (recording: VoiceRecording) => {
     if (status === 'muted' || status === 'stopping' || pendingTurnCancellationRef.current) return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
-      setError('小灶通话还没有连接好');
-      options.onError?.('小灶通话还没有连接好');
+      setError('语音助手还没有连接好');
+      options.onError?.('语音助手还没有连接好');
       return;
     }
     const turnId = nextTurnId();

@@ -80,16 +80,16 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
       busy={isUpdatingPlan}
     >
       <WorkspaceModal
-        title="加食物到菜单"
-        description="选择日期和餐次后加入菜单。"
-        eyebrow="菜单计划"
+        title="添加到餐食计划"
+        description="选择日期和餐次后加入餐食计划。"
+        eyebrow="餐食计划"
         onClose={closeIfAllowed}
         busy={isUpdatingPlan}
         className={['recipe-plan-modal', 'food-plan-modal', props.modalClassName].filter(Boolean).join(' ')}
         footerActions={
           <FormActions
             className="recipe-plan-dialog-actions"
-            primaryLabel="加入菜单"
+            primaryLabel="加入餐食计划"
             primaryType="submit"
             primaryForm={planFormId}
             primaryDisabled={Boolean(isUpdatingPlan || !selectedFoodId)}
@@ -105,7 +105,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
           aria-busy={isUpdatingPlan}
           onSubmit={props.onSubmit}
         >
-          <OperationLoadingOverlay active={isUpdatingPlan} title="正在加入菜单" />
+          <OperationLoadingOverlay active={isUpdatingPlan} title="正在加入餐食计划" />
           {props.selectedPlanFood ? (
             <FoodPlanSelectedHero
               food={props.selectedPlanFood}
@@ -143,7 +143,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
                   description: [
                     FOOD_TYPE_LABELS[props.normalizeFoodType(food)],
                     food.source_name || food.purchase_source || food.category,
-                    food.recipe_id ? '可开始做' : '可加入计划',
+                    food.recipe_id ? '可开始做' : '可加入餐食计划',
                     MEAL_TYPE_LABELS[props.getDefaultMealType(food)],
                   ]
                     .filter(Boolean)
@@ -158,7 +158,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
                   ),
                 };
               })}
-              emptyText={foodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
+              emptyText={foodSearch.isSearching ? '正在搜索…' : '没有找到匹配的食物'}
               onCompositionStart={foodSearch.onCompositionStart}
               onCompositionEnd={foodSearch.onCompositionEnd}
               onQueryChange={props.onPlanFoodSearchChange}

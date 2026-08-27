@@ -62,7 +62,7 @@ export function onsiteModelUsageOption(
     rerank: {
       tone: 'warning',
       icon: 'list',
-      message: '模型排序额度达到限制，本次已改用基础排序。',
+      message: '搜索排序额度达到限制，本次已改用基础排序。',
     },
     stt: {
       tone: 'warning',
@@ -77,7 +77,7 @@ export function onsiteModelUsageOption(
     image_generation: {
       tone: 'warning',
       icon: 'receipt',
-      message: '图片生成额度达到限制，本次未调用服务商。',
+      message: '图片生成额度达到限制，本次未请求模型服务。',
     },
     llm: {
       tone: 'warning',

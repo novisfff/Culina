@@ -91,30 +91,30 @@ function FamilyActivityFiltersPanel(props: {
       )}
       <div className="family-activity-viewer-select-grid">
         <DropdownSelect
-          ariaLabel="筛选操作人"
-          labelPrefix="操作人"
-          placeholder="操作人: 所有人"
+          ariaLabel="筛选记录人"
+          labelPrefix="记录人"
+          placeholder="记录人：所有人"
           value={props.filters.actorId}
           options={actorOptions}
           clearOption={{ value: '', label: '所有人' }}
           onChange={(val) => updateFilters({ actorId: val })}
         />
         <DropdownSelect
-          ariaLabel="筛选操作类型"
+          ariaLabel="筛选活动类型"
           labelPrefix="类型"
-          placeholder="类型: 全部操作"
+          placeholder="类型：全部活动"
           value={props.filters.action}
           options={actionOptions}
-          clearOption={{ value: '', label: '全部操作' }}
+          clearOption={{ value: '', label: '全部活动' }}
           onChange={(val) => updateFilters({ action: val })}
         />
         <DropdownSelect
-          ariaLabel="筛选对象"
-          labelPrefix="对象"
-          placeholder="对象: 全部模块"
+          ariaLabel="筛选记录类型"
+          labelPrefix="记录类型"
+          placeholder="记录类型：全部"
           value={props.filters.entityType}
           options={entityOptions}
-          clearOption={{ value: '', label: '全部模块' }}
+          clearOption={{ value: '', label: '全部记录类型' }}
           onChange={(val) => updateFilters({ entityType: val })}
         />
         <button className="ghost-button" type="button" onClick={props.onReset}>
@@ -166,10 +166,10 @@ function FamilyActivityTimeline(props: {
   if (props.phase === 'empty' || props.logs.length === 0) {
     return (
       <div className="family-activity-viewer-empty">
-        <EmptyState title={props.hasFilters ? '没有匹配记录' : '暂无家庭活动'} description={familyActivityEmptyDescription(props.hasFilters)} />
+        <EmptyState title={props.hasFilters ? '没有匹配记录' : '还没有家庭活动'} description={familyActivityEmptyDescription(props.hasFilters)} />
         {props.hasRefreshError && (
           <button className="family-activity-viewer-refresh-warning" type="button" onClick={props.onRetry}>
-            刷新失败，重试
+            暂时无法更新，请重试
           </button>
         )}
       </div>
@@ -201,7 +201,7 @@ function FamilyActivityTimeline(props: {
       ))}
       {props.hasRefreshError ? (
         <button className="family-activity-viewer-refresh-warning" type="button" onClick={props.onRetry}>
-          刷新失败，重试
+          暂时无法更新，请重试
         </button>
       ) : null}
     </div>
@@ -267,7 +267,7 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
       <WorkspaceModal
         className="family-activity-viewer-modal"
         eyebrow="家庭活动"
-        title="操作记录"
+        title="家庭活动记录"
         description={`共 ${viewer.logs.length} 条记录 · ${viewer.hasFilters ? '已应用筛选' : '按最新时间倒序展示'}`}
         closeAriaLabel="关闭家庭活动"
         onClose={props.onClose}
@@ -326,13 +326,13 @@ export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { on
   }, []);
 
   return (
-    <main ref={pageRef} className="family-activity-mobile-page" aria-label="手机家庭活动页">
+    <main ref={pageRef} className="family-activity-mobile-page" aria-label="家庭活动记录">
       <header className="family-activity-mobile-head">
         <button type="button" onClick={props.onBack} aria-label="返回家庭页">
           <DashboardIcon name="chevron" />
         </button>
         <div>
-          <h1>操作记录</h1>
+          <h1>家庭活动记录</h1>
           <p>共 {viewer.logs.length} 条记录 · 按最新时间倒序</p>
         </div>
       </header>

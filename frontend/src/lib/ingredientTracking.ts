@@ -5,5 +5,5 @@ export function tracksIngredientQuantity(ingredient: Pick<Ingredient, 'quantity_
 }
 
 export function quantityTrackingLabel(ingredient: Pick<Ingredient, 'quantity_tracking_mode'> | null | undefined) {
-  return tracksIngredientQuantity(ingredient) ? '记录数量' : '只记录有无';
+  return tracksIngredientQuantity(ingredient) ? '记录具体数量' : '只记录是否有库存';
 }

@@ -21,11 +21,11 @@ export function resolveMealSource(meal: MealLog, foodPlanItems: FoodPlanItem[]):
   const planItem = foodPlanItems.find((item) => item.meal_log_id === meal.id);
   // Keep source for private tracing only; timeline UI must not display these labels.
   if (!planItem) return { label: '记录', status: 'manual' };
-  return { label: `菜单 · ${formatDate(planItem.plan_date)}`, status: 'planned', planItem };
+  return { label: `餐食计划 · ${formatDate(planItem.plan_date)}`, status: 'planned', planItem };
 }
 
 export function buildMealTitle(meal: MealLog) {
-  return meal.food_entries.map((entry) => entry.food_name).filter(Boolean).join('、') || '未关联食物';
+  return meal.food_entries.map((entry) => entry.food_name).filter(Boolean).join('、') || '还没有食物';
 }
 
 export function formatMealRatingValue(rating: number) {
@@ -64,7 +64,7 @@ export function getMealRatingSummary(meal: MealLog) {
   if (ratings.length === 0) return meal.mood.trim();
   if (ratings.length === 1) return formatMealRatingValue(ratings[0]);
   const average = ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length;
-  return `${formatMealRatingValue(average)} · ${ratings.length} 道菜`;
+  return `${formatMealRatingValue(average)} · ${ratings.length} 项食物`;
 }
 
 export function buildMealEntryRatingDraft(meal: MealLog) {

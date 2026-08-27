@@ -61,11 +61,11 @@ describe('inventory operation approval', () => {
       root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
     });
 
-    expect(container.textContent).toContain('主要处理项');
-    expect(container.textContent).toContain('销毁');
-    expect(container.textContent).toContain('销毁数量');
-    expect(container.textContent).toContain('销毁原因');
-    expect(container.textContent).not.toContain('处理方式');
+    expect(container.textContent).toContain('变更内容');
+    expect(container.textContent).toContain('丢弃');
+    expect(container.textContent).toContain('丢弃数量');
+    expect(container.textContent).toContain('丢弃原因');
+    expect(container.textContent).toContain('变更方式');
     expect(container.querySelector('select')).toBeNull();
     expect(container.querySelector('.ai-draft-summary-card.ai-inventory-operation-summary-card')).not.toBeNull();
     expect(container.querySelector('.ai-draft-section.ai-inventory-operation-items-section')).not.toBeNull();
@@ -203,13 +203,13 @@ describe('inventory operation approval', () => {
       root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
     });
 
-    expect(container.textContent).toContain('默认按临期优先扣减');
+    expect(container.textContent).toContain('默认优先扣减更早到期的库存');
     expect(container.querySelector('select')).toBeNull();
-    const toggle = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '指定库存批次');
+    const toggle = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '指定库存');
     await act(async () => toggle?.click());
-    const batchTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>('.ai-single-select-trigger')).find((button) => button.textContent === '自动按临期优先');
+    const batchTrigger = container.querySelector<HTMLButtonElement>('.ai-inventory-operation-details .ai-single-select-trigger');
     await act(async () => batchTrigger?.click());
-    expect(container.querySelector('.ai-resource-menu')?.textContent).toContain('到期 2026-06-16 · 冷藏 · 剩余 2个');
+    expect(container.querySelector('.ai-resource-menu')?.textContent).toContain('到期 2026-06-16 · 冷藏 · 剩余 2 个');
   });
 
   it('does not offer automatic scope expansion when the draft fixed one consume batch', async () => {
@@ -266,7 +266,7 @@ describe('inventory operation approval', () => {
     });
 
     const toggle = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent === '指定库存批次',
+      (button) => button.textContent === '指定库存',
     );
     await act(async () => toggle?.click());
     const batchTrigger = Array.from(
@@ -274,7 +274,7 @@ describe('inventory operation approval', () => {
     ).find((button) => button.textContent?.includes('到期 2026-06-16'));
     await act(async () => batchTrigger?.click());
 
-    expect(container.querySelector('.ai-resource-menu')?.textContent).not.toContain('自动按临期优先');
+    expect(container.querySelector('.ai-resource-menu')?.textContent).not.toContain('自动优先扣减临期库存');
   });
 
   it('summarizes inventory impact and uses comboboxes for unit and storage location', async () => {
@@ -342,15 +342,15 @@ describe('inventory operation approval', () => {
       root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
     });
 
-    expect(container.textContent).toContain('待确认库存处理');
+    expect(container.textContent).toContain('待确认库存变更');
     expect(container.textContent).not.toContain('补货');
-    expect(container.textContent).toContain('消耗2 项');
-    expect(container.textContent).toContain('销毁1 项');
+    expect(container.textContent).toContain('扣减库存2 项');
+    expect(container.textContent).toContain('丢弃1 项');
     expect(container.textContent).toContain('涉及食材3 种');
     expect(container.querySelectorAll('input[role="combobox"]').length).toBeGreaterThanOrEqual(3);
     expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === '更多入库信息')).toBe(false);
     const quantityLabels = Array.from(container.querySelectorAll<HTMLLabelElement>('.ai-inventory-quantity-label'));
-    expect(quantityLabels.map((label) => label.textContent)).toEqual(['消耗数量', '消耗数量', '销毁数量']);
+    expect(quantityLabels.map((label) => label.textContent)).toEqual(['扣减数量', '扣减数量', '丢弃数量']);
     quantityLabels.forEach((label) => {
       expect(label.htmlFor).not.toBe('');
       expect(label.ownerDocument.getElementById(label.htmlFor)).not.toBeNull();
@@ -403,7 +403,7 @@ describe('inventory operation approval', () => {
 
     const approve = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === '确认消耗');
     await act(async () => approve?.click());
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('指定的库存批次必须从批次下拉中选择');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('请从库存列表中选择要处理的番茄库存');
     expect(onDecision).not.toHaveBeenCalled();
   });
 
@@ -451,8 +451,8 @@ describe('inventory operation approval', () => {
       root?.render(<ApprovalPanel approval={approval} onDecision={vi.fn()} />);
     });
 
-    expect(container.textContent).toContain('库存处理结果');
-    expect(container.textContent).toContain('处理结果');
+    expect(container.textContent).toContain('库存变更结果');
+    expect(container.textContent).toContain('变更结果');
     expect(container.querySelector('.ai-draft-resolved-summary.ai-inventory-operation-resolved-summary')).not.toBeNull();
     expect(container.querySelector('.ai-draft-item-card.ai-inventory-operation-resolved-item')).not.toBeNull();
     expect(container.querySelector('.ai-inventory-operation-item')).toBeNull();

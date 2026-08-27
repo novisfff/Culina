@@ -11,7 +11,7 @@ export function formatFoodStockNumber(value: number) {
 export function formatFoodStockAmount(value: number | null | undefined, unit: string, fallback = '未记录') {
   if (value === null || value === undefined) return fallback;
   if (!Number.isFinite(value)) return fallback;
-  return `${formatFoodStockNumber(value)}${unit || '份'}`;
+  return `${formatFoodStockNumber(value)} ${unit || '份'}`;
 }
 
 export function parseFoodStockQuantity(
@@ -56,17 +56,17 @@ export function resolveFoodStockDeductQuantity(
   unit: string
 ): { quantity: number | null; error: string | null } {
   if (availableQuantity === null || availableQuantity === undefined || availableQuantity <= 0) {
-    return { quantity: null, error: '当前没有可减扣的库存。' };
+    return { quantity: null, error: '当前没有可扣减的库存。' };
   }
   const displayAvailable = normalizeFoodStockQuantity(availableQuantity);
   if (displayAvailable <= 0) {
-    return { quantity: null, error: '当前没有可减扣的库存。' };
+    return { quantity: null, error: '当前没有可扣减的库存。' };
   }
   if (requestedQuantity <= displayAvailable) {
     return { quantity: requestedQuantity, error: null };
   }
   return {
     quantity: null,
-    error: `当前最多只能减扣 ${formatFoodStockAmount(displayAvailable, unit)}。`,
+    error: `当前最多只能扣减 ${formatFoodStockAmount(displayAvailable, unit)}。`,
   };
 }

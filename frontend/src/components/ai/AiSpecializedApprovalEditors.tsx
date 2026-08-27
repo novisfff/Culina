@@ -6,7 +6,7 @@ import { AiDraftResolvedSummary } from './draft-ui/AiDraftResolvedSummary';
 type DraftRecord = Record<string, unknown>;
 
 function trackingModeLabel(value: unknown) {
-  return asText(value) === 'not_track_quantity' ? '只记有无' : '精确数量';
+  return asText(value) === 'not_track_quantity' ? '只记录是否有库存' : '记录具体数量';
 }
 
 function payloadRecord(draft: DraftRecord) {
@@ -25,7 +25,7 @@ function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | '
 function availabilityLevelLabel(value: unknown) {
   const labels: Record<string, string> = {
     absent: '当前没有库存',
-    present_unknown: '还在，数量不确定',
+    present_unknown: '有库存，数量不确定',
     low: '少量',
     sufficient: '充足',
   };
@@ -56,7 +56,7 @@ export function validateIngredientTrackingTransitionForSubmit(draft: DraftRecord
     const resolution = payload.presence_resolution && typeof payload.presence_resolution === 'object'
       ? payload.presence_resolution as DraftRecord
       : null;
-    if (!resolution) return '切换到只记有无时需要确认当前库存状态';
+    if (!resolution) return '切换为只记录是否有库存时，需要确认当前库存状态';
     const availability = asText(resolution.availability_level);
     if (!['absent', 'present_unknown', 'low', 'sufficient'].includes(availability)) return '请选择切换后的库存状态';
     if (availability !== 'absent' && !asText(resolution.storage_location)) return '有库存时必须填写存放位置';
@@ -66,7 +66,7 @@ export function validateIngredientTrackingTransitionForSubmit(draft: DraftRecord
     const resolution = payload.exact_resolution && typeof payload.exact_resolution === 'object'
       ? payload.exact_resolution as DraftRecord
       : null;
-    if (!resolution) return '切换到精确数量时需要确认当前实际数量';
+    if (!resolution) return '切换为记录具体数量时，需要确认当前实际数量';
     if (resolution.confirm_absent === true) return '';
     if (asNumber(resolution.quantity, 0) <= 0) return '当前实际数量必须大于 0，或者选择“当前没有库存”';
     if (!asText(resolution.unit)) return '当前实际数量单位不能为空';
@@ -75,7 +75,7 @@ export function validateIngredientTrackingTransitionForSubmit(draft: DraftRecord
     if (!asText(resolution.storage_location)) return '当前库存存放位置不能为空';
     return '';
   }
-  return '数量追踪目标方式不正确';
+  return '无法识别库存管理方式，请重新选择';
 }
 
 export function AiIngredientTrackingTransitionApproval({
@@ -112,25 +112,25 @@ export function AiIngredientTrackingTransitionApproval({
           { label: '切换后库存', value: availabilityLevelLabel(presence.availability_level) },
           { label: '库存状态', value: inventoryStatusLabel(presence.inventory_status) },
           { label: '存放位置', value: asText(presence.storage_location) || '未填写' },
-          { label: '已观察批次', value: `${batchCount} 个` },
+          { label: '已有库存', value: `${batchCount} 条` },
         ]
       : absent
         ? [
             { label: '当前库存', value: '当前没有库存' },
-            { label: '已观察批次', value: `${batchCount} 个` },
+            { label: '已有库存', value: `${batchCount} 条` },
           ]
         : [
             { label: '当前实际数量', value: `${asNumber(exact.quantity, 0)} ${asText(exact.unit)}`.trim() || '未填写' },
             { label: '库存状态', value: inventoryStatusLabel(exact.inventory_status) },
             { label: '存放位置', value: asText(exact.storage_location) || '未填写' },
-            { label: '已观察批次', value: `${batchCount} 个` },
+            { label: '已有库存', value: `${batchCount} 条` },
           ];
 
     return (
-      <section className="ai-ingredient-tracking-transition" aria-label="数量追踪方式切换">
+      <section className="ai-ingredient-tracking-transition" aria-label="库存管理方式切换">
         <AiDraftResolvedSummary
           status={resolvedStatus(status)}
-          title={resolvedTitle(status, '数量追踪方式已切换', '数量追踪方式草稿')}
+          title={resolvedTitle(status, '库存管理方式已切换', '库存管理方式建议')}
           summary={`${asText(before.name, '当前食材')} · ${trackingModeLabel(before.quantity_tracking_mode)} → ${trackingModeLabel(targetMode)}`}
           className="ai-ingredient-tracking-resolved-summary"
         >
@@ -142,8 +142,8 @@ export function AiIngredientTrackingTransitionApproval({
               </div>
             ))}
           </dl>
-          <AiDraftImpactNote tone="neutral" title="处理边界" className="ai-ingredient-tracking-impact">
-            <p>目标方式和版本边界由系统锁定；这里只保留已处理草稿的核对结果。</p>
+          <AiDraftImpactNote tone="neutral" title="切换结果" className="ai-ingredient-tracking-impact">
+            <p>已按确认内容完成切换，这里保留结果供你核对。</p>
           </AiDraftImpactNote>
         </AiDraftResolvedSummary>
       </section>
@@ -151,27 +151,27 @@ export function AiIngredientTrackingTransitionApproval({
   }
 
   return (
-    <section className="ai-ingredient-tracking-transition" aria-label="数量追踪方式切换">
+    <section className="ai-ingredient-tracking-transition" aria-label="库存管理方式切换">
       <header>
         <div>
           <span>{asText(before.name, '当前食材')}</span>
           <strong>{trackingModeLabel(before.quantity_tracking_mode)} → {trackingModeLabel(targetMode)}</strong>
         </div>
-        <em>{targetMode === 'not_track_quantity' ? `${batchCount} 个现有批次将按选择折叠` : '需要填写当前真实数量'}</em>
+        <em>{targetMode === 'not_track_quantity' ? '现有库存会改为只记录是否有库存' : '需要填写当前真实数量'}</em>
       </header>
-      <AiDraftImpactNote tone="danger" title="数量追踪方式切换影响" className="ai-ingredient-tracking-impact">
-        <p>确认后会改变这个食材的数量追踪方式。</p>
+      <AiDraftImpactNote tone="danger" title="切换库存管理方式的影响" className="ai-ingredient-tracking-impact">
+        <p>确认后会改变这个食材的库存管理方式。</p>
         <p>
           {targetMode === 'not_track_quantity'
-            ? `${batchCount} 个现有批次将按选择折叠，精确数量不会继续保留。`
-            : '需要依据当前真实库存重新建立精确数量状态。'}
+            ? '现有库存会改为只记录是否有库存，具体数量将不再保留。'
+            : '需要依据当前真实库存重新建立具体数量状态。'}
         </p>
       </AiDraftImpactNote>
 
       {targetMode === 'not_track_quantity' ? (
         <div className="ai-specialized-form-grid">
           <label className="ai-resource-field">
-            <span>折叠后的库存状态</span>
+            <span>切换后的库存状态</span>
             <select className="text-input" value={asText(presence.availability_level, 'sufficient')} disabled={readonly} onChange={(event) => {
               const availability = event.target.value;
               updatePresence({
@@ -180,9 +180,9 @@ export function AiIngredientTrackingTransitionApproval({
               });
             }}>
               <option value="sufficient">充足</option>
-              <option value="present_unknown">还在，数量不确定</option>
+              <option value="present_unknown">有库存，数量不确定</option>
               <option value="low">少量</option>
-              <option value="absent">当前没有</option>
+              <option value="absent">没有库存</option>
             </select>
           </label>
           {asText(presence.availability_level, 'sufficient') !== 'absent' ? (
@@ -216,7 +216,7 @@ export function AiIngredientTrackingTransitionApproval({
           ) : null}
         </div>
       )}
-      <p className="ai-specialized-boundary-copy">目标方式和版本边界由系统锁定；确认时会再次校验食材、库存状态和批次版本。</p>
+      <p className="ai-specialized-boundary-copy">确认时会核对最新的食材和库存信息，避免覆盖其他人的修改。</p>
     </section>
   );
 }
@@ -233,9 +233,9 @@ export function validateMealCompositionCorrectionForSubmit(draft: DraftRecord) {
   const payload = payloadRecord(draft);
   if (asText(payload.inventoryAdjustment) !== 'none') return '纠正餐食组成不能调整历史库存';
   const foods = mealFoods(payload.foods);
-  if (foods.length === 0) return '餐食记录至少需要保留 1 个食物';
+  if (foods.length === 0) return '餐食记录至少需要保留 1 项食物';
   if (foods.some((food) => !asText(food.foodId) || !asText(food.name))) return '餐食组成中的食物必须来自食物库';
-  if (foods.some((food) => asNumber(food.servings, 0) <= 0)) return '每个食物的份数必须大于 0';
+  if (foods.some((food) => asNumber(food.servings, 0) <= 0)) return '每项食物的份数必须大于 0';
   return '';
 }
 
@@ -261,7 +261,7 @@ export function AiMealCompositionCorrectionApproval({
       <section className="ai-meal-composition-correction" aria-label="纠正餐食组成">
         <AiDraftResolvedSummary
           status={resolvedStatus(status)}
-          title={resolvedTitle(status, '餐食组成已纠正', '餐食组成纠正草稿')}
+          title={resolvedTitle(status, '餐食组成已纠正', '餐食组成建议')}
           summary={`纠正后 ${foods.length} 项食物`}
           className="ai-meal-composition-resolved-summary"
         >
@@ -283,7 +283,7 @@ export function AiMealCompositionCorrectionApproval({
               </li>
             ))}
           </ul>
-          <AiDraftImpactNote tone="neutral" title="库存调整边界" className="ai-meal-composition-inventory-boundary">
+          <AiDraftImpactNote tone="neutral" title="库存影响说明" className="ai-meal-composition-inventory-boundary">
             <p>不会补回、追加或重新计算历史库存，也不会改变关联餐食计划事实。</p>
           </AiDraftImpactNote>
         </AiDraftResolvedSummary>
@@ -309,7 +309,7 @@ export function AiMealCompositionCorrectionApproval({
           </article>
         ))}
       </div>
-      <AiDraftImpactNote tone="warning" title="库存调整边界" className="ai-meal-composition-inventory-boundary">
+      <AiDraftImpactNote tone="warning" title="库存影响说明" className="ai-meal-composition-inventory-boundary">
         <p>不会补回、追加或重新计算历史库存，也不会改变关联餐食计划事实。</p>
       </AiDraftImpactNote>
     </section>

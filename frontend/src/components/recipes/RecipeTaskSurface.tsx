@@ -48,8 +48,8 @@ function RelationErrorBanner({ recipeTitle }: { recipeTitle: string }) {
   return (
     <StateBlock
       status="error"
-      title="做法关联不完整"
-      description={`${recipeTitle} 尚未关联唯一食物，目前只能只读查看，不能开始烹饪或写入菜单计划。`}
+      title="还没有关联家常菜"
+      description={`${recipeTitle} 还没有关联对应的家常菜，暂时只能查看；关联后才能开始烹饪或加入餐食计划。`}
       className="recipe-task-relation-error"
     />
   );

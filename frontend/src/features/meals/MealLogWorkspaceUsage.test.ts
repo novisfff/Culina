@@ -253,7 +253,7 @@ describe('MealLogWorkspace photo-first timeline', () => {
 
     renderHistory({ meals: [mealWithoutOptionalFields], foods: [foodWithCover] });
 
-    expect(screen.getAllByRole('heading', { name: '吃过的' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('heading', { name: '用餐记录' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '记一餐' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('img', { name: /番茄炒蛋/ }).length).toBeGreaterThan(0);
 
@@ -352,9 +352,9 @@ describe('MealLogWorkspace photo-first timeline', () => {
     expect(detail.getByRole('img', { name: '盒装牛奶' })).toBeVisible();
     expect(detail.getByRole('img', { name: '番茄鸡蛋面' })).toBeVisible();
     expect(detail.getAllByText('未评分')).toHaveLength(2);
-    expect(detail.getByText('没有选择参与家人')).toBeVisible();
-    expect(detail.getByText('还没有评论')).toBeVisible();
-    expect(detail.getByText('暂无餐食照片')).toBeVisible();
+    expect(detail.getByText('还没有选择参与的家人')).toBeVisible();
+    expect(detail.getByText('还没有备注')).toBeVisible();
+    expect(detail.getByText('还没有餐食照片')).toBeVisible();
     expect(detail.queryByRole('button', { name: /^关闭$/ })).not.toBeInTheDocument();
     expect(detail.getByRole('button', { name: '调整组合' })).toBeVisible();
     expect(detail.getByRole('button', { name: '编辑这顿' })).toBeVisible();

@@ -117,6 +117,6 @@ describe('MealLogEnrichmentModel', () => {
       ],
     });
 
-    expect(getMealRatingSummary(meal)).toBe('4.5 分 · 2 道菜');
+    expect(getMealRatingSummary(meal)).toBe('4.5 分 · 2 项食物');
   });
 });

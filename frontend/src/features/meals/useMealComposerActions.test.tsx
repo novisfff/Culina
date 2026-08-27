@@ -349,7 +349,7 @@ describe('useMealComposerActions', () => {
       await result.current.actions.submitRecord();
     });
     expect(recordMeal).not.toHaveBeenCalled();
-    expect(result.current.state.error).toMatch(/确认|候选/);
+    expect(result.current.state.error).toMatch(/查找|餐食/);
   });
 
   it('rotates client request id on idempotency_key_reused', async () => {

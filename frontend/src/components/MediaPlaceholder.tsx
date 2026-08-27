@@ -4,7 +4,7 @@ import { mediaAccessReferenceFromUrl, renewMediaUrl, shouldRenewMediaUrl } from 
 export type MediaPlaceholderState = 'empty' | 'loading' | 'error';
 
 const DEFAULT_MEDIA_PLACEHOLDER_LABELS: Record<MediaPlaceholderState, string> = {
-  empty: '暂无图片',
+  empty: '还没有图片',
   loading: '图片加载中',
   error: '图片加载失败',
 };

@@ -245,7 +245,7 @@ export function MealFoodCombobox(props: MealFoodComboboxProps) {
               onMouseEnter={() => setHighlightIndex(createActionIndex)}
               onClick={() => beginCreate(trimmedQuery)}
             >
-              按‘{trimmedQuery}’记下
+              按“{trimmedQuery}”记下
             </button>
           ) : null}
         </div>

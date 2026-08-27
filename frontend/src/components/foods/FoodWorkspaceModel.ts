@@ -174,7 +174,7 @@ export function getFoodFormCompletionItems(form: FoodFormState, editingFood: Foo
     items.push(
       { label: form.type === 'takeout' ? '店铺' : '餐厅', done: Boolean(form.sourceName.trim() || form.purchaseSource.trim()) },
       { label: '价格/评分', done: Boolean(form.price.trim() || form.rating.trim()) },
-      { label: '复购意愿', done: form.repurchase !== 'unknown' }
+      { label: '还想再吃吗', done: form.repurchase !== 'unknown' }
     );
   }
   if (form.type === 'readyMade' || form.type === 'instant' || form.type === 'packaged') {
@@ -182,7 +182,7 @@ export function getFoodFormCompletionItems(form: FoodFormState, editingFood: Foo
       { label: '购买渠道', done: Boolean(form.purchaseSource.trim() || form.sourceName.trim()) },
       { label: '剩余库存', done: Boolean(form.stockQuantity.trim() && form.stockUnit.trim()) },
       { label: '存放位置', done: Boolean(form.storageLocation.trim()) },
-      { label: '到期日期', done: Boolean(form.expiryDate) }
+      { label: '到期日', done: Boolean(form.expiryDate) }
     );
   }
   return items;

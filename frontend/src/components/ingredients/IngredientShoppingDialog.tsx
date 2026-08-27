@@ -48,7 +48,7 @@ export function IngredientShoppingDialog(props: IngredientShoppingDialogProps) {
         quantityTrackingLabel(selectedShoppingIngredient),
         tracksIngredientQuantity(selectedShoppingIngredient)
           ? `默认 ${selectedShoppingIngredient.default_unit || '个'}`
-          : '做菜不扣减数量',
+          : '做菜时不按数量扣减',
         selectedShoppingIngredient.default_storage || '常温',
       ]
     : [];

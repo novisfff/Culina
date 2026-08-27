@@ -306,9 +306,9 @@ type FoodStockAdjustDialogState = {
 
 const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
 const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
-  { value: 7, label: '7天' },
-  { value: 30, label: '30天' },
-  { value: 90, label: '90天' },
+  { value: 7, label: '7 天' },
+  { value: 30, label: '30 天' },
+  { value: 90, label: '90 天' },
 ];
 const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
 
@@ -591,13 +591,13 @@ function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
 }
 
 const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon: IngredientWorkspaceIconName }> = [
-  { value: 'catalog', label: '档案', icon: 'archive' },
+  { value: 'catalog', label: '食材库', icon: 'archive' },
   { value: 'inventory', label: '库存', icon: 'inventory' },
   { value: 'shopping', label: '采购', icon: 'shopping' },
 ];
 const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string }> = [
   { value: 'all', label: '全部' },
-  { value: 'actionNeeded', label: '需处理' },
+  { value: 'actionNeeded', label: '需要处理' },
   { value: 'expired', label: '已过期' },
   { value: 'expiring', label: '临期' },
   { value: 'lowStock', label: '库存不足' },
@@ -614,15 +614,15 @@ function formatExpiryRuleLabel(ingredient: Ingredient) {
     return ingredient.default_expiry_days ? `买后 ${ingredient.default_expiry_days} 天到期` : '按买后天数计算到期';
   }
   if (expiryMode === 'manual_date') {
-    return '补库存时填写包装到期日';
+    return '补充库存时填写包装到期日';
   }
-  return '默认不跟踪到期';
+  return '默认不设置到期日';
 }
 
 function formatLowStockRuleLabel(ingredient: Ingredient) {
   return ingredient.default_low_stock_threshold !== null && ingredient.default_low_stock_threshold !== undefined
-    ? `少于 ${ingredient.default_low_stock_threshold}${ingredient.default_unit} 时提醒`
-    : '未设置低库存提醒';
+    ? `少于 ${ingredient.default_low_stock_threshold} ${ingredient.default_unit} 时提醒`
+    : '没有设置低库存提醒';
 }
 
 function buildIngredientImagePayload(form: IngredientCreateFormState): AiRenderPayload {
@@ -773,8 +773,15 @@ function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' 
 }
 
 function buildInventorySummaryLine(summary: IngredientSummaryViewModel) {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    const level = summary.inventoryState?.availability_level;
+    if (level === 'sufficient' || level === 'present_unknown') return '有库存';
+    if (level === 'low') return '少量';
+    if (level === 'absent') return '没有库存';
+    return '未确认';
+  }
   if (summary.quantitySummaries.length === 0) {
-    return '未登记库存';
+    return '还没有库存';
   }
 
   return summary.quantitySummaries
@@ -784,11 +791,14 @@ function buildInventorySummaryLine(summary: IngredientSummaryViewModel) {
 }
 
 function buildInventoryRowDescription(summary: IngredientSummaryViewModel) {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    return `${summary.primaryStorage} · 库存状态：${buildInventorySummaryLine(summary)}`;
+  }
   if (summary.inventoryItems.length === 0) {
-    return `${summary.primaryStorage} · 还没登记库存，适合先补一批常用量。`;
+    return `${summary.primaryStorage} · 还没有库存，适合先补充第一批常用量。`;
   }
   if (summary.quantitySummaries.length === 0) {
-    return `${summary.primaryStorage} · 当前可用库存已空，先处理到期批次或补一批新的。`;
+    return `${summary.primaryStorage} · 当前没有可用库存，可处理到期库存或补充新的库存。`;
   }
 
   return [
@@ -802,13 +812,13 @@ function buildInventoryRowDescription(summary: IngredientSummaryViewModel) {
 
 function buildInventoryTotalLabel(summary: IngredientSummaryViewModel) {
   if (!tracksIngredientQuantity(summary.ingredient)) {
-    return summary.availableInventoryItems.length > 0 ? '已有' : '未配置';
+    return buildInventorySummaryLine(summary);
   }
   const totalQuantity = getIngredientAvailableQuantityInDefault(summary.ingredient, summary.inventoryItems);
   if (totalQuantity <= 0) {
-    return `0${summary.ingredient.default_unit || '个'}`;
+    return `0 ${summary.ingredient.default_unit || '个'}`;
   }
-  return `${formatNumericString(totalQuantity)}${summary.ingredient.default_unit || '个'}`;
+  return `${formatNumericString(totalQuantity)} ${summary.ingredient.default_unit || '个'}`;
 }
 
 type CatalogCardStatusTone = 'stable' | 'warning' | 'danger' | 'empty';
@@ -822,16 +832,22 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
   const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
   const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
-  const availableLabel = summary.quantitySummaries[0]?.label ?? `0 ${summary.ingredient.default_unit || '个'}`;
-  const batchLabel = `${summary.inventoryItems.length} 批次`;
-  const stockLine = `库存 ${availableLabel} · ${batchLabel}`;
+  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
+  const availableLabel = tracksQuantity
+    ? summary.quantitySummaries[0]?.label ?? '还没有库存'
+    : buildInventorySummaryLine(summary);
+  const stockLine = tracksQuantity
+    ? summary.inventoryItems.length > 0
+      ? `库存 ${availableLabel} · ${summary.inventoryItems.length} 批`
+      : `库存 ${availableLabel}`
+    : `库存状态 ${availableLabel} · 只记录有无`;
 
   if (expiredAlert) {
     return {
       label: '已过期',
       tone: 'danger',
       stockLine,
-      hint: '优先处理过期批次',
+      hint: '优先处理过期库存',
     };
   }
 
@@ -846,10 +862,10 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
 
   if (summary.quantitySummaries.length === 0) {
     return {
-      label: '缺货',
+      label: '还没有可用库存',
       tone: 'empty',
       stockLine,
-      hint: summary.inventoryItems.length > 0 ? '可补货或加入采购' : '建议先登记一批库存',
+      hint: summary.inventoryItems.length > 0 ? '可补货或加入采购清单' : '建议先加入库存',
     };
   }
 
@@ -858,7 +874,7 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
       label: '库存偏低',
       tone: 'warning',
       stockLine,
-      hint: '建议加入采购或补货',
+      hint: '建议加入采购清单或补货',
     };
   }
 
@@ -866,7 +882,7 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
     label: '库存正常',
     tone: 'stable',
     stockLine,
-    hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可按需消费或补货',
+    hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可以记录用量或补货',
   };
 }
 
@@ -878,9 +894,9 @@ function buildCatalogExpandedNote(summary: IngredientSummaryViewModel) {
     return `最近补货于 ${formatDate(summary.latestPurchaseDate)}，当前主要放在 ${summary.primaryStorage}。`;
   }
   if (summary.inventoryItems.length > 0) {
-    return `${summary.inventoryItems.length} 条批次在用，可继续补货或查看完整详情。`;
+    return `当前有 ${summary.inventoryItems.length} 批库存，可继续补货或查看详情。`;
   }
-  return '这张资料卡还没有库存记录，先补一批会更顺手。';
+  return '这项食材还没有库存，先补充一些会更方便。';
 }
 
 function resolveShoppingReason(summary: IngredientSummaryViewModel) {
@@ -890,7 +906,7 @@ function resolveShoppingReason(summary: IngredientSummaryViewModel) {
   if (summary.alerts.some((item) => item.kind === 'expiry')) {
     return '备一份新的，替换临期库存';
   }
-  return '纳入近期采购计划';
+  return '加入近期采购清单';
 }
 
 type InventoryStorageOverviewCardProps = {
@@ -992,7 +1008,7 @@ function InventoryStorageOverviewCard(props: InventoryStorageOverviewCardProps) 
         </div>
         <div className="ingredients-inventory-overview-card-metric">
           <strong>{props.item.totalBatches}</strong>
-          <span>条批次</span>
+          <span>库存批次</span>
         </div>
         <div className="ingredients-inventory-overview-card-metric">
           <strong>{props.item.alertCount}</strong>
@@ -1021,9 +1037,9 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
   const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
   const footerNote =
     card.statusTone === 'danger'
-      ? '已过期，建议优先补充并入库。'
+      ? '已过期，建议优先购买并加入库存。'
       : card.hasAttention
-        ? '当前有提醒，建议优先补齐并入库。'
+        ? '有库存提醒，建议优先购买并加入库存。'
         : card.footerNote;
   const rowClassName = [
     'shopping-work-row',
@@ -1086,7 +1102,7 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
             onClick={props.onComplete}
             disabled={props.isBusy}
           >
-            已买并入库
+            已购买并加入库存
           </ActionButton>
           {props.onDetail ? (
             <ActionButton
@@ -1097,11 +1113,11 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
               onClick={props.onDetail}
               disabled={props.isBusy}
             >
-              查看档案
+              查看详情
             </ActionButton>
           ) : (
             <div className="shopping-work-row-action-note">
-              {card.linkedFood ? '买回后进入成品补库存' : '自由项按当前标题入库'}
+              {card.linkedFood ? '买回后补充成品库存' : '买回后按当前名称加入库存'}
             </div>
           )}
         </div>
@@ -1141,7 +1157,7 @@ function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
             {completedDateLabel && (
               <span className="shopping-history-row-date-tag">
                 <span className="shopping-history-row-date-icon" aria-hidden="true">📅</span>
-                {completedDateLabel}完成
+                {completedDateLabel} 已买
               </span>
             )}
           </div>
@@ -1160,7 +1176,7 @@ function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
               onClick={props.onDetail}
               disabled={props.isBusy}
             >
-              查看档案
+              查看详情
             </ActionButton>
           ) : null}
           <ActionButton
@@ -1171,7 +1187,7 @@ function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
             onClick={props.onRestore}
             disabled={props.isBusy}
           >
-            再次加入采购
+            再次加入采购清单
           </ActionButton>
         </div>
       </div>
@@ -1251,7 +1267,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 title={
                   presentation.lastConfirmedAt
                     ? `上次确认 ${formatDate(presentation.lastConfirmedAt.slice(0, 10))}`
-                    : '还没有人工确认过库存'
+                    : '未确认库存'
                 }
               >
                 {presentation.confirmationLabel}
@@ -1275,8 +1291,17 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
               <strong>{presentation.headline}</strong>
               <p title={presentation.secondary}>{presentation.secondary}</p>
               <div className="inventory-ingredient-card-data-row">
-                <span>总库存 {totalInventoryLabel}</span>
-                <span>{summary.inventoryItems.length} 批次</span>
+                {tracksQuantity ? (
+                  <>
+                    <span>总库存 {totalInventoryLabel}</span>
+                    <span>{summary.inventoryItems.length} 批库存</span>
+                  </>
+                ) : (
+                  <>
+                    <span>库存状态 {totalInventoryLabel}</span>
+                    <span>只记录有无</span>
+                  </>
+                )}
                 <span>{summary.alerts.length} 条提醒</span>
               </div>
             </div>
@@ -1292,9 +1317,9 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 type="button"
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onDestroyExpired}
-                title="查看并确认销毁已过期批次"
+              title="查看并确认处理已过期库存"
               >
-                处理提醒
+                查看提醒
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1303,7 +1328,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onDetail}
               >
-                查看批次
+                查看详情
               </ActionButton>
             </>
           ) : tracksQuantity && summary.quantitySummaries.length > 0 ? (
@@ -1315,7 +1340,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onConsume}
               >
-                消费
+                记录用量
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1336,7 +1361,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onDetail}
               >
-                查看
+                查看详情
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1345,7 +1370,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onRestock}
               >
-                补充
+                补充库存
               </ActionButton>
             </>
           ) : (
@@ -1357,7 +1382,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onRestock}
               >
-                {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1366,7 +1391,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onAddShopping}
               >
-                加入采购
+                加入采购清单
               </ActionButton>
             </>
           )}
@@ -1482,7 +1507,7 @@ function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) 
               {summary.alerts.length > 0 ? '⚠️' : '🟢'}
             </span>
             <strong>
-              {summary.alerts.length > 0 ? `${summary.alerts.length} 条提醒待处理` : '库存状态平稳'}
+              {summary.alerts.length > 0 ? `${summary.alerts.length} 条提醒需要处理` : '库存正常'}
             </strong>
           </div>
           {summary.alerts.length > 0 ? (
@@ -1504,7 +1529,7 @@ function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) 
           <div className="ingredient-quick-detail-card">
             <span className="ingredient-quick-detail-card-label">最近补货</span>
             <strong className="ingredient-quick-detail-card-value">
-              {summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : '还没补过'}
+              {summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : '还没有补货记录'}
             </strong>
           </div>
           <div className="ingredient-quick-detail-card ingredient-quick-detail-card-full">
@@ -1522,7 +1547,7 @@ function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) 
               props.onDetail();
             }}
           >
-            查看档案 ↗
+            查看详情 ↗
           </button>
         </div>
       </div>
@@ -1609,7 +1634,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-more-icon"
                 onClick={props.onToggle}
                 aria-expanded={expanded}
-                aria-label={`${expanded ? '关闭' : '查看'} ${summary.ingredient.name} 快捷工作详情`}
+                aria-label={`${expanded ? '关闭' : '查看'} ${summary.ingredient.name} 快捷操作`}
               >
                 <span aria-hidden="true">•••</span>
               </ActionButton>
@@ -1638,7 +1663,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onHandleAlert}
               >
-                处理
+                查看提醒
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1647,7 +1672,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onDetail}
               >
-                查看批次
+                查看详情
               </ActionButton>
             </>
           ) : canConsume ? (
@@ -1659,7 +1684,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onConsume}
               >
-                消费
+                记录用量
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1680,7 +1705,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onDetail}
               >
-                查看
+                查看详情
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1689,7 +1714,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onRestock}
               >
-                补充
+                补充库存
               </ActionButton>
             </>
           ) : (
@@ -1701,7 +1726,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
                 onClick={props.onRestock}
               >
-                {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+              {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
               </ActionButton>
               <ActionButton
                 tone="secondary"
@@ -1710,7 +1735,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
                 onClick={props.onAddShopping}
               >
-                加入采购
+                加入采购清单
               </ActionButton>
             </>
           )}
@@ -1721,7 +1746,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
             <span className="ingredient-work-card-footer-icon" aria-hidden="true">
               i
             </span>
-            {!tracksQuantity ? '只记录有无，做菜时不按数量扣减' : canConsume ? '可消费库存已剔除过期批次' : '当前无可消费库存'}
+            {!tracksQuantity ? '只记录是否有库存，做菜时不按数量扣减' : canConsume ? '可用库存不含过期记录' : '当前没有可用库存'}
           </span>
         </div>
       </div>
@@ -2304,11 +2329,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             快速盘点
           </ActionButton>
           <ActionButton tone="secondary" type="button" onClick={() => openInventoryOverlay()}>
-            快速入库
+            快速加入库存
           </ActionButton>
           {props.openOperationHistory ? (
             <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              操作历史
+              变更记录
             </ActionButton>
           ) : null}
         </>
@@ -2320,14 +2345,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             type="button"
             onClick={() => props.openShoppingIntake?.()}
           >
-            登记本次购买
+            记录本次购买
           </ActionButton>
           <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
-            新增采购
+            新增采购内容
           </ActionButton>
           {props.openOperationHistory ? (
             <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              操作历史
+              变更记录
             </ActionButton>
           ) : null}
         </>
@@ -2335,7 +2360,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     </div>
   );
   const activePanelBackLabel =
-    activePanel === 'inventory' ? '返回库存' : activePanel === 'shopping' ? '返回采购' : '返回档案';
+    activePanel === 'inventory' ? '返回库存' : activePanel === 'shopping' ? '返回采购' : '返回食材库';
   const catalogGridStyle = {
     '--ingredients-catalog-columns': String(catalogColumns),
     '--ingredients-catalog-card-width': `${catalogCardWidth}px`,
@@ -2438,7 +2463,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     }
     showNotice({
       tone: 'warning',
-      title: '暂时无法补库存',
+      title: '暂时无法补充库存',
       message: '这项成品库存还没有加载完成，请稍后再试。',
     });
   }
@@ -2449,7 +2474,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     if (!item) {
       showNotice({
         tone: 'warning',
-        title: '暂时无法打开减扣流程',
+        title: '暂时无法打开扣减流程',
         message: '这项成品库存还没有加载完成，请稍后再试。',
       });
       return;
@@ -2489,7 +2514,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     if (!food) {
       const item = findUnifiedInventoryItemBySourceId(foodId);
       if (!item) {
-        showNotice({ tone: 'warning', title: '暂时无法加入采购', message: '这项成品资料还没有加载完成，请稍后再试。' });
+        showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息还没有加载完成，请稍后再试。' });
         return;
       }
       try {
@@ -2498,8 +2523,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       } catch (error) {
         showNotice({
           tone: 'warning',
-          title: '暂时无法加入采购',
-          message: resolveErrorMessage(error, '这项成品资料暂时没有查到，请稍后再试。'),
+          title: '暂时无法加入采购清单',
+          message: resolveErrorMessage(error, '这项成品信息暂时没有查到，请稍后再试。'),
         });
         return;
       }
@@ -2508,7 +2533,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       }
     }
     if (!food) {
-      showNotice({ tone: 'warning', title: '暂时无法加入采购', message: '这项成品资料暂时没有查到，请稍后再试。' });
+      showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息暂时没有查到，请稍后再试。' });
       return;
     }
     openShoppingOverlay({ food, reason: '补充成品库存' });
@@ -2602,7 +2627,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         const message =
           reason instanceof Error && reason.message.trim()
             ? reason.message
-            : '加载候选失败，请重试';
+            : '暂时无法加载可选餐食，请重试';
         setQuickRecord((current) =>
           current && current.date === date && current.mealType === mealType
             ? {
@@ -2635,8 +2660,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               ...current,
               error:
                 current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '加载候选失败，请重试'
-                  : '正在确认是否有可加入的餐食…',
+                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
+                  : '正在查找可加入的餐食…',
             }
           : current,
       );
@@ -2668,7 +2693,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               error:
                 reason instanceof Error && reason.message.trim()
                   ? reason.message
-                  : '记录失败，请重试',
+                  : '餐食记录失败，请重试',
             }
           : current,
       );
@@ -2734,7 +2759,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           ? {
               ...current,
               busy: false,
-              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
+              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
             }
           : current,
       );
@@ -2744,11 +2769,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   async function submitInventoryFollowUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!inventoryFollowUp || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(inventoryFollowUp.stockQuantity, '减扣数量');
+    const parsedQuantity = parseUnifiedFoodStockQuantity(inventoryFollowUp.stockQuantity, '扣减数量');
     if (parsedQuantity.error || parsedQuantity.quantity === null) {
       setInventoryFollowUp({
         ...inventoryFollowUp,
-        error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。',
+        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
       });
       return;
     }
@@ -2770,20 +2795,20 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         expected_row_version: inventoryFollowUp.item.row_version,
         quantity: resolvedQuantity.quantity,
         unit: inventoryFollowUp.item.unit || '份',
-        note: '从库存页减扣成品库存',
+        note: '从库存页扣减成品库存',
       });
       invalidateAfterFoodChanged(queryClient);
       setInventoryFollowUp(null);
       showNotice({
         tone: 'success',
-        title: '已减扣库存',
-        message: `${inventoryFollowUp.item.title} 已减扣 ${resolvedQuantity.quantity}${inventoryFollowUp.item.unit || '份'}。`,
+        title: '已扣减库存',
+        message: `${inventoryFollowUp.item.title} 已扣减 ${resolvedQuantity.quantity} ${inventoryFollowUp.item.unit || '份'}。`,
       });
     } catch (error) {
       // Inventory failure must not affect the already-published meal result bar.
       setInventoryFollowUp({
         ...inventoryFollowUp,
-        error: error instanceof Error ? error.message : '减扣库存失败，请稍后再试。',
+        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
       });
     } finally {
       setFoodStockSubmitting(null);
@@ -2793,11 +2818,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   async function submitFoodStockDeductDialog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!foodStockDeductDialog || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockDeductDialog.stockQuantity, '减扣数量');
+    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockDeductDialog.stockQuantity, '扣减数量');
     if (parsedQuantity.error || parsedQuantity.quantity === null) {
       setFoodStockDeductDialog({
         ...foodStockDeductDialog,
-        error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。',
+        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
       });
       return;
     }
@@ -2819,19 +2844,19 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         expected_row_version: foodStockDeductDialog.item.row_version,
         quantity: resolvedQuantity.quantity,
         unit: foodStockDeductDialog.item.unit || '份',
-        note: '从库存页减扣成品库存',
+        note: '从库存页扣减成品库存',
       });
       invalidateAfterFoodChanged(queryClient);
       setFoodStockDeductDialog(null);
       showNotice({
         tone: 'success',
-        title: '已减扣库存',
-        message: `${foodStockDeductDialog.item.title} 已减扣 ${resolvedQuantity.quantity}${foodStockDeductDialog.item.unit || '份'}。`,
+        title: '已扣减库存',
+        message: `${foodStockDeductDialog.item.title} 已扣减 ${resolvedQuantity.quantity} ${foodStockDeductDialog.item.unit || '份'}。`,
       });
     } catch (error) {
       setFoodStockDeductDialog({
         ...foodStockDeductDialog,
-        error: error instanceof Error ? error.message : '减扣库存失败，请稍后再试。',
+        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
       });
     } finally {
       setFoodStockSubmitting(null);
@@ -2863,8 +2888,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setFoodStockAdjustDialog(null);
       showNotice({
         tone: 'success',
-        title: '已补库存',
-        message: `${foodStockAdjustDialog.item.title} 已补入 ${parsedQuantity.quantity}${payload.unit}。`,
+        title: '库存已补充',
+        message: `${foodStockAdjustDialog.item.title} 已补充 ${parsedQuantity.quantity} ${payload.unit}。`,
       });
     } catch (error) {
       setFoodStockAdjustDialog({
@@ -3018,7 +3043,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   );
 
   if (workspaceView === 'detail' && selectedIngredient) {
-    const detailQuantityLabel = selectedIngredient.quantitySummaries[0]?.label ?? '暂无库存';
+    const detailQuantityLabel = selectedIngredient.quantitySummaries[0]?.label ?? '还没有库存';
     const detailMetricItems = [
       {
         icon: 'stocked' as const,
@@ -3028,7 +3053,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       },
       {
         icon: 'link' as const,
-        label: '关联菜谱',
+        label: '相关菜谱',
         value: `${selectedIngredient.recipeReferences.length}`,
         tone: 'brown',
       },
@@ -3110,8 +3135,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         >
           <WorkspaceModal
             title={isEditingIngredient ? '编辑食材' : '新增食材'}
-            description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。' : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
-            eyebrow="食材资料"
+            description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存食材信息。' : '填写基础信息、图片和备注后，就能继续加入库存。'}
+            eyebrow="食材信息"
             className="ingredient-editor-modal"
             closeLabel="关闭"
             onClose={closeIngredientFormIfAllowed}
@@ -3269,8 +3294,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         >
           <WorkspaceModal
             eyebrow="成品库存"
-            title="处理库存"
-            description="餐已记下。可选继续减扣库存；取消不影响刚才的记录。"
+            title="更新库存"
+            description="餐已记下。可选继续扣减库存；取消不影响刚才的记录。"
             className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
             closeLabel="关闭"
             onClose={() => {
@@ -3280,7 +3305,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             }}
             footerActions={
               <FormActions
-                primaryLabel="确认减扣"
+                primaryLabel="确认扣减"
                 primaryType="submit"
                 primaryForm="ingredients-food-stock-inventory-followup-form"
                 isSubmitting={foodStockSubmitting === 'meal'}
@@ -3317,7 +3342,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                 </span>
               </div>
               <label className="ingredients-food-stock-field">
-                <span>减扣数量</span>
+                <span>扣减数量</span>
                 <div className="ingredients-food-stock-inline-input">
                   <input
                     className="text-input"
@@ -3359,8 +3384,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         >
           <WorkspaceModal
             eyebrow="成品库存"
-            title="减扣库存"
-            description="只扣库存，不写入餐食记录。"
+            title="扣减库存"
+            description="只扣库存，不保存餐食记录。"
             className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
             closeLabel="关闭"
             onClose={() => {
@@ -3370,7 +3395,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             }}
             footerActions={
               <FormActions
-                primaryLabel="确认减扣"
+                primaryLabel="确认扣减"
                 primaryType="submit"
                 primaryForm="ingredients-food-stock-deduct-form"
                 isSubmitting={foodStockSubmitting === 'meal'}
@@ -3407,11 +3432,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                 </span>
               </div>
               <div className="ingredients-food-stock-no-record-note">
-                <strong>不写入餐食记录</strong>
+                <strong>不保存餐食记录</strong>
                 <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
               </div>
               <label className="ingredients-food-stock-field">
-                <span>减扣数量</span>
+                <span>扣减数量</span>
                 <div className="ingredients-food-stock-inline-input">
                   <input
                     className="text-input"
@@ -3453,8 +3478,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         >
           <WorkspaceModal
             eyebrow="成品库存"
-            title="补库存"
-            description="补入数量和到期信息；存放位置在食物资料里统一维护。"
+            title="补充库存"
+            description="补充数量和到期信息；存放位置统一在食物信息中设置。"
             className="ingredients-food-stock-modal ingredients-food-stock-restock-modal"
             closeLabel="关闭"
             onClose={() => {
@@ -3464,7 +3489,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             }}
             footerActions={
               <FormActions
-                primaryLabel="确认补入"
+                primaryLabel="确认补充"
                 primaryType="submit"
                 primaryForm="ingredients-food-stock-adjust-form"
                 isSubmitting={foodStockSubmitting === 'adjust'}
@@ -3494,15 +3519,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               </div>
 
               <div className="ingredients-food-stock-summary ingredients-food-stock-restock-summary">
-                <strong>补入后更新成品库存</strong>
+                  <strong>补充后更新成品库存</strong>
                 <span>
-                  存放位置：{foodStockAdjustDialog.item.storage_location || '常温'}，如需调整请到食物资料修改。
+                  存放位置：{foodStockAdjustDialog.item.storage_location || '常温'}，如需调整请到食物信息修改。
                 </span>
               </div>
 
               <section className="ingredients-food-stock-restock-section">
                 <div className="ingredients-food-stock-restock-section-head">
-                  <strong>补入数量</strong>
+                  <strong>补充数量</strong>
                   <span>常用数量点一下就填好</span>
                 </div>
                 <div className="ingredients-food-stock-restock-unit-row">
@@ -3532,7 +3557,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     />
                   </label>
                 </div>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-quantity-presets" aria-label="常用补入数量">
+                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-quantity-presets" aria-label="常用补充数量">
                   {FOOD_STOCK_RESTOCK_QUANTITY_PRESETS.map((quantity) => (
                     <button
                       key={quantity}
@@ -3572,7 +3597,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     disabled={foodStockSubmitting === 'adjust'}
                     onClick={() => setFoodStockRestockExpiryDays(null)}
                   >
-                    不填到期
+                    不设置到期日
                   </button>
                   {FOOD_STOCK_RESTOCK_EXPIRY_PRESETS.map((preset) => {
                     const presetDate = addDateKeyDays(todayDate, preset.value);
@@ -3590,13 +3615,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     );
                   })}
                 </div>
-                <p className="ingredients-food-stock-restock-helper">包装没有明确日期时可以留空，之后在食物资料或库存补充时再维护。</p>
+                <p className="ingredients-food-stock-restock-helper">包装没有明确日期时可以留空，之后可在食物信息中修改，或下次补充库存时再填写。</p>
               </section>
 
               <section className="ingredients-food-stock-restock-section">
                 <div className="ingredients-food-stock-restock-section-head">
                   <strong>购买来源</strong>
-                  <span>方便下次复购和回看</span>
+                  <span>方便下次再选和回看</span>
                 </div>
                 <label className="ingredients-food-stock-field">
                   <span>购买来源</span>

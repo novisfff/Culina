@@ -146,11 +146,11 @@ export type MealInsightPresentation = {
 };
 
 const REPURCHASE_TITLE_BY_FOOD_TYPE: Record<string, string> = {
-  readyMade: '值得回购',
-  instant: '值得回购',
-  packaged: '值得回购',
-  takeout: '值得再点',
-  diningOut: '值得再去',
+  readyMade: '还想再买',
+  instant: '还想再买',
+  packaged: '还想再买',
+  takeout: '还想再点',
+  diningOut: '还想再去',
 };
 
 function formatAverageRating(value: number): string {
@@ -167,7 +167,7 @@ export function buildMealInsightPresentation(insight: MealInsight): MealInsightP
   const titleByKind: Record<MealInsightKind, string> = {
     frequent_recent: '家里最近常吃',
     missed: '一个月没吃',
-    repurchase: REPURCHASE_TITLE_BY_FOOD_TYPE[food.food_type] ?? '值得回购',
+    repurchase: REPURCHASE_TITLE_BY_FOOD_TYPE[food.food_type] ?? '还想再吃',
     repeated_choice: '最近常选',
   };
 
