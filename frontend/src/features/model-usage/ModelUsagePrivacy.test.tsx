@@ -39,7 +39,7 @@ const personalPage: ModelUsagePersonalRequestLogPage = {
 };
 
 const personalBreakdownItem: ModelUsagePersonalBreakdownItem = {
-  label: '文本与视觉理解',
+  label: '文本与图片理解',
   capability: 'llm',
   meter: null,
   meter_total: null,

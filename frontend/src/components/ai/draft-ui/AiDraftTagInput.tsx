@@ -46,7 +46,7 @@ export function AiDraftTagInput(props: {
             className="ai-draft-tag-chip is-removable"
             data-draft-tag={value}
             type="button"
-            aria-label={`删除${props.label}：${value}`}
+            aria-label={`移除${props.label}：${value}`}
             key={value}
             onClick={() => props.onChange(values.filter((item) => item !== value))}
           >

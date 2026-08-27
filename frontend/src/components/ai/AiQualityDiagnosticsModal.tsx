@@ -20,11 +20,11 @@ export function AiQualityDiagnosticsModal({
   return (
     <WorkspaceOverlayFrame rootClassName="ai-quality-modal-root" onClose={onClose}>
       <WorkspaceModal
-        title="AI 质量诊断"
-        eyebrow="最近运行"
-        description="给开发和家庭管理员复核用，平时不需要常看。"
+        title="AI 使用情况"
+        eyebrow="最近处理"
+        description="查看最近的处理结果、用量和安全限制。"
         closeLabel="关闭"
-        closeAriaLabel="关闭 AI 质量诊断"
+        closeAriaLabel="关闭 AI 使用情况"
         className="ai-quality-modal"
         onClose={onClose}
       >

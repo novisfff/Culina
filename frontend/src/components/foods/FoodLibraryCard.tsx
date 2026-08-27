@@ -126,7 +126,7 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
           {food.price != null && <strong className="food-price">¥{food.price}</strong>}
         </div>
         <p className="food-card-meta">
-          {[food.source_name || food.purchase_source, food.category, model.usageCount > 0 ? `吃过 ${model.usageCount} 次` : '还未记录'].filter(Boolean).join(' · ')}
+          {[food.source_name || food.purchase_source, food.category, model.usageCount > 0 ? `吃过 ${model.usageCount} 次` : '还没有用餐记录'].filter(Boolean).join(' · ')}
         </p>
         <div className="food-card-status-row">
           <span className={`food-card-status tone-${model.status.tone}`}>
@@ -140,7 +140,7 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
           )}
         </div>
         {model.compactLabels.length > 0 && (
-          <div className="food-card-issue-row" aria-label="待完善项目">
+          <div className="food-card-issue-row" aria-label="需要补充的信息">
             {model.compactLabels.map((label) => <span key={label}>{label}</span>)}
           </div>
         )}
@@ -163,8 +163,8 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
             <button
               className="food-card-icon-button"
               type="button"
-              aria-label={`加入采购：${food.name}`}
-              title="加入采购"
+              aria-label={`加入采购清单：${food.name}`}
+              title="加入采购清单"
               onClick={(event) => {
                 event.stopPropagation();
                 actions()?.onAddShopping(food);
@@ -176,8 +176,8 @@ export const FoodLibraryCard = memo(function FoodLibraryCard({
           <button
             className="food-card-icon-button"
             type="button"
-            aria-label={`加入菜单：${food.name}`}
-            title="加入菜单"
+            aria-label={`加入餐食计划：${food.name}`}
+            title="加入餐食计划"
             onClick={(event) => {
               event.stopPropagation();
               actions()?.onAddPlan(food);
@@ -213,7 +213,7 @@ export function FoodCardLibrary({
   const visibleModels = models.slice(0, pager.visibleCount);
 
   return (
-    <section className="food-card-grid" aria-label="食物卡片分页">
+    <section className="food-card-grid" aria-label="食物列表">
       {visibleModels.map((model) => (
         <FoodLibraryCard
           key={model.food.id}
@@ -228,7 +228,7 @@ export function FoodCardLibrary({
           <span role="status">正在加载更多食物…</span>
         ) : pager.hasMore ? (
           <button className="paged-list-load-more" type="button" onClick={pager.loadMore}>
-            继续加载食物
+            加载更多食物
           </button>
         ) : (
           <span>已加载全部食物</span>

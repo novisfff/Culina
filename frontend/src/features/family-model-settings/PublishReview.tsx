@@ -52,7 +52,7 @@ function priceStatusForBinding(
   rates: PublishReviewProps['draft']['price_rates'],
 ): BindingPriceStatus {
   if (!binding.enabled) {
-    return { label: '未启用', detail: '启用后计算', tone: 'disabled' };
+    return { label: '未启用', detail: '启用后计算费用', tone: 'disabled' };
   }
 
   const expectedMeters = FAMILY_MODEL_REQUIRED_METERS[binding.capability];
@@ -63,7 +63,7 @@ function priceStatusForBinding(
   ));
   const invalidCount = bindingRates.filter((rate) => validateMoneyInput(rate.unit_price)).length;
   if (invalidCount > 0) {
-    return { label: '价格需调整', detail: `${invalidCount} 项格式有误`, tone: 'partial' };
+    return { label: '价格需要调整', detail: `${invalidCount} 项格式有误`, tone: 'partial' };
   }
   const positiveCount = expectedMeters.filter((meter) => {
     const rate = bindingRates.find((candidate) => candidate.meter === meter);
@@ -77,7 +77,7 @@ function priceStatusForBinding(
     return { label: '价格已填写', detail, tone: 'ready' };
   }
   if (positiveCount === 0) {
-    return { label: '按 0 计算', detail, tone: 'zero' };
+    return { label: '按 0 元计入费用', detail, tone: 'zero' };
   }
   return { label: '部分已填写', detail, tone: 'partial' };
 }
@@ -116,7 +116,7 @@ export function PublishReview(props: PublishReviewProps) {
   const isValid = validationStatus === 'valid';
   const statusTone = !hasValidationResult ? 'pending' : isValid ? 'ready' : 'warning';
   const statusTitle = !hasValidationResult
-    ? '等待配置检查'
+    ? '未检查配置'
     : isValid
       ? '配置状态良好'
       : validationErrors.length > 0
@@ -128,7 +128,7 @@ export function PublishReview(props: PublishReviewProps) {
       <div className="family-model-settings-section-head">
         <div>
           <h2 id="family-model-settings-review-title">配置检查</h2>
-          <p>检查结果只用于提醒，不会阻止保存。信息完整后会自动生效，未填写的价格按 0 计算。</p>
+          <p>检查结果只用于提醒，不会阻止保存。信息完整后会自动生效，未填写的价格按 0 元计入费用。</p>
         </div>
       </div>
 
@@ -143,8 +143,8 @@ export function PublishReview(props: PublishReviewProps) {
             <p>{statusTone === 'warning'
               ? '检查只做提醒，当前可用配置不会被覆盖。'
               : statusTone === 'ready'
-                ? '完整度检查已通过，后续修改仍会自动保存并在完整后生效。'
-                : '配置会自动保存；你可以随时运行检查，确认还有哪些信息可以完善。'}</p>
+                ? '配置检查已通过，后续修改仍会自动保存，并在信息完整后生效。'
+                : '配置会自动保存；你可以随时运行检查，确认还有哪些信息需要补充。'}</p>
           </div>
           <button className="ghost-button family-model-settings-review-check-button" type="button" disabled={busy} onClick={() => { void props.onValidate(); }}>
             {busy ? '正在检查…' : hasValidationResult ? '重新检查' : '立即检查'}
@@ -156,8 +156,8 @@ export function PublishReview(props: PublishReviewProps) {
             <dd>{availableProfiles.length} 个</dd>
           </div>
           <div>
-            <dt>能力状态</dt>
-            <dd>{readyBindings.length} 项能力已就绪</dd>
+            <dt>功能状态</dt>
+            <dd>{readyBindings.length} 项功能已就绪</dd>
           </div>
           <div>
             <dt>价格已填</dt>
@@ -178,13 +178,13 @@ export function PublishReview(props: PublishReviewProps) {
                   <circle cx="7" cy="17" r="1" fill="currentColor" />
                 </svg>
               </span>
-              <h3 id="family-model-settings-review-providers">Provider 服务</h3>
+              <h3 id="family-model-settings-review-providers">模型服务</h3>
             </div>
             <span>{availableProfiles.length} 个可用服务</span>
           </div>
           <p>{availableProfiles.length > 0
-            ? '服务凭据已配置，可以为下方启用的模型提供连接。'
-            : '尚无已配置凭据的服务，启用的能力需要继续完善。'}</p>
+            ? '服务密钥已配置，可以为下方启用的模型提供连接。'
+            : '还没有配置密钥的可用服务，请先完善服务设置。'}</p>
         </section>
 
         <section className="family-model-settings-review-group" aria-labelledby="family-model-settings-review-capabilities">
@@ -195,7 +195,7 @@ export function PublishReview(props: PublishReviewProps) {
                   <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9L12 3Z" />
                 </svg>
               </span>
-              <h3 id="family-model-settings-review-capabilities">能力与价格</h3>
+              <h3 id="family-model-settings-review-capabilities">功能与价格</h3>
             </div>
             <span>{enabledBindings.length} 项启用</span>
           </div>
@@ -227,10 +227,10 @@ export function PublishReview(props: PublishReviewProps) {
                     </div>
                   </div>
                   <p className="family-model-settings-review-model-service">{binding.enabled
-                    ? `${profile?.display_name ?? '未选择 Provider'} · ${binding.requested_model || '未填写模型'}`
+                    ? `${profile?.display_name ?? '未选择服务'} · ${binding.requested_model || '未填写模型名称'}`
                     : '启用后可配置服务与模型'}</p>
                   <span className={`family-model-settings-review-model-state ${bindingReady ? 'is-ready' : binding.enabled ? 'is-warning' : 'is-muted'}`}>
-                    {bindingReady ? '已就绪' : binding.enabled ? '待完善' : '未启用'}
+                    {bindingReady ? '已就绪' : binding.enabled ? '需要完善' : '未启用'}
                   </span>
                   <div className={`family-model-settings-review-price-state is-${priceStatus.tone}`}>
                     <span>价格</span>
@@ -252,13 +252,13 @@ export function PublishReview(props: PublishReviewProps) {
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
               </span>
-              <h3 id="family-model-settings-review-search">搜索索引</h3>
+              <h3 id="family-model-settings-review-search">智能搜索</h3>
             </div>
             <span>{props.settings.active_search_profile_id ? '已启用' : '未启用'}</span>
           </div>
           <p>{props.settings.active_search_profile_id
-            ? '当前搜索索引会继续服务，普通配置修改不会替换向量身份。'
-            : '当前没有生效的家庭搜索索引。'}</p>
+            ? '当前搜索会继续使用，普通配置修改不会更换搜索模型。'
+            : '当前未开启家庭智能搜索。'}</p>
         </section>
       </div>
       {props.errorMessage ? <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p> : null}

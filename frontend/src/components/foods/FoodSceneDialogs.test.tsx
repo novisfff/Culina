@@ -149,7 +149,7 @@ describe('FoodSceneDialogs', () => {
   it('locks manager actions and keeps it open while scenes are updating', () => {
     const { onCloseManager, view } = renderDialogs({ isSceneManagerOpen: true, isUpdatingScene: true });
 
-    expect(findButton(view, '新建场景')?.disabled).toBe(true);
+    expect(findButton(view, '新增场景')?.disabled).toBe(true);
     expect(findButton(view, '编辑')?.disabled).toBe(true);
     expect(view.querySelector<HTMLButtonElement>('[aria-label="更多操作：工作日晚餐"]')?.disabled).toBe(true);
 
@@ -164,7 +164,7 @@ describe('FoodSceneDialogs', () => {
 
     expect(view.querySelector('.workspace-overlay-footer .food-scene-form-actions')).not.toBeNull();
     expect(view.querySelector('.food-scene-form-actions .ui-form-actions-row')).not.toBeNull();
-    expect(findButton(view, '处理中...')?.disabled).toBe(true);
+    expect(findButton(view, '处理中…')?.disabled).toBe(true);
     expect(findButton(view, '取消')?.disabled).toBe(true);
     expect(findButton(view, '重新生成')?.disabled).toBe(true);
     expect(findButton(view, '移除')?.disabled).toBe(true);
@@ -184,7 +184,7 @@ describe('FoodSceneDialogs', () => {
 
     expect(view.querySelectorAll('.food-scene-row')).toHaveLength(2);
     expect(findButton(view, '编辑')).not.toBeUndefined();
-    expect(findButton(view, '创建')).not.toBeUndefined();
+    expect(findButton(view, '使用')).not.toBeUndefined();
     expect(view.querySelector('[aria-label="更多操作：工作日晚餐"]')).not.toBeNull();
     expect(view.querySelector('[aria-label="更多操作：孩子也能吃"]')).toBeNull();
     expect(findButton(view, '删除')).toBeUndefined();
@@ -264,11 +264,11 @@ describe('FoodSceneDialogs', () => {
     const { onOpenCreateScene, view } = renderDialogs({ isSceneManagerOpen: true, sceneCards: [] });
 
     expect(view.textContent).toContain('还没有场景');
-    expect(view.textContent).toContain('新建一个常用场景，快速整理食物');
+    expect(view.textContent).toContain('新增常用场景，方便查找食物');
     expect(view.querySelector('.food-scene-empty')).not.toBeNull();
 
     const createButtons = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).filter((button) =>
-      button.textContent?.includes('新建场景'),
+      button.textContent?.includes('新增场景'),
     );
     expect(createButtons).toHaveLength(2);
 

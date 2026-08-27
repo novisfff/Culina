@@ -269,11 +269,11 @@ export function validateFamilyModelPriceRates(
   rates.forEach((rate, index) => {
     const identity = rateIdentity(rate);
     if (seen.has(identity)) {
-      errors[`price_rates.${index}`] = '同一能力、变体和计量项的价格重复了。';
+      errors[`price_rates.${index}`] = '同一功能、类型和用量类型的价格重复了。';
     }
     seen.add(identity);
     if (!expected.has(identity)) {
-      errors[`price_rates.${index}`] = '这条价格不属于当前启用的模型能力。';
+      errors[`price_rates.${index}`] = '这条价格不属于当前启用的模型功能。';
     }
     const quantityError = validatePositiveQuantity(rate.unit_quantity);
     if (quantityError) errors[`price_rates.${index}.unit_quantity`] = quantityError;
@@ -337,29 +337,29 @@ function safeErrorCode(reason: unknown): string | null {
 }
 
 const SAFE_ERROR_MESSAGES: Record<string, string> = {
-  family_search_initial_confirmation_required: '首次配置向量模型前需要确认。确认后系统会建立搜索索引，今后更换模型、Provider 或维度都需要完整重建。',
-  family_search_profile_locked: '向量模型身份已锁定。请前往“搜索索引”，通过高风险重建流程更换 Provider、模型或维度。',
+  family_search_initial_confirmation_required: '首次配置搜索模型前需要确认。确认后系统会为家庭内容生成搜索数据并开启搜索；今后更换模型服务、模型或维度时，需要重新生成全部搜索数据。',
+  family_search_profile_locked: '搜索设置已生效。请前往“智能搜索”，通过确认流程更换模型服务、模型或维度。',
   family_model_settings_version_conflict: '配置已在别处更新，请刷新后继续编辑。',
-  family_model_settings_not_configured: '当前家庭还没有可用的模型配置。请先启用能力，并补全 Provider 服务和模型名称。',
-  family_model_capability_disabled: '当前配置未启用此能力。请先在能力配置中启用并补全信息。',
-  family_model_provider_disabled: '当前配置绑定的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
-  family_model_secret_unavailable: '当前服务的 API Key 不可用。请修改 Key 后重试。',
-  family_model_operation_in_progress: '上一次能力测试仍在处理中。请稍候刷新结果，不要重复发起可能计费的请求。',
-  family_model_capability_test_ledger_failed: '暂时无法创建模型用量记录，因此没有调用模型。请稍后重试。',
-  family_model_capability_test_binding_incomplete: '当前能力信息不完整。请先启用能力，并补全 Provider 服务和模型名称后再测试。',
+  family_model_settings_not_configured: '当前家庭还没有可用的模型配置。请先启用功能，并补全模型服务和模型名称。',
+  family_model_capability_disabled: '当前配置未启用此功能。请先在“功能设置”中启用并补全信息。',
+  family_model_provider_disabled: '当前配置使用的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
+  family_model_secret_unavailable: '当前服务的 API 密钥不可用。请修改密钥后重试。',
+  family_model_operation_in_progress: '上一次功能测试仍在处理中。请稍候刷新结果，不要重复发起可能计费的请求。',
+  family_model_capability_test_ledger_failed: '暂时无法创建模型用量记录，因此没有请求模型。请稍后重试。',
+  family_model_capability_test_binding_incomplete: '当前功能信息不完整。请先启用功能，并补全模型服务和模型名称后再测试。',
   family_model_capability_test_transport_failed: '请求模型服务时连接中断，执行结果暂时无法确认。请先查看模型用量记录，不要立即重复测试。',
   family_model_publish_checksum_mismatch: '配置内容已变化，请刷新后重试。',
   family_model_owner_reauthentication_failed: '当前密码不正确，请重新输入后继续。',
-  family_model_provider_scope_change_requires_new_profile: '连接范围已变化，请新建服务并重新绑定。',
+  family_model_provider_scope_change_requires_new_profile: '连接范围已变化，请新增服务并重新关联功能。',
   family_model_operation_idempotency_conflict: '本次操作内容已变化，请重新提交。',
   family_model_endpoint_blocked: '服务地址无法使用，请检查后重试。',
   family_model_endpoint_url_invalid: '服务地址格式不正确。请填写以 http://、https://、ws:// 或 wss:// 开头的完整地址。',
-  family_model_endpoint_protocol_mismatch: '地址协议与 Provider 类型不匹配。普通 API 请使用 HTTP(S)，实时服务请使用 WS(S)。',
+  family_model_endpoint_protocol_mismatch: '地址协议与模型服务类型不匹配。普通 API 请使用 HTTP(S)，实时服务请使用 WS(S)。',
   family_model_endpoint_dns_resolution_failed: '无法解析服务地址的域名。请检查域名拼写或 DNS 配置。',
   family_model_endpoint_address_forbidden: '服务地址指向系统禁止访问的本机、链路本地、云元数据或保留网络地址。',
   family_model_endpoint_private_target_not_allowed: '服务地址指向未获许可的私网地址。请联系部署管理员加入私网白名单。',
   family_model_endpoint_insecure_transport_not_allowed: '当前部署不允许公网明文 HTTP/WS。请改用 HTTPS/WSS，或由部署管理员开启不安全传输开关。',
-  family_model_provider_protocol_unsupported: '当前 Provider 类型不支持这个地址协议或认证方式。请检查服务类型、地址和认证方式。',
+  family_model_provider_protocol_unsupported: '当前模型服务不支持这种地址或验证方式。请检查服务类型、地址和验证方式。',
 };
 
 /** Never projects provider response bodies, endpoints, headers or stack details into the UI. */

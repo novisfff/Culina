@@ -112,7 +112,7 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
 
   const requireContext = useCallback(() => {
     if (!args.familyId || !args.settings || !args.draft) {
-      throw new Error('家庭模型设置尚未加载完成。');
+      throw new Error('家庭模型设置还没有加载完成，请稍后再试。');
     }
     return { familyId: args.familyId, settings: args.settings, draft: args.draft };
   }, [args.draft, args.familyId, args.settings]);

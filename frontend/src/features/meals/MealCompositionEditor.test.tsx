@@ -137,7 +137,7 @@ describe('MealCompositionEditor', () => {
 
     expect(screen.getByText('米饭')).toBeVisible();
     expect(search).toHaveValue('');
-    await user.click(screen.getByRole('button', { name: '保存组合' }));
+    await user.click(screen.getByRole('button', { name: '保存这顿' }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       expected_row_version: 2,
@@ -206,12 +206,12 @@ describe('MealCompositionEditor', () => {
     const notes = screen.getAllByLabelText('备注');
     await user.clear(notes[0]!);
     await user.type(notes[0]!, '本地备注');
-    await user.click(screen.getByRole('button', { name: '保存组合' }));
+    await user.click(screen.getByRole('button', { name: '保存这顿' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText(/有冲突，请确认后再保存/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/这顿记录刚有更新，请确认后再保存/).length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('备注冲突')).toBeVisible();
+    expect(screen.getByText('备注有变化')).toBeVisible();
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ expected_row_version: 2 });
 
@@ -270,7 +270,7 @@ describe('MealCompositionEditor', () => {
     const notes = screen.getAllByLabelText('备注');
     await user.clear(notes[0]!);
     await user.type(notes[0]!, '更少盐');
-    await user.click(screen.getByRole('button', { name: '保存组合' }));
+    await user.click(screen.getByRole('button', { name: '保存这顿' }));
 
     await waitFor(() => expect(onRefetch).toHaveBeenCalled());
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(current));

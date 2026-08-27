@@ -250,8 +250,8 @@ describe('IngredientWorkspaceOverlays inventory action dialog', () => {
     const { view } = renderOverlays();
 
     expect(view.textContent).toContain('番茄需要处理');
-    expect(view.textContent).toContain('已过期批次');
-    expect(view.textContent).toContain('即将到期批次');
+    expect(view.textContent).toContain('已过期库存');
+    expect(view.textContent).toContain('即将到期库存');
     expect(view.querySelector('input[value="inventory-expired-1"]')).not.toBeNull();
     expect(view.querySelector('input[value="inventory-upcoming-1"]')).not.toBeNull();
     expect(view.querySelector('.workspace-modal.workspace-modal-wide')).not.toBeNull();
@@ -288,15 +288,15 @@ describe('IngredientWorkspaceOverlays inventory action dialog', () => {
       disposeSelectedInventoryBatches,
       closeOverlay,
       inventoryActionConflict: 'review_again',
-      inventoryActionError: '家人刚刚改动了这批库存，请重新选择后再提交。',
+      inventoryActionError: '家人刚刚改动了这条库存记录，请重新选择后再提交。',
     });
 
     expect(view.textContent).toContain('重新确认');
-    expect(view.textContent).toContain('家人刚刚改动了这批库存');
+    expect(view.textContent).toContain('家人刚刚改动了这条库存记录');
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '丢弃所选库存');
     await act(async () => {
-      clickButton(view, '确认销毁');
+      clickButton(view, '确认丢弃');
     });
 
     expect(disposeSelectedInventoryBatches).toHaveBeenCalledWith(versionedItems);
@@ -472,7 +472,7 @@ describe('useIngredientActionState inventory action mutations', () => {
     expect(closeOverlay).not.toHaveBeenCalled();
     expect(setInventoryActionConflict).toHaveBeenCalledWith('review_again');
     expect(setInventoryActionError).toHaveBeenCalledWith(
-      expect.stringContaining('家人刚刚改动了这批库存'),
+      expect.stringContaining('家人刚刚改动了库存'),
     );
   });
 
@@ -500,7 +500,7 @@ describe('useIngredientActionState inventory action mutations', () => {
     expect(closeOverlay).toHaveBeenCalledTimes(1);
     expect(showNotice).toHaveBeenCalledWith({
       tone: 'success',
-      title: '这批库存已由家人处理',
+      title: '库存已由家人处理',
       message: expect.stringContaining('番茄') as string,
     });
   });

@@ -324,7 +324,7 @@ describe('AiWorkspace pending approval restore', () => {
     expect(rendered.container.textContent).not.toContain('家庭 AI 服务尚未配置。');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
-        .every((textarea) => textarea.placeholder === '该能力尚未由家庭主理人配置'),
+        .every((textarea) => textarea.placeholder === '该功能还没有由家庭主理人配置'),
     ).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     await act(async () => {
@@ -364,7 +364,7 @@ describe('AiWorkspace pending approval restore', () => {
     expect(rendered.container.textContent).not.toContain('AI 未配置');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
-        .every((textarea) => textarea.placeholder === '主对话模型尚未启用'),
+        .every((textarea) => textarea.placeholder === '主对话模型未启用'),
     ).toBe(true);
     rendered.unmount();
   });
@@ -379,7 +379,7 @@ describe('AiWorkspace pending approval restore', () => {
     );
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('AI 状态未知');
+    expect(rendered.container.textContent).toContain('暂时无法确认 AI 状态');
     expect(rendered.container.textContent).not.toContain('AI 已就绪');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea'))
@@ -1544,7 +1544,7 @@ describe('AiWorkspace pending approval restore', () => {
     const updatedTextBlocks = Array.from(updatedMobileBody.querySelectorAll<HTMLElement>('.ai-message-text-block'));
     const updatedContinuationTextBlock = updatedTextBlocks.find((block) => block.textContent?.includes('接下来我继续整理第二份菜')) as HTMLElement;
     const scriptActivityRows = Array.from(updatedMobileBody.querySelectorAll<HTMLElement>('.ai-run-activity'))
-      .filter((activity) => activity.textContent?.includes('lint_recipe_draft'));
+      .filter((activity) => activity.textContent?.includes('自动处理'));
     expect(scriptActivityRows).toHaveLength(1);
     expect(updatedContinuationTextBlock.compareDocumentPosition(scriptActivityRows[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -1553,7 +1553,7 @@ describe('AiWorkspace pending approval restore', () => {
     const rerenderedContinuationTextBlock = Array.from(rerenderedMobileBody.querySelectorAll<HTMLElement>('.ai-message-text-block'))
       .find((block) => block.textContent?.includes('接下来我继续整理第二份菜')) as HTMLElement;
     const rerenderedScriptActivityRows = Array.from(rerenderedMobileBody.querySelectorAll<HTMLElement>('.ai-run-activity'))
-      .filter((activity) => activity.textContent?.includes('lint_recipe_draft'));
+      .filter((activity) => activity.textContent?.includes('自动处理'));
     expect(rerenderedScriptActivityRows).toHaveLength(1);
     expect(rerenderedContinuationTextBlock.compareDocumentPosition(rerenderedScriptActivityRows[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     rendered.unmount();
@@ -1725,7 +1725,7 @@ describe('AiWorkspace pending approval restore', () => {
         ?.click();
     });
     await flushAsync();
-    expect(rendered.container.textContent).toContain('删除这条历史？');
+    expect(rendered.container.textContent).toContain('永久删除这条会话？');
     expect(rendered.container.textContent).toContain('帮我生成菜谱');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-delete-confirm-actions .solid-button')?.click();
@@ -1908,7 +1908,7 @@ describe('AiWorkspace pending approval restore', () => {
     expect(approvalSignal?.aborted).toBe(true);
     expect(rendered.container.textContent).not.toContain('AbortError');
     expect(rendered.container.textContent).not.toContain('The operation was aborted');
-    expect(rendered.container.textContent).not.toContain('AI 后续处理失败');
+    expect(rendered.container.textContent).not.toContain('AI 处理失败');
     rendered.unmount();
   });
 
@@ -2024,7 +2024,7 @@ describe('AiWorkspace pending approval restore', () => {
     );
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('任务已取消，未提交回答');
+    expect(rendered.container.textContent).toContain('这次处理已取消，回答未提交');
     expect(
       Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-clarification-option'))
         .every((button) => button.disabled),
@@ -2303,10 +2303,10 @@ describe('AiWorkspace pending approval restore', () => {
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
     const activity = desktopView.querySelector('.ai-run-activity') as HTMLElement;
     expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
-    expect(activity.textContent).toContain('调用技能');
+    expect(activity.textContent).toContain('正在处理：');
     expect(activity.textContent).toContain('餐食计划');
     expect(activity.textContent).not.toContain('调用「餐食计划」技能');
-    expect(desktopView.textContent).toContain('正在准备可确认草稿');
+    expect(desktopView.textContent).toContain('正在准备待确认草稿');
     const messageBody = desktopView.querySelector('.ai-message-assistant .ai-message-body') as HTMLElement;
     const markdown = messageBody.querySelector('.ai-message-markdown') as HTMLElement;
     const draftCue = messageBody.querySelector('.ai-draft-generating-cue') as HTMLElement;
@@ -2316,17 +2316,17 @@ describe('AiWorkspace pending approval restore', () => {
     expect(desktopView.querySelector('.ai-run-progress-bar')).toBeNull();
     expect(desktopView.querySelector('.ai-run-tool-marquee')).toBeNull();
     let activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['正在处理：餐食计划', '已完成：调用「可用库存」', '已生成「餐食计划确认表单」']);
     expect(activityRows[0]?.className).toContain('status-called');
     expect(activityRows[0]?.className).not.toContain('status-running');
     expect(activityRows[0]?.className).not.toContain('is-active');
     expect(activityRows[0]?.querySelector('.ai-run-skill-icon')).not.toBeNull();
     await advanceTimers(1999);
     activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['正在处理：餐食计划', '已完成：调用「可用库存」', '已生成「餐食计划确认表单」']);
     await advanceTimers(1);
     activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['正在处理：餐食计划', '已完成：调用「可用库存」', '已生成「餐食计划确认表单」']);
     expect(activityRows[2]?.className).toContain('kind-draft');
     expect(activityRows[2]?.querySelector('.ai-run-tool-icon.icon-form')).not.toBeNull();
     expect(activityRows[1]?.className).toContain('kind-tool');
@@ -2370,12 +2370,12 @@ describe('AiWorkspace pending approval restore', () => {
     await advanceTimers(0);
     expect(rendered.container.textContent).toContain('已安排好晚餐。');
     const settledActivityText = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity')).map((item) => item.textContent).join('\n');
-    expect(settledActivityText).toContain('调用技能');
+    expect(settledActivityText).toContain('已完成：');
     expect(settledActivityText).not.toContain('已完成：餐食计划');
     expect(settledActivityText).toContain('餐食计划');
-    expect(settledActivityText).toContain('调用「可用库存」');
-    expect(settledActivityText).toContain('生成「餐食计划确认表单」');
-    expect(desktopView.textContent).not.toContain('正在准备可确认草稿');
+    expect(settledActivityText).toContain('已完成：调用「可用库存」');
+    expect(settledActivityText).toContain('已生成「餐食计划确认表单」');
+    expect(desktopView.textContent).not.toContain('正在准备待确认草稿');
     expect(desktopView.querySelector('.ai-run-activity-detail')).toBeNull();
     rendered.unmount();
   });

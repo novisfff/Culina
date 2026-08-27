@@ -77,7 +77,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   } as CSSProperties;
   const consumeTotalRemainingLabel =
     selectedConsumeSummary?.quantitySummaries[0]?.label ??
-    (selectedConsumeUnit ? `${formatNumericString(consumeAvailableQuantity)}${selectedConsumeUnit.unit}` : '暂无库存');
+    (selectedConsumeUnit ? `${formatNumericString(consumeAvailableQuantity)} ${selectedConsumeUnit.unit}` : '还没有库存');
   const inventoryUnitOptions = selectedInventoryIngredient
     ? getIngredientUnitOptions(selectedInventoryIngredient)
     : [];

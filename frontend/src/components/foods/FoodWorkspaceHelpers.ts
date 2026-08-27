@@ -99,16 +99,16 @@ export function isFoodMissingDecisionInfo(food: Food, recipes: Recipe[] = []) {
 
 export function getFoodStatus(food: Food, usage: ReturnType<typeof getMealUsage>, expiry: string | null, recipes: Recipe[] = []) {
   if (isFoodExpiring(food)) {
-    return { label: expiry ?? '临期', detail: '优先处理', tone: 'warning' };
+    return { label: expiry ?? '临期', detail: '建议优先处理', tone: 'warning' };
   }
   if (isFoodMissingDecisionInfo(food, recipes)) {
-    return { label: '待完善', detail: '补资料', tone: 'attention' };
+    return { label: '需要完善', detail: '需要补充信息', tone: 'attention' };
   }
   if (food.favorite || usage.count >= 2) {
-    return { label: '常复吃', detail: usage.count > 0 ? `${usage.count} 次` : '已收藏', tone: 'good' };
+    return { label: '常吃', detail: usage.count > 0 ? `${usage.count} 次` : '已收藏', tone: 'good' };
   }
   if (usage.count === 0) {
-    return { label: '新食物', detail: '待记录', tone: 'quiet' };
+    return { label: '新食物', detail: '还没有用餐记录', tone: 'quiet' };
   }
   return { label: '已记录', detail: `${usage.count} 次`, tone: 'neutral' };
 }
@@ -146,17 +146,17 @@ export function getDefaultMealType(food: Food): MealType {
 export function getPrimaryFoodActionLabel(food: Food) {
   const normalizedType = normalizeFoodType(food);
   if (normalizedType === 'takeout' || normalizedType === 'diningOut') return '再吃一次';
-  if (normalizedType === 'readyMade' || normalizedType === 'instant') return '记到今天';
-  return '记到今天';
+  if (normalizedType === 'readyMade' || normalizedType === 'instant') return '记录这顿';
+  return '记录这顿';
 }
 
 export function getSecondaryFoodActionLabel(_food: Food) {
-  return '编辑档案';
+  return '编辑食物';
 }
 
 export function getRepurchaseLabel(food: Food) {
-  if (food.repurchase == null) return '未记录';
-  return food.repurchase ? '愿意复购' : '暂不复购';
+  if (food.repurchase == null) return '还没有选择';
+  return food.repurchase ? '想再吃' : '近期不想再吃';
 }
 
 export function getFoodFactRows(food: Food, usage: ReturnType<typeof getMealUsage>, expiry: string | null) {
@@ -164,23 +164,23 @@ export function getFoodFactRows(food: Food, usage: ReturnType<typeof getMealUsag
   const mealText = food.suitable_meal_types.map((meal) => MEAL_TYPE_LABELS[meal]).join('、') || '未设置';
   if (normalizedType === 'selfMade') {
     return [
-      { label: '菜谱', value: food.recipe_id ? '已完善' : '待完善' },
-      { label: '复吃', value: usage.count > 0 ? `${usage.count} 次` : '还未记录' },
+      { label: '菜谱', value: food.recipe_id ? '已完善' : '需要完善' },
+      { label: '吃过次数', value: usage.count > 0 ? `${usage.count} 次` : '还没有记录' },
       { label: '餐别', value: mealText },
     ];
   }
   if (isOutsideFood(food)) {
     return [
-      { label: normalizedType === 'takeout' ? '店铺' : '餐厅', value: food.source_name || food.purchase_source || '待补充' },
-      { label: '价格', value: food.price == null ? '未记录' : `¥${food.price}` },
-      { label: '复购', value: getRepurchaseLabel(food) },
+      { label: normalizedType === 'takeout' ? '店铺' : '餐厅', value: food.source_name || food.purchase_source || '还没有记录' },
+      { label: '价格', value: food.price == null ? '还没有记录' : `¥${food.price}` },
+      { label: '还想再吃吗', value: getRepurchaseLabel(food) },
     ];
   }
   return [
     { label: '库存', value: formatFoodStockQuantity(food) },
-    { label: '存放', value: food.storage_location || '常温' },
-    { label: '到期', value: expiry ?? '未记录' },
-    { label: '渠道', value: food.purchase_source || food.source_name || '待补充' },
+      { label: '存放位置', value: food.storage_location || '常温' },
+    { label: '到期日', value: expiry ?? '未填写到期日' },
+    { label: '购买渠道', value: food.purchase_source || food.source_name || '未填写购买渠道' },
   ];
 }
 
@@ -212,28 +212,28 @@ export function buildFoodRelationViewModelFromRecipeCards(
   const lastMealLog = getLastMealLogForFood(food, mealLogs);
   const normalizedType = normalizeFoodType(food);
   const linkedRecipeCard = food.recipe_id ? recipeCards.find((card) => card.recipe.id === food.recipe_id) ?? null : null;
-  const recordValue = usage.count > 0 ? `${usage.count} 次` : '还未记录';
-  const lastValue = lastMealLog ? formatDate(lastMealLog.date) : '还没有';
+  const recordValue = usage.count > 0 ? `${usage.count} 次` : '还没有记录';
+  const lastValue = lastMealLog ? formatDate(lastMealLog.date) : '还没有记录';
 
   if (normalizedType === 'selfMade') {
     const shortagePreview = linkedRecipeCard?.shortages
       .slice(0, 3)
-      .map((item) => `${item.ingredientName} ${item.missingQuantity}${item.unit}`) ?? [];
+      .map((item) => `${item.ingredientName} ${item.missingQuantity} ${item.unit}`) ?? [];
     return {
       linkedRecipeCard,
       usage,
       lastMealLog,
       relationFacts: [
-        { label: '菜谱', value: linkedRecipeCard?.recipe.title ?? '待完善' },
-        { label: '可做程度', value: linkedRecipeCard?.availabilityLabel ?? '无法判断' },
+        { label: '菜谱', value: linkedRecipeCard?.recipe.title ?? '需要完善' },
+        { label: '可做情况', value: linkedRecipeCard?.availabilityLabel ?? '暂时无法判断' },
         { label: '餐食记录', value: recordValue },
         { label: '最近一次', value: lastValue },
       ],
       shortagePreview,
-      summary: linkedRecipeCard ? `${linkedRecipeCard.recipe.title} · ${linkedRecipeCard.availabilityLabel}` : '待完善菜谱',
+      summary: linkedRecipeCard ? `${linkedRecipeCard.recipe.title} · ${linkedRecipeCard.availabilityLabel}` : '还没有菜谱',
       detail: linkedRecipeCard
         ? shortagePreview.length > 0
-          ? `缺 ${shortagePreview.join('、')}`
+          ? `缺少 ${shortagePreview.join('、')}`
           : linkedRecipeCard.availabilityDetail
         : '补充菜谱与用料后可以判断缺哪些食材。',
     };
@@ -246,11 +246,11 @@ export function buildFoodRelationViewModelFromRecipeCards(
       relationFacts: [
         { label: '餐食记录', value: recordValue },
         { label: '最近一次', value: lastValue },
-        { label: '复购评分', value: food.rating == null ? getRepurchaseLabel(food) : `${food.rating} 分 · ${getRepurchaseLabel(food)}` },
+        { label: '评分与再吃意愿', value: food.rating == null ? getRepurchaseLabel(food) : `${food.rating} 分 · ${getRepurchaseLabel(food)}` },
       ],
       shortagePreview: [],
-      summary: `${recordValue}记录 · ${lastMealLog ? `上次 ${lastValue}` : '还没吃过'}`,
-      detail: `${food.source_name || food.purchase_source || '未记录来源'} · ${getRepurchaseLabel(food)}`,
+      summary: `${usage.count > 0 ? `共 ${recordValue}` : '还没有记录'} · ${lastMealLog ? `上次 ${lastValue}` : '还没有记录'}`,
+      detail: `${food.source_name || food.purchase_source || '未填写来源'} · ${getRepurchaseLabel(food)}`,
     };
   }
 
@@ -261,15 +261,15 @@ export function buildFoodRelationViewModelFromRecipeCards(
     lastMealLog,
     relationFacts: [
       { label: '库存剩余', value: stockValue },
-      { label: '到期', value: describeExpiry(food) ?? '未记录' },
+      { label: '到期日', value: describeExpiry(food) ?? '未填写到期日' },
       { label: '餐食记录', value: recordValue },
       { label: '最近一次', value: lastValue },
     ],
     shortagePreview: [],
-    summary: `${stockValue}库存 · ${usage.count > 0 ? `吃过 ${usage.count} 次` : '还未记录'}`,
+    summary: `${stockValue} · 库存 · ${usage.count > 0 ? `吃过 ${usage.count} 次` : '还没有记录'}`,
     detail: food.stock_quantity == null
-      ? '库存未记录，补齐后会更适合做备用餐判断。'
-      : `${food.purchase_source || food.source_name || '未记录来源'} · ${describeExpiry(food) ?? '未记录到期'}`,
+      ? '还没有库存，补充后更方便安排备用餐。'
+      : `${food.purchase_source || food.source_name || '未填写购买渠道'} · ${describeExpiry(food) ?? '未填写到期日'}`,
   };
 }
 
@@ -287,13 +287,13 @@ export function buildFoodCookingSummaryFromRecipeCards(
   if (!recipe) return null;
   const shortagePreview = linkedRecipeCard?.shortages
     .slice(0, 3)
-    .map((item) => `${item.ingredientName} ${item.missingQuantity}${item.unit}`) ?? [];
-  const metaLabel = `${recipe.ingredient_items.length}原料 · ${recipe.steps.length}步`;
+    .map((item) => `${item.ingredientName} ${item.missingQuantity} ${item.unit}`) ?? [];
+  const metaLabel = `${recipe.ingredient_items.length} 种食材 · ${recipe.steps.length} 步`;
   return {
     linkedRecipeCard,
     title: recipe.title,
     availabilityLabel: linkedRecipeCard?.availabilityLabel ?? metaLabel,
-    availabilityDetail: linkedRecipeCard?.availabilityDetail || recipe.tips || '这份家常菜谱已经保存到食物里。',
+    availabilityDetail: linkedRecipeCard?.availabilityDetail || recipe.tips || '这份家常菜谱已与食物信息关联。',
     metaLabel,
     shortagePreview,
     isReady: Boolean(linkedRecipeCard && linkedRecipeCard.shortages.length === 0),

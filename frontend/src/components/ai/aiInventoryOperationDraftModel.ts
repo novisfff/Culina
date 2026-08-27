@@ -132,25 +132,25 @@ export function inventoryOperationDraftFromRecord(draft: Record<string, unknown>
 }
 
 export function validateInventoryOperationDraftForSubmit(draft: InventoryOperationDraftViewModel) {
-  if (draft.operations.length === 0) return '库存处理草稿至少需要 1 项处理';
+  if (draft.operations.length === 0) return '请至少保留一项库存变更';
   for (const item of draft.operations) {
     const ingredientName = item.ingredientName || '食材';
     if (!item.action) {
-      return `${ingredientName} 的库存处理方式无效`;
+      return `${ingredientName} 的库存变更方式无法识别，请重新选择`;
     }
     if (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
-      return `${ingredientName} 的处理数量需要大于 0`;
+      return `${ingredientName} 的变更数量需要大于 0`;
     }
     if (!item.unit.trim()) {
       return `${ingredientName} 的单位不能为空`;
     }
     if (item.action === 'dispose' && !item.reason.trim()) {
-      return '销毁库存必须填写原因';
+      return '丢弃库存必须填写原因';
     }
     if (item.action === 'consume' && item.inventoryItemId) {
       const hasBatch = item.batchOptions.some((option) => option.id === item.inventoryItemId);
       if (!hasBatch) {
-        return `${ingredientName} 指定的库存批次必须从批次下拉中选择`;
+        return `请从库存列表中选择要处理的${ingredientName}库存`;
       }
     }
   }

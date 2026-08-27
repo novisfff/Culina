@@ -28,7 +28,7 @@ function makeSummary(
     can_revert: true,
     actor_display_name: '小明',
     summary: {
-      title: '本次购买已登记',
+      title: '本次购买已记录',
       description: '完成 2 项',
       confirmed_count: 0,
       adjusted_count: 0,
@@ -167,19 +167,19 @@ describe('InventoryOperationHistoryDialog', () => {
       ],
       selectedOperationId: 'op-1',
     });
-    expect(container!.textContent).toContain('撤销本次操作');
+    expect(container!.textContent).toContain('撤销本次变更');
     const revert = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('撤销本次操作'),
+      button.textContent?.includes('撤销本次变更'),
     );
     act(() => {
       revert!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(props.onRevert).not.toHaveBeenCalled();
-    expect(container!.textContent).toContain('确认撤销整次操作');
-    expect(container!.textContent).toContain('回退这次操作涉及的全部变更');
+    expect(container!.textContent).toContain('确认撤销本次变更');
+    expect(container!.textContent).toContain('恢复这次变更涉及的全部内容');
 
     const confirm = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('确认撤销整次操作'),
+      button.textContent?.includes('确认撤销本次变更'),
     );
     act(() => {
       confirm!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -194,7 +194,7 @@ describe('InventoryOperationHistoryDialog', () => {
           can_revert: false,
           status: 'reverted',
           summary: {
-            title: '本次购买已登记',
+            title: '本次购买已记录',
             description: '已撤销',
             confirmed_count: 0,
             adjusted_count: 0,
@@ -213,7 +213,7 @@ describe('InventoryOperationHistoryDialog', () => {
     });
     expect(container!.textContent).toContain('已撤销');
     const revertButtons = Array.from(container!.querySelectorAll('button')).filter((button) =>
-      button.textContent === '撤销本次操作' || button.textContent === '确认撤销整次操作',
+      button.textContent === '撤销本次变更' || button.textContent === '确认撤销本次变更',
     );
     expect(revertButtons).toHaveLength(0);
     expect(container!.textContent).toContain('暂时无法撤销');
@@ -242,20 +242,20 @@ describe('InventoryOperationHistoryDialog', () => {
 
   it('renders loading empty and error states', () => {
     renderDialog({ loading: true, operations: [] });
-    expect(container!.textContent).toContain('正在加载操作历史');
+    expect(container!.textContent).toContain('正在加载变更记录');
 
     act(() => root?.unmount());
     container?.remove();
     renderDialog({ loading: false, operations: [], selectedOperationId: null, detail: null });
-    expect(container!.textContent).toContain('暂无库存操作记录');
+    expect(container!.textContent).toContain('还没有库存变更记录');
 
     act(() => root?.unmount());
     container?.remove();
     renderDialog({
-      errorMessage: '读取操作历史失败',
+      errorMessage: '加载操作记录失败',
       detailError: '详情加载失败',
     });
-    expect(container!.textContent).toContain('读取操作历史失败');
+    expect(container!.textContent).toContain('加载操作记录失败');
     expect(container!.textContent).toContain('详情加载失败');
   });
 
@@ -270,7 +270,7 @@ describe('InventoryOperationHistoryDialog', () => {
     const modal = container!.querySelector('.inventory-operation-history-modal');
     expect(modal).toHaveClass('is-compact', 'is-empty');
     expect(container!.querySelector('.inventory-operation-history-empty')).not.toBeNull();
-    expect(container!.textContent).toContain('暂无库存操作记录');
+    expect(container!.textContent).toContain('还没有库存变更记录');
     expect(container!.querySelector('.workspace-overlay-footer-info')).toBeNull();
     expect(container!.textContent).not.toContain('仅可查看历史详情');
 
@@ -293,7 +293,7 @@ describe('InventoryOperationHistoryDialog', () => {
     renderDialog({ busy: true });
 
     const progress = container!.querySelector('.ui-operation-loading-overlay');
-    expect(progress?.textContent).toContain('正在撤销库存操作');
+    expect(progress?.textContent).toContain('正在撤销库存变更');
     expect(progress?.getAttribute('aria-busy')).toBe('true');
     expect(container!.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
   });

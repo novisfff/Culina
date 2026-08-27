@@ -20,13 +20,13 @@ type RecipeIngredientResolutionDialogProps = {
 
 function reasonLabel(reason: string) {
   if (reason === 'ingredient_not_found') return '食材不存在或不属于当前家庭';
-  if (reason === 'missing_ingredient_id') return '还没有绑定真实食材';
+  if (reason === 'missing_ingredient_id') return '还没有选择对应食材';
   return '需要重新确认';
 }
 
 function formatTargetQuantity(target: RecipeUnresolvedIngredientTarget) {
   const quantity = target.quantity === undefined || target.quantity === null || target.quantity === '' ? '' : String(target.quantity);
-  return [quantity, target.unit].filter(Boolean).join('');
+  return [quantity, target.unit].filter(Boolean).join(' ');
 }
 
 function RecipeIngredientCandidateSearch({
@@ -60,11 +60,11 @@ function RecipeIngredientCandidateSearch({
             {[formatTargetQuantity(target), reasonLabel(target.reason)].filter(Boolean).join(' · ')}
           </span>
         </div>
-        <Badge>待处理</Badge>
+        <Badge>待关联</Badge>
       </div>
 
       <div className="recipe-ingredient-resolution-search">
-        <span>检索已有食材</span>
+          <span>搜索已有食材</span>
         <SearchableResourceSelect
           ariaLabel="选择匹配食材"
           placeholder="输入食材名或别名"
@@ -74,9 +74,9 @@ function RecipeIngredientCandidateSearch({
           loadingMore={ingredientSearch.isFetchingNextPage}
           hasMore={ingredientSearch.hasMore}
           disabled={isCreatingIngredient}
-          emptyText={ingredientSearch.isSearching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
+          emptyText={ingredientSearch.isSearching ? '正在搜索相似食材…' : '没有找到合适候选，可以先创建食材。'}
           loadMoreText="加载更多食材"
-          loadingMoreText="正在加载更多食材..."
+          loadingMoreText="正在加载更多食材…"
           options={ingredientSearch.ingredients.map((ingredient) => ({
             id: ingredient.id,
             label: ingredient.name,
@@ -85,7 +85,7 @@ function RecipeIngredientCandidateSearch({
               <MediaWithPlaceholder
                 src={resolveAssetUrl(ingredient.image?.url)}
                 alt={ingredient.name}
-                emptyLabel="暂无图"
+                emptyLabel="还没有图片"
               />
             ),
           }))}
@@ -107,11 +107,11 @@ function RecipeIngredientCandidateSearch({
       <div className="recipe-ingredient-resolution-actions">
         <ActionButton tone="primary" size="compact" type="button" onClick={() => onCreateIngredient(target)} disabled={isCreatingIngredient}>
           <RecipeUiIcon name="plus" />
-          新建为食材
+          创建食材
         </ActionButton>
         <ActionButton tone="secondary" size="compact" type="button" onClick={() => onRemoveIngredientRow(target)}>
           <RecipeUiIcon name="minus" />
-          从菜谱移除
+          从菜谱中移除
         </ActionButton>
       </div>
     </article>
@@ -134,8 +134,8 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
       closeOnBackdrop={!props.isCreatingIngredient}
     >
       <WorkspaceModal
-        title="处理缺失食材"
-        description="这些配料还没有绑定到食材库，处理后才能保存菜谱。"
+        title="处理未关联食材"
+        description="这些食材还没有关联到食材库，处理后才能保存菜谱。"
         eyebrow="保存前确认"
         onClose={closeIfAllowed}
         className="recipe-ingredient-resolution-modal"
@@ -153,8 +153,8 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
         <div className="recipe-ingredient-resolution-dialog">
           <section className="recipe-ingredient-resolution-summary">
             <div>
-              <h3>{unresolvedCount > 0 ? '需要逐项确认' : '食材已经处理完成'}</h3>
-              <p>{unresolvedCount > 0 ? '可以匹配已有食材、创建新食材，或移除不需要扣库存的配料。' : '现在可以重新保存菜谱。'}</p>
+            <h3>{unresolvedCount > 0 ? '需要逐项确认' : '食材处理完成'}</h3>
+            <p>{unresolvedCount > 0 ? '可以匹配已有食材、创建新食材，或移除不需要扣库存的食材。' : '现在可以重新保存菜谱。'}</p>
             </div>
             <Badge>{unresolvedCount} 项</Badge>
           </section>
@@ -174,7 +174,7 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
               ))}
             </div>
           ) : (
-            <EmptyState title="没有待处理食材" description="已将所有配料绑定到食材库，或从菜谱中移除。" />
+            <EmptyState title="没有需要处理的食材" description="已为所有食材完成关联，或已从菜谱中移除。" />
           )}
 
         </div>

@@ -501,7 +501,7 @@ describe('useRecipeCookState scoped v3', () => {
     await act(async () => {
       await result.current.submitCookRecipe({ preventDefault() {} } as never);
     });
-    expect(result.current.cookFinishStatusMessage).toContain('完成结果不完整');
+    expect(result.current.cookFinishStatusMessage).toContain('完成记录不完整');
     expect(result.current.cookCompletionResult).toBeNull();
     expect(localStorage.getItem(buildCookSessionV3Key(SCOPE, recipe.id, {
       kind: 'direct', date: '2026-07-14', mealType: 'dinner',

@@ -51,7 +51,7 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
   const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(props.dialog.food);
   const description = isCookAction
     ? '确认日期、餐次和份量后开始做'
-    : '确认日期和餐次，点一下就完成。';
+    : '确认日期和餐次后，就可以记下这一餐。';
   const isSubmitting = Boolean(props.isSubmitting);
   const quickMealFormId = 'food-workspace-quick-meal-form';
   const servings = props.dialog.servings ?? 1;

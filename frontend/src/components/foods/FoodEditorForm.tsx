@@ -86,16 +86,16 @@ export function FoodEditorForm(props: Props) {
     : FOOD_CREATE_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade');
   const identityTitle = props.isSelfMade
     ? props.view === 'create'
-      ? '先选类型，再补菜谱'
+      ? '请先选择类型，再补充菜谱'
       : '菜谱'
-    : '先选类型，再填名称';
+    : '请先选择类型，再填写名称';
   const editorContent = (
     <WorkspaceSubpageShell className="food-editor-shell">
       {!props.embedded && (
         <WorkspaceSubpageHeader
           eyebrow="食物"
           title={props.view === 'create' ? '新增食物' : '编辑食物'}
-          description={props.isSelfMade ? '家常菜的名称、主图、用料和步骤放在食物里维护。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
+          description={props.isSelfMade ? '家常菜的名称、主图、用料和步骤都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
           backLabel="返回食物库"
           onBack={props.onBack}
           meta={<Badge>{FOOD_TYPE_LABELS[props.form.type]}</Badge>}
@@ -137,7 +137,7 @@ export function FoodEditorForm(props: Props) {
                   completionPercent={props.completionPercent}
                   coverUrl={props.editorRecipeCover}
                   description={props.currentRecipe
-                    ? '名称、主图、用料和步骤统一在这份菜谱中维护。'
+                    ? '名称、主图、用料和步骤统一记录在这份菜谱中。'
                     : '先补一份家常菜谱，保存后会自动出现在食物库。'}
                   hasRecipe={Boolean(props.currentRecipe)}
                   meta={props.editorRecipeMeta}
@@ -198,12 +198,12 @@ export function FoodEditorForm(props: Props) {
                           <StarRatingInput value={props.form.rating} onChange={(rating) => props.onFormChange((current) => ({ ...current, rating }))} />
                         </label>
                         <div className="food-repurchase-choice-field">
-                          <span>复购意愿</span>
-                          <div className="food-repurchase-choice-group" role="radiogroup" aria-label="复购意愿">
+                          <span>还想再吃吗</span>
+                          <div className="food-repurchase-choice-group" role="radiogroup" aria-label="还想再吃吗">
                             {[
-                              { value: 'unknown', label: '未记录' },
-                              { value: 'yes', label: '愿意复购' },
-                              { value: 'no', label: '暂不复购' },
+                              { value: 'unknown', label: '还没有选择' },
+                              { value: 'yes', label: '想再吃' },
+                              { value: 'no', label: '近期不想再吃' },
                             ].map((item) => (
                               <button
                                 key={item.value}
@@ -223,7 +223,7 @@ export function FoodEditorForm(props: Props) {
                     {isReadyLikeType(props.form.type) && (
                       <>
                         <label>
-                          <span>保质日期</span>
+                          <span>到期日</span>
                           <input className="text-input" type="date" value={props.form.expiryDate} onChange={(event) => props.onFormChange({ ...props.form, expiryDate: event.target.value })} />
                         </label>
                         <label>
@@ -263,7 +263,7 @@ export function FoodEditorForm(props: Props) {
                 <section className="food-editor-meta-card food-editor-meal-card">
                   <div className="food-editor-field-head">
                     <span>适合餐别</span>
-                    <small>最多可选多个，用于推荐和筛选</small>
+                    <small>可多选，用于推荐和筛选</small>
                   </div>
                   <div className="food-meal-checks">
                     {MEAL_OPTIONS.map((item) => (
@@ -313,10 +313,10 @@ export function FoodEditorForm(props: Props) {
                             ))}
                           </div>
                         ) : (
-                          <p className="food-scene-tag-empty">暂无可选标签，可以创建一个新标签。</p>
+                          <p className="food-scene-tag-empty">还没有可选标签，可以新增一个标签。</p>
                         )}
                         <div className="food-scene-tag-create">
-                          <input className="text-input" value={props.newSceneTagName} placeholder="创建新标签，例如：周末轻食" onChange={(event) => props.setNewSceneTagName(event.target.value)} />
+                          <input className="text-input" value={props.newSceneTagName} placeholder="新增标签，例如：周末轻食" onChange={(event) => props.setNewSceneTagName(event.target.value)} />
                           <ActionButton tone="secondary" size="compact" type="button" disabled={props.isUpdatingScene || !props.newSceneTagName.trim()} onClick={props.onCreateAndAddSceneTag}>
                             创建并添加
                           </ActionButton>
@@ -343,7 +343,7 @@ export function FoodEditorForm(props: Props) {
                 <section className="food-editor-meta-card food-editor-routine-note-card">
                   <div className="food-editor-field-head">
                     <span>常用备注</span>
-                    <small>一句话提示家庭成员或复吃场景</small>
+                    <small>供家人参考，也方便下次选择</small>
                   </div>
                   <div className="food-editor-note-input">
                     <input className="text-input" maxLength={50} value={props.form.routineNote} placeholder="例如：孩子也能吃、适合减脂、少油少盐" onChange={(event) => props.onFormChange({ ...props.form, routineNote: event.target.value })} />
@@ -368,8 +368,8 @@ export function FoodEditorForm(props: Props) {
           <aside className="food-editor-side">
             <div className="food-editor-summary sticky-panel">
               <h3>保存前检查</h3>
-              <p className="subtle">{props.isSelfMade ? '菜谱名称、主图和用料会自动同步，无需重复填写。' : '保存后可从卡片直接加入今天餐食。'}</p>
-              {props.isSelfMade && !props.form.recipeId && <div className="workspace-inline-note">先补一份菜谱与用料，保存后会自动出现在食物库。</div>}
+              <p className="subtle">{props.isSelfMade ? '菜谱名称、主图和用料会自动带入，无需重复填写。' : '保存后可从卡片直接加入今天的餐食计划。'}</p>
+              {props.isSelfMade && !props.form.recipeId && <div className="workspace-inline-note">先补一份菜谱和用料，保存后会自动出现在食物库。</div>}
               <FoodEditorCompletion
                 completionItems={props.completionItems}
                 completionPercent={props.completionPercent}
@@ -378,7 +378,7 @@ export function FoodEditorForm(props: Props) {
                 <div className="workspace-rail-actions">
                   <ActionButton tone="primary" type="submit" disabled={!props.canSubmit}>
                     <FoodUiIcon name="save" />
-                    <span>{props.isSavingFood ? '保存中...' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
+                    <span>{props.isSavingFood ? '保存中…' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
                   </ActionButton>
                   <ActionButton tone="secondary" type="button" onClick={props.onBack} disabled={props.isSavingFood}>
                     <FoodUiIcon name="arrowLeft" />

@@ -294,7 +294,7 @@ export function useInventoryReconciliationActions(
     }
     const currentState = stateRef.current;
     if (!currentState.draft) {
-      currentState.setErrorMessage('没有可提交的盘点草稿。');
+      currentState.setErrorMessage('没有可提交的盘点内容。');
       currentState.recoverToReview();
       return;
     }
@@ -337,7 +337,7 @@ export function useInventoryReconciliationActions(
           const errorMessage =
             fieldErrors.length === 1
               ? first.message
-              : `还有 ${fieldErrors.length} 处需要确认后才能提交。`;
+              : `还有 ${fieldErrors.length} 项需要确认后才能提交。`;
           // Force review so mapped field_errors attach to visible group controls.
           stateRef.current.recoverToReview({
             fieldErrors,
@@ -421,7 +421,7 @@ export function useInventoryReconciliationActions(
       showNoticeRef.current?.({
         tone: 'success',
         title: result?.summary.title || '本次盘点已完成',
-        message: result?.summary.description || '库存确认已同步更新。',
+        message: result?.summary.description || '库存确认已完成。',
       });
     } catch (reason) {
       stateRef.current.setResultAndClearDraft({
@@ -431,8 +431,8 @@ export function useInventoryReconciliationActions(
       });
       showNoticeRef.current?.({
         tone: 'warning',
-        title: '盘点已完成，但数据刷新失败',
-        message: messageOf(reason, '请下拉刷新后再继续。'),
+        title: '盘点已完成',
+        message: messageOf(reason, '页面暂时没有更新，请下拉刷新后再试。'),
       });
     } finally {
       stateRef.current.setBusy(false);

@@ -81,7 +81,7 @@ export function getDashboardPlanProgress(items: readonly FoodPlanItem[]): Dashbo
   const recordedCount = visibleItems.filter((item) => item.status === 'cooked').length;
   const pendingCount = totalCount - recordedCount;
   if (totalCount === 0) {
-    return { totalCount, recordedCount, pendingCount, label: '暂无安排', state: 'empty' };
+    return { totalCount, recordedCount, pendingCount, label: '当天还没有安排餐食', state: 'empty' };
   }
   if (recordedCount === 0) {
     return { totalCount, recordedCount, pendingCount, label: `${totalCount} 项安排`, state: 'planned' };
@@ -169,7 +169,7 @@ export function buildHomeHighlightsViewModel(input: {
     phase: input.isError ? 'error' : 'loading',
     hasRefreshError: false,
     isRefreshing: input.isFetching,
-    weekCountLabel: '本周协作 --',
+    weekCountLabel: '本周协作暂未统计',
   };
 }
 
@@ -306,10 +306,10 @@ export function buildHomeDashboardViewModel(input: {
       tone: 'green',
     },
     {
-      label: '需处理食材',
+      label: '需要处理的食材',
       value: `${homeInventoryActionCount}`,
       unit: '种',
-      detail: '过期、临期或待补货',
+      detail: '过期、临期或需要补货',
       icon: 'bell',
       tone: 'coral',
     },
@@ -322,7 +322,7 @@ export function buildHomeDashboardViewModel(input: {
       tone: 'yellow',
     },
     {
-      label: '本周已安排',
+      label: '本周已安排餐食',
       value: `${scheduledMealCount}`,
       unit: '顿',
       detail: '按家庭节奏规划',

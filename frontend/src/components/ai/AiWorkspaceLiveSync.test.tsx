@@ -793,7 +793,7 @@ describe('AiWorkspace live sync and conversation migration', () => {
 
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
     expect(desktopView.textContent).toContain('确认创建菜谱');
-    expect(desktopView.textContent).toContain('确认入口正在准备，稍后即可确认。');
+    expect(desktopView.textContent).toContain('确认功能暂时不可用，请稍后再试。');
     expect(desktopView.querySelector('.ai-approval-actions .solid-button')).toBeNull();
     expect(desktopView.querySelector('.ai-conversation-item.is-waiting .ai-history-waiting-icon')).not.toBeNull();
     expect(desktopView.querySelector('.ai-conversation-item.is-waiting .ai-history-spinner')).toBeNull();
@@ -1007,11 +1007,11 @@ describe('AiWorkspace live sync and conversation migration', () => {
 
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flushAsync();
-    const disposeButton = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '销毁');
+    const disposeButton = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '丢弃');
     await act(async () => disposeButton?.click());
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('番茄的销毁草稿生成失败：库存批次已变化');
+    expect(rendered.container.textContent).toContain('番茄的丢弃草稿生成失败：库存批次已变化');
     rendered.unmount();
   });
 
@@ -1448,7 +1448,7 @@ describe('AiWorkspace live sync and conversation migration', () => {
     const textBlock = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-markdown'))
       .find((block) => block.textContent?.includes('我先把“白切鸡”整理成菜谱草稿')) as HTMLElement;
     const scriptActivities = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-run-activity'))
-      .filter((activity) => activity.textContent?.includes('lint_recipe_draft'));
+      .filter((activity) => activity.textContent?.includes('自动处理'));
     expect(scriptActivities).toHaveLength(1);
     expect(textBlock.compareDocumentPosition(scriptActivities[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     rendered.unmount();
@@ -1692,7 +1692,7 @@ describe('AiWorkspace live sync and conversation migration', () => {
     await flushAsync();
 
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
-    expect(desktopView.textContent).toContain('AI 后续处理失败：AI 服务暂时不可用，请稍后重试。');
+    expect(desktopView.textContent).toContain('AI 处理失败：AI 服务暂时不可用，请稍后重试。');
     expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
     expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('发送消息');
     rendered.unmount();

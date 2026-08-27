@@ -91,7 +91,7 @@ function formatQuantityValue(value: number) {
 
 function buildQuantityLabels(batches: Array<{ remainingQuantity: number; unit: string; presenceOnly?: boolean }>) {
   if (batches.some((batch) => batch.presenceOnly)) {
-    return ['只记录整体有无'];
+    return ['只记录是否有库存'];
   }
   const totals = new Map<string, number>();
   const order: string[] = [];
@@ -235,18 +235,18 @@ function buildExpiryDetail(args: {
   if (presenceOnly) {
     const storagePart = storageLocations[0] ?? '';
     if (!mixed && severity === 'expires_today') {
-      return ['只记录整体有无', storagePart].filter(Boolean).join(' · ');
+      return ['只记录是否有库存', storagePart].filter(Boolean).join(' · ');
     }
     if (expiredBatchCount > 0) {
-      return ['只记录整体有无', '已过期', storagePart].filter(Boolean).join(' · ');
+      return ['只记录是否有库存', '已过期', storagePart].filter(Boolean).join(' · ');
     }
     if (todayBatchCount > 0) {
-      return ['只记录整体有无', '今天到期', storagePart].filter(Boolean).join(' · ');
+      return ['只记录是否有库存', '今天到期', storagePart].filter(Boolean).join(' · ');
     }
     if (soonBatchCount > 0) {
-      return ['只记录整体有无', '3 天内到期', storagePart].filter(Boolean).join(' · ');
+      return ['只记录是否有库存', '3 天内到期', storagePart].filter(Boolean).join(' · ');
     }
-    return ['只记录整体有无', '7 天内到期', storagePart].filter(Boolean).join(' · ');
+    return ['只记录是否有库存', '7 天内到期', storagePart].filter(Boolean).join(' · ');
   }
 
   if (!mixed && severity === 'expires_today') {
@@ -257,16 +257,16 @@ function buildExpiryDetail(args: {
 
   const parts: string[] = [];
   if (expiredBatchCount > 0) {
-    parts.push(`${expiredBatchCount} 批已过期`);
+    parts.push(`${expiredBatchCount} 项库存已过期`);
   }
   if (todayBatchCount > 0) {
-    parts.push(`${todayBatchCount} 批今天到期`);
+    parts.push(`${todayBatchCount} 项库存今天到期`);
   }
   if (soonBatchCount > 0) {
-    parts.push(`${soonBatchCount} 批 3 天内到期`);
+    parts.push(`${soonBatchCount} 项库存将在 3 天内到期`);
   }
   if (laterBatchCount > 0) {
-    parts.push(`${laterBatchCount} 批 7 天内到期`);
+    parts.push(`${laterBatchCount} 项库存将在 7 天内到期`);
   }
   return parts.join('，');
 }
@@ -356,7 +356,7 @@ function buildLowStockGroup(
     unit,
     threshold,
     title: `${ingredient.name}库存不足`,
-    detail: `现有 ${formatQuantityValue(availableQuantity)} ${unit}，补货线 ${formatQuantityValue(threshold)} ${unit}`,
+    detail: `当前 ${formatQuantityValue(availableQuantity)} ${unit}，低于提醒值 ${formatQuantityValue(threshold)} ${unit}`,
     primaryAction: 'add_shopping',
   };
 }

@@ -53,7 +53,7 @@ export function MealDetailPreview(props: MealDetailPreviewProps) {
           <strong>{title}</strong>
           <small>
             <time>{formatDateTime(props.meal.created_at)}</time>
-            {recorder ? <span>{recorder.display_name}记录</span> : null}
+            {recorder ? <span>记录人：{recorder.display_name}</span> : null}
           </small>
         </div>
       </section>
@@ -61,7 +61,7 @@ export function MealDetailPreview(props: MealDetailPreviewProps) {
       <section className="meal-log-preview-foods" aria-labelledby="meal-log-preview-foods-title">
         <div className="meal-log-preview-section-title">
           <strong id="meal-log-preview-foods-title">这顿吃了什么</strong>
-          <span>{props.meal.food_entries.length} 道食物</span>
+          <span>{props.meal.food_entries.length} 项食物</span>
         </div>
         <div className="meal-log-preview-food-list">
           {props.meal.food_entries.map((entry) => {
@@ -116,16 +116,16 @@ export function MealDetailPreview(props: MealDetailPreviewProps) {
                 ) : null}
               </div>
             ) : (
-              <p className="meal-log-preview-empty">没有选择参与家人</p>
+              <p className="meal-log-preview-empty">还没有选择参与的家人</p>
             )}
           </section>
 
           <section className="meal-log-preview-support-panel">
             <div className="meal-log-preview-section-title">
-              <strong>评论</strong>
+              <strong>备注</strong>
             </div>
             <p className={props.meal.notes ? 'meal-log-preview-comment' : 'meal-log-preview-empty'}>
-              {props.meal.notes || '还没有评论'}
+              {props.meal.notes || '还没有备注'}
             </p>
           </section>
         </div>
@@ -162,7 +162,7 @@ export function MealDetailPreview(props: MealDetailPreviewProps) {
               <span className="meal-log-icon-slot" aria-hidden="true">
                 <MealLogIcon name="photo" />
               </span>
-              <span>暂无餐食照片</span>
+              <span>还没有餐食照片</span>
             </div>
           )}
         </section>

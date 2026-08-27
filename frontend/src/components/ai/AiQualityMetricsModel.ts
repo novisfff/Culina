@@ -3,28 +3,51 @@ import type { AiQualityMetrics, AiRateMetric } from '../../api/types';
 export const AI_SKILL_LABELS: Record<string, string> = {
   inventory_analysis: '库存查看与处理',
   meal_plan: '餐食安排',
-  shopping_list: '购物清单整理',
+  shopping_list: '采购清单整理',
   meal_log: '用餐记录',
-  food_profile: '食物资料整理',
-  ingredient_profile: '食材档案整理',
+  food_profile: '食物信息整理',
+  ingredient_profile: '食材信息整理',
   recipe_draft: '菜谱整理',
   recipe_cook: '按菜谱做菜',
 };
 
 export const AI_INTENT_LABELS: Record<string, string> = {
   meal_plan: '餐食计划',
-  shopping_list: '购物清单',
+  shopping_list: '采购清单',
   recipe_draft: '菜谱',
   inventory_analysis: '库存',
   multi_skill: '多步骤',
-  planner_failed: '路由失败',
+  planner_failed: '需求未识别',
+};
+
+/** User-facing names for diagnostic keys returned by the quality endpoint. */
+export const AI_DIAGNOSTIC_LABELS: Record<string, string> = {
+  'shopping_list:missing ingredient ids': '采购清单缺少食材信息',
+  'recipe_draft:invalid recipe steps': '菜谱步骤信息不完整',
+  'meal_plan:missing food ids': '餐食计划缺少食物信息',
+};
+
+export const AI_TRACE_ERROR_LABELS: Record<string, string> = {
+  provider_stream_failed: '模型回复中断',
+  provider_empty_response: '模型没有返回内容',
+  provider_unavailable: '模型服务暂时不可用',
+  tool_input_validation_failed: '自动处理信息不完整',
+  skill_failed: '处理步骤失败',
+  model_usage_settlement_failed: '用量记录暂时失败',
+};
+
+export const AI_CLARIFICATION_LABELS: Record<string, string> = {
+  missing_date: '缺少日期',
+  missing_meal_type: '缺少餐次',
+  missing_food: '缺少食物',
+  missing_ingredient: '缺少食材',
 };
 
 export const AI_STATUS_LABELS: Record<string, string> = {
   completed: '完成',
   failed: '失败',
   pending: '等待中',
-  running: '运行中',
+  running: '处理中',
   waiting_approval: '待确认',
   cancelled: '已取消',
   approved: '已确认',
@@ -58,7 +81,7 @@ export function aiRunSuccessRate(metrics: AiQualityMetrics) {
 }
 
 export function formatAiRate(metric?: AiRateMetric | null) {
-  if (!metric || !metric.denominator || metric.rate == null) return '暂无样本';
+  if (!metric || !metric.denominator || metric.rate == null) return '还没有数据';
   return `${Math.round(metric.rate * 100)}%（${metric.numerator}/${metric.denominator}）`;
 }
 
@@ -98,4 +121,3 @@ export function formatAiTokenCost(value?: number | null) {
   if (amount < 0.01) return `$${amount.toFixed(4)}`;
   return `$${amount.toFixed(2)}`;
 }
-

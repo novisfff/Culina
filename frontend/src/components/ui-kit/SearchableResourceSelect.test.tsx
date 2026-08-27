@@ -153,7 +153,7 @@ describe('SearchableResourceSelect', () => {
       />,
     );
 
-    expect(view.textContent).toContain('正在加载候选项…');
+    expect(view.textContent).toContain('正在加载选项…');
     expect(view.textContent).not.toContain('没有匹配项');
     expect(view.textContent).not.toContain('加载更多');
   });
@@ -193,7 +193,7 @@ describe('SearchableResourceSelect', () => {
     );
 
     expect(view.querySelector('[role="listbox"]')).toBeNull();
-    expect(view.querySelector('.ui-searchable-resource-select-loading[role="status"]')?.textContent).toBe('正在加载候选项…');
+    expect(view.querySelector('.ui-searchable-resource-select-loading[role="status"]')?.textContent).toBe('正在加载选项…');
     expect(view.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 

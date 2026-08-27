@@ -516,7 +516,7 @@ describe('useHomeDashboardActions inventory workflow', () => {
       ingredientId: 'ingredient-tomato',
       summary: {
         title: '已处理番茄',
-        message: '过期批次已销毁',
+        message: '过期库存已处理',
       },
       refreshedGroups: [milkGroup],
     });
@@ -602,10 +602,10 @@ describe('useHomeDashboardActions inventory workflow', () => {
     expect(completeActionGroup).not.toHaveBeenCalled();
     expect(setActionDialogConflict).toHaveBeenCalledWith('review_again');
     expect(setActionDialogError).toHaveBeenCalledWith(
-      expect.stringContaining('家人刚刚改动了这批库存'),
+      expect.stringContaining('家人刚刚改动了库存'),
     );
     expect(showNotice).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: '这批库存已由家人处理' }),
+      expect.objectContaining({ title: '库存已由家人处理' }),
     );
   });
 
@@ -635,7 +635,7 @@ describe('useHomeDashboardActions inventory workflow', () => {
     expect(closeActionGroup).toHaveBeenCalledTimes(1);
     expect(showNotice).toHaveBeenCalledWith({
       tone: 'success',
-      title: '这批库存已由家人处理',
+      title: '库存已由家人处理',
       message: expect.stringContaining('番茄') as string,
     });
     expect(setActionDialogConflict).toHaveBeenCalledWith('none');
@@ -686,8 +686,8 @@ describe('useHomeDashboardActions inventory workflow', () => {
       ingredientId: 'ingredient-tomato',
       summary: {
         title: '已处理番茄',
-        message: '过期批次已销毁',
-        secondaryActionLabel: '番茄库存已不足，加入采购',
+        message: '过期库存已处理',
+        secondaryActionLabel: '番茄库存已不足，加入采购清单',
         secondaryActionIngredientId: 'ingredient-tomato',
       },
       refreshedGroups: [tomatoLowStock, milkGroup],
@@ -720,7 +720,7 @@ describe('useHomeDashboardActions inventory workflow', () => {
     expect(setActionDialogError).not.toHaveBeenCalledWith('refresh offline');
     expect(showNotice).toHaveBeenCalledWith({
       tone: 'warning',
-      title: '操作已完成，但数据刷新失败',
+      title: '处理已完成',
       message: 'refresh offline',
     });
   });
@@ -756,7 +756,7 @@ describe('useHomeDashboardActions inventory workflow', () => {
     expect(completeActionGroup).not.toHaveBeenCalled();
     expect(setActionDialogConflict).toHaveBeenCalledWith('review_again');
     expect(setActionDialogError).toHaveBeenCalledWith(
-      '家人可能改动了这批库存，但刷新失败，请稍后重试。',
+      '家人可能刚改动了库存，但页面暂时无法更新，请稍后重试。',
     );
   });
 
@@ -831,7 +831,7 @@ describe('useHomeDashboardActions state-target routing', () => {
     expect(completeActionGroup).toHaveBeenCalledWith(
       expect.objectContaining({
         ingredientId: 'ingredient-salt',
-        summary: expect.objectContaining({ message: '已标记为没有' }),
+        summary: expect.objectContaining({ message: '已确认没有库存' }),
       }),
     );
   });

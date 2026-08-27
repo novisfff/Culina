@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react';
 import type { AiQualityMetrics } from '../../api/types';
 import {
   AI_INTENT_LABELS,
+  AI_DIAGNOSTIC_LABELS,
+  AI_CLARIFICATION_LABELS,
   AI_SKILL_LABELS,
+  AI_TRACE_ERROR_LABELS,
   AI_TOKEN_USAGE_WINDOWS,
   type AiTokenUsageWindowKey,
   aiRunSuccessRate,
@@ -96,24 +99,24 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
 
   if (isLoading && !metrics) {
     return (
-      <section className="ai-quality-card" aria-label="AI 质量诊断">
+      <section className="ai-quality-card" aria-label="AI 使用情况">
         <div className="ai-quality-card-head">
           <div>
-            <span className="ai-quality-eyebrow">运行概览</span>
-            <strong>正在读取最近运行</strong>
+            <span className="ai-quality-eyebrow">处理概览</span>
+            <strong>正在读取最近的 AI 处理记录</strong>
           </div>
         </div>
-        <p className="ai-quality-note">稍等一下，我在整理最近的 AI 运行状态。</p>
+        <p className="ai-quality-note">稍等一下，我在整理最近的 AI 处理情况。</p>
       </section>
     );
   }
 
   if (isError) {
     return (
-      <section className="ai-quality-card is-warning" aria-label="AI 质量诊断">
+      <section className="ai-quality-card is-warning" aria-label="AI 使用情况">
         <div className="ai-quality-card-head">
           <div>
-            <span className="ai-quality-eyebrow">运行概览</span>
+            <span className="ai-quality-eyebrow">处理概览</span>
             <strong>暂时读不到指标</strong>
           </div>
         </div>
@@ -126,73 +129,73 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
 
   if (!metrics || metrics.run_count === 0) {
     return (
-      <section className="ai-quality-card" aria-label="AI 质量诊断">
+      <section className="ai-quality-card" aria-label="AI 使用情况">
         <div className="ai-quality-card-head">
           <div>
-            <span className="ai-quality-eyebrow">运行概览</span>
-            <strong>还没有运行记录</strong>
+            <span className="ai-quality-eyebrow">处理概览</span>
+            <strong>还没有 AI 处理记录</strong>
           </div>
         </div>
-        <p className="ai-quality-note">发起一次 AI 任务后，这里会显示澄清、审批和 Skill 诊断。</p>
+        <p className="ai-quality-note">使用一次 AI 助手后，这里会显示处理结果、用量和限制情况。</p>
       </section>
     );
   }
 
   const runAlertValue = hasRunWarning
-    ? `失败 ${failedRuns} 次 · Trace ${failedTraceItems} 项`
-    : '状态平稳';
+    ? `失败 ${failedRuns} 次 · 发现 ${failedTraceItems} 个异常`
+    : '运行正常';
   const watchValue = topTraceError
-    ? `${formatAiMetricLabel(topTraceError.key)} · ${topTraceError.count}`
+      ? `${formatAiMetricLabel(topTraceError.key, AI_TRACE_ERROR_LABELS)} · ${topTraceError.count}`
     : topClarification
-      ? `${formatAiMetricLabel(topClarification.key)} · ${topClarification.count}`
+      ? `${formatAiMetricLabel(topClarification.key, AI_CLARIFICATION_LABELS)} · ${topClarification.count}`
       : topDiagnostic
-        ? `${topDiagnostic.key} · ${topDiagnostic.count}`
+        ? `${formatAiMetricLabel(topDiagnostic.key, AI_DIAGNOSTIC_LABELS)} · ${topDiagnostic.count}`
         : pendingApprovals
-          ? `待审批 · ${pendingApprovals}`
-          : '状态平稳';
+          ? `待确认 · ${pendingApprovals}`
+          : '运行正常';
   const hasWatchItem = Boolean(topTraceError || topClarification || topDiagnostic || pendingApprovals);
   const providerValue = metrics.trace_metrics.llmExchangeCount
-    ? `${formatAiDuration(metrics.trace_metrics.averageProviderDurationMs)} · ${metrics.trace_metrics.averageProviderRounds} 轮`
-    : '暂无样本';
+    ? `${formatAiDuration(metrics.trace_metrics.averageProviderDurationMs)} · ${metrics.trace_metrics.averageProviderRounds} 个阶段`
+    : '还没有数据';
   const toolValue = metrics.trace_metrics.traceSpanCount
     ? formatAiDuration(metrics.trace_metrics.averageToolDurationMs)
-    : '暂无样本';
+    : '还没有数据';
   const scriptValue = metrics.trace_metrics.traceSpanCount
     ? formatAiDuration(metrics.trace_metrics.averageScriptDurationMs)
-    : '暂无样本';
+    : '还没有数据';
   const tokenCost = formatAiTokenCost(selectedTokenUsage.estimatedCostUsd);
   const tokenHint =
     selectedTokenUsage.exchangeCount > 0
-      ? `${selectedTokenUsage.exchangeCount} 次调用${tokenCost === '—' ? '' : ` · 约 ${tokenCost}`}`
-      : '暂无样本';
+    ? `${selectedTokenUsage.exchangeCount} 次请求${tokenCost === '—' ? '' : ` · 约 ${tokenCost}`}`
+      : '还没有数据';
 
   return (
-    <section className="ai-quality-card" aria-label="AI 质量诊断">
+    <section className="ai-quality-card" aria-label="AI 使用情况">
       <div className="ai-quality-card-head">
         <div>
           <span className="ai-quality-eyebrow">表现概览</span>
-          <strong>最近 {metrics.run_count} 次运行</strong>
+          <strong>最近 {metrics.run_count} 次处理</strong>
         </div>
         <span className={`ai-quality-health ${hasRunWarning ? 'is-attention' : 'is-stable'}`}>
-          {hasRunWarning ? '有运行提醒' : '运行平稳'}
+          {hasRunWarning ? '有待处理提醒' : '处理正常'}
         </span>
       </div>
 
       <div className="ai-quality-stats" aria-label="核心表现指标">
         <StatCard
-          label="运行成功率"
+          label="处理成功率"
           value={aiRunSuccessRate(metrics)}
           hint={`${metrics.status_counts.completed ?? 0}/${metrics.run_count} 次完成`}
         />
         <StatCard
           label="草稿一次通过"
           value={formatAiRate(metrics.operational_metrics.draftFirstPassRate)}
-          hint="首次校验无需返工"
+          hint="第一次确认就通过"
         />
         <StatCard
           label="跨步骤完成"
           value={formatAiRate(metrics.operational_metrics.continuationCompletionRate)}
-          hint="连续任务完整衔接"
+          hint="多步任务顺利完成"
         />
         <StatCard
           label="确认时未修改"
@@ -203,28 +206,28 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
 
       <div className="ai-quality-block" aria-labelledby="ai-quality-routing-title">
         <div className="ai-quality-block-head">
-          <h4 id="ai-quality-routing-title">运行信号</h4>
+          <h4 id="ai-quality-routing-title">处理情况</h4>
         </div>
-        <div className="ai-quality-signals" aria-label="运行信号指标">
+        <div className="ai-quality-signals" aria-label="处理情况指标">
           <SignalItem
-            label="运行提醒"
+            label="处理提醒"
             value={runAlertValue}
             tone={hasRunWarning ? 'danger' : 'success'}
           />
           <SignalItem
-            label="高频意图"
+            label="常见需求"
             value={
               topIntent
                 ? `${formatAiMetricLabel(topIntent.key, AI_INTENT_LABELS)} · ${topIntent.count}`
-                : '暂无样本'
+                : '还没有数据'
             }
           />
           <SignalItem
-            label="常用 Skill"
+            label="常用能力"
             value={
               topSkill
                 ? `${formatAiMetricLabel(topSkill.key, AI_SKILL_LABELS)} · ${topSkill.count}`
-                : '暂无样本'
+                : '还没有数据'
             }
           />
           <SignalItem
@@ -238,9 +241,9 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
       <div className="ai-quality-block" aria-labelledby="ai-quality-token-title">
         <div className="ai-quality-block-head ai-quality-block-head-row">
           <div>
-            <h4 id="ai-quality-token-title">Token 用量</h4>
+            <h4 id="ai-quality-token-title">文本用量</h4>
           </div>
-          <div className="ai-quality-window-switch" role="tablist" aria-label="Token 统计窗口">
+          <div className="ai-quality-window-switch" role="tablist" aria-label="用量统计时间段">
             {AI_TOKEN_USAGE_WINDOWS.map((window) => {
               const selected = tokenWindow === window.key;
               return (
@@ -260,11 +263,11 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
         </div>
         <div className="ai-quality-token-summary">
           <div>
-            <span>总 Token</span>
+            <span>总用量</span>
             <strong>{formatAiTokenCount(selectedTokenUsage.totalTokens)}</strong>
             <small>{tokenHint}</small>
           </div>
-          <div className="ai-quality-minis" aria-label={`${tokenWindow} token 明细`}>
+          <div className="ai-quality-minis" aria-label={`${tokenWindow} 用量明细`}>
             <MiniMetric label="输入" value={formatAiTokenCount(selectedTokenUsage.inputTokens)} />
             <MiniMetric label="输出" value={formatAiTokenCount(selectedTokenUsage.outputTokens)} />
             <MiniMetric label="缓存" value={formatAiTokenCount(selectedTokenUsage.cachedTokens)} />
@@ -277,31 +280,31 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
           <h4 id="ai-quality-performance-title">耗时表现</h4>
         </div>
         <div className="ai-quality-minis" aria-label="耗时表现指标">
-          <MiniMetric label="Provider" value={providerValue} />
-          <MiniMetric label="Tool" value={toolValue} />
-          <MiniMetric label="Script" value={scriptValue} />
+          <MiniMetric label="模型服务" value={providerValue} />
+          <MiniMetric label="工具处理" value={toolValue} />
+          <MiniMetric label="自动处理" value={scriptValue} />
         </div>
       </div>
 
       <div className="ai-quality-block is-soft" aria-labelledby="ai-quality-guardrails-title">
         <div className="ai-quality-block-head">
-          <h4 id="ai-quality-guardrails-title">安全护栏</h4>
+          <h4 id="ai-quality-guardrails-title">安全限制</h4>
         </div>
-        <div className="ai-quality-minis" aria-label="AI 工作流运行计数">
+        <div className="ai-quality-minis" aria-label="AI 安全检查次数">
           <MiniMetric
-            label="无效身份拒绝"
+            label="异常身份拦截"
             value={`${metrics.operational_metrics.invalidIdentityRejectedCount} 次`}
           />
           <MiniMetric
-            label="跨步骤拒绝"
+            label="连续处理限制"
             value={`${metrics.operational_metrics.continuationRejectedCount} 次`}
           />
           <MiniMetric
-            label="工具预算耗尽"
+            label="工具处理超限"
             value={`${metrics.operational_metrics.toolBudgetExhaustedCount} 次`}
           />
         </div>
-        <p className="ai-quality-note">仅用于复核近期 AI 工作流，不代表推荐正确率。</p>
+        <p className="ai-quality-note">用于复核近期 AI 处理，不等同于推荐准确率。</p>
       </div>
     </section>
   );

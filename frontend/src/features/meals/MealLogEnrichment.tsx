@@ -335,7 +335,7 @@ export function MealEnrichmentForm(props: {
       setFoodQuery('');
       setShowFoodAdder(false);
     } catch (reason) {
-      setFoodActionError(reason instanceof Error ? reason.message : '记录失败，请重试');
+      setFoodActionError(reason instanceof Error ? reason.message : '餐食记录失败，请重试');
     } finally {
       setRecordingKey(null);
     }
@@ -401,15 +401,15 @@ export function MealEnrichmentForm(props: {
             <div className="meal-enrichment-step-title">
               <span>1</span>
               <strong>这顿吃了什么</strong>
-              <small>单品评分为家庭共享</small>
+              <small>每项食物的评分会同步给家人</small>
             </div>
-            <div className="meal-dish-rating-list" aria-label="菜品评分">
+            <div className="meal-dish-rating-list" aria-label="食物评分">
               {props.meal.food_entries.map((entry) => (
                 <div key={entry.id} className="meal-dish-rating-row">
                   <div className="meal-dish-rating-identity">
-                    <MealDishThumbnail food={foodsById.get(entry.food_id)} name={entry.food_name || '未命名菜品'} />
+                    <MealDishThumbnail food={foodsById.get(entry.food_id)} name={entry.food_name || '未命名食物'} />
                     <div className="meal-dish-rating-copy">
-                      <strong>{entry.food_name || '未命名菜品'}</strong>
+                      <strong>{entry.food_name || '未命名食物'}</strong>
                       <small>{entry.servings} 份 · 已记录{entry.note ? ` · ${entry.note}` : ''}</small>
                       {recentOperations[entry.id] && props.onRevertRecord ? (
                         <button
@@ -418,7 +418,7 @@ export function MealEnrichmentForm(props: {
                           disabled={recordingKey === `revert:${entry.id}`}
                           onClick={() => void revertEntry(entry.id, recentOperations[entry.id])}
                         >
-                          {recordingKey === `revert:${entry.id}` ? '正在撤回…' : '撤回刚才添加'}
+                          {recordingKey === `revert:${entry.id}` ? '正在撤回…' : '撤回刚添加的食物'}
                         </button>
                       ) : null}
                     </div>
@@ -432,13 +432,13 @@ export function MealEnrichmentForm(props: {
                     <MealDishThumbnail food={foodsById.get(item.food_id)} name={item.food_name || '未命名食物'} />
                     <div className="meal-dish-rating-copy">
                       <strong>{item.food_name || '未命名食物'}</strong>
-                      <small>本餐计划 · 尚未记录</small>
+                    <small>计划中的食物 · 尚未记录</small>
                     </div>
                   </div>
                   <button
                     type="button"
                     className="meal-enrichment-record-plan"
-                    aria-label={`记录${item.food_name || '这个食物'}已吃`}
+                    aria-label={`记录已吃：${item.food_name || '这个食物'}`}
                     disabled={Boolean(recordingKey || !props.onRecordPlanItem)}
                     onClick={() => props.onRecordPlanItem && void applyRecordAction(`plan:${item.id}`, () => props.onRecordPlanItem!(item), item.id)}
                   >
@@ -493,7 +493,7 @@ export function MealEnrichmentForm(props: {
           <section className="meal-enrichment-step">
             <div className="meal-enrichment-step-title">
               <span>3</span>
-              <strong>评论</strong>
+              <strong>备注</strong>
             </div>
             <label className="meal-enrichment-notes">
               <textarea
@@ -501,7 +501,7 @@ export function MealEnrichmentForm(props: {
                 rows={4}
                 maxLength={300}
                 value={enrichmentState.notes}
-                placeholder="口味、分量、家人反馈、下次想怎么调整..."
+                placeholder="口味、分量、家人反馈、下次想怎么调整…"
                 onChange={(event) => enrichmentState.setNotes(event.target.value)}
               />
               <small>{enrichmentState.notes.length}/300</small>
@@ -515,7 +515,7 @@ export function MealEnrichmentForm(props: {
             <span>4</span>
             <strong>餐食照片</strong>
           </div>
-          <p>可上传本次真实餐食照片，帮助回顾与分享</p>
+          <p>可上传本次餐食照片，方便之后回看</p>
           <div className="meal-log-photo-grid meal-enrichment-photo-grid">
             {enrichmentState.photos.map((photo) => (
               <div className="meal-enrichment-photo-thumb" key={photo.id}>
@@ -540,7 +540,7 @@ export function MealEnrichmentForm(props: {
               />
               <span className="meal-photo-add-icon"><MealEnrichmentIcon name="image" /></span>
               <strong>添加照片</strong>
-              <small>{enrichmentState.photoState.isGenerating ? '上传中...' : enrichmentState.hasPhotoCapacity ? '最多6张' : '已满6张'}</small>
+              <small>{enrichmentState.photoState.isGenerating ? '上传中…' : enrichmentState.hasPhotoCapacity ? '最多 6 张' : '已满 6 张'}</small>
             </label>
           </div>
           {enrichmentState.photoState.errorMessage && <p className="meal-enrichment-photo-error">{enrichmentState.photoState.errorMessage}</p>}

@@ -45,8 +45,8 @@ export function ModelUsageTrend(props: ModelUsageTrendProps) {
   const highestAmountDec = formatModelUsageCny(modelUsageScaledIntegerToDecimal(highest.amount));
   const recordedDayCount = points.filter((point) => point.hasRecord).length;
   const summary = highest.amount > 0n
-    ? `最近 30 天共 ${recordedDayCount} 天有已记录费用。最近 30 天最高已记录费用出现在 ${monthDayLabel(highest.date)}，为 ${highestAmountDec}。`
-    : `最近 30 天共 ${recordedDayCount} 天有已记录费用，最高单日为 ${highestAmountDec}。零值日期已完整显示。`;
+    ? `最近 30 天中有 ${recordedDayCount} 天产生了费用。最高单日费用出现在 ${monthDayLabel(highest.date)}，为 ${highestAmountDec}。`
+    : `最近 30 天中有 ${recordedDayCount} 天产生了费用，最高单日为 ${highestAmountDec}。未产生费用的日期也已显示。`;
 
   const chartWidth = isScrollable
     ? Math.round(640 * points.length / MODEL_USAGE_TREND_VISIBLE_DAY_COUNT)

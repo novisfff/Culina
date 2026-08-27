@@ -314,21 +314,21 @@ export function EatFoodTaskBody(props: {
           <WorkspaceModal
             title="编辑食物"
             description="补充名称、库存和日常信息。"
-            eyebrow="食物资料"
+            eyebrow="食物信息"
             className="food-editor-modal"
             busy={Boolean(props.isSavingFood)}
             footerInfo={(
               <>
                 <strong>
-                  已完成 {completionItems.filter((item) => item.done).length} / {completionItems.length} 项资料
+                  已完成 {completionItems.filter((item) => item.done).length} / {completionItems.length} 项信息
                 </strong>
-                <span>保存后仍可继续补充</span>
+                <span>保存后仍可继续完善</span>
               </>
             )}
             footerActions={(
               <FormActions
                 primaryLabel="保存"
-                submittingLabel="保存中..."
+                submittingLabel="保存中…"
                 primaryType="submit"
                 primaryForm={EAT_FOOD_EDITOR_FORM_ID}
                 primaryDisabled={props.isSavingFood || !Boolean(form.name.trim() || isSelfMade)}
@@ -351,11 +351,11 @@ export function EatFoodTaskBody(props: {
               completionPercent={completionPercent}
               currentRecipe={recipe}
               editorProfile={{
-                title: isSelfMade ? '家常菜资料' : '食物资料',
+                title: isSelfMade ? '家常菜信息' : '食物信息',
                 description: '保存后会更新这份家常菜的基础信息。',
               }}
               editorRecipeCover={recipe?.images[0]?.url}
-              editorRecipeMeta={recipe ? `${recipe.ingredient_items.length} 项用料 · ${recipe.steps.length} 步` : '未绑定做法'}
+              editorRecipeMeta={recipe ? `${recipe.ingredient_items.length} 项用料 · ${recipe.steps.length} 步` : '还没有做法'}
               formId={EAT_FOOD_EDITOR_FORM_ID}
               form={form}
               imageState={imageComposer.state}
@@ -701,7 +701,7 @@ function EatRecipeEditTaskBody(props: {
   const editorCoverUrl = editorCoverAsset?.url ? resolveUrl(editorCoverAsset.url) : undefined;
   const editorCompletionItems = [
     { label: '已填写基础信息', done: Boolean(editor.form.title.trim() && Number(editor.form.servings) > 0) },
-    { label: '已添加原料', done: editorIngredientCount > 0 },
+    { label: '已添加食材', done: editorIngredientCount > 0 },
     { label: '已添加步骤', done: editorStepCount > 0 },
     { label: '已设置封面', done: Boolean(editorCoverAsset) },
   ];
@@ -824,8 +824,8 @@ export function EatRecipeTaskBody(props: {
   if (!selectedCard) {
     return (
       <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
-        <WorkspaceModal title="做法" description="正在加载做法详情。" onClose={props.onClose}>
-          <StateBlock status="loading" title="请稍候" description="正在准备做法内容。" />
+          <WorkspaceModal title="做法" description="正在加载做法详情。" onClose={props.onClose}>
+          <StateBlock status="loading" title="请稍候" description="正在整理做法内容。" />
         </WorkspaceModal>
       </WorkspaceOverlayFrame>
     );
@@ -990,8 +990,8 @@ export function EatCookTaskBody(props: {
         <ConfirmDialog
           open
           title="继续上次的做菜进度？"
-          description="这道菜在当前餐次有一份最近保存的进度。你可以接着做，也可以重新开始。"
-          confirmLabel="继续上次"
+          description="这道菜在当前餐次有最近保存的进度。你可以接着做，也可以重新开始。"
+          confirmLabel="继续上次进度"
           cancelLabel="重新开始"
           closeLabel="关闭"
           rootClassName="eat-task-body-overlay-root eat-cook-confirm-root"
@@ -1163,7 +1163,7 @@ export function EatMealTaskBody(props: {
       <WorkspaceOverlayFrame rootClassName="eat-task-body-overlay-root" onClose={props.onClose}>
         <WorkspaceModal
           title="这餐详情"
-          description="查看这次餐食的评价、评论和照片。"
+          description="查看这次餐食的评价、备注和照片。"
           eyebrow="记录"
           className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
           onClose={props.onClose}
@@ -1193,11 +1193,11 @@ export function EatMealTaskBody(props: {
                   <span className="meal-enrichment-summary-divider" />
                   <small>{formatDateTime(props.mealLog.created_at)}</small>
                 </div>
-                <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录还没有评论。'}</p>
+            <p className="eat-meal-task-notes">{props.mealLog.notes || '这条记录没有备注。'}</p>
                 <ul className="eat-meal-task-foods">
                   {props.mealLog.food_entries.map((entry) => (
                     <li key={entry.id}>
-                      <strong>{entry.food_name || '未命名菜品'}</strong>
+                      <strong>{entry.food_name || '未命名食物'}</strong>
                       <span>
                         {entry.rating == null
                           ? '—'
@@ -1294,7 +1294,7 @@ function EatFreeMealComposerBody(props: {
         message:
           data.candidateError instanceof Error && data.candidateError.message.trim()
             ? data.candidateError.message
-            : '加载候选失败，请重试',
+            : '暂时无法加载可选餐食，请重试',
       };
     }
     if (data.isLoadingCandidates || data.isFetchingCandidates) {
@@ -1382,7 +1382,7 @@ function EatFreeMealComposerBody(props: {
       error={
         state.error ??
         (candidateResolution.status === 'error' ? candidateResolution.message : null) ??
-        (candidatesBusy ? '正在确认是否有可加入的餐食…' : null)
+        (candidatesBusy ? '正在查找可加入的餐食…' : null)
       }
       plannedFoodRefsByFoodId={plannedFoodRefsByFoodId}
       overlayRootClassName="eat-task-body-overlay-root"
@@ -1487,7 +1487,7 @@ function EatPrefixedMealCreateBody(props: {
         message:
           candidateQuery.error instanceof Error && candidateQuery.error.message.trim()
             ? candidateQuery.error.message
-            : '加载候选失败，请重试',
+            : '暂时无法加载可选餐食，请重试',
       };
     }
     if (candidateQuery.isLoading || candidateQuery.isFetching || !candidatesFetched) {
@@ -1528,7 +1528,7 @@ function EatPrefixedMealCreateBody(props: {
           <StateBlock
             status="empty"
             title="还没有可记录的家常菜"
-            description="请先从发现或菜单选择一份食物，再记录这一餐。"
+            description="请先从发现或餐食计划选择一份食物，再记录这一餐。"
           />
           <ActionButton tone="primary" type="button" onClick={props.onClose}>
             关闭
@@ -1562,7 +1562,7 @@ function EatPrefixedMealCreateBody(props: {
       if (candidateResolution.status === 'error') {
         setError(candidateResolution.message);
       } else {
-        setError('正在确认是否有可加入的餐食…');
+        setError('正在查找可加入的餐食…');
       }
       return;
     }
@@ -1583,7 +1583,7 @@ function EatPrefixedMealCreateBody(props: {
         await props.completeFoodPlanItem(planItem.id, payload);
         props.onClose();
       } catch (reason) {
-        setError(resolveErrorMessage(reason, '完成菜单计划失败，请稍后重试。'));
+        setError(resolveErrorMessage(reason, '完成餐食计划失败，请稍后重试。'));
         setBusy(false);
       }
       return;
@@ -1607,7 +1607,7 @@ function EatPrefixedMealCreateBody(props: {
         ],
       });
     } catch (reason) {
-      setError(resolveErrorMessage(reason, '记录失败，请重试'));
+        setError(resolveErrorMessage(reason, '餐食记录失败，请重试'));
       return;
     }
 
@@ -1644,7 +1644,7 @@ function EatPrefixedMealCreateBody(props: {
         setBusy(false);
         return;
       }
-      setError(messageFromMealRecordReason(reason, '记录失败，请重试'));
+        setError(messageFromMealRecordReason(reason, '餐食记录失败，请重试'));
       setBusy(false);
     }
   }

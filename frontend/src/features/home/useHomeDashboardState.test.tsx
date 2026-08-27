@@ -210,8 +210,8 @@ describe('useHomeDashboardState', () => {
         ingredientId: tomato.ingredientId,
         summary: {
           title: '已处理番茄',
-          message: '已销毁过期批次',
-          secondaryActionLabel: '番茄库存已不足，加入采购',
+          message: '已丢弃过期批次',
+          secondaryActionLabel: '番茄库存已不足，加入采购清单',
           secondaryActionIngredientId: tomato.ingredientId,
         },
       });
@@ -312,7 +312,7 @@ describe('useHomeDashboardState', () => {
     act(() => {
       state!.completeActionGroup({
         ingredientId: tomatoPartial.ingredientId,
-        summary: { title: '已处理番茄', message: '过期批次已销毁' },
+        summary: { title: '已处理番茄', message: '过期批次已丢弃' },
       });
     });
     // Same group id still present (partial dispose left a batch), but batch fingerprint changed.
@@ -333,7 +333,7 @@ describe('useHomeDashboardState', () => {
     act(() => {
       state!.completeActionGroup({
         ingredientId: tomato.ingredientId,
-        summary: { title: '已处理番茄', message: '过期批次已销毁' },
+        summary: { title: '已处理番茄', message: '过期批次已丢弃' },
         refreshedGroups: [milk],
       });
     });

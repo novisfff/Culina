@@ -159,13 +159,13 @@ describe('RecipeCookView desktop status placement', () => {
     expect(header).not.toBeNull();
     expect(sidePanel).not.toBeNull();
     expect(header?.querySelector('.recipe-cook-header-status')).not.toBeNull();
-    expect(within(header!).getByText('缺 1 项食材')).toBeInTheDocument();
+    expect(within(header!).getByText('缺少 1 项食材')).toBeInTheDocument();
     expect(within(header!).getByText('已恢复进度')).toBeInTheDocument();
     expect(sidePanel?.querySelector('.recipe-cook-status-desktop')).toBeNull();
     expect(sidePanel?.querySelectorAll('.recipe-cook-status-mobile')).toHaveLength(2);
 
-    await userEvent.click(within(header!).getByRole('button', { name: '采购' }));
-    await userEvent.click(within(header!).getByRole('button', { name: '重来' }));
+    await userEvent.click(within(header!).getByRole('button', { name: '去采购' }));
+    await userEvent.click(within(header!).getByRole('button', { name: '重新开始' }));
     expect(openShoppingDialog).toHaveBeenCalledWith(props.activeCookCard);
     expect(resetActiveCookSession).toHaveBeenCalledTimes(1);
   });

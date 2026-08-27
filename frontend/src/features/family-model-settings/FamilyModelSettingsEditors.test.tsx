@@ -95,7 +95,7 @@ describe('Family model settings editors', () => {
     const backupProfile = { ...profile, id: 'profile-b', display_name: '家庭备用服务', status: 'disabled' as const };
     render(<ProviderProfileEditor {...providerProps({ profiles: [profile, backupProfile], onSelectProfile })} />);
 
-    const profileList = screen.getByRole('navigation', { name: 'Provider 服务列表' });
+    const profileList = screen.getByRole('navigation', { name: '模型服务列表' });
     expect(within(profileList).getByRole('button', { name: /家庭主服务/ })).toHaveAttribute('aria-current', 'true');
     await user.click(within(profileList).getByRole('button', { name: /家庭备用服务/ }));
 
@@ -106,12 +106,12 @@ describe('Family model settings editors', () => {
     const user = userEvent.setup();
     render(<ProviderProfileEditor {...providerProps()} />);
 
-    await user.click(screen.getByRole('button', { name: '新建服务' }));
+    await user.click(screen.getByRole('button', { name: '新增服务' }));
 
-    const profileList = screen.getByRole('navigation', { name: 'Provider 服务列表' });
-    const createItem = within(profileList).getByRole('button', { name: /新建服务/ });
+    const profileList = screen.getByRole('navigation', { name: '模型服务列表' });
+    const createItem = within(profileList).getByRole('button', { name: /新增服务/ });
     expect(createItem).toHaveAttribute('aria-current', 'true');
-    expect(within(createItem).getByText('尚未保存')).toBeVisible();
+    expect(within(createItem).getByText('未保存')).toBeVisible();
     expect(within(profileList).getByRole('button', { name: /家庭主服务/ })).not.toHaveAttribute('aria-current');
     expect(screen.getByLabelText('服务名称')).toBeVisible();
   });
@@ -132,8 +132,8 @@ describe('Family model settings editors', () => {
 
     await user.type(screen.getByLabelText('服务名称'), '新的服务');
     await user.type(screen.getByLabelText('API 地址'), 'https://new-provider.example/v1');
-    await user.type(screen.getByLabelText('API Key'), 'new-api-key');
-    await user.click(screen.getByRole('button', { name: '创建服务' }));
+    await user.type(screen.getByLabelText('API 密钥'), 'new-api-key');
+    await user.click(screen.getByRole('button', { name: '保存服务' }));
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
     expect(onCreate.mock.calls[0]?.[0]).toMatchObject({
@@ -141,10 +141,10 @@ describe('Family model settings editors', () => {
       api_key: 'new-api-key',
     });
     expect(onCreate.mock.calls[0]?.[0].options).toEqual({});
-    expect(screen.getByLabelText('API Key')).toHaveValue('');
+    expect(screen.getByLabelText('API 密钥')).toHaveValue('');
   });
 
-  it('根据协议适配器只显示对应的连接地址', async () => {
+  it('根据连接方式只显示对应的地址类型', async () => {
     const user = userEvent.setup();
     render(<ProviderProfileEditor {...providerProps({ profiles: [], selectedProfileId: null })} />);
 
@@ -155,15 +155,15 @@ describe('Family model settings editors', () => {
     expect(screen.getByLabelText('API 地址')).toBeVisible();
     expect(screen.queryByLabelText('实时地址')).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('API 地址'), 'https://http-provider.example/v1');
-    await chooseDropdown(user, '认证方式', /^无认证/);
+    await chooseDropdown(user, '验证方式', /^无需密钥/);
 
-    await chooseDropdown(user, '协议适配器', /^OpenAI Realtime/);
+    await chooseDropdown(user, '连接方式', /^OpenAI Realtime/);
 
     expect(screen.queryByLabelText('API 地址')).not.toBeInTheDocument();
     expect(screen.getByLabelText('实时地址')).toHaveValue('');
-    expect(screen.getByRole('button', { name: '认证方式' })).toHaveTextContent('API Key');
-    expect(screen.getByRole('button', { name: '认证方式' })).toBeDisabled();
-    expect(screen.getByLabelText('API Key')).toBeVisible();
+    expect(screen.getByRole('button', { name: '验证方式' })).toHaveTextContent('API 密钥');
+    expect(screen.getByRole('button', { name: '验证方式' })).toBeDisabled();
+    expect(screen.getByLabelText('API 密钥')).toBeVisible();
   });
 
   it('updates an API Key without asking for the account password', async () => {
@@ -171,17 +171,17 @@ describe('Family model settings editors', () => {
     const props = providerProps();
     render(<ProviderProfileEditor {...props} />);
 
-    await user.click(screen.getByRole('button', { name: '修改 Key' }));
+    await user.click(screen.getByRole('button', { name: '修改密钥' }));
 
     expect(screen.queryByLabelText('当前密码')).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('新的 API Key'), 'rotate-secret');
+    await user.type(screen.getByLabelText('新的 API 密钥'), 'rotate-secret');
     await user.click(screen.getByRole('button', { name: '确认修改' }));
 
     expect(props.onRotate).toHaveBeenCalledWith(profile.id, {
       new_api_key: 'rotate-secret',
       base_settings_version_number: settings.version_number,
     });
-    expect(screen.queryByLabelText('新的 API Key')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('新的 API 密钥')).not.toBeInTheDocument();
   });
 
   it('reports a reachable Provider and the number of discovered models', async () => {
@@ -198,7 +198,7 @@ describe('Family model settings editors', () => {
     render(<ProviderProfileEditor {...providerProps({
       onCheck: vi.fn().mockResolvedValue({
         status: 'not_supported',
-        detail: '此服务不支持免费连接检查，请在能力配置中手动填写模型。',
+        detail: '此服务不支持自动检查连接，请在功能设置中手动填写模型。',
         checked_at: '2026-08-19T10:00:00Z',
         latency_ms: null,
         profile_version_number: 7,
@@ -209,7 +209,7 @@ describe('Family model settings editors', () => {
     await user.click(screen.getByRole('button', { name: '检查连接' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      '此服务不支持免费连接检查，请在能力配置中手动填写模型。',
+      '此服务不支持自动检查连接，请在功能设置中手动填写模型。',
     );
   });
 
@@ -232,11 +232,11 @@ describe('Family model settings editors', () => {
     }
     render(<Harness />);
 
-    await user.click(screen.getByRole('button', { name: '新建服务' }));
+    await user.click(screen.getByRole('button', { name: '新增服务' }));
     await user.type(screen.getByLabelText('服务名称'), '替换服务');
     await user.type(screen.getByLabelText('API 地址'), 'https://replacement.example/v1');
-    await user.type(screen.getByLabelText('API Key'), 'replacement-key');
-    await user.click(screen.getByRole('button', { name: '创建服务' }));
+    await user.type(screen.getByLabelText('API 密钥'), 'replacement-key');
+    await user.click(screen.getByRole('button', { name: '保存服务' }));
 
     await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledWith('profile-a', 'profile-new'));
   });
@@ -262,17 +262,17 @@ describe('Family model settings editors', () => {
     }
     render(<Harness />);
 
-    await user.click(screen.getByRole('button', { name: '新建服务' }));
+    await user.click(screen.getByRole('button', { name: '新增服务' }));
     await user.type(screen.getByLabelText('服务名称'), '替换服务');
     await user.type(screen.getByLabelText('API 地址'), 'https://replacement.example/v1');
-    await user.type(screen.getByLabelText('API Key'), 'replacement-key');
-    await user.click(screen.getByRole('button', { name: '创建服务' }));
+    await user.type(screen.getByLabelText('API 密钥'), 'replacement-key');
+    await user.click(screen.getByRole('button', { name: '保存服务' }));
 
-    await screen.findByRole('button', { name: '重试改绑' });
+    await screen.findByRole('button', { name: '重试关联' });
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onRebindCreatedProfile).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: '重试改绑' }));
+    await user.click(screen.getByRole('button', { name: '重试关联' }));
 
     await waitFor(() => expect(onRebindCreatedProfile).toHaveBeenCalledTimes(2));
     expect(onRebindCreatedProfile).toHaveBeenNthCalledWith(
@@ -320,14 +320,14 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    const heading = screen.getByRole('heading', { name: '搜索向量 · 默认' });
+    const heading = screen.getByRole('heading', { name: '智能搜索 · 默认' });
     const card = heading.closest('article');
     if (!card) throw new Error('Expected the Embedding editor card.');
-    expect(within(card).getByText('向量模型已锁定。更换 Provider、模型或维度会完整重建搜索索引。')).toBeVisible();
+    expect(within(card).getByText('搜索设置已生效。更换模型服务、模型或维度时，需要重新生成搜索数据。')).toBeVisible();
     expect(within(card).getByRole('checkbox', { name: '已启用' })).toBeDisabled();
-    expect(within(card).getByRole('button', { name: 'Provider 服务' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: '模型服务' })).toBeDisabled();
     expect(within(card).getByLabelText('模型名称')).toBeDisabled();
-    expect(within(card).getByLabelText('向量维度')).toBeDisabled();
+    expect(within(card).getByLabelText('模型维度')).toBeDisabled();
   });
 
   it('groups capabilities by task and expands one configuration at a time', async () => {
@@ -346,7 +346,7 @@ describe('Family model settings editors', () => {
     expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
     expect(screen.getByRole('heading', { name: '语音' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: '搜索' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '搜索向量 · 默认' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '智能搜索 · 默认' })).not.toBeInTheDocument();
     expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
   });
 
@@ -368,9 +368,9 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: '搜索索引' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '搜索向量 · 默认' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '搜索重排 · 默认' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '智能搜索' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '智能搜索 · 默认' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '搜索排序 · 默认' })).toBeVisible();
   });
 
   it('shows the unconfigured state when the API omits a null active search profile', () => {
@@ -392,7 +392,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('尚未配置搜索索引')).toBeVisible();
+    expect(screen.getByText('未配置智能搜索')).toBeVisible();
   });
 
   it('confirms the first vector identity before saving it', async () => {
@@ -415,19 +415,19 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /搜索向量 · 默认/ }));
-    const embeddingCard = screen.getByRole('heading', { name: '搜索向量 · 默认' }).closest('article');
+    await user.click(screen.getByRole('button', { name: /智能搜索 · 默认/ }));
+    const embeddingCard = screen.getByRole('heading', { name: '智能搜索 · 默认' }).closest('article');
     if (!embeddingCard) throw new Error('Expected the Embedding editor card.');
     await user.click(within(embeddingCard).getByRole('checkbox', { name: '未启用' }));
-    await chooseDropdown(user, 'Provider 服务', /家庭主服务/);
+    await chooseDropdown(user, '模型服务', /家庭主服务/);
     await user.type(screen.getByLabelText('模型名称'), 'text-embedding-3-small');
-    await user.click(screen.getByRole('button', { name: '确认向量模型' }));
+    await user.click(screen.getByRole('button', { name: '确认搜索模型' }));
 
-    expect(screen.getByRole('dialog', { name: '确认建立搜索索引' })).toBeVisible();
-    expect(screen.getByText(/今后更换向量模型、Provider 或维度时，需要完整重建搜索索引/)).toBeVisible();
+    expect(screen.getByRole('dialog', { name: '确认开启智能搜索' })).toBeVisible();
+    expect(screen.getByText(/后续更换模型服务、搜索模型或维度时，需要重新生成搜索数据/)).toBeVisible();
     expect(onConfirmInitialSearchIndex).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: '确认并建立索引' }));
+    await user.click(screen.getByRole('button', { name: '确认并开启搜索' }));
     await waitFor(() => expect(onConfirmInitialSearchIndex).toHaveBeenCalledTimes(1));
   });
 
@@ -467,11 +467,11 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('高风险操作')).toBeVisible();
-    expect(screen.getByText(/更换 Provider、向量模型或维度会建立一套全新索引/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '更换向量模型（高风险）' }));
-    expect(screen.getByLabelText('新的向量模型')).toBeVisible();
-    expect(screen.getByRole('button', { name: '评估完整重建' })).toBeDisabled();
+    expect(screen.getByText('需要谨慎确认')).toBeVisible();
+    expect(screen.getByText(/更换模型服务、搜索模型或维度时，需要重新生成搜索数据/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '更换搜索模型' }));
+    expect(screen.getByLabelText('新的搜索模型')).toBeVisible();
+    expect(screen.getByRole('button', { name: '查看更新范围' })).toBeDisabled();
   });
 
   it('keeps capability test progress and success feedback inside the button', async () => {
@@ -499,7 +499,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: '测试能力' }));
+    await user.click(screen.getByRole('button', { name: '测试功能' }));
 
     expect(onTestCapability).toHaveBeenCalledWith('llm', 'primary', true);
     const runningButton = screen.getByRole('button', { name: '正在测试' });
@@ -533,7 +533,7 @@ describe('Family model settings editors', () => {
 
     expect(screen.queryByLabelText('我确认本次测试可能产生费用')).not.toBeInTheDocument();
     expect(screen.queryByRole('status', { name: '能力测试可用性' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '测试能力' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '测试功能' })).toBeEnabled();
   });
 
   it('keeps draft testing unavailable until Provider and model are complete', () => {
@@ -553,7 +553,7 @@ describe('Family model settings editors', () => {
 
     expect(screen.queryByLabelText('我确认本次测试可能产生费用')).not.toBeInTheDocument();
     expect(screen.queryByRole('status', { name: '能力测试可用性' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '测试能力' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '测试功能' })).toBeDisabled();
   });
 
   it('shows a safe error inside the capability card when the request fails', async () => {
@@ -579,7 +579,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: '测试能力' }));
+    await user.click(screen.getByRole('button', { name: '测试功能' }));
 
     const retryButton = await screen.findByRole('button', { name: '测试失败，重试' });
     expect(retryButton).toBeEnabled();
@@ -612,7 +612,7 @@ describe('Family model settings editors', () => {
     );
 
     await waitFor(() => expect(onDiscoverModels).toHaveBeenCalledWith(profile.id));
-    expect(await screen.findByText('已自动读取 2 个模型，也可以直接输入其他模型标识。')).toBeVisible();
+    expect(await screen.findByText('已自动读取 2 个模型，也可以直接输入其他模型名称。')).toBeVisible();
 
     const modelField = screen.getByRole('combobox', { name: '模型名称' });
     await user.click(modelField);
@@ -643,7 +643,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    await chooseDropdown(user, 'Provider 服务', /家庭主服务/);
+    await chooseDropdown(user, '模型服务', /家庭主服务/);
 
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
       bindings: expect.arrayContaining([
@@ -668,7 +668,7 @@ describe('Family model settings editors', () => {
 
     await user.click(screen.getByRole('button', { name: /图片生成 · 文字生成/ }));
     await chooseDropdown(user, '图片尺寸', /^1024 × 1536/);
-    await chooseDropdown(user, '返回格式', /^服务地址/);
+    await chooseDropdown(user, '返回格式', /^图片链接/);
 
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
       bindings: expect.arrayContaining([
@@ -707,7 +707,7 @@ describe('Family model settings editors', () => {
         expect.objectContaining({ requested_model: 'custom-chat-model' }),
       ]),
     }));
-    expect(await screen.findByText('此服务不支持自动读取模型列表，请手动输入模型标识。')).toBeVisible();
+    expect(await screen.findByText('此服务不支持自动读取模型列表，请手动输入模型名称。')).toBeVisible();
   });
 
   it('groups one model billing items into one expanded price card', () => {
@@ -721,7 +721,7 @@ describe('Family model settings editors', () => {
     render(<ModelPriceEditor draft={draft} busy={false} onDraftChange={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /对话与视觉理解.*chat-model.*3 个计费项/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /对话与图片理解.*chat-model.*3 个计费项/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('未缓存输入 Token 单价')).toHaveValue('1');
     expect(screen.getByLabelText('缓存输入 Token 单价')).toHaveValue('0.5');
     expect(screen.getByLabelText('输出 Token 单价')).toHaveValue('2');
@@ -742,7 +742,7 @@ describe('Family model settings editors', () => {
     ];
     render(<ModelPriceEditor draft={draft} busy={false} onDraftChange={vi.fn()} />);
 
-    const llmTrigger = screen.getByRole('button', { name: /对话与视觉理解.*chat-model/ });
+    const llmTrigger = screen.getByRole('button', { name: /对话与图片理解.*chat-model/ });
     const llmCard = llmTrigger.closest('article');
     if (!llmCard) throw new Error('Expected the invalid model price card.');
     expect(within(llmCard).getByText('待修正')).toBeVisible();
@@ -767,7 +767,7 @@ describe('Family model settings editors', () => {
     }
     render(<Harness />);
 
-    expect(screen.getByRole('button', { name: /对话与视觉理解.*3 个计费项/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /对话与图片理解.*3 个计费项/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('未缓存输入 Token 单价')).toHaveValue('0');
     expect(screen.getByLabelText('缓存输入 Token 单价')).toHaveValue('0');
     expect(screen.getByLabelText('输出 Token 单价')).toHaveValue('0');
@@ -818,22 +818,22 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '能力与价格' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '搜索索引' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '功能与价格' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '智能搜索' })).toBeVisible();
 
     expect(screen.getByRole('heading', { name: '配置检查' })).toBeVisible();
     expect(screen.getByText(/检查结果只用于提醒/)).toBeVisible();
     expect(screen.getByRole('heading', { name: '配置状态良好' })).toBeVisible();
-    expect(screen.getByText('2 项能力已就绪')).toBeVisible();
+    expect(screen.getByText('2 项功能已就绪')).toBeVisible();
 
-    const llmRow = screen.getByRole('article', { name: '对话与视觉理解 primary' });
+    const llmRow = screen.getByRole('article', { name: '对话与图片理解 primary' });
     expect(within(llmRow).getByText('家庭主服务 · chat-model')).toBeVisible();
     expect(within(llmRow).getByText('价格已填写')).toBeVisible();
     expect(within(llmRow).getByText('3/3 项')).toBeVisible();
 
     const imageRow = screen.getByRole('article', { name: '图片生成 text' });
-    expect(within(imageRow).getByText('按 0 计算')).toBeVisible();
+    expect(within(imageRow).getByText('按 0 元计入费用')).toBeVisible();
     expect(within(imageRow).getByText('0/1 项')).toBeVisible();
     expect(screen.queryByText('价格设置可用')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('当前密码')).not.toBeInTheDocument();

@@ -40,10 +40,10 @@ export function FormActions({
   primaryDisabled = false,
   primaryDisabledReason,
   isSubmitting = false,
-  submittingLabel = '处理中...',
+  submittingLabel = '处理中…',
   secondaryLabel,
   secondaryIsSubmitting = false,
-  secondarySubmittingLabel = '处理中...',
+  secondarySubmittingLabel = '处理中…',
   onSecondary,
   className,
 }: FormActionsProps) {

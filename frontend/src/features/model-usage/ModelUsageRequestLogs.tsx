@@ -13,7 +13,7 @@ type RequestLogItem = ModelUsagePersonalRequestLog | ModelUsageFamilyRequestLog;
 function statusLabel(item: RequestLogItem): string {
   if (item.pricing_status !== 'priced') return '未定价';
   if (item.measurement_status === 'estimated') return '含估算';
-  if (item.provider_outcome !== 'succeeded') return '需核对';
+  if (item.provider_outcome !== 'succeeded') return '需要核对';
   return '已核对';
 }
 
@@ -21,7 +21,7 @@ function meterSummary(item: RequestLogItem): string {
   return item.meters
     .slice(0, 3)
     .map((meter) => `${formatModelUsageQuantity(meter.quantity)} ${MODEL_USAGE_METER_OPTIONS[meter.meter].label}`)
-    .join(' · ') || '暂无计量';
+    .join(' · ') || '还没有用量明细';
 }
 
 function dateTime(value: string): string {

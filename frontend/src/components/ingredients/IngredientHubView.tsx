@@ -20,7 +20,7 @@ export function IngredientHubView(props: IngredientHubViewProps) {
       <div className="ingredients-desktop-view">
         <PageHeader
           title="食材"
-          description="管理家庭食材档案、库存状态以及采购清单。"
+          description="管理家庭食材、库存和采购清单。"
           actions={props.desktopActions}
         />
 
@@ -78,4 +78,3 @@ export function IngredientHubView(props: IngredientHubViewProps) {
     </>
   );
 }
-

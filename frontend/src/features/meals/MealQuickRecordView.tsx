@@ -86,8 +86,8 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
       busy={busy}
     >
       <WorkspaceModal
-        title="记到今天"
-        description="确认日期和餐次，点一下就完成"
+        title="记录这顿"
+        description="确认日期和餐次，点一下即可记录"
         eyebrow="快速记录"
         className="meal-quick-record-modal"
         onClose={closeIfAllowed}
@@ -100,7 +100,7 @@ export function MealQuickRecordView(props: MealQuickRecordViewProps) {
             primaryForm={formId}
             primaryDisabled={submitDisabled}
             isSubmitting={busy}
-            submittingLabel="正在记下..."
+            submittingLabel="正在记录…"
             secondaryLabel="取消"
             onSecondary={closeIfAllowed}
           />

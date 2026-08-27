@@ -52,8 +52,8 @@ describe('ModelUsageTrend', () => {
     );
 
     expect(screen.getByRole('img', { name: '最近 30 天每日模型费用趋势' }))
-      .toHaveAccessibleDescription(/已记录费用/);
-    expect(screen.getByText(/最近 30 天最高已记录费用出现在 7 月 18 日/, { selector: 'p' })).toBeVisible();
+      .toHaveAccessibleDescription(/产生了费用/);
+    expect(screen.getByText(/最高单日费用出现在 7 月 18 日/, { selector: 'p' })).toBeVisible();
     expect(screen.getByText(/¥1.50/, { selector: 'p' })).toBeVisible();
     expect(screen.queryByText('最高单日费用')).not.toBeInTheDocument();
     expect(screen.queryByText('有记录天数')).not.toBeInTheDocument();

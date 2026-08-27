@@ -136,7 +136,7 @@ describe('model usage display model', () => {
     ]);
     expect(notices.find((notice) => notice.kind === 'conservative_unknown_execution')?.description).toContain('约 ¥0.12');
     expect(notices.find((notice) => notice.kind === 'measurement_gap')?.description)
-      .toBe('该时间段的模型用量计量可能不完整。');
+      .toBe('该时间段的模型用量明细可能不完整。');
 
     const unknownCostNotice = modelUsageHealthNotices(health({
       unresolved_unknown_execution_attempt_count: 1,
@@ -147,10 +147,10 @@ describe('model usage display model', () => {
   });
 
   it('maps central labels instead of exposing backend enum text at call sites', () => {
-    expect(MODEL_USAGE_CAPABILITY_OPTIONS.llm.label).toBe('文本与视觉理解');
+    expect(MODEL_USAGE_CAPABILITY_OPTIONS.llm.label).toBe('文本与图片理解');
     expect(MODEL_USAGE_METER_OPTIONS.generated_images.label).toBe('生成图片');
     expect(MODEL_USAGE_ERROR_OPTIONS.model_usage_budget_exceeded.title).toBe('本月模型额度已用完');
-    expect(MODEL_USAGE_HEALTH_OPTIONS.conservative_unknown_execution.title).toBe('执行情况待确认');
+    expect(MODEL_USAGE_HEALTH_OPTIONS.conservative_unknown_execution.title).toBe('请求状态待确认');
     expect(MODEL_USAGE_HEALTH_OPTIONS.known_unmeasured.title).toBe('用量明细待恢复');
     expect(MODEL_USAGE_HEALTH_OPTIONS.measurement_gap.title).toBe('部分时段记录不完整');
   });
@@ -283,7 +283,7 @@ describe('model usage display model', () => {
     expect(validateModelUsagePolicyDraft(duplicateDraft)).toEqual({
       valid: false,
       field: 'capability_limits',
-      message: '每项模型能力只能设置一个护栏。',
+      message: '每项模型功能只能设置一个限额。',
     });
 
     const invalidMeterDraft = createModelUsagePolicyDraft(policy({
@@ -294,7 +294,7 @@ describe('model usage display model', () => {
     expect(validateModelUsagePolicyDraft(invalidMeterDraft)).toEqual({
       valid: false,
       field: 'capability_limits',
-      message: '所选计量项不适用于这项模型能力。',
+      message: '所选用量类型不适用于这项模型功能。',
     });
   });
 

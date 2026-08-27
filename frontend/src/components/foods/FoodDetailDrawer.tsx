@@ -73,7 +73,7 @@ type Props = {
 
 function getFactIcon(label: string): FoodIconName {
   if (label.includes('菜谱')) return 'bookOpen';
-  if (label.includes('复吃') || label.includes('复购') || label.includes('吃过')) return 'refresh';
+  if (label.includes('复吃') || label.includes('复购') || label.includes('再吃') || label.includes('再次选择') || label.includes('吃过')) return 'refresh';
   if (label.includes('餐别')) return 'bowl';
   if (label.includes('价格') || label.includes('人均')) return 'receipt';
   if (label.includes('库存')) return 'clipboard';
@@ -84,7 +84,7 @@ function getFactIcon(label: string): FoodIconName {
 }
 
 function getFactTone(label: string, value: string): 'warning' | 'success' | 'danger' | 'neutral' {
-  if (value === '待完善' || value === '未设置' || value === '未记录' || value === '待补充' || value === '未评分') return 'warning';
+  if (value === '待完善' || value === '未设置' || value === '还没有设置' || value === '未记录' || value === '还没有记录' || value === '未填写来源' || value === '未填写购买渠道' || value === '未填写到期日' || value === '待补充' || value === '尚未记录' || value === '未评分' || value === '还没有选择') return 'warning';
   if (value === '已完善' || value === '库存充足' || value === '已有' || value === '正常') return 'success';
   if (label.includes('到期') && (value.includes('天') || value.includes('已过期') || value.includes('过期'))) return 'danger';
   return 'neutral';
@@ -122,7 +122,7 @@ export function FoodDetailDrawer(props: Props) {
         {props.getSecondaryFoodActionLabel(props.food)}
       </ActionButton>
       <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)} disabled={isBusy}>
-        加入菜单
+        加入餐食计划
       </ActionButton>
     </FormActions>
   );
@@ -136,7 +136,7 @@ export function FoodDetailDrawer(props: Props) {
       <WorkspaceDrawer
         eyebrow={FOOD_TYPE_LABELS[props.normalizedType]}
         title={props.food.name}
-        description={props.food.routine_note || props.food.notes || props.getSceneTags(props.food).join('、') || props.food.scene || '这份食物还没有补充决策备注。'}
+        description={props.food.routine_note || props.food.notes || props.getSceneTags(props.food).join('、') || props.food.scene || '这份食物还没有备注。'}
         className="food-detail-drawer"
         onClose={closeIfAllowed}
         footerActions={renderDetailActions('food-detail-actions-desktop')}
@@ -162,7 +162,7 @@ export function FoodDetailDrawer(props: Props) {
                   title={
                     props.inventoryConfirmation.lastConfirmedAt
                       ? `上次确认 ${props.inventoryConfirmation.lastConfirmedAt.slice(0, 10)}`
-                      : '还没有人工确认过成品库存'
+                      : '还没有确认成品库存情况'
                   }
                 >
                   {props.inventoryConfirmation.confirmationLabel}
@@ -177,7 +177,7 @@ export function FoodDetailDrawer(props: Props) {
 
         <section className="food-detail-section">
           <div className="food-detail-section-head">
-            <h4>决策信息</h4>
+              <h4>关键信息</h4>
             <span>{props.audienceText}</span>
           </div>
           <div className="food-fact-grid">
@@ -212,7 +212,7 @@ export function FoodDetailDrawer(props: Props) {
               <div className="fact-info">
                 <span className="fact-label">适合场景</span>
                 <strong className="fact-value">
-                  {props.getSceneTags(props.food).join('、') || props.food.scene || props.food.category || '未设置'}
+                    {props.getSceneTags(props.food).join('、') || props.food.scene || props.food.category || '未设置'}
                 </strong>
               </div>
             </div>
@@ -222,7 +222,7 @@ export function FoodDetailDrawer(props: Props) {
         {showRelationPanel && (
           <section className="food-detail-section">
             <div className="food-detail-section-head">
-              <h4>关系面板</h4>
+              <h4>相关信息</h4>
               <span>{props.relation.summary}</span>
             </div>
             <div className="food-fact-grid">
@@ -256,18 +256,18 @@ export function FoodDetailDrawer(props: Props) {
 
             <div className="food-detail-recipe-metrics">
               <div className="food-detail-recipe-metric-card">
-                <strong className="food-detail-recipe-metric-value">{props.usage.count > 0 ? `${props.usage.count}次` : '还未记录'}</strong>
+                <strong className="food-detail-recipe-metric-value">{props.usage.count > 0 ? `${props.usage.count} 次` : '还没有记录'}</strong>
                 <span className="food-detail-recipe-metric-label">餐食记录</span>
               </div>
               <div className="food-detail-recipe-metric-divider" />
               <div className="food-detail-recipe-metric-card">
-                <strong className="food-detail-recipe-metric-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
+                <strong className="food-detail-recipe-metric-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有记录'}</strong>
                 <span className="food-detail-recipe-metric-label">最近一次</span>
               </div>
               <div className="food-detail-recipe-metric-divider" />
               <div className="food-detail-recipe-metric-card">
-                <strong className="food-detail-recipe-metric-value">{props.recipe.ingredient_items.length}个</strong>
-                <span className="food-detail-recipe-metric-label">所需原料</span>
+                <strong className="food-detail-recipe-metric-value">{props.recipe.ingredient_items.length} 种</strong>
+                <span className="food-detail-recipe-metric-label">所需食材</span>
               </div>
             </div>
 
@@ -282,7 +282,7 @@ export function FoodDetailDrawer(props: Props) {
               <div className="food-detail-recipe-status-alert ready">
                 <span className="food-detail-recipe-alert-badge">食材齐全</span>
                 <p className="food-detail-recipe-alert-text">
-                  全部原料均有库存，可以直接开始烹饪。
+                  所有食材均有库存，可以直接开始做。
                 </p>
               </div>
             )}
@@ -293,7 +293,7 @@ export function FoodDetailDrawer(props: Props) {
                   <div key={item.item.id} className={`food-detail-recipe-ingredient-pill ${item.ready ? 'ready' : 'missing'}`}>
                     <span className="food-detail-recipe-pill-dot" />
                     <span className="food-detail-recipe-pill-name">{item.item.ingredient_name}</span>
-                    <span className="food-detail-recipe-pill-status">{item.ready ? '已有' : `缺 ${item.missingQuantity}${item.unit}`}</span>
+                    <span className="food-detail-recipe-pill-status">{item.ready ? '已备齐' : `缺少 ${item.missingQuantity} ${item.unit}`}</span>
                   </div>
                 ))}
               </div>
@@ -323,7 +323,7 @@ export function FoodDetailDrawer(props: Props) {
         {props.isOutsideFood && (
           <section className="food-detail-section">
             <div className="food-detail-section-head">
-              <h4>复吃判断</h4>
+              <h4>下次选择参考</h4>
               <span>{props.getRepurchaseLabel(props.food)}</span>
             </div>
             <div className="food-fact-grid">
@@ -333,34 +333,34 @@ export function FoodDetailDrawer(props: Props) {
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">{props.normalizedType === 'takeout' ? '店铺' : '餐厅'}</span>
-                  <strong className="fact-value">{props.food.source_name || '未记录'}</strong>
+                  <strong className="fact-value">{props.food.source_name || (props.normalizedType === 'takeout' ? '未填写店铺' : '未填写餐厅')}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('历史记录', props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录')}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('历史记录', props.usage.count > 0 ? `${props.usage.count} 次` : '还没有记录')}`}>
                   <FoodUiIcon name={getFactIcon('历史记录')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">历史记录</span>
-                  <strong className="fact-value">{props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录'}</strong>
+                  <strong className="fact-value">{props.usage.count > 0 ? `${props.usage.count} 次` : '还没有记录'}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('最近一次', props.relation.lastMealLog ? '正常' : '还没有')}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('最近一次', props.relation.lastMealLog ? '正常' : '还没有记录')}`}>
                   <FoodUiIcon name={getFactIcon('最近一次')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">最近一次</span>
-                  <strong className="fact-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
+                  <strong className="fact-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有记录'}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('价格', props.food.price == null ? '未记录' : `¥${props.food.price}`)}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('价格', props.food.price == null ? '还没有记录' : `¥${props.food.price}`)}`}>
                   <FoodUiIcon name={getFactIcon('价格')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">价格 / 人均</span>
-                  <strong className="fact-value">{props.food.price == null ? '未记录' : `¥${props.food.price}`}</strong>
+                  <strong className="fact-value">{props.food.price == null ? '还没有记录' : `¥${props.food.price}`}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
@@ -380,7 +380,7 @@ export function FoodDetailDrawer(props: Props) {
           <section className="food-detail-section">
             <div className="food-detail-section-head">
               <h4>库存与到期</h4>
-              <span>{props.expiry ?? '未记录到期'}</span>
+              <span>{props.expiry ?? '未填写到期日'}</span>
             </div>
             <div className="food-fact-grid">
               <div className="food-fact-item">
@@ -398,38 +398,38 @@ export function FoodDetailDrawer(props: Props) {
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">购买渠道</span>
-                  <strong className="fact-value">{props.food.purchase_source || props.food.source_name || '未记录'}</strong>
+                  <strong className="fact-value">{props.food.purchase_source || props.food.source_name || '未填写购买渠道'}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('到期日期', props.food.expiry_date ? '正常' : '未记录')}`}>
-                  <FoodUiIcon name={getFactIcon('到期日期')} className="fact-icon" />
+              <div className={`fact-icon-wrapper tone-${getFactTone('到期日', props.food.expiry_date ? '正常' : '未填写到期日')}`}>
+                  <FoodUiIcon name={getFactIcon('到期日')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
-                  <span className="fact-label">到期日期</span>
-                  <strong className="fact-value">{props.food.expiry_date ? formatDate(props.food.expiry_date) : '未记录'}</strong>
+                  <span className="fact-label">到期日</span>
+                  <strong className="fact-value">{props.food.expiry_date ? formatDate(props.food.expiry_date) : '未填写到期日'}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('餐食记录', props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录')}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('餐食记录', props.usage.count > 0 ? `${props.usage.count} 次` : '还没有记录')}`}>
                   <FoodUiIcon name={getFactIcon('餐食记录')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">餐食记录</span>
-                  <strong className="fact-value">{props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录'}</strong>
+                  <strong className="fact-value">{props.usage.count > 0 ? `${props.usage.count} 次` : '还没有记录'}</strong>
                 </div>
               </div>
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('最近一次', props.relation.lastMealLog ? '正常' : '还没有')}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('最近一次', props.relation.lastMealLog ? '正常' : '还没有记录')}`}>
                   <FoodUiIcon name={getFactIcon('最近一次')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">最近一次</span>
-                  <strong className="fact-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
+                  <strong className="fact-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有记录'}</strong>
                 </div>
               </div>
             </div>
-            {props.food.stock_quantity == null && <p className="food-detail-empty">这份成品速食还没有库存数量，补齐后会更容易判断是否适合作为今天的备用餐。</p>}
+            {props.food.stock_quantity == null && <p className="food-detail-empty">还没有库存数量，补充后更方便安排备用餐。</p>}
           </section>
         )}
 
@@ -450,7 +450,7 @@ export function FoodDetailDrawer(props: Props) {
         <section className="food-detail-section">
           <div className="food-detail-section-head">
             <h4>最近吃过</h4>
-            <span>{props.usage.count > 0 ? `共 ${props.usage.count} 次 · 最近 ${props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '未知'}` : '还没有记录'}</span>
+            <span>{props.usage.count > 0 ? `共 ${props.usage.count} 次 · 最近 ${props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有记录'}` : '还没有记录'}</span>
           </div>
           {props.history.length > 0 ? (
             <div className="food-detail-history">
@@ -467,7 +467,7 @@ export function FoodDetailDrawer(props: Props) {
               ))}
             </div>
           ) : (
-            <p className="food-detail-empty">还没有吃过记录。加入今天后，这里会开始沉淀复吃历史。</p>
+            <p className="food-detail-empty">还没有用餐记录。记下一餐后，这里会显示最近的用餐情况。</p>
           )}
         </section>
 

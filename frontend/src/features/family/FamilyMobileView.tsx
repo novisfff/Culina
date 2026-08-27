@@ -30,7 +30,7 @@ export function FamilyMobileView(props: {
   onMemberEdit: (member: Member) => void;
 }) {
   return (
-    <section className="mobile-family-page" aria-label="手机家庭页">
+    <section className="mobile-family-page" aria-label="家庭">
       <div className="mobile-family-topbar">
         <div className="mobile-family-brand">
           <span className="mobile-family-logo">
@@ -43,7 +43,7 @@ export function FamilyMobileView(props: {
         </div>
         <div className="mobile-family-top-actions">
           {props.notificationCenter}
-          <button type="button" aria-label="编辑我的资料" onClick={() => props.onOverlayChange('profile')}>
+          <button type="button" aria-label="编辑个人信息" onClick={() => props.onOverlayChange('profile')}>
             <DashboardIcon name="more" />
           </button>
         </div>
@@ -62,7 +62,7 @@ export function FamilyMobileView(props: {
           <div className="mobile-family-meta-row" aria-label="家庭信息">
             <span>
               <DashboardIcon name="map-pin" />
-              {props.familyLocation || '未填写位置'}
+              {props.familyLocation || '还没有填写位置'}
             </span>
             <span>
               <DashboardIcon name="family" />
@@ -79,7 +79,7 @@ export function FamilyMobileView(props: {
           ) : (
             <button className="mobile-family-primary" type="button" onClick={() => props.onOverlayChange('profile')}>
               <DashboardIcon name="user-plus" />
-              编辑资料
+              编辑个人信息
             </button>
           )}
           <button
@@ -88,7 +88,7 @@ export function FamilyMobileView(props: {
             onClick={() => props.onOverlayChange(props.isOwner ? 'family' : 'password')}
           >
             <DashboardIcon name={props.isOwner ? 'edit' : 'lock'} />
-            {props.isOwner ? '家庭资料' : '修改密码'}
+            {props.isOwner ? '家庭信息' : '修改密码'}
           </button>
         </div>
       </header>
@@ -101,9 +101,9 @@ export function FamilyMobileView(props: {
             onClick={() => {
               if (item.label === '家庭成员') {
                 document.getElementById('mobile-family-members')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-              } else if (item.label === '家庭资料') {
+              } else if (item.label === '家庭信息') {
                 props.onOverlayChange(props.isOwner ? 'family' : 'profile');
-              } else if (item.label === '待处理采购') {
+              } else if (item.label === '待采购') {
                 props.onNavigate({ workspace: 'ingredients' });
               } else if (item.label === '我的记录') {
                 props.onNavigate({ workspace: 'eat', view: 'history' });
@@ -126,7 +126,7 @@ export function FamilyMobileView(props: {
 
       <section className="mobile-family-panel mobile-family-model-usage-panel" aria-labelledby="mobile-family-model-usage-heading">
         <div className="mobile-family-section-head">
-          <h2 id="mobile-family-model-usage-heading">家庭工具</h2>
+          <h2 id="mobile-family-model-usage-heading">家庭 AI 服务</h2>
         </div>
         <button
           className="mobile-family-model-usage-entry"
@@ -137,7 +137,7 @@ export function FamilyMobileView(props: {
           <strong>模型用量</strong>
           <small>
             {props.isOwner
-              ? '查看本账期费用、家庭额度和使用明细'
+              ? '查看本统计周期的费用、家庭额度和使用明细'
               : '查看个人费用和当前家庭额度'}
           </small>
         </button>
@@ -149,7 +149,7 @@ export function FamilyMobileView(props: {
           >
             <span aria-hidden="true"><DashboardIcon name="shield" /></span>
             <strong>AI 服务</strong>
-            <small>管理家庭的模型服务、凭据、能力与价格</small>
+            <small>管理家庭的模型服务、密钥、功能与价格</small>
           </button>
         ) : null}
       </section>
@@ -172,12 +172,12 @@ export function FamilyMobileView(props: {
             />
             <div>
               <strong>{props.currentUser.display_name}</strong>
-              <span>{props.membership?.role ?? 'Member'} · {props.currentUser.username}</span>
+              <span>{props.membership?.role === 'Owner' ? '家庭主理人' : '成员'} · {props.currentUser.username}</span>
               <small>{props.currentUser.email ?? props.currentUser.phone ?? '还没有联系方式'}</small>
             </div>
           </div>
           <div className="mobile-family-account-actions">
-            <button type="button" onClick={() => props.onOverlayChange('profile')}>编辑资料</button>
+            <button type="button" onClick={() => props.onOverlayChange('profile')}>编辑个人信息</button>
             <button type="button" onClick={() => props.onOverlayChange('password')}>修改密码</button>
           </div>
         </section>
@@ -200,7 +200,7 @@ export function FamilyMobileView(props: {
               <div>
                 <strong>{member.display_name}</strong>
                 <span>{member.role === 'Owner' ? '主理人' : member.id === props.currentUser?.id ? '这是你' : '成员'} · {member.username}</span>
-                <small>{member.email ?? member.phone ?? '等待补充联系信息'}</small>
+                <small>{member.email ?? member.phone ?? '还没有联系方式'}</small>
               </div>
               {props.isOwner ? (
                 <button type="button" aria-label={`修改 ${member.display_name} 的信息`} onClick={() => props.onMemberEdit(member)}>
@@ -259,13 +259,13 @@ export function FamilyMobileView(props: {
                 type="button"
                 onClick={props.onActivityRetry}
               >
-                刷新失败，重试
+                暂时无法更新，请重试
               </button>
             )}
           </div>
         ) : (
           <div className="mobile-family-empty">
-            <strong>暂无家庭活动</strong>
+            <strong>还没有家庭活动</strong>
             <span>记录餐食、采购和食材后，这里会自动更新。</span>
           </div>
         )}
@@ -284,8 +284,8 @@ export function FamilyMobileView(props: {
             </button>
             <button type="button" onClick={() => props.onOverlayChange('family')}>
               <span><DashboardIcon name="edit" /></span>
-              <strong>编辑家庭资料</strong>
-              <small>维护家庭名称、位置、口号和家庭图</small>
+              <strong>编辑家庭信息</strong>
+              <small>编辑家庭名称、位置、口号和头像</small>
             </button>
           </div>
         ) : (
@@ -298,7 +298,7 @@ export function FamilyMobileView(props: {
             {props.familyOwnerMember && (
               <button type="button" onClick={() => props.onOverlayChange('profile')}>
                 <span><DashboardIcon name="shield" /></span>
-                <strong>主理人管理家庭资料</strong>
+                <strong>主理人管理家庭信息</strong>
                 <small>{props.familyOwnerMember.display_name} · {props.familyOwnerMember.username}</small>
               </button>
             )}

@@ -77,8 +77,8 @@ describe('AI query result cards', () => {
     });
 
     expect(view.querySelector('.ai-query-item-title strong')?.textContent).toBe('番茄');
-    expect(view.textContent).toContain('3个');
-    expect(view.textContent).toContain('保质期至 2026-06-16');
+    expect(view.textContent).toContain('3 个');
+    expect(view.textContent).toContain('到期日 2026-06-16');
     expect(view.textContent).toContain('2 天后到期');
     const fallbackImage = view.querySelector<HTMLImageElement>('img.ai-query-card-image');
     expect(fallbackImage?.getAttribute('src')).toBe('/assets/ai-food-ingredient-placeholder.png');
@@ -122,9 +122,9 @@ describe('AI query result cards', () => {
       },
     }, undefined, (_item, action) => actions.push(action));
 
-    expect(view.textContent).toContain('已消耗 1个');
+    expect(view.textContent).toContain('已扣减库存 1 个');
     const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('.ai-query-inventory-actions button'));
-    expect(buttons.map((button) => button.textContent)).toEqual(['消耗']);
+    expect(buttons.map((button) => button.textContent)).toEqual(['扣减库存']);
     await act(async () => buttons[0]?.click());
     expect(actions).toEqual(['consume']);
   });
@@ -248,7 +248,7 @@ describe('AI query result cards', () => {
     expect(view.textContent).toContain('20 分钟 · 2 人份 · easy');
     expect(view.textContent).toContain('优先消耗临期番茄。');
     expect(view.textContent).toContain('番茄 · 3个');
-    const addButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '加入菜单计划');
+    const addButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '加入餐食计划');
     expect(addButton).toBeDefined();
     await act(async () => addButton?.click());
     expect(selectedName).toBe('番茄鸡蛋面');
@@ -296,9 +296,9 @@ describe('AI query result cards', () => {
       },
     });
 
-    expect(view.textContent).toContain('已加入菜单');
+    expect(view.textContent).toContain('已加入餐食计划');
     expect(view.textContent).toContain('2026-06-15 · 晚餐');
-    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '加入菜单计划')).toBe(false);
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '加入餐食计划')).toBe(false);
   });
 
   it('renders structured clarification question and candidates', async () => {
@@ -354,11 +354,11 @@ describe('AI query result cards', () => {
       },
     });
 
-    expect(view.textContent).toContain('已按确认执行');
+    expect(view.textContent).toContain('已按你的确认完成');
     expect(countText(view.textContent ?? '', '已修改餐食计划')).toBe(1);
-    expect(view.textContent).toContain('影响 1 条计划');
+    expect(view.textContent).toContain('涉及 1 条计划');
     expect(view.textContent).toContain('查看位置');
-    expect(view.textContent).toContain('菜单计划');
+    expect(view.textContent).toContain('餐食计划');
     expect(view.textContent).toContain('2026-06-18 晚餐');
     expect(view.textContent).toContain('新增');
     expect(view.textContent).not.toContain('MealType.DINNER');
@@ -395,9 +395,9 @@ describe('AI query result cards', () => {
     });
 
     expect(view.textContent).toContain('牛奶 · 1 袋 · 冷藏');
-    expect(view.textContent).toContain('直接入库');
+    expect(view.textContent).toContain('直接加入库存');
     expect(view.textContent).toContain('鸡蛋 · 12 个 · 冷藏');
-    expect(view.textContent).toContain('入库并完成采购项');
+    expect(view.textContent).toContain('加入库存并完成待买内容');
     const states = view.querySelectorAll('.ai-operation-result-state');
     expect(states).toHaveLength(2);
     expect(Array.from(states).every((state) => state.getAttribute('aria-label') === '已完成')).toBe(true);
@@ -424,7 +424,7 @@ describe('AI query result cards', () => {
       },
     });
 
-    expect(view.textContent).toContain('库存处理');
+    expect(view.textContent).toContain('库存变更');
     expect(view.textContent).toContain('补货');
     expect(view.textContent).not.toContain('inventory_operation');
   });
@@ -458,11 +458,11 @@ describe('AI query result cards', () => {
 
     expect(view.textContent).toContain('番茄香菜汤');
     expect(view.textContent).toContain('番茄');
-    expect(view.textContent).toContain('缺少 2个');
+    expect(view.textContent).toContain('缺少 2 个');
     expect(view.textContent).toContain('香菜');
     expect(view.textContent).toContain('需要补充');
     const button = view.querySelector<HTMLButtonElement>('button');
-    expect(button?.textContent).toContain('加入购物清单');
+    expect(button?.textContent).toContain('加入采购清单');
     await act(async () => button?.click());
     expect(prompts).toEqual(['把缺少的食材加入购物清单']);
   });

@@ -660,12 +660,12 @@ describe('ApprovalPanel', () => {
     );
 
     const activityText = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity')).map((item) => item.textContent).join('\n');
-    expect(activityText).toContain('等待补充');
+    expect(activityText).toContain('等你补充');
     expect(activityText).toContain('购物清单');
     expect(activityText).toContain('等待用户补充信息');
     expect(activityText).not.toContain('已完成');
     const skillRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-row.kind-skill'));
-    expect(skillRows.some((row) => row.textContent === '调用技能：购物清单')).toBe(true);
+    expect(skillRows.some((row) => row.textContent === '正在处理：购物清单')).toBe(true);
     expect(skillRows.some((row) => row.querySelector('.ai-run-skill-icon'))).toBe(true);
     expect(skillRows.some((row) => row.className.includes('status-waiting'))).toBe(false);
     rendered.unmount();
@@ -816,13 +816,13 @@ describe('ApprovalPanel', () => {
     );
     expect(rendered.container.textContent).toContain('以下 1 项需要重新确认');
     expect(rendered.container.textContent).toContain('状态变更 鸡蛋');
-    expect(rendered.container.textContent).toContain('操作 ID · ai_op_item_1');
-    expect(rendered.container.textContent).toContain('检测到版本或基线冲突');
-    expect(rendered.container.textContent).toContain('当前业务值');
+    expect(rendered.container.textContent).not.toContain('操作 ID · ai_op_item_1');
+    expect(rendered.container.textContent).toContain('检测到内容已被更新');
+    expect(rendered.container.textContent).toContain('最新内容');
     expect(rendered.container.textContent).toContain('鸡蛋');
     expect(rendered.container.textContent).toContain('1 盒 · 待购买');
-    expect(rendered.container.textContent).toContain('按最新值调整草稿后重试');
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('上次写入失败');
+    expect(rendered.container.textContent).toContain('内容已更新，请按最新内容调整草稿后重试');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('上次保存失败');
     rendered.unmount();
   });
 
@@ -861,9 +861,9 @@ describe('ApprovalPanel', () => {
       />,
     );
 
-    expect(rendered.container.textContent).toContain('删除采购项');
-    expect(rendered.container.textContent).toContain('删除采购项：三文鱼 · 1 块 · 待买');
-    expect(rendered.container.textContent).toContain('不会删除食材档案，也不会调整库存数量');
+    expect(rendered.container.textContent).toContain('删除待买内容');
+    expect(rendered.container.textContent).toContain('删除待买内容：三文鱼 · 1 块 · 待买');
+    expect(rendered.container.textContent).toContain('不会删除食材，也不会调整库存数量');
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
     expect(rendered.container.textContent).not.toContain('删除原因');
     expect(rendered.container.textContent).not.toContain('为什么需要采购');
@@ -876,17 +876,17 @@ describe('ApprovalPanel', () => {
       <ApprovalPanel approval={compositeOperationApproval()} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('待确认复合操作');
-    expect(rendered.container.textContent).toContain('第一阶段只支持整体确认或拒绝');
-    expect(rendered.container.textContent).toContain('执行顺序');
+    expect(rendered.container.textContent).toContain('一组待确认变更');
+    expect(rendered.container.textContent).toContain('当前只能整体确认或拒绝这组变更');
+    expect(rendered.container.textContent).toContain('变更顺序');
     expect(rendered.container.textContent).toContain('步骤2 步');
-    expect(rendered.container.textContent).toContain('涉及领域食材档案、库存');
-    expect(rendered.container.textContent).toContain('写入影响新增 1 · 更新 0 · 删除 0 · 库存 1');
+    expect(rendered.container.textContent).toContain('涉及内容食材信息、库存');
+    expect(rendered.container.textContent).toContain('变更概览新增 1 · 更新 0 · 删除 0 · 库存变更 1');
     expect(rendered.container.textContent).toContain('新增食材档案 · 鸡胸肉');
     expect(rendered.container.textContent).toContain('入库库存 · 鸡胸肉 500 克');
-    expect(rendered.container.textContent).toContain('使用前面步骤创建或更新的结果');
-    expect(rendered.container.textContent).toContain('使用前置结果');
-    expect(rendered.container.textContent).toContain('风险与回滚');
+    expect(rendered.container.textContent).toContain('沿用前一步结果');
+    expect(rendered.container.textContent).toContain('沿用前一步结果');
+    expect(rendered.container.textContent).toContain('风险提示');
     expect(rendered.container.textContent).toContain('风险较低');
     expect(rendered.container.textContent).not.toContain('依赖 · create-ingredient');
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-composite-operation-summary-card')).not.toBeNull();
@@ -909,8 +909,8 @@ describe('ApprovalPanel', () => {
             domain: 'inventory',
             domainLabel: '库存',
             action: 'dispose',
-            actionLabel: '销毁',
-            title: '销毁过期牛奶',
+            actionLabel: '丢弃',
+            title: '丢弃过期牛奶',
             summary: '处理已过期的库存批次',
             dependsOn: [],
             dependencyRefs: [],
@@ -923,8 +923,8 @@ describe('ApprovalPanel', () => {
     );
 
     expect(rendered.container.querySelector('.ai-draft-impact-note.tone-danger.ai-composite-operation-danger-impact')).not.toBeNull();
-    expect(rendered.container.textContent).toContain('销毁过期牛奶');
-    expect(rendered.container.textContent).toContain('包含 1 个高风险步骤');
+    expect(rendered.container.textContent).toContain('丢弃过期牛奶');
+    expect(rendered.container.textContent).toContain('包含 1 个需要重点核对的步骤');
     rendered.unmount();
   });
 
@@ -939,7 +939,7 @@ describe('ApprovalPanel', () => {
 
     const approve = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent === '确认');
     await act(async () => approve?.click());
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('复合操作至少需要 1 个步骤');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('这组变更至少需要 1 步');
     expect(onDecision).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -952,9 +952,9 @@ describe('ApprovalPanel', () => {
       />,
     );
 
-    expect(rendered.container.textContent).toContain('复合操作已执行');
-    expect(rendered.container.textContent).toContain('保留执行结果摘要');
-    expect(rendered.container.textContent).toContain('执行结果');
+    expect(rendered.container.textContent).toContain('这组变更已完成');
+    expect(rendered.container.textContent).toContain('这里保留变更结果');
+    expect(rendered.container.textContent).toContain('变更结果');
     expect(rendered.container.querySelector('.ai-approval-actions')).toBeNull();
     rendered.unmount();
   });
@@ -964,7 +964,7 @@ describe('ApprovalPanel', () => {
       <ApprovalPanel approval={unitMismatchInventoryApproval()} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('主要处理项');
+    expect(rendered.container.textContent).toContain('变更内容');
     expect(rendered.container.textContent).toContain('鸡蛋');
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-inventory-operation-summary-card')).not.toBeNull();
     expect(rendered.container.querySelector('.ai-draft-section.ai-inventory-operation-items-section')).not.toBeNull();
@@ -1034,7 +1034,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .ghost-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('.form-error')?.textContent ?? '').not.toContain('销毁库存必须填写原因');
+    expect(rendered.container.querySelector('.form-error')?.textContent ?? '').not.toContain('丢弃库存必须填写原因');
     expect(decideSpy).toHaveBeenCalledWith(pending, 'rejected', {}, '');
     rendered.unmount();
   });
@@ -1125,17 +1125,17 @@ describe('ApprovalPanel', () => {
     ] as Ingredient[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={() => undefined} />);
 
-    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('待确认购物清单');
-    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('已绑定食材2 项');
-    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('只提醒补充1 项');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('待确认采购清单');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('已选择食材2 项');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('只记录是否有库存1 项');
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-shopping-list-summary-card')).not.toBeNull();
-    expect(rendered.container.querySelector('.ai-draft-section')?.textContent).toContain('采购项');
+    expect(rendered.container.querySelector('.ai-draft-section')?.textContent).toContain('待买内容');
     const quantityModeField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-shopping-list-draft-editor .ai-resource-field-choice'))
-      .find((field) => field.textContent?.includes('数量模式'));
+      .find((field) => field.textContent?.includes('数量填写方式'));
     expect(quantityModeField?.textContent).toContain('记录数量');
     expect(rendered.container.querySelector<HTMLInputElement>('.ai-shopping-list-draft-editor .ai-resource-field-combobox input')?.value).toBe('盒');
-    await chooseSingleSelectOption(quantityModeField, '只提醒需要补充');
-    expect(quantityModeField?.textContent).toContain('只提醒需要补充');
+    await chooseSingleSelectOption(quantityModeField, '只记录是否有库存');
+    expect(quantityModeField?.textContent).toContain('只记录是否有库存');
     rendered.unmount();
   });
 
@@ -1157,7 +1157,7 @@ describe('ApprovalPanel', () => {
     });
     await flushAsync();
 
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('采购项食材必须从食材库选择');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('请选择采购清单中的食材；找不到的食材请先添加');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -1176,9 +1176,9 @@ describe('ApprovalPanel', () => {
     });
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
 
-    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('购物清单已确认');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('采购清单已确认');
     expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-shopping-list-summary-card')).not.toBeNull();
-    expect(rendered.container.textContent).toContain('采购项预览');
+    expect(rendered.container.textContent).toContain('采购内容预览');
     expect(rendered.container.querySelector('.ai-shopping-list-draft-editor input')).toBeNull();
     rendered.unmount();
   });
@@ -1272,13 +1272,13 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.textContent).toContain('未绑定到食材库');
+    expect(rendered.container.textContent).toContain('待选择食材');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
 
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('菜谱食材必须从食材库选择');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('请选择菜谱中的食材；找不到的食材请先添加');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -1292,8 +1292,8 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.textContent).toContain('食材匹配');
     expect(rendered.container.textContent).toContain('烹饪步骤');
     expect(rendered.container.textContent).toContain('关键点');
-    expect(rendered.container.textContent).toContain('当前：番茄鸡蛋面 · 2人份 · 简单');
-    expect(rendered.container.textContent).toContain('调整后：番茄鸡蛋面升级版 · 2人份 · 简单');
+    expect(rendered.container.textContent).toContain('当前：番茄鸡蛋面 · 2 人份 · 简单');
+    expect(rendered.container.textContent).toContain('调整后：番茄鸡蛋面升级版 · 2 人份 · 简单');
     expect(rendered.container.textContent).not.toContain('食材和步骤变更会在摘要里计数');
     expect(rendered.container.querySelector<HTMLInputElement>('input[role="combobox"]')?.value).toBe('个');
 
@@ -1341,13 +1341,13 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.textContent).toContain('未绑定到食材库');
+    expect(rendered.container.textContent).toContain('待选择食材');
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
 
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('菜谱食材必须从食材库选择');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('请选择菜谱中的食材；找不到的食材请先添加');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -1356,11 +1356,11 @@ describe('ApprovalPanel', () => {
     const pending = recipeOperationApproval('delete');
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
 
-    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('被删菜谱：番茄鸡蛋面');
-    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('同步食物：1 个');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('要删除的菜谱：番茄鸡蛋面');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('关联食物：1 项');
     expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('关联计划：2 条');
-    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
-    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('做菜记录：3 条');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('相关图片：1 张');
     expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('删除影响');
     expect(rendered.container.querySelector('.ai-approval-actions .solid-button.danger-button')?.textContent).toContain('删除菜谱');
     rendered.unmount();
@@ -1400,16 +1400,16 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-recipe-cook-summary-card')?.textContent).toContain('日期');
     expect(rendered.container.textContent).toContain('做菜结果');
     expect(rendered.container.textContent).toContain('食材与库存');
-    expect(rendered.container.textContent).toContain('执行设置');
+    expect(rendered.container.textContent).toContain('做菜设置');
     expect(rendered.container.textContent).toContain('库存扣减预览');
-    expect(rendered.container.textContent).toContain('缺料与阻断');
+    expect(rendered.container.textContent).toContain('缺少食材提醒');
     expect(rendered.container.textContent).toContain('餐食记录补充');
     expect(rendered.container.textContent).toContain('完成后会记录这餐');
     expect(rendered.container.textContent).toContain('关联计划：2026-06-12 · 晚餐 · 番茄炒蛋 · 计划中');
     expect(rendered.container.textContent).toContain('需要 2 个');
-    expect(rendered.container.textContent).toContain('批次 1：扣 2 个 · 冷藏 · 购于 2026-06-08 · 到期 2026-06-15');
+    expect(rendered.container.textContent).toContain('库存明细 1：扣减 2 个 · 冷藏 · 购于 2026-06-08 · 到期 2026-06-15');
     expect(rendered.container.querySelector<HTMLInputElement>('.ai-recipe-cook-draft-editor input[type="number"]')?.disabled).toBe(true);
-    expect(rendered.container.textContent).toContain('份数会改变库存扣减预览，如需调整请重新生成草稿');
+    expect(rendered.container.textContent).toContain('份数会改变库存扣减预览，如需调整请重新生成做菜安排');
     rendered.unmount();
   });
 
@@ -1418,8 +1418,8 @@ describe('ApprovalPanel', () => {
       <ApprovalPanel approval={makeRecipeCookApproval('recipe_cook_operation.v1', { createMealLog: true })} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('这份旧草稿需要刷新后重新确认');
-    expect(rendered.container.textContent).toContain('旧草稿需要刷新后重新确认');
+    expect(rendered.container.textContent).toContain('这份做菜建议已过期，请刷新后重新生成');
+    expect(rendered.container.textContent).toContain('这份做菜建议需要刷新后重新确认');
     expect(rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.disabled).toBe(true);
     rendered.unmount();
   });
@@ -1449,7 +1449,7 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.textContent).toContain('这份旧草稿需要刷新后重新确认');
+    expect(rendered.container.textContent).toContain('这份做菜建议已过期，请刷新后重新生成');
     expect(rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.disabled).toBe(true);
 
     await act(async () => {
@@ -1505,7 +1505,7 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.textContent).toContain('当前草稿不能确认执行');
+    expect(rendered.container.textContent).toContain('当前安排还不能确认');
     expect(rendered.container.textContent).toContain('鸡蛋');
     expect(Array.from(rendered.container.querySelectorAll('[role="note"]')).some((note) => note.textContent?.includes('库存提醒'))).toBe(true);
     await act(async () => {
@@ -1513,7 +1513,7 @@ describe('ApprovalPanel', () => {
     });
     await flushAsync();
 
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('当前做菜草稿包含缺料项');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('这份做菜安排还缺食材');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -1531,7 +1531,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
     });
 
-    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-recipe-cook-summary-card')?.textContent).toContain('做菜执行已确认');
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-recipe-cook-summary-card')?.textContent).toContain('做菜安排已确认');
     expect(rendered.container.querySelector('.ai-recipe-cook-draft-editor input, .ai-recipe-cook-draft-editor textarea')).toBeNull();
     rendered.unmount();
   });
@@ -1565,7 +1565,7 @@ describe('ApprovalPanel', () => {
     expect(ingredientActions).not.toBeNull();
     expect(ingredientActions?.querySelector('.ai-ingredient-quantity-field')).not.toBeNull();
     expect(ingredientActions?.querySelector('.ai-ingredient-unit-chevron')).not.toBeNull();
-    expect(ingredientActions?.querySelector('.ai-ingredient-remove-button')?.textContent).toBe('删除');
+    expect(ingredientActions?.querySelector('.ai-ingredient-remove-button')?.textContent).toBe('移除');
 
     const beefQuantityInput = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛肉数量"]');
     expect(beefQuantityInput).not.toBeNull();
@@ -1664,16 +1664,16 @@ describe('ApprovalPanel', () => {
     ] as Ingredient[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
 
-    expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('待确认计划变更');
+    expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('待确认餐食计划变更');
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-plan-summary-card')?.textContent).toContain('变更');
-    expect(Array.from(rendered.container.querySelectorAll('[role="note"]')).some((note) => note.textContent?.includes('缺料提醒'))).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll('[role="note"]')).some((note) => note.textContent?.includes('缺少食材提醒'))).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll('[role="alert"]')).some((note) => note.textContent?.includes('删除影响'))).toBe(true);
-    expect(rendered.container.textContent).toContain('变更新增1、修改1、状态变更1、删除1');
+    expect(rendered.container.textContent).toContain('变更新增1、修改1、更新状态1、删除1');
     expect(rendered.container.textContent).toContain('当前：2026-06-12 · 晚餐 · 番茄炒蛋');
     expect(rendered.container.textContent).toContain('调整后：2026-06-12 · 午餐 · 牛肉面');
     expect(rendered.container.textContent).toContain('状态：计划中 → 已完成');
     expect(rendered.container.textContent).toContain('删除影响');
-    expect(rendered.container.textContent).toContain('不会删除食物资料');
+    expect(rendered.container.textContent).toContain('不会删除食物');
 
     const statusField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-meal-plan-draft-editor .ai-resource-field-choice'))
       .find((field) => field.textContent?.includes('计划状态'));
@@ -1720,7 +1720,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('计划项食物必须从食物库选择');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('请选择餐食安排中的食物；找不到的食物请先添加');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -1749,7 +1749,7 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
 
     expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('餐食计划已确认');
-    expect(rendered.container.textContent).toContain('计划项预览');
+    expect(rendered.container.textContent).toContain('餐食安排预览');
     expect(rendered.container.querySelector('.ai-meal-plan-draft-editor input')).toBeNull();
     rendered.unmount();
   });
@@ -1883,14 +1883,14 @@ describe('ApprovalPanel', () => {
     expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(0);
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-meal-log-summary-card')).not.toBeNull();
     const mealLogSections = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-draft-section h3')).map((heading) => heading.textContent);
-    expect(mealLogSections).toEqual(expect.arrayContaining(['餐食信息', '食物项', '参与人和照片', '备注与心情']));
+    expect(mealLogSections).toEqual(expect.arrayContaining(['餐食信息', '食物项', '参与家人和照片', '备注与心情']));
     expect(rendered.container.textContent).toContain('2026-06-10');
     expect(rendered.container.textContent).toContain('晚餐');
     expect(rendered.container.textContent).toContain('食物1 项');
     expect(rendered.container.textContent).toContain('总份数1 份');
-    expect(rendered.container.textContent).toContain('参与人1 人');
+    expect(rendered.container.textContent).toContain('参与家人1 人');
     expect(rendered.container.textContent).toContain('照片1 张');
-    expect(rendered.container.textContent).toContain('关联计划未关联');
+    expect(rendered.container.textContent).toContain('餐食安排未关联');
     expect(rendered.container.textContent).toContain('心情满足');
     expect(rendered.container.textContent).toContain('晚餐记录');
     const foodCard = rendered.container.querySelector('.ai-meal-log-food-item');
@@ -1901,7 +1901,7 @@ describe('ApprovalPanel', () => {
     expect(foodCardStatus?.textContent).toBe('1 份');
     expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
     expect(rendered.container.textContent).toContain('1 份');
-    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('参与家人和照片');
     expect(rendered.container.textContent).toContain('media-1');
     const mealField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-meal-log-draft-editor .ai-resource-field-choice'))
       .find((field) => field.textContent?.includes('餐别'));
@@ -2018,7 +2018,7 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.textContent).toContain('餐食信息');
     expect(rendered.container.textContent).toContain('食物项');
-    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('参与家人和照片');
     expect(rendered.container.textContent).toContain('备注与心情');
     expect(rendered.container.textContent).toContain('蓝莓酸奶');
     const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-draft-editor .ai-resource-field-food input');
@@ -2058,7 +2058,7 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
     expect(rendered.container.textContent).toContain('补充餐食记录');
-    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('参与家人和照片');
     expect(rendered.container.textContent).toContain('user-friend');
     expect(rendered.container.textContent).toContain('media-dinner-1');
     expect(rendered.container.textContent).not.toContain('参与人 ID');
@@ -2307,7 +2307,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('适合餐别必须从固定选项中选择');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('请选择有效的餐别');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -2330,7 +2330,7 @@ describe('ApprovalPanel', () => {
     };
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
 
-    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-food-profile-summary-card')?.textContent).toContain('新增食物资料已确认');
+    expect(rendered.container.querySelector('.ai-draft-resolved-summary.ai-food-profile-summary-card')?.textContent).toContain('新增食物信息已确认');
     expect(rendered.container.querySelector('.ai-food-profile-draft-editor input')).toBeNull();
     expect(rendered.container.textContent).not.toContain('核心信息');
     rendered.unmount();
@@ -2376,22 +2376,22 @@ describe('ApprovalPanel', () => {
 
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
 
-    expect(rendered.container.textContent).toContain('修改食材档案');
+    expect(rendered.container.textContent).toContain('修改食材');
     expect(rendered.container.textContent).toContain('当前：鸡蛋 · 蛋奶 · 盒 · 冷藏');
     expect(rendered.container.textContent).toContain('调整后：鸡蛋 · 蛋奶 · 盒 · 冷藏');
-    expect(rendered.container.textContent).toContain('只更新食材档案默认值，不直接修改已有库存批次。');
+    expect(rendered.container.textContent).toContain('只更新食材的默认设置，不直接修改已有库存。');
     expect(rendered.container.querySelector('.ai-draft-summary-card.ai-ingredient-profile-summary-card')).not.toBeNull();
     expect(Array.from(rendered.container.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
-      expect.arrayContaining(['核心信息', '库存与追踪', '高级设置']),
+      expect.arrayContaining(['核心信息', '库存与到期提醒', '高级设置']),
     );
     expect(rendered.container.textContent).toContain('核心信息');
-    expect(rendered.container.textContent).toContain('库存与追踪');
+    expect(rendered.container.textContent).toContain('库存与到期提醒');
     expect(rendered.container.textContent).toContain('高级设置');
     expect(rendered.container.textContent).toContain('默认单位');
-    expect(rendered.container.textContent).toContain('默认保存');
-    expect(rendered.container.textContent).toContain('保质期模式');
-    expect(rendered.container.textContent).toContain('副单位');
-    expect(rendered.container.textContent).toContain('等于多少默认单位');
+    expect(rendered.container.textContent).toContain('默认存放');
+    expect(rendered.container.textContent).toContain('保质期');
+    expect(rendered.container.textContent).toContain('其他单位');
+    expect(rendered.container.textContent).toContain('换算为多少默认单位');
     expect(rendered.container.querySelector<HTMLTextAreaElement>('.ai-ingredient-profile-draft-editor textarea.text-input')?.value).toContain('优先买土鸡蛋');
     rendered.unmount();
   });
@@ -2401,11 +2401,11 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
-    expect(rendered.container.textContent).toContain('确认后会创建新的家庭食材档案，不会登记库存数量。');
+    expect(rendered.container.textContent).toContain('确认后会把食材添加到当前家庭的食材库，不会记录库存数量。');
     expect(rendered.container.textContent).toContain('核心信息');
-    expect(rendered.container.textContent).toContain('库存与追踪');
+    expect(rendered.container.textContent).toContain('库存与到期提醒');
     expect(rendered.container.textContent).toContain('高级设置');
-    expect(rendered.container.textContent).toContain('低库存阈值');
+    expect(rendered.container.textContent).toContain('低库存提醒值');
     expect(rendered.container.textContent).toContain('当可用库存低于这个数量时提醒');
     expect(rendered.container.querySelectorAll('.ai-ingredient-profile-draft-editor .ai-resource-field-combobox').length).toBeGreaterThanOrEqual(4);
 
@@ -2446,7 +2446,7 @@ describe('ApprovalPanel', () => {
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
     const storageField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-resource-field-combobox'))
-      .find((field) => field.textContent?.includes('默认保存'));
+      .find((field) => field.textContent?.includes('默认存放'));
     const storageInput = storageField?.querySelector<HTMLInputElement>('input[role="combobox"]');
     expect(storageInput?.value).toBe('常温');
 
@@ -2564,7 +2564,7 @@ describe('ApprovalPanel', () => {
     });
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('低库存阈值需要大于 0');
+    expect(rendered.container.textContent).toContain('低库存提醒值需要大于 0');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -2614,7 +2614,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flushAsync();
-    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('默认保存位置不能为空');
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('默认存放位置不能为空');
     expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
@@ -2649,7 +2649,7 @@ describe('ApprovalPanel', () => {
       rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
     });
 
-    expect(rendered.container.textContent).toContain('已创建食材档案');
+    expect(rendered.container.textContent).toContain('已添加食材信息');
     expect(rendered.container.textContent).toContain('梅干菜');
     expect(rendered.container.textContent).toContain('180 天');
     expect(rendered.container.textContent).toContain('50 克');
@@ -2761,19 +2761,19 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
     expect(rendered.container.querySelector('.ai-inventory-intake-editor')).not.toBeNull();
-    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次入库概览');
+    expect(rendered.container.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次库存更新概览');
     expect(Array.from(rendered.container.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
-      expect.arrayContaining(['采购清单关联', '直接入库']),
+      expect.arrayContaining(['采购清单内容', '直接加入库存']),
     );
-    expect(rendered.container.querySelector('[role="note"][aria-label="还需补充"]')).not.toBeNull();
-    expect(rendered.container.textContent).toContain('采购清单关联');
-    expect(rendered.container.textContent).toContain('直接入库');
+    expect(rendered.container.querySelector('[role="note"][aria-label="还需要补充"]')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('采购清单内容');
+    expect(rendered.container.textContent).toContain('直接加入库存');
     expect(rendered.container.textContent).toContain('已忽略');
-    expect(rendered.container.textContent).toContain('只增加库存，不创建或完成采购项');
+    expect(rendered.container.textContent).toContain('这里只会加入库存，不会新增或完成采购清单内容');
     expect(rendered.container.textContent).toContain('非食品库存对象');
     expect(rendered.container.textContent).not.toContain('还需确认');
-    expect(rendered.container.textContent).toContain('确认入库');
-    expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('确认入库');
+    expect(rendered.container.textContent).toContain('确认加入库存');
+    expect(rendered.container.querySelector('.ai-approval-actions .solid-button')?.textContent).toContain('确认加入库存');
     expect(rendered.container.querySelectorAll('button[type="submit"]')).toHaveLength(0);
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(1);
 
@@ -2794,11 +2794,11 @@ describe('ApprovalPanel', () => {
     expect(decideSpy).not.toHaveBeenCalled();
 
     const milkToggle = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent?.includes('牛奶'));
-    if (milkToggle && !rendered.container.querySelector('input[aria-label="牛奶实际入库数量"]')) {
+    if (milkToggle && !rendered.container.querySelector('input[aria-label="牛奶实际数量"]')) {
       await act(async () => milkToggle.click());
       await flushAsync();
     }
-    const milkQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛奶实际入库数量"]');
+    const milkQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛奶实际数量"]');
     expect(milkQty).not.toBeNull();
     changeInput(milkQty as HTMLInputElement, '1');
     await act(async () => {
@@ -2909,11 +2909,11 @@ describe('ApprovalPanel', () => {
 
     // expand the egg row if collapsed
     const eggToggle = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent?.includes('鸡蛋'));
-    if (eggToggle && !rendered.container.querySelector('input[aria-label="鸡蛋实际入库数量"]')) {
+    if (eggToggle && !rendered.container.querySelector('input[aria-label="鸡蛋实际数量"]')) {
       await act(async () => eggToggle.click());
       await flushAsync();
     }
-    const eggQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="鸡蛋实际入库数量"]');
+    const eggQty = rendered.container.querySelector<HTMLInputElement>('input[aria-label="鸡蛋实际数量"]');
     expect(eggQty).not.toBeNull();
     changeInput(eggQty as HTMLInputElement, '4');
 
@@ -3016,7 +3016,7 @@ describe('ApprovalPanel', () => {
       },
     });
     const rendered = await renderWithQuery(<ApprovalPanel approval={approved} onDecision={() => undefined} />);
-    expect(rendered.container.textContent).toContain('直接入库');
+    expect(rendered.container.textContent).toContain('直接加入库存');
     expect(rendered.container.textContent).toContain('牛奶');
     expect(rendered.container.querySelector('.ai-inventory-intake-editor input:not([disabled])')).toBeNull();
     rendered.unmount();
@@ -3060,10 +3060,10 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
 
     expect(rendered.container.querySelector('.ai-ingredient-tracking-transition')).not.toBeNull();
-    expect(rendered.container.querySelector('[role="alert"][aria-label="数量追踪方式切换影响"]')).not.toBeNull();
-    expect(rendered.container.textContent).toContain('精确数量');
-    expect(rendered.container.textContent).toContain('只记有无');
-    expect(rendered.container.textContent).toContain('1 个现有批次将按选择折叠');
+    expect(rendered.container.querySelector('[role="alert"][aria-label="切换库存管理方式的影响"]')).not.toBeNull();
+    expect(rendered.container.textContent).toContain('具体数量');
+    expect(rendered.container.textContent).toContain('只记录是否有库存');
+    expect(rendered.container.textContent).toContain('现有库存会改为只记录是否有库存');
 
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();

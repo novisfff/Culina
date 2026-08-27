@@ -439,13 +439,13 @@ export function sanitizeIngredientUnitConversions(
       continue;
     }
     if (!unit) {
-      throw new Error('请先填写副单位名称。');
+      throw new Error('请先填写其他单位名称。');
     }
     if (ratio === null) {
-      throw new Error(`请确认 ${unit} 对主单位的换算值。`);
+      throw new Error(`请确认 ${unit} 对默认单位的换算比例。`);
     }
     if (seenUnits.has(unit)) {
-      throw new Error(`单位 ${unit} 已重复，副单位不能与主单位或其他单位重复。`);
+      throw new Error(`单位 ${unit} 已重复，不能与默认单位或其他单位重复。`);
     }
     seenUnits.add(unit);
     normalizedEntries.push({

@@ -92,19 +92,19 @@ for (const viewport of VIEWPORTS) {
     await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-entry.png`);
 
     const searchNavigation = viewport.width < 768
-      ? page.locator('.family-model-settings-mobile-task-list').getByRole('button', { name: '搜索索引', exact: true })
-      : page.locator('.family-model-settings-section-rail').getByRole('button', { name: /^搜索索引/ });
+      ? page.locator('.family-model-settings-mobile-task-list').getByRole('button', { name: '智能搜索', exact: true })
+      : page.locator('.family-model-settings-section-rail').getByRole('button', { name: /^智能搜索/ });
     await searchNavigation.click();
-    await expect(page.getByRole('heading', { name: '搜索索引', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '智能搜索', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: '搜索模型' }).locator('.family-model-settings-binding-card')).toHaveCount(2);
-    await expect(page.getByText('向量模型已锁定。更换 Provider、模型或维度会完整重建搜索索引。')).toBeVisible();
-    const replacementButton = page.getByRole('button', { name: '更换向量模型（高风险）' });
+    await expect(page.getByText('搜索设置已生效。更换模型服务、模型或维度时，需要重新生成搜索数据。')).toBeVisible();
+    const replacementButton = page.getByRole('button', { name: '更换搜索模型' });
     await expect(replacementButton).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-search-index.png`);
 
     await replacementButton.click();
-    await expect(page.getByRole('region', { name: '更换向量模型' }).getByLabel('新的向量模型')).toBeVisible();
+    await expect(page.getByRole('region', { name: '更换搜索模型' }).getByLabel('新的搜索模型')).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await saveVisualReviewScreenshot(page, `${viewport.width}x${viewport.height}-search-replacement.png`);
   });
@@ -123,8 +123,8 @@ test('@p0 @family-model-settings-390x844 @family-model-settings-1440x900 configu
   }
 
   await expect(page.getByRole('heading', { name: '配置状态良好' })).toBeVisible();
-  await expect(page.getByText('7 项能力已就绪')).toBeVisible();
-  const llmRow = page.getByRole('article', { name: '对话与视觉理解 primary' });
+  await expect(page.getByText('7 项功能已就绪')).toBeVisible();
+  const llmRow = page.getByRole('article', { name: '对话与图片理解 primary' });
   await expect(llmRow.getByText('家庭主服务 · culina-chat-v1')).toBeVisible();
   await expect(llmRow.getByText('价格已填写')).toBeVisible();
   await expect(llmRow.getByText('3/3 项')).toBeVisible();
@@ -162,8 +162,8 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     expect(workspaceBox?.height ?? 0, '短内容分区也应铺满桌面可用高度')
       .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - 1);
 
-    await sectionRail.getByRole('button', { name: /^能力配置/ }).click();
-    await expect(page.getByRole('heading', { name: '能力配置', exact: true })).toBeVisible();
+    await sectionRail.getByRole('button', { name: /^功能设置/ }).click();
+    await expect(page.getByRole('heading', { name: '功能设置', exact: true })).toBeVisible();
     await appContent.evaluate((element) => { element.scrollTop = 240; });
     await expect.poll(() => appContent.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
@@ -180,7 +180,7 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
 
     await page.goBack();
 
-    await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toHaveCount(0);
+    await expect(page.locator('.family-model-settings-desktop, .family-model-settings-mobile-page')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '我的家庭', exact: true })).toBeVisible();
   });
 
@@ -200,9 +200,9 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^能力配置/ }).click();
+      .getByRole('button', { name: /^功能设置/ }).click();
     const llmCard = page.locator('.family-model-settings-binding-card')
-      .filter({ hasText: '对话与视觉理解 · 主用' });
+      .filter({ hasText: '对话与图片理解 · 主用' });
     await expandBinding(llmCard);
     const draftRequest = page.waitForRequest((request) => (
       request.method() === 'PUT'
@@ -231,9 +231,9 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^能力配置/ }).click();
+      .getByRole('button', { name: /^功能设置/ }).click();
     const llmCard = page.locator('.family-model-settings-binding-card')
-      .filter({ hasText: '对话与视觉理解 · 主用' });
+      .filter({ hasText: '对话与图片理解 · 主用' });
     await expandBinding(llmCard);
     const draftRequest = page.waitForRequest((request) => (
       request.method() === 'PUT'
@@ -259,16 +259,16 @@ test.describe('@p0 model discovery and manual fallback', () => {
     await openFamilyModelSettings(page);
     if ((page.viewportSize()?.width ?? 0) < 768) {
       await page.locator('.family-model-settings-mobile-task-list')
-        .getByRole('button', { name: '能力配置', exact: true }).click();
+        .getByRole('button', { name: '功能设置', exact: true }).click();
     } else {
       await page.locator('.family-model-settings-section-rail')
-        .getByRole('button', { name: /^能力配置/ }).click();
+        .getByRole('button', { name: /^功能设置/ }).click();
     }
 
     const llmCard = page.locator('.family-model-settings-binding-card')
-      .filter({ hasText: '对话与视觉理解 · 主用' });
+      .filter({ hasText: '对话与图片理解 · 主用' });
     await expandBinding(llmCard);
-    await expect(llmCard.getByText('已自动读取 7 个模型，也可以直接输入其他模型标识。')).toBeVisible();
+    await expect(llmCard.getByText('已自动读取 7 个模型，也可以直接输入其他模型名称。')).toBeVisible();
 
     const modelField = llmCard.getByRole('combobox', { name: '模型名称' });
     await modelField.click();
@@ -302,11 +302,11 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
 
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^Provider 服务/ }).click();
-    await page.getByRole('navigation', { name: 'Provider 服务列表' })
+      .getByRole('button', { name: /^模型服务/ }).click();
+    await page.getByRole('navigation', { name: '模型服务列表' })
       .getByRole('button', { name: /家庭主服务/ }).click();
 
-    await expect(page.getByText('更换连接地址或账号需要创建新服务，再重新绑定能力。')).toBeVisible();
+    await expect(page.getByText('更换连接地址或账号需要创建新服务，再重新关联功能。')).toBeVisible();
     await expect(page.getByLabel('API 地址')).toHaveCount(0);
 
     const connectionRequest = page.waitForRequest((request) => (
@@ -317,9 +317,9 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     await connectionRequest;
     await expect(page.getByText('服务连接正常，已读取 7 个模型。')).toBeVisible();
 
-    await page.getByRole('button', { name: '修改 Key' }).click();
+    await page.getByRole('button', { name: '修改密钥' }).click();
     await expect(page.getByLabel('当前密码')).toHaveCount(0);
-    await page.getByLabel('新的 API Key').fill(rotateMarker);
+    await page.getByLabel('新的 API 密钥').fill(rotateMarker);
     const rotateRequestPromise = page.waitForRequest((request) => (
       request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/family/model-settings/provider-profiles/family-model-profile-http/rotate-key'
@@ -328,7 +328,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     const rotateRequest = await rotateRequestPromise;
     expect(rotateRequest.postDataJSON()).toMatchObject({ new_api_key: rotateMarker });
     expect(rotateRequest.postDataJSON()).not.toHaveProperty('current_password');
-    await expect(page.getByLabel('新的 API Key')).toHaveCount(0);
+    await expect(page.getByLabel('新的 API 密钥')).toHaveCount(0);
 
     await page.getByLabel('显示名称').fill('家庭主服务（已校验）');
     const patchRequestPromise = page.waitForRequest((request) => (
@@ -340,7 +340,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
     expect(patchRequest.postDataJSON()).not.toHaveProperty('api_base_url');
     expect(patchRequest.postDataJSON()).not.toHaveProperty('auth_mode');
 
-    await page.getByRole('button', { name: '新建服务' }).click();
+    await page.getByRole('button', { name: '新增服务' }).click();
     await page.getByLabel('服务名称').fill('替换服务');
     await page.getByLabel('API 地址').fill('https://replacement.example/v1');
     const createApiKeyInput = page.locator('input[type="password"][autocomplete="new-password"]');
@@ -353,7 +353,7 @@ test.describe('@p0 @family-model-settings-1440x900 Owner provider credential bou
       request.method() === 'PUT'
       && new URL(request.url()).pathname === '/api/family/model-settings/draft'
     ));
-    await page.getByRole('button', { name: '创建服务' }).click();
+    await page.getByRole('button', { name: '保存服务' }).click();
     const createRequest = await createRequestPromise;
     const rebindDraftRequest = await rebindDraftRequestPromise;
     expect(createRequest.postDataJSON()).toMatchObject({
@@ -386,23 +386,23 @@ test.describe('@p0 @family-model-settings-1440x900 create-and-rebind recovery', 
     const { familyModelRequests, page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^Provider 服务/ }).click();
-    await page.getByRole('navigation', { name: 'Provider 服务列表' })
+      .getByRole('button', { name: /^模型服务/ }).click();
+    await page.getByRole('navigation', { name: '模型服务列表' })
       .getByRole('button', { name: /家庭主服务/ }).click();
-    await page.getByRole('button', { name: '新建服务' }).click();
+    await page.getByRole('button', { name: '新增服务' }).click();
     await page.getByLabel('服务名称').fill('替换服务');
     await page.getByLabel('API 地址').fill('https://replacement.example/v1');
     await page.locator('input[type="password"][autocomplete="new-password"]').fill('replacement-recovery-key');
-    await page.getByRole('button', { name: '创建服务' }).click();
+    await page.getByRole('button', { name: '保存服务' }).click();
 
-    const pendingRebindState = page.getByText('新服务已创建，能力改绑未完成', { exact: true });
+    const pendingRebindState = page.getByText('新服务已创建，但还没有关联功能', { exact: true });
     await expect(pendingRebindState).toBeVisible();
     expect(familyModelRequests.filter((request) => (
       request.method === 'POST'
       && request.pathname === '/api/family/model-settings/provider-profiles'
     ))).toHaveLength(1);
 
-    await page.getByRole('button', { name: '重试改绑' }).click();
+    await page.getByRole('button', { name: '重试关联' }).click();
     await expect(pendingRebindState).toHaveCount(0);
 
     expect(familyModelRequests.filter((request) => (
@@ -426,31 +426,31 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
     const { familyModelRequests, page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^能力配置/ }).click();
+      .getByRole('button', { name: /^功能设置/ }).click();
 
     const bindingCards = page.locator('.family-model-settings-binding-card');
     await expect(bindingCards).toHaveCount(5);
-    for (const label of ['对话与视觉理解', '图片生成', '语音识别', '语音播报', '实时语音']) {
+    for (const label of ['对话与图片理解', '图片生成', '语音识别', '语音播报', '实时语音']) {
       await expect(bindingCards.filter({ hasText: label }).getByText('已启用')).toBeVisible();
     }
 
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^搜索索引/ }).click();
+      .getByRole('button', { name: /^智能搜索/ }).click();
     const searchBindingCards = page.locator('.family-model-settings-binding-card');
     await expect(searchBindingCards).toHaveCount(2);
-    for (const label of ['搜索向量', '搜索重排']) {
+    for (const label of ['智能搜索', '搜索排序']) {
       await expect(searchBindingCards.filter({ hasText: label }).getByText('已启用')).toBeVisible();
     }
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^能力配置/ }).click();
+      .getByRole('button', { name: /^功能设置/ }).click();
 
-    const llmCard = bindingCards.filter({ hasText: '对话与视觉理解 · 主用' });
+    const llmCard = bindingCards.filter({ hasText: '对话与图片理解 · 主用' });
     await expandBinding(llmCard);
     const testCapabilityRequest = page.waitForRequest((request) => (
       request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/family/model-settings/capabilities/llm/test'
     ));
-    await llmCard.getByRole('button', { name: '测试能力' }).click();
+    await llmCard.getByRole('button', { name: '测试功能' }).click();
     await testCapabilityRequest;
     await expect(llmCard.getByRole('button', { name: '测试成功' })).toBeVisible();
 
@@ -483,17 +483,17 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
   test('clears family provider/model diagnostics before switching to personal model usage', async ({ app }) => {
     const { page } = app;
     await openModelUsage(page);
-    await page.getByLabel('细分方式').selectOption('provider_model');
-    await expect(page.getByLabel('细分方式')).toHaveValue('provider_model');
+    await page.getByLabel('查看方式').selectOption('provider_model');
+    await expect(page.getByLabel('查看方式')).toHaveValue('provider_model');
 
     const usageScope = page.getByLabel('用量范围');
     await usageScope.getByRole('button', { name: '我的', exact: true }).click();
-    await expect(page.getByLabel('细分方式')).toHaveValue('capability');
+    await expect(page.getByLabel('查看方式')).toHaveValue('capability');
     await expect(page.getByText('gpt-5.6-terra')).toHaveCount(0);
 
     await usageScope.getByRole('button', { name: '家庭', exact: true }).click();
-    await page.getByRole('button', { name: /请求日志/ }).click();
-    await page.getByLabel('Provider').fill('openai-compatible');
+    await page.getByRole('button', { name: /请求记录/ }).click();
+    await page.getByLabel('模型服务').fill('openai-compatible');
     await page.getByLabel('模型', { exact: true }).fill('gpt-5.6-terra');
     const familyRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -501,15 +501,15 @@ test.describe('@p0 @family-model-settings-1440x900 Owner configuration and priva
         && url.searchParams.get('provider') === 'openai-compatible'
         && url.searchParams.get('model') === 'gpt-5.6-terra';
     });
-    await page.getByRole('button', { name: '查询记录' }).click();
+    await page.getByRole('button', { name: '查看记录' }).click();
     await familyRequest;
 
     const personalRequestPromise = page.waitForRequest((request) => (
       new URL(request.url()).pathname === '/api/model-usage/me/requests'
     ));
-    await page.getByLabel('日志范围').getByRole('button', { name: '我的', exact: true }).click();
+    await page.getByLabel('记录范围').getByRole('button', { name: '我的', exact: true }).click();
     const personalRequest = await personalRequestPromise;
-    await expect(page.getByLabel('Provider')).toHaveCount(0);
+    await expect(page.getByLabel('模型服务')).toHaveCount(0);
     await expect(page.getByLabel('模型', { exact: true })).toHaveCount(0);
     const personalUrl = new URL(personalRequest.url());
     expect(personalUrl.searchParams.has('provider')).toBe(false);
@@ -526,8 +526,8 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
       const { page } = app;
       await openFamilyModelSettings(page);
       await page.locator('.family-model-settings-section-rail')
-        .getByRole('button', { name: /^能力配置/ }).click();
-      const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
+        .getByRole('button', { name: /^功能设置/ }).click();
+      const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与图片理解 · 主用' });
       const enabledSwitch = llmCard.getByRole('checkbox').first();
       const conflictResponse = page.waitForResponse((response) => (
         response.request().method() === 'PUT'
@@ -551,14 +551,14 @@ test.describe('@family-model-settings-1440x900 recovery states', () => {
       await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
 
       await page.locator('.family-model-settings-section-rail')
-        .getByRole('button', { name: /^能力配置/ }).click();
-      const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
+        .getByRole('button', { name: /^功能设置/ }).click();
+      const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与图片理解 · 主用' });
       await expandBinding(llmCard);
       const failedRefresh = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/api/family/model-settings'
         && response.status() === 503
       ));
-      await llmCard.getByRole('button', { name: '测试能力' }).click();
+      await llmCard.getByRole('button', { name: '测试功能' }).click();
       await failedRefresh;
       await expect(page.getByText('刷新失败，正在显示上次成功的非敏感数据。')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
@@ -573,13 +573,13 @@ test.describe('@family-model-settings-1440x900 capability hard limit and search 
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^能力配置/ }).click();
-    const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与视觉理解 · 主用' });
+      .getByRole('button', { name: /^功能设置/ }).click();
+    const llmCard = page.locator('.family-model-settings-binding-card').filter({ hasText: '对话与图片理解 · 主用' });
     await expandBinding(llmCard);
-    await llmCard.getByRole('button', { name: '测试能力' }).click();
+    await llmCard.getByRole('button', { name: '测试功能' }).click();
     await expect(llmCard.getByRole('button', { name: '用量受限，重试' })).toHaveAttribute(
       'title',
-      '测试被用量限制阻止，未调用模型。请检查模型用量限制后重试。',
+      '测试被用量限制阻止，未请求模型。请检查模型用量限制后重试。',
     );
   });
 });
@@ -591,23 +591,23 @@ test.describe('@family-model-settings-1440x900 search replacement recovery', () 
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-section-rail')
-      .getByRole('button', { name: /^搜索索引/ }).click();
-    await page.getByRole('button', { name: '更换向量模型（高风险）' }).click();
-    const replacementRegion = page.getByRole('region', { name: '更换向量模型' });
-    await replacementRegion.getByRole('button', { name: '新的 Provider 服务' }).click();
+      .getByRole('button', { name: /^智能搜索/ }).click();
+    await page.getByRole('button', { name: '更换搜索模型' }).click();
+    const replacementRegion = page.getByRole('region', { name: '更换搜索模型' });
+    await replacementRegion.getByRole('button', { name: '新的模型服务' }).click();
     await page.getByRole('option', { name: /家庭主服务/ }).click();
-    await replacementRegion.getByLabel('新的向量模型').fill('culina-embedding-v2');
-    await replacementRegion.getByLabel('向量维度').fill('2048');
-    await replacementRegion.getByRole('button', { name: '评估完整重建' }).click();
-    await expect(page.getByText(/预计重建 42 份家庭文档/)).toBeVisible();
+    await replacementRegion.getByLabel('新的搜索模型').fill('culina-embedding-v2');
+    await replacementRegion.getByLabel('模型维度').fill('2048');
+    await replacementRegion.getByRole('button', { name: '查看更新范围' }).click();
+    await expect(page.getByText(/预计更新 42 项家庭内容的搜索数据/)).toBeVisible();
     await page.getByLabel('当前密码').fill('owner-password');
-    await page.getByLabel('我确认更换向量身份，并理解系统会完整重建搜索索引。').check();
-    await page.getByRole('button', { name: '确认并开始重建' }).click();
-    await expect(page.getByText('索引建立失败，现有可用索引没有被替换。')).toBeVisible();
+    await page.getByLabel('我确认更换搜索模型，并了解系统会重新生成全部家庭内容的搜索数据。').check();
+    await page.getByRole('button', { name: '确认并开始更新' }).click();
+    await expect(page.getByText('搜索数据更新失败，现有搜索没有被替换。')).toBeVisible();
 
-    await page.getByRole('button', { name: '重试建立索引' }).click();
-    await expect(page.getByRole('heading', { name: '替换索引进度' })).toHaveCount(0);
-    await expect(page.getByText('当前搜索索引已启用')).toBeVisible();
+    await page.getByRole('button', { name: '重试更新' }).click();
+    await expect(page.getByRole('heading', { name: '智能搜索更新进度' })).toHaveCount(0);
+    await expect(page.getByText('当前智能搜索已启用')).toBeVisible();
   });
 });
 
@@ -618,21 +618,21 @@ test.describe('@family-model-settings-390x844 search cancellation and Member pri
     const { page } = app;
     await openFamilyModelSettings(page);
     await page.locator('.family-model-settings-mobile-task-list')
-      .getByRole('button', { name: '搜索索引', exact: true }).click();
-    await page.getByRole('button', { name: '更换向量模型（高风险）' }).click();
-    const replacementRegion = page.getByRole('region', { name: '更换向量模型' });
-    await replacementRegion.getByRole('button', { name: '新的 Provider 服务' }).click();
+      .getByRole('button', { name: '智能搜索', exact: true }).click();
+    await page.getByRole('button', { name: '更换搜索模型' }).click();
+    const replacementRegion = page.getByRole('region', { name: '更换搜索模型' });
+    await replacementRegion.getByRole('button', { name: '新的模型服务' }).click();
     await page.getByRole('option', { name: /家庭主服务/ }).click();
-    await replacementRegion.getByLabel('新的向量模型').fill('culina-embedding-v2');
-    await replacementRegion.getByLabel('向量维度').fill('2048');
-    await replacementRegion.getByRole('button', { name: '评估完整重建' }).click();
+    await replacementRegion.getByLabel('新的搜索模型').fill('culina-embedding-v2');
+    await replacementRegion.getByLabel('模型维度').fill('2048');
+    await replacementRegion.getByRole('button', { name: '查看更新范围' }).click();
     await page.getByLabel('当前密码').fill('owner-password');
-    await page.getByLabel('我确认更换向量身份，并理解系统会完整重建搜索索引。').check();
-    await page.getByRole('button', { name: '确认并开始重建' }).click();
-    await expect(page.getByText('正在完整建立索引，可继续使用当前可用的搜索方式。')).toBeVisible();
-    await page.getByRole('button', { name: '取消重建' }).click();
-    await expect(page.getByRole('heading', { name: '替换索引进度' })).toHaveCount(0);
-    await expect(page.getByText('当前搜索索引已启用')).toBeVisible();
+    await page.getByLabel('我确认更换搜索模型，并了解系统会重新生成全部家庭内容的搜索数据。').check();
+    await page.getByRole('button', { name: '确认并开始更新' }).click();
+    await expect(page.getByText('正在更新家庭内容的搜索数据，可继续使用当前搜索。')).toBeVisible();
+    await page.getByRole('button', { name: '取消更新' }).click();
+    await expect(page.getByRole('heading', { name: '智能搜索更新进度' })).toHaveCount(0);
+    await expect(page.getByText('当前智能搜索已启用')).toBeVisible();
   });
 });
 

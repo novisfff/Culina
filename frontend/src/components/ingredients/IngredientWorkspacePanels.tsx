@@ -152,12 +152,12 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
           <label className="ingredients-search-field ingredients-catalog-search-field">
             <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
               <props.IngredientWorkspaceIcon name="search" />
-              档案检索
+              搜索食材
             </span>
             <SearchField
               className="ingredients-catalog-search-input-shell"
               ariaLabel="搜索食材"
-              placeholder="搜索食材、分类、备注或关联菜谱"
+              placeholder="搜索食材、分类、备注或相关菜谱"
               value={props.catalogSearch}
               loading={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)}
               leadingIcon={<props.IngredientWorkspaceIcon name="search" />}
@@ -179,7 +179,7 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               分类筛选
             </span>
             <OptionChipGroup
-              ariaLabel="按分类筛选食材档案"
+              ariaLabel="按分类筛选食材"
               value={props.catalogCategoryFilter}
               options={[
                 { value: 'all', label: '全部' },
@@ -190,13 +190,13 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
             />
           </div>
           <div className="ingredients-catalog-filter-row-secondary">
-            <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材档案">
+            <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材">
               <span className="ingredients-catalog-label-with-icon">
                 <props.IngredientWorkspaceIcon name="status" />
-                状态筛选
+                库存状态
               </span>
               <OptionChipGroup
-                ariaLabel="按库存状态筛选食材档案"
+                ariaLabel="按库存状态筛选食材"
                 value={props.catalogStatusFilter}
                 options={props.catalogStatusItems.map((item) => ({
                   value: item.value,
@@ -237,7 +237,7 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               <span role="status">正在加载更多食材…</span>
             ) : props.hasMoreCatalogSummaries ? (
               <button className="paged-list-load-more" type="button" onClick={props.onLoadMoreCatalogSummaries}>
-                继续加载食材
+                加载更多食材
               </button>
             ) : (
               <span>已加载全部食材</span>
@@ -246,11 +246,11 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
           </>
         ) : (
           <EmptyState
-            title={props.summariesCount === 0 ? '还没有食材档案' : '没找到匹配的食材'}
+            title={props.summariesCount === 0 ? '还没有食材' : '没有找到匹配的食材'}
             description={
               props.summariesCount === 0
-                ? '先新增几张常用食材资料卡，后面补货、消费和采购都会直接很多。'
-                : '换个关键词试试，或者直接新建一张资料卡。'
+                ? '先添加几种常用食材，后面补货、记录用量和采购都会更方便。'
+                : '换个关键词试试，或者直接新增食材。'
             }
             action={
               <button className="solid-button" type="button" onClick={props.onOpenCreateView}>
@@ -360,9 +360,9 @@ function UnifiedInventoryFoodCard(props: {
   const metaLine = [props.item.category || '未分类', storageLocation].join(' · ');
   const expiryLabel =
     isPending
-      ? '待补库存'
+      ? '需要补充库存'
       : props.item.days_until_expiry == null
-      ? '未记录到期'
+      ? '未填写到期日'
       : props.item.days_until_expiry < 0
         ? `已过期 ${Math.abs(props.item.days_until_expiry)} 天`
         : props.item.days_until_expiry === 0
@@ -371,17 +371,17 @@ function UnifiedInventoryFoodCard(props: {
   const expiryTone = props.item.tone === 'danger' ? 'danger' : props.item.tone === 'warning' ? 'warning' : 'neutral';
   const statusLabel =
     isPending
-      ? '待补库存'
+      ? '需要补充库存'
       : props.item.tone === 'danger'
-      ? '需处理'
+      ? '需要处理'
       : props.item.tone === 'warning'
         ? '临期提醒'
         : props.item.tone === 'empty'
-          ? '未登记'
-          : '平稳';
-  const purchaseLine = props.item.purchase_source ? `最近来源 ${props.item.purchase_source}` : '未记录购买来源';
-  const footerNote = isPending ? '先补库存后，就能在这里减扣或记餐。' : '减扣时可选择是否记餐。';
-  const foodSourceLabel = '成品';
+          ? '还没有库存'
+          : '库存正常';
+  const purchaseLine = props.item.purchase_source ? `最近购买：${props.item.purchase_source}` : '未填写购买来源';
+  const footerNote = isPending ? '先加入库存，之后就能在这里记录用量或餐食。' : '记录用量时，也可以同时记下这顿饭。';
+  const foodSourceLabel = '成品速食';
   const shouldShowShoppingAction = isPending;
   const cardClassName = [
     'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card ingredients-unified-inventory-card ingredients-unified-inventory-card-source-food',
@@ -401,7 +401,7 @@ function UnifiedInventoryFoodCard(props: {
             type="button"
             className="ingredient-visual-media ingredient-visual-media-button inventory-ingredient-card-media ingredients-unified-inventory-card-media"
             onClick={props.onEditStock}
-            aria-label={`编辑 ${props.item.title} 库存资料`}
+            aria-label={`编辑 ${props.item.title} 库存信息`}
           >
             <div
               className={
@@ -444,7 +444,7 @@ function UnifiedInventoryFoodCard(props: {
                 <span className="inventory-ingredient-card-stockline-label">剩余库存</span>
                 <span
                   className={`inventory-ingredient-card-expiry-badge tone-${expiryTone}`}
-                  title={props.item.expiry_date ? `到期日 ${props.item.expiry_date}` : '未记录到期日'}
+                  title={props.item.expiry_date ? `到期日 ${props.item.expiry_date}` : '未填写到期日'}
                 >
                   {expiryLabel}
                 </span>
@@ -454,7 +454,7 @@ function UnifiedInventoryFoodCard(props: {
               <div className="inventory-ingredient-card-data-row">
                 <span>库存 {props.item.quantity_label}</span>
                 <span>成品</span>
-                <span>{props.item.tone === 'warning' || props.item.tone === 'danger' ? '1 提醒' : '0 提醒'}</span>
+                <span>{props.item.tone === 'warning' || props.item.tone === 'danger' ? '有提醒' : '没有提醒'}</span>
               </div>
             </div>
 
@@ -478,7 +478,7 @@ function UnifiedInventoryFoodCard(props: {
               className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
               onClick={props.onRecordMeal}
             >
-              减扣
+              扣减
             </ActionButton>
           ) : null}
           <ActionButton
@@ -490,7 +490,7 @@ function UnifiedInventoryFoodCard(props: {
             }`}
             onClick={props.onEditStock}
           >
-            补库存
+            补充库存
           </ActionButton>
           {shouldShowShoppingAction ? (
             <ActionButton
@@ -500,7 +500,7 @@ function UnifiedInventoryFoodCard(props: {
               className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
               onClick={props.onAddShopping}
             >
-              加采购
+              加入采购清单
             </ActionButton>
           ) : null}
         </div>
@@ -613,10 +613,10 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
     card.type === 'food' ? isPendingFoodStockItem(card.item) : isPendingIngredientSummary(card.summary)
   ).length;
   const inventorySummaryText = [
-    `${mixedInventoryCards.length} 项`,
-    entryFilter === 'pending' ? `${pendingCardCount} 待录入` : null,
-    entryFilter === 'stocked' ? '仅在库' : null,
-    unifiedSummary.foodCount > 0 ? `成品 ${unifiedSummary.foodCount}` : null,
+    `共 ${mixedInventoryCards.length} 项`,
+    entryFilter === 'pending' ? `${pendingCardCount} 项需要补充库存` : null,
+    entryFilter === 'stocked' ? '仅显示有库存' : null,
+    unifiedSummary.foodCount > 0 ? `成品 ${unifiedSummary.foodCount} 项` : null,
     props.inventoryStorageFocus !== 'all' ? props.inventoryStorageFocus : null,
   ].filter(Boolean).join(' · ');
 
@@ -628,7 +628,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
           <label className="ingredients-search-field ingredients-inventory-search-field">
             <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
               <props.IngredientWorkspaceIcon name="inventory" />
-              库存检索
+              搜索库存
             </span>
             <SearchField
               className="ingredients-inventory-search-input-shell"
@@ -674,7 +674,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
               }
             >
               <props.IngredientWorkspaceIcon name="sort" />
-              按到期
+              按到期日排序
             </button>
             <button
               className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
@@ -702,21 +702,21 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             <h3>位置总览</h3>
             <p className="ingredients-inventory-overview-summary">
               {props.inventoryStorageFocus === 'all'
-                ? '点击任一位置卡可聚焦查看'
-                : `当前分区：${props.inventoryStorageFocus}`}
+                ? '点击位置卡片查看该处库存'
+                : `当前存放位置：${props.inventoryStorageFocus}`}
             </p>
           </div>
           <p className="ingredients-inventory-overview-tip subtle">
-            位置和待录入会一起参与筛选。
+            存放位置和库存状态都会影响筛选。
           </p>
           {unifiedContext ? (
             <OptionChipGroup
-              ariaLabel="库存录入状态筛选"
+              ariaLabel="库存状态筛选"
               value={unifiedContext.inventoryEntryFilter}
               options={[
                 { value: 'all', label: '全部', description: String(entryOptionCounts.total) },
-                { value: 'stocked', label: '在库', description: String(entryOptionCounts.stocked) },
-                { value: 'pending', label: '待录入', description: String(entryOptionCounts.pending) },
+                { value: 'stocked', label: '有库存', description: String(entryOptionCounts.stocked) },
+                { value: 'pending', label: '待补充库存', description: String(entryOptionCounts.pending) },
               ]}
               className="ingredients-inventory-entry-chip-group"
               onChange={unifiedContext.onInventoryEntryFilterChange}
@@ -771,15 +771,15 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             title={
               hasInventorySearch
                 ? sourceFilter === 'food'
-                  ? '没有匹配的成品速食库存'
+                  ? '没有找到匹配的成品速食库存'
                   : sourceFilter === 'ingredient'
-                    ? '没有匹配的食材库存'
-                    : '没有匹配的库存记录'
+                    ? '没有找到匹配的食材库存'
+                    : '没有找到匹配的库存'
                 : sourceFilter === 'food'
-                  ? '还没有成品速食库存'
+                    ? '还没有成品速食库存'
                   : sourceFilter === 'ingredient'
                     ? '还没有食材库存'
-                    : '还没有库存记录'
+                    : '还没有库存'
             }
             description={
               hasInventorySearch
@@ -788,12 +788,12 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                   : sourceFilter === 'food'
                     ? '换个关键词试试，或者去食物页补充这份成品速食的库存信息。'
                     : sourceFilter === 'ingredient'
-                      ? '换个关键词试试，或者先为常用食材登记一批库存。'
-                      : '换个关键词试试，或者切换到食材库存 / 成品速食继续看。'
+                      ? '换个关键词试试，或者先为常用食材加入库存。'
+                    : '换个关键词试试，或者切换到食材或成品库存继续查看。'
                    : sourceFilter === 'food'
-                     ? '成品速食的库存、到期和减扣入口会统一显示在这里。'
+                     ? '成品速食的库存、到期和扣减信息会集中显示在这里。'
                   : sourceFilter === 'ingredient'
-                    ? '先新增常用食材并登记库存，后面就能在这里集中处理提醒。'
+                    ? '先新增常用食材并加入库存，后面就能在这里集中处理提醒。'
                     : '食材库存和成品速食库存会一起汇总在这里，方便统一查看和处理。'
             }
             action={
@@ -852,12 +852,12 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
           <label className="ingredients-search-field ingredients-shopping-search-field">
             <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
               <props.IngredientWorkspaceIcon name="shopping" />
-              采购检索
+              搜索采购清单
             </span>
             <SearchField
               className="ingredients-shopping-search-input-shell"
-              ariaLabel="搜索采购项"
-              placeholder="搜索待买名称、原因、分类或关联食材"
+              ariaLabel="搜索采购清单"
+              placeholder="搜索名称、原因、分类或对应食材"
               value={props.shoppingSearch}
               leadingIcon={<props.IngredientWorkspaceIcon name="search" />}
               leadingIconClassName="ingredients-shopping-search-input-icon"
@@ -901,10 +901,10 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
         <div className="ingredients-purchase-section-head ingredients-shopping-stage-head">
           <div>
             <div className="ingredients-shopping-stage-title-line">
-              <h3>待采购清单</h3>
+              <h3>采购清单</h3>
               <span>
                 {props.visiblePendingShoppingCards.length} 项待买 ·{' '}
-                {props.visiblePendingShoppingCards.filter((card) => card.hasAttention).length} 项需优先处理
+                {props.visiblePendingShoppingCards.filter((card) => card.hasAttention).length} 项建议优先购买
               </span>
             </div>
           </div>
@@ -942,18 +942,18 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
           </div>
         ) : (
           <EmptyState
-            title={props.pendingShoppingCards.length === 0 ? '待买区很清爽' : '没找到匹配的待买项'}
+            title={props.pendingShoppingCards.length === 0 ? '还没有待买内容' : '没有找到匹配的待买内容'}
             description={
               props.pendingShoppingCards.length === 0
-                ? '当前没有待买项，可以从库存提醒或档案卡片一键加入采购。'
+                ? '当前没有待买内容，可以从库存提醒或食材卡片一键加入采购清单。'
                 : props.shoppingFocus !== 'all'
                   ? `当前 ${props.activeShoppingOverview?.label ?? '筛选'} 下没有匹配结果，试试切回全部或换个关键词。`
-                  : '换个关键词试试，或者直接新增一条新的待买项。'
+                  : '换个关键词试试，或者直接添加新的待买内容。'
             }
             action={
               props.pendingShoppingCards.length === 0 ? (
                 <ActionButton tone="secondary" type="button" onClick={props.onOpenShoppingOverlay}>
-                  新增采购项
+                  新增采购内容
                 </ActionButton>
               ) : undefined
             }
@@ -965,8 +965,8 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
         <section className="ingredients-workbench-section shopping-history-shell">
           <div className="ingredients-purchase-section-head shopping-history-head">
             <div className="shopping-history-title-line">
-              <h3>已买回顾</h3>
-              <p className="subtle">已完成的采购项，助你回顾与补充。</p>
+              <h3>已购买记录</h3>
+              <p className="subtle">方便回看已购买内容，需要时也能再次加入采购清单。</p>
             </div>
             <div className="shopping-history-head-actions">
               <Badge>{props.completedShoppingCards.length} 项</Badge>
@@ -976,7 +976,7 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
                 type="button"
                 onClick={props.onToggleCompletedShopping}
               >
-                {props.showCompletedShopping ? '收起已买' : '展开已买'}
+                {props.showCompletedShopping ? '收起购买记录' : '查看已购买'}
                 <span
                   className={
                     props.showCompletedShopping
@@ -1014,8 +1014,8 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
               </div>
             ) : (
               <EmptyState
-                title="没有匹配的已买记录"
-                description="当前搜索词下没有已买项目，试试清空搜索后再查看。"
+                title="没有找到匹配的已购买记录"
+                description="当前搜索没有找到已购买记录，试试清空搜索后再查看。"
               />
             )
           ) : null}
@@ -1036,10 +1036,10 @@ export function IngredientMobileQuickBar(props: {
         新增食材
       </button>
       <button className="ghost-button" type="button" onClick={props.onInventory}>
-        补库存
+        补充库存
       </button>
       <button className="ghost-button" type="button" onClick={props.onShopping}>
-        加采购
+        加入采购清单
       </button>
     </div>
   );

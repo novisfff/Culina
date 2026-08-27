@@ -73,10 +73,10 @@ function sameComposition(left: CompositionEntry[], right: CompositionEntry[]): b
 }
 
 function conflictLabel(conflict: CompositionConflict): string {
-  if (conflict.field === 'servings') return '内容冲突';
-  if (conflict.field === 'note') return '备注冲突';
-  if (conflict.field === 'food_id') return '菜品冲突';
-  return '条目存在性冲突';
+  if (conflict.field === 'servings') return '份量有变化';
+  if (conflict.field === 'note') return '备注有变化';
+  if (conflict.field === 'food_id') return '食物有变化';
+  return '食物有增删';
 }
 
 function extractCurrentMeal(reason: unknown): MealLog | null {
@@ -122,7 +122,7 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
 
   const canRemove = draftEntries.length > 1;
   const isBusy = Boolean(props.busy || submitting);
-  const primaryLabel = needsExplicitResubmit ? '确认并保存' : '保存组合';
+  const primaryLabel = needsExplicitResubmit ? '确认并保存' : '保存这顿';
 
   const conflictSummary = useMemo(
     () => conflicts.map((conflict) => `${conflict.entry_key}:${conflict.field}`).join('|'),
@@ -198,7 +198,7 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
   async function submit() {
     if (isBusy) return;
     if (draftEntries.some((entry) => !entry.food_id.trim())) {
-      setError('请填写菜品 ID');
+      setError('请至少添加一种食物');
       return;
     }
     if (draftEntries.some((entry) => !Number.isFinite(entry.servings) || entry.servings <= 0)) {
@@ -228,10 +228,10 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
           setExpectedRowVersion(serverMeal.row_version);
           setConflicts(merged.conflicts);
           setNeedsExplicitResubmit(true);
-          setError(merged.conflicts.length > 0 ? '有冲突，请确认后再保存' : '内容已更新，需要再次确认保存');
+          setError(merged.conflicts.length > 0 ? '这顿记录刚有更新，请确认后再保存' : '内容已更新，需要再次确认保存');
           return;
         }
-        setError('版本冲突，请刷新后重试');
+        setError('内容已更新，请刷新后重试');
         return;
       }
 
@@ -255,7 +255,7 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
             setExpectedRowVersion(refetched.row_version);
             setConflicts(merged.conflicts);
             setNeedsExplicitResubmit(true);
-            setError(merged.conflicts.length > 0 ? '有冲突，请确认后再保存' : '内容可能已变化，需要再次确认保存');
+            setError(merged.conflicts.length > 0 ? '这顿记录刚有更新，请确认后再保存' : '内容可能已变化，需要再次确认保存');
             return;
           }
         } catch {
@@ -270,10 +270,10 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
   }
 
   return (
-    <section className="meal-composition-editor" aria-label="编辑这顿组合">
+    <section className="meal-composition-editor" aria-label="编辑这顿饭">
       <div className="meal-composition-editor-summary">
         <strong>这顿包含的食物</strong>
-        <span>共 {draftEntries.length} 道</span>
+        <span>共 {draftEntries.length} 项</span>
       </div>
       <div className="meal-composition-editor-columns" aria-hidden="true">
         <span>食物</span>
@@ -319,7 +319,7 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
                 type="button"
                 disabled={!canRemove || isBusy}
                 aria-label={`移除${name}`}
-                title={canRemove ? `移除${name}` : '至少保留一道食物'}
+                title={canRemove ? `移除${name}` : '至少保留一种食物'}
                 onClick={() => removeEntry(entry.id)}
               >
                 <span aria-hidden="true">×</span>
@@ -355,20 +355,20 @@ export function MealCompositionEditor(props: MealCompositionEditorProps) {
 
       {conflicts.length > 0 ? (
         <div className="meal-composition-editor-conflicts" data-conflict-summary={conflictSummary}>
-          <strong>有冲突，请确认后再保存</strong>
+          <strong>这顿记录刚有更新，请确认后再保存</strong>
           <ul>
             {conflicts.map((conflict) => (
               <li key={`${conflict.entry_key}-${conflict.field}`}>
                 <span>{conflictLabel(conflict)}</span>
                 <small>
-                  本地 {String(conflict.draft ?? '—')} · 服务器 {String(conflict.server ?? '—')}
+                  你的修改：{String(conflict.draft ?? '—')} · 最新记录：{String(conflict.server ?? '—')}
                 </small>
               </li>
             ))}
           </ul>
         </div>
       ) : needsExplicitResubmit ? (
-        <p className="meal-composition-editor-hint">内容已更新，需要再次确认保存</p>
+        <p className="meal-composition-editor-hint">内容已更新，请再次确认保存</p>
       ) : null}
 
       {error ? <p className="meal-composition-editor-error">{error}</p> : null}

@@ -138,7 +138,7 @@ export function HomeDashboardDialogs(props: Props) {
   }
 
   function requireEnrichmentMeal() {
-    if (!props.homeMealEnrichmentMeal) throw new Error('餐食记录尚未加载，请稍后重试');
+    if (!props.homeMealEnrichmentMeal) throw new Error('餐食记录还没有加载完成，请稍后重试');
     return props.homeMealEnrichmentMeal;
   }
 
@@ -353,7 +353,7 @@ export function HomeDashboardDialogs(props: Props) {
         <WorkspaceOverlayFrame rootClassName="home-dashboard-overlay-root" onClose={props.closeHomeMealDetail}>
           <WorkspaceModal
             title="餐食详情"
-            description="这条今日待办已经完成，下面是本餐记录。"
+            description="这项今天的安排已经完成，下面是本餐记录。"
             className="dashboard-todo-modal meal-detail-modal"
             onClose={props.closeHomeMealDetail}
             footerActions={
@@ -404,7 +404,7 @@ export function HomeDashboardDialogs(props: Props) {
                       </span>
                     ))
                   ) : (
-                    <p className="subtle">未记录参与成员。</p>
+                    <p className="subtle">还没有记录参与成员。</p>
                   )}
                 </div>
               </section>
@@ -498,7 +498,7 @@ export function HomeDashboardDialogs(props: Props) {
               {props.nextGroupLabel ? (
                 <p>下一项：{props.nextGroupLabel}</p>
               ) : (
-                <p className="subtle">今天没有其他需要继续处理的食材。</p>
+                <p className="subtle">今天没有其他需要处理的食材。</p>
               )}
             </div>
           </WorkspaceModal>

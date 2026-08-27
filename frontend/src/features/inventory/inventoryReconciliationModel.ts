@@ -150,10 +150,10 @@ export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, str
 };
 
 export const AVAILABILITY_LEVEL_LABELS: Record<InventoryAvailabilityLevel, string> = {
-  present_unknown: '还在',
+  present_unknown: '有库存',
   low: '少量',
   sufficient: '充足',
-  absent: '没有了',
+  absent: '没有库存',
 };
 
 export const SCOPE_STORAGE_LOCATION: Record<
@@ -317,8 +317,8 @@ export function buildGroupHeadline(group: InventoryReconciliationGroup, referenc
     const parts = [
       `当前共 ${remaining.label}`,
       locationLabel,
-      remaining.batchCount > 1 ? `${remaining.batchCount} 个批次` : null,
-      expired ? '含过期批次' : null,
+      remaining.batchCount > 1 ? `${remaining.batchCount} 批库存` : null,
+      expired ? '含过期库存' : null,
     ].filter(Boolean);
     return {
       title: group.ingredient_name,
@@ -332,7 +332,7 @@ export function buildGroupHeadline(group: InventoryReconciliationGroup, referenc
     const location = group.state.storage_location?.trim() || '';
     return {
       title: group.ingredient_name,
-      detail: [`只记录有无`, `当前${levelLabel}`, location].filter(Boolean).join(' · '),
+      detail: [`只记录是否有库存`, `当前${levelLabel}`, location].filter(Boolean).join(' · '),
       confirmationLabel,
       hasExpiredPhysicalBatch: Boolean(
         group.state.expiry_date &&
@@ -526,7 +526,7 @@ export function buildExactTotalAdjustmentSuggestion(args: {
     return {
       ok: false,
       reason: 'incompatible_unit',
-      message: `当前批次无法可靠换算为“${args.actualUnit}”，请手动调整批次。`,
+      message: `当前库存无法可靠换算为“${args.actualUnit}”，请手动调整库存。`,
     };
   }
 
@@ -543,7 +543,7 @@ export function buildExactTotalAdjustmentSuggestion(args: {
     return {
       ok: false,
       reason: 'incompatible_unit',
-      message: '现有批次包含无法换算的单位，请手动调整批次。',
+      message: '现有库存包含无法换算的单位，请手动调整库存。',
     };
   }
 
@@ -554,7 +554,7 @@ export function buildExactTotalAdjustmentSuggestion(args: {
     return {
       ok: false,
       reason: 'above_recorded',
-      message: '实际数量高于系统记录，请手动调整并补记新增批次。',
+      message: '实际数量高于当前库存，请手动调整并补充库存。',
     };
   }
 
@@ -594,7 +594,7 @@ export function buildExactTotalAdjustmentSuggestion(args: {
       return {
         ok: false,
         reason: 'incompatible_unit',
-        message: '系统无法生成可靠的批次建议，请手动调整批次。',
+        message: '系统无法生成可靠的库存调整建议，请手动调整库存。',
       };
     }
     nextQuantityById.set(entry.batch.inventory_item_id, nextNative);
@@ -790,7 +790,7 @@ export function validateReconciliationDraft(
           targetKey,
           field: 'kind',
           code: 'tracking_mode_changed',
-          message: '食材跟踪方式已变化，请重新确认。',
+          message: '食材的库存数量记录方式已变化，请重新确认。',
         });
         continue;
       }
@@ -809,7 +809,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `batch:${update.inventoryItemId}:actualRemainingQuantity`,
               code: 'invalid_quantity',
-              message: `请填写「${group.ingredient_name}」批次的有效剩余量。`,
+              message: `请填写「${group.ingredient_name}」库存的有效剩余量。`,
             });
           }
           if (!update.storageLocation.trim()) {
@@ -817,7 +817,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `batch:${update.inventoryItemId}:storageLocation`,
               code: 'invalid_date_range',
-              message: `请填写「${group.ingredient_name}」批次的存放位置。`,
+              message: `请填写「${group.ingredient_name}」库存的存放位置。`,
             });
           }
           if (!update.purchaseDate.trim()) {
@@ -825,7 +825,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `batch:${update.inventoryItemId}:purchaseDate`,
               code: 'invalid_date_range',
-              message: `请填写「${group.ingredient_name}」批次的购买日期。`,
+              message: `请填写「${group.ingredient_name}」库存的购买日期。`,
             });
           }
           if (hasInvalidDateRange(update.purchaseDate, update.expiryDate)) {
@@ -833,7 +833,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `batch:${update.inventoryItemId}:expiryDate`,
               code: 'invalid_date_range',
-              message: `「${group.ingredient_name}」批次的到期日不能早于购买日期。`,
+              message: `「${group.ingredient_name}」库存的到期日不能早于购买日期。`,
             });
           }
         }
@@ -844,7 +844,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `create:${create.clientLineId}:actualRemainingQuantity`,
               code: 'invalid_quantity',
-              message: `请填写「${group.ingredient_name}」新增批次的有效数量。`,
+              message: `请填写「${group.ingredient_name}」补充库存的有效数量。`,
             });
           }
           if (!create.unit.trim()) {
@@ -852,7 +852,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `create:${create.clientLineId}:unit`,
               code: 'incompatible_unit',
-              message: `请填写「${group.ingredient_name}」新增批次的单位。`,
+              message: `请填写「${group.ingredient_name}」补充库存的单位。`,
             });
           }
           if (!create.storageLocation.trim()) {
@@ -860,7 +860,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `create:${create.clientLineId}:storageLocation`,
               code: 'invalid_date_range',
-              message: `请填写「${group.ingredient_name}」新增批次的存放位置。`,
+              message: `请填写「${group.ingredient_name}」补充库存的存放位置。`,
             });
           }
           if (!create.purchaseDate.trim()) {
@@ -868,7 +868,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `create:${create.clientLineId}:purchaseDate`,
               code: 'invalid_date_range',
-              message: `请填写「${group.ingredient_name}」新增批次的购买日期。`,
+              message: `请填写「${group.ingredient_name}」补充库存的购买日期。`,
             });
           }
           if (hasInvalidDateRange(create.purchaseDate, create.expiryDate)) {
@@ -876,7 +876,7 @@ export function validateReconciliationDraft(
               targetKey,
               field: `create:${create.clientLineId}:expiryDate`,
               code: 'invalid_date_range',
-              message: `「${group.ingredient_name}」新增批次的到期日不能早于购买日期。`,
+              message: `「${group.ingredient_name}」补充库存的到期日不能早于购买日期。`,
             });
           }
         }
@@ -886,7 +886,7 @@ export function validateReconciliationDraft(
             targetKey,
             field: 'creates',
             code: 'duplicate_request_item',
-            message: `「${group.ingredient_name}」新增批次标识重复。`,
+              message: `「${group.ingredient_name}」补充库存的标识重复。`,
           });
         }
       }
@@ -899,7 +899,7 @@ export function validateReconciliationDraft(
           targetKey,
           field: 'kind',
           code: 'tracking_mode_changed',
-          message: '食材跟踪方式已变化，请重新确认。',
+          message: '食材的库存数量记录方式已变化，请重新确认。',
         });
         continue;
       }
@@ -928,7 +928,7 @@ export function validateReconciliationDraft(
           targetKey,
           field: 'kind',
           code: 'tracking_mode_changed',
-          message: '成品库存形态已变化，请重新确认。',
+          message: '成品的库存数量记录方式已变化，请重新确认。',
         });
         continue;
       }
@@ -1046,7 +1046,7 @@ export function formatSubmitSummaryLines(summary: ReconciliationSubmitSummary): 
     { label: '库存数量调整', count: summary.adjustedCount },
     { label: '标记少量', count: summary.lowCount },
     { label: '调整为没有', count: summary.absentCount },
-    { label: '新增漏记批次', count: summary.createdBatchCount },
+    { label: '补充库存', count: summary.createdBatchCount },
   ].filter((line) => line.count > 0);
 }
 
@@ -1159,7 +1159,7 @@ function exactVersionsMatch(
     return {
       ok: false,
       code: 'stale_version',
-      message: '食材版本已变化，请重新确认。',
+      message: '食材信息已更新，请重新确认。',
     };
   }
   const observedIds = new Set(intent.observedBatches.map((batch) => batch.inventory_item_id));
@@ -1169,7 +1169,7 @@ function exactVersionsMatch(
     return {
       ok: false,
       code: 'scope_changed',
-      message: '批次范围已变化，请重新确认。',
+      message: '库存发生变化，请重新确认。',
     };
   }
   for (const observed of intent.observedBatches) {
@@ -1178,14 +1178,14 @@ function exactVersionsMatch(
       return {
         ok: false,
         code: 'scope_changed',
-        message: '批次范围已变化，请重新确认。',
+      message: '库存发生变化，请重新确认。',
       };
     }
     if (batch.row_version !== observed.expected_row_version) {
       return {
         ok: false,
         code: 'stale_version',
-        message: '批次版本已变化，请重新确认。',
+      message: '库存已更新，请重新确认。',
       };
     }
   }
@@ -1195,14 +1195,14 @@ function exactVersionsMatch(
       return {
         ok: false,
         code: 'missing_target',
-        message: '原批次已不存在，请重新确认。',
+        message: '原库存已不存在，请重新确认。',
       };
     }
     if (batch.row_version !== update.expectedRowVersion) {
       return {
         ok: false,
         code: 'stale_version',
-        message: '批次版本已变化，请重新确认。',
+        message: '库存已更新，请重新确认。',
       };
     }
   }
@@ -1329,7 +1329,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'tracking_mode_changed',
-          message: '食材跟踪方式已变化，原盘点动作已失效。',
+          message: '之前的盘点内容已失效，请重新确认。',
         });
       } else {
         conflicts.push({
@@ -1346,7 +1346,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'tracking_mode_changed',
-          message: '食材跟踪方式已变化，原盘点动作已失效。',
+          message: '之前的盘点内容已失效，请重新确认。',
         });
         continue;
       }
@@ -1366,7 +1366,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'tracking_mode_changed',
-          message: '食材跟踪方式已变化，原盘点动作已失效。',
+          message: '之前的盘点内容已失效，请重新确认。',
         });
         continue;
       }
@@ -1378,7 +1378,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'stale_version',
-          message: '状态版本已变化，请重新确认。',
+          message: '库存状态已更新，请重新确认。',
         });
         restoredIntents.push(rebindPresenceIntent(intent, group));
         continue;
@@ -1392,7 +1392,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'tracking_mode_changed',
-          message: '成品库存形态已变化，原盘点动作已失效。',
+          message: '之前的盘点内容已失效，请重新确认。',
         });
         continue;
       }
@@ -1400,7 +1400,7 @@ export function replayReconciliationDraft(args: {
         conflicts.push({
           targetKey,
           code: 'stale_version',
-          message: '成品版本已变化，请重新确认。',
+          message: '成品库存已更新，请重新确认。',
         });
         restoredIntents.push(rebindFoodIntent(intent, group));
         continue;

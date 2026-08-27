@@ -43,10 +43,10 @@ function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | '
 }
 
 function resolvedTitle(status: string) {
-  if (status === 'approved') return '入库已确认';
-  if (status === 'rejected') return '未写入的入库草稿';
-  if (status === 'expired') return '已过期的入库草稿';
-  return '已处理的入库草稿';
+  if (status === 'approved') return '库存已确认';
+  if (status === 'rejected') return '本次库存未保存';
+  if (status === 'expired') return '本次库存建议已过期';
+  return '本次库存建议已处理';
 }
 
 const STORAGE_LOCATION_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storage) => ({
@@ -56,7 +56,7 @@ const STORAGE_LOCATION_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storage) => ({
 
 const PRESENCE_LEVEL_OPTIONS = [
   { value: 'sufficient', label: '充足' },
-  { value: 'present_unknown', label: '还在，数量不确定' },
+  { value: 'present_unknown', label: '有库存，数量不确定' },
   { value: 'low', label: '少量' },
 ];
 
@@ -86,6 +86,11 @@ function isStockAction(item: InventoryIntakeDraftItem) {
   return item.action === 'stock_and_fulfill' || item.action === 'stock_only';
 }
 
+function inventoryIntakeItemTitle(item: InventoryIntakeDraftItem) {
+  if (item.title.trim()) return item.title.trim();
+  return item.targetKind === 'food' ? '未命名食物' : '未命名食材';
+}
+
 function InventoryIntakeRow({
   item,
   intakeDate,
@@ -101,7 +106,7 @@ function InventoryIntakeRow({
   onToggle: () => void;
   onPatch: (patch: InventoryIntakeEditableItemPatch) => void;
 }) {
-  const title = item.title.trim() || '未命名入库项';
+  const title = inventoryIntakeItemTitle(item);
   const needsAttention = inventoryIntakeNeedsAttention(item, intakeDate);
   const sourceKind = (item.sourceKind || 'direct') as InventoryIntakeSourceKind;
   const actionOptions = item.sourceKind
@@ -132,7 +137,7 @@ function InventoryIntakeRow({
           <small>{inventoryIntakeItemSummary(item)}</small>
         </span>
         <span className={`ai-inventory-intake-badge${needsAttention ? ' needs-attention' : ' is-ready'}`}>
-          {needsAttention ? '需补充' : '已就绪'}
+          {needsAttention ? '需要补充' : '已就绪'}
         </span>
         <svg
           className={`ai-inventory-intake-chevron-icon${expanded ? ' is-expanded' : ''}`}
@@ -174,13 +179,13 @@ function InventoryIntakeRow({
           {isQuantityTarget(item) ? (
             <div className="ai-inventory-intake-quantity-grid">
               <label className="ai-inventory-intake-field">
-                <span>实际入库数量</span>
+                <span>实际数量</span>
                 <input
                   className="text-input"
                   type="number"
                   min="0"
                   step="any"
-                  aria-label={`${title}实际入库数量`}
+                  aria-label={`${title}实际数量`}
                   value={quantityInputValue(item.enteredQuantity)}
                   disabled={readonly}
                   onChange={(event) => onPatch({ enteredQuantity: event.target.value })}
@@ -190,7 +195,7 @@ function InventoryIntakeRow({
                 <span>单位</span>
                 <input
                   className="text-input"
-                  aria-label={`${title}实际入库单位`}
+                  aria-label={`${title}实际数量单位`}
                   value={asText(item.enteredUnit)}
                   disabled={readonly}
                   onChange={(event) => onPatch({ enteredUnit: event.target.value })}
@@ -201,7 +206,7 @@ function InventoryIntakeRow({
 
           {isPresenceTarget(item) ? (
             <ApprovalSelectField
-              label="入库后的库存状态"
+              label="加入库存后的状态"
               value={asText(item.resultingAvailabilityLevel, 'sufficient')}
               disabled={readonly}
               options={PRESENCE_LEVEL_OPTIONS}
@@ -212,10 +217,10 @@ function InventoryIntakeRow({
 
           {conversion && showStockFields && item.targetKind !== 'presence_ingredient' ? (
             <fieldset className="ai-inventory-intake-conversion" aria-label={`${title}包装换算`}>
-              <legend>一次性包装换算</legend>
+              <legend>包装换算</legend>
               <div className="ai-inventory-intake-quantity-grid">
                 <label className="ai-inventory-intake-field">
-                  <span>每份换算倍率</span>
+                  <span>每个包装对应数量</span>
                   <input
                     className="text-input"
                     type="number"
@@ -227,7 +232,7 @@ function InventoryIntakeRow({
                   />
                 </label>
                 <label className="ai-inventory-intake-field">
-                  <span>入库目标单位</span>
+                  <span>库存单位</span>
                   <input
                     className="text-input"
                     value={asText(conversion.targetUnit)}
@@ -237,7 +242,7 @@ function InventoryIntakeRow({
                 </label>
               </div>
               <label className="ai-inventory-intake-field">
-                <span>换算证据</span>
+                <span>换算依据</span>
                 <input
                   className="text-input"
                   value={asText(conversion.evidence)}
@@ -349,11 +354,11 @@ export function AiInventoryIntakeApproval({
   const activeCount = groups.shopping.length + groups.direct.length;
   const attentionItems = draft.items.filter((item) => inventoryIntakeNeedsAttention(item, draft.intakeDate));
   const overviewItems = [
-    { label: '入库日期', value: draft.intakeDate || '未填写' },
-    { label: '日期来源', value: intakeDateSourceLabel(String(draft.intakeDateSource)) },
-    { label: '待处理', value: `${activeCount} 项` },
-    { label: '采购关联', value: `${groups.shopping.length} 项` },
-    { label: '直接入库', value: `${groups.direct.length} 项` },
+    { label: '记录日期', value: draft.intakeDate || '未填写' },
+    { label: '日期依据', value: intakeDateSourceLabel(String(draft.intakeDateSource)) },
+    { label: '待确认', value: `${activeCount} 项` },
+    { label: '采购清单内容', value: `${groups.shopping.length} 项` },
+    { label: '直接加入库存', value: `${groups.direct.length} 项` },
     { label: '已忽略', value: `${groups.ignored.length} 项` },
   ];
 
@@ -372,8 +377,8 @@ export function AiInventoryIntakeApproval({
         <ul className="ai-inventory-intake-resolved-list">
           {items.map((item, index) => (
             <li key={asText(item.lineId) || asText(item.sourceLineId) || `${title}-${index}`}>
-              <strong>{asText(item.displayName) || asText(item.title) || asText(item.sourceText) || '未命名入库项'}</strong>
-              <span>{asText(item.reason) || (asText(item.lineId) ? inventoryIntakeItemSummary(item as InventoryIntakeDraftItem) : '本次不会入库')}</span>
+              <strong>{asText(item.displayName) || asText(item.title) || asText(item.sourceText) || '未命名内容'}</strong>
+              <span>{asText(item.reason) || (asText(item.lineId) ? inventoryIntakeItemSummary(item as InventoryIntakeDraftItem) : '本次不会加入库存')}</span>
             </li>
           ))}
         </ul>
@@ -381,11 +386,11 @@ export function AiInventoryIntakeApproval({
     );
 
     return (
-      <section className="ai-inventory-intake-editor" aria-label="确认入库内容">
+      <section className="ai-inventory-intake-editor" aria-label="确认库存更新内容">
         <AiDraftResolvedSummary
           status={resolvedStatus(status)}
           title={resolvedTitle(status)}
-          summary="保留本次入库范围与处理结果，便于后续核对。"
+          summary="保留本次库存更新范围与结果，方便后续核对。"
           className="ai-inventory-intake-summary-card"
         >
           <dl className="ai-draft-summary-items">
@@ -396,24 +401,24 @@ export function AiInventoryIntakeApproval({
               </div>
             ))}
           </dl>
-          {groups.shopping.length > 0 ? resolvedGroup('采购清单关联', '对应采购项的入库结果。', groups.shopping) : null}
-          {groups.direct.length > 0 ? resolvedGroup('直接入库', '本次直接写入库存的项目。', groups.direct) : null}
-          {groups.ignored.length > 0 ? resolvedGroup('已忽略', '不会写入库存的项目。', groups.ignored) : null}
+          {groups.shopping.length > 0 ? resolvedGroup('采购清单内容', '对应待买内容的库存结果。', groups.shopping) : null}
+          {groups.direct.length > 0 ? resolvedGroup('直接加入库存', '本次直接保存到库存的内容。', groups.direct) : null}
+          {groups.ignored.length > 0 ? resolvedGroup('已忽略', '不会保存到库存的内容。', groups.ignored) : null}
         </AiDraftResolvedSummary>
       </section>
     );
   }
 
   return (
-    <section className="ai-inventory-intake-editor" aria-label="确认入库内容">
+      <section className="ai-inventory-intake-editor" aria-label="确认库存更新内容">
       <AiDraftSummaryCard
-        title="本次入库概览"
+        title="本次库存更新概览"
         items={overviewItems}
         className="ai-inventory-intake-overview ai-inventory-intake-summary-card"
       />
 
       {!readonly ? (
-        <div className="ai-inventory-intake-date-config" aria-label="入库日期配置">
+        <div className="ai-inventory-intake-date-config" aria-label="记录日期设置">
           <label className="ai-inventory-intake-date-field">
             <span className="ai-inventory-intake-date-label">
               <svg
@@ -429,11 +434,11 @@ export function AiInventoryIntakeApproval({
                 <rect x="4.5" y="5.5" width="15" height="14" rx="3" />
                 <path d="M8 3.8v3.4M16 3.8v3.4M4.8 10h14.4" />
               </svg>
-              调整入库日期
+              调整记录日期
             </span>
             <div className="ai-inventory-intake-date-input-wrap">
               <DatePickerField
-                ariaLabel="入库日期"
+                ariaLabel="记录日期"
                 value={draft.intakeDate}
                 required
                 disabled={readonly}
@@ -446,17 +451,17 @@ export function AiInventoryIntakeApproval({
       ) : null}
 
       {attentionItems.length > 0 ? (
-        <AiDraftImpactNote tone="warning" title="还需补充" className="ai-inventory-intake-attention">
-          <p>{attentionItems.map((item) => item.title || item.sourceText || '未命名入库项').join('、')} 仍缺少入库信息。</p>
-          <p>补齐标记项后即可统一入库。</p>
+        <AiDraftImpactNote tone="warning" title="还需要补充" className="ai-inventory-intake-attention">
+          <p>{attentionItems.map((item) => inventoryIntakeItemTitle(item)).join('、')} 仍缺少库存信息。</p>
+          <p>补齐标记的内容后即可统一加入库存。</p>
         </AiDraftImpactNote>
       ) : null}
 
-      <div className="ai-inventory-intake-groups" aria-label="入库项清单">
+      <div className="ai-inventory-intake-groups" aria-label="库存清单">
         {groups.shopping.length > 0 ? (
           <AiDraftSection
-            title="采购清单关联"
-            description="入库后同步完成对应采购项。"
+            title="采购清单内容"
+            description="加入库存后会同时完成对应待买内容。"
             action={<span className="ai-inventory-intake-group-count">{groups.shopping.length} 项</span>}
             className="ai-inventory-intake-group"
           >
@@ -478,8 +483,8 @@ export function AiInventoryIntakeApproval({
 
         {groups.direct.length > 0 ? (
           <AiDraftSection
-            title="直接入库"
-            description="只增加库存，不创建或完成采购项。"
+            title="直接加入库存"
+            description="这里只会加入库存，不会新增或完成采购清单内容。"
             action={<span className="ai-inventory-intake-group-count">{groups.direct.length} 项</span>}
             className="ai-inventory-intake-group"
           >
@@ -510,7 +515,7 @@ export function AiInventoryIntakeApproval({
           >
             <div className="ai-draft-section-copy">
               <h3>已忽略</h3>
-              <p>不会写入库存，无需确认</p>
+              <p>不会保存到库存，也无需确认</p>
             </div>
             <div className="ai-inventory-intake-ignored-header-action">
               <span className="ai-inventory-intake-group-count">{groups.ignored.length} 项</span>
@@ -536,10 +541,10 @@ export function AiInventoryIntakeApproval({
               {groups.ignored.map((item, index) => (
                 <div className="ai-inventory-intake-ignored-card" key={item.sourceLineId || `ignored-${index}`}>
                   <div className="ai-inventory-intake-ignored-copy">
-                    <strong>{item.displayName || item.sourceText || '已忽略项'}</strong>
-                    <p>{item.reason || '非食品库存对象，本次不会入库'}</p>
+                    <strong>{item.displayName || item.sourceText || '已忽略内容'}</strong>
+                    <p>{item.reason || '这项内容不是食品，本次不会加入库存。'}</p>
                   </div>
-                  <span className="ai-inventory-intake-ignored-badge">无需确认</span>
+                  <span className="ai-inventory-intake-ignored-badge">已忽略</span>
                 </div>
               ))}
             </div>

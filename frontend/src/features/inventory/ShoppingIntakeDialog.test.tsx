@@ -80,7 +80,7 @@ const result: ShoppingIntakeResult = {
   revertible_until: '2099-07-12T08:16:00.000Z',
   can_revert: true,
   summary: {
-    title: '本次购买已登记',
+    title: '本次购买已记录',
     description: '完成 2 项，部分买到 0 项',
     confirmed_count: 0,
     adjusted_count: 0,
@@ -197,10 +197,10 @@ describe('ShoppingIntakeDialog', () => {
 
   it('renders select step with explicit multi-select and free-text actions', () => {
     const props = renderDialog();
-    expect(container!.textContent).toContain('选择本次买到的项目');
+    expect(container!.textContent).toContain('选择本次买到的内容');
     expect(container!.textContent).toContain('牛奶');
     expect(container!.textContent).toContain('厨房纸');
-    expect(container!.textContent).toContain('仅标记已买');
+    expect(container!.textContent).toContain('只记录已购买');
 
     const checkboxes = container!.querySelectorAll('input[type="checkbox"]');
     expect(checkboxes.length).toBeGreaterThanOrEqual(3);
@@ -238,7 +238,7 @@ describe('ShoppingIntakeDialog', () => {
     });
 
     const openSearch = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === '搜索其他档案',
+      (button) => button.textContent?.trim() === '搜索其他食材或成品',
     );
     expect(openSearch).toBeTruthy();
     act(() => {
@@ -246,7 +246,7 @@ describe('ShoppingIntakeDialog', () => {
     });
 
     const searchInput = container!.querySelector(
-      'input[aria-label="鸡蛋（手写）关联档案"]',
+      'input[aria-label="鸡蛋（手写）选择食材或成品"]',
     ) as HTMLInputElement | null;
     expect(searchInput).toBeTruthy();
     act(() => {
@@ -286,13 +286,13 @@ describe('ShoppingIntakeDialog', () => {
     });
 
     const openSearch = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === '搜索其他档案',
+      (button) => button.textContent?.trim() === '搜索其他食材或成品',
     );
     act(() => {
       openSearch!.click();
     });
     const searchInput = container!.querySelector(
-      'input[aria-label="鸡蛋（手写）关联档案"]',
+      'input[aria-label="鸡蛋（手写）选择食材或成品"]',
     ) as HTMLInputElement;
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -304,7 +304,7 @@ describe('ShoppingIntakeDialog', () => {
       (button) => button.textContent?.includes('卤蛋'),
     );
     expect(foodOption?.disabled).toBe(true);
-    expect(container!.textContent).toContain('请先调整采购计划单位');
+    expect(container!.textContent).toContain('请先调整采购清单中的单位');
     act(() => {
       foodOption!.click();
     });
@@ -322,16 +322,16 @@ describe('ShoppingIntakeDialog', () => {
       expandedExceptionIds: ['s-milk'],
     });
 
-    expect(container!.textContent).toContain('核对实际数量与例外');
+    expect(container!.textContent).toContain('核对数量和差异');
     expect(container!.textContent).toContain('差异与例外');
-    expect(container!.textContent).toContain('入库 2 盒，还差 4 盒');
+    expect(container!.textContent).toContain('加入库存 2 盒，还差 4 盒');
     // Default-sufficient presence rows remain reviewable.
     expect(container!.textContent).toContain('盐');
-    expect(container!.textContent).toContain('默认充足');
-    expect(container!.textContent).toContain('确认入库');
+    expect(container!.textContent).toContain('默认状态：充足');
+    expect(container!.textContent).toContain('确认加入库存');
 
     const submit = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('确认入库'),
+      button.textContent?.includes('确认加入库存'),
     );
     expect(submit).toBeTruthy();
     act(() => {
@@ -354,9 +354,9 @@ describe('ShoppingIntakeDialog', () => {
 
     const overview = container!.querySelector('.inventory-shopping-review-overview');
     expect(overview).not.toBeNull();
-    expect(overview?.textContent).toContain('本次入库');
+    expect(overview?.textContent).toContain('本次加入库存');
     expect(overview?.textContent).toContain('按计划');
-    expect(overview?.textContent).toContain('需调整');
+    expect(overview?.textContent).toContain('需要调整');
     expect(overview?.querySelector('time[dateTime="2026-07-11"]')).not.toBeNull();
 
     const rows = container!.querySelectorAll('.inventory-shopping-review-item');
@@ -370,7 +370,7 @@ describe('ShoppingIntakeDialog', () => {
     expect(adjustButton?.textContent).toContain('调整');
 
     expect(container!.querySelector('.inventory-shopping-review-empty')).not.toBeNull();
-    expect(container!.textContent).toContain('没有差异，可直接确认入库');
+    expect(container!.textContent).toContain('没有差异，可直接加入库存');
     expect(container!.querySelector('.inventory-maintenance-review-meta')).toBeNull();
   });
 
@@ -400,7 +400,7 @@ describe('ShoppingIntakeDialog', () => {
     ).find((row) => row.textContent?.includes('牛奶'));
     expect(rowAfterChange).toBe(rowBeforeChange);
     expect(rowAfterChange?.closest('.inventory-shopping-review-list')).not.toBeNull();
-    expect(container!.textContent).toContain('1 个项目存在差异');
+    expect(container!.textContent).toContain('1 项内容存在差异');
   });
 
   it('lets a default planned row enter exception editing', () => {
@@ -451,10 +451,10 @@ describe('ShoppingIntakeDialog', () => {
       expandedExceptionIds: ['s-salt'],
     });
 
-    expect(container!.textContent).toContain('默认充足');
-    expect(container!.textContent).toContain('买到后状态');
+    expect(container!.textContent).toContain('默认状态：充足');
+    expect(container!.textContent).toContain('购买后库存状态');
     expect(container!.textContent).toContain('充足');
-    expect(container!.textContent).toContain('还在');
+    expect(container!.textContent).toContain('有库存');
     expect(container!.textContent).toContain('少量');
 
     const lowChip = Array.from(container!.querySelectorAll('button')).find((button) =>
@@ -582,11 +582,11 @@ describe('ShoppingIntakeDialog', () => {
       onViewResult,
       onRevertResult,
     });
-    expect(container!.textContent).toContain('本次购买已登记');
-    expect(container!.textContent).toContain('库存与采购清单已同步更新');
-    expect(container!.textContent).toContain('已登记 2 项');
-    expect(container!.textContent).toContain('完成 2');
-    expect(container!.textContent).toContain('部分 0');
+    expect(container!.textContent).toContain('本次购买已记录');
+    expect(container!.textContent).toContain('库存和采购清单已更新');
+    expect(container!.textContent).toContain('已记录 2 项');
+    expect(container!.textContent).toContain('已完成 2');
+    expect(container!.textContent).toContain('部分完成 0');
     expect(container!.textContent).toMatch(/可在/);
     expect(container!.querySelector('[aria-live]')).toBeTruthy();
     expect(container!.textContent).toContain('牛奶');
@@ -597,10 +597,10 @@ describe('ShoppingIntakeDialog', () => {
     expect(container!.querySelector('.inventory-shopping-intake-modal.is-result')).not.toBeNull();
 
     const viewDetails = Array.from(container!.querySelectorAll('button')).find(
-      (button) => button.textContent === '查看操作详情',
+      (button) => button.textContent === '查看变更详情',
     );
     const revertButtons = Array.from(container!.querySelectorAll('button')).filter(
-      (button) => button.textContent === '撤销本次登记',
+      (button) => button.textContent === '撤销本次记录',
     );
     expect(viewDetails).toBeTruthy();
     expect(revertButtons).toHaveLength(1);
@@ -618,21 +618,21 @@ describe('ShoppingIntakeDialog', () => {
       loading: true,
       draft: null,
     });
-    expect(container!.textContent).toContain('正在准备采购项');
+    expect(container!.textContent).toContain('正在准备采购清单');
 
     act(() => root?.unmount());
     container?.remove();
     renderDialog({
       draft: makeDraft([]),
     });
-    expect(container!.textContent).toContain('没有待买项目');
+    expect(container!.textContent).toContain('没有待买内容');
 
     act(() => root?.unmount());
     container?.remove();
     renderDialog({
       step: 'review',
       draft: makeDraft([{ ...exactItem, actualQuantity: '0' }]),
-      errorMessage: '还有 1 处需要确认后才能入库。',
+      errorMessage: '还有 1 处需要确认后才能保存。',
       fieldErrors: [
         {
           shoppingItemId: 's-milk',
@@ -667,7 +667,7 @@ describe('ShoppingIntakeDialog', () => {
       busy: true,
     });
     const busySubmit = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('正在登记'),
+      button.textContent?.includes('正在保存购买信息'),
     );
     expect(busySubmit).toBeTruthy();
     expect((busySubmit as HTMLButtonElement).disabled).toBe(true);
@@ -683,10 +683,10 @@ describe('ShoppingIntakeDialog', () => {
 
     const overlay = container!.querySelector('.ui-operation-loading-overlay');
     expect(overlay?.getAttribute('aria-busy')).toBe('true');
-    expect(overlay?.textContent).toContain('正在登记采购项');
+    expect(overlay?.textContent).toContain('正在记录购买内容');
     expect(overlay?.querySelector('.ui-operation-loading-spinner')).not.toBeNull();
     const submit = Array.from(container!.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent === '正在登记',
+      (button) => button.textContent === '正在保存购买信息',
     );
     expect(submit?.disabled).toBe(true);
     expect(submit?.querySelector('.ui-form-action-spinner')).not.toBeNull();
@@ -703,7 +703,7 @@ describe('ShoppingIntakeDialog', () => {
 
     const overlay = container!.querySelector('.ui-operation-loading-overlay');
     expect(overlay?.getAttribute('aria-busy')).toBe('true');
-    expect(overlay?.textContent).toContain('正在撤销本次登记');
+    expect(overlay?.textContent).toContain('正在撤销本次记录');
     const undo = Array.from(container!.querySelectorAll<HTMLButtonElement>('button')).find(
       (button) => button.textContent === '正在撤销',
     );
@@ -723,13 +723,13 @@ describe('ShoppingIntakeDialog', () => {
       step: 'review',
       draft: makeDraft([partialItem, exactItem]),
       conflictState: 'stale_version',
-      errorMessage: '牛奶采购项已更新，请核对最新数量',
+      errorMessage: '牛奶待买内容已更新，请核对最新数量',
       fieldErrors: [
         {
           shoppingItemId: 's-milk',
           field: 'conflict',
           code: 'stale_version',
-          message: '牛奶采购项已更新，请核对最新数量',
+          message: '牛奶待买内容已更新，请核对最新数量',
         },
       ],
       expandedExceptionIds: ['s-milk'],
@@ -739,7 +739,7 @@ describe('ShoppingIntakeDialog', () => {
     const text = container!.textContent ?? '';
     expect(text.indexOf('牛奶')).toBeGreaterThanOrEqual(0);
     expect(text.indexOf('牛奶')).toBeLessThan(text.indexOf('酸奶'));
-    expect(text).toContain('牛奶采购项已更新，请核对最新数量');
+    expect(text).toContain('牛奶待买内容已更新，请核对最新数量');
     expect(text).toContain('重新确认并提交');
   });
 
@@ -755,7 +755,7 @@ describe('ShoppingIntakeDialog', () => {
       onClose,
     });
     const submit = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('确认入库'),
+      button.textContent?.includes('确认加入库存'),
     );
     act(() => {
       submit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));

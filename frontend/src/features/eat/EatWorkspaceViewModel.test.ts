@@ -407,7 +407,7 @@ describe('resolveEatTask', () => {
           planDetailStatus: 'error',
         }),
       ),
-    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
+    ).toMatchObject({ kind: 'load-error', label: '餐食安排加载失败' });
   });
 
   it('resolves plan detail from the ID query and weekContaining(plan_date)', () => {
@@ -453,7 +453,7 @@ describe('resolveEatTask', () => {
           planDetailStatus: 'error',
         }),
       ),
-    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
+    ).toMatchObject({ kind: 'load-error', label: '餐食安排加载失败' });
   });
 
   it('resolves cook only when both food and recipe exist', () => {
@@ -574,7 +574,7 @@ describe('resolveEatTask', () => {
           planDetailStatus: 'error',
         }),
       ),
-    ).toMatchObject({ kind: 'load-error', label: '菜单项加载失败' });
+    ).toMatchObject({ kind: 'load-error', label: '餐食安排加载失败' });
   });
 
   it('resolves meal detail by exact id', () => {

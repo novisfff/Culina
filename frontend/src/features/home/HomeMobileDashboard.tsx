@@ -45,7 +45,7 @@ function HomeRecommendationCards(props: {
   }
 
   if (props.items.length === 0) {
-    return <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />;
+    return <EmptyState title="还没有今日推荐" description="补充食材或菜谱后，这里会出现今日建议。" />;
   }
 
   return (
@@ -71,7 +71,7 @@ function HomeRecommendationCards(props: {
               <h3>{food.name}</h3>
               <div className="mobile-dashboard-badge-row">
                 <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
-                <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                <Badge>{food.routine_note || `适合 ${food.suitable_meal_types.length || 1} 个餐别`}</Badge>
               </div>
               <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
               <div className="mobile-dashboard-food-actions">
@@ -88,7 +88,7 @@ function HomeRecommendationCards(props: {
                   }}
                   disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                 >
-                  {food.recipe_id ? '开始做' : '加入计划'}
+                  {food.recipe_id ? '开始做' : '加入餐食计划'}
                 </button>
                 <button
                   type="button"
@@ -97,7 +97,7 @@ function HomeRecommendationCards(props: {
                     props.onHomePlanAddDialogOpen(food, props.targetMealType ?? 'dinner');
                   }}
                   disabled={props.isCreatingFoodPlanItem}
-                  aria-label={`加入菜单：${food.name}`}
+                  aria-label={`加入餐食计划：${food.name}`}
                 >
                   <DashboardIcon name="calendar" />
                 </button>
@@ -170,7 +170,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
   }
 
   return (
-    <main className="mobile-dashboard-page" aria-label="手机首页">
+    <main className="mobile-dashboard-page" aria-label="首页">
       <section className="mobile-dashboard-hero">
         <div className="mobile-dashboard-kitchen" aria-hidden="true">
           <img
@@ -204,7 +204,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
         <div className="mobile-dashboard-family">
           <div className="mobile-dashboard-family-copy">
             <h1>{props.sidebarFamilyName}</h1>
-            <p>{props.sidebarMotto || '今天吃得好，明天更有劲儿'} <span aria-hidden="true">☀</span></p>
+            <p>{props.sidebarMotto || '把每一餐都安排得更从容。'} <span aria-hidden="true">☀</span></p>
             <div className="mobile-dashboard-meta-row" aria-label="家庭信息">
               <span>
                 <DashboardIcon name="map-pin" />

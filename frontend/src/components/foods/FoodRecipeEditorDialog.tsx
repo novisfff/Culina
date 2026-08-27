@@ -26,8 +26,8 @@ export function FoodRecipeEditorDialog(props: FoodRecipeEditorDialogProps) {
     >
       <WorkspaceModal
         title={props.isEditing ? '编辑菜谱和用料' : '添加菜谱和用料'}
-        description={props.currentRecipeTitle ? `正在编辑「${props.currentRecipeTitle}」` : '保存后会自动同步为一份家常食物。'}
-        eyebrow="食物里的家常菜谱"
+        description={props.currentRecipeTitle ? `正在编辑「${props.currentRecipeTitle}」` : '保存后会自动在食物库中生成对应的家常菜信息。'}
+        eyebrow="家常菜谱"
         className="food-recipe-editor-modal"
         closeLabel="关闭"
         onClose={closeIfAllowed}

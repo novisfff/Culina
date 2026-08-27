@@ -21,6 +21,7 @@ import {
   inventoryExpiryText,
   inventoryItems,
   inventoryStatusText,
+  localizeInventoryOperationText,
   operationResultEntityLabel,
   operationResultEntities,
   operationResultOperationLabel,
@@ -39,7 +40,7 @@ function entityTypeFromOperationEntity(entity: AiOperationResultEntity): string 
     .map((value) => value.trim().toLowerCase());
   for (const value of candidates) {
     if (value.includes('meal_log') || value.includes('meal-log') || value === '餐食记录') return 'meal_log';
-    if (value.includes('meal_plan') || value.includes('food_plan') || value === '菜单计划') return 'meal_plan';
+    if (value.includes('meal_plan') || value.includes('food_plan') || value === '菜单计划' || value === '餐食计划') return 'meal_plan';
     if (value.includes('food_profile') || value === 'food' || value === '食物') return 'food';
     if (value.includes('recipe') || value === '菜谱') return 'recipe';
   }
@@ -77,8 +78,8 @@ export function ResultImage({ asset, alt }: { asset?: MediaAsset | null; alt: st
 
 const INVENTORY_ACTION_LABELS: Record<AiInventoryCardAction, string> = {
   restock: '补货',
-  consume: '消耗',
-  dispose: '销毁',
+  consume: '扣减库存',
+  dispose: '丢弃',
 };
 
 function InventoryCard({
@@ -116,11 +117,11 @@ function InventoryCard({
                     {inventoryStatusText(item.displayStatus, item.daysUntilExpiry)}
                   </span>
                 </div>
-                <p>{item.quantity}{item.unit} · {inventoryExpiryText(item)}</p>
+                <p>{item.quantity} {item.unit} · {inventoryExpiryText(item)}</p>
                 {item.lastOperation && (
                   <p className={`ai-query-inventory-result tone-${item.lastOperation.action}`}>
                     已{INVENTORY_ACTION_LABELS[item.lastOperation.action]}
-                    {item.lastOperation.quantity ? ` ${item.lastOperation.quantity}${item.lastOperation.unit ?? item.unit}` : ''}
+                    {item.lastOperation.quantity ? ` ${item.lastOperation.quantity} ${item.lastOperation.unit ?? item.unit}` : ''}
                   </p>
                 )}
               </div>
@@ -225,7 +226,7 @@ function RecommendationCard({
                     <button
                       type="button"
                       className="ai-query-plan-added"
-                      aria-label="已加入菜单计划"
+                      aria-label="已加入餐食计划"
                       disabled={!planTarget || !onNavigate}
                       onClick={() => {
                         if (planTarget) onNavigate?.(planTarget);
@@ -235,7 +236,7 @@ function RecommendationCard({
                         <svg className="added-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', display: 'inline-block', verticalAlign: 'middle' }}>
                           <polyline points="20 6 9 17 4 12"></polyline>
                         </svg>
-                        已加入菜单
+                        已加入餐食计划
                       </strong>
                       <span>{item.planSelection.planDate} · {MEAL_TYPE_LABELS[item.planSelection.mealType]}</span>
                     </button>
@@ -244,14 +245,14 @@ function RecommendationCard({
                       className="solid-button"
                       type="button"
                       disabled={!item.foodId || !onAddToPlan}
-                      title={item.foodId ? '加入菜单计划' : '需要先关联食物'}
+                      title={item.foodId ? '加入餐食计划' : '需要先选择食物'}
                       onClick={() => onAddToPlan?.(item, card)}
                     >
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', display: 'inline-block', verticalAlign: 'middle' }}>
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                       </svg>
-                      {item.foodId ? '加入菜单计划' : '需关联食物'}
+                      {item.foodId ? '加入餐食计划' : '请先选择食物'}
                     </button>
                   )}
                 </div>
@@ -262,7 +263,7 @@ function RecommendationCard({
       ) : (
         <div className="ai-query-empty">
           <strong>暂时没有合适的推荐</strong>
-          <span>当前食物或菜谱资料不足，可以先补充家庭食物库。</span>
+          <span>当前食物或菜谱信息不足，可以先补充家庭食物库。</span>
         </div>
       )}
     </article>
@@ -289,7 +290,7 @@ function ClarificationCard({ card }: { card: AiResultCard }) {
       </header>
       <p className="ai-query-reason">{question}</p>
       {missingFields.length > 0 && (
-        <div className="ai-query-evidence" aria-label="待补充信息">
+        <div className="ai-query-evidence" aria-label="需要补充的信息">
           {missingFields.map((field) => <span key={field}>{field}</span>)}
         </div>
       )}
@@ -317,11 +318,12 @@ function OperationResultCard({
   onNavigate?: NavigateTarget;
 }) {
   const entities = operationResultEntities(card);
-  const actionSummary = typeof card.data.actionSummary === 'string' ? card.data.actionSummary.trim() : '';
-  const entityCountLabel = typeof card.data.entityCountLabel === 'string' ? card.data.entityCountLabel : `${entities.length} 个实体`;
+  const actionSummary = typeof card.data.actionSummary === 'string' ? localizeInventoryOperationText(card.data.actionSummary.trim()) : '';
+  const entityCountLabel = typeof card.data.entityCountLabel === 'string' ? localizeInventoryOperationText(card.data.entityCountLabel) : `${entities.length} 项内容`;
   const workspaceLabel = typeof card.data.workspaceLabel === 'string' ? card.data.workspaceLabel : '对应页面';
   const workspaceHint = typeof card.data.workspaceHint === 'string' ? card.data.workspaceHint : `可前往${workspaceLabel}查看`;
-  const normalizedTitle = card.title.replace(/\s+/g, '');
+  const displayTitle = localizeInventoryOperationText(card.title);
+  const normalizedTitle = displayTitle.replace(/\s+/g, '');
   const normalizedSummary = actionSummary.replace(/\s+/g, '');
   const shouldShowActionSummary = Boolean(actionSummary) && normalizedSummary !== normalizedTitle;
   const shouldShowEntityCount = entities.length > 0 || (typeof card.data.entityCount === 'number' && card.data.entityCount > 0);
@@ -331,20 +333,20 @@ function OperationResultCard({
     <article className="ai-result-card ai-query-result-card ai-operation-result-card">
       <header className="ai-query-card-head">
         <div className="ai-query-card-head-main">
-          <span className="ai-query-card-eyebrow">已按确认执行</span>
-          <h3>{card.title}</h3>
+          <span className="ai-query-card-eyebrow">已按你的确认完成</span>
+          <h3>{displayTitle}</h3>
         </div>
         {shouldShowEntityCount && (
           <div className="ai-query-card-context-badges">
             <span className="ai-query-context-badge">
-              影响 <strong>{entityCountLabel}</strong>
+              涉及 <strong>{entityCountLabel}</strong>
             </span>
           </div>
         )}
       </header>
       {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
       {entities.length > 0 && (
-        <div className="ai-query-recommendation-list" aria-label="已执行实体">
+        <div className="ai-query-recommendation-list" aria-label="已完成内容">
           {entities.map((item) => {
             const target = navigateTargetForOperationEntity(item);
             const canOpen = Boolean(target && onNavigate);
@@ -401,12 +403,11 @@ function UiActionsCard({ card }: { card: AiResultCard }) {
         </div>
         <div className="ai-query-card-context-badges">
           <span className="ai-query-context-badge">
-            动作 <strong>{actions.length}</strong>
+            需要处理 <strong>{actions.length}</strong>
           </span>
         </div>
       </header>
-      <p className="ai-query-reason">页面动作需要在对应页面中执行。</p>
-      <p className="subtle">请回到对应做菜页面执行这些操作。</p>
+      <p className="ai-query-reason">这些事项需要在对应页面完成，请按提示前往处理。</p>
     </article>
   );
 }
@@ -425,12 +426,12 @@ function RecipeShortageCard({
     : [];
   const actionPrompt = typeof card.data.actionPrompt === 'string'
     ? card.data.actionPrompt
-    : '把缺少的食材加入购物清单';
+    : '把缺少的食材加入采购清单';
   return (
     <article className="ai-result-card ai-query-result-card ai-recipe-shortage-card">
       <header className="ai-query-card-head">
         <div className="ai-query-card-head-main">
-          <span className="ai-query-card-eyebrow">做菜缺料</span>
+          <span className="ai-query-card-eyebrow">做菜缺少食材</span>
           <h3>{card.title}</h3>
         </div>
         <div className="ai-query-card-context-badges">
@@ -446,7 +447,7 @@ function RecipeShortageCard({
           return (
             <section className="ai-recommendation-item" key={`${String(item.ingredientId ?? name)}-${index}`}>
               <strong>{name}</strong>
-              <p>{isPresence ? '需要补充' : `缺少 ${quantity}${unit}`}</p>
+              <p>{isPresence ? '需要补充' : `缺少 ${quantity} ${unit}`}</p>
             </section>
           );
         })}
@@ -458,7 +459,7 @@ function RecipeShortageCard({
           disabled={!onPromptAction || isPromptActionPending}
           onClick={() => onPromptAction?.(actionPrompt)}
         >
-          加入购物清单
+          加入采购清单
         </button>
       </div>
     </article>
@@ -531,8 +532,8 @@ export function ResultCard({
             <span>{draft.servings} 人份</span>
             <span>{draft.prep_minutes} 分钟</span>
             <span>{draft.difficulty}</span>
-            <span>{draft.ingredient_items.length} 个食材</span>
-            <span>{draft.steps.length} 个步骤</span>
+            <span>{draft.ingredient_items.length} 种食材</span>
+            <span>{draft.steps.length} 步</span>
           </div>
         )}
       </article>
@@ -541,7 +542,7 @@ export function ResultCard({
 
   if (card.type === 'approval_request') {
     const statusText = typeof card.data.status === 'string' ? card.data.status : 'pending';
-    const instruction = typeof card.data.instruction === 'string' ? card.data.instruction : '等待你确认后再执行写入。';
+    const instruction = typeof card.data.instruction === 'string' ? card.data.instruction : '等待你确认后再保存。';
     return (
       <article className="ai-result-card ai-approval-card">
         <div className="inline-between">
@@ -566,7 +567,7 @@ export function ResultCard({
             const value = item as { title?: string; name?: string; reason?: string; note?: string; date?: string; mealType?: string };
             return (
               <section key={`${value.title ?? value.name ?? 'draft'}-${index}`} className="ai-recommendation-item">
-                <strong>{value.title ?? value.name ?? '草稿项'}</strong>
+                <strong>{value.title ?? value.name ?? '待确认内容'}</strong>
                 <p>{value.reason ?? value.note ?? [value.date, value.mealType].filter(Boolean).join(' · ')}</p>
               </section>
             );

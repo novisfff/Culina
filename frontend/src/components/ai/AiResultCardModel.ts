@@ -63,16 +63,16 @@ const OPERATION_RESULT_ACTION_LABELS: Record<string, string> = {
   create: '新增',
   update: '更新',
   delete: '删除',
-  set_status: '状态变更',
-  set_done: '状态变更',
+  set_status: '更新状态',
+  set_done: '更新状态',
   set_favorite: '收藏',
   update_details: '补充详情',
   rate_food: '评分',
   cook: '做菜',
   restock: '补货',
-  consume: '消耗',
-  dispose: '销毁',
-  inventory_operation: '库存处理',
+  consume: '扣减库存',
+  dispose: '丢弃',
+  inventory_operation: '库存变更',
 };
 
 const MEAL_TYPE_TOKEN_MAP: Record<string, MealType> = {
@@ -85,13 +85,13 @@ const MEAL_TYPE_TOKEN_MAP: Record<string, MealType> = {
 const OPERATION_RESULT_ENTITY_FALLBACK_LABELS: Record<string, string> = {
   recipe: '菜谱',
   recipe_cook: '做菜记录',
-  shopping_list: '采购项',
-  meal_plan: '菜单计划',
+  shopping_list: '待买内容',
+  meal_plan: '餐食计划',
   meal_log: '餐食记录',
   food_profile: '食物',
   ingredient_profile: '食材',
-  inventory_operation: '库存处理',
-  composite_operation: '复合操作',
+  inventory_operation: '库存变更',
+  composite_operation: '一组变更',
 };
 
 function mealTypeDisplayText(value: string) {
@@ -111,16 +111,41 @@ export function localizeOperationResultText(value?: string | null) {
   );
 }
 
+/**
+ * Normalize legacy inventory wording at the rendering boundary. API values and
+ * operation enums stay unchanged; only copy shown in a result card is adapted
+ * to the product language used elsewhere in the inventory workspace.
+ */
+export function localizeInventoryOperationText(value?: string | null) {
+  if (!value) return '';
+  // Apply legacy replacements in one pass.  A chained `入库` replacement can
+  // match the `入库` substring inside the canonical copy `加入库存`, producing
+  // broken text such as `加加入库存存` when a result is localized twice.
+  const replacements: Record<string, string> = {
+    '入库并完成采购项': '加入库存并完成待买内容',
+    '直接入库': '直接加入库存',
+    '已入库': '已加入库存',
+    '录入库存': '加入库存',
+    '库存记录': '库存',
+    '采购项': '待买内容',
+    '库存处理': '库存变更',
+    '入库': '加入库存',
+  };
+  return value.replace(/入库并完成采购项|直接入库|已入库|录入库存|库存记录|采购项|库存处理|(?<!加)入库/g, (match) => replacements[match] ?? match);
+}
+
 export function operationResultEntityLabel(entity: AiOperationResultEntity) {
-  const label = localizeOperationResultText(entity.label);
-  return OPERATION_RESULT_ENTITY_FALLBACK_LABELS[label] ?? (label || '已处理项目');
+  const label = localizeInventoryOperationText(localizeOperationResultText(entity.label));
+  return OPERATION_RESULT_ENTITY_FALLBACK_LABELS[label] ?? (label || '已处理内容');
 }
 
 export function operationResultOperationLabel(entity: AiOperationResultEntity) {
   const rawLabel = entity.operationLabel?.trim() || entity.operation?.trim() || '';
   if (!rawLabel) return '';
   const normalized = rawLabel.toLowerCase();
-  return OPERATION_RESULT_ACTION_LABELS[rawLabel] ?? OPERATION_RESULT_ACTION_LABELS[normalized] ?? localizeOperationResultText(rawLabel);
+  return localizeInventoryOperationText(
+    OPERATION_RESULT_ACTION_LABELS[rawLabel] ?? OPERATION_RESULT_ACTION_LABELS[normalized] ?? localizeOperationResultText(rawLabel),
+  );
 }
 
 export function inventoryStatusText(status: AiInventoryDisplayStatus, daysUntilExpiry?: number | null) {
@@ -131,8 +156,8 @@ export function inventoryStatusText(status: AiInventoryDisplayStatus, daysUntilE
 }
 
 export function inventoryExpiryText(item: AiInventoryResultItem) {
-  if (!item.expiryDate) return '未记录保质期';
-  return `保质期至 ${item.expiryDate}`;
+  if (!item.expiryDate) return '未填写到期日';
+  return `到期日 ${item.expiryDate}`;
 }
 
 export function recommendationMeta(item: AiTodayRecommendationItem) {

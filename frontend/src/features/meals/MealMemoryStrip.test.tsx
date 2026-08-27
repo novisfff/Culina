@@ -54,7 +54,7 @@ describe('buildMealInsightPresentation', () => {
       },
     });
     expect(buildMealInsightPresentation(repurchaseTakeout)).toEqual({
-      title: '值得再点',
+      title: '还想再点',
       evidence: '2 次评分，平均 4.5 分',
     });
   });
@@ -74,7 +74,7 @@ describe('buildMealInsightPresentation', () => {
     expect(buildMealInsightPresentation(missedFood).evidence).toBe('上次是 38 天前');
   });
 
-  it('maps ready/instant/packaged to 值得回购 and diningOut to 值得再去', () => {
+  it('maps ready/instant/packaged to 还想再买 and diningOut to 还想再去', () => {
     expect(
       buildMealInsightPresentation(
         insight({
@@ -82,7 +82,7 @@ describe('buildMealInsightPresentation', () => {
           food: { id: 'f1', name: '速食面', food_type: 'readyMade', cover: null },
         }),
       ).title,
-    ).toBe('值得回购');
+    ).toBe('还想再买');
     expect(
       buildMealInsightPresentation(
         insight({
@@ -90,7 +90,7 @@ describe('buildMealInsightPresentation', () => {
           food: { id: 'f2', name: '泡面', food_type: 'instant', cover: null },
         }),
       ).title,
-    ).toBe('值得回购');
+    ).toBe('还想再买');
     expect(
       buildMealInsightPresentation(
         insight({
@@ -98,7 +98,7 @@ describe('buildMealInsightPresentation', () => {
           food: { id: 'f3', name: '罐头', food_type: 'packaged', cover: null },
         }),
       ).title,
-    ).toBe('值得回购');
+    ).toBe('还想再买');
     expect(
       buildMealInsightPresentation(
         insight({
@@ -106,7 +106,7 @@ describe('buildMealInsightPresentation', () => {
           food: { id: 'f4', name: '火锅店', food_type: 'diningOut', cover: null },
         }),
       ).title,
-    ).toBe('值得再去');
+    ).toBe('还想再去');
   });
 
   it('maps frequent and repeated titles with meal-count evidence', () => {

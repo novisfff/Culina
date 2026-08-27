@@ -90,28 +90,28 @@ function mealLogSummaryItems(record: Record<string, unknown>) {
   const foods = mealLogFoodsFromDraft(record.foods);
   const totalServings = foods.reduce((sum, food) => sum + asNumber(food.servings, 0), 0);
   return [
-    { label: '日期', value: asText(record.date) || '未填写' },
-    { label: '餐别', value: mealTypeLabel(record.mealType) || '未填写' },
+    { label: '日期', value: asText(record.date) || '未填写日期' },
+    { label: '餐别', value: mealTypeLabel(record.mealType) || '未填写餐别' },
     { label: '食物', value: `${foods.length} 项` },
     { label: '总份数', value: `${formatServingCount(totalServings)} 份` },
-    { label: '参与人', value: countLabel(record.participantUserIds, '人') },
+    { label: '参与家人', value: countLabel(record.participantUserIds, '人') },
     { label: '照片', value: countLabel(record.mediaIds, '张') },
-    { label: '关联计划', value: asText(record.planItemId) ? '已关联' : '未关联' },
-    { label: '心情', value: asText(record.mood) || '未填写' },
+    { label: '餐食安排', value: asText(record.planItemId) ? '已关联' : '未关联餐食安排' },
+    { label: '心情', value: asText(record.mood) || '未填写心情' },
   ];
 }
 
 function actionLabel(action: string) {
   if (action === 'update_details') return '补充';
   if (action === 'rate_food') return '评分';
-  return '创建';
+  return '新增';
 }
 
 function statusTitle(status: AiApprovalRequest['status'], action: string) {
   const label = actionLabel(action);
   if (status === 'approved') return `${label}餐食记录已确认`;
-  if (status === 'rejected') return '未写入的餐食记录草稿';
-  if (status === 'expired') return '已过期的餐食记录草稿';
+  if (status === 'rejected') return '这条餐食记录没有保存';
+  if (status === 'expired') return '这份餐食记录草稿已过期';
   return `${label}餐食记录`;
 }
 
@@ -207,7 +207,7 @@ export function AiMealLogDraftView(props: {
         {renderSummaryNotes(record)}
       </AiDraftSummaryCard>
       <AiDraftImpactNote tone="plan" title="确认后">
-        <p>{recordAction === 'update_details' ? '只补充本餐详情，不会修改食物项。' : recordAction === 'rate_food' ? '会更新下方食物评分。' : '会写入这条餐食记录。'}</p>
+        <p>{recordAction === 'update_details' ? '只补充这顿饭的详情，不会修改其中的食物。' : recordAction === 'rate_food' ? '会更新下方食物评分。' : '会保存这条餐食记录。'}</p>
       </AiDraftImpactNote>
     </>
   );
@@ -234,7 +234,7 @@ export function AiMealLogDraftView(props: {
         {renderPendingSummary(createRecord, action)}
         <AiDraftSection
           title="餐食信息"
-          description="确认日期、餐别和是否关联计划。"
+          description="确认日期、餐别和是否关联餐食安排。"
         >
           <div className="ai-confirmation-grid">
             <label className="ai-resource-field ai-resource-field-date">
@@ -258,12 +258,12 @@ export function AiMealLogDraftView(props: {
             />
           </div>
           <p className="ai-approval-compare-copy">
-            关联计划：{asText(createRecord.planItemId) ? '已关联计划项' : '未关联计划'}
+            餐食安排：{asText(createRecord.planItemId) ? '已关联' : '未关联餐食安排'}
           </p>
         </AiDraftSection>
         <AiDraftSection
           title="食物项"
-          description="每个食物都必须从食物库选择，新食物先创建食物资料。"
+          description="每项食物都需要选择；还没有的食物请先添加到食物库。"
           action={!props.readonly ? (
             <button className="ghost-button ai-draft-add-button" type="button" onClick={addFood}>
               添加食物
@@ -296,17 +296,17 @@ export function AiMealLogDraftView(props: {
                 className="ai-meal-log-food-item"
                 footer={!props.readonly && foods.length > 1 ? (
                   <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => removeFood(index)}>
-                    删除食物
+                    移除食物
                   </button>
                 ) : undefined}
               >
-                <p>{selectedFood?.description || (asText(food.foodId) ? '已绑定食物库' : '需要从食物库选择')}</p>
+                <p>{selectedFood?.description || (asText(food.foodId) ? '已选择食物' : '请选择食物')}</p>
                 <AiSearchableResourceSelect
                   kind="food"
                   label="食物"
                   value={asText(food.foodId)}
                   selectedLabel={asText(food.name)}
-                  placeholder="从食物库选择"
+                  placeholder="选择食物"
                   disabled={props.readonly}
                   selectedOption={selectedFood}
                   loadOptions={props.onLoadResourceOptions}
@@ -374,7 +374,7 @@ export function AiMealLogDraftView(props: {
                       <span className="ai-meal-log-stock-current">
                         {stockUnit && stockCurrentQuantity
                           ? `当前库存 ${stockCurrentQuantity} ${stockUnit}`
-                          : '当前食物尚未设置可扣减库存'}
+                          : '这份食物还没有可扣减的库存'}
                       </span>
                     </div>
                     {food.deductStock ? (
@@ -417,17 +417,17 @@ export function AiMealLogDraftView(props: {
           })}
         </AiDraftSection>
         <AiDraftSection
-          title="参与人和照片"
-          description="当前审批内先只读核对成员和照片引用。"
+          title="参与家人和照片"
+          description="确认前先核对成员和照片。"
         >
           <div className="ai-meal-log-reference-grid">
-            {renderReferenceChips('参与人', createRecord.participantUserIds, '未指定')}
-            {renderReferenceChips('照片', createRecord.mediaIds, '无照片')}
+            {renderReferenceChips('参与家人', createRecord.participantUserIds, '未选择参与家人')}
+            {renderReferenceChips('照片', createRecord.mediaIds, '未添加照片')}
           </div>
         </AiDraftSection>
         <AiDraftSection
           title="备注与心情"
-          description="补充这一餐的主观记录。"
+          description="补充这餐的感受和备注。"
         >
           <ApprovalComboboxField
             label="心情"
@@ -457,12 +457,12 @@ export function AiMealLogDraftView(props: {
     <>
       {renderPendingSummary(updateRecord, action)}
       <AiDraftSection
-        title="参与人和照片"
-        description="当前审批内先只读核对成员和照片引用。"
+          title="参与家人和照片"
+        description="确认前先核对成员和照片。"
       >
         <div className="ai-meal-log-reference-grid">
-          {renderReferenceChips('参与人', payload.participantUserIds, '不变更')}
-          {renderReferenceChips('照片', payload.mediaIds, '不变更')}
+          {renderReferenceChips('参与家人', payload.participantUserIds, '保持不变')}
+          {renderReferenceChips('照片', payload.mediaIds, '保持不变')}
         </div>
       </AiDraftSection>
       <AiDraftSection

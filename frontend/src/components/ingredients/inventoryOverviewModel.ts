@@ -141,13 +141,13 @@ export function getUnifiedInventorySourceLabel(item: Pick<InventoryOverviewItem,
 export function getUnifiedInventoryActionLabel(item: Pick<InventoryOverviewItem, 'primary_action'>) {
   switch (item.primary_action) {
     case 'record_meal':
-      return '减扣';
+      return '扣减';
     case 'edit_food_stock':
-      return '补库存';
+      return '加入库存';
     case 'consume':
-      return '消费';
+      return '记录用量';
     case 'dispose':
-      return '处理提醒';
+      return '处理过期库存';
     case 'restock':
       return '补货';
     default:

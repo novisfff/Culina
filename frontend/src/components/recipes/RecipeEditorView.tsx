@@ -168,7 +168,7 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
       <SearchableResourceSelect
         className={open ? 'recipe-ingredient-picker-select is-open' : 'recipe-ingredient-picker-select'}
         ariaLabel="选择已有食材"
-        placeholder={`选择原料 ${rowIndex + 1}`}
+        placeholder={`选择食材 ${rowIndex + 1}`}
         value={row.ingredient_id ?? ''}
         query={open ? search : selectedLabel}
         presentation="popover"
@@ -176,9 +176,9 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
         loading={ingredientSearch.isSearching}
         loadingMore={ingredientSearch.isFetchingNextPage}
         hasMore={ingredientSearch.hasMore}
-        emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有找到匹配食材'}
+        emptyText={ingredientSearch.isSearching ? '正在搜索…' : '没有找到匹配食材'}
         loadMoreText="加载更多食材"
-        loadingMoreText="正在加载更多食材..."
+        loadingMoreText="正在加载更多食材…"
         searchInputRef={inputRef}
         options={options.map((ingredient) => ({
           id: ingredient.id,
@@ -188,7 +188,7 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
             <MediaWithPlaceholder
               src={resolveAssetUrl(ingredient.image?.url)}
               alt={ingredient.name}
-              emptyLabel="暂无图"
+              emptyLabel="还没有图片"
             />
           ),
         }))}
@@ -294,7 +294,7 @@ export function RecipeEditorView({
               <div className="recipe-editor-title-block">
                 <p className="eyebrow">{entityLabel}</p>
                 <h2>{isEditing ? `编辑${entityLabel}` : `新增${entityLabel}`}</h2>
-                <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
+                <p>填写菜谱名称、用料、步骤和图片。</p>
               </div>
             </>
           )}
@@ -346,10 +346,10 @@ export function RecipeEditorView({
               <section className="recipe-editor-card">
                 <div className="recipe-editor-card-head">
                   <span className="recipe-editor-section-index">2</span>
-                  <h3>原料清单</h3>
+                  <h3>食材清单</h3>
                   <ActionButton tone="secondary" size="compact" type="button" onClick={addIngredientRow}>
                     <RecipeUiIcon name="plus" />
-                    添加原料
+                    添加食材
                   </ActionButton>
                 </div>
                 <div className="recipe-editor-ingredient-table">
@@ -371,7 +371,7 @@ export function RecipeEditorView({
                             <input
                               className="text-input recipe-editor-ingredient-note"
                               value={stripRecipeIngredientRequirementNote(item.note)}
-                              placeholder="备注 (选填)"
+                              placeholder="备注（选填）"
                               onChange={(event) => updateIngredientNote(item.id, event.target.value)}
                             />
                           </div>
@@ -385,7 +385,7 @@ export function RecipeEditorView({
                                 .filter((unit, unitIndex, list) => unit && list.indexOf(unit) === unitIndex)
                                 .map((unit) => ({ value: unit, label: unit }))}
                               quantityDisabled={usesPresenceOnlyQuantity}
-                              quantityDisabledReason={usesPresenceOnlyQuantity ? '这个食材只记录是否需要，用量写在步骤或备注里。' : undefined}
+                              quantityDisabledReason={usesPresenceOnlyQuantity ? '这个食材只记录是否有库存，用量写在步骤或备注里。' : undefined}
                               onQuantityChange={(quantity) => updateIngredientRow(item.id, 'quantity', quantity)}
                               onUnitChange={(unit) => updateIngredientRow(item.id, 'unit', unit)}
                             />
@@ -402,7 +402,7 @@ export function RecipeEditorView({
                           </div>
                         </div>
 
-                        <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除原料 ${index + 1}`}>
+                        <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除食材 ${index + 1}`}>
                           <RecipeUiIcon name="minus" />
                         </button>
                       </div>
@@ -463,7 +463,7 @@ export function RecipeEditorView({
                               <input
                                 className="text-input"
                                 value={step.title}
-                                placeholder="例如：冷蒸三文鱼"
+                                placeholder="例如：清蒸三文鱼"
                                 onChange={(event) => updateStepDraft(step.id, { title: event.target.value })}
                               />
                             </label>
@@ -483,7 +483,7 @@ export function RecipeEditorView({
                           <section className="recipe-editor-step-detail recipe-editor-step-wide">
                             <span className="recipe-editor-step-detail-icon"><RecipeUiIcon name="clipboard" /></span>
                             <label>
-                              <span>详细操作</span>
+                              <span>详细步骤</span>
                               <textarea
                                 className="text-input"
                                 rows={3}
@@ -550,12 +550,12 @@ export function RecipeEditorView({
                               ))}
                               {keyPointRowCount === 0 && (
                                 <button className="recipe-editor-keypoint-placeholder" type="button" onClick={() => addStepKeyPoint(step)}>
-                                  还可添加 3 条（最多 3 条）
+                                  还可添加 3 条要点
                                 </button>
                               )}
                               {keyPointRowCount > 0 && keyPointRowCount < MAX_STEP_KEY_POINTS && (
                                 <button className="recipe-editor-keypoint-placeholder" type="button" onClick={() => addStepKeyPoint(step)}>
-                                  还可添加 {MAX_STEP_KEY_POINTS - keyPointRowCount} 条（最多 3 条）
+                                  还可添加 {MAX_STEP_KEY_POINTS - keyPointRowCount} 条要点
                                 </button>
                               )}
                             </div>
@@ -593,7 +593,7 @@ export function RecipeEditorView({
                   uploadTitle="上传参考图"
                   uploadHint="上传后生成统一风格封面"
                   generatedTitle="封面主图"
-                  generateLabel={recipeImageState.isGenerating ? '正在生成...' : undefined}
+                  generateLabel={recipeImageState.isGenerating ? '正在生成…' : undefined}
                   clearLabel="清空图片"
                 />
               </section>
@@ -604,8 +604,8 @@ export function RecipeEditorView({
                 <section className="recipe-editor-side-card recipe-ai-draft-panel">
                   <div className="workspace-action-rail-copy">
                     <p className="eyebrow">AI 生成</p>
-                    <h3>自动补全{entityLabel}</h3>
-                    <p className="subtle">基于左侧已填写内容生成完整{entityLabel}，保存前仍可继续编辑。</p>
+                    <h3>AI 补充{entityLabel}</h3>
+                    <p className="subtle">AI 会根据已填写内容补充完整{entityLabel}，保存前仍可继续编辑。</p>
                   </div>
                   {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
                   <ActionButton
@@ -624,7 +624,7 @@ export function RecipeEditorView({
                     <h3>实时摘要</h3>
                     <p className="subtle">{isEditing ? '根据当前表单内容预览' : (summaryCreateHint ?? `保存后进入${entityLabel}工作台`)}</p>
                   </div>
-                  <span><RecipeUiIcon name="check" /> 表单实时更新</span>
+                  <span><RecipeUiIcon name="check" /> 摘要会随内容更新</span>
                 </div>
                 <div className="recipe-editor-live-preview">
                   <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || `${entityLabel}封面`} />
@@ -635,13 +635,13 @@ export function RecipeEditorView({
                 </div>
                 <div className="recipe-editor-summary-list">
                   <div><span><RecipeUiIcon name="users" /></span><small>份量</small><strong>{form.servings || '2'} 人份</strong></div>
-                  <div><span><RecipeUiIcon name="basket" /></span><small>原料</small><strong>{editorIngredientCount} 项</strong></div>
+                  <div><span><RecipeUiIcon name="basket" /></span><small>食材</small><strong>{editorIngredientCount} 项</strong></div>
                   <div><span><RecipeUiIcon name="clipboard" /></span><small>步骤</small><strong>{editorStepCount} 步</strong></div>
-                  <div><span><RecipeUiIcon name="image" /></span><small>图片</small><strong>{editorCoverAsset ? '已有封面' : '暂未配图'}</strong></div>
+                    <div><span><RecipeUiIcon name="image" /></span><small>图片</small><strong>{editorCoverAsset ? '已有封面' : '还没有图片'}</strong></div>
                 </div>
                 <div className="recipe-editor-submit-stack">
                   <ActionButton tone="primary" type="submit" disabled={submitDisabled}>
-                    {isCreatingRecipe || isUpdatingRecipe ? '保存中...' : (submitLabel ?? `保存${entityLabel}`)}
+                    {isCreatingRecipe || isUpdatingRecipe ? '保存中…' : (submitLabel ?? `保存${entityLabel}`)}
                   </ActionButton>
                   {isEditing && (
                     <ActionButton tone="secondary" type="button" onClick={onBack}>
@@ -650,7 +650,7 @@ export function RecipeEditorView({
                   )}
                   {showDeleteAction && isEditing && selectedRecipeId && (
                     <ActionButton tone="tertiary" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>
-                      {isDeletingRecipe ? '删除中...' : (deleteLabel ?? `删除${entityLabel}`)}
+                      {isDeletingRecipe ? '删除中…' : (deleteLabel ?? `删除${entityLabel}`)}
                     </ActionButton>
                   )}
                   <ActionButton tone="secondary" type="button" onClick={() => onBack()}>
@@ -661,7 +661,7 @@ export function RecipeEditorView({
 
               <section className="recipe-editor-side-card recipe-editor-completion-card">
                 <div className="recipe-editor-completion-head">
-                  <h3>完成度</h3>
+                  <h3>填写进度</h3>
                   <strong>{editorCompletionPercent}%</strong>
                 </div>
                 <div className="recipe-editor-progress-track">

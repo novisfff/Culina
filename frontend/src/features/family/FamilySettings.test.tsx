@@ -168,10 +168,10 @@ describe('FamilySettings food context', () => {
 
   it('shows the existing loading and empty states', () => {
     const view = renderSettings({ family: null, isLoading: true, overlayMode: null });
-    expect(view.textContent).toContain('正在加载家庭资料');
+    expect(view.textContent).toContain('正在加载家庭信息');
 
     rerenderSettings({ family: null, isLoading: false, overlayMode: null });
-    expect(view.textContent).toContain('暂时没有家庭资料');
+    expect(view.textContent).toContain('还没有家庭信息');
   });
 
   it('keeps family food context owner-only and exposes a 403 error state', () => {
@@ -307,7 +307,7 @@ describe('FamilySettings activity overlay control', () => {
 
     expect(view.querySelector('.mobile-family-page')).not.toBeNull();
     expect(view.textContent).toContain('更新家庭信息');
-    const retry = buttonByText(view, '刷新失败，重试');
+    const retry = buttonByText(view, '暂时无法更新，请重试');
     act(() => retry.click());
     expect(refetch).toHaveBeenCalledTimes(1);
   });
@@ -329,7 +329,7 @@ describe('FamilySettings activity overlay control', () => {
           tone: 'orange',
         },
         {
-          label: '待处理采购',
+          label: '待采购',
           value: 1,
           unit: '项',
           detail: '等待家人确认',

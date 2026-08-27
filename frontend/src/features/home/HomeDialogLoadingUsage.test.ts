@@ -24,11 +24,11 @@ describe('home dialog operation loading coverage', () => {
 
     expect(homeDialogs).toContain('<FoodPlanDialog');
     expect(planDialog).toContain('OperationLoadingOverlay');
-    expect(planDialog).toContain('正在加入菜单');
+    expect(planDialog).toContain('正在加入餐食计划');
     expect(planDialog).toContain('busy={isUpdatingPlan}');
-    expect(shoppingDialog).toContain('正在加入购物清单');
+    expect(shoppingDialog).toContain('正在加入采购清单');
     expect(shoppingDialog).toMatch(/<WorkspaceModal[\s\S]*?busy=\{Boolean\(props\.isCreatingShopping\)\}/);
-    expect(planDetail).toContain('正在保存菜单变更');
+    expect(planDetail).toContain('正在保存餐食计划变更');
     expect(planDetail).toContain('正在准备这餐');
     expect(mealEnrichment).toContain('正在保存餐食记录');
     expect(homeDialogs).not.toContain('正在加载餐食详情');

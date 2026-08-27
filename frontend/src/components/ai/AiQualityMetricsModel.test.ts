@@ -8,7 +8,7 @@ describe('formatAiRate', () => {
   });
 
   it('labels an empty denominator as no samples', () => {
-    expect(formatAiRate({ numerator: 0, denominator: 0, rate: null })).toBe('暂无样本');
+    expect(formatAiRate({ numerator: 0, denominator: 0, rate: null })).toBe('还没有数据');
   });
 });
 
